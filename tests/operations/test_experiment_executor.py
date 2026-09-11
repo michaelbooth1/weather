@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -735,7 +736,7 @@ def test_initial_serving_fingerprint_failure_blocks_before_claim(
     assert not any(candidate_root.iterdir())
     claim_root = candidate_root.parent / ".executor_claims"
     assert not claim_root.exists() or not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "scratch" / ".ex"
     assert not scratch_root.exists()
 
 
@@ -758,7 +759,7 @@ def test_claim_write_failure_removes_partial_claim_and_empty_run_root(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "scratch" / ".ex"
     assert scratch_root.is_dir()
     assert not any(scratch_root.iterdir())
 
@@ -785,7 +786,245 @@ def test_terminal_write_interruption_releases_claim_and_preserves_scratch(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "scratch" / ".ex"
     assert scratch_root.is_dir()
     assert any(scratch_root.iterdir())
     assert not any(candidate_root.iterdir())
+
+
+def test_compact_scratch_supports_long_root_and_preserves_other_attempts(
+    tmp_path_factory,
+):
+    repo_root = tmp_path_factory.mktemp("ex").resolve()
+    padding = 90 - len(str(repo_root).encode("utf-16-le")) // 2 - 1
+    if padding > 0:
+        repo_root = repo_root / ("r" * padding)
+        repo_root.mkdir()
+    manifest, queue_path = _fixture(repo_root, mode="success")
+    candidate_root = repo_root / manifest["candidate_output_root"]
+    old_attempt = candidate_root.parent / ".executor_runs" / "retained"
+    other_attempt = repo_root / "scratch" / ".ex" / ("a" * 32)
+    for path in (old_attempt, other_attempt):
+        path.mkdir(parents=True)
+        (path / "keep.txt").write_text("retained evidence", encoding="utf-8")
+
+    result, result_path = _execute(queue_path, manifest, repo_root)
+
+    assert verify_experiment_result(result, manifest=manifest) == result
+    assert result["disposition"] == "resolved"
+    assert result_path.parent == candidate_root
+    assert (candidate_root / "evidence.json").read_text(encoding="utf-8") == ARTIFACT_TEXT
+    workspace = Path(
+        result["execution"]["staging_proof"]["read_policy"]["workspace_root"]
+    )
+    run_root = workspace.parent
+    assert workspace.name == "workspace"
+    assert run_root.parent == repo_root / "scratch" / ".ex"
+    assert len(run_root.name) == 32
+    assert all(character in "0123456789abcdef" for character in run_root.name)
+    assert not run_root.exists()
+    for path in (old_attempt, other_attempt):
+        assert (path / "keep.txt").read_text(encoding="utf-8") == "retained evidence"
+    assert list((repo_root / "scratch" / ".ex").iterdir()) == [other_attempt]
+    assert not any((candidate_root.parent / ".executor_claims").iterdir())
+
+
+@pytest.mark.parametrize(
+    ("directory", "atomic", "allowed_units"),
+    [(False, False, 259), (True, False, 247), (False, True, 223)],
+)
+def test_windows_path_budget_accounts_for_directories_and_atomic_suffix(
+    directory,
+    atomic,
+    allowed_units,
+):
+    experiment_executor_module._check_windows_path_budget(
+        Path("x" * allowed_units),
+        "test output",
+        directory=directory,
+        atomic=atomic,
+    )
+    with pytest.raises(ExperimentExecutionError, match="test output exceeds the Windows"):
+        experiment_executor_module._check_windows_path_budget(
+            Path("x" * (allowed_units + 1)),
+            "test output",
+            directory=directory,
+            atomic=atomic,
+        )
+
+
+def test_windows_path_budget_counts_non_bmp_characters_as_two_units():
+    path = "x" * 257 + "\U0001f321"
+    experiment_executor_module._check_windows_path_budget(Path(path), "unicode output")
+    with pytest.raises(ExperimentExecutionError, match="260 UTF-16 units"):
+        experiment_executor_module._check_windows_path_budget(
+            Path(path + "x"), "unicode output"
+        )
+
+
+@pytest.mark.skipif(
+    experiment_executor_module.os.name != "nt",
+    reason="execute_one applies the legacy Windows budget only on Windows",
+)
+@pytest.mark.parametrize("oversized_field", ["result_out", "expected_artifacts"])
+def test_windows_overlong_output_refuses_before_claim_scratch_or_child(
+    tmp_path,
+    monkeypatch,
+    oversized_field,
+):
+    manifest, queue_path = _fixture(tmp_path, mode="success")
+    candidate_root = tmp_path / manifest["candidate_output_root"]
+    result_out = None
+    if oversized_field == "result_out":
+        result_out = candidate_root / ("r" * 90 + ".json")
+    else:
+        manifest["expected_artifacts"][0]["path"] = (
+            manifest["candidate_output_root"] + "/" + ("a" * 90) + ".json"
+        )
+        manifest = build_experiment_manifest(manifest)
+        queue_path = _write_queue(tmp_path, manifest)
+    calls = []
+
+    def forbidden_claim(*_args, **_kwargs):
+        calls.append("claim")
+        raise AssertionError("overlong paths must be rejected before a claim")
+
+    def forbidden_runner(*_args, **_kwargs):
+        calls.append("child")
+        raise AssertionError("overlong paths must be rejected before a child")
+
+    monkeypatch.setattr(experiment_executor_module, "_acquire_claim", forbidden_claim)
+    with pytest.raises(ExperimentExecutionError, match=oversized_field + ".*Windows"):
+        execute_one(
+            queue_path,
+            manifest["queue_id"],
+            repo_root=tmp_path,
+            result_out=result_out,
+            now=QUIET_NOW,
+            runner=forbidden_runner,
+            admission_builder=_admit,
+            commit_percent_fn=lambda: 50.0,
+        )
+
+    assert calls == []
+    assert not any(candidate_root.iterdir())
+    assert not (candidate_root.parent / ".executor_claims").exists()
+    assert not (tmp_path / "scratch").exists()
+
+
+def test_compact_scratch_keeps_candidate_claim_exclusive(tmp_path):
+    manifest, queue_path = _fixture(tmp_path, mode="success")
+    candidate_root = tmp_path / manifest["candidate_output_root"]
+    scratch_root = tmp_path / "scratch" / ".ex"
+    claim_root = candidate_root.parent / ".executor_claims"
+
+    def verify_claim_then_run(command, **kwargs):
+        claims = list(claim_root.iterdir())
+        assert [path.name for path in claims] == [manifest["manifest_sha256"] + ".lock"]
+        proof = json.loads(claims[0].read_text(encoding="utf-8"))
+        assert proof["manifest_sha256"] == manifest["manifest_sha256"]
+        before = set(scratch_root.iterdir())
+        assert len(before) == 1
+        with pytest.raises(ExperimentExecutionError, match="already claimed"):
+            _execute(queue_path, manifest, tmp_path)
+        assert set(scratch_root.iterdir()) == before
+        return run_isolated_subprocess(command, **kwargs)
+
+    result, result_path = execute_one(
+        queue_path,
+        manifest["queue_id"],
+        repo_root=tmp_path,
+        now=QUIET_NOW,
+        runner=verify_claim_then_run,
+        admission_builder=_admit,
+        commit_percent_fn=lambda: 50.0,
+    )
+
+    assert verify_experiment_result(result, manifest=manifest) == result
+    assert result["disposition"] == "resolved"
+    assert result_path.is_file()
+    assert not any(claim_root.iterdir())
+    assert not any(scratch_root.iterdir())
+
+
+@pytest.mark.parametrize("refusal", ["foreign_volume", "reparse_point"])
+def test_scratch_admission_rejects_foreign_volume_or_reparse_point(
+    tmp_path,
+    monkeypatch,
+    refusal,
+):
+    root = tmp_path.resolve()
+    candidate_root = root / "candidate"
+    candidate_root.mkdir()
+    scratch_parent = root / "scratch" / ".ex"
+    scratch_parent.mkdir(parents=True)
+    marker = scratch_parent / "retained.txt"
+    marker.write_text("keep", encoding="utf-8")
+    original_lstat = Path.lstat
+
+    def synthetic_lstat(path, *args, **kwargs):
+        result = original_lstat(path, *args, **kwargs)
+        if path == scratch_parent:
+            result = SimpleNamespace(
+                st_mode=result.st_mode,
+                st_dev=result.st_dev + (refusal == "foreign_volume"),
+                st_file_attributes=0x400 if refusal == "reparse_point" else 0,
+            )
+        return result
+
+    monkeypatch.setattr(Path, "lstat", synthetic_lstat)
+    message = "same volume" if refusal == "foreign_volume" else "reparse point"
+    with pytest.raises(ExperimentExecutionError, match=message):
+        experiment_executor_module._admit_scratch_volume(
+            root, scratch_parent / ("b" * 32), candidate_root
+        )
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert list(scratch_parent.iterdir()) == [marker]
+
+
+@pytest.mark.parametrize("refuse_after_creation", [False, True])
+def test_scratch_admission_refusal_preserves_other_work_and_never_claims(
+    tmp_path,
+    monkeypatch,
+    refuse_after_creation,
+):
+    manifest, queue_path = _fixture(tmp_path, mode="success")
+    candidate_root = tmp_path / manifest["candidate_output_root"]
+    other_attempt = tmp_path / "scratch" / ".ex" / ("a" * 32)
+    other_attempt.mkdir(parents=True)
+    marker = other_attempt / "retained.txt"
+    marker.write_text("keep", encoding="utf-8")
+    original_admission = experiment_executor_module._admit_scratch_volume
+    calls = []
+
+    def refuse_scratch(root, run_root, destination):
+        original_admission(root, run_root, destination)
+        if run_root.exists() == refuse_after_creation:
+            raise ExperimentExecutionError("synthetic scratch volume refusal")
+
+    def forbidden_claim(*_args, **_kwargs):
+        calls.append("claim")
+        raise AssertionError("scratch refusal must precede the claim")
+
+    def forbidden_runner(*_args, **_kwargs):
+        calls.append("child")
+        raise AssertionError("scratch refusal must precede the child")
+
+    monkeypatch.setattr(experiment_executor_module, "_admit_scratch_volume", refuse_scratch)
+    monkeypatch.setattr(experiment_executor_module, "_acquire_claim", forbidden_claim)
+    with pytest.raises(ExperimentExecutionError, match="synthetic scratch volume refusal"):
+        execute_one(
+            queue_path,
+            manifest["queue_id"],
+            repo_root=tmp_path,
+            now=QUIET_NOW,
+            runner=forbidden_runner,
+            admission_builder=_admit,
+            commit_percent_fn=lambda: 50.0,
+        )
+
+    assert calls == []
+    assert not any(candidate_root.iterdir())
+    assert not (candidate_root.parent / ".executor_claims").exists()
+    assert list(other_attempt.parent.iterdir()) == [other_attempt]
+    assert marker.read_text(encoding="utf-8") == "keep"

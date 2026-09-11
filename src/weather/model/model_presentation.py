@@ -28,6 +28,7 @@ from weather.model.continuous_density import (
     is_continuous_density_payload,
 )
 from weather.sources.marine_context import active_marine_context_state
+from weather.units import parse_temperature_band
 
 
 # --- Quantitative driver breakdown (item 12) --------------------------------
@@ -164,18 +165,10 @@ class PresentationMixin:
             market_no = self.price_for_outcome("No", outcomes, prices)
             clob_yes_token_id = self.token_for_outcome("Yes", outcomes, token_ids)
             clob_no_token_id = self.token_for_outcome("No", outcomes, token_ids)
-            digits = [int(value) for value in re.findall(r"\d+", label)]
-            if not digits:
+            band = parse_temperature_band(label, expected_unit=self.spec.display_unit)
+            if band is None:
                 continue
-            value = digits[0]
-            value_hi = digits[-1]  # range bands ("76-77F") carry a second number
-            lower_label = label.lower()
-            if "below" in lower_label:
-                bin_data = {"kind": "lte", "value": value, "value_hi": value}
-            elif "higher" in lower_label or "above" in lower_label:
-                bin_data = {"kind": "gte", "value": value, "value_hi": value}
-            else:
-                bin_data = {"kind": "eq", "value": value, "value_hi": value_hi}
+            bin_data = {"kind": band.kind, "value": band.value, "value_hi": band.value_hi}
             bin_data.update({
                 "unit": self.spec.display_unit,
                 "label": label,
@@ -749,10 +742,10 @@ class PresentationMixin:
 
     def bin_sort_key(self, bin_data):
         if bin_data["kind"] == "lte":
-            return -1
+            return (0, bin_data["value"])
         if bin_data["kind"] == "gte":
-            return 10_000
-        return bin_data["value"]
+            return (2, bin_data["value"])
+        return (1, bin_data["value"])
 
     def market_status(self, market):
         if market.get("closed"):

@@ -596,6 +596,8 @@ def write_outputs(payload, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_
 def load_recon_payload(path=DEFAULT_JSON_OUT):
     path = Path(path)
     payload = read_json(path, {}) or {}
+    if not isinstance(payload, dict):
+        payload = {}
     return {
         "path": str(path),
         "exists": path.exists(),
@@ -606,24 +608,45 @@ def load_recon_payload(path=DEFAULT_JSON_OUT):
     }
 
 
-def policy_overrides_from_recon(path=DEFAULT_JSON_OUT, enabled=True):
+def policy_overrides_from_recon(path=DEFAULT_JSON_OUT, enabled=False):
+    """Read bounded research suggestions only after an explicit opt-in.
+
+    This historical report is not a current, market-scoped policy proposal.
+    Its optional use must never be mistaken for qualified automatic adoption.
+    """
     if not enabled:
         return {}, {"enabled": False, "exists": False, "reason": "disabled"}
     payload = load_recon_payload(path)
-    suggestions = payload.get("policy_parameter_suggestions") or {}
-    allowed = {"quote_size", "harvest_half_spread", "min_depth_1pct_total"}
-    overrides = {
-        key: float(value)
-        for key, value in suggestions.items()
-        if key in allowed and finite_float(value) is not None
-    }
-    return overrides, {
+    diagnostics = {
         "enabled": True,
         "exists": payload.get("exists", False),
         "path": payload.get("path"),
         "schema_version": payload.get("schema_version"),
+        "applied_keys": [],
+        "research_only": True,
+        "current_scope_verified": False,
+    }
+    if not payload.get("exists") or payload.get("schema_version") != SCHEMA_VERSION:
+        return {}, {**diagnostics, "reason": "missing or unsupported research report"}
+    suggestions = payload.get("policy_parameter_suggestions") or {}
+    if not isinstance(suggestions, dict):
+        return {}, {**diagnostics, "reason": "invalid research suggestions"}
+    allowed = {"quote_size", "harvest_half_spread", "min_depth_1pct_total"}
+    overrides = {}
+    for key, value in suggestions.items():
+        if key not in allowed:
+            continue
+        number = finite_float(value)
+        if (isinstance(value, bool) or number is None or number < 0
+                or (key != "min_depth_1pct_total" and number == 0)
+                or (key == "harvest_half_spread" and number >= 0.5)):
+            return {}, {**diagnostics, "reason": "invalid research parameter bounds"}
+        overrides[key] = number
+    return overrides, {
+        **diagnostics,
         "applied_keys": sorted(overrides),
         "summary": payload.get("summary") or {},
+        "reason": "explicit research opt-in; current market scope and expiry are unverified",
     }
 
 

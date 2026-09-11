@@ -805,6 +805,7 @@ def test_bounded_folder_loader_rejects_an_input_file_symlink_escape(tmp_path):
 
 
 def test_bounded_feature_quality_audit_matches_legacy_fixture(tmp_path):
+    tmp_path = tmp_path.resolve()
     snapshots_root, _replay, _manifest = _write_proof_grade_replay(
         tmp_path,
         bands=(("80-81", "eq", 80), ("82-83", "eq", 82)),

@@ -61,6 +61,9 @@ source report before citing it in a new decision.
 - [Python Runtime Audit Gate](PYTHON_RUNTIME_AUDIT_GATE.md) covers the focused
   runtime lint, daily-refresh smoke, Streamlit-route smoke, and log-signature
   checks.
+- [Replay Incumbent Distribution Control](replay-incumbent-control.md) owns the
+  opt-in numerical incumbent check, diagnostic Brier claims, and retained
+  per-snapshot fidelity output.
 - [Research Audit Harness](RESEARCH_AUDIT_HARNESS.md) distinguishes fixture-only
   and networked research scripts and provides the supported smoke workflow.
 - [Repository Path Policy](path-policy.md) owns the editable-install and

@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-10T10:33:03.970539+00:00
+Generated: 2026-09-11T18:37:25.210212+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 324 |
-| Active items | 35 |
+| Items | 327 |
+| Active items | 38 |
 | OPEN | 3 |
-| PARTIAL | 32 |
+| PARTIAL | 35 |
 | COMPLETE | 289 |
-| ROADMAP rows | 324 |
-| ROADMAP primary rows | 324 |
-| Metadata manifest rows | 324 |
+| ROADMAP rows | 327 |
+| ROADMAP primary rows | 327 |
+| Metadata manifest rows | 327 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -27,7 +27,7 @@ Status: `OK`
 | :--- | :--- | :--- | :--- | :--- |
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
-| 67 | PARTIAL | 2026-08-30 | PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-09-06 | ATTENDED STAGE 0/1 PASSED; ECONOMIC PILOT OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
@@ -56,10 +56,13 @@ Status: `OK`
 | 322 | PARTIAL | 2026-07-16 | INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-08-22 | WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | PARTIAL | 2026-09-10 | VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 325 | PARTIAL | 2026-09-11 | HEADROOM ACCEPTED; UPLOADS PAUSED | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | PARTIAL | 2026-09-07 | STAGE 0/1 PROVED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 331 | PARTIAL | 2026-09-07 | SELECTED SOURCE NATIVE VERIFIED; ADOPTION/EVIDENCE OPEN | [Post-Reclaim Model Economics And Research Plan](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
+| 332 | PARTIAL | 2026-09-07 | NATIVE VERIFIED; IMPACT AND ADOPTION OPEN | [Signed Native Temperature Band Correctness](items/item-332-signed-native-temperature-band-correctness.md) |
+| 333 | PARTIAL | 2026-09-07 | INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN | [Reproducible Runtime And Paired Model Comparison](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
 
 ## Lint Issues
 
