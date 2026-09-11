@@ -495,3 +495,25 @@ the cumulative live-test parent passes its immutable exact-tip suite, merges
 through the guarded quiet-window path, and a fresh snapshot parent proves a
 bounded post-adoption memory slope. The one-time operational restart is a
 headroom mitigation, not evidence that the leak is fixed.
+
+## 2026-09-11 receipt publication readiness repair
+
+A Linux CI run exposed a receipt metadata race: the publisher creates a hard
+link to its complete staging file, and removing the staging link can change
+the published inode's ctime while a reader checks it. Receipt reads now wait
+until only the final link remains. A live holder still owns its claim during
+that cleanup, so waiters retain the existing bounded polling contract.
+
+A multiply linked receipt left without a holder fails closed after claim
+acquisition, before another provider fetch; its files remain untouched.
+A failed post-claim receipt recheck releases the newly acquired claim.
+Device/inode identity, size, mode, mtime, ctime, bounded reads, ancestor/reparse
+checks and payload verification retain their existing strict comparisons.
+No mutation exception is converted into accepted receipt data.
+
+Deterministic tests cover a reader paused across publication cleanup, a valid
+orphaned receipt with an extra link, post-claim failure cleanup, and two
+coordinators sharing one fetch after the holder removes its staging link.
+The affected CAS, persistence, source reuse, byte accounting and architecture
+suites pass on the workstation. This source repair has no production
+adoption, provider request, tape mutation or deletion authority by itself.
