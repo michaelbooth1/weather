@@ -122,7 +122,8 @@ def check_resources(*, now, available, commit, free_disk, loops, output_reservat
         raise ValueError("archive lane cannot claim another workload exception")
     result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
                                   owner_approved_exception=owner_approved_exception,
-                                  maximum_commit_percent=resource_policy.MAX_COMMIT_PERCENT)
+                                  maximum_commit_percent=resource_policy.MAX_COMMIT_PERCENT,
+                                  allow_planned_snapshot_sleep=True)
     minimum = source_reserve_bytes + EVIDENCE_RESERVE_BYTES + output_reservation
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=minimum,
                   source_disk_reserve_bytes=source_reserve_bytes)

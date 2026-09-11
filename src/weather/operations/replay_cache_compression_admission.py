@@ -86,7 +86,10 @@ def verify_storage_exception(lease, exception, now):
 
 
 def check_capture_health(*, now, available, commit, loops, owner_approved_exception="",
-                         maximum_commit_percent=MAX_COMMIT_PERCENT):
+                         maximum_commit_percent=MAX_COMMIT_PERCENT,
+                         allow_planned_snapshot_sleep=False):
+    if type(allow_planned_snapshot_sleep) is not bool:
+        raise ValueError("snapshot idle policy must be explicit")
     if (type(maximum_commit_percent) not in (int, float)
             or not math.isfinite(maximum_commit_percent)
             or not 0 < maximum_commit_percent <= 80):
@@ -112,7 +115,8 @@ def check_capture_health(*, now, available, commit, loops, owner_approved_except
         if (not row.get("active") or row.get("degraded") or not row.get("heartbeat_fresh")
                 or not row.get("pid_agreement")
                 or not row.get("process_identity_matches_lock")
-                or not _fresh_age(row.get("heartbeat_age_seconds"), MAX_HEARTBEAT_AGE_SECONDS)
+                or not (_fresh_age(row.get("heartbeat_age_seconds"), MAX_HEARTBEAT_AGE_SECONDS)
+                        or (allow_planned_snapshot_sleep and _planned_snapshot_sleep(row)))
                 or not row.get("process_diagnostics", {}).get("status_pid_alive")
                 or not row.get("process_diagnostics", {}).get("lock_pid_alive")):
             reasons.append("capture_unhealthy:" + str(row.get("name")))
@@ -128,11 +132,27 @@ def check_capture_health(*, now, available, commit, loops, owner_approved_except
                 "last_clean_iteration_age_seconds", "process_identity_matches_lock",
                 "active", "degraded", "degraded_reasons", "heartbeat_fresh",
                 "pid_agreement", "process_diagnostics", "status_read_error", "writer_lock",
+                "last_sleep_seconds", "markets_in_progress",
             )} for row in loops]}
 
 
 def _fresh_age(value, maximum):
     return type(value) in (float, int) and math.isfinite(value) and 0 <= value <= maximum
+
+
+def _planned_snapshot_sleep(row):
+    """Honor a completed snapshot iteration's bounded, advertised idle sleep.
+
+    A new iteration sets its heartbeat after the last clean completion, which
+    deliberately invalidates this path even before a market begins. Busy loops
+    and every other capture producer retain the three-minute heartbeat bound.
+    """
+    age, clean = row.get("heartbeat_age_seconds"), row.get("last_clean_iteration_age_seconds")
+    sleep = row.get("last_sleep_seconds")
+    return (row.get("name") == "snapshot" and row.get("markets_in_progress") == []
+            and _fresh_age(sleep, 600) and sleep > MAX_HEARTBEAT_AGE_SECONDS
+            and _fresh_age(age, sleep + 10) and _fresh_age(clean, MAX_SNAPSHOT_CLEAN_AGE_SECONDS)
+            and 0 <= age - clean <= 1)
 
 
 def _age(now, stamp):
@@ -204,6 +224,8 @@ def _observe_capture_admission_once(production_root: Path, resource_checker, *, 
     for row, status in zip(loops, statuses):
         row["heartbeat_age_seconds"] = _age(now, status.get("last_heartbeat"))
         row["last_clean_iteration_age_seconds"] = _age(now, status.get("last_clean_iteration_at"))
+        row["last_sleep_seconds"] = status.get("last_sleep_seconds")
+        row["markets_in_progress"] = status.get("markets_in_progress")
     measured = memory_reader() if memory_reader is not None else None
     if memory_reader is None:
         available, commit = available_memory_bytes(), host_commit_percent()
