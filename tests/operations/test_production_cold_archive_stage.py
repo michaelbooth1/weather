@@ -440,6 +440,56 @@ def test_writer_digest_avoids_redundant_full_archive_read(corpus, monkeypatch):
 
     monkeypatch.setattr(stage, "_hash", observed_hash)
     _run(corpus)
-    assert hashed_paths == [corpus[0] / "attempt/archive.tar.gz"]
+    assert hashed_paths == []
     manifest = json.loads((corpus[0] / "attempt/manifest.json").read_text())
-    assert manifest["archive_sha256"] == _sha(hashed_paths[0])
+    assert manifest["archive_sha256"] == _sha(corpus[0] / "attempt/archive.tar.gz")
+
+
+def test_verify_streams_one_disk_pass_and_checks_archive_digest(corpus):
+    base, _, _, _ = corpus
+    _run(corpus)
+    path = base / "attempt/archive.tar.gz"
+    manifest = json.loads((base / "attempt/manifest.json").read_text())
+    guards = []
+    class CountingGuard(stage._Guard):
+        def __init__(self, admission, deadline):
+            super().__init__(admission, deadline, 16 * stage.MIB)
+            guards.append(self)
+    stage.verify_archive(path, manifest, admission=lambda: True,
+                         deadline_monotonic=time.monotonic() + 30, guard_factory=CountingGuard)
+    assert guards[0].bytes == path.stat().st_size
+    manifest["archive_sha256"] = "0" * 64
+    manifest.pop("manifest_hash")
+    stage._seal(manifest, "manifest_hash")
+    with pytest.raises(stage.ArchiveStageError, match="object hash"):
+        stage.verify_archive(path, manifest, admission=lambda: True,
+                             deadline_monotonic=time.monotonic() + 30)
+
+
+def test_stage_records_lower_allocation_without_changing_approved_scope(corpus, monkeypatch):
+    class CompressedPin(FixturePin):
+        def metadata(self):
+            value = super().metadata()
+            value["allocated_bytes"] //= 2
+            return value
+    monkeypatch.setattr(stage, "_source_pin", CompressedPin)
+    _run(corpus)
+    manifest = json.loads((corpus[0] / "attempt/manifest.json").read_text())
+    plan = json.loads(corpus[3].read_text())
+    assert stage._matches_staged_rows(plan["chunks"][0]["files"], manifest["files"])
+    for row in manifest["files"]:
+        assert row["allocated_bytes"] == row["size_bytes"] // 2
+        assert row["sha256"] == _sha(corpus[1] / row["path"])
+
+
+@pytest.mark.parametrize("field", ["file_id", "device", "mtime_ns", "size_bytes", "allocated_bytes"])
+def test_stage_still_refuses_changed_identity_or_larger_allocation(corpus, monkeypatch, field):
+    class ChangedPin(FixturePin):
+        def metadata(self):
+            value = super().metadata()
+            value[field] += 1
+            return value
+    monkeypatch.setattr(stage, "_source_pin", ChangedPin)
+    with pytest.raises(stage.ArchiveStageError, match="metadata"):
+        _run(corpus)
+    assert not (corpus[0] / "attempt/archive.tar.gz").exists()

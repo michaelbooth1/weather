@@ -172,6 +172,25 @@ def _rows(files):
     return sorted(result, key=lambda row: row["path"])
 
 
+def _matches_source(expected, observed):
+    """Keep native/content identity exact; permit only a smaller allocation.
+
+    NTFS compression can reduce allocation after a metadata-only selection.
+    Staging records the observed allocation, which removal later pins exactly.
+    """
+    return (set(expected) == set(observed)
+            and all(observed[key] == value for key, value in expected.items()
+                    if key != "allocated_bytes")
+            and type(observed.get("allocated_bytes")) is int
+            and 0 <= observed["allocated_bytes"] <= expected["allocated_bytes"])
+
+
+def _matches_staged_rows(selected, staged):
+    selected, staged = _rows(selected), _rows(staged)
+    return len(selected) == len(staged) and all(
+        _matches_source(before, after) for before, after in zip(selected, staged))
+
+
 def _isolated_events(values, grouping):
     if (not isinstance(values, (list, tuple)) or len(values) > MAX_MEMBERS
             or any(not isinstance(v, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", v)
@@ -308,8 +327,8 @@ class _Guard:
 
 
 class _Reader:
-    def __init__(self, stream, guard):
-        self.stream, self.guard = stream, guard
+    def __init__(self, stream, guard, *, account_io=True):
+        self.stream, self.guard, self.account_io = stream, guard, account_io
         self.digest, self.bytes = hashlib.sha256(), 0
 
     def read(self, size=-1):
@@ -317,7 +336,8 @@ class _Reader:
         block = self.stream.read(min(MIB, size) if size >= 0 else MIB)
         self.digest.update(block)
         self.bytes += len(block)
-        self.guard.account(len(block))
+        if self.account_io:
+            self.guard.account(len(block))
         return block
 
 
@@ -374,13 +394,14 @@ def verify_archive(archive_path, manifest, *, admission, deadline_monotonic,
     maximum += maximum // 100 + 2 * MIB
     if path.stat().st_size > maximum:
         raise ArchiveStageError("archive object exceeds byte bound")
-    count, digest = _hash(path, guard)
-    if count != manifest["archive_bytes"] or digest != manifest["archive_sha256"]:
+    if path.stat().st_size != manifest["archive_bytes"]:
         raise ArchiveStageError("archive object hash or size mismatch")
     seen, tar_bytes = 0, 0
     with path.open("rb") as raw:
-        with gzip.GzipFile(fileobj=_Reader(raw, guard), mode="rb") as decoded:
-            reader = _Reader(decoded, guard)
+        encoded = _Reader(raw, guard)
+        with gzip.GzipFile(fileobj=encoded, mode="rb") as decoded:
+            # Rate-limit actual disk reads once; decoded bytes stay in memory.
+            reader = _Reader(decoded, guard, account_io=False)
             for expected in files:
                 info = tarfile.TarInfo(expected["path"])
                 info.size, info.mode, info.mtime = expected["size_bytes"], 0o600, 0
@@ -406,6 +427,9 @@ def verify_archive(archive_path, manifest, *, admission, deadline_monotonic,
             footer_size = ((tar_bytes + 1024 + 10239) // 10240) * 10240 - tar_bytes
             if reader.read(footer_size) != b"\0" * footer_size or reader.read(1):
                 raise ArchiveStageError("archive footer or trailing payload mismatch")
+    count, digest = encoded.bytes, encoded.digest.hexdigest()
+    if count != manifest["archive_bytes"] or digest != manifest["archive_sha256"]:
+        raise ArchiveStageError("archive object hash or size mismatch")
     if seen != len(files):
         raise ArchiveStageError("archive member missing")
     guard.admit()
@@ -462,7 +486,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
                 guard.admit()
                 path = _safe_path(root / row["path"])
                 with _source_pin(path) as pin:
-                    if pin.metadata() != {key: value for key, value in row.items() if key != "path"}:
+                    if not _matches_source({key: value for key, value in row.items() if key != "path"},
+                                           pin.metadata()):
                         raise ArchiveStageError("source metadata differs before staging: " + row["path"])
             archive_path = attempt / "archive.tar.gz"
             with archive_path.open("xb") as raw:
@@ -477,7 +502,7 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
                             expected = {key: value for key, value in row.items() if key != "path"}
                             with _source_pin(path) as pin:
                                 before = pin.metadata()
-                                if before != expected:
+                                if not _matches_source(expected, before):
                                     raise ArchiveStageError("source metadata differs from measured selection")
                                 info = tarfile.TarInfo(row["path"])
                                 info.size, info.mode, info.mtime = row["size_bytes"], 0o600, 0
@@ -490,7 +515,7 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
                                         raise ArchiveStageError("source length drift")
                                 if pin.metadata() != before:
                                     raise ArchiveStageError("source identity drift during archive read")
-                                records.append({**row, "sha256": reader.digest.hexdigest()})
+                                records.append({**row, **before, "sha256": reader.digest.hexdigest()})
                 raw.flush()
                 os.fsync(raw.fileno())
             count, digest = writer.bytes, writer.digest.hexdigest()

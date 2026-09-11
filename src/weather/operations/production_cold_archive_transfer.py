@@ -88,7 +88,7 @@ def validate_manifest_plan(manifest, plan, chunk):
     if (manifest.get("plan_hash") != plan.get("plan_hash")
             or Path(manifest.get("source_root", "")) != Path(plan.get("source_root", ""))
             or manifest.get("chunk_id") != chunk.get("chunk_id")
-            or transfer.archive._rows(manifest.get("files")) != chunk["files"]):
+            or not transfer.archive._matches_staged_rows(chunk["files"], manifest.get("files"))):
         raise ValueError("staged manifest does not match the approved chunk")
 
 
