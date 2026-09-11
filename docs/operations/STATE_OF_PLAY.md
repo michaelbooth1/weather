@@ -45,8 +45,9 @@ W5-W7 exchange sessions require their own explicit authority and readiness gates
    originals, staged copies and recovery evidence; do not schedule a continuation.
 2. Complete the pending documentation transaction after reviewed publication and
    guarded documentation adoption. Preserve unrelated generated config changes.
-3. Review and qualify the prepared maker dependency stack for the next allowed
-   quiet window; resolve the unavailable PR-creation route before claiming new CI.
+3. Complete CI and review for [archive status #48](https://github.com/michaelbooth1/weather/pull/48)
+   and [maker reconciliation #49](https://github.com/michaelbooth1/weather/pull/49).
+   Adopt maker source only through the allowed quiet-window path.
 4. Complete W3/G1 from authoritative campaign, token, book and midpoint evidence.
    Keep competitor scenarios conditional and distinguish capital from profit.
 5. Finish W4's raw transport and distribution semantics without fabricating
