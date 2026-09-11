@@ -121,3 +121,20 @@ def test_phase_lifetime_is_checked_before_payload():
     assert drive.token(c) == "synthetic"
     with pytest.raises(ValueError, match="separate refresh"):
         drive.token(c, minimum_remaining_seconds=930)
+
+
+@pytest.mark.parametrize("mime", ["application/gzip", "application/x-gzip", "application/octet-stream"])
+def test_plain_gzip_metadata_preserves_exact_object_and_parent(monkeypatch, mime):
+    data = {**metadata(), "name": "batchu1-archive.tar.gz", "mimeType": mime}
+    monkeypatch.setattr(drive, "response", lambda *a, **kw: io.BytesIO(json.dumps(data).encode()))
+    assert drive.object_metadata(client(), data["name"], data["id"])["bytes"] == 3
+    data["parents"] = ["wrong_parent_12345"]
+    with pytest.raises(ValueError, match="identity or parent"):
+        drive.object_metadata(client(), data["name"], data["id"])
+
+
+def test_gzip_type_does_not_qualify_a_binary_ciphertext(monkeypatch):
+    data = {**metadata(), "mimeType": "application/gzip"}
+    monkeypatch.setattr(drive, "response", lambda *a, **kw: io.BytesIO(json.dumps(data).encode()))
+    with pytest.raises(ValueError):
+        drive.object_metadata(client(), data["name"], data["id"])

@@ -100,3 +100,23 @@ def test_plain_file_wrong_input_hash_never_uploads(transfer_fixture, tmp_path, m
     with pytest.raises(backup.core.TransferError, match="input hash"):
         backup.run(**args)
     assert not any(call[0] == "upload" for call in f.drive.calls)
+
+
+def test_existing_plain_upload_downloads_without_uploading_again(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    args = plain_args(f, tmp_path, monkeypatch)
+    source = Path(args["bundle_path"])
+    key = "batchu1-tape.jsonl"
+    f.drive.objects[key] = source.read_bytes()
+    result = backup.run(**args, existing_remote_key=key)
+    assert result["independent_download_verified"] and result["upload_performed"] is False
+    assert Path(result["downloaded_path"]).read_bytes() == source.read_bytes()
+    assert not any(call[0] == "upload" for call in f.drive.calls)
+
+
+def test_existing_plain_upload_from_other_batch_refuses(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    args = plain_args(f, tmp_path, monkeypatch)
+    with pytest.raises(backup.core.TransferError, match="exact copied input"):
+        backup.run(**args, existing_remote_key="otheru1-tape.jsonl")
+    assert not any(call[0] == "upload" for call in f.drive.calls)
