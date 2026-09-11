@@ -27,6 +27,7 @@ record that is valuable evidence but not current instruction.
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Maker economics, liquidity rewards, and audit implementation | [Master plan / Item 330](roadmap/items/item-330-maker-economics-refocus-master-plan.md) | Numbered work item |
+| September 5 codebase/rules audit and previous-finding dispositions | [Consolidated audit](roadmap/audits/codebase-audit-2026-09-05.md) | Dated source audit; Item 330 owns follow-up |
 | Agent decision log and cross-host correspondence | [Roadmap agent guide](roadmap/AGENTS.md) and the task's named handoff/report | Mission-specific instructions and dated evidence |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |

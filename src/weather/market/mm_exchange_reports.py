@@ -13,9 +13,22 @@ from urllib.parse import parse_qs, urlsplit
 
 from weather.market.mm_policy import bool_value, maybe_float
 from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS
+from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = "mm_exchange_adapter_v0.2"
+PAID_INCENTIVE_EVIDENCE_SCHEMA = schema_version("mm_paid_incentive_evidence")
+PAID_INCENTIVE_RECONCILIATION_SCHEMA = schema_version("mm_paid_incentive_reconciliation")
+PAID_INCENTIVE_PILOT_SCHEMA = schema_version("mm_paid_incentive_pilot_report")
+INCENTIVE_PROGRAMMES = ("maker_rebate", "liquidity_reward")
+INCENTIVE_MAX_ROWS = 2048
+INCENTIVE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+INCENTIVE_AMOUNT_RE = re.compile(r"^(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,6})?$")
+INCENTIVE_CREDIT_RE = re.compile(r"^137:0x[0-9a-f]{64}:(?:0|[1-9][0-9]{0,9})$")
+INCENTIVE_CASH_ASSET = {
+    "chain_id": 137, "asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+    "symbol": "pUSD", "decimals": 6,
+}
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
 CONDITION_ID_RE = re.compile(r"^0x[0-9a-f]{64}$")
 TX_HASH_RE = re.compile(r"^0x[0-9a-f]{64}$")
@@ -307,6 +320,11 @@ def first_numeric(mapping, *keys):
 def maker_rebate_reconciliation(rewards):
     """Validate exact next-cycle maker rebate evidence for the pilot market."""
 
+    if isinstance(rewards, dict) and "paid_incentive_evidence" in rewards:
+        return {
+            "complete": False, "actual_maker_rebate_usdc": None,
+            "blockers": ["paid_incentive_evidence_requires_versioned_reconciliation"],
+        }
     evidence = (rewards or {}).get("maker_rebate_evidence")
     if not isinstance(evidence, dict):
         return {
@@ -590,7 +608,425 @@ def actual_fee_reconciliation(fees, fill_rows):
     }
 
 
-def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
+class _IncentiveEvidenceInvalid(ValueError):
+    pass
+
+
+def _incentive_require(condition, code):
+    if not condition:
+        raise _IncentiveEvidenceInvalid(code)
+
+
+def _incentive_time(value):
+    _incentive_require(isinstance(value, str) and len(value) <= 40, "incentive_time_invalid")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        _incentive_require(parsed.tzinfo is not None and parsed.utcoffset() is not None,
+                           "incentive_time_invalid")
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as exc:
+        raise _IncentiveEvidenceInvalid("incentive_time_invalid") from exc
+
+
+def _incentive_amount(value):
+    """Exact native micro-units; never round an earnings row into a wallet amount."""
+    _incentive_require(isinstance(value, str) and INCENTIVE_AMOUNT_RE.fullmatch(value),
+                       "incentive_amount_invalid")
+    whole, _, fraction = value.partition(".")
+    return int(whole) * 1_000_000 + int(fraction.ljust(6, "0") or "0")
+
+
+def _incentive_amount_text(units):
+    whole, fraction = divmod(abs(units), 1_000_000)
+    return f"{'-' if units < 0 else ''}{whole}.{fraction:06d}"
+
+
+def _incentive_sha(value):
+    _incentive_require(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value),
+                       "incentive_provenance_hash_invalid")
+    return value
+
+
+def _incentive_asset(value):
+    return (isinstance(value, dict) and value == INCENTIVE_CASH_ASSET
+            and type(value.get("chain_id")) is int and type(value.get("decimals")) is int)
+
+
+def _incentive_scope(evidence):
+    scope = evidence.get("scope")
+    required = {"maker_address", "condition_id", "cash_asset", "accrual_start_utc",
+                "accrual_end_utc", "cash_start_utc", "cash_end_utc"}
+    _incentive_require(isinstance(scope, dict) and set(scope) == required, "incentive_scope_invalid")
+    maker, condition = scope["maker_address"], scope["condition_id"]
+    _incentive_require(isinstance(maker, str) and EVM_ADDRESS_RE.fullmatch(maker)
+                       and isinstance(condition, str) and CONDITION_ID_RE.fullmatch(condition),
+                       "incentive_scope_invalid")
+    _incentive_require(_incentive_asset(scope["cash_asset"]), "incentive_cash_asset_invalid")
+    times = {name: _incentive_time(scope[name]) for name in required if name.endswith("_utc")}
+    as_of = _incentive_time(evidence.get("as_of_utc"))
+    _incentive_require(times["accrual_start_utc"] < times["accrual_end_utc"] <= times["cash_end_utc"]
+                       and times["cash_start_utc"] < times["cash_end_utc"] <= as_of,
+                       "incentive_period_invalid")
+    return {"maker_address": maker, "condition_id": condition,
+            "cash_asset": dict(INCENTIVE_CASH_ASSET),
+            **{name: value.isoformat() for name, value in times.items()}}, times, as_of
+
+
+def _incentive_sources(evidence, scope, times, as_of, unresolved):
+    sources = evidence.get("sources")
+    _incentive_require(isinstance(sources, dict)
+                       and set(sources) == {"accruals", "distributions", "wallet_credits"},
+                       "incentive_sources_invalid")
+    result = {}
+    for name, source in sources.items():
+        _incentive_require(isinstance(source, dict), "incentive_source_invalid")
+        _incentive_require(source.get("status") == "OBSERVED", "incentive_source_not_observed")
+        _incentive_require(source.get("query_scope") == "exact_account_asset_period",
+                           "incentive_query_scope_invalid")
+        requested = source.get("request_scope")
+        _incentive_require(isinstance(requested, dict) and set(requested) == {
+            "maker_address", "cash_asset", "condition_scope", "period_start_utc", "period_end_utc",
+        }, "incentive_request_scope_invalid")
+        start = times["cash_start_utc"] if name == "wallet_credits" else times["accrual_start_utc"]
+        end = times["accrual_end_utc"] if name == "accruals" else times["cash_end_utc"]
+        _incentive_require(requested["maker_address"] == scope["maker_address"]
+                           and _incentive_asset(requested["cash_asset"])
+                           and requested["condition_scope"] == "account"
+                           and _incentive_time(requested["period_start_utc"]) == start
+                           and _incentive_time(requested["period_end_utc"]) == end,
+                           "incentive_request_scope_invalid")
+        observed = _incentive_time(source.get("observed_at_utc"))
+        through = _incentive_time(source.get("coverage_through_utc"))
+        _incentive_require(through <= observed <= as_of, "incentive_source_future_evidence")
+        for flag in ("complete", "pagination_complete", "payout_cycle_complete"):
+            _incentive_require(type(source.get(flag)) is bool, "incentive_source_completeness_invalid")
+            if not source[flag]:
+                unresolved.add(f"{name}_{flag}_not_proved")
+        if through < end:
+            unresolved.add(f"{name}_period_coverage_incomplete")
+        result[name] = {
+            "request_sha256": _incentive_sha(source.get("request_sha256")),
+            "response_sha256": _incentive_sha(source.get("response_sha256")),
+            "observed_at_utc": observed.isoformat(), "coverage_through_utc": through.isoformat(),
+            "required_through_utc": end.isoformat(),
+            "request_scope": {
+                "maker_address": scope["maker_address"], "cash_asset": dict(INCENTIVE_CASH_ASSET),
+                "condition_scope": "account", "period_start_utc": start.isoformat(),
+                "period_end_utc": end.isoformat(),
+            },
+            "complete": source["complete"], "pagination_complete": source["pagination_complete"],
+            "payout_cycle_complete": source["payout_cycle_complete"],
+        }
+    return result
+
+
+def _incentive_records(evidence, kind, scope, times, sources):
+    rows = evidence.get(kind)
+    _incentive_require(isinstance(rows, list) and len(rows) <= INCENTIVE_MAX_ROWS,
+                       "incentive_rows_invalid")
+    records, duplicate_count = {}, 0
+    for row in rows:
+        _incentive_require(isinstance(row, dict), "incentive_row_invalid")
+        _incentive_require(row.get("maker_address") == scope["maker_address"], "incentive_row_account_mismatch")
+        _incentive_require(_incentive_asset(row.get("cash_asset")), "incentive_row_asset_mismatch")
+        observed = _incentive_time(row.get("observed_at_utc"))
+        _incentive_require(observed <= _incentive_time(sources[kind]["observed_at_utc"]),
+                           "incentive_row_future_evidence")
+        provenance = _incentive_sha(row.get("source_record_sha256"))
+        amount = _incentive_amount(row.get("amount"))
+        status = row.get("status")
+        _incentive_require(isinstance(status, str), "incentive_record_status_invalid")
+        record = {"amount_units": amount, "status": status}
+        if kind == "wallet_credits":
+            transaction, log_index = row.get("transaction_hash"), row.get("log_index")
+            _incentive_require(row.get("chain_id") == 137 and type(row.get("chain_id")) is int
+                               and isinstance(transaction, str) and TX_HASH_RE.fullmatch(transaction)
+                               and type(log_index) is int and 0 <= log_index <= 9_999_999_999,
+                               "incentive_credit_identity_invalid")
+            key = f"137:{transaction}:{log_index}"
+            credited = _incentive_time(row.get("credited_at_utc"))
+            _incentive_require(times["cash_start_utc"] <= credited < times["cash_end_utc"]
+                               and credited <= observed, "incentive_credit_time_scope_invalid")
+            _incentive_require(status in {"CONFIRMED", "PENDING", "FAILED"} and amount > 0,
+                               "incentive_credit_state_invalid")
+            record["credited_at_utc"] = credited.isoformat()
+        else:
+            programme, condition = row.get("programme"), row.get("condition_id")
+            _incentive_require(programme in INCENTIVE_PROGRAMMES, "incentive_programme_invalid")
+            _incentive_require(condition is None or (isinstance(condition, str)
+                               and CONDITION_ID_RE.fullmatch(condition)), "incentive_condition_invalid")
+            key = row.get("accrual_id" if kind == "accruals" else "distribution_id")
+            _incentive_require(isinstance(key, str) and INCENTIVE_ID_RE.fullmatch(key),
+                               "incentive_record_identity_invalid")
+            record.update(programme=programme, condition_id=condition)
+            if kind == "accruals":
+                start, end = _incentive_time(row.get("period_start_utc")), _incentive_time(row.get("period_end_utc"))
+                _incentive_require(times["accrual_start_utc"] <= start < end <= times["accrual_end_utc"]
+                                   and end <= observed, "incentive_accrual_time_scope_invalid")
+                _incentive_require(status in {"ESTIMATED", "ACCRUED", "COMPLETED_ZERO"}
+                                   and (amount == 0 if status == "COMPLETED_ZERO" else amount > 0),
+                                   "incentive_accrual_state_invalid")
+                record.update(period_start_utc=start.isoformat(), period_end_utc=end.isoformat())
+            else:
+                accrual_id, credit_id = row.get("accrual_id"), row.get("credit_id")
+                _incentive_require(isinstance(accrual_id, str) and INCENTIVE_ID_RE.fullmatch(accrual_id),
+                                   "incentive_distribution_accrual_invalid")
+                _incentive_require(status in {"PAID", "PENDING"} and amount > 0,
+                                   "incentive_distribution_state_invalid")
+                _incentive_require((isinstance(credit_id, str) and INCENTIVE_CREDIT_RE.fullmatch(credit_id))
+                                   if status == "PAID" else credit_id is None,
+                                   "incentive_distribution_credit_invalid")
+                record.update(accrual_id=accrual_id, credit_id=credit_id)
+        if key in records:
+            previous = {name: value for name, value in records[key].items()
+                        if name not in {"source_record_sha256s", "observed_at_utcs"}}
+            _incentive_require(previous == record, f"incentive_{kind}_duplicate_conflict")
+            records[key]["source_record_sha256s"].add(provenance)
+            records[key]["observed_at_utcs"].add(observed.isoformat())
+            duplicate_count += 1
+        else:
+            records[key] = {**record, "source_record_sha256s": {provenance},
+                            "observed_at_utcs": {observed.isoformat()}}
+    return records, duplicate_count
+
+
+def reconcile_incentive_payments(evidence):
+    """Pure offline accrual/distribution-to-wallet attribution for one condition.
+
+    Supplied normalized receipts are evidence inputs, not new network reads.
+    Positive unpaid accrual is distinct from cash-window completeness. Integer native
+    micro-units make matching independent of ambient Decimal context/row order.
+    """
+    result = {
+        "schema_version": PAID_INCENTIVE_RECONCILIATION_SCHEMA,
+        "status": "INVALID", "valid": False, "complete": False,
+        "scope": {}, "cash_asset": dict(INCENTIVE_CASH_ASSET), "provenance": {},
+        "actual_maker_rebate_usdc": None, "actual_liquidity_reward_usdc": None,
+        "programmes": {}, "accrual_states": [], "matched_distributions": [],
+        "excluded_external_credit_ids": [], "duplicate_record_count": 0,
+        "unresolved": [], "accrual_unresolved": [], "accruals_fully_paid": False,
+        "blockers": [], "network_reads_performed": False,
+    }
+    unresolved = set()
+    try:
+        _incentive_require(isinstance(evidence, dict)
+                           and evidence.get("schema_version") == PAID_INCENTIVE_EVIDENCE_SCHEMA,
+                           "incentive_evidence_schema_invalid")
+        try:
+            encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+            raise _IncentiveEvidenceInvalid("incentive_evidence_encoding_invalid") from exc
+        _incentive_require(len(encoded) <= 4 * 1024 * 1024, "incentive_evidence_size_exceeded")
+        result["evidence_sha256"] = hashlib.sha256(encoded).hexdigest()
+        scope, times, as_of = _incentive_scope(evidence)
+        result["scope"] = scope
+        result["as_of_utc"] = as_of.isoformat()
+        sources = _incentive_sources(evidence, scope, times, as_of, unresolved)
+        result["provenance"] = sources
+        records = {}
+        for kind in ("accruals", "distributions", "wallet_credits"):
+            records[kind], duplicates = _incentive_records(evidence, kind, scope, times, sources)
+            result["duplicate_record_count"] += duplicates
+        accruals, distributions, credits = (records[name] for name in ("accruals", "distributions", "wallet_credits"))
+        result["record_provenance"] = {
+            kind: {key: sorted(row["source_record_sha256s"]) for key, row in sorted(values.items())}
+            for kind, values in records.items()
+        }
+        result["record_observed_at_utcs"] = {
+            kind: {key: sorted(row["observed_at_utcs"]) for key, row in sorted(values.items())}
+            for kind, values in records.items()
+        }
+        result["distribution_states"] = [
+            {"distribution_id": key, "accrual_id": row["accrual_id"], "programme": row["programme"],
+             "status": row["status"], "credit_id": row["credit_id"],
+             "amount": _incentive_amount_text(row["amount_units"])}
+            for key, row in sorted(distributions.items())
+        ]
+        excluded = evidence.get("excluded_external_credit_ids")
+        _incentive_require(isinstance(excluded, list) and len(excluded) <= INCENTIVE_MAX_ROWS
+                           and all(isinstance(key, str) and INCENTIVE_CREDIT_RE.fullmatch(key) for key in excluded)
+                           and len(set(excluded)) == len(excluded), "incentive_external_credit_ids_invalid")
+        excluded = set(excluded)
+        _incentive_require(excluded <= set(credits), "incentive_external_credit_missing")
+        result["excluded_external_credit_ids"] = sorted(excluded)
+        claims = {}
+        for distribution_id, distribution in sorted(distributions.items()):
+            key = distribution["credit_id"]
+            if key is not None:
+                _incentive_require(key not in claims and key not in excluded, "incentive_credit_allocated_twice")
+                claims[key] = distribution_id
+        totals = {programme: {name: 0 for name in (
+            "estimated", "accrued", "paid", "unpaid_accrued", "portfolio_paid", "other_condition_paid",
+        )} for programme in INCENTIVE_PROGRAMMES}
+        paid_by_accrual, allocated_credits = Counter(), set()
+        for distribution_id, distribution in sorted(distributions.items()):
+            accrual = accruals.get(distribution["accrual_id"])
+            if accrual is None:
+                unresolved.add(f"distribution_accrual_missing:{distribution_id}")
+                continue
+            _incentive_require(all(distribution[name] == accrual[name] for name in ("programme", "condition_id")),
+                               "incentive_distribution_scope_mismatch")
+            if accrual["status"] != "ACCRUED":
+                unresolved.add(f"distribution_final_accrual_missing:{distribution_id}")
+                continue
+            if distribution["status"] != "PAID":
+                continue
+            credit = credits.get(distribution["credit_id"])
+            if credit is None or credit["status"] != "CONFIRMED":
+                unresolved.add(f"distribution_confirmed_credit_missing:{distribution_id}")
+                continue
+            _incentive_require(credit["amount_units"] == distribution["amount_units"], "incentive_credit_amount_mismatch")
+            _incentive_require(_incentive_time(credit["credited_at_utc"]) >= _incentive_time(accrual["period_end_utc"]),
+                               "incentive_credit_precedes_accrual")
+            amount = credit["amount_units"]
+            paid_by_accrual[distribution["accrual_id"]] += amount
+            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"],
+                               "incentive_distribution_exceeds_accrual")
+            allocated_credits.add(distribution["credit_id"])
+            bucket = ("portfolio_paid" if accrual["condition_id"] is None else
+                      "paid" if accrual["condition_id"] == scope["condition_id"] else "other_condition_paid")
+            totals[accrual["programme"]][bucket] += amount
+            if bucket != "paid":
+                unresolved.add(f"paid_condition_attribution_unknown:{distribution_id}")
+            result["matched_distributions"].append({
+                "distribution_id": distribution_id, "accrual_id": distribution["accrual_id"],
+                "credit_id": distribution["credit_id"], "programme": distribution["programme"],
+                "condition_id": distribution["condition_id"], "amount": _incentive_amount_text(amount),
+                "condition_attribution": "EXACT" if bucket == "paid" else "UNKNOWN_FOR_REQUESTED_CONDITION",
+            })
+        for key, credit in sorted(credits.items()):
+            if credit["status"] != "CONFIRMED":
+                unresolved.add(f"wallet_credit_not_confirmed:{key}")
+            if key not in allocated_credits and key not in excluded:
+                unresolved.add(f"wallet_credit_unattributed:{key}")
+        final_count, estimated_count, zero_count = Counter(), Counter(), Counter()
+        accrual_unresolved, fully_paid = set(), True
+        for accrual_id, accrual in sorted(accruals.items()):
+            programme, condition = accrual["programme"], accrual["condition_id"]
+            paid = paid_by_accrual[accrual_id]
+            state = accrual["status"]
+            if condition != scope["condition_id"]:
+                accrual_unresolved.add(f"accrual_condition_attribution_unknown:{accrual_id}")
+                fully_paid = False
+            elif state == "ESTIMATED":
+                totals[programme]["estimated"] += accrual["amount_units"]
+                estimated_count[programme] += 1
+                accrual_unresolved.add(f"accrual_estimate_only:{accrual_id}")
+                fully_paid = False
+            else:
+                final_count[programme] += 1
+                if state == "COMPLETED_ZERO":
+                    zero_count[programme] += 1
+                else:
+                    amount = accrual["amount_units"]
+                    totals[programme]["accrued"] += amount
+                    totals[programme]["unpaid_accrued"] += amount - paid
+                    state = "PAID" if paid == amount else "PARTIALLY_PAID" if paid else "UNPAID"
+                    if paid != amount:
+                        fully_paid = False
+            result["accrual_states"].append({
+                "accrual_id": accrual_id, "programme": programme, "condition_id": condition,
+                "state": state, "amount": _incentive_amount_text(accrual["amount_units"]),
+                "matched_paid_amount": _incentive_amount_text(paid),
+            })
+        for programme in INCENTIVE_PROGRAMMES:
+            result["programmes"][programme] = {
+                **{name + "_amount": _incentive_amount_text(value) for name, value in totals[programme].items()},
+                "completed_zero_row_count": zero_count[programme],
+                "completed_zero_from_empty_query": final_count[programme] == estimated_count[programme] == 0
+                and not any(row["programme"] == programme for row in accruals.values())
+                and all(source["complete"] and source["pagination_complete"] and source["payout_cycle_complete"]
+                        and _incentive_time(source["coverage_through_utc"]) >= _incentive_time(source["required_through_utc"])
+                        for source in sources.values()),
+            }
+        result["accrual_unresolved"] = sorted(accrual_unresolved)
+        result["accruals_fully_paid"] = fully_paid
+        result["unresolved"] = sorted(unresolved)
+        result["valid"], result["complete"] = True, not unresolved
+        result["status"] = "COMPLETE" if result["complete"] else "UNRESOLVED"
+        if result["complete"]:
+            result["actual_maker_rebate_usdc"] = float(_incentive_amount_text(totals["maker_rebate"]["paid"]))
+            result["actual_liquidity_reward_usdc"] = float(_incentive_amount_text(totals["liquidity_reward"]["paid"]))
+    except _IncentiveEvidenceInvalid as exc:
+        result["blockers"] = [str(exc)]
+        result["unresolved"] = sorted(unresolved)
+    return result
+
+
+def _paid_incentive_cash_basis(identity, balances, fees, redemption, position_evidence, paid):
+    if not paid.get("valid"):
+        return False
+    scope = paid["scope"]
+    expected_period = {"start_utc": scope["cash_start_utc"], "end_utc": scope["cash_end_utc"]}
+    components = (identity, balances, fees.get("actual_fee_evidence") or {}, redemption, position_evidence)
+    if not all(isinstance(item, dict) for item in components):
+        return False
+    try:
+        periods = [item.get("cash_period") for item in components]
+        period_ok = all(isinstance(period, dict) and set(period) == {"start_utc", "end_utc"}
+                        and all(_incentive_time(period[key]) == _incentive_time(value)
+                                for key, value in expected_period.items()) for period in periods)
+        position_time = _incentive_time(position_evidence.get("observed_at_utc"))
+        position_time_ok = (_incentive_time(scope["cash_end_utc"]) <= position_time
+                            <= _incentive_time(paid["as_of_utc"]))
+    except _IncentiveEvidenceInvalid:
+        return False
+    return all((
+        period_ok,
+        position_time_ok,
+        all(_incentive_asset(item.get("cash_asset"))
+            and item.get("maker_address") == scope["maker_address"]
+            and item.get("condition_id") == scope["condition_id"] for item in components),
+        identity.get("external_cash_flows_exclude_incentives") is True,
+        identity.get("external_cash_flow_credit_ids") == paid["excluded_external_credit_ids"],
+    ))
+
+
+def _paid_native_cash_identity(identity, balances, fees, redemption, paid):
+    """Exact opt-in cash identity; the legacy float calculation stays separate."""
+    if not paid.get("complete"):
+        return None
+
+    def signed_amount(mapping, *keys):
+        for key in keys:
+            if key in mapping:
+                value = mapping[key]
+                _incentive_require(isinstance(value, str), "paid_cash_amount_invalid")
+                negative = value.startswith("-")
+                units = _incentive_amount(value[1:] if negative else value)
+                return -units if negative else units
+        raise _IncentiveEvidenceInvalid("paid_cash_amount_missing")
+
+    try:
+        amounts = {
+            "starting_balance": signed_amount(balances, "starting_balance_usdc", "starting_cash_usdc",
+                                              "cash_before", "initial_cash_usdc"),
+            "ending_balance": signed_amount(balances, "ending_balance_usdc", "ending_cash_usdc",
+                                            "cash_after", "final_cash_usdc"),
+            "external_cash_flows": signed_amount(identity, "external_cash_flows_usdc"),
+            "settlement_pnl": signed_amount(redemption, "settlement_pnl_usdc", "realized_pnl_usdc",
+                                            "pnl_usdc", "net_pnl_usdc"),
+            "redemption": signed_amount(redemption, "redemption_usdc", "settlement_redemption_usdc",
+                                        "redeemed_usdc", "claimable_usdc", "payout_usdc"),
+            "actual_fees": _incentive_amount((fees.get("actual_fee_evidence") or {}).get("paid_usdc")),
+            "actual_maker_rebate": _incentive_amount(paid["programmes"]["maker_rebate"]["paid_amount"]),
+            "actual_liquidity_reward": _incentive_amount(paid["programmes"]["liquidity_reward"]["paid_amount"]),
+        }
+        _incentive_require(all(amounts[key] >= 0 for key in ("starting_balance", "ending_balance", "redemption")),
+                           "paid_cash_amount_invalid")
+    except _IncentiveEvidenceInvalid:
+        return None
+    amounts["balance_delta"] = amounts["ending_balance"] - amounts["starting_balance"]
+    amounts["total_pnl_after_fees_incentives"] = (
+        amounts["settlement_pnl"] + amounts["actual_maker_rebate"]
+        + amounts["actual_liquidity_reward"] - amounts["actual_fees"]
+    )
+    amounts["residual"] = (amounts["balance_delta"] - amounts["external_cash_flows"]
+                           - amounts["total_pnl_after_fees_incentives"])
+    return amounts
+
+
+def build_financial_reconciliation(reconciliation, quote_rows, fill_rows, *, incentive_schema_version=None):
     balances = reconciliation.get("balances") or {}
     rewards = reconciliation.get("rewards") or {}
     fees = reconciliation.get("fees") or {}
@@ -608,7 +1044,25 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         round(sum(expected_rebate_values), 6) if expected_rebate_values else None
     )
     expected_reward_score = numeric_sum(quote_rows, "expected_reward_score")
-    rebate_reconciliation = maker_rebate_reconciliation(rewards)
+    paid_mode = incentive_schema_version is not None or "paid_incentive_evidence" in rewards
+    paid_reconciliation = None
+    actual_liquidity_reward = 0.0
+    if paid_mode:
+        paid_reconciliation = reconcile_incentive_payments(rewards.get("paid_incentive_evidence"))
+        if type(incentive_schema_version) is not str or incentive_schema_version != PAID_INCENTIVE_RECONCILIATION_SCHEMA:
+            paid_reconciliation.update(status="INVALID", valid=False, complete=False,
+                                       actual_maker_rebate_usdc=None, actual_liquidity_reward_usdc=None)
+            paid_reconciliation["blockers"].append("paid_incentive_schema_selector_invalid")
+        paid_scope = paid_reconciliation["scope"]
+        rebate_reconciliation = {
+            "complete": paid_reconciliation["complete"],
+            "maker_address": paid_scope.get("maker_address"), "condition_id": paid_scope.get("condition_id"),
+            "actual_maker_rebate_usdc": paid_reconciliation["actual_maker_rebate_usdc"],
+            "blockers": paid_reconciliation["blockers"] + paid_reconciliation["unresolved"],
+        }
+        actual_liquidity_reward = paid_reconciliation["actual_liquidity_reward_usdc"]
+    else:
+        rebate_reconciliation = maker_rebate_reconciliation(rewards)
     actual_reward = rebate_reconciliation.get("actual_maker_rebate_usdc")
     fee_reconciliation = actual_fee_reconciliation(fees, fill_rows)
     actual_fees = fee_reconciliation.get("actual_fees_usdc")
@@ -651,6 +1105,14 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         or {}
     )
     external_cash_flows = first_numeric(identity, "external_cash_flows_usdc")
+    paid_cash_basis_verified = not paid_mode or _paid_incentive_cash_basis(
+        identity, balances, fees, redemption, reconciliation.get("position_evidence"), paid_reconciliation,
+    )
+    native_cash_identity = _paid_native_cash_identity(
+        identity, balances, fees, redemption, paid_reconciliation,
+    ) if paid_mode else None
+    if native_cash_identity is not None:
+        balance_delta = float(_incentive_amount_text(native_cash_identity["balance_delta"]))
     positions_reconciled = position_reconciliation(reconciliation)
     observed_positions_zero = positions_reconciled.get("ending_positions_zero") is True
     financial_scope_consistent = (
@@ -674,23 +1136,40 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         actual_reward is not None,
         actual_fees is not None,
         financial_scope_consistent,
+        paid_cash_basis_verified,
+        not paid_mode or native_cash_identity is not None,
+        all(value is not None and math.isfinite(value) for value in (
+            starting_balance, ending_balance, external_cash_flows, settlement_pnl,
+            actual_reward, actual_liquidity_reward, actual_fees,
+        )),
     ))
     actual_total_pnl = None
     identity_delta = None
     if identity_inputs_verified:
-        actual_total_pnl = settlement_pnl
-        actual_total_pnl += actual_reward
-        actual_total_pnl -= actual_fees
-        actual_total_pnl = round(actual_total_pnl, 6)
-        expected_balance_delta = round(actual_total_pnl + external_cash_flows, 6)
-        identity_delta = round(balance_delta - expected_balance_delta, 6)
-        if abs(identity_delta) > 0.00001:
-            actual_total_pnl = None
+        if paid_mode:
+            identity_delta = float(_incentive_amount_text(native_cash_identity["residual"]))
+            if abs(native_cash_identity["residual"]) <= 10:
+                actual_total_pnl = float(_incentive_amount_text(native_cash_identity["total_pnl_after_fees_incentives"]))
+        else:
+            actual_total_pnl = settlement_pnl
+            actual_total_pnl += actual_reward
+            actual_total_pnl -= actual_fees
+            actual_total_pnl = round(actual_total_pnl, 6)
+            expected_balance_delta = round(actual_total_pnl + external_cash_flows, 6)
+            identity_delta = round(balance_delta - expected_balance_delta, 6)
+            if abs(identity_delta) > 0.00001:
+                actual_total_pnl = None
     missing = []
     if starting_balance is None or ending_balance is None:
         missing.append("balance_delta")
     if not rebate_reconciliation.get("complete"):
         missing.append("actual_maker_rebate_reconciliation")
+    if paid_mode and not paid_reconciliation["complete"]:
+        missing.append("paid_incentive_reconciliation")
+    if not paid_cash_basis_verified:
+        missing.append("paid_incentive_cash_basis")
+    if paid_mode and native_cash_identity is None:
+        missing.append("paid_native_cash_identity")
     if actual_fees is None:
         missing.append("actual_fees")
     if not positions_reconciled.get("complete"):
@@ -709,7 +1188,7 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         missing.append("financial_identity_inputs")
     elif actual_total_pnl is None:
         missing.append("financial_identity_mismatch")
-    return {
+    result = {
         "expected_live_fill_rebate_usdc": expected_rebate,
         "expected_reward_score": expected_reward_score,
         "actual_maker_rebate_usdc": actual_reward,
@@ -744,11 +1223,24 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         "missing_evidence": missing,
         "complete": not missing,
     }
+    if paid_mode:
+        result.update(
+            incentive_schema_version=PAID_INCENTIVE_RECONCILIATION_SCHEMA,
+            paid_incentive_reconciliation=paid_reconciliation,
+            actual_liquidity_reward_usdc=actual_liquidity_reward,
+            cash_asset=dict(INCENTIVE_CASH_ASSET), paid_cash_basis_verified=paid_cash_basis_verified,
+            native_cash_identity=None if native_cash_identity is None else {
+                key: _incentive_amount_text(value) for key, value in native_cash_identity.items()
+            },
+        )
+    return result
 
 
-def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_status):
+def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_status, *, incentive_schema_version=None):
     fills = fill_rows or []
-    financial = build_financial_reconciliation(reconciliation, quote_rows, fills)
+    financial = build_financial_reconciliation(
+        reconciliation, quote_rows, fills, incentive_schema_version=incentive_schema_version,
+    )
     expected_rebate = numeric_sum(quote_rows, "expected_rebate_value")
     expected_reward_score = numeric_sum(quote_rows, "expected_reward_score")
     actual_reward = financial.get("actual_maker_rebate_usdc")
@@ -759,7 +1251,7 @@ def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_stat
     markout_values = [value for value in markout_values if value is not None]
     paper_quote_rows = [row for row in quote_rows if bool_value(row.get("quote_permission"), False)]
     payload = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": PAID_INCENTIVE_PILOT_SCHEMA if "paid_incentive_reconciliation" in financial else SCHEMA_VERSION,
         "generated_at_utc": reconciliation.get("generated_at_utc"),
         "run_id": reconciliation.get("run_id"),
         "target_date": reconciliation.get("target_date"),
@@ -818,10 +1310,24 @@ def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_stat
     missing.extend(f"financial:{item}" for item in financial.get("missing_evidence") or [])
     payload["missing_evidence"] = missing
     payload["evidence_complete"] = not missing
+    if "paid_incentive_reconciliation" in financial:
+        payload["actual_liquidity_reward_usdc"] = financial["actual_liquidity_reward_usdc"]
+        payload["cash_asset"] = dict(INCENTIVE_CASH_ASSET)
     return payload
 
 
 def render_pilot_report(payload):
+    version = payload.get("schema_version", SCHEMA_VERSION)
+    if type(version) is not str or version not in {SCHEMA_VERSION, PAID_INCENTIVE_PILOT_SCHEMA}:
+        raise ValueError("Unsupported pilot report schema")
+    if version != PAID_INCENTIVE_PILOT_SCHEMA and (
+        "actual_liquidity_reward_usdc" in payload
+        or any(key in (payload.get("financial_reconciliation") or {}) for key in (
+            "paid_incentive_reconciliation", "actual_liquidity_reward_usdc",
+            "incentive_schema_version", "native_cash_identity",
+        ))
+    ):
+        raise ValueError("Paid incentive report requires its explicit schema")
     lines = [
         "# MM-2 Pilot Report",
         "",
@@ -860,4 +1366,20 @@ def render_pilot_report(payload):
         f"- Balance delta: `{(payload.get('financial_reconciliation') or {}).get('balance_delta_usdc')}`",
         f"- Actual total P&L after fees/incentives: `{(payload.get('financial_reconciliation') or {}).get('actual_total_pnl_after_fees_incentives_usdc')}`",
     ]
+    if version == PAID_INCENTIVE_PILOT_SCHEMA:
+        if not _incentive_asset(payload.get("cash_asset")):
+            raise ValueError("Paid incentive report cash asset is invalid")
+        financial = payload.get("financial_reconciliation")
+        if (not isinstance(financial, dict)
+                or financial.get("incentive_schema_version") != PAID_INCENTIVE_RECONCILIATION_SCHEMA
+                or "actual_liquidity_reward_usdc" not in payload
+                or not _incentive_asset(financial.get("cash_asset"))
+                or not isinstance(financial.get("paid_incentive_reconciliation"), dict)
+                or financial["paid_incentive_reconciliation"].get("schema_version") != PAID_INCENTIVE_RECONCILIATION_SCHEMA):
+            raise ValueError("Paid incentive report reconciliation schema is invalid")
+        lines.extend([
+            f"- Native cash asset: `pUSD` on Polygon, `{PUSD_COLLATERAL_PROXY_ADDRESS}` (6 decimals)",
+            f"- Matched paid liquidity rewards (pUSD): `{payload.get('actual_liquidity_reward_usdc')}`",
+            "- Historical `_usdc` field suffixes carry native pUSD amounts here; no currency conversion is inferred.",
+        ])
     return "\n".join(lines) + "\n"

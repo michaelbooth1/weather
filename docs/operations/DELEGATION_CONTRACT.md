@@ -26,10 +26,11 @@ cannot overlap through cleanup. Heavy work still ends before sealing as an opera
 preservation rule. Its separate live-executor role
 remains fixed-scope and grants no additional production or live authority.
 
-**Operator decision 2026-08-30:** the exact reviewed remote branch
-`codex/portable-execution-host-clean-20260827` may be live code authority before
+**Operator decision 2026-08-31:** the exact reviewed remote branch
+`codex/live-gate-provenance-20260831` may be live code authority before
 master adoption for `portable_execution_v1` only. This is not a general
-topic-branch rule. The worktree must be clean; local HEAD, local branch, cached
+topic-branch rule and supersedes the 2026-08-30 exception for the earlier
+portable branch. The worktree must be clean; local HEAD, local branch, cached
 origin branch, and freshly queried canonical branch must be identical;
 local/cached/live canonical master must be synchronized and ancestral to the
 topic tip; exact-head CI and review must pass; the repository owner must
@@ -60,7 +61,7 @@ The live role uses a clean checkout at an exact reviewed Git authority, creates
 host-local credentials and attempt evidence, and is rebound whenever it moves
 to another Windows installation. Normally that authority is the
 production-adopted master tip; the exact portable-only topic branch permitted
-by the 2026-08-30 operator decision is the sole pre-adoption exception. A
+by the 2026-08-31 operator decision is the sole pre-adoption exception. A
 portable live session is not a delegated research mission:
 its narrowly authorized exchange writes are governed by
 [`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md), while all
@@ -243,7 +244,7 @@ The production agent verifies before accepting. Standard checks:
   `git ls-tree -r --name-only origin/master | Select-String '<slug>'`. The
   portable-only pre-adoption exception instead requires an exact bounded
   `git ls-remote --exit-code --refs` query of canonical
-  `refs/heads/codex/portable-execution-host-clean-20260827`, equality to the
+  `refs/heads/codex/live-gate-provenance-20260831`, equality to the
   reviewed local/cached tip, exact-head CI/review, and explicit owner
   authorization. Claiming a push without verifying the governing remote ref
   has happened here and was caught by the operator.

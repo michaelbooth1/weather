@@ -103,9 +103,8 @@ def test_validator_binds_complete_overlay_and_ordered_wheelhouse(tmp_path, monke
         manifest, sha(manifest)
     )
     assert len(file_hashes) == result["overlay"]["file_count"]
-    assert file_hashes[str(root / "polymarket/__init__.py")] == sha(
-        root / "polymarket/__init__.py"
-    )
+    package_init = (root / "polymarket/__init__.py").resolve()
+    assert file_hashes[str(package_init)] == sha(package_init)
 
 
 def test_validator_accepts_explicit_profile_root_without_changing_runtime_root(

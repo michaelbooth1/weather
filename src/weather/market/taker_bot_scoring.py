@@ -3,40 +3,20 @@
 from weather.io import iter_csv_rows
 from weather.market.taker_bot_sizing import *  # noqa: F403
 from weather.market.taker_bot_two_sided import NO_SIDE, order_side
+from weather.units import parse_temperature_band, temperature_band_key
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
 
 def label_numbers(row):
-    import re
-
-    return [int(value) for value in re.findall(r"-?\d+", str(row.get("range_label") or ""))]
+    band = parse_temperature_band(row.get("range_label"))
+    if band is None:
+        return []
+    return [band.value] if band.value == band.value_hi else [band.value, band.value_hi]
 
 
 def band_key(row):
-    kind = str(row.get("bin_kind") or row.get("winning_band_kind") or "").strip().lower()
-    value = row.get("bin_value")
-    if value in (None, ""):
-        value = row.get("bin_value_c") or row.get("winning_band_value")
-    value_hi = row.get("bin_value_hi") or row.get("winning_band_value_hi")
-    value = int(float(value)) if maybe_float(value) is not None else None
-    value_hi = int(float(value_hi)) if maybe_float(value_hi) is not None else None
-    nums = label_numbers(row)
-    if value is None and nums:
-        value = nums[0]
-    if value_hi is None and nums:
-        value_hi = nums[-1]
-    if value_hi is None:
-        value_hi = value
-    if not kind:
-        text = str(row.get("range_label") or "").lower()
-        if "above" in text or "higher" in text:
-            kind = "gte"
-        elif "below" in text or "under" in text:
-            kind = "lte"
-        else:
-            kind = "eq"
-    return kind, value, value_hi
+    return temperature_band_key(row)
 
 
 def settlement_for_folder(folder, event_slug, ledger_root=None):

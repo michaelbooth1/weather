@@ -94,6 +94,12 @@ a much easier one:
    folder can look days stale at the top level. "The current mission does not seem to be touching
    it" is exactly the observation this makes wrong.
 
+Executor attempts under `scratch/.ex/` can retain interrupted work or quarantined
+output. Preserve those exact attempts for inspection; they are not blanket
+age-based cleanup targets. The executor removes only its own successfully cleaned
+attempt and does not migrate or delete older candidate-local scratch evidence.
+The [path policy](path-policy.md#isolated-experiment-scratch) owns this contract.
+
 Mission-local `venv\` directories under scratch are rebuildable; deleting them costs a reinstall,
 not evidence.
 

@@ -87,18 +87,18 @@ http://localhost:8501/?market=control
 http://localhost:8501/?roadmap
 ```
 
-The **Control Room** is the decision-first surface for the capped International
-Polymarket maker pilot. It binds the latest maker run to an exact-target-date
-readiness receipt, the canonical host digest, International platform identity,
-execution-tape integrity, and the explicitly accepted exchange-economics
-baseline. Missing, stale, US-platform, or contradictory evidence produces
-`HOLD`; clearing every software gate produces only `READY FOR EXPLICIT
-APPROVAL`, never trading authority. It has no order, cancel, credential,
-promotion, or risk-setting controls.
+The **Control Room** shows the current project objective and next milestone,
+capture and portable-host observations, the selected attended session, recorded
+orders/fills/positions, and reconciled trading results. Paid rebates and rewards
+stay separate from estimates; missing evidence stays unknown. Session observations
+refresh every ten seconds while the page is open, with a shared slower host
+collector. The app has no trading or credential controls. See the
+[operator monitor guide](docs/operations/OPERATOR_MONITOR.md) to connect a local
+attempt or an explicitly supplied host receipt.
 
-The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
-roadmap index, separates dependency-held items from work with a clear path, and
-surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
+The **Roadmap** puts the current maker workstreams and next actions above all
+active `OPEN` and `PARTIAL` work from the canonical roadmap index. It separates
+dependency-held items and surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
 to the Control Room; the retired frontend pages are not retained as hidden
 code.
 

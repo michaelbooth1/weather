@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
+import tempfile
+import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market.location_config import (
+    GENERATION_FIELD, LocationConfigPair, build_generation_metadata, json_bytes,
+    parse_json_object, registry_source_identity, sha256_bytes, validate_pair_bytes,
+)
+from weather.operations.process_lock_identity import lock_path_transaction
 from weather.paths import config_path
 from weather.schema_registry import schema_version
 
@@ -24,6 +34,8 @@ DEFAULT_CATEGORY_URL = "https://polymarket.com/weather/high-temperature"
 DEFAULT_GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
 DEFAULT_LIMIT = 100
 USER_AGENT = "Mozilla/5.0 weather-location-config-refresh/0.1"
+ATOMIC_REPLACE_ATTEMPTS = 20
+ATOMIC_REPLACE_RETRY_SECONDS = 0.05
 
 EVENT_DATE_RE = re.compile(
     r"^highest-temperature-in-(?P<location>.+)-on-"
@@ -60,11 +72,42 @@ def load_json(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def write_json(path: str | Path, payload: dict) -> Path:
+def _write_bytes_atomic(path: str | Path, raw: bytes) -> Path:
+    """Flush a complete temporary file before replacing the published pathname."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=f".{path.name}.", suffix=".tmp",
+            dir=path.parent, delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        for attempt in range(ATOMIC_REPLACE_ATTEMPTS):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                if attempt == ATOMIC_REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(ATOMIC_REPLACE_RETRY_SECONDS)
+        if os.name != "nt":
+            descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return path
+
+
+def write_json(path: str | Path, payload: dict) -> Path:
+    return _write_bytes_atomic(path, json_bytes(payload))
 
 
 def gamma_events_url(*, tag_slug: str, active: bool, closed: bool, limit: int, offset: int) -> str:
@@ -86,6 +129,8 @@ def fetch_gamma_events(
     timeout_seconds: float = 30.0,
     max_pages: int = 20,
 ) -> tuple[list[dict], list[int]]:
+    if type(limit) is not int or limit <= 0 or type(max_pages) is not int or max_pages <= 0:
+        raise ValueError("Gamma pagination requires positive integer limit and max_pages")
     events: list[dict] = []
     offsets: list[int] = []
     for page in range(int(max_pages)):
@@ -102,11 +147,13 @@ def fetch_gamma_events(
             page_events = json.loads(response.read().decode("utf-8"))
         if not isinstance(page_events, list):
             raise ValueError("Gamma events response must be a list")
+        if any(not isinstance(row, dict) for row in page_events):
+            raise ValueError("Gamma events page contains a non-object row")
         offsets.append(offset)
         events.extend(row for row in page_events if isinstance(row, dict))
         if len(page_events) < int(limit):
-            break
-    return events, offsets
+            return events, offsets
+    raise ValueError(f"Gamma pagination is incomplete after {max_pages} full pages; configuration was not refreshed")
 
 
 def event_date_from_slug(slug: str) -> str | None:
@@ -197,11 +244,24 @@ def normalized_market(market: dict) -> dict:
             or market.get("question")
         ),
         "question": market.get("question"),
+        **resolution_evidence(market),
         "enable_order_book": bool_value(market.get("enableOrderBook") if "enableOrderBook" in market else market.get("enable_order_book")),
         "active": bool_value(market.get("active")),
         "closed": bool_value(market.get("closed")),
         "outcomes": outcome_rows,
         "outcome_tokens": outcome_tokens,
+    }
+
+
+def resolution_evidence(payload: dict) -> dict:
+    """Retain exact source text; a digest proves bytes, not settlement semantics."""
+    description = payload.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("Gamma resolution description must be text")
+    return {
+        "description": description,
+        "description_sha256": hashlib.sha256(description.encode("utf-8")).hexdigest() if description is not None else None,
+        "resolution_source_url": payload.get("resolutionSource") or payload.get("resolution_source"),
     }
 
 
@@ -219,7 +279,7 @@ def normalized_event(event: dict) -> dict:
         "event_url": f"https://polymarket.com/event/{slug}" if slug else None,
         "title": event.get("title"),
         "end_date": event.get("endDate") or event.get("end_date"),
-        "resolution_source_url": event.get("resolutionSource") or event.get("resolution_source"),
+        **resolution_evidence(event),
         "market_count": event_market_count(event),
         "markets": markets,
     }
@@ -339,6 +399,90 @@ def durable_locations_payload(
     return output
 
 
+@dataclass(frozen=True)
+class PreparedLocationRefresh:
+    locations_path: Path
+    event_metadata_path: Path
+    source_registry_bytes: bytes
+    previous_metadata_bytes: bytes | None
+    pair: LocationConfigPair
+    metadata_only: bool
+
+
+def _optional_bytes(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def prepare_refresh(
+    *,
+    locations_path: str | Path = DEFAULT_LOCATIONS,
+    event_metadata_path: str | Path = DEFAULT_EVENT_METADATA,
+    events: list[dict] | None = None,
+    generated_at_utc: str | None = None,
+    metadata_only: bool = False,
+) -> PreparedLocationRefresh:
+    locations_path = Path(locations_path).resolve()
+    event_metadata_path = Path(event_metadata_path).resolve()
+    if locations_path == event_metadata_path:
+        raise ValueError("location registry and event metadata paths must differ")
+    source_bytes = locations_path.read_bytes()
+    previous_metadata_bytes = _optional_bytes(event_metadata_path)
+    locations_payload = parse_json_object(source_bytes, label="source location registry")
+    offsets: list[int] = []
+    if events is None:
+        events, offsets = fetch_gamma_events()
+    generated_at_utc = generated_at_utc or utc_iso()
+    event_payload = build_location_market_events(
+        locations_payload, list(events or []),
+        generated_at_utc=generated_at_utc, offsets=offsets,
+    )
+    registry_bytes = source_bytes if metadata_only else json_bytes(durable_locations_payload(
+        locations_payload,
+        event_metadata_path=registry_source_identity(event_metadata_path, locations_path),
+        generated_at_utc=generated_at_utc,
+    ))
+    source_identity = registry_source_identity(locations_path, event_metadata_path)
+    event_payload = build_generation_metadata(
+        registry_bytes, event_payload, source_input_registry_bytes=source_bytes,
+        source_identity=source_identity,
+    )
+    pair = validate_pair_bytes(registry_bytes, json_bytes(event_payload),
+                               expected_source_identity=source_identity)
+    return PreparedLocationRefresh(
+        locations_path, event_metadata_path, source_bytes,
+        previous_metadata_bytes, pair, metadata_only,
+    )
+
+
+def publish_refresh(prepared: PreparedLocationRefresh) -> LocationConfigPair:
+    """Publish the envelope first; refuse stale producers under the shared OS lock."""
+    pair = validate_pair_bytes(
+        prepared.pair.registry_bytes, prepared.pair.metadata_bytes,
+        expected_source_identity=registry_source_identity(
+            prepared.locations_path, prepared.event_metadata_path,
+        ),
+    )
+    generation = pair.event_metadata_payload.get(GENERATION_FIELD) or {}
+    if generation.get("source_input_registry_sha256") != sha256_bytes(prepared.source_registry_bytes):
+        raise ValueError("prepared location config has the wrong source input hash")
+    if prepared.metadata_only and pair.registry_bytes != prepared.source_registry_bytes:
+        raise ValueError("metadata-only refresh must preserve the source registry bytes")
+    with lock_path_transaction(prepared.event_metadata_path):
+        if prepared.locations_path.read_bytes() != prepared.source_registry_bytes:
+            raise ValueError("location config source registry changed before publication")
+        if _optional_bytes(prepared.event_metadata_path) != prepared.previous_metadata_bytes:
+            raise ValueError("location config metadata changed before publication")
+        _write_bytes_atomic(prepared.event_metadata_path, prepared.pair.metadata_bytes)
+        if not prepared.metadata_only:
+            if prepared.locations_path.read_bytes() != prepared.source_registry_bytes:
+                raise ValueError("location config source registry changed after metadata publication")
+            _write_bytes_atomic(prepared.locations_path, prepared.pair.registry_bytes)
+    return prepared.pair
+
+
 def refresh_configs(
     *,
     locations_path: str | Path = DEFAULT_LOCATIONS,
@@ -346,23 +490,12 @@ def refresh_configs(
     events: list[dict] | None = None,
     generated_at_utc: str | None = None,
 ) -> tuple[dict, dict]:
-    locations_payload = load_json(locations_path)
-    offsets: list[int] = []
-    if events is None:
-        events, offsets = fetch_gamma_events()
-    generated_at_utc = generated_at_utc or utc_iso()
-    event_payload = build_location_market_events(
-        locations_payload,
-        list(events or []),
-        generated_at_utc=generated_at_utc,
-        offsets=offsets,
+    """Prepare generation-bound payloads without publishing either file."""
+    prepared = prepare_refresh(
+        locations_path=locations_path, event_metadata_path=event_metadata_path,
+        events=events, generated_at_utc=generated_at_utc,
     )
-    durable_payload = durable_locations_payload(
-        locations_payload,
-        event_metadata_path=event_metadata_path,
-        generated_at_utc=generated_at_utc,
-    )
-    return durable_payload, event_payload
+    return prepared.pair.locations_payload, prepared.pair.event_metadata_payload
 
 
 def main(argv=None):
@@ -380,14 +513,14 @@ def main(argv=None):
     if args.events_json:
         payload = load_json(args.events_json)
         events = payload.get("events") if isinstance(payload, dict) else payload
-    locations_payload, event_payload = refresh_configs(
+    prepared = prepare_refresh(
         locations_path=args.locations,
         event_metadata_path=args.event_metadata,
         events=events,
+        metadata_only=args.metadata_only,
     )
-    if not args.metadata_only:
-        write_json(args.locations, locations_payload)
-    write_json(args.event_metadata, event_payload)
+    pair = publish_refresh(prepared)
+    locations_payload, event_payload = pair.locations_payload, pair.event_metadata_payload
     print(
         "Location config refresh: locations={locations} events={events}".format(
             locations=len(locations_payload.get("locations") or []),
