@@ -1,5 +1,48 @@
 # 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-09-04 - FOUNDATION QUALIFIED; CHALLENGER INCONCLUSIVE; WU OUTCOME EXPORTER QUALIFIED; PRODUCTION EXPORT OPEN]
 
+## September 11 bounded reproduction and planning
+
+The owner requested execution of a 48-hour model/economics plan. The isolated
+preflight is based on the exact research tip
+`e29358e5e94db983cd91038858a2c5a977dce833`, without merging this historical
+lineage wholesale into production.
+
+The [frozen residual preflight](../../operations/residual-preflight.md)
+implements fixed-byte verification of the two existing model images, the
+preselected 24 already-evaluated 2025 records, native-unit feature reproduction
+and the retained primary predictions. It adds clone equality and source,
+artifact, dependency and feature substitution refusal. No model is fitted
+and no new outcome population is opened.
+
+The separate synthetic grid evaluates null coverage and power across date
+persistence, market variation, a fixed reduced-market cohort and later-season
+variance assumptions. All process variances are hypothetical. It does not
+adopt an inference method, set a confirmatory hurdle, spend alpha, or infer a
+required real sample size.
+
+At source preparation, 53 owner/schema/import/module-size tests passed through
+the assigned workstation wrapper, with compilation and documentation checks.
+The initial 19 owner tests include an import-path/hash witness. The actual
+frozen-data reproduction and full planning simulation remain unexecuted pending
+reviewed controlling-guard adoption of the explicit offline module. The
+operational admission declaration is maintained separately on
+`codex/residual-preflight-admission-20260911`. This historical checkout carries
+the same one-entry declarations and negative authority test without importing
+the production branch's unrelated history. Source publication does not adopt
+the controlling guard or authorize an unwrapped launch.
+
+Full CI exposed older Windows-only ACL and atomic-publication dependencies
+in export fixtures on Linux. Test-only follow-ups supply explicitly synthetic
+filesystem seams for non-Windows domain fixtures, retain the actual Windows
+ACL API and native no-replace race tests, and verify unsupported-platform
+refusal before mutation. Native exporter verification passes all 94 tests.
+The runtime exporter and both platform safeguards remain unchanged.
+
+Prospective qualification remains open on source timing and extension beyond
+the model's frozen seasonal population. Previously evaluated 2024/2025/2026
+cohorts do not become unseen support. This subsection records bounded preflight
+work; it does not close Phases C–E or alter their acceptance criteria.
+
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
 and test a simple challenger that adds genuinely new point-in-time forecast

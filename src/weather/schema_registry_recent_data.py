@@ -7,6 +7,16 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "residual_preflight_manifest", "residual_preflight_manifest_v0.1",
+        "weather.calibration.residual_preflight", "active",
+        "Frozen model/input/environment bindings and a synthetic-only power configuration.",
+    ),
+    SchemaSpec(
+        "residual_preflight", "residual_preflight_v0.1",
+        "weather.calibration.residual_preflight", "active",
+        "Bounded reproduction of previously evaluated predictions and artificial crossed-cluster planning; no new outcome or promotion authority.",
+    ),
+    SchemaSpec(
         "capture_recovery_check",
         "capture_recovery_check_v1",
         "weather.operations.capture_recovery_check",

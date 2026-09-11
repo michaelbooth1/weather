@@ -19,6 +19,18 @@ def _admit_synthetic_validator_specs(monkeypatch: pytest.MonkeyPatch) -> None:
         "_load_frozen_spec",
         lambda _repo_root, spec_path: contract._read_json(spec_path),
     )
+    if exporter.os.name != "nt":
+        # These are artifact-validator fixtures, not host ACL measurements.
+        sddl = "O:S-1-5-21-111D:(A;;FA;;;S-1-5-21-111)"
+        monkeypatch.setattr(
+            exporter,
+            "_windows_acl_proof",
+            lambda _path: {
+                "owner": "S-1-5-21-111",
+                "sddl": sddl,
+                "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
+            },
+        )
 
 
 def _write_json(path: Path, value: object) -> None:

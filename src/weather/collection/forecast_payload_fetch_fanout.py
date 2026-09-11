@@ -364,6 +364,10 @@ class CrossProcessMarketInvariantFetchFanout:
                 f"cross-process fan-out receipt is unreadable: {path}: {exc}"
             ) from exc
         _validate_receipt_stat(path, before)
+        # The publisher's temporary hard link changes ctime when removed.
+        # Do not open the receipt until that cleanup has completed.
+        if before.st_nlink != 1:
+            return None
         flags = os.O_RDONLY | int(getattr(os, "O_BINARY", 0))
         flags |= int(getattr(os, "O_NOFOLLOW", 0))
         try:
@@ -776,7 +780,16 @@ class CrossProcessMarketInvariantFetchFanout:
             if claim_token is not None:
                 # Recheck after claiming in case another holder published just
                 # before releasing its claim.
-                receipt = self._read_receipt(self.cas.root, receipt_path)
+                try:
+                    receipt = self._read_receipt(self.cas.root, receipt_path)
+                    if receipt is None and receipt_path.exists():
+                        raise ForecastPayloadCASIntegrityError(
+                            "cross-process fan-out receipt publication is unfinished "
+                            "without an active holder"
+                        )
+                except BaseException:
+                    self._release_claim(self.cas.root, claim_path, claim_token)
+                    raise
                 if receipt is not None:
                     self._release_claim(self.cas.root, claim_path, claim_token)
                     return self._result_from_receipt(

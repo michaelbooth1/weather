@@ -56,6 +56,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
+        "weather.calibration.residual_preflight",
         "weather.calibration.seasonal_challenger",
         "weather.operations.agent_docs_audit",
         "weather.operations.base_retrain",

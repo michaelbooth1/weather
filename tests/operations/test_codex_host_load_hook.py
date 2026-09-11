@@ -1218,3 +1218,24 @@ def test_assignment_role_proof_rejects_bom_duplicate_and_unstable_files(
         )
         is None
     )
+
+
+def test_residual_preflight_declaration_preserves_offline_only_authority():
+    module = "weather.calibration.residual_preflight"
+    assert module in HOOK._OFFLINE_WEATHER_MODULES
+    assert "weather.calibration" not in HOOK._OFFLINE_WEATHER_MODULES
+    protected = datetime(2026, 9, 11, 14, 0, tzinfo=ZONE)
+    for forbidden in ("--live", "--execute", "--place", "--cancel", "--promote"):
+        command = workstation_wrapper_command(
+            "weather_heavy", ["-m", module, forbidden],
+        )
+        for capture_host in (False, True):
+            assert HOOK.evaluate(
+                payload(command), now=protected,
+                constrained_capture_host=capture_host,
+            ) is not None
+    for capture_host in (False, True):
+        assert HOOK.evaluate(
+            payload("python -m " + module), now=protected,
+            constrained_capture_host=capture_host,
+        ) is not None
