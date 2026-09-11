@@ -256,7 +256,8 @@ def test_source_drift_retains_failed_attempt_and_refuses_reuse(corpus):
     original = {path.name: path.read_bytes() for path in attempt.iterdir()}
     receipt = json.loads(original["receipt.json"])
     assert receipt["status"] == "FAIL_CLOSED"
-    assert "archive.tar.gz" in original
+    assert "archive.tar.gz" not in original
+    assert "source metadata differs before staging: a.csv" == receipt["error_message"]
     with pytest.raises(FileExistsError):
         _run(corpus)
     assert original == {path.name: path.read_bytes() for path in attempt.iterdir()}
@@ -288,12 +289,10 @@ def test_admission_and_expired_deadline_prevent_claim(corpus):
 
 
 def test_mid_attempt_admission_loss_is_terminal_and_retains_partial(corpus):
-    calls = 0
+    archive_path = corpus[0] / "attempt/archive.tar.gz"
 
     def admission():
-        nonlocal calls
-        calls += 1
-        return calls < 2
+        return not (archive_path.exists() and archive_path.stat().st_size > 0)
 
     with pytest.raises(stage.ArchiveStageError, match="admission"):
         _run(corpus, admission=admission)
