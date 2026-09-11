@@ -761,3 +761,128 @@ def test_receipt_evidence_accounts_once_when_holder_never_writes_manifest(tmp_pa
                 "nyc": {"forecast_payload_storage": conflicting},
             }
         )
+
+
+def test_receipt_is_not_read_until_publication_link_cleanup(tmp_path, monkeypatch):
+    root = tmp_path / "shared-cas"
+    receipt_path = root / "receipt.json"
+    fanout_module._write_immutable_json(root, receipt_path, {"status": "complete"})
+    staging_link = root / ".receipt.staging"
+    os.link(receipt_path, staging_link)
+    assert os.lstat(receipt_path).st_nlink == 2
+
+    original_open = fanout_module.os.open
+
+    def forbid_open_during_publication(path, *args, **kwargs):
+        if os.fspath(path) == os.fspath(receipt_path):
+            pytest.fail("Receipt opened while publication link cleanup is pending")
+        return original_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(fanout_module.os, "open", forbid_open_during_publication)
+        assert CrossProcessMarketInvariantFetchFanout._read_receipt(
+            root, receipt_path
+        ) is None
+
+    staging_link.unlink()
+    assert os.lstat(receipt_path).st_nlink == 1
+    receipt = CrossProcessMarketInvariantFetchFanout._read_receipt(root, receipt_path)
+    assert receipt["status"] == "complete"
+
+
+def test_unfinished_receipt_without_holder_refuses_fetch_and_releases_claim(tmp_path):
+    root = tmp_path / "shared-cas"
+    coordinator = CrossProcessMarketInvariantFetchFanout(root)
+    receipt_path, claim_path = coordinator._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1"
+    )
+    _fetch(coordinator, lambda: dict(FETCH_VALUE))
+    coordinator = CrossProcessMarketInvariantFetchFanout(root)
+    original = receipt_path.read_bytes()
+    staging_link = receipt_path.with_name(".retained-publication-link")
+    os.link(receipt_path, staging_link)
+    calls = []
+
+    with pytest.raises(ForecastPayloadCASIntegrityError, match="unfinished"):
+        _fetch(coordinator, lambda: calls.append("provider") or dict(FETCH_VALUE))
+
+    assert calls == []
+    assert not claim_path.exists()
+    assert staging_link.read_bytes() == original
+    assert receipt_path.read_bytes() == original
+
+
+def test_receipt_recheck_failure_releases_new_claim(tmp_path, monkeypatch):
+    root = tmp_path / "shared-cas"
+    coordinator = CrossProcessMarketInvariantFetchFanout(root)
+    _, claim_path = coordinator._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1"
+    )
+    checks = []
+
+    def receipt_recheck(_root, _path):
+        checks.append("read")
+        if len(checks) == 1:
+            return None
+        raise ForecastPayloadCASIntegrityError("synthetic recheck mutation")
+
+    monkeypatch.setattr(coordinator, "_read_receipt", receipt_recheck)
+    calls = []
+    with pytest.raises(ForecastPayloadCASIntegrityError, match="recheck mutation"):
+        _fetch(coordinator, lambda: calls.append("provider") or dict(FETCH_VALUE))
+
+    assert checks == ["read", "read"]
+    assert calls == []
+    assert not claim_path.exists()
+
+
+def test_waiter_observes_receipt_only_after_holder_removes_staging_link(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "shared-cas"
+    holder = CrossProcessMarketInvariantFetchFanout(root, poll_seconds=0.002)
+    waiter = CrossProcessMarketInvariantFetchFanout(root, poll_seconds=0.002)
+    receipt_path, claim_path = holder._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1"
+    )
+    linked = threading.Event()
+    waiter_checked = threading.Event()
+    allow_cleanup = threading.Event()
+    original_link = fanout_module.os.link
+    original_read = waiter._read_receipt
+
+    def link_and_pause(source, destination):
+        original_link(source, destination)
+        if os.fspath(destination) == os.fspath(receipt_path):
+            linked.set()
+            assert allow_cleanup.wait(timeout=5)
+
+    def observe_waiter_read(cas_root, path):
+        result = original_read(cas_root, path)
+        if path == receipt_path and linked.is_set() and not allow_cleanup.is_set():
+            assert result is None
+            waiter_checked.set()
+        return result
+
+    monkeypatch.setattr(fanout_module.os, "link", link_and_pause)
+    monkeypatch.setattr(waiter, "_read_receipt", observe_waiter_read)
+    calls = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            _fetch, holder, lambda: calls.append("holder") or dict(FETCH_VALUE)
+        )
+        try:
+            assert linked.wait(timeout=5)
+            second = pool.submit(
+                _fetch, waiter, lambda: calls.append("waiter") or dict(FETCH_VALUE)
+            )
+            assert waiter_checked.wait(timeout=5)
+        finally:
+            allow_cleanup.set()
+        holder_result = first.result(timeout=5)
+        waiter_result = second.result(timeout=5)
+    assert calls == ["holder"]
+    assert holder_result.value == waiter_result.value
+    assert waiter_result.reused is True
+    assert os.lstat(receipt_path).st_nlink == 1
+    assert not claim_path.exists()
