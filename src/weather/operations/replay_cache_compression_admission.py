@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import time
 from zoneinfo import ZoneInfo
 
 from weather.operations.capture_resource_gate import (
@@ -156,6 +157,22 @@ def capture_admission(production_root: Path):
 
 
 def observe_capture_admission(production_root: Path, resource_checker, *, memory_reader=None):
+    # Retry only transient archive status reads; every health gate runs fresh.
+    names = {spec.status_path.name for spec in default_loop_specs(production_root / "data" / "snapshots")}
+    names |= {"." + name + ".writer.lock" for name in names}
+    attempts = 3 if memory_reader is not None else 1
+    for attempt in range(attempts):
+        try:
+            return _observe_capture_admission_once(production_root, resource_checker, memory_reader=memory_reader)
+        except PermissionError as exc:
+            path = Path(exc.filename) if exc.filename else None
+            if (attempt + 1 == attempts or path is None
+                    or path.parent != production_root / "data" / "snapshots" or path.name not in names):
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
+def _observe_capture_admission_once(production_root: Path, resource_checker, *, memory_reader=None):
     now = datetime.now(timezone.utc)
     observed, loops, statuses = {}, [], []
     def process(pid):
