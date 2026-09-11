@@ -38,6 +38,28 @@ ledger. No encryption or key-custody record is invented for plain data.
 An interrupted publication can reuse only identical verified catalog bytes;
 partial original deletion still requires the existing ledger reconciliation.
 
+The conditional explanation-CSV reserve needs its own owner-bound selection,
+complete source review and a conservative primary-allocation proof before reclaim.
+That proof reconciles every sealed campaign reclaim receipt with the current
+counter and its approved original identities. Remaining primary files count at
+their full approved allocation ceiling; an allocation above that ceiling cannot
+qualify under the existing identity contract. Actual past allocation reductions
+and fresh, pinned review-queue protection are the only deductions. Reserve reclaim is allowed only
+when this complete upper bound is below the owner's target, and retains the proof
+inside its immutable reclaim receipt. Missing or inconsistent history refuses.
+Packed plans stop at sixteen distinct market days, matching the existing
+settlement-review bound.
+
+The workstation cleanup module accepts `--plain-downloads` with one to twenty
+repeated `--upload-receipt <absolute-path> <sha256>` references, plus its existing
+`--attempt-id` and `--expected-source-tip`. Use the exact workstation heavy wrapper.
+It rehashes both the retained copied archive and its independent verification
+download against the successful upload receipt, then removes only the duplicate
+download. Copied archives, manifests, receipts, credentials, directories, failed
+attempts and cloud objects remain. Verification is bounded to 12 GiB per job at
+the existing workstation read rate; temporary savings never advance the original
+archive-reclaim target.
+
 ## Update this file when
 
 Update when the approved transfer or original-deletion route changes.

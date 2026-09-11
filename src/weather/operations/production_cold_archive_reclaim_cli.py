@@ -118,7 +118,7 @@ def _run_pinned(args, root, output, request_path, stack):
         raise ValueError("Python import root is not wrapper-bound")
     for module in (__file__, reclaim.__file__, plain.__file__, native.__file__, reclaim.archive.__file__,
                    reclaim.bridge.__file__, reclaim.catalog.__file__, reclaim.locations.__file__,
-                   reclaim.spool.__file__,
+                   reclaim.spool.__file__, reclaim.primary_budget.__file__,
                    staging.__file__, metadata.__file__):
         if not Path(module).resolve().is_relative_to(source / "src" / "weather"):
             raise ValueError("reclaim module escaped the reviewed source checkout")

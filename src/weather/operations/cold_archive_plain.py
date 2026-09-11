@@ -120,7 +120,7 @@ def prepare_request(request, *, production_root, backup_host_id, output_root,
         entry = {"schema_version": schema_version("cold_archive_catalog_entry"), "status": "UPLOADED",
                  **bound, "proofs": proofs, "published_at_utc": datetime.now(timezone.utc).isoformat(),
                  "cleanup_eligible": False, "deletion_authorized": False}
-        reclaim._approval(request, stack, entry)
+        _, _, selection_kind, _ = reclaim._approval(request, stack, entry)
         stage_path = Path(docs["production_receipt"].get("attempt_root", "")) / "archive.tar.gz"
         relative = stage_path.relative_to(production_root)
         require(len(relative.parts) == 5 and relative.parts[:2] == ("scratch", "production_cold_archive")
@@ -161,7 +161,7 @@ def prepare_request(request, *, production_root, backup_host_id, output_root,
             require(locations.load_location(path).entry_sha256 == entry_sha, "plain location readback differs")
         guard.admit()
         checked = review.review_sources(production_root=production_root, entry=entry, entry_sha256=entry_sha,
-                                         output_root=output_root / "source-review")
+                                         output_root=output_root / "source-review", selection_kind=selection_kind)
         with bridge._file_pin(locations.safe_path(stage_path)) as pin:
             native = pin.metadata()
         inventory_path = output_root / "spool-inventory.json"

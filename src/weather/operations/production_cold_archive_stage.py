@@ -30,6 +30,7 @@ from weather.schema_registry import schema_version
 MIB = 1024**2
 MAX_CHUNK_BYTES = 1024 * MIB
 MAX_MEMBERS = 256
+MAX_MARKET_DAYS = 16
 MAX_METADATA_BYTES = 16 * MIB
 MAX_FILES = 10000
 FORMAT = "production_sorted_ustar_gzip_level1_v1"
@@ -205,6 +206,7 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING, isolated_events=()):
         raise ArchiveStageError("unknown chunk grouping")
     isolated_events = _isolated_events(isolated_events, grouping)
     chunks, members, total, previous_group = [], [], 0, None
+    current_events = set()
     for row in rows:
         # Preserve each original representation. CSV and gzip halves share a
         # retrieval group but remain distinct, independently verified members.
@@ -219,11 +221,16 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING, isolated_events=()):
         if row["size_bytes"] > limit:
             raise ArchiveStageError("whole source file exceeds chunk limit")
         if members and (total + row["size_bytes"] > limit or len(members) >= MAX_MEMBERS
-                        or (grouping != LEGACY_GROUPING and group != previous_group)):
+                        or (grouping != LEGACY_GROUPING and group != previous_group)
+                        or (grouping == PARTITIONED_GROUPING and path.parts[1] not in current_events
+                            and len(current_events) >= MAX_MARKET_DAYS)):
             chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                            "files": members, "logical_bytes": total})
             members, total = [], 0
+            current_events = set()
         members.append(row)
+        if grouping == PARTITIONED_GROUPING:
+            current_events.add(path.parts[1])
         total += row["size_bytes"]
         previous_group = group
     if members:

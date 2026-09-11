@@ -45,7 +45,30 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def review_sources(*, production_root, entry, entry_sha256, output_root, now=None):
+def protected_queue_events(*, production_root, observations):
+    """Read the canonical queue and its exact complete audit-key dependencies."""
+    obs, backtest = observations, Path(production_root) / "data" / "backtest"
+    queue_path = backtest / "model_market_disagreement_review_queue.json"
+    queue = obs.json(queue_path)
+    audit_path = backtest / "model_market_disagreement_audit.jsonl"
+    require(Path(queue["source_audit_log_path"]) == audit_path, "queue audit source changed")
+    audit = {}
+    for line in obs.text(audit_path).splitlines():
+        if line.strip():
+            value = json.loads(line, object_pairs_hook=archive._pairs)
+            require(value.get("audit_key") and value.get("event_slug"), "queue audit lacks identity")
+            audit[value["audit_key"]] = value
+    protected = set()
+    for row in queue["rows"]:
+        keys = row["sample_audit_keys"]
+        require(isinstance(keys, list) and len(keys) == row["case_count"], "queue samples incomplete")
+        for key in keys:
+            require(key in audit, "queue audit key absent")
+            protected.add(audit[key]["event_slug"])
+    return protected, queue_path, audit_path
+
+
+def review_sources(*, production_root, entry, entry_sha256, output_root, now=None, selection_kind="primary"):
     root, out = Path(production_root), Path(output_root)
     current = now or datetime.now(timezone.utc)
     archive._require_sha256(entry_sha256)
@@ -53,10 +76,12 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
     require(not out.exists(), "source review attempt is spent")
     obs = Observations()
     events = sorted({archive._relative(row["path"]).split("/")[1] for row in entry["files"]})
-    require(1 <= len(events) <= 16, "source review event bound")
+    require(1 <= len(events) <= archive.MAX_MARKET_DAYS, "source review event bound")
+    require(selection_kind in {"primary", "conditional_reserve"}, "unreviewed selection kind")
+    families = FAMILIES if selection_kind == "primary" else re.compile(r"snapshot_explanations_long[.]csv")
     for row in entry["files"]:
         parts = row["path"].split("/")
-        require(len(parts) == 3 and parts[0] == "snapshots" and FAMILIES.fullmatch(parts[2]),
+        require(len(parts) == 3 and parts[0] == "snapshots" and families.fullmatch(parts[2]),
                 "unreviewed detail file family")
     rows, settlements, all_countable = [], [], True
     for event in events:
@@ -81,23 +106,7 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
     require(all(barrier.get("target_date") != row["target_date"]
                 and row["event_slug"] not in barrier_text for row in rows),
             "barrier references a selected event")
-    queue_path = backtest / "model_market_disagreement_review_queue.json"
-    queue = obs.json(queue_path)
-    audit_path = backtest / "model_market_disagreement_audit.jsonl"
-    require(Path(queue["source_audit_log_path"]) == audit_path, "queue audit source changed")
-    audit = {}
-    for line in obs.text(audit_path).splitlines():
-        if line.strip():
-            value = json.loads(line, object_pairs_hook=archive._pairs)
-            require(value.get("audit_key") and value.get("event_slug"), "queue audit lacks identity")
-            audit[value["audit_key"]] = value
-    protected = set()
-    for row in queue["rows"]:
-        keys = row["sample_audit_keys"]
-        require(isinstance(keys, list) and len(keys) == row["case_count"], "queue samples incomplete")
-        for key in keys:
-            require(key in audit, "queue audit key absent")
-            protected.add(audit[key]["event_slug"])
+    protected, queue_path, audit_path = protected_queue_events(production_root=root, observations=obs)
     require(not protected.intersection(events), "review queue protects selected event")
     learning_path = backtest / "daily_learning.json"
     learning = obs.json(learning_path, 8 * MIB)
@@ -180,7 +189,7 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
         checks[name] = {"status": "PASS", "open_references": [], "evidence": evidence}
     review = archive._seal({
         "schema_version": schema_version("cold_archive_source_review"), "status": "PASS",
-        "entry_sha256": entry_sha256, "archive_id": entry["archive_id"],
+        "entry_sha256": entry_sha256, "archive_id": entry["archive_id"], "selection_kind": selection_kind,
         "files": observations["exact_sources"], "market_days": rows,
         "checked_at_utc": current.isoformat(),
         "expires_at_utc": (current + timedelta(minutes=5)).isoformat(), "checks": checks}, "receipt_hash")
