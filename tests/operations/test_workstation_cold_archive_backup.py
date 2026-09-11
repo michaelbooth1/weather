@@ -63,3 +63,40 @@ def test_changed_download_does_not_qualify_backup(transfer_fixture, tmp_path, mo
         backup.run(**args)
     assert Path(args["bundle_path"]).is_file()
     assert f.secret.wiped
+
+
+def plain_args(f, tmp_path, monkeypatch):
+    args = setup(f, tmp_path, monkeypatch)
+    source = tmp_path / "repository/scratch/ac-in/batch/tape.jsonl"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'{"original":true}\n' * 100)
+    args.update(bundle_path=str(source), bundle_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                plain_file=True)
+    return args
+
+def test_plain_file_uploaded_without_encryption_and_download_verified(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    args = plain_args(f, tmp_path, monkeypatch)
+    original = Path(args["bundle_path"]).read_bytes()
+    result = backup.run(**args)
+    assert result["payload_encryption"] == "none" and result["independent_download_verified"]
+    assert f.drive.objects["backup-a1-tape.jsonl"] == original
+    assert Path(result["downloaded_path"]).read_bytes() == original
+    assert Path(args["bundle_path"]).read_bytes() == original
+    assert f.secret.wiped
+
+def test_plain_file_bad_download_retains_original_and_refuses_pass(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    args = plain_args(f, tmp_path, monkeypatch)
+    f.drive.corrupt_suffix = ".jsonl"
+    with pytest.raises(backup.core.TransferError, match="independent"):
+        backup.run(**args)
+    assert Path(args["bundle_path"]).exists()
+
+def test_plain_file_wrong_input_hash_never_uploads(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    args = plain_args(f, tmp_path, monkeypatch)
+    args["bundle_sha256"] = "f" * 64
+    with pytest.raises(backup.core.TransferError, match="input hash"):
+        backup.run(**args)
+    assert not any(call[0] == "upload" for call in f.drive.calls)
