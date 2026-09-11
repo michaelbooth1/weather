@@ -28,7 +28,10 @@ try{
  if(-not $held){throw 'another archive campaign controller owns this host'}
  $env:WEATHER_ARCHIVE_CAMPAIGN_WRAPPER='1'
  $env:PYTHONPATH=Join-Path $source 'src'
- $childTokens=@('-m','weather.operations.cold_archive_campaign','--config',$Configuration,'--config-sha256',$ConfigurationSHA256)
+ $logParent=Join-Path ([string]$config.production_root) ('scratch/ac-control/'+[string]$config.campaign_id)
+ $logPath=Join-Path $logParent ('controller-'+[Guid]::NewGuid().ToString('N')+'.log')
+ Write-Output ('CAMPAIGN_LOG '+$logPath)
+ $childTokens=@('-m','weather.operations.cold_archive_campaign','--config',$Configuration,'--config-sha256',$ConfigurationSHA256,'--log-file',$logPath)
  if($MaximumBatches -gt 0){$childTokens+=@('--max-batches',[string]$MaximumBatches)}
  $job=New-WeatherKillOnCloseJob
  $child=Start-WeatherProcessInJob -Job $job -FilePath $python -WorkingDirectory $source -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $childTokens)
@@ -38,6 +41,7 @@ try{
   if([Math]::Max($child.WorkingSet64,$child.PrivateMemorySize64) -gt 384MB){throw 'campaign controller memory limit'}
  }
  $code=$child.ExitCode
+ if(Test-Path -LiteralPath $logPath){Get-Content -LiteralPath $logPath -Tail 30}
  $job.TerminateAndWait(5000);$cleared=$true
 }finally{
  $env:WEATHER_ARCHIVE_CAMPAIGN_WRAPPER=$prior

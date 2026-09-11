@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import threading
+import uuid
 import time
 
 from weather.operations import production_cold_archive_stage as archive
@@ -63,43 +63,32 @@ class Transport:
             raise ValueError("pinned SSH trust changed")
 
     def run(self, arguments, seconds):
-        process = subprocess.Popen(
-            arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=self.source, shell=False, creationflags=subprocess.CREATE_NO_WINDOW)
-        output, errors, overflow = bytearray(), bytearray(), threading.Event()
-        def drain(stream, target):
-            while True:
-                block = stream.read(4096)
-                if not block:
-                    return
-                if len(target) + len(block) > MAX_OUTPUT:
-                    overflow.set()
-                    return
-                target.extend(block)
-        readers = [threading.Thread(target=drain, args=pair, daemon=True) for pair in (
-            (process.stdout, output), (process.stderr, errors))]
-        for reader in readers:
-            reader.start()
+        # Native Windows OpenSSH is reliable with file-backed output under a
+        # headless Windows Job. Keep bounded diagnostics for every invocation.
+        logs = self.root / "scratch/ac-control" / self.config["campaign_id"] / "transport"
+        logs.mkdir(exist_ok=True)
+        path = logs / (uuid.uuid4().hex + ".log")
         end = time.monotonic() + seconds
-        try:
-            while process.poll() is None:
-                if time.monotonic() >= end or overflow.is_set():
-                    raise state.CampaignPaused("phase transport ended; retained claim needs reconciliation")
-                try:
-                    process.wait(timeout=.25)
-                except subprocess.TimeoutExpired:
-                    pass
-            for reader in readers:
-                reader.join(timeout=2)
-            if overflow.is_set() or any(reader.is_alive() for reader in readers):
-                raise state.CampaignPaused("phase output was not bounded")
-            return process.returncode, output.decode("utf-8", errors="replace")
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
-            process.stdout.close()
-            process.stderr.close()
+        with path.open("xb") as output:
+            process = subprocess.Popen(
+                arguments, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                cwd=self.source, shell=False, creationflags=subprocess.CREATE_NO_WINDOW)
+            try:
+                while process.poll() is None:
+                    if time.monotonic() >= end or path.stat().st_size > MAX_OUTPUT:
+                        raise state.CampaignPaused(
+                            "phase transport ended; retained claim and log need inspection: " + str(path))
+                    try:
+                        process.wait(timeout=.25)
+                    except subprocess.TimeoutExpired:
+                        pass
+                if path.stat().st_size > MAX_OUTPUT:
+                    raise state.CampaignPaused("phase output was not bounded")
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+        return process.returncode, path.read_bytes().decode("utf-8", errors="replace")
 
     def ssh_run(self, arguments, seconds):
         with ExitStack() as stack:
