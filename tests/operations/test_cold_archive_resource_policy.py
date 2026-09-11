@@ -143,3 +143,51 @@ def test_native_system_commit_is_independent_of_process_memory_limit():
             child.kill()
             child.wait(timeout=5)
         kernel.CloseHandle(job)
+
+
+def idle_snapshot_resources():
+    values = resources()
+    values["loops"][0].update(heartbeat_age_seconds=300.02,
+        last_clean_iteration_age_seconds=300, last_sleep_seconds=400, markets_in_progress=[])
+    return values
+
+
+def test_only_archive_accepts_verified_planned_snapshot_sleep():
+    values = idle_snapshot_resources()
+    assert archive.check_resources(**values)["status"] == "PASS"
+    ordinary = shared.check_capture_health(
+        **{key: values[key] for key in ("now", "available", "commit", "loops")})
+    assert ordinary["status"] == "BLOCK"
+    assert "capture_unhealthy:snapshot" in ordinary["reasons"]
+
+
+@pytest.mark.parametrize("change", [
+    {"heartbeat_age_seconds": 410.01, "last_clean_iteration_age_seconds": 410},
+    {"heartbeat_age_seconds": 299},  # New iteration heartbeat follows last clean completion.
+    {"heartbeat_age_seconds": 302},  # No matching completed iteration.
+    {"last_clean_iteration_age_seconds": None}, {"last_sleep_seconds": None},
+    {"last_sleep_seconds": 600.1}, {"last_sleep_seconds": 180},
+    {"last_sleep_seconds": True}, {"last_sleep_seconds": float("nan")},
+    {"last_sleep_seconds": float("inf")}, {"markets_in_progress": None},
+    {"markets_in_progress": ["denver"]}, {"active": False}, {"degraded": True},
+    {"heartbeat_fresh": False}, {"pid_agreement": False},
+    {"process_identity_matches_lock": False},
+    {"process_diagnostics": {"status_pid_alive": False, "lock_pid_alive": True}},
+])
+def test_planned_sleep_never_masks_busy_stale_or_unhealthy_capture(change):
+    values = idle_snapshot_resources()
+    values["loops"][0].update(change)
+    assert archive.check_resources(**values)["status"] == "BLOCK"
+
+
+def test_planned_sleep_is_bounded_and_never_applies_to_other_producers():
+    values = idle_snapshot_resources()
+    values["loops"][0].update(heartbeat_age_seconds=610,
+        last_clean_iteration_age_seconds=609.99, last_sleep_seconds=600)
+    assert archive.check_resources(**values)["status"] == "PASS"
+    values["loops"][0]["heartbeat_age_seconds"] = 610.01
+    assert archive.check_resources(**values)["status"] == "BLOCK"
+    values = idle_snapshot_resources()
+    values["loops"][1].update(heartbeat_age_seconds=300.02,
+        last_clean_iteration_age_seconds=300, last_sleep_seconds=400, markets_in_progress=[])
+    assert archive.check_resources(**values)["status"] == "BLOCK"

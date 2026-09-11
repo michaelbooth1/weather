@@ -412,3 +412,14 @@ other metadata change refuses. The proposal and plan remain immutable.
 The verifier hashes the archive and every ordered member in one streaming
 read. The 16 MiB/s disk-read cap applies to compressed bytes once; decompressed
 bytes are checked in bounded memory without counting them as another disk read.
+
+
+Archive admission recognizes the snapshot producer's declared idle sleep after
+a clean iteration. Only that producer may use its advertised sleep of at most
+600 seconds plus ten seconds to wake: no market may be in progress, its
+heartbeat must precede the matching clean completion by at most one second,
+and canonical liveness, native process/lock identity and all resource checks
+must still pass. A heartbeat from a new iteration invalidates the idle case.
+Busy snapshot work and the other producers keep the 180-second bound; other
+storage workloads keep their existing policy. This handles the producer's
+existing sleep behavior without changing capture cadence or restarting it.
