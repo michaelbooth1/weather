@@ -314,6 +314,26 @@ meaningful payout. Fixtures cover zero campaign, expired rules, cents/price-unit
 conversion, price extremes, changing competitors, tick/size and cap boundaries.
 Reuse existing recon and economics schemas; add only missing fields/readers.
 
+On September 11 at 10:13:55 UTC, the existing collector on prepared source
+`c2e0765dd65e666a7e461c7387ccd268b0c1ebb3` captured the configured scope:
+12 locations, 32 current/upcoming events and 352 conditions. Thirty-six complete
+reward pages, 32 Gamma responses and six rule documents retained 8,016,365 raw
+HTTP-response bytes. The source gate passed without changing the accepted
+economics baseline. The full snapshot SHA-256 is
+`8ccb4c43b06ee5c6a2a1ecfca848bf46063eb11bd0897761b7dce7d7905639ab`;
+the 136-row campaign inventory SHA-256 is
+`ba52bf86f0f141e33b8d2276a8c0a8e83ae2571e3d64d793ba8885b57020a41f`.
+Both artifacts have independently matching copies on the separate PCs.
+
+The positive configured allocations cover 40 September 11 conditions with
+100-share reward minimums, 44 September 12 conditions and 52 September 13
+conditions with 20-share minimums; all use a 4.5-cent maximum distance. These
+are observed current configurations, including future event dates, not proof
+that every allocation is already earning. W3/G1 remain open for exact books,
+token-outcome mapping, authoritative adjusted-midpoint and interval/epoch
+provenance, capital/cleanup limits and competitor-score/after-cost scenarios.
+No condition is yet qualified as an economic opportunity or paid profit.
+
 ### W4 — Complete authoritative reward and P&L reconciliation
 
 Owner: `weather.market.market_making_evidence`, pilot and economics owners.
