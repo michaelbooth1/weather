@@ -100,6 +100,9 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
             remote = client.object(key)
             core._require(remote["bytes"] == size, "backup remote size differs")
             client.committed_objects[key] = remote
+            core.archive._write(attempt / "uploaded.json", core._seal({
+                "status": "UPLOADED", "bundle_sha256": raw_sha, "bytes": size,
+                "drive": {"root_folder_id": drive_root_folder_id, **remote}}))
             downloaded = attempt / ("downloaded-" + source.name if plain_file else "independent-recovery.json")
             client.copy(drive_remote_name + ":" + key, downloaded, size)
             count, digest = core._sha_file(
@@ -119,6 +122,12 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
                 "downloaded_path": str(downloaded), "completed_at_utc": datetime.now(timezone.utc).isoformat()}
             core.archive._write(attempt / "receipt.json", core._seal(result))
             return result
+        except Exception as exc:
+            core.archive._write(attempt / "failure.json", core._seal({
+                "status": "FAILED_RETAIN_AND_INSPECT", "error_type": type(exc).__name__,
+                "reason": str(exc), "client_failure": getattr(locals().get("client"), "last_failure", None),
+                "completed_at_utc": datetime.now(timezone.utc).isoformat()}))
+            raise
         finally:
             environment.pop(core.crypt.CONFIG_PASS_ENV, None)
             if secret is not None:
