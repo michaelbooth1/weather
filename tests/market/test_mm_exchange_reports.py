@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import unittest
 
 from weather.market import mm_exchange as exchange
@@ -91,6 +93,9 @@ class TestMMExchangeReports(unittest.TestCase):
                 "settlement_pnl_usdc": "0.99",
             },
         }
+        reconciliation["rewards"]["incentive_payment_evidence"] = json.loads(
+            (Path(__file__).resolve().parents[1] / "fixtures" / "mm_incentive_payments.json").read_text(encoding="utf-8")
+        )
         quote_rows = [{
             "quote_permission": "True",
             "expected_rebate_value": "0.01",

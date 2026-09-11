@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-10T10:33:03.970539+00:00
+Generated: 2026-09-11T08:46:46.523457+00:00
 Status: `OK`
 
 ## Summary
@@ -59,7 +59,7 @@ Status: `OK`
 | 325 | PARTIAL | 2026-09-10 | VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | PARTIAL | 2026-09-11 | OFFLINE ACCOUNTING FIXTURES PASS; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 
 ## Lint Issues
 

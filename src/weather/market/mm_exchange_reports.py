@@ -13,9 +13,11 @@ from urllib.parse import parse_qs, urlsplit
 
 from weather.market.mm_policy import bool_value, maybe_float
 from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS
+from weather.market.mm_incentive_payments import reconcile_incentive_payments
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "mm_exchange_adapter_v0.2"
+SCHEMA_VERSION = schema_version("mm_exchange_adapter")
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
 CONDITION_ID_RE = re.compile(r"^0x[0-9a-f]{64}$")
 TX_HASH_RE = re.compile(r"^0x[0-9a-f]{64}$")
@@ -375,6 +377,7 @@ def maker_rebate_reconciliation(rewards):
         blockers.append("maker_rebate_rows_invalid")
         rows = []
     selected_values = []
+    observed_conditions = set()
     observed_payout_asset_addresses = set()
     ignored_condition_rows = 0
     for row in rows:
@@ -399,6 +402,10 @@ def maker_rebate_reconciliation(rewards):
         ):
             blockers.append("maker_rebate_row_amount_invalid")
             continue
+        if row_condition in observed_conditions:
+            blockers.append("maker_rebate_duplicate_condition")
+            continue
+        observed_conditions.add(row_condition)
         observed_payout_asset_addresses.add(asset_address)
         if asset_address != PUSD_COLLATERAL_PROXY_ADDRESS:
             blockers.append("maker_rebate_payout_asset_mismatch")
@@ -407,9 +414,30 @@ def maker_rebate_reconciliation(rewards):
             selected_values.append(amount)
         else:
             ignored_condition_rows += 1
+    query_complete = not blockers
+    accrued = round(sum(selected_values), 6) if query_complete else None
+    payment = reconcile_incentive_payments((rewards or {}).get("incentive_payment_evidence"))
+    payment_scope = payment.get("scope") or {}
+    payment_program = (payment.get("programs") or {}).get("maker_rebate") or {}
+    payment_accrual = first_numeric(payment_program, "accrued_amount")
+    payment_matches = all((
+        payment.get("complete") is True,
+        payment_scope.get("maker_address") == maker_address,
+        payment_scope.get("condition_id") == condition_id,
+        payment_scope.get("query_date") == query_date,
+        payment_scope.get("asset") == "eip155:137/erc20:" + PUSD_COLLATERAL_PROXY_ADDRESS,
+        payment_accrual is not None and round(payment_accrual, 6) == accrued,
+    ))
+    actual = first_numeric(payment_program, "paid_amount") if query_complete and payment_matches else None
+    if query_complete and accrued == 0 and not (rewards or {}).get("incentive_payment_evidence"):
+        actual = 0.0
+    if query_complete and actual is None:
+        blockers.append("maker_rebate_wallet_attribution_missing_or_inconsistent")
     blockers = sorted(set(blockers))
     return {
         "complete": not blockers,
+        "query_complete": query_complete,
+        "accrued_maker_rebate_usdc": accrued,
         "query_date": query_date or None,
         "maker_address": maker_address or None,
         "condition_id": condition_id or None,
@@ -420,9 +448,7 @@ def maker_rebate_reconciliation(rewards):
         "observed_payout_asset_addresses": sorted(
             observed_payout_asset_addresses
         ),
-        "actual_maker_rebate_usdc": (
-            round(sum(selected_values), 6) if not blockers else None
-        ),
+        "actual_maker_rebate_usdc": actual if not blockers else None,
         "blockers": blockers,
     }
 
@@ -610,6 +636,17 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
     expected_reward_score = numeric_sum(quote_rows, "expected_reward_score")
     rebate_reconciliation = maker_rebate_reconciliation(rewards)
     actual_reward = rebate_reconciliation.get("actual_maker_rebate_usdc")
+    payment_reconciliation = reconcile_incentive_payments(rewards.get("incentive_payment_evidence"))
+    payment_scope = payment_reconciliation.get("scope") or {}
+    payment_scope_consistent = all((
+        payment_reconciliation.get("complete") is True,
+        payment_scope.get("maker_address") == rebate_reconciliation.get("maker_address"),
+        payment_scope.get("condition_id") == rebate_reconciliation.get("condition_id"),
+        payment_scope.get("query_date") == rebate_reconciliation.get("query_date"),
+        payment_scope.get("asset") == "eip155:137/erc20:" + PUSD_COLLATERAL_PROXY_ADDRESS,
+    ))
+    liquidity_program = (payment_reconciliation.get("programs") or {}).get("liquidity_reward") or {}
+    actual_liquidity_reward = first_numeric(liquidity_program, "paid_amount") if payment_scope_consistent else None
     fee_reconciliation = actual_fee_reconciliation(fees, fill_rows)
     actual_fees = fee_reconciliation.get("actual_fees_usdc")
     redemption_usdc = first_numeric(
@@ -672,6 +709,8 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         ending_balance is not None,
         settlement_pnl is not None,
         actual_reward is not None,
+        actual_liquidity_reward is not None,
+        payment_scope_consistent,
         actual_fees is not None,
         financial_scope_consistent,
     ))
@@ -679,7 +718,7 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
     identity_delta = None
     if identity_inputs_verified:
         actual_total_pnl = settlement_pnl
-        actual_total_pnl += actual_reward
+        actual_total_pnl += actual_reward + actual_liquidity_reward
         actual_total_pnl -= actual_fees
         actual_total_pnl = round(actual_total_pnl, 6)
         expected_balance_delta = round(actual_total_pnl + external_cash_flows, 6)
@@ -691,6 +730,8 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
         missing.append("balance_delta")
     if not rebate_reconciliation.get("complete"):
         missing.append("actual_maker_rebate_reconciliation")
+    if not payment_scope_consistent:
+        missing.append("incentive_wallet_payment_reconciliation")
     if actual_fees is None:
         missing.append("actual_fees")
     if not positions_reconciled.get("complete"):
@@ -719,6 +760,9 @@ def build_financial_reconciliation(reconciliation, quote_rows, fill_rows):
             else round(actual_reward - expected_rebate, 6)
         ),
         "maker_rebate_reconciliation": rebate_reconciliation,
+        "incentive_payment_reconciliation": payment_reconciliation,
+        "incentive_payment_scope_consistent": payment_scope_consistent,
+        "actual_liquidity_reward_usdc": actual_liquidity_reward,
         "actual_fees_usdc": actual_fees,
         "actual_fee_reconciliation": fee_reconciliation,
         "redemption_usdc": redemption_usdc,
@@ -784,6 +828,7 @@ def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_stat
         "paper_counterfactual_expected_rebate_value": expected_rebate,
         "paper_counterfactual_expected_reward_score": expected_reward_score,
         "actual_maker_rebate_usdc": actual_reward,
+        "actual_liquidity_reward_usdc": financial.get("actual_liquidity_reward_usdc"),
         "live_fill_maker_rebate_delta_usdc": financial.get("maker_rebate_delta_usdc"),
         "markout_30m_count": len(markout_values),
         "markout_30m_mean": None if not markout_values else round(sum(markout_values) / len(markout_values), 6),
@@ -822,6 +867,8 @@ def build_pilot_report_payload(reconciliation, quote_rows, fill_rows, probe_stat
 
 
 def render_pilot_report(payload):
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("Unsupported pilot report schema: historical accruals do not prove wallet payments")
     lines = [
         "# MM-2 Pilot Report",
         "",
@@ -846,7 +893,9 @@ def render_pilot_report(payload):
         "",
         "## Reconciliation",
         "",
-        f"- Actual maker rebate: `{payload.get('actual_maker_rebate_usdc')}`",
+        f"- Matched paid maker rebate: `{payload.get('actual_maker_rebate_usdc')}`",
+        f"- Matched paid liquidity reward: `{payload.get('actual_liquidity_reward_usdc')}`",
+        "- Incentive source evidence: not independently verified by this reconciliation.",
         f"- Live-fill maker-rebate delta: `{payload.get('live_fill_maker_rebate_delta_usdc')}`",
         f"- 30m markout mean: `{payload.get('markout_30m_mean')}`",
         f"- Missing evidence: `{', '.join(payload.get('missing_evidence') or []) or '-'}`",

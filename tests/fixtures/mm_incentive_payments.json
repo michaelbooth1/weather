@@ -1,0 +1,105 @@
+{
+  "schema_version": "mm_incentive_payment_evidence_v0.1",
+  "platform": "polymarket_global",
+  "scope": {
+    "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+    "query_date": "2026-06-14",
+    "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "queries": {
+    "maker_rebate": {
+      "scope": {
+        "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+        "query_date": "2026-06-14",
+        "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "status": "OBSERVED",
+      "earnings_complete": true,
+      "distributions_complete": true,
+      "payout_cycle_complete": true,
+      "earnings_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "distributions_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "rules_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "payout_due_at_utc": "2026-06-15T00:00:00Z",
+      "queried_at_utc": "2026-06-15T01:00:00Z"
+    },
+    "liquidity_reward": {
+      "scope": {
+        "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+        "query_date": "2026-06-14",
+        "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "status": "OBSERVED",
+      "earnings_complete": true,
+      "distributions_complete": true,
+      "payout_cycle_complete": true,
+      "earnings_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "distributions_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "rules_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "payout_due_at_utc": "2026-06-15T00:00:00Z",
+      "queried_at_utc": "2026-06-15T01:00:00Z"
+    }
+  },
+  "wallet_query": {
+    "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+    "status": "OBSERVED",
+    "complete": true,
+    "from_utc": "2026-06-14T00:00:00Z",
+    "through_utc": "2026-06-15T01:00:00Z",
+    "source_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "earnings": [
+    {
+      "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+      "query_date": "2026-06-14",
+      "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "id": "rebate-earning",
+      "program": "maker_rebate",
+      "amount": "0.01"
+    },
+    {
+      "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+      "query_date": "2026-06-14",
+      "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "id": "reward-earning",
+      "program": "liquidity_reward",
+      "amount": "0"
+    }
+  ],
+  "distributions": [
+    {
+      "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+      "query_date": "2026-06-14",
+      "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "id": "rebate-distribution",
+      "earning_id": "rebate-earning",
+      "program": "maker_rebate",
+      "amount": "0.01",
+      "transaction_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "log_index": 7
+    }
+  ],
+  "wallet_credits": [
+    {
+      "id": "rebate-wallet-credit",
+      "maker_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asset": "eip155:137/erc20:0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+      "amount": "0.01",
+      "status": "CONFIRMED",
+      "confirmed_at_utc": "2026-06-15T00:30:00Z",
+      "source_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "transaction_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "log_index": 7
+    }
+  ]
+}

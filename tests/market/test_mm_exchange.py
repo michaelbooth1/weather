@@ -1363,14 +1363,14 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(probe["probe_status"]["heartbeat_dead_man"]["status"], "observed")
         self.assertEqual(probe["probe_status"]["min_size_tick_post_only"]["status"], "observed")
         self.assertEqual(probe["probe_status"]["cancel_all_verification"]["status"], "observed")
-        self.assertTrue(pilot_report["evidence_complete"])
+        self.assertFalse(pilot_report["evidence_complete"])
         self.assertAlmostEqual(float(pilot_report["markout_30m_mean"]), 0.02)
-        self.assertTrue(pilot_report["financial_reconciliation_complete"])
-        self.assertAlmostEqual(
-            pilot_report["financial_reconciliation"]["actual_total_pnl_after_fees_incentives_usdc"],
-            1.0,
-        )
-        self.assertEqual(pilot_report["financial_reconciliation"]["missing_evidence"], [])
+        self.assertFalse(pilot_report["financial_reconciliation_complete"])
+        financial = pilot_report["financial_reconciliation"]
+        self.assertIsNone(financial["actual_total_pnl_after_fees_incentives_usdc"])
+        self.assertIsNone(financial["actual_maker_rebate_usdc"])
+        self.assertEqual(financial["maker_rebate_reconciliation"]["accrued_maker_rebate_usdc"], 0.01)
+        self.assertIn("incentive_wallet_payment_reconciliation", financial["missing_evidence"])
         self.assertTrue(pilot_report_exists)
         self.assertIn("life-1", lifecycle)
         self.assertAlmostEqual(float(lifecycle["life-1"]["remaining_size"]), 3.0)
