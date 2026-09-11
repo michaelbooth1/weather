@@ -68,6 +68,15 @@ lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
 
+The isolated weather.calibration.residual_preflight entry point is explicitly
+classified as offline heavy work in both the launch hook and workstation
+admission list. It covers hash-bound frozen-model reproduction and synthetic
+power planning; it grants no fitting, new-outcome access, promotion or live
+authority. Execute only after this declaration is reviewed and adopted by the
+controlling guard, through the unchanged exact-host/principal, shared-mutex and
+child-tree wrapper. Tests may exercise the candidate guard as data under an
+already-admitted pytest invocation; that does not authorize the new CLI.
+
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
 **Do not plan against these.** `scripts\ops\status.ps1` reports live RAM, disk, and the daily
