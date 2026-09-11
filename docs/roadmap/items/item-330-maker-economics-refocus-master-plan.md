@@ -29,6 +29,39 @@ constraint, or stop an uneconomic/infeasible experiment. Profit is not required
 to close this item honestly. A plan, green suite, paper fill, or no-fill lifecycle
 PASS alone cannot close it.
 
+## September 11 non-live source reconciliation
+
+The current storage checkpoint is owned by [item 325](item-325-tiered-data-retention-and-verified-archive-offload.md).
+The archive target remains open; unrelated source work must not consume its
+admitted capture-host window.
+
+Prepared source already exists outside production master. The published
+`codex/post-reclaim-config-generation-20260907` tip
+`c2e0765dd65e666a7e461c7387ccd268b0c1ebb3` contains consistent-generation
+configuration and the earlier paid-incentive/activity-to-credit work. Exact-tip
+[CI run 34180208589](https://github.com/michaelbooth1/weather/actions/runs/34180208589)
+completed successfully. This is source qualification, not production adoption.
+Reconcile that prepared stack before implementing W2 or W4 primitives again.
+
+The later `codex/maker-incentive-payments-20260911` branch at
+`704af6887211268197dd4262b4629f66b3d9956b` also modifies incentive accounting
+in `mm_exchange_reports.py` and the central schema registry. It passed 120
+accounting/related workstation checks and 25 documentation/source checks, with
+all transferred source hashes verified. Retained production-local JUnit files:
+`scratch/handoffs/mmpay02-junit.xml`, SHA-256
+`df0ed95e4fddbaf72fba7e9b6e9efe29e35d178486d64ab5b808d232c4c36468`, and
+`scratch/handoffs/mmpay03-junit.xml`, SHA-256
+`0876bb32fb56b5ac84bc8622f12d1c7601dff481f99232308e5d2c7b22b36a43`.
+These suites overlap and must not be added as unique coverage.
+The overlapping implementations need a deliberate compatibility review and
+reconciliation before integration; neither should silently replace the other.
+The new draft PR is pending GitHub write/authentication access, not created.
+
+No new account collection, actual payment, profitable opportunity or live
+session is established. Current campaign and authoritative reward/distribution,
+wallet and cost evidence remain the W3/W4 acceptance work. The owner's current
+no-live boundary remains binding regardless of historical portable preparation.
+
 ## 1. Decision and scope
 
 The experiment asks whether **gross trading P&L + paid maker rebates + paid

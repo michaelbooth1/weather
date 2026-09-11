@@ -1,73 +1,72 @@
 # State of play
 
-**Last updated: 2026-09-10 America/Toronto (verified archive pilot; campaign active).**
-Read this first, then the established findings and retractions before research.
+**Last updated: 2026-09-11 America/Toronto (05:10 archive checkpoint).**
+Read this first, then established findings and retractions before research.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
-> current decision; numbered items and retained receipts own detailed evidence.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Numbered items and
+> retained receipts own detailed evidence; the current receipts outrank this checkpoint.
 
-**Objectives:** protect capture and settlement evidence, recover disk headroom
-through verified off-site storage, and execute the non-live maker-economics
-refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
-**No market edge or profitable maker opportunity is proved.**
+**Objectives:** protect capture, finish verified off-site storage, then resume
+the remaining non-live maker-economics work in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+**No market edge, profitable opportunity or paid incentive is proved.**
 
 ## Current authority
 
-At September 10 03:57 UTC the owner fully authorized the overnight archive,
-saving its recovery keys, and using only existing PC storage and Google Drive.
-The approved selection is 101.8 GB of June 15-July 30 market detail and full
-prediction JSONL, with a conditional 10.2 GB explanation-CSV reserve. Every
-archive still needs full restore, exact-file reclaim and capture admission.
+The owner authorized the 100 GB original-source archive target, recovery-key
+preservation and use of existing PCs plus private Google Drive. The September 10
+takeover and September 11 continuation require autonomous overnight progress.
+New payloads use the owner's requested simple, unencrypted archive path.
+Originals remain until independent download, full restore, source identity,
+final settlement and exact-file reclaim checks all pass.
 
-The September 4 implementation/integration authority and subsequent full archive
-authorization cover ordinary commits, publication, guarded adoption and recovery
-work without repeated permission prompts. **No live trading is authorized.**
-W5-W7 exchange lifecycle/economic sessions remain blocked; offline and paper work
-may continue. Source integration, runtime adoption and live authority are separate.
+Ordinary implementation, publication and guarded adoption remain authorized.
+**No live trading is authorized in this task.** Previously completed or prepared
+portable work does not authorize a new session or a larger execution profile.
 
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | The archive/consumer stack at `562c85ec33d9411af897a04b8aa05401ada28b66` was guardedly adopted as master `e0a00eedf9ad41ee5580913af22d552e05663b96` at September 10 01:57:52 Toronto. The receipt proves three-worker and execution-tape recovery plus publication. Later archive-only execution source is on `codex/bulk-cold-archive-20260909`; do not infer its production adoption from a push. |
-| Archive and recovery | Pilot `e10c00000` completed encryption, private Drive upload, independent download, full restore, key custody, location publication and exact original reclaim: 7,614,464 allocated bytes. `e10d00001` has a complete independent restore and published recovery handback for five Atlanta July 10 files; its original reclaim was still pending at the 05:40 checkpoint. The 100 GB reclaim target is not achieved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds detailed receipts. |
-| Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Each catalog entry binds original paths, exact private cloud object IDs and source/archive hashes. Recovery metadata is also on the separate workstation; the recovery keys have an independently verified private Drive backup. Follow [the location and restore runbook](cold-archive-locations.md), not an assumed local path. |
-| Headroom and batching | The scheduled September 10 05:00 CLOB tiering receipt reports 13,717,807,104 bytes reclaimed. This is separate from archive-source reclaim. The archive lane remains reserved away from the 04:45-06:45 tiering window and stops by 09:00. The same selection is packed into 111 bounded archives with protected queue events and pilot events isolated. The exact-source one-shot is scheduled for 06:45 with an absolute 09:00 end; item 325 records its S4U, Drive and native-identity readiness proofs. Source qualification alone counts no reclaimed bytes. |
-| Capture | The guarded adoption proved recovery of all three capture workers and the public execution-tape producer. Fresh capture identities, heartbeat/clean-iteration ages, commit, physical memory and disk reserve are rechecked by every payload phase. These are operational health checks, not graded streak, fleet countability or price-path completeness proofs. |
-| Settlement / recurring work | The September 8 chain was deferred at ingest quality/resource admission. The bounded 14-day settlement check flagged August 28-31 and September 1, 4-6. Full-ledger reconciliation and admitted per-date repair remain open; the next chain does not repair historical omissions automatically. |
-| Maker changes | W0 reporting-pause/baseline restoration, W1 governance, W2 identity/config and W3's offline diagnostic calculator are integrated in the earlier master stack. W3/G1 remain open because no current campaign/economics qualification or paid/reconciled profit is proved. Atomic paired configuration publication and W4's offline accrual-to-wallet-credit matcher remain open. Item 330 owns scope and evidence. |
-| Portable readiness | Portable source integration does not re-prove the portable clone, current qualification, account readiness or fresh live receipts. This task permits no live attempt. |
-| Documentation transaction | The pending transaction binds the actual guarded integration tips in its runtime receipt. Complete the canonical documentation transaction after the reviewed documentation tip is published and its required checks pass; a state rewrite alone does not clear it. |
+| Production source | Local master and freshly fetched origin/master are `f3814173775335adb546b7201a2e73ecec7703bf`. The earlier guarded archive/consumer adoption remains in its ancestry. Later archive execution uses the isolated `codex/bulk-cold-archive-20260909` checkout at `4e37b5c1cfa19ba6d01bd445af0ffa1d20b74f7c`; publication is not another production adoption. Existing generated configuration edits are preserved. |
+| Archive | The immutable PASS receipts and matching READY progress prove **58,966,368,256 allocated original-source bytes reclaimed**, sequence 65. The 100,000,000,000-byte target remains open. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds the receipt paths, hashes and pending archive. Separate tiering or temporary-copy savings do not count. |
+| Pending archive | `p11k00128` has passed private upload and independent download. Its originals are retained for fresh native restore/reclaim in the next admitted window. Its upload namespace is spent: resume at reclaim, never upload it again. |
+| Windows / headroom | Capture-host archive phases are paused for the reserved 04:45-06:45 Toronto tiering interval, resume no earlier than 06:45, and stop by 09:00. Repacked plans retain the general disk floor and full output reservations. Every native phase repeats resource, capture, lease, source and teardown checks. |
+| Locations / recovery | Production `data/cold_archive/WHERE_DATA_IS.md` and the catalog bind exact original paths, private cloud objects and hashes. Independent private Drive backups cover completed catalog/reclaim metadata through `p11k00097`. Recovery keys and failed attempts are retained. Follow [the restore runbook](cold-archive-locations.md). |
+| Batching / cleanup | The same approved primary selection is repacked to isolate blocked events. Unsettled June 18 events, protected inputs and held-copy attempts remain excluded. Exact duplicate workstation downloads were independently rehashed before temporary cleanup. The conditional CSV reserve still requires the native proof that approved primary capacity cannot reach the target. |
+| Capture | The current metadata check found an unpaused snapshot loop, zero consecutive errors and an empty triggered queue. This observation is not fleet countability, complete price-path evidence or a graded streak proof; the admitted executors repeat their full capture checks. |
+| Prepared non-live source | Existing repair branches already contain generation-consistent configuration, paid-incentive accounting and an activity-to-credit bridge. Published `codex/post-reclaim-config-generation-20260907` at `c2e0765dd65e666a7e461c7387ccd268b0c1ebb3` has successful exact-tip CI. These changes are not in current production master. Compare the prepared stack before implementing those packages again. |
+| Accounting follow-up | `codex/maker-incentive-payments-20260911` at `704af6887211268197dd4262b4629f66b3d9956b` passed 120 accounting/related checks and 25 docs/source checks on the workstation. It overlaps earlier prepared accounting and requires reconciliation before integration. Its draft PR is pending: connector write permission failed and workstation GitHub CLI authentication was rejected. |
+| Economics / actual evidence | The adopted W3 calculator remains diagnostic. Current exact-condition campaign, book, midpoint, account, distribution, wallet and cost evidence still needs qualification. Offline accounting fixtures prove supplied-record behavior, not an observed payment or profitable maker result. |
+| Recurring work / labels | One disagreement recurrence was held on September 5. Remaining consumer-based dispositions and authoritative fleet/ledger reconciliation are open; historical folder flags do not establish ledger omissions. Preserve the existing daily producer and capture evidence. |
+| Documentation transaction | The production pending transaction remains open until the reviewed documentation is published/adopted and the canonical completion command passes. A state rewrite alone does not clear it. |
 
 ## Ordered non-live critical path
 
-1. Finish the approved archive campaign within admitted windows. Resume already
-   restored archives at fresh source review/reclaim; never repeat a spent upload,
-   download or restore namespace. Verify every event's final settlement before
-   any multi-day reclaim, and stop on failed evidence or admission.
-2. Keep the generated location catalog and independent recovery metadata current.
-   Preserve weather, settlements, replay inputs, local summary tables and July 31
-   onward. Retain failed attempts and all receipts. Count only proved allocation
-   savings; report actual free space separately.
-3. Publish the archive status and close the pending integration-documentation
-   transaction through its canonical manifest/check path.
-4. Review remaining recurring-job dispositions and fleet/ledger gaps, then scope
-   an admitted repair for confirmed omissions. Never infer ledger rows from flags.
-5. Qualify current campaign terms, books and adjusted-midpoint provenance before
-   using W3 for competitor-score scenarios. Continue W4 and offline W5 fixtures;
-   aggregate depth does not prove a per-maker reward denominator or profit.
+1. Resume the already uploaded archive at fresh native reclaim after 06:45.
+   Continue wholly eligible primary chunks, then use the conditional reserve
+   only if its native capacity proof passes. Preserve all spent namespaces.
+2. Keep catalog and independent recovery backups current. Count only successful
+   original allocation removal; report measured free space and temporary cleanup
+   separately. Keep weather, settlements, replay inputs, summaries and July 31 onward.
+3. Publish the measured archive outcome and close actual integration documentation
+   debt through its manifest/check path after required checks and guarded adoption.
+4. Reconcile the existing prepared repair/configuration/accounting stack with the
+   current production and archive changes. Preserve history and exact qualification;
+   do not duplicate existing work or infer adoption from successful branch CI.
+5. Continue current opportunity/account evidence qualification and bounded
+   recurring-job/ledger review. Any new live session remains outside this task.
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources or new model-alpha work.
-- Capture-host heavy work is admitted, serial and time-gated. The separate
-  workstation uses its exact host/principal wrapper and shared live/heavy mutex.
-- Source integration follows the canonical roll verdict and guarded adoption.
-  A roll-free branch can merge outside the quiet window; a pushed branch rolls nothing.
-- Native settlement units, WU cutoffs, probability mass, train/serve parity,
-  captured-input replay, release binding and evidence retention remain mandatory.
+- International Polymarket only; no paid weather source or new model-alpha work.
+- Capture-host heavy work remains admitted, serial and time-gated. Separate
+  workstation heavy work uses its exact host/principal wrapper and shared mutex.
+- Obtain the canonical roll verdict before guarded production integration.
+  Roll-sensitive changes wait for 01:00-04:00; topic pushes do not restart capture.
+- Preserve native units, WU cutoffs, probability mass, parity, replay, release
+  binding, raw evidence, recovery keys and failed-attempt history.
 
 ## Update this file when
 
-Rewrite after a new owner decision, source adoption, archive/reclaim result,
-validated settlement/job disposition, or economic-feasibility result.
+Rewrite after owner decisions, archive/reclaim results, source adoption,
+validated job/ledger dispositions or real economic-evidence qualification.

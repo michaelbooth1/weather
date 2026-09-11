@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-11 - 58.97 GB ORIGINAL-SOURCE RECLAIMED; TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,90 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 11 05:10 original-source checkpoint
+
+**PARTIAL: 58,966,368,256 allocated original-source bytes reclaimed; the
+100,000,000,000-byte target is not yet achieved.** A bounded metadata audit
+summed 65 immutable PASS reclaim receipts, checked their archive entries and
+matched campaign sequence 65 and its READY progress. It read 1,223,305 metadata
+bytes and no source payload. The progress record under the existing owner
+approval directory has raw SHA-256
+`3f9c4c8e1d44d54cba31df57aeb59c040fe92f1922178ad05d6ef1103b7d4c35`.
+Its full path is
+`data/cold_archive/catalog/reclaims/2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e/progress.json`.
+The latest completed receipt is `p11k00097r1/receipt.json` in that directory,
+SHA-256 `87112b748611a214e76c5ed6b8e1159ead08056e8c68af23b1f0f364eeca6dca`.
+Each completed archive passed independent off-site validation, native full
+restore/member verification and exact-original removal. Temporary-copy and
+scheduled-tiering savings are excluded from this counter.
+
+The owner requested simple unencrypted new payloads, existing PCs and private
+Google Drive. The new private archive/recovery folder is
+[Google Drive](https://drive.google.com/drive/folders/1-HZZb9QuRB1AlK9UYSWB_JdeUabhza9H).
+Earlier encrypted objects, recovery keys and failed attempts remain intact.
+The generated production catalog identifies the actual location and format of
+each archive; historical folder descriptions below are not interchangeable.
+
+Independent recovery metadata backups cover all 65 completed archives. The
+latest bundle `p11meta08` contains the final old-plan archive and the first two
+repacked archives. Production-local
+`scratch/handoffs/p11meta08-backup-verified.json` has raw SHA-256
+`ac75825946b314da10a0bcb0a44d3ca0c2451ada876b876c153b0aac4ae33f50`;
+its independently downloaded private object is `1WljRopVTqiln3O9sNga6EfFG5UhhoJpH`.
+Follow the catalog and [restore runbook](../../operations/cold-archive-locations.md)
+for exact object/member hashes.
+
+The verified temporary cleanup `p11clean02` removed 18 duplicate workstation
+downloads only after rehashing both the retained archive and duplicate. It
+reports **4,917,018,624 temporary allocated bytes**, zero original removals and
+zero remote deletions. Its receipt
+`scratch/handoffs/p11clean02-cleanup-verified.json` has raw SHA-256
+`bc63402cd57d5cdde39d169b42b1f08b5191c1ddb55dce6bd5ff5e34788ed902`.
+These savings count zero toward the 100 GB target.
+
+### Exact next archive and admitted window
+
+`p11k00128` is staged, copied, uploaded and independently downloaded. Its
+66,261,423-byte plain archive has SHA-256
+`694c0b8a999e293457ede0948885ba5417740007b6d140492a6b1a4bef72990b`.
+The production-local upload handback
+`scratch/handoffs/p11k00128-upload-verified.json` has raw SHA-256
+`eb3547114bac79d701e31158540f9aefca7b6cc3be072727607ea97e45dfbe77`.
+Originals remain retained. Resume at fresh native restore/reclaim; do not reuse
+its spent upload namespace or count its staged allocation as reclaimed.
+
+Capture-host archive phases are paused for 04:45-06:45 Toronto, then may resume
+until the absolute 09:00 end. The unchanged native runner repeats final
+settlement, protected dependencies, source identity, capture health, memory,
+disk reservation, lease and child-tree teardown. Urgency grants no extension.
+
+### Same-selection repacking and conditional reserve
+
+Published isolated execution source is
+`4e37b5c1cfa19ba6d01bd445af0ffa1d20b74f7c` on
+`codex/bulk-cold-archive-20260909`; this is separate from production master
+`f3814173775335adb546b7201a2e73ecec7703bf`.
+The native planner retains every approved primary identity while repacking into
+130 bounded chunks and isolating known unsettled/protected events. The raw
+primary plan is `scratch/handoffs/p11-primary-repacked-plan-20260911.json`,
+SHA-256 `2faae41470c42508a8639e98ec17ace7ecebc0b8715c09eaa92d33c0845251d3`.
+Only wholly unreclaimed, unmarked and eligible chunks are selected. June 18
+events remain unsettled; held-copy attempts and protected inputs stay excluded.
+All new plans retain the general 50 GiB floor plus output/evidence reservations.
+
+The conditional explanation-CSV reserve is prepared with its full original
+owner-approved selection. Its native capacity guard must prove that cumulative
+primary reclaim plus the approved allocation of all unreclaimed, unprotected
+primary members is below the owner's target. It cannot exclude an unsettled
+member merely to manufacture a shortfall. Source qualification is complete;
+actual reserve execution is not yet qualified at this checkpoint.
+
+The checkpoint supersedes earlier pilot-only totals and scheduled intentions.
+All dated sections below retain their historical evidence and are not current
+execution authority. The remaining work is admitted archive completion,
+recovery publication, exact temporary cleanup as needed and documentation
+transaction closeout. No live trading or production source adoption is claimed.
 
 ## September 10 06:30 scheduled-run readiness
 
