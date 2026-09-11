@@ -17,6 +17,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "Admitted source-retaining PC copy; destination verification remains a separate cryptographic step.",
     ),
     SchemaSpec(
+        "production_cold_archive_plain_reclaim_request", "production_cold_archive_plain_reclaim_request_v0.1",
+        "weather.operations.production_cold_archive_reclaim_cli", "active",
+        "Exact approved source reclaim after complete stage parity and independent plain-archive download.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
