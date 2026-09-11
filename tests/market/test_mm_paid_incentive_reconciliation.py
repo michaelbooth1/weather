@@ -544,3 +544,38 @@ def test_new_report_schema_cannot_wrap_a_legacy_financial_result():
     payload["actual_liquidity_reward_usdc"] = 0
     with pytest.raises(ValueError):
         reports.render_pilot_report(payload)
+
+def test_distinct_earning_periods_need_distinct_authoritative_credit_links():
+    evidence = evidence_fixture()
+    end = "2026-09-03T00:00:00+00:00"
+    evidence["scope"]["accrual_end_utc"] = end
+    evidence["sources"]["accruals"]["request_scope"]["period_end_utc"] = end
+    evidence["sources"]["accruals"]["coverage_through_utc"] = end
+    first_credit = add_payment(evidence, programme="liquidity_reward", index=1)
+    second_credit = add_payment(evidence, programme="liquidity_reward", index=2)
+    evidence["accruals"][1].update(period_start_utc=ACCRUAL_END, period_end_utc=end)
+    result = reports.reconcile_incentive_payments(evidence)
+    assert result["complete"] is True
+    assert result["actual_liquidity_reward_usdc"] == 2.5
+    assert {row["credit_id"] for row in result["matched_distributions"]} == {first_credit, second_credit}
+    # Equal daily amounts never license reusing a single aggregate wallet credit.
+    evidence["distributions"][1]["credit_id"] = first_credit
+    blocked = reports.reconcile_incentive_payments(evidence)
+    assert blocked["complete"] is False
+    assert "incentive_credit_allocated_twice" in blocked["blockers"]
+
+
+@pytest.mark.parametrize("kind,blocker", [
+    ("accruals", "incentive_accrual_state_invalid"),
+    ("distributions", "incentive_distribution_state_invalid"),
+    ("wallet_credits", "incentive_credit_state_invalid"),
+])
+def test_reversal_cannot_be_presented_as_confirmed_paid_income(kind, blocker):
+    evidence = evidence_fixture()
+    add_payment(evidence, programme="liquidity_reward")
+    evidence[kind][0]["status"] = "REVERSED"
+    result = reports.reconcile_incentive_payments(evidence)
+    assert result["valid"] is False
+    assert result["complete"] is False
+    assert blocker in result["blockers"]
+    assert result["actual_liquidity_reward_usdc"] is None

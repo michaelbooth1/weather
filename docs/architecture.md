@@ -56,8 +56,10 @@ sessions. The host collector runs at most one bounded diagnostic at a time,
 independently of fast session refreshes. Views expose no trading, credential,
 promotion or risk-setting actions. The portable launcher's action-time gates
 remain authoritative. See [the monitor contract](operations/OPERATOR_MONITOR.md)
-for freshness, input bounds and accounting semantics. The frontend contains only
-Control Room and Roadmap; retired page modules remain removed.
+for freshness, input bounds and accounting semantics. The frontend contains
+Control Room, Roadmap, and the offline [Reward Simulator](operations/liquidity-reward-simulator.md).
+The simulator delegates to the canonical maker calculator, uses hypothetical
+inputs, and exposes no account or order actions. Retired page modules remain removed.
 
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific

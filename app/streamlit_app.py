@@ -1,4 +1,4 @@
-"""Two-page Streamlit router for the local operator frontend."""
+"""Streamlit router for the local operator frontend."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ LIVE_REFRESH_SECONDS = 10
 PAGE_LABELS = {
     "Control Room": "control",
     "Roadmap": "roadmap",
+    "Reward Simulator": "simulator",
 }
 
 
@@ -48,9 +49,9 @@ def _sync_query_params(page):
             st.query_params.clear()
             st.query_params["roadmap"] = ""
         return
-    if "roadmap" in st.query_params or st.query_params.get("market") != "control":
+    if "roadmap" in st.query_params or st.query_params.get("market") != page:
         st.query_params.clear()
-        st.query_params["market"] = "control"
+        st.query_params["market"] = page
 
 
 def main():
@@ -60,6 +61,10 @@ def main():
         from app.views.roadmap import render_roadmap_page
 
         render_roadmap_page()
+    elif page == "simulator":
+        from app.views.liquidity_simulator import render_liquidity_simulator_page
+
+        render_liquidity_simulator_page()
     else:
         from app.views.control_room import render_control_room_page
 

@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-11 America/Toronto (owner-accepted headroom; uploads paused).**
+**Last updated: 2026-09-11 America/Toronto (uploads paused; bounded economics and local simulations).**
 Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -19,8 +19,9 @@ conditional reserve retain their exact source, recovery and admission gates.
 The later instruction allows unencrypted archive payloads; earlier encrypted
 archives still require their preserved recovery keys.
 
-Ordinary implementation, source publication and guarded integration retain the
-existing authority. **No live trading is authorized.** Source publication,
+On September 11 the owner reaffirmed autonomous ordinary work, reserving live
+trading for explicit approval. Implementation, publication and guarded integration
+retain that authority. **No live trading is authorized.** Source publication,
 production adoption and permission to act on an exchange remain separate.
 W5-W7 exchange sessions require their own explicit authority and readiness gates.
 
@@ -34,8 +35,8 @@ W5-W7 exchange sessions require their own explicit authority and readiness gates
 | Production source | Master was `f3814173775335adb546b7201a2e73ecec7703bf` during the measured campaign. Its archive-aware consumer stack was already guardedly adopted. Later archive execution and maker branches remain distinct source authorities; their publication does not prove another capture-runtime adoption. |
 | Capture and headroom | The last full native archive admission at September 11 08:55 Toronto passed with all three capture workers active and nondegraded. Production C: had 87,606,325,248 free bytes at 08:57 Toronto. Free-space measurements are operational observations, separate from verified source allocation savings. No new graded-streak or price-path-completeness claim follows from worker health. |
 | Maker source | The mainline reconciliation candidate combines production master `f3814173775335adb546b7201a2e73ecec7703bf` with the prepared PR #41/#42 and earnings stack at `d99dc862b40e3984092bc806db71e41214961cd6`. It preserves both archive and maker source contracts. The combined candidate passed focused native verification, compilation and documentation checks; the canonical roll verdict, review/CI and quiet-window gates still govern production adoption. |
-| Current campaign evidence | A September 11 public capture covered 12 locations, 32 events and 352 conditions, with 136 positive configured reward allocations. W3/G1 remain open for exact books, adjusted-midpoint and interval provenance, capital/cleanup limits and competitor scenarios. Configuration is not payment or profit evidence. |
-| W4 and live work | The supplied earnings validator proves bounded raw-page scope/completeness and preserves accrual separately from payment. Authoritative account collection, distribution semantics, accrual-to-payment linkage and complete P&L remain open. No exchange authentication, order or cancellation was introduced by this task. |
+| Current campaign evidence | The frozen six-condition capture/report establishes native token/book terms and one order/capital-feasible 20-share BUY per condition under the declared planning ceilings. Actual reward eligibility remains EVIDENCE_BLOCKED on adjusted-midpoint and earning-epoch/pool provenance. The new local Reward Simulator uses the public formula for explicit assumptions; it is not profit evidence. [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md) owns the hashes and tested scope. |
+| W4 and live work | The raw account-capture contract and fixture controls are prepared. Attribution remains blocked on an authoritative earned-period/condition-to-distribution-to-credit relationship and complete native-asset account cash evidence. The SDK source audit used no credentials or authenticated requests. No live successor is authorized. |
 | Settlement / recurring work | Historical fleet/ledger reconciliation and admitted per-date repair remain open. Earlier flags are leads for investigation, not proof of omitted ledger rows. The next scheduled chain does not repair historical omissions automatically. |
 | Documentation transaction | This status update records measured results. The pending integration-documentation transaction remains open until the exact published documentation tip passes its canonical completion checks and produces a matching receipt. |
 
@@ -48,10 +49,11 @@ W5-W7 exchange sessions require their own explicit authority and readiness gates
 3. Complete CI and review for [archive status #48](https://github.com/michaelbooth1/weather/pull/48)
    and [maker reconciliation #49](https://github.com/michaelbooth1/weather/pull/49).
    Adopt maker source only through the allowed quiet-window path.
-4. Complete W3/G1 from authoritative campaign, token, book and midpoint evidence.
-   Keep competitor scenarios conditional and distinguish capital from profit.
-5. Finish W4's raw transport and distribution semantics without fabricating
-   whole-account completeness. Actual account and live cohort work retain their gates.
+4. Resolve the exact W3 adjusted-midpoint and earning-epoch/pool source task.
+   Use the local simulator for conditional sensitivities; preserve the fixed shortlist.
+5. Obtain W4's missing authoritative distribution linkage before implementing
+   account collection against an assumed interface. Complete the frozen-model
+   reproduction/support preflight using old evaluated inputs and synthetic outcomes.
 6. Reconcile confirmed settlement and recurring-job gaps under their own admitted
    repair contracts, preserving historical evidence and failed attempts.
 
