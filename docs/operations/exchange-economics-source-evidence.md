@@ -114,11 +114,64 @@ semantics, and prove coverage and cash attribution on a bounded supplied
 cohort. Until then, report unpaid accrual and unattributed gross credits
 separately and do not feed fabricated distributions into the matcher.
 
+## Supplied daily liquidity-earnings pages
+
+[`mm_liquidity_earnings_evidence`](../../src/weather/market/mm_liquidity_earnings_evidence.py)
+validates supplied raw `GET /rewards/user` response pages. Its pure
+`normalize_liquidity_earnings_pages` function requires an expected maker,
+calendar date, signature type, sponsored scope, aware observation time and
+bounded retrieval age. It makes no requests and resolves no credentials.
+
+Every page must retain the complete raw-response record described above.
+The URL must bind the exact International host/path, expected query and previous
+cursor. A first page has no cursor; the last must explicitly say `LTE=`.
+Missing cursors, intermediate empty pages, cursor cycles, premature terminal
+pages, inconsistent count/limit fields and error envelopes refuse. Limits are
+50 pages, 100 rows per page, 2 MiB per response and 16 MiB overall.
+Retrieval times must be ordered, nonfuture and within the selected age budget
+(default one hour, maximum one day).
+
+Rows require the expected maker/date, exact condition and explicit asset.
+Date strings must be the requested calendar date or a timestamp identifying
+that date's UTC midnight; undocumented numeric timestamp units refuse.
+Duplicate condition/asset rows, including different letter case and rows on
+different pages, refuse. Earnings and asset rates retain decimal precision
+without a binary-float conversion; supported nonnegative values are at most
+10^18 with at most 18 decimal places. Unsupported assets stay explicit.
+Totals are separate by asset. No conversion rate turns them into native pUSD.
+
+The versioned output distinguishes an observed accrual (including explicit zero)
+from a complete empty request scope. Both leave paid incentive amount unknown.
+Source authenticity, accrual finality, payment linkage and complete account
+cash remain false. Supplied timestamps and raw bytes prove internal consistency,
+not that the caller actually made an authenticated request. This evidence is
+not passed into the paid matcher or existing pilot reports automatically.
+
+The pinned official unified SDK `polymarket-client==0.6.0` does expose
+`SecureClient.list_user_earnings_for_day(date=...)`; its request builder uses
+`/rewards/user`, date, wallet signature type and cursor. Its returned
+`Page[UserEarning]` omits original response bytes/count/limit and normalizes a
+missing cursor to no-more-pages. Those parsed pages alone therefore cannot
+qualify this evidence. The pinned secure-client factory does not expose a
+public response-hook argument. A future raw reader still needs explicit SDK
+transport qualification and the existing authenticated host/account gates;
+do not build a client merely to query earnings because construction can
+deploy a wallet. The [SDK decision record](INTERNATIONAL_MM_LIVE_PILOT.md#sdk-decision-record)
+owns that restriction.
+
+The [official daily-earnings interface](https://docs.polymarket.com/api-reference/rewards/get-earnings-for-user-by-date)
+documents signature types 0, 1 and 2; this validator refuses type 3 until its
+earnings semantics are supported. The
+[published SDK wheel](https://pypi.org/project/polymarket-client/0.6.0/)
+owns SDK compatibility, while venue documentation must be
+rechecked before an actual capture.
+
 ## Verification and updates
 
 Owner fixtures are
-[`test_exchange_economics_sources.py`](../../tests/market/test_exchange_economics_sources.py)
-and [the collector tests](../../tests/market/test_exchange_economics.py).
+[`test_exchange_economics_sources.py`](../../tests/market/test_exchange_economics_sources.py),
+[the collector tests](../../tests/market/test_exchange_economics.py), and
+[the supplied earnings-page tests](../../tests/market/test_mm_liquidity_earnings_evidence.py).
 Use the owning host's required workload admission for them, the existing
 feasibility/accounting tests, import ratchet and canonical documentation audit.
 

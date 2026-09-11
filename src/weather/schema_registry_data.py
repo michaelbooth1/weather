@@ -1246,6 +1246,13 @@ REGISTERED_SCHEMAS = (
         supersedes=("mm_exchange_adapter_v0.1",),
     ),
     SchemaSpec(
+        "mm_liquidity_earnings_evidence",
+        "mm_liquidity_earnings_evidence_v0.1",
+        "weather.market.mm_liquidity_earnings_evidence",
+        "active",
+        "Supplied raw daily earnings pages with exact scope and complete pagination; no payment or source-authenticity claim.",
+    ),
+    SchemaSpec(
         "mm_paid_incentive_evidence",
         "mm_paid_incentive_evidence_v0.1",
         "weather.market.mm_exchange_reports",

@@ -355,6 +355,20 @@ Decimal inputs and type-conflicting RPC captures. It preserves DERIVED labels
 and never fabricates accrued-period linkage, whole-account completeness or
 profit. It adds no account reader and is not wired into paid-accrual reporting.
 
+The supplied [daily earnings-page validator](../../operations/exchange-economics-source-evidence.md#supplied-daily-liquidity-earnings-pages)
+adds exact maker/date/request scope, raw-byte retention, bounded freshness,
+complete cursor sequencing and exact decimal amounts. It preserves separate
+assets and refuses duplicate condition/asset rows. It does not collect account
+evidence or bridge accrual to paid income. The pinned unified SDK has an
+earnings method, but its parsed pages omit raw response evidence and cannot
+prove a terminal cursor was present. On September 11, 320 focused workstation
+checks passed, including existing paid reconciliation, source evidence, schema
+and architecture cases; changed-path compilation and the documentation audit
+also passed. Exact source hashes matched across both hosts and remained
+unchanged through the test run. This increment is stacked on the prepared
+configuration-generation source and does not establish production adoption.
+Raw transport qualification and authoritative distribution semantics remain open.
+
 ### W5 — Preserve Stage 0/1 and qualify the inventory successor
 
 Owner: existing item 67/pilot and fixed-scope wrapper owners. Depends on the
