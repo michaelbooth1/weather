@@ -29,7 +29,9 @@ bindings, and exact `production_manifest`, `production_receipt`, and
 `plain_upload` path/SHA-256 evidence. It first checks complete staged member
 parity against the byte-identical independent workstation download, publishes
 source-to-object locations, and runs the existing fresh settlement/protected-input
-review. Native identity and same-handle full SHA-256 checks precede every exact
+review. The approved primary detail families include `order_books.jsonl`;
+its review retains the same settlement, queue, corpus and replay protections.
+Native identity and same-handle full SHA-256 checks precede every exact
 original deletion. It also removes the verified production staging payload,
 preserves receipts and workstation copies, and advances the existing allocation
 ledger. No encryption or key-custody record is invented for plain data.

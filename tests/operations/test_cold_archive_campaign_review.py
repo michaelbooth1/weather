@@ -63,7 +63,11 @@ def run(evidence):
     return checked, expires, now
 
 
-def test_review_is_accepted_by_existing_reclaim_validator(evidence):
+@pytest.mark.parametrize("family", [
+    "clob_tokens.jsonl", "market_ws.jsonl", "order_books.jsonl",
+    "order_books_long.csv", "order_books_long.csv.gz", "price_history.csv", "variant_predictions.jsonl"])
+def test_review_is_accepted_by_existing_reclaim_validator(evidence, family):
+    evidence[1]["files"][0]["path"] = "snapshots/" + evidence[2] + "/" + family
     checked, expires, now = run(evidence)
     assert (expires - now).total_seconds() == 300
     assert checked["checks"]["queues_clear"]["open_references"] == []
@@ -71,8 +75,10 @@ def test_review_is_accepted_by_existing_reclaim_validator(evidence):
 
 
 @pytest.mark.parametrize("kind", ["settlement", "barrier", "queue", "experiments", "trigger", "corpus", "reserved", "release"])
-def test_actual_dependency_changes_refuse_review(evidence, kind):
+@pytest.mark.parametrize("family", ["clob_tokens.jsonl", "order_books.jsonl"])
+def test_actual_dependency_changes_refuse_review(evidence, kind, family):
     root, entry, event, folder, backtest = evidence
+    entry["files"][0]["path"] = "snapshots/" + event + "/" + family
     if kind == "settlement":
         put(folder / "settlement.json", {
             "target_date": "2026-07-01", "quality_grade": "complete",
@@ -98,3 +104,10 @@ def test_actual_dependency_changes_refuse_review(evidence, kind):
     with pytest.raises(ValueError):
         run(evidence)
     assert not (root / "review").exists()
+
+@pytest.mark.parametrize("family", ["snapshots_long.csv", "replay_inputs.jsonl", "settlement.json", "predictions_explained.csv"])
+def test_unapproved_families_still_refuse_review(evidence, family):
+    evidence[1]["files"][0]["path"] = "snapshots/" + evidence[2] + "/" + family
+    with pytest.raises(ValueError, match="unreviewed detail file family"):
+        run(evidence)
+    assert not (evidence[0] / "review").exists()

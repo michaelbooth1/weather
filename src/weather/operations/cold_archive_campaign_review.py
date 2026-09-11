@@ -16,7 +16,7 @@ from weather.schema_registry import schema_version
 
 MIB = 1024**2
 FAMILIES = re.compile(
-    r"(?:clob_tokens[.]jsonl|market_ws[.]jsonl|order_books_long[.]csv(?:[.]gz)?|"
+    r"(?:clob_tokens[.]jsonl|market_ws[.]jsonl|order_books[.]jsonl|order_books_long[.]csv(?:[.]gz)?|"
     r"price_history[.]csv|variant_predictions[.]jsonl)")
 
 
