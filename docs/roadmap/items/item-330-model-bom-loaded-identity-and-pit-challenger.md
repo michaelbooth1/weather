@@ -31,11 +31,12 @@ the same one-entry declarations and negative authority test without importing
 the production branch's unrelated history. Source publication does not adopt
 the controlling guard or authorize an unwrapped launch.
 
-The first full CI run exposed an older Windows-only ACL dependency in two
-export fixture modules on Linux. The test-only follow-up supplies a clearly
-synthetic ACL for non-Windows domain fixtures, retains the actual Windows API
-test on Windows, and explicitly verifies unsupported-platform refusal.
-The runtime exporter and its ACL gate remain unchanged.
+Full CI exposed older Windows-only ACL and atomic-publication dependencies
+in export fixtures on Linux. Test-only follow-ups supply explicitly synthetic
+filesystem seams for non-Windows domain fixtures, retain the actual Windows
+ACL API and native no-replace race tests, and verify unsupported-platform
+refusal before mutation. Native exporter verification passes all 94 tests.
+The runtime exporter and both platform safeguards remain unchanged.
 
 Prospective qualification remains open on source timing and extension beyond
 the model's frozen seasonal population. Previously evaluated 2024/2025/2026

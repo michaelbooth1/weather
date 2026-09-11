@@ -18,10 +18,11 @@ from weather.operations import wu_outcome_spec_registry as spec_registry
 
 
 _REAL_WINDOWS_ACL_PROOF = exporter._windows_acl_proof
+_REAL_ATOMIC_PUBLISH = exporter._atomic_publish
 
 
 @pytest.fixture(autouse=True)
-def _synthetic_acl_on_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+def _synthetic_windows_filesystem_on_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     if os.name == "nt":
         return
     # Domain fixtures run on Linux; the actual OS contract has separate tests.
@@ -35,6 +36,22 @@ def _synthetic_acl_on_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
             "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
         },
     )
+
+    def synthetic_publish(staging: Path, destination: Path) -> None:
+        # Preserve the real volume/race checks. This single-process fixture
+        # does not claim to prove Windows' native atomic no-replace semantics.
+        def synthetic_rename(source: Path, target: Path) -> None:
+            if target.exists():
+                raise FileExistsError(target)
+            os.rename(source, target)
+
+        with monkeypatch.context() as publication_patch:
+            publication_patch.setattr(
+                exporter, "os", SimpleNamespace(name="nt", rename=synthetic_rename)
+            )
+            _REAL_ATOMIC_PUBLISH(staging, destination)
+
+    monkeypatch.setattr(exporter, "_atomic_publish", synthetic_publish)
 
 
 DATES = (
@@ -1481,3 +1498,40 @@ def test_non_windows_acl_proof_refuses_before_native_access(
     monkeypatch.setattr(exporter, "os", SimpleNamespace(name="posix"))
     with pytest.raises(contract.ContractError, match="E_ACL_PLATFORM_UNSUPPORTED"):
         _REAL_WINDOWS_ACL_PROOF(tmp_path)
+
+
+def test_non_windows_atomic_publication_refuses_without_moving_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "payload").write_bytes(b"original")
+    destination = tmp_path / "destination"
+    monkeypatch.setattr(exporter, "os", SimpleNamespace(name="posix"))
+    with pytest.raises(contract.ContractError, match="E_ATOMIC_NOREPLACE_UNSUPPORTED"):
+        _REAL_ATOMIC_PUBLISH(staging, destination)
+    assert (staging / "payload").read_bytes() == b"original"
+    assert not destination.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows no-replace rename")
+def test_native_publication_race_preserves_existing_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "payload").write_bytes(b"candidate")
+    destination = tmp_path / "destination"
+
+    def racing_rename(source: Path, target: Path) -> None:
+        target.mkdir()
+        (target / "retained").write_bytes(b"existing")
+        os.rename(source, target)
+
+    monkeypatch.setattr(
+        exporter, "os", SimpleNamespace(name="nt", rename=racing_rename)
+    )
+    with pytest.raises(contract.ContractError, match="E_PUBLICATION_RENAME"):
+        _REAL_ATOMIC_PUBLISH(staging, destination)
+    assert (destination / "retained").read_bytes() == b"existing"
+    assert (staging / "payload").read_bytes() == b"candidate"
