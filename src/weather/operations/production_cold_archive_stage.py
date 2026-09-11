@@ -458,6 +458,12 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
         _write(attempt / "claim.json", _seal(dict(receipt), "receipt_hash"))
         try:
             records = []
+            for row in chunk["files"]:
+                guard.admit()
+                path = _safe_path(root / row["path"])
+                with _source_pin(path) as pin:
+                    if pin.metadata() != {key: value for key, value in row.items() if key != "path"}:
+                        raise ArchiveStageError("source metadata differs before staging: " + row["path"])
             archive_path = attempt / "archive.tar.gz"
             with archive_path.open("xb") as raw:
                 writer = _Writer(raw, guard, bound, attempt, reserve)
@@ -502,7 +508,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
             receipt.update(status="PASS", manifest_hash=manifest["manifest_hash"],
                            verification=verification)
         except BaseException as exc:
-            receipt.update(status="FAIL_CLOSED", error_type=type(exc).__name__)
+            receipt.update(status="FAIL_CLOSED", error_type=type(exc).__name__,
+                           error_message=str(exc)[:1024])
             _write(attempt / "receipt.json", _seal(receipt, "receipt_hash"))
             raise
         _write(attempt / "receipt.json", _seal(receipt, "receipt_hash"))

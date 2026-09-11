@@ -233,6 +233,13 @@ class Steps:
                 docs["result"] = io.spec(output / "result.json")
             proof = io.load_spec(docs["wrapper"])
             elapsed = (staging._utc(proof["completed_at_utc"]) - staging._utc(proof["started_at_utc"])).total_seconds()
+            if phase == "stage" and proof.get("status") != "PASS":
+                failed_path = self.requests.stage / "receipt.json"
+                if failed_path.exists():
+                    failed = io.load_spec(io.spec(failed_path))
+                    raise state.CampaignPaused("stage failed; originals retained: " +
+                        str(failed.get("error_message", failed.get("error_type", "inspect receipt"))))
+                raise state.CampaignPaused("stage wrapper failed; originals retained; inspect " + str(output))
             if phase == "stage":
                 docs.update(manifest=io.spec(self.requests.stage / "manifest.json"),
                             stage_receipt=io.spec(self.requests.stage / "receipt.json"))
