@@ -1,5 +1,59 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-07 - STAGE 0/1 PROVED; ECONOMIC PROOF OPEN]
 
+## September 11 bounded opportunity and local simulation
+
+The owner requested execution of the 48-hour model/economics plan and then a
+local liquidity-reward simulation tool. The isolated source is stacked on the
+PR 49 candidate `7150bc3c735027ffc8478274928d7b42cbc2af3b`; it does not imply
+production adoption or another exchange session.
+
+W3 now has a [bounded public capture and report](../../operations/maker-opportunity-report.md)
+and the [local Reward Simulator](../../operations/liquidity-reward-simulator.md).
+The simulator reuses the existing calculator for hypothetical midpoint,
+competition, earning-day, partial-fill and cost assumptions. It preserves filled
+inventory plus resting reserves, keeps reward assets separate from pUSD, and
+shows the completed-day payout minimum and zero-payment loss case. Formula
+availability permits these simulations while actual source qualification stays
+separate. The owner-approved third app page does not restore retired routes.
+
+The frozen six-condition capture completed 38 public requests. Its raw packet
+SHA-256 is `402a5c2337d0cec374c9afc0aa18b0aee94ee385fc6695f2aa1b67ff80344579`.
+The retained report JSON SHA-256 is
+`cc47ba02d8086002155a625a784bf2f32459fa5464f40c60b4cb1ae12f5f3c89`.
+Both are under the coordinating checkout's ignored
+`scratch/handoffs/48h-20260911/`; a clean checkout does not contain them.
+
+The evidence verdict is **EVIDENCE_BLOCKED**. At the captured bids, each
+condition has one order/capital-feasible 20-share BUY: NYC NO 7.20 pUSD,
+Toronto YES 7.80, Dallas NO 9.00, Chicago NO 8.60, Los Angeles YES 8.20,
+Austin NO 8.60. Each simultaneous pair breaches the 10 pUSD per-order
+planning ceiling on one leg. Wallet backing of 100 pUSD and cleanup of 10 pUSD
+are assumptions, not measured balances. No primary/reserve reward opportunity,
+accrued income, paid income or positive expected profit is established.
+The next source task binds the size-cutoff-adjusted midpoint and actual
+earning epoch/pool to the same condition, books and allocation. Anonymous
+depth does not identify the other-makers' nonlinear score denominator.
+
+W4's [account capture specification](../../operations/maker-account-evidence-capture.md)
+defines exact raw-byte scope, non-mutating authentication prerequisites,
+pagination/finality, legacy/v2 separation, native assets and whole-account cash
+coverage. Its verdict is **ATTRIBUTION_BLOCKED**: authoritative
+earned-period/condition-to-distribution-to-credit linkage is still missing.
+The installed SDK source audit did not load credentials, construct a wallet
+client or contact account endpoints. The raw JSON transport loses original
+bytes and the secure constructor can invoke wallet-readiness mutations, so
+neither is silently treated as the required read-only collector.
+
+Verification used the assigned workstation and canonical admission wrapper.
+The W4 evidence/matcher suite passed 292 tests, including new duplicate-credit
+across earning periods and unsupported-reversal controls. Simulator/app,
+existing calculator/capture, schema and architecture checks passed 172 tests;
+their sole source-tracking failure passed after exact new-file staging.
+The test witness resolves to the isolated checkout. Changed-file compilation
+and the actual canonical documentation audit passed. Those checks qualify
+source behavior, not real reward eligibility, cash attribution, capture
+adoption or model improvement.
+
 ## September 11 mainline reconciliation
 
 The owner accepted the archive headroom and paused further uploads; see

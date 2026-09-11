@@ -8,6 +8,11 @@ calculation with no file loader, network client, executor integration, or CLI.
 It returns separate order, capital, reward-eligibility, and payment-estimation
 results. A feasible result grants no order or promotion authority.
 
+The separate [bounded public capture/report adapter](maker-opportunity-report.md)
+now supplies source-bound order/capital diagnostics with explicit reward-evidence
+blockers. It owns the persisted capture/report schemas and CLI; this calculator
+remains a pure explicit-input function.
+
 ## Supplied evidence
 
 - `MarketTerms` reuses the per-condition names in
@@ -57,7 +62,10 @@ describes those units and dated allocation fields.
 That page currently describes Gamma `orderMinSize` as USDC notional. Do not
 assume the retained `order_min_size` name denotes shares, or equate it with a
 different CLOB field. The caller must bind the selected unit and asset to its
-source; unproved units are rejected.
+source; unproved units are rejected. The separate CLOB book field
+`min_order_size` is explicitly defined as shares in the current
+[order placement contract](https://docs.polymarket.com/trading/place-orders).
+The bounded adapter binds that captured definition and its precision table.
 
 Convert maximum distance cents once: `v = rewards_max_spread_cents / 100`.
 An eligible order contributes `size * ((v - distance) / v)^2 * multiplier`.
@@ -136,5 +144,6 @@ and explicit epoch binding. No venue access is required.
 
 Update alongside input or result contracts, supported order plans, scoring or
 capital semantics, or any consumer that attempts to persist or promote these
-diagnostics. A persisted artifact would need the normal registered schema and
-captured-input lineage; this in-process return value creates neither.
+diagnostics. Persisted consumers require registered schemas and captured-input
+lineage; the bounded adapter owns those artifacts, while this in-process return
+value creates neither.

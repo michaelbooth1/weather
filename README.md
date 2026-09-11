@@ -80,11 +80,12 @@ Room, and writes Streamlit logs under `data/logs/`:
 .\scripts\launch\start_weather_dashboard.cmd
 ```
 
-The frontend deliberately has only two pages:
+The frontend provides three local pages:
 
 ```text
 http://localhost:8501/?market=control
 http://localhost:8501/?roadmap
+http://localhost:8501/?market=simulator
 ```
 
 The **Control Room** shows the current project objective and next milestone,
@@ -101,6 +102,12 @@ active `OPEN` and `PARTIAL` work from the canonical roadmap index. It separates
 dependency-held items and surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
 to the Control Room; the retired frontend pages are not retained as hidden
 code.
+
+The **Reward Simulator** explores the public liquidity-reward formula with
+adjustable quotes, competition, partial fills, capital and costs. Optional
+captured-market presets remain separate from assumed midpoint and reward-pool
+inputs. Downloadable scenarios do not establish earned rewards or trading
+permission. See the [simulator guide](docs/operations/liquidity-reward-simulator.md).
 
 ## Tests And Local Checks
 

@@ -1,7 +1,7 @@
 # Streamlit App Instructions
 
 The canonical entry point is `app/streamlit_app.py`. It intentionally exposes
-only two pages: the default read-only Control Room and Roadmap. Keep it a thin
+the default read-only Control Room, Roadmap, and the offline Reward Simulator. Keep it a thin
 router; page bodies belong in `app/views/`, reusable table rendering belongs
 in `app/table_utils.py`, and domain logic belongs in its owning `weather`
 package.
@@ -24,6 +24,10 @@ Focused checks:
 .\venv\Scripts\python.exe -m pytest tests\app -q
 .\venv\Scripts\python.exe -m pytest tests\app\test_app_architecture.py -q
 ```
+
+The simulator owns no network, credential, order, or monitor actions. Its view
+uses the canonical reward calculator through `weather.market.maker_reward_simulation`;
+scenario inputs and exports never qualify observed reward evidence.
 
 See [the architecture guide](../docs/architecture.md) for the UI boundary.
 
