@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import time
 
@@ -20,7 +21,7 @@ DEADLINE_SECONDS = 180
 
 def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
         rclone_executable, rclone_config, dpapi_secret, drive_remote_name, drive_root_folder_id,
-        plain_file=False):
+        plain_file=False, existing_remote_key=None):
     repo = repo_path()
     core._require(core.crypt.ARCHIVE_ID_RE.fullmatch(attempt_id) is not None, "invalid backup attempt")
     deadline = time.monotonic() + (900 if plain_file else DEADLINE_SECONDS)
@@ -45,6 +46,11 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
                           and bundle.get("contains_credential_values") is False
                           and isinstance(bundle.get("records"), list)
                           and 1 <= len(bundle["records"]) <= 512, "invalid bounded recovery bundle")
+        if existing_remote_key is not None:
+            core._require(plain_file and isinstance(existing_remote_key, str)
+                          and re.fullmatch(re.escape(source.parent.name) + r"u[1-9][0-9]*-"
+                                           + re.escape(source.name), existing_remote_key) is not None,
+                          "existing object must belong to this exact copied input")
         parent = repo / "scratch" / "ac-backup"
         if not parent.exists():
             parent.mkdir()
@@ -93,10 +99,11 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
                 rclone_executable, active, drive_remote_name, drive_root_folder_id,
                 environment, client_guard, deadline)
             client.preflight()
-            key = attempt_id + ("-" + source.name if plain_file else ".recovery.json")
-            client.object(key, absent=True)
+            key = existing_remote_key or attempt_id + ("-" + source.name if plain_file else ".recovery.json")
             size = source.stat().st_size
-            client.copy(source, drive_remote_name + ":" + key, size)
+            if existing_remote_key is None:
+                client.object(key, absent=True)
+                client.copy(source, drive_remote_name + ":" + key, size)
             remote = client.object(key)
             core._require(remote["bytes"] == size, "backup remote size differs")
             client.committed_objects[key] = remote
@@ -117,7 +124,8 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
                 "execution_host_id": host, "bundle_sha256": raw_sha, "bytes": size,
                 "drive": {"root_folder_id": drive_root_folder_id, **remote},
                 "independent_download_verified": True, "originals_deleted": 0,
-                "archive_payload_bytes_read": (3 * size if plain_file else 0),
+                "upload_performed": existing_remote_key is None,
+                "archive_payload_bytes_read": ((2 if existing_remote_key else 3) * size if plain_file else 0),
                 "payload_encryption": "none", "source_path": str(source),
                 "downloaded_path": str(downloaded), "completed_at_utc": datetime.now(timezone.utc).isoformat()}
             core.archive._write(attempt / "receipt.json", core._seal(result))
@@ -140,6 +148,7 @@ def main(argv=None):
                  "rclone_executable", "rclone_config", "dpapi_secret", "drive_remote_name", "drive_root_folder_id"):
         parser.add_argument("--" + name.replace("_", "-"), required=True)
     parser.add_argument("--plain-file", action="store_true")
+    parser.add_argument("--existing-remote-key")
     try:
         result = run(**vars(parser.parse_args(argv)))
     except Exception as exc:

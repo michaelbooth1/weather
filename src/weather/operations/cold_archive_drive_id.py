@@ -86,7 +86,11 @@ def object_metadata(client, key, object_id):
     require(len(raw) <= MAX_METADATA, "Drive metadata exceeds bound")
     client.guard()
     value = json.loads(raw)
-    mime_types = ("application/octet-stream", "application/json", "text/plain") if key.endswith(".json") else ("application/octet-stream",)
+    mime_types = ("application/octet-stream",)
+    if key.endswith(".json"):
+        mime_types += ("application/json", "text/plain")
+    elif key.endswith(".tar.gz"):
+        mime_types += ("application/gzip", "application/x-gzip")
     require(isinstance(value, dict) and value.get("id") == object_id
             and value.get("name") == key and value.get("trashed") is False
             and value.get("mimeType") in mime_types

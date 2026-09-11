@@ -15,6 +15,13 @@ bytes; the stored credential configuration remains protected separately.
 Capture host resource admission and exact-source deletion checks still apply.
 The earlier multi-phase encrypted controller is not the current execution route.
 
+If upload succeeded but verification failed, a fresh attempt can use
+`--existing-remote-key <archive-id>u<N>-archive.tar.gz` to verify that exact
+existing object without uploading again. The key must belong to the same
+copied input; independent download, full-file SHA-256, immutable object ID and
+parent-folder checks remain mandatory. Plain gzip files accept gzip media
+types; encrypted binary files retain their existing type restriction.
+
 ## Update this file when
 
 Update when the approved transfer or original-deletion route changes.
