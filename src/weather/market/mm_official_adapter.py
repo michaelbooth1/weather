@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_policy import bool_value
+from weather.market.mm_pilot_capital import pilot_capital_limit
 OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
 OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
@@ -693,7 +694,7 @@ class OfficialPolymarketGlobalAdapter:
         checks = gate.get("checks")
         try:
             requested_budget = Decimal(str(gate.get("requested_budget_usdc")))
-            wallet_cap = Decimal(str(gate.get("pilot_wallet_max_funding_usdc")))
+            wallet_cap = pilot_capital_limit(gate)
         except (InvalidOperation, TypeError, ValueError):
             requested_budget = wallet_cap = None
         operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
@@ -708,7 +709,7 @@ class OfficialPolymarketGlobalAdapter:
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.4",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.6",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",

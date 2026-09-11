@@ -7,17 +7,18 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
-from weather.market.exchange_economics import (
-    accept_snapshot_baseline,
-    build_snapshot_payload,
-)
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_wrapper_sealer as sealer
-from tests.live_candidate_fixture import build_live_candidate_payload
+from tests.live_candidate_fixture import (
+    build_live_candidate_payload,
+    build_stage0_event_metadata_payload,
+    build_stage0_scope_payload,
+)
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -101,7 +102,30 @@ def candidate_payload(
         target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
+        alternate_token_id="102",
         remaining_seconds=remaining_seconds,
+    )
+
+
+def stage0_scope_payload(
+    now: datetime = NOW,
+    *,
+    target_date: str | None = None,
+    remaining_seconds: int = 300,
+) -> dict:
+    target_date = target_date or now.date().isoformat()
+    return build_stage0_scope_payload(
+        now=now,
+        target_date=target_date,
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        alternate_token_id="102",
+        event_metadata_file_sha256="0" * 64,
+        event_metadata_generated_at=now.astimezone(timezone.utc)
+        - timedelta(days=14),
+        remaining_seconds=min(remaining_seconds, 300),
+        best_bid=0.19,
+        best_ask=0.44,
     )
 
 
@@ -245,8 +269,13 @@ def prepare(
     stage: str = "stage0",
     candidate: dict | None = None,
     execution_host_profile: str = "capture_colocated_v1",
+    existing_wallet_allocation: bool = False,
+    collateral_balance: float = 100.0,
 ):
-    fixture_candidate = json.loads(json.dumps(candidate or candidate_payload()))
+    default_candidate = (
+        stage0_scope_payload() if stage == "stage0" else candidate_payload()
+    )
+    fixture_candidate = json.loads(json.dumps(candidate or default_candidate))
     fixture_target_date = str(fixture_candidate["target_date"])
     production = tmp_path / "production"
     attempt = tmp_path / "ops" / "2026-08-23" / "attempt-1"
@@ -338,7 +367,7 @@ def prepare(
         },
     )
     identity_payload = {
-        "schema_version": "mm_stage0_client_identity_v0.3",
+        "schema_version": "mm_stage0_client_identity_v0.4",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
@@ -354,76 +383,28 @@ def prepare(
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100,
     }
-    current_economics = write_json(
-        tmp_path / f"{stage}-current-economics.json",
-        build_snapshot_payload(
+    if existing_wallet_allocation:
+        identity_payload.update(
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
+    plan = fixture_candidate
+    event_generated = datetime.fromisoformat(
+        plan["event_metadata"]["generated_at_utc"]
+    )
+    event_metadata = write_json(
+        attempt / sealer.INPUT_LAYOUTS[stage]["event_metadata"],
+        build_stage0_event_metadata_payload(
+            generated_at=event_generated,
             target_date=fixture_target_date,
-            verified_at_utc=NOW.astimezone(timezone.utc).isoformat(),
-            platform="polymarket_global",
             condition_id=CONDITION,
-            token_ids=[TOKEN, "102"],
-            reward_daily_rate_usdc=1,
-            rewards_min_size=20,
-            rewards_max_spread_cents=4.5,
+            token_id=TOKEN,
+            alternate_token_id="102",
         ),
     )
-    accepted_economics = (
-        attempt / sealer.INPUT_LAYOUTS[stage]["accepted_economics_snapshot"]
-    )
-    economics_drift = (
-        attempt / sealer.INPUT_LAYOUTS[stage]["economics_drift_report"]
-    )
-    accept_snapshot_baseline(
-        snapshot_path=current_economics,
-        accepted_snapshot_path=accepted_economics,
-        drift_report_path=economics_drift,
-        target_date=fixture_target_date,
-        now=NOW,
-        max_age_hours=2,
-        acknowledge_payout_asset_conflict=True,
-    )
-    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
-    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
-    plan = fixture_candidate
-    plan["schema_version"] = sealer.CANDIDATE_SCHEMA_VERSION
-    plan["exchange_economics_snapshot_id"] = accepted_payload["snapshot_id"]
-    plan["exchange_economics_sha256"] = accepted_payload[
-        "exchange_economics_hash"
-    ]
-    plan["selected"]["paper_quote_proof"][
-        "exchange_economics_snapshot_id"
-    ] = accepted_payload["snapshot_id"]
-    plan["selected"]["paper_quote_proof"][
-        "exchange_economics_hash"
-    ] = accepted_payload["exchange_economics_hash"]
-    acknowledgment = sealer.economics_acceptance_acknowledgment(
-        plan["target_date"],
-        plan["selected"]["condition_id"],
-        plan["selected"]["token_id"],
-        accepted_snapshot_file_sha256=sha256(accepted_economics),
-        drift_report_file_sha256=sha256(economics_drift),
-    )
-    plan["economics_acceptance"] = {
-        "accepted_at_utc": accepted_payload["accepted_at_utc"],
-        "accepted_snapshot_file_sha256": sha256(accepted_economics),
-        "accepted_snapshot_id": accepted_payload["snapshot_id"],
-        "accepted_snapshot_sha256": accepted_payload[
-            "exchange_economics_hash"
-        ],
-        "drift_generated_at_utc": drift_payload["generated_at_utc"],
-        "drift_report_file_sha256": sha256(economics_drift),
-        "drift_status": "PASS",
-        "operator_acknowledgment": acknowledgment,
-        "operator_acknowledgment_matches_candidate": True,
-        "required_operator_acknowledgment": acknowledgment,
-        "rescore_required": False,
-    }
-    plan["substrate_preflight"]["accepted_snapshot_file_sha256"] = sha256(
-        accepted_economics
-    )
-    plan["substrate_preflight"]["economics_drift_report_file_sha256"] = sha256(
-        economics_drift
-    )
+    plan["event_metadata"]["file_sha256"] = sha256(event_metadata)
     plan["plan_sha256"] = sealer._canonical_payload_sha256(
         plan, omit="plan_sha256"
     )
@@ -431,8 +412,7 @@ def prepare(
         input_paths = {
             "identity": write_json(attempt / "inputs/stage0-identity.json", identity_payload),
             "scope_plan": write_json(attempt / "inputs/stage0-scope-plan.json", plan),
-            "accepted_economics_snapshot": accepted_economics,
-            "economics_drift_report": economics_drift,
+            "event_metadata": event_metadata,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
@@ -488,7 +468,7 @@ def prepare(
         bootstrap_path = write_json(
             attempt / "stage0/bootstrap.json",
             {
-                "schema_version": "mm_platform_bootstrap_v0.4",
+                "schema_version": "mm_platform_bootstrap_v0.6",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: stage0_premutation_geography[key]
@@ -688,8 +668,7 @@ def prepare(
             "stage0_run_receipt_sidecar": stage0_run_sidecar,
             "stage0_wrapper_execution_receipt": stage0_execution_path,
             "candidate_plan": write_json(attempt / "inputs" / candidate_name, plan),
-            "accepted_economics_snapshot": accepted_economics,
-            "economics_drift_report": economics_drift,
+            "event_metadata": event_metadata,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
@@ -708,14 +687,6 @@ def prepare(
                 "".join(
                     json.dumps(row, separators=(",", ":")) + "\n"
                     for row in (
-                        {
-                            "schema_version": "mm_user_stream_journal_v0.1",
-                            "event_type": "user_event",
-                            "payload": {
-                                "orderID": "cancel-order",
-                                "status": "live",
-                            },
-                        },
                         {
                             "schema_version": "mm_user_stream_journal_v0.1",
                             "event_type": "user_event",
@@ -772,7 +743,7 @@ def prepare(
                     "account_trades_rest_verified": True,
                     "scoped_account_trade_count": 0,
                     "post_cancel_quiescence_seconds": 2.0,
-                    "submit_collateral_balance_usdc": 100.0,
+                    "submit_collateral_balance_usdc": collateral_balance,
                     "submit_collateral_allowance_usdc": 100.0,
                     "submit_collateral_snapshot_sha256": "a" * 64,
                     "post_cancel_collateral_snapshot_sha256": "a" * 64,
@@ -783,8 +754,8 @@ def prepare(
                     "cleanup_final_user_stream_journal_sha256": sha256(
                         cancel_stream
                     ),
-                    "user_stream_journal_row_count": 3,
-                    "user_stream_scoped_order_event_count": 2,
+                    "user_stream_journal_row_count": 2,
+                    "user_stream_scoped_order_event_count": 1,
                     "cancel_response_present": True,
                     "journal_path": str(cancel_journal.resolve()),
                     "journal_sha256": sha256(cancel_journal),
@@ -938,7 +909,22 @@ def prepare(
                             "role": "candidate_plan",
                             "path": str(cancel_candidate.resolve()),
                             "sha256": sha256(cancel_candidate),
-                        }
+                        },
+                        {
+                            "role": "credential_import_receipt",
+                            "path": str(credential.resolve()),
+                            "sha256": sha256(credential),
+                        },
+                        {
+                            "role": "credential_reference_manifest",
+                            "path": str(credential_manifest.resolve()),
+                            "sha256": sha256(credential_manifest),
+                        },
+                        {
+                            "role": "identity",
+                            "path": str(identity_path.resolve()),
+                            "sha256": sha256(identity_path),
+                        },
                     ],
                 },
             )
@@ -1067,7 +1053,6 @@ def prepare(
             role: {"path": str(path.resolve()), "sha256": sha256(path)}
             for role, path in input_paths.items()
         },
-        "economics_acceptance": plan["economics_acceptance"],
         "reviewed_status_flags": [],
         "template_sha256": {
             "python": sha256(production / sealer.PYTHON_TEMPLATE_PATHS[stage]),
@@ -1235,7 +1220,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "__SEAL_" not in wrapper_text
     assert "live_cli.run_stage0(" in wrapper_text
     assert "live_cli.run_stage1(" not in wrapper_text
-    assert "_prompt_until(expected_confirmation)" in wrapper_text
+    assert "_prompt_until" not in wrapper_text
     assert (
         "INTERNATIONAL_POLYMARKET_STAGE0_"
         "HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
@@ -1253,7 +1238,10 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "_assert_window_current()" in host_guard
     assert 'ZoneInfo("America/Toronto")' in wrapper_text
     assert "portable_target_date_matches" in wrapper_text
-    assert wrapper_text.count("load_stage1_candidate_gate(") == 2
+    assert wrapper_text.count("load_stage0_scope_gate(") == 2
+    assert "load_stage1_candidate_gate(" not in wrapper_text
+    assert "economics_acceptance" not in wrapper_text
+    assert "paper_quote" not in wrapper_text
     assert "activate_live_sdk_overlay(" in wrapper_text
     assert "validate_launcher_lease_process_lineage(" in wrapper_text
     assert "single_sealed_python_redirector" in (
@@ -1263,9 +1251,9 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "int(owner.get(\"pid\")) == os.getppid()" not in wrapper_text
     main_body = wrapper_text.split("def main()", 1)[1]
     assert main_body.index("live_cli.run_doctor(") < main_body.index(
-        "_prompt_until(expected_confirmation)"
+        "_display_confirmation_scope()"
     )
-    assert main_body.index("_prompt_until(expected_confirmation)") < main_body.index(
+    assert main_body.index("_display_confirmation_scope()") < main_body.index(
         "live_cli.run_stage0("
     )
     assert wrapper_text.split("def main()", 1)[1].count("_assert_host_state()") == 2
@@ -1312,7 +1300,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
 def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current):
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current),
+        candidate=stage0_scope_payload(current),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1334,7 +1322,7 @@ def test_capture_colocated_seal_still_refuses_next_day_market_target(tmp_path):
     target_date = (current.date() + timedelta(days=1)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current, target_date=target_date),
+        candidate=stage0_scope_payload(current, target_date=target_date),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1355,7 +1343,7 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
     current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current, remaining_seconds=600),
+        candidate=stage0_scope_payload(current, remaining_seconds=300),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1416,10 +1404,10 @@ def test_portable_execution_host_seals_for_next_day_market(tmp_path):
     target_date = (current.date() + timedelta(days=1)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(
+        candidate=stage0_scope_payload(
             current,
             target_date=target_date,
-            remaining_seconds=600,
+            remaining_seconds=300,
         ),
     )
     spec["prepared_at_local"] = current.isoformat()
@@ -1506,10 +1494,10 @@ def test_portable_seal_refuses_target_outside_current_or_next_market_day(
     target_date = (current.date() + timedelta(days=target_offset_days)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(
+        candidate=stage0_scope_payload(
             current,
             target_date=target_date,
-            remaining_seconds=600,
+            remaining_seconds=300,
         ),
     )
     spec["prepared_at_local"] = current.isoformat()
@@ -1728,7 +1716,7 @@ def test_seal_refuses_to_overwrite_a_spent_namespace(tmp_path):
 
 
 def test_seal_refuses_expired_candidate_before_writing(tmp_path):
-    candidate = candidate_payload()
+    candidate = stage0_scope_payload()
     expired = datetime.fromisoformat(candidate["created_at_utc"]) - timedelta(seconds=1)
     candidate["expires_at_utc"] = expired.isoformat()
     candidate["plan_sha256"] = sealer._canonical_payload_sha256(
@@ -1738,11 +1726,48 @@ def test_seal_refuses_expired_candidate_before_writing(tmp_path):
 
     with pytest.raises(
         sealer.SealError,
-        match="candidate plan failed the canonical gate",
+        match="Stage 0 scope plan failed the canonical gate",
     ):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage0.py").exists()
+
+
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all"])
+@pytest.mark.parametrize(
+    ("remaining_seconds", "expected"),
+    [(80, True), (79, False)],
+)
+def test_plan_expiry_contains_the_complete_cleanup_tail(
+    tmp_path,
+    stage,
+    remaining_seconds,
+    expected,
+):
+    plan = (
+        stage0_scope_payload(remaining_seconds=remaining_seconds)
+        if stage == "stage0"
+        else candidate_payload(remaining_seconds=remaining_seconds)
+    )
+    production, attempt, spec_path, _spec = prepare(
+        tmp_path,
+        stage=stage,
+        candidate=plan,
+    )
+
+    if expected:
+        assert seal(spec_path, production)["status"] == "PASS"
+        return
+
+    with pytest.raises(
+        sealer.SealError,
+        match="execution_and_cleanup_within_ttl",
+    ):
+        seal(spec_path, production)
+
+    assert not (
+        attempt / sealer.OUTPUT_LAYOUTS[stage]["python_wrapper"]
+    ).exists()
 
 
 def test_seal_refuses_input_hash_mismatch_before_writing(tmp_path):
@@ -1756,20 +1781,18 @@ def test_seal_refuses_input_hash_mismatch_before_writing(tmp_path):
     assert not (attempt / "wrappers/stage0.py").exists()
 
 
-def test_seal_rejects_rehashed_accepted_economics_evidence_drift(tmp_path):
+def test_seal_rejects_rehashed_event_metadata_drift(tmp_path):
     production, attempt, spec_path, spec = prepare(tmp_path)
-    accepted = Path(spec["inputs"]["accepted_economics_snapshot"]["path"])
-    payload = json.loads(accepted.read_text(encoding="utf-8"))
-    payload["accepted_at_utc"] = (
-        datetime.fromisoformat(payload["accepted_at_utc"]) + timedelta(seconds=1)
-    ).isoformat()
-    write_json(accepted, payload)
-    spec["inputs"]["accepted_economics_snapshot"]["sha256"] = sha256(accepted)
+    event_metadata = Path(spec["inputs"]["event_metadata"]["path"])
+    payload = json.loads(event_metadata.read_text(encoding="utf-8"))
+    payload["locations"][0]["active_events"][0]["title"] = "Changed title"
+    write_json(event_metadata, payload)
+    spec["inputs"]["event_metadata"]["sha256"] = sha256(event_metadata)
     write_json(spec_path, spec)
 
     with pytest.raises(
         sealer.SealError,
-        match="candidate economics acceptance does not match the sealed evidence",
+        match="event metadata does not match the sealed stage plan",
     ):
         seal(spec_path, production)
 
@@ -1821,7 +1844,7 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert "STAGE_NAME = 'stage1_cancel_all'" in text
     assert "live_cli.run_stage0(" not in text
     assert "stage2" not in text.lower()
-    assert "_prompt_until(expected_confirmation)" in text
+    assert "_prompt_until" not in text
     assert "_assert_window_current()" in text
     assert '"cleanup_reserve_seconds": 20' in text
     assert '"contained_process_end_local"' in text
@@ -1841,6 +1864,195 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
         )
     )
     assert receipt["scope"]["cancellation_mode"] == "cancel_all"
+
+
+def stage_public_credential_copies(attempt, spec):
+    from weather.operations.international_live_session_launcher_sealer import (
+        STAGED_INPUT_LAYOUTS,
+    )
+
+    prior_paths = {}
+    for role in ("credential_import_receipt", "credential_reference_manifest"):
+        prior = Path(spec["inputs"][role]["path"])
+        current = attempt / STAGED_INPUT_LAYOUTS[spec["stage"]][role]
+        current.write_bytes(prior.read_bytes())
+        prior_paths[role] = prior
+        spec["inputs"][role] = {"path": str(current.resolve()), "sha256": sha256(current)}
+    return prior_paths
+
+
+def stage1_runtime_namespace(sealed):
+    """Load only inert functions/constants; never import or execute a live main."""
+    tree = ast.parse(Path(sealed["wrapper"]["path"]).read_text(encoding="utf-8"))
+    namespace = {"Path": Path, "json": json, "hashlib": hashlib,
+                 "SHA256_RE": sealer.SHA256_RE}
+    constants = {
+        "SCOPE", "CANCELLATION_MODE", "PRODUCTION_PYTHON",
+        "PRODUCTION_PYTHON_SHA256", "PRODUCTION_PYVENV_CONFIG",
+        "PRODUCTION_PYVENV_CONFIG_SHA256", "PRODUCTION_RUNTIME_PYTHON",
+        "PRODUCTION_RUNTIME_PYTHON_SHA256",
+    }
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id not in constants:
+            continue
+        if isinstance(node.value, ast.Call):
+            assert isinstance(node.value.func, ast.Name) and node.value.func.id == "Path"
+            namespace[target.id] = Path(ast.literal_eval(node.value.args[0]))
+        else:
+            namespace[target.id] = ast.literal_eval(node.value)
+    functions = {"_sha256", "_assert_paths_and_stage0", "_assert_stage1_result"}
+    nodes = [node for node in tree.body
+             if isinstance(node, ast.FunctionDef) and node.name in functions]
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<stage1-validation>", "exec"), namespace)
+    return namespace
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+def test_stage1_seal_accepts_exact_stage_specific_credential_copies(tmp_path, stage):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage=stage)
+    prior_paths = stage_public_credential_copies(attempt, spec)
+    write_json(spec_path, spec)
+
+    result = seal(spec_path, production)
+
+    assert result["status"] == "PASS"
+    assert result["live_mutation_attempted"] is False
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text(encoding="utf-8"))
+    assert receipt["scope"]["requested_budget_pusd"] == 10
+    for role, prior in prior_paths.items():
+        current = Path(spec["inputs"][role]["path"])
+        assert current != prior
+        assert current.read_bytes() == prior.read_bytes()
+        assert receipt[role] == spec["inputs"][role]
+    stage1_runtime_namespace(result)["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("existing, balance, passes", [
+    (True, 275.48, True),
+    (False, 100.0, True),
+    (False, 100.01, False),
+    (True, 9.99, False),
+])
+def test_stage1_dead_man_seal_respects_capital_contract(tmp_path, existing, balance, passes):
+    production, _attempt, spec_path, _spec = prepare(
+        tmp_path, stage="stage1_dead_man",
+        existing_wallet_allocation=existing, collateral_balance=balance,
+    )
+    if not passes:
+        with pytest.raises(sealer.SealError, match="cancel-all PASS lineage"):
+            seal(spec_path, production)
+        return
+    result = seal(spec_path, production)
+    assert result["status"] == "PASS"
+    stage1_runtime_namespace(result)["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("role", ["credential_import_receipt", "credential_reference_manifest"])
+@pytest.mark.parametrize("fault", ["prior_missing", "prior_changed", "current_changed", "prior_redirected"])
+def test_stage1_runtime_rechecks_credential_copies(tmp_path, monkeypatch, role, fault):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage="stage1_cancel_all")
+    prior = stage_public_credential_copies(attempt, spec)[role]
+    current = Path(spec["inputs"][role]["path"])
+    write_json(spec_path, spec)
+    namespace = stage1_runtime_namespace(seal(spec_path, production))
+    if fault == "prior_missing":
+        prior.unlink()
+    elif fault == "prior_changed":
+        prior.write_bytes(prior.read_bytes() + b"\n")
+    elif fault == "current_changed":
+        current.write_bytes(current.read_bytes() + b"\n")
+    else:
+        validate = sealer.validate_regular_nonreparse_file
+
+        def refuse_redirected(path):
+            if Path(path) == prior:
+                raise RuntimeError("live-session path contains a redirected entry")
+            return validate(path)
+
+        monkeypatch.setattr(sealer, "validate_regular_nonreparse_file", refuse_redirected)
+    with pytest.raises(RuntimeError, match="lineage changed|input is absent or hash-mismatched"):
+        namespace["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("mode", ["cancel_all", "dead_man"])
+@pytest.mark.parametrize("existing, balance, allowance, passes", [
+    (True, 275.48, 100, True),
+    (False, 100, 100, True),
+    (False, 100.01, 100, False),
+    (True, 9.99, 100, False),
+    (True, 275.48, 9.99, False),
+    (True, "Infinity", 100, False),
+    (True, 275.48, "Infinity", False),
+])
+def test_stage1_terminal_checks_apply_declared_capital(
+    tmp_path, mode, existing, balance, allowance, passes
+):
+    production, _attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_dead_man", existing_wallet_allocation=existing
+    )
+    namespace = stage1_runtime_namespace(seal(spec_path, production))
+    namespace["CANCELLATION_MODE"] = mode
+    scope = namespace["SCOPE"]
+    result = json.loads(Path(spec["inputs"]["cancel_all_result"]["path"]).read_bytes())
+    lifecycle = Path(scope["lifecycle_journal_out"])
+    stream = Path(scope["user_stream_journal_out"])
+    lifecycle.parent.mkdir(parents=True, exist_ok=True)
+    lifecycle.write_bytes(Path(result["journal_path"]).read_bytes())
+    stream.write_bytes(Path(result["user_stream_journal_path"]).read_bytes())
+    result.update(
+        cancellation_mode=mode,
+        cancel_response_present=mode == "cancel_all",
+        cancellation_elapsed_seconds=12,
+        candidate_plan_sha256=scope["candidate_plan_sha256"],
+        submit_collateral_balance_usdc=balance,
+        submit_collateral_allowance_usdc=allowance,
+        journal_path=str(lifecycle.resolve()),
+        journal_sha256=sha256(lifecycle),
+        user_stream_journal_path=str(stream.resolve()),
+        user_stream_journal_sha256=sha256(stream),
+        cleanup_final_user_stream_journal_sha256=sha256(stream),
+    )
+    write_json(Path(scope["result_out"]), result)
+    if passes:
+        namespace["_assert_stage1_result"]()
+    else:
+        with pytest.raises(RuntimeError, match="result failed host postconditions"):
+            namespace["_assert_stage1_result"]()
+
+
+@pytest.mark.parametrize("role", ["credential_import_receipt", "credential_reference_manifest"])
+@pytest.mark.parametrize("fault", ["prior_missing", "prior_changed", "current_rehashed", "prior_redirected"])
+def test_stage1_seal_rejects_invalid_prior_credential_copy(tmp_path, monkeypatch, role, fault):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage="stage1_cancel_all")
+    prior = stage_public_credential_copies(attempt, spec)[role]
+    current = Path(spec["inputs"][role]["path"])
+    if fault == "prior_missing":
+        prior.unlink()
+    elif fault == "prior_changed":
+        prior.write_bytes(prior.read_bytes() + b"\n")
+    elif fault == "current_rehashed":
+        # The same JSON contract with different bytes is not the prior evidence.
+        current.write_bytes(current.read_bytes() + b"\n")
+        spec["inputs"][role]["sha256"] = sha256(current)
+    else:
+        validate = sealer.validate_regular_nonreparse_file
+
+        def refuse_redirected(path):
+            if Path(path) == prior:
+                raise RuntimeError("live-session path contains a redirected entry")
+            return validate(path)
+
+        monkeypatch.setattr(sealer, "validate_regular_nonreparse_file", refuse_redirected)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="Stage 0 seal/execution lineage"):
+        seal(spec_path, production)
+
+    assert not (attempt / "wrappers/stage1-cancel-all.py").exists()
+    assert not (attempt / "seal/stage1-cancel-all-seal-receipt.json").exists()
 
 
 def test_stage1_dead_man_seal_is_distinct_and_fixed(tmp_path):
@@ -2050,12 +2262,12 @@ def test_credential_import_receipt_accepts_exact_existing_verification(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     sealer._validate_credential_import_receipt(
         receipt,
-        required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        require_host_principal=True,
         now=NOW,
     )
 
 
-def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
+def test_fixed_scope_seal_accepts_clean_creation_without_another_comparison(tmp_path):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
@@ -2067,15 +2279,19 @@ def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
 
-    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
-        seal(spec_path, production)
+    original = receipt.read_bytes()
+    assert seal(spec_path, production)["status"] == "PASS"
+    assert receipt.read_bytes() == original
 
 
-def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path):
+@pytest.mark.parametrize("field", ["execution_host_id", "execution_principal_id"])
+def test_fixed_scope_seal_rejects_credential_provenance_from_another_identity(
+    tmp_path, field
+):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
-    payload["execution_host_id"] = "0" * 64
+    payload[field] = "0" * 64
     write_json(receipt, payload)
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
@@ -2084,19 +2300,43 @@ def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path
         seal(spec_path, production)
 
 
-def test_fixed_scope_seal_rejects_stale_credential_verification(tmp_path):
+@pytest.mark.parametrize("age", [timedelta(hours=3), timedelta(days=365)])
+def test_fixed_scope_seal_reuses_old_credential_provenance_without_retimestamping(
+    tmp_path, age
+):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
     payload["prepared_at_utc"] = (
-        NOW.astimezone(timezone.utc) - timedelta(hours=3)
+        NOW.astimezone(timezone.utc) - age
     ).isoformat()
     write_json(receipt, payload)
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
 
+    original = receipt.read_bytes()
+    assert seal(spec_path, production)["status"] == "PASS"
+    assert receipt.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ["invalid", "2026-01-01T00:00:00", (NOW + timedelta(seconds=1)).isoformat()],
+)
+def test_fixed_scope_seal_rejects_invalid_or_future_credential_provenance(
+    tmp_path, timestamp
+):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["prepared_at_utc"] = timestamp
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
     with pytest.raises(sealer.SealError, match="exact clean PASS"):
         seal(spec_path, production)
+    assert not (attempt / "wrappers/stage0.py").exists()
 
 
 def test_credential_import_receipt_retains_current_create_support(tmp_path):
@@ -2128,10 +2368,10 @@ def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path
 
     sealer._validate_credential_import_receipt(receipt, now=NOW)
 
-    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
+    with pytest.raises(sealer.SealError, match="current host/principal"):
         sealer._validate_credential_import_receipt(
             receipt,
-            required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=NOW,
         )
 
@@ -2210,6 +2450,47 @@ def test_repository_templates_refuse_before_weather_import(template_name, tmp_pa
     assert isinstance(sealed_assignments[0].value, ast.Constant)
     assert sealed_assignments[0].value.value is False
     assert source.index("_assert_sealed()") < source.index("from weather.market")
+
+
+@pytest.mark.parametrize("template_name", ["stage0.py.tmpl", "stage1_cancel_all.py.tmpl"])
+@pytest.mark.parametrize("mode", ["create_new", "verify_existing_exact"])
+def test_live_template_credential_boundary_accepts_retained_provenance(
+    tmp_path, template_name, mode
+):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload.update(
+        prepared_at_utc=(NOW - timedelta(days=365)).isoformat(),
+        credential_mode=mode,
+        credential_value_count_written=4 if mode == "create_new" else 0,
+        credential_value_count_existing_exact_verified=0 if mode == "create_new" else 4,
+        credential_store_mutation_attempted=mode == "create_new",
+    )
+    write_json(receipt, payload)
+    template = sealer.REPO_ROOT / "scripts/ops/international_live_templates" / template_name
+    tree = ast.parse(template.read_text(encoding="utf-8"))
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+        and node.value.func.attr == "_validate_credential_import_receipt"
+    ]
+    assert len(calls) == 1
+    # Execute the real template's public validation boundary only. Never run
+    # its main function, credential resolver or exchange command in this test.
+    boundary = compile(ast.Module(body=calls, type_ignores=[]), str(template), "exec")
+    namespace = {
+        "Path": Path, "datetime": datetime, "evidence": sealer,
+        "SCOPE": {"credential_import_receipt_path": str(receipt)},
+    }
+    original = receipt.read_bytes()
+    exec(boundary, namespace)
+    assert receipt.read_bytes() == original
+    payload["execution_principal_id"] = "0" * 64
+    write_json(receipt, payload)
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        exec(boundary, namespace)
 
 
 def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
@@ -2397,6 +2678,17 @@ def test_every_stage_binds_complete_status_attestation_source_closure():
         assert python_closure.issubset(sealer.LIVE_SOURCE_PATHS[stage])
 
 
+def test_stage1_source_closure_uses_lifecycle_plan_not_paper_candidate():
+    lifecycle_source = "src/weather/market/mm_live_stage1_lifecycle_plan.py"
+    for stage in ("stage1_cancel_all", "stage1_dead_man"):
+        assert lifecycle_source in sealer.LIVE_SOURCE_PATHS[stage]
+        template = (
+            Path(sealer.REPO_ROOT) / sealer.PYTHON_TEMPLATE_PATHS[stage]
+        ).read_text(encoding="utf-8")
+        assert "load_stage1_lifecycle_plan_gate(" in template
+        assert "load_stage1_candidate_gate(" not in template
+
+
 def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
     root = Path(sealer.REPO_ROOT)
     inventory = sealer.build_public_inventory(
@@ -2513,7 +2805,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
         assert "not dirty" in template
         assert "dirty.issubset(ALLOWED_DIRTY_PATHS)" in template
 
-    stage0_candidate = stage0.rindex("candidate_gate = load_stage1_candidate_gate(")
+    stage0_candidate = stage0.rindex("candidate_gate = load_stage0_scope_gate(")
     stage0_geography = stage0.index(
         '_run_geography_check("geography_precredential_receipt_out")',
         stage0_candidate,
@@ -2529,7 +2821,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
         '_run_geography_check("geography_premutation_receipt_out")'
     )
 
-    stage1_candidate = stage1.rindex("load_stage1_candidate_gate(")
+    stage1_candidate = stage1.rindex("load_stage1_lifecycle_plan_gate(")
     stage1_geography = stage1.index(
         '_run_geography_check("geography_precredential_receipt_out")',
         stage1_candidate,
@@ -2565,3 +2857,163 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
     assert "geographic_eligibility_fresh_until_utc=(" in lifecycle[
         lifecycle_submit :
     ]
+
+
+
+@pytest.mark.parametrize("allocation", [100, 100.01])
+def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocation, capsys):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    identity = Path(spec["inputs"]["identity"]["path"])
+    payload = json.loads(identity.read_text(encoding="utf-8"))
+    payload.update(
+        pilot_capital_mode="existing_wallet_test_allocation",
+        pilot_test_allocation_pusd=allocation,
+        isolated_pilot_wallet=False,
+        pilot_wallet_max_funding_usdc=None,
+    )
+    write_json(identity, payload)
+    spec["inputs"]["identity"]["sha256"] = sha256(identity)
+    write_json(spec_path, spec)
+    if allocation > 100:
+        with pytest.raises(sealer.SealError, match="capital limit"):
+            seal(spec_path, production)
+        assert not (attempt / "wrappers/stage0.py").exists()
+        return
+    result = seal(spec_path, production)
+    assert result["status"] == "PASS"
+    wrapper = (attempt / "wrappers/stage0.py").read_text(encoding="utf-8")
+    tree = ast.parse(wrapper)
+    display_node = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_display_confirmation_scope"
+    )
+    namespace = {
+        "datetime": datetime, "timedelta": timedelta, "Path": Path,
+        "hashlib": hashlib, "json": json, "STAGE_NAME": "stage0",
+        "SCOPE": ast.literal_eval(next(
+            node.value for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "SCOPE" for target in node.targets)
+        )),
+    }
+    exec(compile(ast.Module(body=[display_node], type_ignores=[]), "<scope-display>", "exec"), namespace)
+    assert len(namespace["_display_confirmation_scope"]()) == 64
+    displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
+    assert displayed["pilot_test_allocation_pusd"] == 100
+    assert displayed["pilot_capital_limit_pusd"] == 100
+    assert displayed["pilot_wallet_max_funding_usdc"] is None
+    assert displayed["isolated_pilot_wallet"] is False
+
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all", "stage1_dead_man"])
+@pytest.mark.parametrize("session_id, blocked_check", [(1, None), (0, None), (1, 1), (1, 2)])
+def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
+    tmp_path, monkeypatch, capsys, stage, session_id, blocked_check
+):
+    from weather import execution_host
+    from weather.market import live_sdk_overlay, mm_live_pilot_cli as live_cli
+    from weather.market import mm_live_stage0_scope as stage0_scope
+    from weather.market import mm_live_stage1_lifecycle_plan as stage1_plan
+    from weather.operations import live_path_security
+
+    production, attempt, spec_path, _spec = prepare(tmp_path, stage=stage)
+    sealed = seal(spec_path, production)
+    tree = ast.parse(Path(sealed["wrapper"]["path"]).read_text(encoding="utf-8"))
+    names = {"main", "_assert_attended_invocation", "_display_confirmation_scope",
+             "_run_geography_check", "_run_premutation_geography_check"}
+    nodes = [node for node in tree.body
+             if isinstance(node, ast.FunctionDef) and node.name in names]
+    scope = ast.literal_eval(next(
+        node.value for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "SCOPE" for target in node.targets)
+    ))
+    events = []
+    geography_calls = []
+
+    def no_input(*args, **kwargs):
+        raise AssertionError("reviewed command must not request confirmation input")
+
+    def official_check(path, **kwargs):
+        geography_calls.append((path, kwargs))
+        events.append("geography")
+        return {"status": "BLOCK", "eligible": False} if len(geography_calls) == blocked_check else {"status": "PASS", "eligible": True}
+
+    class ReachedWriteBoundary(Exception):
+        pass
+
+    def stage_command(args):
+        events.append("command")
+        assert args.budget == 10
+        if stage == "stage0":
+            assert args.confirmation == "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
+            args.pre_mutation_attestor()
+        else:
+            assert args.confirmation == "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
+            assert args.cancellation_mode == ("cancel_all" if stage == "stage1_cancel_all" else "dead_man")
+            args.pre_submit_attestor()
+        events.append("write_boundary")
+        # This mock boundary must stop before any real SDK, vault or exchange call.
+        raise ReachedWriteBoundary
+
+    monkeypatch.setattr("builtins.input", no_input)
+    monkeypatch.setattr(execution_host, "current_execution_session_id", lambda: session_id, raising=False)
+    monkeypatch.setattr(live_sdk_overlay, "activate_live_sdk_overlay",
+                        lambda *args: events.append("sdk") or {})
+    monkeypatch.setattr(live_cli, "run_doctor", lambda args: {"status": "PASS"})
+    monkeypatch.setattr(live_cli, "run_stage0", stage_command)
+    monkeypatch.setattr(live_cli, "run_stage1", stage_command)
+    monkeypatch.setattr(stage0_scope, "load_stage0_scope_gate",
+                        lambda *args, **kwargs: {"event_metadata": {}, "neg_risk": False})
+    monkeypatch.setattr(stage0_scope, "validate_bound_stage0_event_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(stage1_plan, "load_stage1_lifecycle_plan_gate",
+                        lambda *args, **kwargs: {"event_metadata": {}})
+    monkeypatch.setattr(geography, "check_geographic_eligibility", official_check)
+    monkeypatch.setattr(live_path_security, "assert_no_ambient_proxy_configuration", lambda: None)
+    monkeypatch.setattr(sealer, "_validate_credential_import_receipt",
+                        lambda *args, **kwargs: events.append("credential_provenance"))
+    namespace = {
+        "datetime": datetime, "timedelta": timedelta, "Path": Path,
+        "hashlib": hashlib, "json": json, "SimpleNamespace": SimpleNamespace,
+        "sys": SimpleNamespace(argv=["sealed-stage.py"], path=[]),
+        "SCOPE": scope, "PRODUCTION": Path(sealer.REPO_ROOT), "STAGE_NAME": stage,
+        "CANCELLATION_MODE": "cancel_all" if stage == "stage1_cancel_all" else "dead_man",
+        "PRE_CREDENTIAL_RESERVE_SECONDS": 120, "PRE_MUTATION_RESERVE_SECONDS": 60,
+        "_prompt_until": no_input,
+        "_assert_sealed": lambda: None, "_assert_git_and_sources": lambda: None,
+        "_assert_paths": lambda **kwargs: None, "_assert_paths_and_stage0": lambda **kwargs: None,
+        "_assert_host_state": lambda: events.append("host"),
+        "_assert_precredential_reserve": lambda: None, "_assert_mutation_reserve": lambda: None,
+        "_assert_window_current": lambda: None,
+        "_assert_reserve": lambda reserve, **kwargs: events.append("reserve"),
+    }
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<sealed-main>", "exec"), namespace)
+    namespace["_pre_submit_attestor"] = lambda: namespace["_run_geography_check"]("geography_presubmit_receipt_out")
+    if session_id == 0:
+        with pytest.raises(RuntimeError, match="signed-in Windows desktop"):
+            namespace["main"]()
+        assert events == ["host"]
+        assert geography_calls == []
+        return
+    if blocked_check:
+        with pytest.raises(RuntimeError, match="geographic eligibility did not pass"):
+            namespace["main"]()
+        assert len(geography_calls) == blocked_check
+        assert "write_boundary" not in events
+        if blocked_check == 1:
+            assert "credential_provenance" not in events
+            assert "command" not in events
+    else:
+        with pytest.raises(ReachedWriteBoundary):
+            namespace["main"]()
+        assert len(geography_calls) == 2
+        assert events.index("geography") < events.index("credential_provenance") < events.index("command")
+        assert events[-1] == "write_boundary"
+    for path, kwargs in geography_calls:
+        assert kwargs == {"confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+                          "physical_location_eligible": True, "no_circumvention": True}
+    displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
+    assert displayed["authorization_method"] == "reviewed_command_invocation"
+    assert displayed["physical_location_eligible"] is True
+    assert displayed["no_circumvention"] is True
+    assert displayed["requested_budget_pusd"] == 10
+    assert len(namespace["CONFIRMATION_SCOPE_DISPLAY_SHA256"]) == 64

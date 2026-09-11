@@ -40,7 +40,7 @@ results. A feasible result grants no order or promotion authority.
 This validates supplied identity, chronology, and numerical consistency; it
 does not authenticate the referenced bytes or establish that supplied facts
 are true. Production evidence still requires the existing economics source
-gate. Historical work requires the exact snapshot captured by its own run;
+gate and its [raw response contract](exchange-economics-source-evidence.md). Historical work requires the exact snapshot captured by its own run;
 today's snapshot cannot qualify old evidence. Synthetic fixtures remain
 synthetic even when all consistency checks pass.
 

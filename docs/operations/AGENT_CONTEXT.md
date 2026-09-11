@@ -22,6 +22,14 @@ generated reports for dynamic state.
 - The modeled settlement source is the highest whole-degree value printed by
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
+- `weather.units.parse_temperature_band` preserves signed whole-degree endpoints
+  and inclusive ranges; serving, settlement and paper scorers share its grammar.
+  Malformed, mixed-unit or inverted labels are unscored. Explicit row endpoints
+  must agree with labels, except documented legacy single-value labels may omit
+  the explicit upper endpoint. Parsing never converts or rounds temperature.
+  Replay and persisted snapshot bins use `temperature_band_key`; numeric zero
+  is a value, never a missing-value fallback. Invalid replay bands remain
+  unscored; invalid snapshot bins fail before sidecar publication.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
@@ -115,6 +123,54 @@ See [path policy](path-policy.md),
 - Background capture is more valuable than opportunistic heavy work on the
   dedicated host. Follow the host-load and operations topology policies before
   running backfills, corpus builds, replays, or training.
+
+## Gate design and operating rules
+
+Challenge inherited operating rules before imposing their cost on the operator.
+Identify the concrete failure each rule prevents, its authority or evidence,
+and whether the consuming stage already checks that risk directly. Keep rules
+with a justified purpose; remove redundant ceremony or replace unsupported
+proxies with checks of the actual condition. Record the reasoning in the owning
+contract and test the failure boundary. This applies to procedural rules as
+well as numeric thresholds; familiarity alone is not a justification.
+
+For the bounded attended International Stage 0/1 sequence, the operator's
+invocation of the reviewed local command carries authorization and the stated
+eligibility/no-circumvention attestation. Do not add repeated confirmation
+prompts. Follow the [owning authorization contract](INTERNATIONAL_MM_LIVE_PILOT.md#reviewed-command-authorization)
+for scope, attendance and the independent runtime gates.
+
+A gate must protect the stage that consumes it. Do not make a read-only or
+no-order stage depend on a later stage's profitability, quote-quality, or
+research heuristic merely because one artifact is convenient to reuse.
+
+Every numeric hard block must identify, in its owning code or canonical
+contract:
+
+- its owner and exact stage;
+- whether it is a protocol/operational safety invariant, a current external
+  rule, an explicit owner-approved risk envelope, or an experimental
+  heuristic;
+- the source and date, rationale, supporting evidence, units, and boundary
+  semantics; and
+- the failure consequence plus the condition that triggers remeasurement or
+  review.
+
+Protocol/operational safety invariants and current external rules fail closed
+within their documented scope. External limits must come from current bound
+evidence rather than a copied constant when the venue can change them. An
+owner-approved loss, exposure, or resource envelope may also fail closed, but
+must be described as a chosen risk bound rather than an empirical optimum and
+must identify what new authority or evidence permits review. An experimental
+heuristic without measured support is a preference, ranking feature, warning,
+or explicit experiment parameter—not an immutable hard block. It must not be
+described as "optimal" or "safe," and it must not block an unrelated stage.
+
+When an unexplained threshold blocks work, first trace its history and causal
+path, then state why it exists and the risks of tightening, relaxing, or
+removing it. Do not mechanically raise the value to make a run pass; decouple
+the stages or replace the heuristic with a measured decision rule. Preserve
+the underlying safety controls while that work is reviewed.
 
 ## Architectural routing
 

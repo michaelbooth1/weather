@@ -46,15 +46,18 @@ snapshot loop. The observation-trigger loop can request recomputation when
 low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
-The Streamlit Operator Control Room is a read-only projection of persisted
-reporting and operations evidence. `weather.reporting.market.operator_control_room`
-owns its exact-target-date reduction and fail-closed `HOLD` decision; the
-`app/views/control_room.py` view only renders that result. Even a complete
-software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
-grant trading authority or expose order, cancel, credential, promotion, or
-risk-setting actions. The frontend intentionally contains only this Control
-Room and the active Roadmap; retired market, history, overview, and operations
-views are not hidden routes or retained application code.
+The Streamlit Control Room projects project context, host diagnostics and
+persisted trading evidence. `weather.reporting.market.operator_control_room`
+owns the general pilot checklist; `operator_evidence`, `operator_session` and
+`operator_trading` own bounded observation readers, while
+`weather.reporting.roadmap.project_overview` reads the canonical project note
+and workstream ledger. `app/monitor_data.py` shares caches across browser
+sessions. The host collector runs at most one bounded diagnostic at a time,
+independently of fast session refreshes. Views expose no trading, credential,
+promotion or risk-setting actions. The portable launcher's action-time gates
+remain authoritative. See [the monitor contract](operations/OPERATOR_MONITOR.md)
+for freshness, input bounds and accounting semantics. The frontend contains only
+Control Room and Roadmap; retired page modules remain removed.
 
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific
@@ -84,6 +87,17 @@ daily-roll liveness classification.
   set as the built-in live market registry.
 - Volatile Gamma event metadata: generated
   `config/location_market_events.json`; refresh it rather than hand-editing it.
+  Refresh fails if pagination ends on a full final page without proving complete
+  discovery. Event and market resolution descriptions retain their exact text
+  and UTF-8 SHA-256 plus separate source URLs; those bytes do not establish
+  settlement-source equivalence or economic readiness. The metadata envelope
+  atomically binds exact registry bytes and event metadata; paired readers,
+  candidate freezing and release verification use
+  `weather.market.location_config`. The separate registry projection may lag
+  after interruption; inventory reports drift. Legacy pairs are explicitly
+  unbound, and invalid declared generations fail closed.
+  `--metadata-only` preserves original registry bytes. See the
+  [configuration generation contract](operations/config-inventory.md#location-configuration-generations).
 - Supervised settlement labels: per-market ledgers under local
   `data/settlements/`; folder settlement files are derived copies.
 - Schemas: `weather.schema_registry` and producer/consumer tests.

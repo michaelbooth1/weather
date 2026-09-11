@@ -246,6 +246,113 @@ def _reject_symlink_components(path: Path, root: Path, field: str) -> None:
             raise ExperimentExecutionError(f"{field} contains a symlink component")
 
 
+def _admit_scratch_volume(root: Path, run_root: Path, candidate_root: Path) -> None:
+    """Keep scratch on the candidate volume without crossing linked directories."""
+
+    try:
+        scratch_stat = root.stat()
+        current = root
+        for part in run_root.relative_to(root).parts:
+            current = current / part
+            try:
+                current_stat = current.lstat()
+            except FileNotFoundError:
+                break
+            if (
+                not stat.S_ISDIR(current_stat.st_mode)
+                or getattr(current_stat, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            ):
+                raise ExperimentExecutionError(
+                    "executor scratch directory contains a non-directory or "
+                    f"reparse point: {current}"
+                )
+            scratch_stat = current_stat
+        if scratch_stat.st_dev != candidate_root.stat().st_dev:
+            raise ExperimentExecutionError(
+                "executor scratch directory must be on the same volume as "
+                "candidate_output_root for atomic publication"
+            )
+    except OSError as exc:
+        raise ExperimentExecutionError(
+            f"executor scratch volume could not be verified: {exc}"
+        ) from exc
+
+
+def _check_windows_path_budget(
+    path: Path,
+    field: str,
+    *,
+    directory: bool = False,
+    atomic: bool = False,
+) -> None:
+    text = str(path)
+    if atomic:
+        # Covers the shared writer's PID and time_ns suffix without changing it.
+        text += "." + ("9" * 10) + "." + ("9" * 20) + ".tmp"
+    units = len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+    # Reserve the terminating NUL and legacy directory-creation headroom.
+    limit = 247 if directory else 259
+    if units > limit:
+        kind = "directory" if directory else "atomic temporary file" if atomic else "file"
+        raise ExperimentExecutionError(
+            f"{field} exceeds the Windows {kind} path budget "
+            f"({units} UTF-16 units; maximum {limit}); use a shorter repo_root "
+            "or manifest path before retrying"
+        )
+
+
+def _admit_executor_paths(
+    root: Path,
+    manifest: Mapping[str, Any],
+    run_root: Path,
+    experiments_root: Path,
+    candidate_root: Path,
+    output_path: Path,
+) -> None:
+    """Reject known legacy Windows path overflows before scratch or a claim exists."""
+
+    if os.name != "nt":
+        return
+    workspace = run_root / "workspace"
+    stage_root = workspace / candidate_root.relative_to(root)
+    quarantine = run_root / ("discarded-candidate-output-" + ("0" * 32))
+    claim_root = experiments_root / ".executor_claims"
+    for field, path in (
+        ("executor scratch directory", run_root),
+        ("workspace", workspace),
+        ("candidate_output_root", candidate_root),
+        ("staged candidate_output_root", stage_root),
+        ("discarded_output_quarantine", quarantine),
+        ("experiment claim directory", claim_root),
+        *((f"workspace {name}", workspace / name) for name in ("tmp", "home", "appdata")),
+    ):
+        _check_windows_path_budget(path, field, directory=True)
+    _check_windows_path_budget(
+        claim_root / f"{manifest['manifest_sha256']}.lock",
+        "experiment claim",
+    )
+    outputs = [("result_out", output_path)]
+    outputs.extend(
+        (
+            f"expected_artifacts[{index}].path",
+            root.joinpath(*PurePosixPath(str(row["path"])).parts),
+        )
+        for index, row in enumerate(manifest.get("expected_artifacts") or [])
+    )
+    for field, final_path in outputs:
+        relative = final_path.relative_to(candidate_root)
+        for prefix, path, reserve_atomic in (
+            ("", final_path, True),
+            ("staged ", stage_root / relative, True),
+            ("quarantined ", quarantine / relative, False),
+        ):
+            _check_windows_path_budget(path.parent, prefix + field, directory=True)
+            _check_windows_path_budget(
+                path, prefix + field, atomic=reserve_atomic
+            )
+
+
 def _within_quiet_window(now: datetime) -> bool:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -1755,14 +1862,15 @@ def _execute_one_impl(
         [root / "artifacts" / "releases" / release_id],
         repo_root=root,
     )
-    run_root = (
-        experiments_root
-        / ".executor_runs"
-        / f"{manifest['manifest_sha256'][:16]}-{uuid.uuid4().hex}"
-    )
+    run_root = root / "scratch" / ".ex" / uuid.uuid4().hex
     _reject_symlink_components(run_root, root, "executor scratch directory")
+    _admit_executor_paths(
+        root, manifest, run_root, experiments_root, candidate_root, output_path
+    )
+    _admit_scratch_volume(root, run_root, candidate_root)
     run_root.mkdir(parents=True, exist_ok=False)
     try:
+        _admit_scratch_volume(root, run_root, candidate_root)
         claim_path = _acquire_claim(experiments_root, manifest)
     except BaseException:
         # Fingerprinting and scratch establishment are pre-claim admission.

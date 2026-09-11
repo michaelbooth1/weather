@@ -44,3 +44,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+
+# Persistent OS lock for the canonical location-config generation publisher.
+/config/.location_market_events.json.transaction.lock
