@@ -2,7 +2,7 @@
 
 The production wrapper owns the capture lease, memory ceiling and complete child
 Job. SCP uses a literal private address, strict pinned host keys, no configuration
-or forwarding, and an 8 MiB/s ceiling. Every attempt and destination is fresh.
+or forwarding, and the archive lane's 16 MiB/s payload ceiling. Every attempt and destination is fresh.
 """
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ from weather.schema_registry import schema_version
 
 WORKLOAD = "production_cold_archive_copy"
 MAX_BYTES = 1100 * archive.MIB
+COPY_KIBITS_PER_SECOND = 16 * 1024 * 8
 BASE_FIELDS = {
     "schema_version", "production_repo_root", "execution_host_id", "operation",
     "approved_by", "approved_at_utc", "expires_at_utc", "plan_path",
@@ -209,7 +210,7 @@ def execute_copy(request, rows, output, guard, stack, *, child_runner=run_child)
     for index, row in enumerate(rows):
         guard()
         operands = [row["local"], request["remote_user"] + "@" + request["remote_host"] + ":" + row["remote"]]
-        child_runner([*transport_arguments(request, "scp_executable"), "-q", "-l", "65536", *operands],
+        child_runner([*transport_arguments(request, "scp_executable"), "-q", "-l", str(COPY_KIBITS_PER_SECOND), *operands],
                      output / f"copy-{index}.log", guard)
         guard()
         completed.append(row)
