@@ -1,6 +1,7 @@
 """Resumable, serial orchestration of the approved verified archive campaign."""
 from __future__ import annotations
 import argparse
+from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime, timezone
 import json
 import os
@@ -165,9 +166,24 @@ def main(argv=None):
     parser.add_argument("--config", required=True)
     parser.add_argument("--config-sha256", required=True)
     parser.add_argument("--max-batches", type=int)
+    parser.add_argument("--log-file")
     args = parser.parse_args(argv)
     if args.max_batches is not None and not 1 <= args.max_batches <= 10000:
         parser.error("max batches must be positive and bounded")
+    if args.log_file:
+        config = archive._load(args.config, args.config_sha256)[0]
+        path = Path(args.log_file)
+        expected = Path(config["production_root"]) / "scratch/ac-control" / config["campaign_id"]
+        if path.parent != expected or not path.name.endswith(".log"):
+            raise ValueError("campaign log path differs")
+        expected.mkdir(parents=True, exist_ok=True)
+        archive._safe_path(expected, directory=True)
+        with path.open("x", encoding="utf-8", buffering=1) as output:
+            nested = ["--config", args.config, "--config-sha256", args.config_sha256]
+            if args.max_batches is not None:
+                nested.extend(["--max-batches", str(args.max_batches)])
+            with redirect_stdout(output), redirect_stderr(output):
+                return main(nested)
     try:
         run(args.config, args.config_sha256, max_batches=args.max_batches)
     except state.CampaignPaused as exc:
