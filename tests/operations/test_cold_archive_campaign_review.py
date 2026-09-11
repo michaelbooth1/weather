@@ -53,11 +53,11 @@ def evidence(tmp_path, monkeypatch):
     return tmp_path, entry, event, folder, backtest
 
 
-def run(evidence):
+def run(evidence, selection_kind="primary"):
     root, entry, *_ = evidence
     now = datetime(2026, 9, 10, 20, tzinfo=timezone.utc)
     result = review.review_sources(production_root=root, entry=entry, entry_sha256="b" * 64,
-                                   output_root=root / "review", now=now)
+                                   output_root=root / "review", now=now, selection_kind=selection_kind)
     with ExitStack() as stack:
         checked, digest, expires = reclaim._review(result, stack, entry, "b" * 64, now)
     return checked, expires, now
@@ -75,8 +75,10 @@ def test_review_is_accepted_by_existing_reclaim_validator(evidence, family):
 
 
 @pytest.mark.parametrize("kind", ["settlement", "barrier", "queue", "experiments", "trigger", "corpus", "reserved", "release"])
-@pytest.mark.parametrize("family", ["clob_tokens.jsonl", "order_books.jsonl"])
-def test_actual_dependency_changes_refuse_review(evidence, kind, family):
+@pytest.mark.parametrize("selection_kind,family", [
+    ("primary", "clob_tokens.jsonl"), ("primary", "order_books.jsonl"),
+    ("conditional_reserve", "snapshot_explanations_long.csv")])
+def test_actual_dependency_changes_refuse_review(evidence, kind, selection_kind, family):
     root, entry, event, folder, backtest = evidence
     entry["files"][0]["path"] = "snapshots/" + event + "/" + family
     if kind == "settlement":
@@ -102,7 +104,7 @@ def test_actual_dependency_changes_refuse_review(evidence, kind, family):
     else:
         (root / "artifacts/releases").mkdir(parents=True)
     with pytest.raises(ValueError):
-        run(evidence)
+        run(evidence, selection_kind)
     assert not (root / "review").exists()
 
 @pytest.mark.parametrize("family", ["snapshots_long.csv", "replay_inputs.jsonl", "settlement.json", "predictions_explained.csv"])
@@ -111,3 +113,10 @@ def test_unapproved_families_still_refuse_review(evidence, family):
     with pytest.raises(ValueError, match="unreviewed detail file family"):
         run(evidence)
     assert not (evidence[0] / "review").exists()
+
+def test_explanations_require_the_explicit_reserve_selection(evidence):
+    evidence[1]["files"][0]["path"] = "snapshots/" + evidence[2] + "/snapshot_explanations_long.csv"
+    with pytest.raises(ValueError, match="unreviewed detail file family"):
+        run(evidence)
+    checked, _, _ = run(evidence, "conditional_reserve")
+    assert checked["selection_kind"] == "conditional_reserve"

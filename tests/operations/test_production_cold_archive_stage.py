@@ -145,7 +145,7 @@ def test_partitioned_grouping_packs_ordinary_days_and_isolates_protected_days():
     assert [r for c in chunks for r in c["files"]] == rows
     small = stage._chunks(rows, 5, stage.PARTITIONED_GROUPING, ["day-c"])
     assert all(c["logical_bytes"] <= 5 for c in small)
-    many = [{"path": f"snapshots/day-{i:04d}/market_ws.jsonl", "size_bytes": 1}
+    many = [{"path": f"snapshots/day-a/file-{i:04d}.jsonl", "size_bytes": 1}
             for i in range(257)]
     assert [len(c["files"]) for c in stage._chunks(many, 1024, stage.PARTITIONED_GROUPING)] == [256, 1]
 
@@ -493,3 +493,23 @@ def test_stage_still_refuses_changed_identity_or_larger_allocation(corpus, monke
     with pytest.raises(stage.ArchiveStageError, match="metadata"):
         _run(corpus)
     assert not (corpus[0] / "attempt/archive.tar.gz").exists()
+
+@pytest.mark.parametrize("isolated", [(), ("day-17",)])
+def test_packed_plan_never_exceeds_the_existing_market_day_review_bound(isolated):
+    rows = [{"path": f"snapshots/day-{index:02d}/snapshot_explanations_long.csv", "size_bytes": 1}
+            for index in range(33)]
+    chunks = stage._chunks(rows, stage.MAX_CHUNK_BYTES, stage.PARTITIONED_GROUPING, isolated)
+    assert [row for chunk in chunks for row in chunk["files"]] == rows
+    assert all(len({row["path"].split("/")[1] for row in chunk["files"]}) <= 16 for chunk in chunks)
+    if not isolated:
+        assert [len(chunk["files"]) for chunk in chunks] == [16, 16, 1]
+    else:
+        isolated_chunk = next(chunk for chunk in chunks if "/day-17/" in chunk["files"][0]["path"])
+        assert len(isolated_chunk["files"]) == 1
+
+
+def test_already_bounded_packed_chunks_keep_the_same_members():
+    rows = [{"path": f"snapshots/day-{index:02d}/{family}.csv", "size_bytes": 1}
+            for index in range(16) for family in ("a", "b")]
+    assert stage._chunks(rows, 100, stage.PARTITIONED_GROUPING) == [
+        {"chunk_id": "chunk-00000", "files": rows, "logical_bytes": 32}]

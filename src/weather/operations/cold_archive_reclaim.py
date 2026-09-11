@@ -16,6 +16,7 @@ from weather import cold_archive_locations as locations
 from weather import runtime_identity
 from weather.operations import bulk_cold_archive_crypt as bridge
 from weather.operations import cold_archive_catalog as catalog
+from weather.operations import cold_archive_primary_budget as primary_budget
 from weather.operations import cold_archive_spool_cleanup as spool
 from weather.operations import production_cold_archive_stage as archive
 from weather.operations.cleanup_preflight import build_cleanup_preflight
@@ -115,7 +116,7 @@ def _approval(request, stack, entry):
 
 def _market_day_evidence(review, entry, stack):
     events = sorted({locations.relative_path(row["path"]).parts[1] for row in entry["files"]})
-    _require(1 <= len(events) <= 16, "reclaim market-day evidence exceeds bound")
+    _require(1 <= len(events) <= archive.MAX_MARKET_DAYS, "reclaim market-day evidence exceeds bound")
     if len(events) == 1 and "market_days" not in review:
         return  # Existing single-day reviews retain their original contract.
     rows = review.get("market_days")
@@ -325,10 +326,10 @@ def _advance(parent, state, previous):
 
 def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
                   capture_loops, admission, deadline_monotonic):
-    """Reclaim one approved primary archive under the caller's verified lease.
+    """Reclaim one approved archive under the caller's verified lease.
 
-    Conditional-reserve execution deliberately remains refused until a separate
-    complete primary-disposition proof is implemented and qualified.
+    Reserve execution additionally proves the complete qualified primary
+    allocation ceiling is below the owner's target using retained receipts.
     """
     guard = archive._Guard(admission, deadline_monotonic, 16 * archive.MIB)
     now = datetime.now(timezone.utc)
@@ -347,13 +348,15 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         local_root = catalog._local_catalog_root(request["catalog_entry"]["path"], entry)
         _require(local_root == production_root / "data", "reclaim cannot use a relocated recovery catalog")
         approval, approval_sha, kind, target = _approval(request, stack, entry)
-        _require(kind == "primary", "conditional reserve needs a qualified complete primary-disposition proof")
+        _require(kind in {"primary", "conditional_reserve"}, "unsupported reclaim selection kind")
         for row in entry["files"]:
             parts = locations.relative_path(row["path"]).parts
             _require(len(parts) == 3 and parts[0] == "snapshots"
                      and event_date(parts[1]) < now.astimezone(ZoneInfo("America/Toronto")).date() - timedelta(days=30),
                      "reclaim target is not an old immediate market-day source")
         review, review_sha, review_expires = _review(request["source_review"], stack, entry, entry_sha, now)
+        if kind == "conditional_reserve":
+            _require(review.get("selection_kind") == kind, "conditional reserve needs its own complete source review")
         if is_plain:
             restore_record = restore_sha = custody_sha = None
             retained_recovery = {"plain_upload_receipt_sha256": entry["plain_upload_receipt_sha256"]}
@@ -367,6 +370,11 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         stack.enter_context(archive._directory_pin(campaign))
         state, state_sha = _progress(campaign, approval_sha, target)
         _require(state["reclaimed_allocated_bytes"] < target, "approved reclaim target is already reached")
+        capacity = None
+        if kind == "conditional_reserve":
+            capacity = primary_budget.primary_capacity(
+                request=request, approval=approval, approval_sha256=approval_sha,
+                state=state, campaign=campaign, source_root=local_root, stack=stack, guard=guard)
         pins, planned, hashes = [], [], {}
         for row in entry["files"]:
             guard.admit()
@@ -420,6 +428,8 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
                 "restore_record_sha256": restore_sha, "custody_record_sha256": custody_sha,
                 "plan_sha256": entry["plan_sha256"], "selection_kind": kind,
                 "target_bytes": target, "previous_reclaimed_allocated_bytes": state["reclaimed_allocated_bytes"]}
+        if capacity is not None:
+            base["primary_capacity"] = capacity
         if is_plain:
             base.pop("restore_record_sha256")
             base.pop("custody_record_sha256")
