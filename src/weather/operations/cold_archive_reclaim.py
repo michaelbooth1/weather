@@ -335,7 +335,13 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
     attempt_id = locations.archive_id(request["attempt_id"])
     with ExitStack() as stack:
         entry_doc, entry_sha = _load(request["catalog_entry"], stack)
-        entry, _, _ = catalog._entry(request["catalog_entry"]["path"], entry_sha)
+        is_plain = request.get("payload_encryption") == "none"
+        if is_plain:
+            from weather.operations import cold_archive_plain as plain
+            entry, _, _ = plain.read_entry(request["catalog_entry"]["path"], entry_sha,
+                                           backup_host_id=backup_host_id, now=now)
+        else:
+            entry, _, _ = catalog._entry(request["catalog_entry"]["path"], entry_sha)
         _require(entry_doc == entry and Path(entry["source_root"]) == production_root / "data",
                  "reclaim original data root differs from production")
         local_root = catalog._local_catalog_root(request["catalog_entry"]["path"], entry)
@@ -348,11 +354,15 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
                      and event_date(parts[1]) < now.astimezone(ZoneInfo("America/Toronto")).date() - timedelta(days=30),
                      "reclaim target is not an old immediate market-day source")
         review, review_sha, review_expires = _review(request["source_review"], stack, entry, entry_sha, now)
-        restore_record, restore_sha = _restore(request["restore_record"], stack, entry, entry_sha, now)
-        custody, custody_sha = _custody(request["custody_record"], stack, entry_sha, restore_sha, backup_host_id, now)
+        if is_plain:
+            restore_record = restore_sha = custody_sha = None
+            retained_recovery = {"plain_upload_receipt_sha256": entry["plain_upload_receipt_sha256"]}
+        else:
+            restore_record, restore_sha = _restore(request["restore_record"], stack, entry, entry_sha, now)
+            custody, custody_sha = _custody(request["custody_record"], stack, entry_sha, restore_sha, backup_host_id, now)
+            retained_recovery = _retain_recovery(request["catalog_entry"]["path"], restore_record, restore_sha,
+                                                 custody, custody_sha, stack, guard)
         verify_consumer_adoption(source_root, production_root, stack, capture_loops)
-        retained_recovery = _retain_recovery(request["catalog_entry"]["path"], restore_record, restore_sha,
-                                             custody, custody_sha, stack, guard)
         campaign = catalog._mkdir(local_root / "cold_archive" / "catalog" / "reclaims" / approval_sha)
         stack.enter_context(archive._directory_pin(campaign))
         state, state_sha = _progress(campaign, approval_sha, target)
@@ -378,7 +388,8 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         spool_sha, spool_pins, spool_files = None, [], []
         if "spool_inventory" in request:
             inventory, spool_sha = _load(request["spool_inventory"], stack)
-            spool_pins, spool_files = spool.prepare_spool(
+            prepare = plain.prepare_spool if is_plain else spool.prepare_spool
+            spool_pins, spool_files = prepare(
                 inventory, entry=entry, entry_sha256=entry_sha, restore_record=restore_record,
                 production_root=production_root, stack=stack, guard=guard)
         candidates = []
@@ -409,6 +420,10 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
                 "restore_record_sha256": restore_sha, "custody_record_sha256": custody_sha,
                 "plan_sha256": entry["plan_sha256"], "selection_kind": kind,
                 "target_bytes": target, "previous_reclaimed_allocated_bytes": state["reclaimed_allocated_bytes"]}
+        if is_plain:
+            base.pop("restore_record_sha256")
+            base.pop("custody_record_sha256")
+            base.update(payload_encryption="none", plain_upload_receipt_sha256=entry["plain_upload_receipt_sha256"])
         catalog._write_record(attempt / "cleanup_manifest.json", cleanup)
         catalog._write_record(attempt / "preflight.json", preflight)
         catalog._write_record(attempt / "intent.json", {**base, "status": "INTENT", "files": planned})

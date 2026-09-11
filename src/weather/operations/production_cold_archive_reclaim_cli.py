@@ -11,6 +11,7 @@ import re
 import time
 
 from weather.operations import cold_archive_reclaim as reclaim
+from weather.operations import cold_archive_plain as plain
 from weather.operations import cold_archive_native_removal as native
 from weather.operations import production_cold_archive_stage_cli as staging
 from weather.operations import storage_recovery_inventory as metadata
@@ -36,16 +37,26 @@ def _failure_locations(exc):
 
 
 def validate_request(payload, *, production_root, now, source_git_sha):
+    is_plain = isinstance(payload, dict) and payload.get("schema_version") == schema_version(
+        "production_cold_archive_plain_reclaim_request")
+    evidence = plain.EVIDENCE_FIELDS if is_plain else EVIDENCE_FIELDS
     required = {"schema_version", "production_repo_root", "execution_host_id", "operation",
                 "approved_by", "approved_at_utc", "expires_at_utc", "source_git_sha",
-                "attempt_id", *EVIDENCE_FIELDS}
-    if isinstance(payload, dict) and "spool_inventory" in payload:
+                "attempt_id", *evidence}
+    if is_plain:
+        required.update({"payload_encryption", "archive_id"})
+    elif isinstance(payload, dict) and "spool_inventory" in payload:
         required.add("spool_inventory")
     if not isinstance(payload, dict) or set(payload) != required:
         raise ValueError("request fields differ from the exact archive reclaim contract")
-    if (payload["schema_version"] != schema_version("production_cold_archive_reclaim_request")
-            or payload["operation"] != "reclaim"):
+    expected_schema = schema_version("production_cold_archive_plain_reclaim_request" if is_plain
+                                     else "production_cold_archive_reclaim_request")
+    if payload["schema_version"] != expected_schema or payload["operation"] != "reclaim":
         raise ValueError("unsupported archive reclaim request")
+    if is_plain:
+        if payload["payload_encryption"] != "none":
+            raise ValueError("plain reclaim requires an explicit unencrypted payload")
+        reclaim.locations.archive_id(payload["archive_id"])
     if (not isinstance(payload["production_repo_root"], str)
             or Path(payload["production_repo_root"]) != production_root
             or payload["source_git_sha"] != source_git_sha):
@@ -60,7 +71,7 @@ def validate_request(payload, *, production_root, now, source_git_sha):
     approved, expires = _utc(payload["approved_at_utc"]), _utc(payload["expires_at_utc"])
     if not approved <= now < expires or expires - approved > timedelta(hours=72):
         raise ValueError("reclaim request is expired, future-dated or overlong")
-    evidence_fields = EVIDENCE_FIELDS + (("spool_inventory",) if "spool_inventory" in payload else ())
+    evidence_fields = evidence + (("spool_inventory",) if "spool_inventory" in payload else ())
     for field in evidence_fields:
         spec = payload[field]
         if (not isinstance(spec, dict) or set(spec) != {"path", "sha256"}
@@ -105,7 +116,7 @@ def _run_pinned(args, root, output, request_path, stack):
     source = repo_path()
     if str(source) != os.environ.get(staging.ENV_PREFIX + "SOURCE_ROOT"):
         raise ValueError("Python import root is not wrapper-bound")
-    for module in (__file__, reclaim.__file__, native.__file__, reclaim.archive.__file__,
+    for module in (__file__, reclaim.__file__, plain.__file__, native.__file__, reclaim.archive.__file__,
                    reclaim.bridge.__file__, reclaim.catalog.__file__, reclaim.locations.__file__,
                    reclaim.spool.__file__,
                    staging.__file__, metadata.__file__):
@@ -162,6 +173,10 @@ def _run_pinned(args, root, output, request_path, stack):
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
+    if request.get("payload_encryption") == "none":
+        request = plain.prepare_request(
+            request, production_root=root, backup_host_id=backup_host, output_root=output,
+            admission=guard, deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds())
     result = reclaim.reclaim_chunk(
         request=request, source_root=source, production_root=root, backup_host_id=backup_host,
         capture_loops=capture_loops, admission=guard,
