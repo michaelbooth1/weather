@@ -1454,6 +1454,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "Immutable host, source, window and selection bindings for a serial resumable archive campaign.",
     ),
     SchemaSpec(
+        "cold_archive_plain_upload", "cold_archive_plain_upload_v0.1",
+        "weather.operations.workstation_cold_archive_backup", "active",
+        "Private unencrypted file upload with independent downloaded SHA-256 verification.",
+    ),
+    SchemaSpec(
         "cold_archive_campaign_backup", "cold_archive_campaign_backup_v0.1",
         "weather.operations.workstation_cold_archive_backup", "active",
         "Private recovery metadata upload with independent exact-byte download verification.",

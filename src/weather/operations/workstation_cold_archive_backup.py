@@ -1,4 +1,4 @@
-"""Create-only private recovery-metadata backup with an independent byte check."""
+"""Private file upload followed by an independent download and SHA-256 check."""
 from __future__ import annotations
 import argparse
 from contextlib import ExitStack
@@ -19,24 +19,32 @@ DEADLINE_SECONDS = 180
 
 
 def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
-        rclone_executable, rclone_config, dpapi_secret, drive_remote_name, drive_root_folder_id):
+        rclone_executable, rclone_config, dpapi_secret, drive_remote_name, drive_root_folder_id,
+        plain_file=False):
     repo = repo_path()
     core._require(core.crypt.ARCHIVE_ID_RE.fullmatch(attempt_id) is not None, "invalid backup attempt")
-    deadline = time.monotonic() + DEADLINE_SECONDS
+    deadline = time.monotonic() + (900 if plain_file else DEADLINE_SECONDS)
     with ExitStack() as stack:
         assignment, assignment_pin, assignment_identity, assignment_sha, host = workstation._assignment(repo, stack)
         identity = core.crypt._capture_tool_identity(repo)
         core._require(identity["git_commit"] == expected_source_tip
                       and identity["git_dirty"] is False, "backup source is not exact and clean")
         source = workstation._input_path(bundle_path)
-        core._require(source.is_relative_to(repo / "scratch" / "ac-control")
-                      and source.name.endswith("-recovery.json"), "backup accepts only campaign recovery metadata")
-        bundle, raw_sha = core.archive._load(source, bundle_sha256)
-        core._require(source.stat().st_size <= 2 * core.MIB
-                      and bundle.get("contains_archive_payload") is False
-                      and bundle.get("contains_credential_values") is False
-                      and isinstance(bundle.get("records"), list)
-                      and 1 <= len(bundle["records"]) <= 512, "invalid bounded recovery bundle")
+        maximum = 1100 * core.MIB if plain_file else 2 * core.MIB
+        if plain_file:
+            core._require(source.is_relative_to(repo / "scratch" / "ac-in")
+                          and source.stat().st_size <= maximum, "plain upload must be a bounded copied input")
+            raw_sha = bundle_sha256
+            core.archive._require_sha256(raw_sha)
+        else:
+            core._require(source.is_relative_to(repo / "scratch" / "ac-control")
+                          and source.name.endswith("-recovery.json"), "backup accepts only campaign recovery metadata")
+            bundle, raw_sha = core.archive._load(source, bundle_sha256)
+            core._require(source.stat().st_size <= maximum
+                          and bundle.get("contains_archive_payload") is False
+                          and bundle.get("contains_credential_values") is False
+                          and isinstance(bundle.get("records"), list)
+                          and 1 <= len(bundle["records"]) <= 512, "invalid bounded recovery bundle")
         parent = repo / "scratch" / "ac-backup"
         if not parent.exists():
             parent.mkdir()
@@ -62,6 +70,11 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
         arguments = dict(rclone_executable=rclone_executable, rclone_config=rclone_config,
                          dpapi_secret=dpapi_secret, drive_remote_name=drive_remote_name,
                          drive_root_folder_id=drive_root_folder_id)
+        if plain_file:
+            count, digest = core._sha_file(source, guard, deadline, maximum=maximum,
+                                          guard_factory=local_io.ReadGuard)
+            core._require(digest == raw_sha and count == source.stat().st_size,
+                          "plain input hash differs before upload")
         active = workstation.prepare_credentials(
             arguments=arguments, attempt=attempt, admission=guard, deadline=deadline)
         active_pin = stack.enter_context(core.bridge._file_pin(active))
@@ -80,28 +93,30 @@ def run(*, attempt_id, expected_source_tip, bundle_path, bundle_sha256,
                 rclone_executable, active, drive_remote_name, drive_root_folder_id,
                 environment, client_guard, deadline)
             client.preflight()
-            key = attempt_id + ".recovery.json"
+            key = attempt_id + ("-" + source.name if plain_file else ".recovery.json")
             client.object(key, absent=True)
             size = source.stat().st_size
             client.copy(source, drive_remote_name + ":" + key, size)
             remote = client.object(key)
             core._require(remote["bytes"] == size, "backup remote size differs")
             client.committed_objects[key] = remote
-            downloaded = attempt / "independent-recovery.json"
+            downloaded = attempt / ("downloaded-" + source.name if plain_file else "independent-recovery.json")
             client.copy(drive_remote_name + ":" + key, downloaded, size)
             count, digest = core._sha_file(
-                downloaded, client_guard, deadline, maximum=2 * core.MIB,
+                downloaded, client_guard, deadline, maximum=maximum,
                 guard_factory=local_io.ReadGuard)
             core._require(count == size and digest == raw_sha
                           and client.object(key) == remote, "independent recovery backup differs")
             client_guard()
             result = {
-                "schema_version": schema_version("cold_archive_campaign_backup"),
+                "schema_version": schema_version("cold_archive_plain_upload" if plain_file else "cold_archive_campaign_backup"),
                 "status": "PASS", "attempt_id": attempt_id, "source_tip": expected_source_tip,
                 "execution_host_id": host, "bundle_sha256": raw_sha, "bytes": size,
                 "drive": {"root_folder_id": drive_root_folder_id, **remote},
                 "independent_download_verified": True, "originals_deleted": 0,
-                "archive_payload_bytes_read": 0, "completed_at_utc": datetime.now(timezone.utc).isoformat()}
+                "archive_payload_bytes_read": (3 * size if plain_file else 0),
+                "payload_encryption": "none", "source_path": str(source),
+                "downloaded_path": str(downloaded), "completed_at_utc": datetime.now(timezone.utc).isoformat()}
             core.archive._write(attempt / "receipt.json", core._seal(result))
             return result
         finally:
@@ -115,10 +130,11 @@ def main(argv=None):
     for name in ("attempt_id", "expected_source_tip", "bundle_path", "bundle_sha256",
                  "rclone_executable", "rclone_config", "dpapi_secret", "drive_remote_name", "drive_root_folder_id"):
         parser.add_argument("--" + name.replace("_", "-"), required=True)
+    parser.add_argument("--plain-file", action="store_true")
     try:
         result = run(**vars(parser.parse_args(argv)))
     except Exception as exc:
-        print(json.dumps({"status": "FAILED_RETAIN_AND_INSPECT", "error_type": type(exc).__name__}))
+        print(json.dumps({"status": "FAILED_RETAIN_AND_INSPECT", "error_type": type(exc).__name__, "reason": str(exc)}))
         return 2
     print(json.dumps({key: result[key] for key in ("status", "attempt_id", "bundle_sha256")}))
     return 0
