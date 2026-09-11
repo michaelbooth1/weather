@@ -1,0 +1,441 @@
+"""Native launcher tests; all files/processes belong to disposable fixtures.
+
+The real wrapper and native Job/lease helpers run in a temporary Git repository.
+Only the fixture clock, fixture host assignment and mutex namespace change.
+The outer workstation-heavy wrapper still owns the real workstation mutex/Job.
+A tiny child isolates launcher behavior; archive byte preservation has separate tests.
+"""
+
+import ctypes
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+import venv
+
+import pytest
+
+from weather.paths import repo_path
+from weather.operations.process_lock_identity import observe_process_identity
+
+
+pytestmark = pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell/Job/lease orchestration")
+
+CHILD = '''
+import argparse, json, os, subprocess, sys, time
+from pathlib import Path
+p = argparse.ArgumentParser()
+p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download', 'reclaim', 'copy'])
+for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha'):
+    p.add_argument('--' + key)
+a = p.parse_args()
+assert Path(__file__).stem == ({'stage': 'production_cold_archive_stage_cli', 'reclaim': 'production_cold_archive_reclaim_cli', 'copy': 'production_cold_archive_copy'}.get(a.command, 'production_cold_archive_transfer'))
+out = Path(a.output_root)
+assert os.environ['WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT'] == str(Path.cwd())
+assert int(os.environ['WEATHER_PRODUCTION_ARCHIVE_OWNER_PID']) > 0
+assert os.environ['WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC']
+mode = json.loads(Path(a.request).read_text())['mode']
+if mode in ('hang', 'residual_success'):
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+if mode == 'hang': time.sleep(300)
+if mode == 'failure': raise SystemExit(7)
+if mode == 'request_drift': Path(a.request).write_text('{}')
+if mode == 'source_drift': Path('tracked.txt').write_text('changed')
+result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding' else a.source_git_sha,
+          'request_sha256': a.request_sha256, 'deleted_files': 0, 'reclaimed_bytes': 0,
+          'cleanup_eligible': False, 'source_retained': True, 'upload_performed': False,
+          'logical_source_bytes': 4096, 'source_file_count': 1, 'chunk_id': 'chunk-00000',
+          'core_receipt_sha256': 'a' * 64,
+          'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
+if mode == 'malformed_receipt': result.pop('core_receipt_sha256')
+if mode == 'claim_upload': result['upload_performed'] = True
+if a.command in ('transfer', 'upload', 'download'):
+    result.pop('core_receipt_sha256', None)
+    result.pop('logical_source_bytes')
+    result.pop('source_file_count')
+    result.update(upload_performed=a.command != 'download', independent_download=a.command != 'upload',
+                  operation={'transfer':'upload_and_independent_download', 'upload':'upload_only',
+                             'download':'download_and_verify'}[a.command], archive_id='archive-fixture',
+                  ciphertext_bytes=6144, crypt_receipt_sha256='b' * 64)
+    result['upload_receipt_sha256' if a.command == 'upload' else 'transport_receipt_sha256'] = 'c' * 64
+    if mode == 'flip_upload': result['upload_performed'] = not result['upload_performed']
+    if mode == 'flip_download': result['independent_download'] = not result['independent_download']
+    if mode == 'wrong_phase': result['operation'] = 'wrong'
+    if mode == 'wrong_proof_kind':
+        result['transport_receipt_sha256' if a.command == 'upload' else 'upload_receipt_sha256'] = result.pop('upload_receipt_sha256' if a.command == 'upload' else 'transport_receipt_sha256')
+    if mode.startswith('missing_'): result.pop(mode.removeprefix('missing_'))
+    if mode == 'false_independent_download': result['independent_download'] = False
+    if mode == 'false_upload': result['upload_performed'] = False
+    if mode == 'claim_deletion': result['deleted_files'] = 1
+    if mode == 'claim_reclaim': result['reclaimed_bytes'] = 4096
+    if mode == 'claim_cleanup': result['cleanup_eligible'] = True
+    if mode == 'malformed_hash': result['crypt_receipt_sha256'] = 'not-a-sha256'
+    if mode == 'string_ciphertext_bytes': result['ciphertext_bytes'] = '6144'
+    if mode == 'string_independent_download': result['independent_download'] = 'True'
+if a.command == 'copy':
+    result.update(operation='copy', direction='to_workstation', archive_id='fixture-copy',
+                  copied_files=3, copied_bytes=6144, destination_hash_verified=False,
+                  remote_side_effect_possible=True)
+    if mode == 'bad_count': result['copied_files'] = 2
+    if mode == 'bad_bytes': result['copied_bytes'] = '6144'
+    if mode == 'claim_destination_hash': result['destination_hash_verified'] = True
+    if mode == 'wrong_copy_direction': result['direction'] = 'from_workstation'
+if a.command == 'reclaim':
+    import hashlib
+    proof = Path(a.production_repo_root) / 'data/cold_archive/catalog/reclaims' / ('a' * 64) / 'fixture-a1/receipt.json'
+    proof.parent.mkdir(parents=True)
+    proof.write_text('{"fixture_only": true}')
+    result.update(operation='reclaim', deleted_files=1, reclaimed_bytes=4096, source_retained=False,
+                  archive_id='fixture-archive', attempt_id='fixture-a1',
+                  reclaim_receipt_path=str(proof), reclaim_receipt_sha256=hashlib.sha256(proof.read_bytes()).hexdigest())
+    if mode == 'wrong_receipt_hash': result['reclaim_receipt_sha256'] = '0' * 64
+    if mode == 'string_deleted_count': result['deleted_files'] = '1'
+    if mode == 'bool_reclaimed_count': result['reclaimed_bytes'] = True
+    if mode == 'claim_retained': result['source_retained'] = True
+    if mode == 'wrong_reclaim_phase': result['operation'] = 'upload'
+(out / 'result.json').write_text(json.dumps(result))
+'''
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("failure", False), ("hang", False), ("source_drift", False),
+    ("wrong_binding", False), ("wrong_receipt_hash", False), ("string_deleted_count", False),
+    ("bool_reclaimed_count", False), ("claim_retained", False), ("wrong_reclaim_phase", False),
+])
+def test_reclaim_wrapper_separates_verified_counts_from_unknown_failure(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="reclaim")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["teardown_proved"] is True
+    if success:
+        assert receipt["reclaim_state"] == "VERIFIED"
+        assert receipt["deleted_files"] == 1 and receipt["reclaimed_bytes"] == 4096
+        assert receipt["source_retained"] is False and receipt["upload_performed"] is False
+    else:
+        assert receipt["status"] == "FAILED" and receipt["reclaim_state"] == "UNKNOWN"
+        assert receipt["deleted_files"] is receipt["reclaimed_bytes"] is receipt["source_retained"] is None
+    if mode == "hang":
+        assert receipt["hard_stop"] is True
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+
+def command(*args, cwd=None):
+    result = subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, timeout=40)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout.strip()
+
+
+def replace_once(text, before, after):
+    assert text.count(before) == 1
+    return text.replace(before, after)
+
+
+@pytest.fixture
+def wrapper_fixture(tmp_path, request):
+    source = tmp_path / "source checkout"
+    production = tmp_path / "fixture production"
+    scripts = source / "scripts/ops"
+    scripts.mkdir(parents=True)
+    production.mkdir()
+    venv.EnvBuilder(with_pip=False).create(production / "venv")
+    for name in ("windows_kill_on_close_job.ps1", "training_window_contract.ps1"):
+        shutil.copy2(repo_path("scripts/ops", name), scripts / name)
+    admission = repo_path("scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
+    admission = admission.replace("Global\\WeatherProjectHeavyWorkloadV1", "Local\\ArchiveFixture-" + uuid.uuid4().hex)
+    admission += "\nfunction Get-WeatherHeavyWorkloadPolicyWindow { return 'fixture-clock-only' }\n"
+    (scripts / "workload_admission.ps1").write_text(admission, encoding="utf-8")
+    wrapper = repo_path("scripts/ops/production_cold_archive_run.ps1").read_text(encoding="utf-8-sig")
+    fixture_clock = getattr(request, "param", None)
+    wrapper = replace_once(wrapper,
+        "$localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)",
+        ("$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)"
+         if fixture_clock is None else f"$localNow = [DateTime]::SpecifyKind([DateTime]'{fixture_clock}', [DateTimeKind]::Unspecified)"))
+    wrapper = replace_once(wrapper, "$deadline = [DateTime]::UtcNow.AddSeconds(",
+        "$windowEnd = [DateTime]::UtcNow.AddHours(1)\n$deadline = [DateTime]::UtcNow.AddSeconds(")
+    wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
+        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
+    wrapper_path = scripts / "production_cold_archive_run.ps1"
+    wrapper_path.write_text(wrapper, encoding="utf-8")
+    assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
+    assignment.update(dedicated_capture_execution_host_id=assignment["active_portable_execution_host_id"],
+                      active_portable_execution_host_id=None, active_portable_execution_principal_id=None,
+                      assignment_status="UNASSIGNED")
+    (source / "config").mkdir()
+    (source / "config/international_live_execution_host.json").write_text(json.dumps(assignment))
+    (production / "config").mkdir()
+    (production / "config/international_live_execution_host.json").write_text(json.dumps(assignment))
+    package = source / "src/weather/operations"
+    package.mkdir(parents=True)
+    (package.parent / "__init__.py").write_text("")
+    (package / "__init__.py").write_text("")
+    (package / "production_cold_archive_stage_cli.py").write_text(CHILD)
+    (package / "production_cold_archive_transfer.py").write_text(CHILD)
+    (package / "production_cold_archive_reclaim_cli.py").write_text(CHILD)
+    (package / "production_cold_archive_copy.py").write_text(CHILD)
+    (source / "tracked.txt").write_text("original")
+    (source / ".gitignore").write_text("__pycache__/\n")
+    command("git", "init", str(source))
+    command("git", "-C", str(source), "add", ".")
+    command("git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "-c", "commit.gpgSign=false", "commit", "-m", "Isolated launcher fixture")
+    head = command("git", "-C", str(source), "rev-parse", "HEAD")
+    return source, production, wrapper_path, head
+
+
+def launch(wrapper_fixture, mode, operation=None, exception=None):
+    source, production, wrapper, head = wrapper_fixture
+    request = production / "request.json"
+    request.write_text(json.dumps({"mode": mode}))
+    output_dir = "production_cold_archive_transfer" if operation in {"transfer", "upload", "download"} else "production_cold_archive"
+    if operation in {"reclaim", "copy"}:
+        output_dir = "production_cold_archive_" + operation
+    output = production / "scratch" / output_dir / "attempt"
+    arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                 "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),
+                 "-RequestSha256", hashlib.sha256(request.read_bytes()).hexdigest(), "-OutputRoot", str(output),
+                 "-ExpectedSourceTip", head]
+    if operation is not None:
+        arguments.extend(["-Operation", operation])
+    if exception is not None:
+        arguments.extend(["-OwnerApprovedException", exception])
+    process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return process, output
+
+
+def finish(process):
+    try:
+        stdout, stderr = process.communicate(timeout=35)
+        return process.returncode, stdout + stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+@pytest.mark.parametrize("mode,success", [("success", True), ("residual_success", True),
+    ("failure", False), ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False),
+    ("malformed_receipt", False), ("claim_upload", False)])
+def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    path = output / "wrapper-result.json"
+    assert path.exists(), log
+    receipt = json.loads(path.read_text(encoding="utf-8-sig"))
+    assert (receipt["status"] == "PASS") is success
+    assert receipt["teardown_proved"] is True
+    if mode in ("malformed_receipt", "claim_upload"):
+        assert code == 1
+        assert receipt["status"] == "FAILED"
+        assert receipt.get("error")
+    if success:
+        assert receipt["child_result_sha256"] == hashlib.sha256((output / "result.json").read_bytes()).hexdigest()
+        assert receipt["source_retained"] is True
+        assert receipt["upload_performed"] is receipt["cleanup_eligible"] is False
+        assert receipt["logical_source_bytes"] == 4096
+        assert receipt["source_file_count"] == 1
+        assert receipt["chunk_id"] == "chunk-00000"
+        assert receipt["core_receipt_sha256"] == "a" * 64
+    if mode == "hang": assert receipt["hard_stop"] is True
+    descendant = output / "descendant.json"
+    if mode in ("hang", "residual_success"):
+        assert descendant.exists(), log
+        for pid in json.loads(descendant.read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False),
+    ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False),
+    ("missing_chunk_id", False), ("missing_archive_id", False), ("missing_ciphertext_bytes", False),
+    ("missing_crypt_receipt_sha256", False), ("missing_transport_receipt_sha256", False),
+    ("missing_independent_download", False), ("false_independent_download", False),
+    ("false_upload", False), ("claim_deletion", False), ("claim_reclaim", False), ("claim_cleanup", False),
+    ("malformed_hash", False), ("string_ciphertext_bytes", False), ("string_independent_download", False),
+])
+def test_transfer_requires_verified_upload_and_download_and_retains_sources(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="transfer")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    path = output / "wrapper-result.json"
+    assert path.exists(), log
+    receipt = json.loads(path.read_text(encoding="utf-8-sig"))
+    assert (receipt["status"] == "PASS") is success
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True
+    assert receipt["deleted_files"] == receipt["reclaimed_bytes"] == 0
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["remote_side_effect_possible"] is True
+    if success:
+        assert receipt["upload_performed"] is receipt["independent_download"] is True
+        assert receipt["upload_state"] == "VERIFIED"
+        assert receipt["child_result_sha256"] == hashlib.sha256((output / "result.json").read_bytes()).hexdigest()
+        assert receipt["chunk_id"] == "chunk-00000"
+        assert receipt["archive_id"] == "archive-fixture"
+        assert receipt["ciphertext_bytes"] == 6144
+        assert receipt["crypt_receipt_sha256"] == "b" * 64
+        assert receipt["transport_receipt_sha256"] == "c" * 64
+    else:
+        assert code == 1
+        assert receipt["status"] == "FAILED"
+        assert receipt["upload_performed"] is None
+        assert receipt["upload_state"] == "UNKNOWN"
+        assert receipt.get("error")
+    if mode == "hang":
+        assert receipt["hard_stop"] is True
+    if mode in ("hang", "residual_success"):
+        descendant = output / "descendant.json"
+        assert descendant.exists(), log
+        for pid in json.loads(descendant.read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("wrapper_fixture", [
+    "2026-09-09T00:29:00",
+    "2026-09-09T04:45:00",
+    "2026-09-09T06:44:00",
+    "2026-09-09T09:00:00",
+    "2026-09-09T12:00:00",
+    "2026-09-09T18:00:00",
+], indirect=True)
+def test_protected_hours_and_scheduled_tiering_refuse_before_output(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success")
+    code, log = finish(process)
+    assert code != 0, log
+    assert not output.exists(), log
+    assert "REFUSED:" in log
+
+
+def test_busy_shared_fixture_lease_refuses_before_output(wrapper_fixture):
+    source = wrapper_fixture[0]
+    admission = (source / "scripts/ops/workload_admission.ps1").read_text()
+    mutex_name = re.search(r"Local\\ArchiveFixture-[a-f0-9]+", admission).group()
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    kernel.CreateMutexW.restype = ctypes.c_void_p
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    kernel.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel.ReleaseMutex.argtypes = [ctypes.c_void_p]
+    kernel.ReleaseMutex.restype = ctypes.c_int
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int
+    handle = kernel.CreateMutexW(None, False, mutex_name)
+    assert handle
+    acquired = False
+    try:
+        assert kernel.WaitForSingleObject(handle, 0) == 0
+        acquired = True
+        process, output = launch(wrapper_fixture, "success")
+        code, log = finish(process)
+        assert code != 0, log
+        assert not output.exists(), log
+        assert "lease is busy" in log
+    finally:
+        if acquired:
+            assert kernel.ReleaseMutex(handle)
+        assert kernel.CloseHandle(handle)
+
+
+@pytest.mark.parametrize("operation", ["upload", "download"])
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False), ("hang", False),
+    ("flip_upload", False), ("flip_download", False), ("wrong_phase", False),
+    ("wrong_proof_kind", False), ("claim_deletion", False), ("claim_cleanup", False),
+    ("missing_operation", False), ("malformed_hash", False),
+])
+def test_split_transfer_wrapper_binds_phase_and_proof(wrapper_fixture, operation, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation=operation)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert (receipt["status"] == "PASS") is success
+    assert receipt["operation"] == operation
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["deleted_files"] == receipt["reclaimed_bytes"] == 0
+    if success:
+        assert receipt["upload_performed"] is (operation == "upload")
+        assert receipt["independent_download"] is (operation == "download")
+        proof = "upload_receipt_sha256" if operation == "upload" else "transport_receipt_sha256"
+        assert receipt[proof] == "c" * 64
+        assert receipt["upload_state"] == ("UPLOADED_NOT_DOWNLOADED" if operation == "upload" else "NOT_PERFORMED")
+    else:
+        assert receipt["upload_performed"] is None
+        assert receipt["upload_state"] == "UNKNOWN"
+    if mode in {"hang", "residual_success"}:
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("wrapper_fixture,exception,success", [
+    ("2026-09-10T13:10:38", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", True),
+    ("2026-09-10T13:10:38", None, False),
+    ("2026-09-10T13:10:37", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-10T18:00:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-11T13:30:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-10T14:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+], indirect=["wrapper_fixture"])
+def test_archive_daytime_wrapper_requires_explicit_unexpired_token(wrapper_fixture, exception, success):
+    process, output = launch(wrapper_fixture, "success", exception=exception)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    if success:
+        receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+        assert receipt["owner_approved_exception"] == exception
+        assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+    else:
+        assert not output.exists()
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False), ("hang", False),
+    ("source_drift", False), ("request_drift", False), ("wrong_binding", False),
+    ("bad_count", False), ("bad_bytes", False), ("claim_destination_hash", False),
+    ("wrong_copy_direction", False), ("claim_upload", False),
+])
+def test_copy_wrapper_binds_retention_and_cleans_complete_job(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="copy")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True and receipt["deleted_files"] == 0
+    assert receipt["upload_performed"] is False
+    assert receipt["remote_side_effect_possible"] is True
+    if success:
+        assert receipt["copied_files"] == 3 and receipt["copied_bytes"] == 6144
+        assert receipt["destination_hash_verified"] is False
+    else:
+        assert receipt["copied_files"] is receipt["copied_bytes"] is None
+    if mode in {"hang", "residual_success"}:
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+@pytest.mark.parametrize("wrapper_fixture,exception,success", [
+    ("2026-09-10T19:43:24", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-10T23:55:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-11T00:20:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-10T19:43:23", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", False),
+    ("2026-09-10T19:43:24", None, False),
+    ("2026-09-11T00:30:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", False),
+], indirect=["wrapper_fixture"])
+def test_archive_evening_wrapper_keeps_explicit_window_and_teardown(wrapper_fixture, exception, success):
+    process, output = launch(wrapper_fixture, "success", exception=exception)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    if success:
+        receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+        assert receipt["owner_approved_exception"] == exception
+        assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+    else:
+        assert not output.exists()

@@ -21,6 +21,7 @@ from weather.collection.live_variant_predictions import (
     _density_probabilities,
     band_key,
 )
+from weather.cold_archive_locations import resolve_local_path
 from weather.io import write_json_atomic
 from weather.market.market_registry import spec_for_slug
 from weather.model.variant_prediction_runtime import (
@@ -108,6 +109,7 @@ def _read_variant_rows(
     expected_bands: dict[str, int],
     max_lines: int,
 ) -> tuple[dict[str, list[dict[str, Any]]], int, bool]:
+    path = resolve_local_path(path)
     selected = {snapshot_id: [] for snapshot_id in expected_bands}
     lines_read = 0
     if not path.exists():
@@ -372,7 +374,7 @@ def build_diagnostic(
         if spec is None:
             raise ValueError(f"event folder does not map to a registered market: {folder}")
         snapshot_path = folder / "snapshots.jsonl"
-        tape_path = folder / "variant_predictions.jsonl"
+        tape_path = resolve_local_path(folder / "variant_predictions.jsonl")
         replay_path = folder / "replay_inputs.jsonl"
         snapshots, snapshot_lines = _read_jsonl_prefix(snapshot_path, max_snapshots_per_event)
         total_snapshot_lines += snapshot_lines

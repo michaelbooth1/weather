@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+from weather.cold_archive_locations import ArchivedInputRequired, resolve_local_path
 from weather.io import normalize_csv_row
 from weather.market.market_microstructure_constants import BOOK_LEVEL_COLUMNS
 
@@ -75,7 +76,7 @@ def _raw_handle(path: Path):
 
 
 def iter_raw_jsonl_level_rows(path: str | Path) -> Iterator[dict[str, Any]]:
-    path = Path(path)
+    path = resolve_local_path(path)
     with _raw_handle(path) as handle:
         for line_number, line in enumerate(handle, start=1):
             text = line.strip()
@@ -98,7 +99,7 @@ def _csv_handle(path: Path):
 
 
 def iter_long_csv_rows(path: str | Path) -> Iterator[dict[str, Any]]:
-    path = Path(path)
+    path = resolve_local_path(path)
     with _csv_handle(path) as handle:
         reader = csv.DictReader(handle)
         if tuple(reader.fieldnames or ()) != tuple(BOOK_LEVEL_COLUMNS):
@@ -125,8 +126,18 @@ def resolve_full_book_representation(
     unknown = [value for value in preference if value not in paths]
     if unknown:
         raise ValueError(f"unknown full-book representations: {unknown}")
+    archived_canonical = None
     for index, representation in enumerate(preference):
-        path = paths[representation]
+        if representation not in CANONICAL_REPRESENTATIONS and archived_canonical is not None:
+            raise archived_canonical
+        try:
+            path = resolve_local_path(paths[representation])
+        except ArchivedInputRequired as exc:
+            if representation not in CANONICAL_REPRESENTATIONS:
+                raise
+            # Raw gzip preserves the same canonical bytes and may remain local.
+            archived_canonical = archived_canonical or exc
+            continue
         if path.is_file():
             return FullBookReadProvenance(
                 representation=representation,
@@ -138,6 +149,8 @@ def resolve_full_book_representation(
                     else f"preferred representations unavailable: {','.join(preference[:index])}"
                 ),
             )
+    if archived_canonical is not None:
+        raise archived_canonical
     raise FileNotFoundError(
         f"no accepted full-book representation under {folder}: "
         f"{', '.join(path.name for path in paths.values())}"

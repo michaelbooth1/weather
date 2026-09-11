@@ -80,6 +80,34 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 | Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
 | data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 
+## Approved July archive disk reserve
+
+Owner decision, September 9, 2026: the selected July 16-31 cold-snapshot archive
+may retain 20 GiB of capture disk reserve plus 16 MiB of evidence headroom and
+its bounded worst-case output reservation. This exception belongs only to the
+exact plan and selection digests pinned by
+`weather.operations.production_cold_archive_stage_cli`; it verifies the raw
+plan bytes before applying the reserve. Different or regenerated plans retain
+the general floor. See [the staging runbook](production-cold-archive-staging.md).
+
+This approval keeps serial chunks of at most 1 GiB, 300-second jobs, 16 MiB/s
+throttling, the ordinary overnight window excluding scheduled tiering, the
+shared lease, healthy capture, commit below 70%, at least 4 GiB available
+physical memory and complete child-tree teardown. It does not extend the
+separate dated daytime inventory/compression exception to this archive lane
+or weaken any general heavy-work threshold.
+
+## September 10 bounded archive recovery
+
+The owner's September 10 full overnight authorization includes saving recovery
+keys and using only existing PC storage plus private Google Drive. The exact
+primary plan and selection pinned by the archive CLI may use an 8 GiB reserve
+through 13:00 UTC that day. All chunk, evidence/output, memory, capture, lease,
+time-window and teardown checks remain required. The controller must account
+for every temporary local copy before admitting ingress.
+See [the staging runbook](production-cold-archive-staging.md) for the bounded
+unattended archive credential and workstation launch path.
+
 ## The 24-hour map (America/Toronto)
 
 The [bounded replay-cache compression lane](replay-cache-compression.md) has a
@@ -293,6 +321,45 @@ bounded teardown remain unchanged. The absolute deadline reserves teardown
 before 18:00. No source deletion, archive export, training, test, merge,
 Stage-A, workstation or live authority is added.
 
+## Owner archive exception: September 10 afternoon
+
+At September 10 13:10:38 Toronto the owner explicitly instructed immediate
+upload and cleanup after being told the ordinary archive window had closed.
+The dated token `OWNER_APPROVED_ARCHIVE_RECOVERY_20260910` admits only the
+production archive stage, bound PC scratch copy, transfer, upload, download,
+publication and exact verified reclaim workloads from that instant until 18:00 Toronto that day.
+The wrapper requires `-OwnerApprovedException`; the child independently binds
+the token to the actual live lease and exact approved plan and selection.
+The three already pinned primary-plan layouts retain the authorized 6 GiB
+capture reserve plus evidence and complete output reservations.
+
+All capture identities and freshness, the archive-only commit policy below, 4 GiB physical
+availability, serial lease, 384 MiB child limit, BelowNormal priority,
+16 MiB/s payload limit, 1 GiB chunk limit and 300-second job bound remain.
+The absolute deadline reserves 15 seconds for teardown before 18:00.
+Full independent restore and exact-file identity, content, settlement,
+protection and custody checks still precede source reclaim. Failed attempts
+remain immutable. This does not authorize other plans or workloads, merge,
+capture restart, hook/watchdog changes, or live trading. The ordinary
+timetable applies automatically at expiry.
+
+## Archive-only memory policy approved September 10
+
+At 19:37 UTC the owner approved the archive reliability plan and its 80%
+system-commit threshold. Only the staging/copy/transfer/publication/reclaim
+resource callbacks opt into it. Other workloads retain the 70% default, and
+the emergency watchdog retains its existing 85% warning and 92% action levels.
+Archive measurement uses coherent system-wide `GetPerformanceInfo` counters,
+including the available physical-page count. Unknown/invalid values block.
+
+The [campaign controller](cold-archive-campaign.md) starts a capture phase only
+after five observations two seconds apart below 78%, with at least 4 GiB
+physical memory and every capture check passing. The running archive phase
+still stops at 80%. The 384 MiB per-process checks, complete-child Jobs, shared
+lease, serial execution, byte/rate limits and dated windows remain. An archive
+refusal terminates its owned phase; it does not instruct the controller to kill
+capture workers or alter the host watchdog.
+
 ## Rules
 
 1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,
@@ -403,3 +470,15 @@ Contributing factors worth fixing structurally:
 - Disk headroom is ~6-7 days at current burn. The parquet/archive conversion
   backlog (item-321 Phase 3) is the sanctioned drain; deletion of canonical
   tape is prohibited before off-machine copy proof.
+
+## September 10 evening archive renewal
+
+The owner explicitly renewed this archive-only exception on September 10 at
+23:43 UTC. The distinct `OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING`
+token admits only the existing exact archive plans from 23:43:24 UTC through
+September 11 04:30 UTC (19:43:24–00:30 Toronto). The earlier 18:00 Toronto
+expiry remains unchanged; the intervening gap is not retrospectively admitted.
+At 00:30 the ordinary overnight lane and the already approved September 11
+6 GiB reserve apply, with the unchanged 04:45–06:45 tiering exclusion.
+All archive memory, capture, lease, throughput, deadline, restore and exact-source
+reclaim requirements remain. Other workloads, hosts and Stage A cannot use it.

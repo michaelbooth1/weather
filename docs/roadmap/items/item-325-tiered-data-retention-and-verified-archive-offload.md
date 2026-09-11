@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - OVERNIGHT RECOVERY ARMED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - RELIABILITY REPAIR IN PROGRESS]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,35 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 10 archive reliability repair
+
+The owner approved the implementation plan at 19:37 UTC after requesting an
+archive-only 80% system-commit threshold. The
+[resumable campaign runbook](../../operations/cold-archive-campaign.md) owns the
+new orchestration, resource, credential, qualification and resume contracts.
+
+Four archives completed by 18:59 UTC, reclaiming 13 originals and exactly
+453,414,912 allocated bytes. The 100 decimal GB original-data target remains
+open. Their complete restore/custody/catalog/reclaim records were retained on
+both PCs and independently byte-verified in a private Drive recovery bundle.
+Workstation and production-spool cleanup bytes are excluded from this count.
+
+The approved packed plan has 107 untouched chunks with 99,602,452,480 bytes of
+recorded allocation. Four overlapping chunks are isolated; their residual
+1,704,456,192 bytes are not counted as available capacity. This is metadata
+planning, not fresh native identity, allocation or protected-input qualification.
+
+Archive resource-policy checks passed 182 focused workstation tests. The
+subsequent memory/rate/deadline/credential matrix passed 301 tests with three
+optional skips, including a native process-memory-limited Windows Job check.
+Retained workstation JUnit paths are `scratch/archive-resource-policy-a1.xml`
+and `scratch/archive-reliability-a2.xml`. The controller's interruption,
+argument and native metadata-RPC matrix passed 33 workstation checks in 4.84 seconds
+(`scratch/archive-reliability-a3.xml`) after the owner-authorized source transfer.
+Final timing and repository checks remain in progress.
+Three real large batches and a measured whole-campaign ETA remain outstanding;
+no new archive payload work ran during this implementation pass.
 
 ## 2026-09-08 additional capacity recovery approved
 
@@ -873,3 +902,307 @@ Acceptance:
   a restore drill has been executed and recorded.
 - Capture, the daily chain, and barrier resumes complete unchanged for every
   date inside the hot window, and any older date can be restored on demand.
+
+## September 9 production-chunk transfer qualification
+
+The owner requested at least 100 GB of verified Drive offload followed by local
+reclaim, and approved the exact July-plan 20 GiB reserve exception. The retained
+selection contains 5,584 files with 111,275,511,800 measured allocated bytes.
+Those historical allocations are a candidate estimate, not reclaimed space.
+
+The implementation is published at
+d8bdb7111992cf0847ba1852ff2cf51a1a4e89d0 on
+codex/bulk-cold-archive-20260909, [draft PR 45](https://github.com/michaelbooth1/weather/pull/45).
+It adds native-pinned production staging, encryption of copied archive chunks,
+private Drive transfer with independent ciphertext/metadata downloads, and
+complete workstation plaintext restoration. The
+[production archive runbook](../../operations/production-cold-archive-staging.md)
+owns commands, schemas, reservations and proof limits.
+
+Independent review corrections keep the active encrypted client configuration
+and downloaded files pinned through terminal receipt, require complete upstream
+encryption/production proof, and refuse infeasible transfers before upload.
+At 8 MiB/s network and 16 MiB/s hashing, a maximum-size incompressible object
+cannot fit the combined 300-second transfer. A separately qualified split
+transfer or other bounded strategy is still required for such objects.
+
+Native workstation evidence, retained under production scratch/handoffs/:
+
+| Receipt | Result | SHA-256 |
+| --- | --- | --- |
+| archive-transfer-qualification-a1.xml | 224 cases: 215 pass, 7 test assertion failures, 2 skips | fc29044ace24e239220c9d14cdc45819aec6bb27ea0d0d231d7302724d05e182 |
+| archive-transfer-qualification-a2.xml | 18 pass, zero failures/skips | 828130b67a51eb2bfb1ab3216da47fbed309f4f98292ae7a6295504a19e4876a |
+| bulk-transfer-source-a2.json | Exact clean source and wrapper-dependency hashes | ba8f054d9e1f9b297cae060ff17059ff579bfdaa73cc156e850e4b822ef1a806 |
+
+The seven failures were correctly rejected invalid inputs whose tests expected
+ValueError instead of the existing typed archive exception. Only those test
+assertions changed. Follow-up included every affected case plus installed-rclone
+encryption/cryptcheck/decryption, native file pins, exact source/import identity,
+compilation, PowerShell parsing and the documentation audit. The wrapper's
+workstation invocation exited zero after the follow-up.
+
+Drive setup separately proved a private app-created-files target and an 86-byte
+native upload/download hash match. This establishes client connectivity only;
+it is not production archive transfer or disaster-recovery proof. The retained
+connection receipt is archive-drive-connection-verified-20260909.json,
+SHA-256 6a4ff1e28e28165dc3d2be00d7e60928c9e2635a10d46d16c191100f77802003.
+
+Production archive payload upload, full production restore, consumer closure,
+fresh deletion identity and reclaim remain unproved. Raw token files also feed
+scheduled Parquet provenance hashing; replay backfill enumerates all history;
+settled-folder discovery can silently omit folders after required-file removal.
+Even all available older July 1-8 allocations plus the July 16-31 raw token
+family fall below 100 GB. A verified off-site availability contract must preserve
+discovery and make historical restore requirements explicit before local
+deletion. Current capture and hot-window daily behavior must remain available.
+
+The split transfer implementation at 05188a2fe3c5bf4af58fbc13aa4f0451cba26ace
+was subsequently checked on the workstation: 224 checks passed, covering both
+phases, remote-object identity changes, source/plan membership, wrapper teardown,
+schemas, compilation and documentation. The one remaining harness assertion
+expected roadmap regeneration to leave Git clean; the generated file changed
+only its timestamp. That generated update is included, and final validation
+uses the generator's check mode. The retained archive-transfer-qualification-a3.xml
+has SHA-256 96dcae13e48f806bf1e36e2541832c9489f003c9ccf6bb34b96d489aaba50340.
+
+Separate upload and download jobs retain the 300-second limit, 8 MiB/s network
+rate and 16 MiB/s hash rate. Each split job budgets one hash and one copy;
+upload-only can never satisfy independent recovery. The reviewed staged
+manifest must match the actual plan's exact source-member identities.
+
+A read-only Drive metadata probe also succeeded with its encrypted config
+pinned against replacement. Both source and attempt configs stayed unchanged;
+the client reported a config-save warning but the lookup succeeded. No remote
+object was created. The receipt archive-drive-pinned-config-check-20260909.json
+has SHA-256 2db846d9e5255b32aa7aaaace09bb57aaa2c896b3cdb5f8bd27002d14df93957.
+This is one observed client behavior, not production payload or restore proof.
+
+## September 9 revised target for owner validation
+
+After accepting restore on demand, the owner required selection of the least
+frequently needed practical archive target and an explanation for validation
+before any upload. The blanket July 16-31 selection above is superseded as the
+current recommendation, while its plans and receipts remain historical evidence.
+
+The preferred target is specific June 15-July 30 files across twelve markets:
+2,154 paths with 101,760,323,584 recorded allocated bytes (101.8 decimal GB).
+Market-detail history contributes 79.1 GB and full variant prediction JSONL
+22.7 GB. The seven actual primary families are clob_tokens.jsonl,
+variant_predictions.jsonl, order_books_long.csv.gz, price_history.csv,
+market_ws.jsonl, order_books_long.csv and order_books.jsonl. Each original is
+retained independently; CSV, JSONL and gzip representations are not assumed
+interchangeable or safely rebuildable.
+
+The separately bound reserve contains 552 snapshot_explanations_long.csv files,
+10,238,812,160 recorded allocated bytes. Retain it unless final primary
+allocation or protected-input exclusions leave the verified reclaim below
+100,000,000,000 bytes; use only the oldest qualified reserve needed and only
+after the owner validates that reserve. Primary validation does not authorize
+the whole 112.0 GB pool. The original July plan's 20 GiB reserve exception does
+not automatically apply to this replacement; staging/headroom feasibility must
+be reviewed under the applicable floor.
+
+Keep original weather/source payloads and their shared dependencies, snapshot
+records, replay inputs, components, settlement/labels/control metadata, snapshot
+tables, permanent token-map CSVs, book summaries, compact variant CSVs and raw
+explanation JSONL local. Keep existing Parquet/reports, all July 31 onward data,
+maker/taker/execution evidence and replay caches. Protect any current selected
+event, repair or explicit research dependency even if its date is older.
+
+This ranks likely demand from source readers and inspected Scheduler/config
+state, not measured per-file access frequency. Stage-A legacy historical
+scoring reads retained snapshot tables; current-day scoring uses retained
+variant CSVs. Full variant JSONL still supports residual/parity research,
+and the reserve explanation CSV has a direct historical root-cause reader.
+Parquet provenance and all-history maintenance also need archive handling.
+Neither age nor retention of a related format proves reader compatibility.
+
+The comparison covers 18,058 immediate files in 564 complete market-day
+selections, with 249.0 GB of recorded allocation. June 15-30 and July 9-15
+received new admitted metadata inventories; the other July observations date
+from September 8/9. The proposal excludes 520 recently modified book gzip
+files (8.3 GB). All selected files meet the retained modification cutoff and
+1 GiB whole-file bound. A later refresh was refused by snapshot-health
+admission; it contributes no new capacity. An incomplete June 3 sample is
+excluded. No production source payload was read for this target comparison.
+
+The implementation must preserve a local availability catalog and resolve a
+job's complete dependencies before execution. Archive by market/date/file
+family in bounded parts; restore only required inputs with full verification,
+reuse a bounded protected cache, and make housekeeping preserve valid complete
+projections. Never silently skip archived history, repair it repeatedly, or
+publish a partial historical population. Fresh source identity/allocation,
+current consumer selections, complete independent restore and a qualified
+exact-file deletion executor remain prerequisites to reclaim.
+
+Bound proposal artifacts are production-local ignored review evidence under
+scratch/handoffs/; they need not exist in a clean checkout. Their status is
+PROPOSED_FOR_OWNER_VALIDATION_NOT_UPLOAD_AUTHORITY and every mutation gate is
+false:
+
+| Proposal | Files / recorded allocation | SHA-256 |
+| --- | --- | --- |
+| archive-target-primary-20260909.json | 2,154 / 101,760,323,584 bytes | d47eec8ff7fbd500c720a273339729cb9f8f75eb84be615082d9d39e2b22b927 |
+| archive-target-standby-20260909.json | 552 / 10,238,812,160 bytes | f9053f2acca392ddad37d3afb72a2643dbf1b727dcc297c0cde329de8ddb034c |
+
+Both bind parent archive-target-proposal-a2-20260909.json,
+SHA-256 05da0e19623530f93382d4f8c6ea8757e85090d69c441025119de1f29b6011f1,
+and comparison archive-target-metadata-comparison-a3-20260909.json,
+SHA-256 95522eec2630f1ea5a2c071245121038f6a2e0d6511e19f6278745162e3d3d1e.
+The owner-facing explanation is archive-target-recommendation-20260909.md.
+
+Source qualification at 3160122d1c09c76a8aea0074e0d0e65dc36b76b5 passed final
+workstation checks, CI 660 and host-load hook 27. These prove the existing
+bridge, not the proposed reader workflow. At this review the revised target
+awaited owner validation. Production payload uploaded, files deleted and space
+reclaimed remained zero.
+
+## September 9 owner approval and location contract
+
+The owner approved the revised target and conditional reserve: "Yes I approve
+of this plan. Just make sure we keep documented where data is". The exact
+approval record is production-local scratch/handoffs/archive-target-owner-approved-20260909.json,
+SHA-256 2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e.
+It binds both proposal digests above and preserves their original proposed
+status as historical evidence. Target validation is closed; no repeated target
+approval is needed. The reserve remains conditional on actual verified primary
+reclaim falling below 100,000,000,000 bytes.
+
+[Cold archive locations and restore cache](../../operations/cold-archive-locations.md)
+owns the durable locations, exact object identities, original hashes, proof
+retention and reader/cache behavior. Every archived original must remain
+discoverable through local metadata. A local or cloud copy may not be called
+restorable from an upload receipt alone.
+
+Implementation adds explicit event/file-family chunk grouping and removes
+dependencies on original local payload copies from subsequent download/restore.
+Catalog entries retain exact upstream metadata bytes, all four cloud object IDs,
+source member hashes, and separate complete restore receipts. Managed cache
+population verifies every member during copying and readback, enforces its
+byte quota and disk reserve, and retains partial attempts. Cache resolution
+hashes content; Windows creation time and a restored mtime cannot safely memoize
+a previously checked hash.
+
+Workstation qualification retained three source-bound suites:
+- `scratch/handoffs/archive-reader-qualification-a2.xml`: 162 passed, covering
+  readers, maintenance preservation, archive discovery, audits and original
+  timestamp/provenance preservation. SHA-256
+  `3c805bedd13ee6964f4e79dbaae43b2264d4153384029629881ef86370007591`.
+- `scratch/handoffs/archive-reader-qualification-a3.xml`: 368 passed and one
+  expected platform skip. This includes a real local rclone encryption/full
+  restore through native file pins after deleting both original synthetic
+  archive copies; every materialized member matched. Controller transport and
+  DPAPI material in that fixture are synthetic. SHA-256
+  `6102a1a3fbe3960fe420f65b44b6b65182e615015f4bb360dbfbfe5af4530ff1`.
+- `scratch/handoffs/archive-reader-qualification-a4.xml`: 62 passed, including
+  interrupted-marker repair, reconstruction of original proof bytes, persistent
+  inventory publication and cache recovery into a separate local data layout.
+  SHA-256 `7cbfb5716a79a03fb6a385aa8346ece8c6b15304dd814734fce03851fd37fe23`.
+
+`scratch/handoffs/archive-reader-docs-a1.xml` records 18 passing documentation
+and roadmap checks, including the repository agent-doc audit and regenerated
+backlog parity; SHA-256
+`9e87bc8e17817b141b4f0670f64214c46f56ed59a29072ed9271d0e9fc3c3f5c`.
+The admitted workstation compilation of `app`, `src` and `tests` exited zero.
+
+The suites overlap and their counts must not be added as unique tests. All ran
+through the workstation wrapper against the PR 45 worktree rooted at a98f8432.
+The final source bundle `scratch/handoffs/archive-reader-source-a4.json`,
+SHA-256 `03f5cd6cf7bb1b586e369d3cfc982e503ee2220168d3fcdadbd913f666abddb9`,
+records exact qualified file hashes; it is ignored local evidence. The five
+catalog schema registrations are additive only.
+
+Catalog-enabled uploads now publish locations and `WHERE_DATA_IS.md` inside
+their existing admitted job. Historical readers require verified local/cache
+bytes; housekeeping preserves existing Parquet and manifests when raw inputs
+are off-site. Strict audits do not upgrade off-site presence to a fresh PASS.
+
+Catalog and reader source was published as
+dcf714a4aa27eb68c2c51ca4682b5df8c820a291. CI 662 recorded 5,072 passed,
+423 platform skips and one failed schema audit: the two new packing-policy
+identifiers needed explicit non-schema classifications. The follow-up adds
+those two narrow entries without weakening unknown-schema detection.
+
+Managed cache cleanup now pins every member exclusively on native NTFS,
+compares its recorded identity and full SHA-256, journals intent, then removes
+through that same verified handle. Busy, modified, missing or redirected files
+refuse before the first removal. All claims, directories, original files,
+catalog entries and restore receipts remain. A partial cleanup retains
+per-file completion evidence and cannot report a successful batch.
+
+The schema repair, catalog/cache cleanup, native sharing and hardlink checks,
+architecture and documentation checks passed all 98 cases in
+`scratch/handoffs/archive-reader-qualification-a5.xml`, SHA-256
+`6759c64ea28d5ab958a3a42d6a3ab2f7ca3b7229a996859fa31044c6b8cef0c3`.
+The exact 35-file source bundle is
+`scratch/handoffs/archive-reader-source-a5.json`, SHA-256
+`6a87228fea31f0f6fa3427334902f303c07bd01e1cab23c85fbef5d0cc8c4012`.
+The additional cleanup schema is additive only. Native deletion occurred only
+inside synthetic workstation test fixtures.
+
+The schema repair and native cache-cleanup source was published at
+8f4a7cad31ded55805edd986074a0d3fa0fe2991 and CI 663 passed.
+
+### Guarded original-source reclaim qualification
+
+The [reclaim executor](../../operations/cold-archive-locations.md#original-source-reclaim)
+now binds the exact approved proposal, selection, selective plan, archive
+catalog, independent complete restore, fresh protected-input review, external
+key custody and adopted consumers before native original-file removal. It
+journals intent, each removal and cumulative original allocation. Inventory
+publication precedes a successful campaign transition; interrupted attempts
+require reconciliation and cannot report zero deletion by assumption.
+The production runner has a separate `reclaim` operation under its unchanged
+host, workload, time, memory and teardown controls. Other operations retain
+all original sources. The executor currently admits primary selections only;
+conditional reserve requires a separately qualified primary-disposition lane.
+
+The workstation matrix covered 414 checks: 413 passed, and the remaining
+architecture inventory check exposed three new files not yet recorded in the
+test checkout's Git inventory. After exact-hash intent-to-add, all 41
+architecture, source, documentation and roadmap checks passed. Native original
+removal, busy-reader and hardlink refusal, partial-failure journaling, exact
+owner-plan metadata, all retaining wrapper phases, and cleanup regressions
+passed. Focused compilation also passed. These are synthetic and metadata
+qualifications, not production data movement.
+
+Retained ignored receipts are
+`scratch/handoffs/archive-reclaim-qualification-a2.xml`, SHA-256
+`faaa49a9a17480397450f2dbbe495d3e46391a6ec366238196532eff6ac867ff`,
+and `scratch/handoffs/archive-reclaim-qualification-a3.xml`, SHA-256
+`4c9eabd0c799a774e03dc3667b4ccc7b91e6ab790d8f46a41d838f971541f6ea`.
+The 42-file qualified source bundle is
+`scratch/handoffs/archive-reclaim-source-a2.json`, SHA-256
+`4780cc9a4d59f03b1ead369554066ba0800e902a860beed7ead8f332225a0cc9`.
+Later documentation closeout does not change those qualified code bytes.
+
+Original-source reclaim was published at
+e665d42ac63918e348182405ebe272c8169f358c and CI 664 passed. The subsequent
+temporary-payload cleanup and admitted workstation recovery-publication
+changes passed native Windows qualification. The first cleanup matrix's three
+path-limit failures were repaired by keeping cleanup records beside reclaim
+receipts. The expanded matrix then passed 268 of 272 checks; its four failures
+were fixture setup and an omitted workstation adapter copy. After correcting
+those, all 76 focused recovery-publication, routing, source-identity, import,
+schema, documentation and roadmap checks passed with no skips. Compilation
+of all nine changed Python files exited 0 through the workstation wrapper.
+No production files were involved.
+
+The source-only 46-file qualification bundle is
+`scratch/handoffs/archive-recovery-source-a4.json`, SHA-256
+`823c3715e7c4cf08dc9c06d9ebfc394cc8d880d8e3e61732051c773cbffc3b57`.
+Retained workstation receipts are
+`scratch/handoffs/archive-recovery-qualification-a3.xml`, SHA-256
+`4515385f3a4f3f882f54707f96ad6206c62ddf24020b4f3a0023fe58af41e0a4`,
+and `scratch/handoffs/archive-recovery-qualification-a4.xml`, SHA-256
+`aaa982e5003ca9773afb27396262d7313f644fb892fca225f14ca7c24aa4259e`.
+Later documentation closeout does not change those qualified Python bytes.
+Recovery-handback publication and exact temporary-payload cleanup are published at
+b9d7146cc92bbc03dfe082c7fd8ed49a8148fde2 in draft PR 45. CI 665 passed
+all steps, including the full test suite. The run is
+[34431259014](https://github.com/michaelbooth1/weather/actions/runs/34431259014).
+
+Production consumer adoption, concrete headroom, durable key custody, fresh
+per-chunk protection evidence and production full-restore/reclaim remain open. The original exact July plan's
+reserve exception and queued-PR-44 adoption boundary remain unchanged.
+Production archive upload, deletion and reclaim remain zero.

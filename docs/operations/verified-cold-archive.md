@@ -6,6 +6,10 @@ folder. The current command surface is deliberately restricted to marked
 synthetic fixture roots. It does not authorize a production plan, transfer, or
 cleanup, and it contains no source-delete executor.
 
+The separate [production staging lane](production-cold-archive-staging.md)
+accepts exact measured selections under capture-host admission. Its local
+byte-preservation receipt grants no transport, restore or deletion authority.
+
 This contract complements the existing event-day manifest and storage-class
 contracts. It preserves every selected source byte in one deterministic
 `tar.gz` object, rather than replacing canonical evidence with the Parquet
@@ -365,3 +369,12 @@ off-site transport, perform an operator-owned restore drill, split existing
 mirror semantics, and add an independently reviewed deletion/ledger mechanism
 before any local source byte can be reclaimed. The provisional staging adapter
 cannot be upgraded into authoritative production mode by a runtime flag.
+
+## Production chunk bridge
+
+The [production archive runbook](production-cold-archive-staging.md#encrypted-transfer-and-independent-restore)
+owns the production-chunk encryption, private Drive transfer and full restore
+protocol. It uses exact native-pinned production staging evidence and never
+relabels a provisional mirror copy. The fixture cleanup planner remains
+fixture-only. Production consumer closure, current source identity and the
+reviewed deletion/ledger mechanism are still required before reclaim.

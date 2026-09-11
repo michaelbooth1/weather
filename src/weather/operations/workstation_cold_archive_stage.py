@@ -455,7 +455,7 @@ def _read_stable_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytearr
 
 
 def _load_dpapi_secret(path: Path) -> SecretMaterial:
-    """Recover ASCII-hex CurrentUser DPAPI over UTF-16LE, with no entropy."""
+    """Recover legacy CurrentUser or explicitly tagged archive-machine DPAPI."""
 
     if os.name != "nt":
         raise ArchiveStageError(
@@ -478,6 +478,9 @@ def _load_dpapi_secret(path: Path) -> SecretMaterial:
             raise ArchiveStageError(
                 "dpapi_secret_invalid", "DPAPI secret is invalid"
             ) from exc
+        machine_prefix = "weather-archive-machine-v1:"
+        if text.startswith(machine_prefix):
+            text = text[len(machine_prefix):]
         if not text or len(text) % 2 or not re.fullmatch(r"[0-9A-Fa-f]+", text):
             raise ArchiveStageError("dpapi_secret_invalid", "DPAPI secret is invalid")
         encrypted.extend(bytes.fromhex(text))
@@ -1562,6 +1565,19 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    if "--backup-recovery" in tokens:
+        from weather.operations import workstation_cold_archive_backup
+        tokens.remove("--backup-recovery")
+        return workstation_cold_archive_backup.main(tokens)
+    if "--production-transfer" in tokens:
+        from weather.operations import workstation_cold_archive_transfer
+        tokens.remove("--production-transfer")
+        return workstation_cold_archive_transfer.main(tokens)
+    if "--production-chunk" in tokens:
+        from weather.operations import bulk_cold_archive_crypt
+        tokens.remove("--production-chunk")
+        return bulk_cold_archive_crypt.main(["encrypt", *tokens])
     args = _parser().parse_args(argv)
     try:
         result = stage_provisional_mirror_copy(

@@ -97,6 +97,16 @@ if (
 }
 
 $module = if ($arguments[0] -ceq "-m") { [string]$arguments[1] } else { "" }
+$archiveUnattended = $arguments -ccontains "--archive-unattended"
+if ($archiveUnattended) {
+    if ($Kind -cne "weather_heavy" -or $module -cnotin @(
+        "weather.operations.workstation_cold_archive_stage",
+        "weather.operations.workstation_cold_archive_restore"
+    ) -or @($arguments | Where-Object { $_ -ceq "--archive-unattended" }).Count -ne 1) {
+        throw "unattended execution is restricted to the archive modules"
+    }
+    $arguments = @($arguments | Where-Object { $_ -cne "--archive-unattended" })
+}
 switch ($Kind) {
     "pytest" {
         if ($module -cne "pytest") {
@@ -145,11 +155,17 @@ try {
         "Bypass",
         "Process"
     )
-    $child = Start-WeatherInteractiveProcessInJob `
-        -Job $job `
-        -FilePath $resolvedPython `
-        -ArgumentString $argumentString `
-        -WorkingDirectory $resolvedRepoRoot
+    if ($archiveUnattended) {
+        $child = Start-WeatherProcessInJob -Job $job -FilePath $resolvedPython `
+            -ArgumentString $argumentString -WorkingDirectory $resolvedRepoRoot
+    }
+    else {
+        $child = Start-WeatherInteractiveProcessInJob `
+            -Job $job `
+            -FilePath $resolvedPython `
+            -ArgumentString $argumentString `
+            -WorkingDirectory $resolvedRepoRoot
+    }
     $child.WaitForExit()
     $exitCode = $child.ExitCode
 }

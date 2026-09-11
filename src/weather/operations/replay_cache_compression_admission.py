@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import time
 from zoneinfo import ZoneInfo
 
 from weather.operations.capture_resource_gate import (
@@ -43,7 +44,20 @@ def check_resources(*, now, available, commit, free_disk, loops):
 
 STORAGE_DAYTIME_EXCEPTION = "OWNER_APPROVED_STORAGE_RECOVERY_20260908"
 STORAGE_DAYTIME_POLICY = "owner_approved_storage_recovery_20260908"
+ARCHIVE_DAYTIME_EXCEPTION = "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910"
+ARCHIVE_DAYTIME_START = datetime(2026, 9, 10, 17, 10, 38, tzinfo=timezone.utc)
+ARCHIVE_DAYTIME_END = datetime(2026, 9, 10, 22, tzinfo=timezone.utc)
+# Owner renewed only this archive lane on September 10 at 23:43 UTC.
+ARCHIVE_EVENING_EXCEPTION = "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING"
+ARCHIVE_EVENING_START = datetime(2026, 9, 10, 23, 43, 24, tzinfo=timezone.utc)
+ARCHIVE_EVENING_END = datetime(2026, 9, 11, 4, 30, tzinfo=timezone.utc)
+ARCHIVE_EXCEPTION_ENDS = {
+    ARCHIVE_DAYTIME_EXCEPTION: ARCHIVE_DAYTIME_END,
+    ARCHIVE_EVENING_EXCEPTION: ARCHIVE_EVENING_END,
+}
 STORAGE_DAYTIME_EXCEPTIONS = {
+    ARCHIVE_EVENING_EXCEPTION: ("2026-09-10", ARCHIVE_EVENING_EXCEPTION.lower()),
+    ARCHIVE_DAYTIME_EXCEPTION: ("2026-09-10", ARCHIVE_DAYTIME_EXCEPTION.lower()),
     STORAGE_DAYTIME_EXCEPTION: ("2026-09-08", STORAGE_DAYTIME_POLICY),
     "OWNER_APPROVED_STORAGE_RECOVERY_20260909":
         ("2026-09-09", "owner_approved_storage_recovery_20260909"),
@@ -51,6 +65,10 @@ STORAGE_DAYTIME_EXCEPTIONS = {
 
 
 def storage_daytime_authorized(now, exception):
+    if exception == ARCHIVE_EVENING_EXCEPTION:
+        return ARCHIVE_EVENING_START <= now < ARCHIVE_EVENING_END
+    if exception == ARCHIVE_DAYTIME_EXCEPTION:
+        return ARCHIVE_DAYTIME_START <= now < ARCHIVE_DAYTIME_END
     local = now.astimezone(ZoneInfo("America/Toronto"))
     authorization = STORAGE_DAYTIME_EXCEPTIONS.get(exception)
     return (authorization is not None and local.date().isoformat() == authorization[0]
@@ -67,7 +85,15 @@ def verify_storage_exception(lease, exception, now):
         raise ValueError("storage exception is missing from the wrapper environment")
 
 
-def check_capture_health(*, now, available, commit, loops, owner_approved_exception=""):
+def check_capture_health(*, now, available, commit, loops, owner_approved_exception="",
+                         maximum_commit_percent=MAX_COMMIT_PERCENT,
+                         allow_planned_snapshot_sleep=False):
+    if type(allow_planned_snapshot_sleep) is not bool:
+        raise ValueError("snapshot idle policy must be explicit")
+    if (type(maximum_commit_percent) not in (int, float)
+            or not math.isfinite(maximum_commit_percent)
+            or not 0 < maximum_commit_percent <= 80):
+        raise ValueError("invalid capture commit ceiling")
     local = now.astimezone(ZoneInfo("America/Toronto"))
     minute = local.hour * 60 + local.minute
     reasons = []
@@ -80,15 +106,17 @@ def check_capture_health(*, now, available, commit, loops, owner_approved_except
         reasons.append("reserved_0445_0645_scheduled_tiering_window")
     if available is None or available < MIN_FREE_MEMORY_BYTES:
         reasons.append("physical_memory_below_4_gib")
-    if commit is None or not math.isfinite(commit) or not 0 <= commit < MAX_COMMIT_PERCENT:
-        reasons.append("commit_not_below_70_percent")
+    if (type(commit) not in (int, float) or not math.isfinite(commit)
+            or not 0 <= commit < maximum_commit_percent):
+        reasons.append(f"commit_not_below_{maximum_commit_percent:g}_percent")
     if len(loops) != 3 or {row.get("name") for row in loops} != {"snapshot", "clob", "observation_trigger"}:
         reasons.append("capture_loop_evidence_missing")
     for row in loops:
         if (not row.get("active") or row.get("degraded") or not row.get("heartbeat_fresh")
                 or not row.get("pid_agreement")
                 or not row.get("process_identity_matches_lock")
-                or not _fresh_age(row.get("heartbeat_age_seconds"), MAX_HEARTBEAT_AGE_SECONDS)
+                or not (_fresh_age(row.get("heartbeat_age_seconds"), MAX_HEARTBEAT_AGE_SECONDS)
+                        or (allow_planned_snapshot_sleep and _planned_snapshot_sleep(row)))
                 or not row.get("process_diagnostics", {}).get("status_pid_alive")
                 or not row.get("process_diagnostics", {}).get("lock_pid_alive")):
             reasons.append("capture_unhealthy:" + str(row.get("name")))
@@ -98,14 +126,33 @@ def check_capture_health(*, now, available, commit, loops, owner_approved_except
     return {"status": "BLOCK" if reasons else "PASS", "reasons": reasons,
             "checked_at_utc": now.isoformat(), "available_memory_bytes": available,
             "host_commit_percent": commit,
+            "maximum_host_commit_percent": maximum_commit_percent,
             "capture_loops": [{key: row.get(key) for key in (
                 "name", "status_pid", "lock_pid", "heartbeat_age_seconds",
                 "last_clean_iteration_age_seconds", "process_identity_matches_lock",
+                "active", "degraded", "degraded_reasons", "heartbeat_fresh",
+                "pid_agreement", "process_diagnostics", "status_read_error", "writer_lock",
+                "last_sleep_seconds", "markets_in_progress",
             )} for row in loops]}
 
 
 def _fresh_age(value, maximum):
     return type(value) in (float, int) and math.isfinite(value) and 0 <= value <= maximum
+
+
+def _planned_snapshot_sleep(row):
+    """Honor a completed snapshot iteration's bounded, advertised idle sleep.
+
+    A new iteration sets its heartbeat after the last clean completion, which
+    deliberately invalidates this path even before a market begins. Busy loops
+    and every other capture producer retain the three-minute heartbeat bound.
+    """
+    age, clean = row.get("heartbeat_age_seconds"), row.get("last_clean_iteration_age_seconds")
+    sleep = row.get("last_sleep_seconds")
+    return (row.get("name") == "snapshot" and row.get("markets_in_progress") == []
+            and _fresh_age(sleep, 600) and sleep > MAX_HEARTBEAT_AGE_SECONDS
+            and _fresh_age(age, sleep + 10) and _fresh_age(clean, MAX_SNAPSHOT_CLEAN_AGE_SECONDS)
+            and 0 <= age - clean <= 1)
 
 
 def _age(now, stamp):
@@ -131,7 +178,23 @@ def capture_admission(production_root: Path):
     return observe_capture_admission(production_root, check_resources)
 
 
-def observe_capture_admission(production_root: Path, resource_checker):
+def observe_capture_admission(production_root: Path, resource_checker, *, memory_reader=None):
+    # Retry only transient archive status reads; every health gate runs fresh.
+    names = {spec.status_path.name for spec in default_loop_specs(production_root / "data" / "snapshots")}
+    names |= {"." + name + ".writer.lock" for name in names}
+    attempts = 3 if memory_reader is not None else 1
+    for attempt in range(attempts):
+        try:
+            return _observe_capture_admission_once(production_root, resource_checker, memory_reader=memory_reader)
+        except PermissionError as exc:
+            path = Path(exc.filename) if exc.filename else None
+            if (attempt + 1 == attempts or path is None
+                    or path.parent != production_root / "data" / "snapshots" or path.name not in names):
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
+def _observe_capture_admission_once(production_root: Path, resource_checker, *, memory_reader=None):
     now = datetime.now(timezone.utc)
     observed, loops, statuses = {}, [], []
     def process(pid):
@@ -161,9 +224,18 @@ def observe_capture_admission(production_root: Path, resource_checker):
     for row, status in zip(loops, statuses):
         row["heartbeat_age_seconds"] = _age(now, status.get("last_heartbeat"))
         row["last_clean_iteration_age_seconds"] = _age(now, status.get("last_clean_iteration_at"))
-    result = resource_checker(now=now, available=available_memory_bytes(),
-                             commit=host_commit_percent(),
+        row["last_sleep_seconds"] = status.get("last_sleep_seconds")
+        row["markets_in_progress"] = status.get("markets_in_progress")
+    measured = memory_reader() if memory_reader is not None else None
+    if memory_reader is None:
+        available, commit = available_memory_bytes(), host_commit_percent()
+    else:
+        available = measured.get("available_memory_bytes") if isinstance(measured, dict) else None
+        commit = measured.get("host_commit_percent") if isinstance(measured, dict) else None
+    result = resource_checker(now=now, available=available, commit=commit,
                              free_disk=shutil.disk_usage(production_root).free, loops=loops)
+    if memory_reader is not None:
+        result["memory_measurement"] = measured
     memory = process_memory_bytes()
     result["child_memory"] = memory
     if memory is None or max(memory.values()) > 384 * 1024**2:

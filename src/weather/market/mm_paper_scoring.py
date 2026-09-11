@@ -17,6 +17,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
+from weather.cold_archive_locations import resolve_local_path
 from weather.io import (
     iter_csv_rows as io_iter_csv_rows,
     normalize_csv_row,
@@ -160,7 +161,7 @@ def _write_json_value(handle, value, *, level):
 
 
 def iter_jsonl(path):
-    path = Path(path)
+    path = resolve_local_path(path)
     if not path.exists():
         return
     with path.open("r", encoding="utf-8-sig") as handle:

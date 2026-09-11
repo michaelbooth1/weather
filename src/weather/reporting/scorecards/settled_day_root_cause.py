@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.cold_archive_locations import resolve_local_path
 from weather.io import read_json
 from weather.paths import data_path, docs_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
@@ -283,7 +284,7 @@ def load_features_by_snapshot(folder: Path) -> dict[str, dict[str, Any]]:
 
 
 def load_explanations_by_snapshot(folder: Path) -> dict[str, list[dict[str, Any]]]:
-    path = folder / EXPLANATIONS_FILENAME
+    path = resolve_local_path(folder / EXPLANATIONS_FILENAME)
     if not path.exists():
         return {}
     output: dict[str, list[dict[str, Any]]] = defaultdict(list)
