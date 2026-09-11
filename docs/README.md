@@ -21,12 +21,16 @@ record that is valuable evidence but not current instruction.
 | End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Bounded International market-making live test | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) | Canonical runbook |
 | Explicit-input maker reward and capital scenarios | [Maker incentive feasibility](operations/maker-incentive-feasibility.md) | Canonical diagnostic contract |
+| Maker account capture and cash-attribution scope | [Account evidence capture](operations/maker-account-evidence-capture.md) | Canonical capture specification |
+| Interactive local liquidity-reward scenarios | [Reward simulator](operations/liquidity-reward-simulator.md) | Canonical simulation contract |
+| Bounded public maker capture and order/capital report | [Maker opportunity report](operations/maker-opportunity-report.md) | Canonical source/report contract |
 | Move the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
 | **Overnight integration and recovery** | [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Maker economics, liquidity rewards, and audit implementation | [Master plan / Item 330](roadmap/items/item-330-maker-economics-refocus-master-plan.md) | Numbered work item |
+| September 5 codebase/rules audit and previous-finding dispositions | [Consolidated audit](roadmap/audits/codebase-audit-2026-09-05.md) | Dated source audit; Item 330 owns follow-up |
 | Agent decision log and cross-host correspondence | [Roadmap agent guide](roadmap/AGENTS.md) and the task's named handoff/report | Mission-specific instructions and dated evidence |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |

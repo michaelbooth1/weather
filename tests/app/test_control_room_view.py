@@ -1,9 +1,12 @@
 from unittest import mock
+from datetime import datetime, timezone
+
+import pytest
 
 from streamlit.testing.v1 import AppTest
 
 
-TARGET_DATE = "2026-08-15"
+TARGET_DATE = datetime.now(timezone.utc).date().isoformat()
 
 
 def _artifact(payload, name):
@@ -11,7 +14,7 @@ def _artifact(payload, name):
         "available": True,
         "path": f"fixture://{name}.json",
         "recorded_at": "2026-08-15T14:05:00+00:00",
-        "payload": payload,
+        "payload": {**payload, "generated_at_utc": datetime.now(timezone.utc).isoformat()},
     }
 
 
@@ -83,6 +86,7 @@ def _operations_fixture():
             "available": True,
             "path": "fixture://status.ps1",
             "payload": {
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "verdict": "OK",
                 "flags": [],
                 "warns": [],
@@ -112,6 +116,16 @@ def _visible_text(app_test):
     return "\n".join(str(element.value) for element in elements)
 
 
+@pytest.fixture(autouse=True)
+def local_monitor_data_only():
+    with mock.patch("app.views.control_room._load_monitor_extras", return_value={
+        "project": {"objective": "Prepare the attended lifecycle test", "next_steps": ["Finish the next stage"]},
+        "session": {"configured": False}, "portable": {"status": "UNAVAILABLE"},
+        "trading": {"available": False},
+    }):
+        yield
+
+
 @mock.patch("app.views.control_room._load_control_room_snapshot")
 def test_control_room_route_is_read_only_and_decision_first(mock_load):
     mock_load.return_value = (_control_fixture(), _operations_fixture())
@@ -122,19 +136,16 @@ def test_control_room_route_is_read_only_and_decision_first(mock_load):
     assert not app_test.exception
     assert mock_load.called
     assert app_test.selectbox[0].value == "Control Room"
-    assert app_test.title[0].value == "Operator Control Room"
+    assert app_test.title[0].value == "Control Room"
     text = _visible_text(app_test)
-    assert "International Polymarket / read-only operations" in text
-    assert "READY FOR EXPLICIT APPROVAL" in text
+    assert "INTERNATIONAL POLYMARKET" in text
+    assert "HOLD" in text  # incomplete legacy fixtures cannot grant readiness
     assert "never grants trading authority" not in text.lower()
     assert "not trading authority" in text
     assert [metric.label for metric in app_test.metric] == [
-        "Capture",
-        "Host",
-        "International",
-        "Live readiness",
+        "Capture host",
         "Execution tape",
-        "Economics",
+        "Portable executor",
     ]
     assert len(app_test.button) == 0
     assert len(app_test.number_input) == 0
@@ -157,6 +168,74 @@ def test_control_room_route_fails_closed_without_current_readiness(mock_load):
 
     assert not app_test.exception
     assert "HOLD" in _visible_text(app_test)
-    metrics = {metric.label: metric.value for metric in app_test.metric}
-    assert metrics["Live readiness"] == "BLOCK"
+    assert "No portable attempt connected" in _visible_text(app_test)
+    assert "Accounting" not in [metric.label for metric in app_test.metric]
     assert len(app_test.button) == 0
+
+
+@mock.patch("app.views.control_room._load_control_room_snapshot")
+def test_control_room_populates_results_and_flags_unresolved_session(mock_load):
+    mock_load.return_value = (_control_fixture(), _operations_fixture())
+    extras = {
+        "project": {"objective": "Observe the project"},
+        "session": {"configured": True, "attempt": "fixture-attempt", "stages": [
+            {"label": "Stage 1", "state": "OUTCOME UNKNOWN", "detail": "Review cleanup evidence."}
+        ]},
+        "portable": {"status": "STALE", "recorded_status": "PASS"},
+        "trading": {"available": True, "run_id": "run-1", "mode": "live-pilot",
+                    "reconciliation": {"status": "STALE"}, "amounts": {
+                        "Net reconciled P&L": None, "Paid maker rebates": 0,
+                        "Paid liquidity rewards": None, "Actual fees": 0.01,
+                    }},
+    }
+    with mock.patch("app.views.control_room._load_monitor_extras", return_value=extras):
+        at = AppTest.from_file("app/streamlit_app.py").run()
+    assert not at.exception
+    text = _visible_text(at)
+    assert "OUTCOME UNKNOWN" in text
+    assert "Current orders and exposure are unknown" in text
+    values = {metric.label: metric.value for metric in at.metric}
+    assert values["Net reconciled P&L"] == "—"
+    assert values["Paid maker rebates"] == "0.000000"
+    assert len(at.button) == 0
+
+
+@mock.patch("app.views.control_room._load_control_room_snapshot")
+def test_retired_route_still_falls_back_to_control_room(mock_load):
+    mock_load.return_value = (_control_fixture(), _operations_fixture())
+    at = AppTest.from_file("app/streamlit_app.py")
+    at.query_params["market"] = "legacy-city"
+    at.run()
+    assert not at.exception
+    assert at.title[0].value == "Control Room"
+
+
+@pytest.mark.parametrize("failure", ["malformed_host", "collector_error"])
+@mock.patch("app.views.control_room._load_control_room_snapshot")
+def test_control_failure_preserves_independent_panels(mock_load, failure):
+    operations = _operations_fixture()
+    operations["host_status"]["payload"]["streak"] = ["malformed"]
+    mock_load.return_value = (_control_fixture(), operations)
+    if failure == "collector_error":
+        mock_load.side_effect = ValueError("fixture collector failure")
+    at = AppTest.from_file("app/streamlit_app.py").run()
+    assert not at.exception
+    text = _visible_text(at)
+    assert "Prepare the attended lifecycle test" in text
+    assert "No portable attempt connected" in text
+    assert "Results" in text
+    assert "HOLD" in text
+
+
+def test_one_extra_collector_failure_preserves_the_others():
+    from app.monitor_data import load_monitor_extras
+    with mock.patch("app.monitor_data.cached_project", side_effect=ValueError("invalid project")), \
+         mock.patch("weather.reporting.market.operator_session.collect_portable_session", return_value={"configured": True}), \
+         mock.patch("weather.reporting.market.operator_session.portable_host_observation", return_value={"status": "CURRENT"}), \
+         mock.patch("weather.reporting.market.operator_trading.collect_trading_snapshot", return_value={"available": True}):
+        result = load_monitor_extras({})
+    assert result["session"]["configured"] is True
+    assert result["portable"]["status"] == "CURRENT"
+    assert result["trading"]["available"] is True
+    assert len(result["errors"]) == 1
+    assert "Project evidence unavailable" in result["errors"][0]
