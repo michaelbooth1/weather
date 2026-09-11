@@ -126,6 +126,8 @@ def check_capture_health(*, now, available, commit, loops, owner_approved_except
             "capture_loops": [{key: row.get(key) for key in (
                 "name", "status_pid", "lock_pid", "heartbeat_age_seconds",
                 "last_clean_iteration_age_seconds", "process_identity_matches_lock",
+                "active", "degraded", "degraded_reasons", "heartbeat_fresh",
+                "pid_agreement", "process_diagnostics", "status_read_error", "writer_lock",
             )} for row in loops]}
 
 

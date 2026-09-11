@@ -275,6 +275,7 @@ def _run_pinned(args, production_root, output, request_path):
             )
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
+                write_receipt(output / "admission-refusal.json", last_admission)
                 raise ValueError("capture admission refused: " + ",".join(last_admission["reasons"]))
         return True
 
