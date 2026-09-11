@@ -321,3 +321,11 @@ Reclaim refusals retain bounded module/line locations without exception text or
 absolute traceback paths. A failed resource check also retains the exact
 `admission-refusal.json` sample. These diagnostics do not establish zero deletion;
 reconcile the immutable attempt and per-file records before a new attempt.
+
+
+A staged source may have a smaller NTFS allocation than the approved inventory
+after disk compression. Its path, volume, file ID, logical size and modification
+time must still match that inventory exactly. The staged manifest records the
+observed allocation, and removal continues to require that exact allocation
+and full content hash under its native pin. Only the current allocation is
+credited to the reclaim target.

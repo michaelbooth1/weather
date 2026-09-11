@@ -794,3 +794,28 @@ def test_single_spool_rejects_different_path_even_without_production_ciphertext(
         subject.reclaim_chunk(**args)
     assert_sources_retained(corpus)
     assert paths[0].exists() and paths[2].exists()
+
+
+@pytest.mark.parametrize("field", [None, "path", "file_id", "device", "mtime_ns", "size_bytes", "allocated_bytes"])
+def test_approved_staged_allocation_can_only_decrease(tmp_path, monkeypatch, field):
+    from weather.operations import production_cold_archive_transfer as transfer
+    monkeypatch.setattr(subject.bridge, "_file_pin", fixtures.FixturePin)
+    request, entry = approved_plan(tmp_path)
+    entry["files"][0]["allocated_bytes"] = 2048
+    plan = json.loads(Path(request["plan"]["path"]).read_bytes())
+    manifest = {**entry, "plan_hash": plan["plan_hash"]}
+    if field == "path":
+        entry["files"][0][field] += "-other"
+    elif field == "allocated_bytes":
+        entry["files"][0][field] = 8192
+    elif field:
+        entry["files"][0][field] += 1
+    if field is None:
+        with ExitStack() as stack:
+            assert subject._approval(request, stack, entry)[1] == request["owner_approval"]["sha256"]
+        transfer.validate_manifest_plan(manifest, plan, plan["chunks"][0])
+    else:
+        with ExitStack() as stack, pytest.raises(RuntimeError, match="approved plan chunk"):
+            subject._approval(request, stack, entry)
+        with pytest.raises(ValueError, match="approved chunk"):
+            transfer.validate_manifest_plan(manifest, plan, plan["chunks"][0])

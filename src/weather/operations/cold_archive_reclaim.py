@@ -96,7 +96,7 @@ def _approval(request, stack, entry):
                                                archive.PARTITIONED_GROUPING),
              "reclaim requires the exact selective plan")
     matches = [chunk for chunk in plan.get("chunks", []) if chunk.get("chunk_id") == entry["chunk_id"]]
-    _require(len(matches) == 1 and archive._rows(matches[0].get("files")) == archive._rows(entry["files"]),
+    _require(len(matches) == 1 and archive._matches_staged_rows(matches[0].get("files"), entry["files"]),
              "reclaim archive differs from its approved plan chunk")
     plan_rows = archive._rows([row for chunk in plan["chunks"] for row in chunk["files"]])
     limit = archive._integer(plan.get("chunk_bytes"), "chunk_bytes", maximum=archive.MAX_CHUNK_BYTES)

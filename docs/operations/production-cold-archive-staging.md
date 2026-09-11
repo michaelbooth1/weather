@@ -403,3 +403,12 @@ The September 10 evening renewal uses the distinct
 through September 11 04:30 UTC. It preserves the same three pinned plans,
 6 GiB reserve and archive guards; see the [dated host-policy renewal](HOST_LOAD_POLICY.md#september-10-evening-archive-renewal).
 An evening job still reserves 15 seconds for teardown before the exception ends.
+
+
+Staging permits a lower NTFS allocation than the measured selection only when
+path, volume, file ID, logical size and modification time remain exact. It
+records the current allocation in the manifest; increased allocation or any
+other metadata change refuses. The proposal and plan remain immutable.
+The verifier hashes the archive and every ordered member in one streaming
+read. The 16 MiB/s disk-read cap applies to compressed bytes once; decompressed
+bytes are checked in bounded memory without counting them as another disk read.
