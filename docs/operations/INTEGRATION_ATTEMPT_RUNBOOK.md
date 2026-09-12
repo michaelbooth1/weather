@@ -79,6 +79,7 @@ $attemptRoot = Join-Path $attemptParent "<attempt-id>"
   -BranchRef <branch> `
   -WorktreeRoot <isolated-worktree> `
   -ExpectedTip <full-reviewed-sha> `
+  -GitExecutablePath <absolute-reviewed-git.exe> `
   -SuiteAtLocal <local-datetime> `
   -MergeAtLocal <local-datetime> `
   -ReviewReference <pr-or-operator-review>
@@ -134,10 +135,19 @@ complete child tree at the earlier of its 90-minute total-runtime ceiling or the
 50 GiB minimum on every distinct production, candidate, evidence, and test-temp
 volume before work and before each chunk. Its authoritative log is opened once
 with create-new/no-delete-sharing semantics and flushed durably at teardown.
-Every parent-side Git identity query resolves one unambiguous regular executable,
-uses a fixed read-only command grammar, clears ambient Git/proxy/helper controls,
-disables replacement refs, optional locks, hooks, fsmonitor, and global/system
-configuration, and restores the caller environment after the bounded query.
+New attempts freeze one regular Git executable's absolute path, SHA256 and
+file version in `suite.git_executable`. `-GitExecutablePath` selects it explicitly;
+when omitted, preparation selects the first Git Application once and prints the
+identity for review. Runtime qualification never reselects from PATH. Multiple
+cmd/bin entries are therefore harmless to a bound attempt, while a changed
+selected executable blocks it. The bounded runner accepts the corresponding
+`GitExecutablePath`, `ExpectedGitExecutableSha256` and
+`ExpectedGitExecutableFileVersion` parameters as one complete binding. Legacy
+direct invocations without that binding retain their strict unique-PATH rule.
+The bounded runner's checked Git queries use a fixed read-only command grammar,
+clear ambient Git/proxy/helper controls,
+disable replacement refs, optional locks, hooks, fsmonitor, and global/system
+configuration, and restore the caller environment after the bounded query.
 This is also the
 bootstrap boundary for a candidate that strengthens the test sandbox itself:
 unmerged code may enforce the marker, but it may not be the component that
@@ -168,6 +178,39 @@ plus quiet-merge path.
 Registration holds the attempt terminal mutex from its closure/reconciliation
 check through intent, Scheduler mutation, receipt, and final readback. Suite and
 merge entry also refuse an attempt that already has either terminal receipt.
+
+## Early launch diagnostics
+
+The suite wrapper writes a create-once
+`manifest.json.suite-bootstrap.jsonl` beside its supplied manifest before
+manifest, helper, task or host validation. Each bounded child similarly writes
+`<phase-log>.bootstrap.jsonl` before resolving the repository or validating Git.
+Journals carry the supplied input binding, wrapper source hash, principal,
+PowerShell version, actual wrapper entry, bounded failure details and terminal
+disposition. Their 64 KiB ceiling fails closed; an existing journal is never
+appended to or replaced by another invocation.
+
+Child intent and actual child start are separate outer-journal events. A missing
+bootstrap is absence of wrapper-entry evidence, not proof the task never ran;
+reconcile Scheduler's task identity, run time and result. Parameter binding,
+script parsing or a missing bootstrap helper can fail before a journal exists.
+The journals are diagnostics only and never substitute for a suite receipt,
+exact verdict, capture proof or downstream authority. Standard-output/error
+capture beyond these structured diagnostics remains separately qualified work.
+
+New manifests also freeze the Git-identity and launch-diagnostic helper hashes.
+A new bound suite receipt must carry the same Git identity as its manifest.
+Historical manifests/receipts remain readable without the historical Git binary
+still being installed. Upgrading Git does not rewrite a frozen attempt: review
+the new executable and create an authorized successor under the existing
+closure/claim protocol.
+
+Hosted [Windows qualification](../../.github/workflows/windows-qualification.yml)
+checks the exact PR candidate with Windows PowerShell 5.1 and retains candidate,
+base, tested tree, workflow, resolved-dependency and JUnit identities. It is a
+focused regression check. It does not replace the admitted production bounded
+suite, exact-host S4U qualification, roll verdict, or guarded adoption. A full
+off-host substitution requires its own reviewed acceptance-contract change.
 
 ## Success contract
 

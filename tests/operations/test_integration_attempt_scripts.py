@@ -1286,6 +1286,8 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
     temp_ops.mkdir(parents=True)
     required = (
         "integration_attempt_contract.ps1",
+        "git_executable_identity.ps1",
+        "integration_launch_diagnostics.ps1",
         "new_integration_attempt.ps1",
         "register_integration_attempt.ps1",
         "close_integration_attempt.ps1",

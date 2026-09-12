@@ -14,6 +14,18 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$launchJournal = $null
+trap {
+    Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
+    throw
+}
+. (Join-Path $PSScriptRoot "integration_launch_diagnostics.ps1")
+$launchJournal = New-WeatherLaunchDiagnostics `
+    -Path ($ManifestPath + ".suite-bootstrap.jsonl") -Operation "integration_suite" `
+    -ScriptPath $PSCommandPath -Binding ([ordered]@{
+        manifest_path = $ManifestPath
+        expected_manifest_sha256 = $ExpectedManifestSha256
+    })
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
 
@@ -38,6 +50,16 @@ function Invoke-WeatherAttemptSuitePhase {
         "-LogPath", $LogPath,
         "-MaxFilesPerChunk", [string]$manifest.suite.max_files_per_chunk
     )
+    $gitIdentityProperty = $manifest.suite.PSObject.Properties["git_executable"]
+    if ($null -ne $gitIdentityProperty) {
+        $identity = $gitIdentityProperty.Value
+        Assert-WeatherGitExecutableIdentity -Identity $identity | Out-Null
+        $tokens += @(
+            "-GitExecutablePath", [string]$identity.path,
+            "-ExpectedGitExecutableSha256", [string]$identity.sha256,
+            "-ExpectedGitExecutableFileVersion", [string]$identity.file_version
+        )
+    }
     if (-not [string]::IsNullOrWhiteSpace([string]$manifest.suite.additional_python_path)) {
         $tokens += @("-AdditionalPythonPath", [string]$manifest.suite.additional_python_path)
     }
@@ -53,12 +75,24 @@ function Invoke-WeatherAttemptSuitePhase {
     $process = $null
     try {
         Write-Host "$Phase starting for attempt $($manifest.attempt_id)"
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_INTENT" -Detail ([ordered]@{
+            phase = $Phase
+            phase_log = $LogPath
+            child_bootstrap = $LogPath + ".bootstrap.jsonl"
+        })
         $job = New-WeatherKillOnCloseJob
         $process = Start-WeatherProcessInJob `
             -Job $job `
             -FilePath $powerShellExecutable `
             -ArgumentString $argumentString `
             -WorkingDirectory ([string]$manifest.repo_root)
+        if (-not $IntegrationPreflight) {
+            $suiteLaunchState.full_suite_started = $true
+        }
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_STARTED" -Detail ([ordered]@{
+            phase = $Phase
+            child_pid = $process.Id
+        })
         while (-not $process.HasExited) {
             if ((Get-Date) -ge $hardStop) {
                 throw "$Phase reached the 09:00 hard teardown boundary"
@@ -67,6 +101,10 @@ function Invoke-WeatherAttemptSuitePhase {
             $process.Refresh()
         }
         $process.WaitForExit()
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_EXIT" -Detail ([ordered]@{
+            phase = $Phase
+            exit_code = [int]$process.ExitCode
+        })
         return [int]$process.ExitCode
     }
     finally {
@@ -80,8 +118,9 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         [Parameter(Mandatory = $true)][string]$Phase
     )
 
+    $qualificationGit = Get-WeatherIntegrationQualificationGit -Manifest $manifest
     $registered = $false
-    $worktreeRows = @(& git -C ([string]$manifest.repo_root) worktree list --porcelain)
+    $worktreeRows = @(& $qualificationGit -C ([string]$manifest.repo_root) worktree list --porcelain)
     if ($LASTEXITCODE -ne 0) {
         throw "$Phase could not enumerate registered worktrees."
     }
@@ -98,11 +137,11 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         throw "$Phase suite worktree is no longer registered by the production repository."
     }
 
-    $worktreeTipRows = @(& git -C ([string]$manifest.worktree_root) rev-parse HEAD)
+    $worktreeTipRows = @(& $qualificationGit -C ([string]$manifest.worktree_root) rev-parse HEAD)
     if ($LASTEXITCODE -ne 0 -or $worktreeTipRows.Count -ne 1) {
         throw "$Phase could not resolve the suite worktree HEAD."
     }
-    $branchTipRows = @(& git -C ([string]$manifest.repo_root) rev-parse ([string]$manifest.branch_ref))
+    $branchTipRows = @(& $qualificationGit -C ([string]$manifest.repo_root) rev-parse ([string]$manifest.branch_ref))
     if ($LASTEXITCODE -ne 0 -or $branchTipRows.Count -ne 1) {
         throw "$Phase could not resolve the frozen branch ref."
     }
@@ -113,11 +152,11 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         throw "$Phase suite worktree or branch no longer resolves to the frozen expected tip."
     }
 
-    $dirty = @(& git -C ([string]$manifest.worktree_root) status --porcelain)
+    $dirty = @(& $qualificationGit -C ([string]$manifest.worktree_root) status --porcelain)
     if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
         throw "$Phase suite worktree is not clean."
     }
-    $trackedTestRows = @(& git -C ([string]$manifest.worktree_root) ls-files -- tests)
+    $trackedTestRows = @(& $qualificationGit -C ([string]$manifest.worktree_root) ls-files -- tests)
     if ($LASTEXITCODE -ne 0) {
         throw "$Phase could not enumerate the frozen pytest inventory."
     }
@@ -194,6 +233,7 @@ $preflightExitCode = $null
 $fullSuiteExitCode = $null
 $preflightVerdict = $null
 $fullSuiteVerdict = $null
+$suiteLaunchState = [pscustomobject]@{ full_suite_started = $false }
 
 try {
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
@@ -271,6 +311,9 @@ finally {
         registration_intent_sha256 = $suiteTaskBinding.RegistrationIntentSha256
         branch_ref = [string]$manifest.branch_ref
         expected_tip = [string]$manifest.expected_tip
+        git_executable = if ($null -eq $manifest.suite.PSObject.Properties["git_executable"]) {
+            $null
+        } else { $manifest.suite.git_executable }
         worktree_root = [string]$manifest.worktree_root
         started_at_local = $startedAt
         completed_at_local = (Get-Date).ToString("o")
@@ -289,7 +332,7 @@ finally {
             preflight = $preflightLogRecord
             full_suite = $fullSuiteLogRecord
         }
-        full_suite_started = ($null -ne $fullSuiteExitCode -or (Test-Path -LiteralPath $fullSuiteLogPath -PathType Leaf))
+        full_suite_started = [bool]$suiteLaunchState.full_suite_started
         safety = [ordered]@{
             authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
             credential_value_access_authorized = $false
@@ -298,6 +341,8 @@ finally {
     }
     Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath -Payload $receipt
 }
+
+Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $status
 
 if ($status -ne "PASS") {
     Write-Host "Integration attempt $($manifest.attempt_id) failed. Evidence is frozen; repair by creating a new attempt bound to this FAIL receipt."

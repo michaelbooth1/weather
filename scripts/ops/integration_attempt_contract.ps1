@@ -1,5 +1,7 @@
 Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot "git_executable_identity.ps1")
+
 $script:WeatherIntegrationAttemptManifestSchema = "weather_integration_attempt_manifest_v1"
 $script:WeatherIntegrationAttemptSuiteReceiptSchema = "weather_integration_attempt_suite_receipt_v1"
 $script:WeatherIntegrationAttemptMergeReceiptSchema = "weather_integration_attempt_merge_receipt_v1"
@@ -1050,6 +1052,21 @@ function ConvertFrom-WeatherIntegrationEvidenceTimestamp {
     }
 }
 
+function Get-WeatherIntegrationQualificationGit {
+    param([Parameter(Mandatory = $true)][object]$Manifest)
+
+    $suiteProperty = $Manifest.PSObject.Properties["suite"]
+    if ($null -ne $suiteProperty -and $null -ne $suiteProperty.Value) {
+        $identityProperty = $suiteProperty.Value.PSObject.Properties["git_executable"]
+        if ($null -ne $identityProperty) {
+            return Assert-WeatherGitExecutableIdentity -Identity $identityProperty.Value
+        }
+    }
+    # Read/close compatibility for historical manifests, without pretending
+    # they bound an executable. Newly created attempts always include identity.
+    return "git"
+}
+
 function Assert-WeatherIntegrationGitBaseline {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
@@ -1057,23 +1074,24 @@ function Assert-WeatherIntegrationGitBaseline {
     )
 
     $manifest = $AttemptContract.Manifest
+    $qualificationGit = Get-WeatherIntegrationQualificationGit -Manifest $manifest
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-    $masterOutput = @(& git -C $repoRoot rev-parse master)
+    $masterOutput = @(& $qualificationGit -C $repoRoot rev-parse master)
     if ($LASTEXITCODE -ne 0 -or $masterOutput.Count -eq 0) {
         throw "$Phase could not resolve production master."
     }
     $masterTip = ([string]$masterOutput[-1]).Trim().ToLowerInvariant()
-    $headOutput = @(& git -C $repoRoot rev-parse HEAD)
+    $headOutput = @(& $qualificationGit -C $repoRoot rev-parse HEAD)
     if ($LASTEXITCODE -ne 0 -or $headOutput.Count -eq 0) {
         throw "$Phase could not resolve the production working-tree HEAD."
     }
     $headTip = ([string]$headOutput[-1]).Trim().ToLowerInvariant()
-    $branchOutput = @(& git -C $repoRoot symbolic-ref --quiet --short HEAD)
+    $branchOutput = @(& $qualificationGit -C $repoRoot symbolic-ref --quiet --short HEAD)
     if ($LASTEXITCODE -ne 0 -or $branchOutput.Count -eq 0) {
         throw "$Phase production working tree is detached instead of checked out on master."
     }
     $branchName = ([string]$branchOutput[-1]).Trim()
-    $originOutput = @(& git -C $repoRoot rev-parse origin/master)
+    $originOutput = @(& $qualificationGit -C $repoRoot rev-parse origin/master)
     if ($LASTEXITCODE -ne 0 -or $originOutput.Count -eq 0) {
         throw "$Phase could not resolve origin/master."
     }
@@ -1165,6 +1183,10 @@ function Assert-WeatherIntegrationAttemptManifest {
     if ([string]$manifest.baseline.master -notmatch '^[0-9a-f]{40}$' -or
         [string]$manifest.baseline.master -ne [string]$manifest.baseline.origin_master) {
         throw "Attempt baseline does not bind equal production and origin tips."
+    }
+    $gitIdentityProperty = $manifest.suite.PSObject.Properties["git_executable"]
+    if ($null -ne $gitIdentityProperty) {
+        Assert-WeatherGitExecutableIdentityRecord -Identity $gitIdentityProperty.Value
     }
     $expectedTestFileCount = [int]$manifest.suite.expected_test_file_count
     $maxFilesPerChunk = [int]$manifest.suite.max_files_per_chunk
@@ -1467,6 +1489,10 @@ function Assert-WeatherIntegrationOrchestrationFiles {
         workload_admission = Join-Path $repoRoot "scripts\ops\workload_admission.ps1"
         roll_verdict = Join-Path $repoRoot "scripts\ops\roll_verdict.ps1"
     }
+    if ($null -ne $manifest.suite.PSObject.Properties["git_executable"]) {
+        $expectedFiles.git_identity = Join-Path $repoRoot "scripts\ops\git_executable_identity.ps1"
+        $expectedFiles.launch_diagnostics = Join-Path $repoRoot "scripts\ops\integration_launch_diagnostics.ps1"
+    }
     foreach ($name in $expectedFiles.Keys) {
         $record = $manifest.orchestration.$name
         if ($null -eq $record) {
@@ -1551,6 +1577,20 @@ function Assert-WeatherIntegrationSuiteReceipt {
         -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
         -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
         -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
+
+    $gitIdentityProperty = $manifest.suite.PSObject.Properties["git_executable"]
+    if ($null -ne $gitIdentityProperty) {
+        $receiptGitProperty = $receipt.PSObject.Properties["git_executable"]
+        if ($null -eq $receiptGitProperty) {
+            throw "Suite receipt is missing its reviewed Git executable identity."
+        }
+        Assert-WeatherGitExecutableIdentityRecord -Identity $receiptGitProperty.Value
+        foreach ($field in @("path", "sha256", "file_version")) {
+            if ([string]$receiptGitProperty.Value.$field -cne [string]$gitIdentityProperty.Value.$field) {
+                throw "Suite receipt Git executable identity does not match its manifest."
+            }
+        }
+    }
 
     $scriptBindings = [ordered]@{
         bounded_suite = $manifest.orchestration.bounded_suite
