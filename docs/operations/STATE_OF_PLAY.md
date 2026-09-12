@@ -1,14 +1,14 @@
 # State of play
 
-**Last updated: 2026-09-10 America/Toronto (verified archive pilot; campaign active).**
+**Last updated: 2026-09-12 America/Toronto (launch source implemented; host qualification open).**
 Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
 > current decision; numbered items and retained receipts own detailed evidence.
 
-**Objectives:** protect capture and settlement evidence, recover disk headroom
-through verified off-site storage, and execute the non-live maker-economics
-refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+**Objectives:** protect capture and settlement evidence, implement the overnight
+reliability program in [item 331](../roadmap/items/item-331-overnight-reliability-program.md),
+and complete authorized archive recovery and non-live maker-economics work.
 **No market edge or profitable maker opportunity is proved.**
 
 ## Current authority
@@ -25,10 +25,15 @@ work without repeated permission prompts. **No live trading is authorized.**
 W5-W7 exchange lifecycle/economic sessions remain blocked; offline and paper work
 may continue. Source integration, runtime adoption and live authority are separate.
 
+On September 12 the owner authorized implementing the reliability plan. Work
+starts with isolated launch repairs and hosted qualification; production
+adoption remains subject to its existing source, host and recovery gates.
+
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
+| Reliability | [PR 56](https://github.com/michaelbooth1/weather/pull/56) implements reviewed Git identity, early diagnostics, bounded native output and closure preservation. Hosted Windows and full Linux checks pass for the candidate recorded in item 331. Actual-host S4U qualification and guarded adoption remain open; production is unchanged by this branch. |
 | Production source | The archive/consumer stack at `562c85ec33d9411af897a04b8aa05401ada28b66` was guardedly adopted as master `e0a00eedf9ad41ee5580913af22d552e05663b96` at September 10 01:57:52 Toronto. The receipt proves three-worker and execution-tape recovery plus publication. Later archive-only execution source is on `codex/bulk-cold-archive-20260909`; do not infer its production adoption from a push. |
 | Archive and recovery | Pilot `e10c00000` completed encryption, private Drive upload, independent download, full restore, key custody, location publication and exact original reclaim: 7,614,464 allocated bytes. `e10d00001` has a complete independent restore and published recovery handback for five Atlanta July 10 files; its original reclaim was still pending at the 05:40 checkpoint. The 100 GB reclaim target is not achieved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds detailed receipts. |
 | Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Each catalog entry binds original paths, exact private cloud object IDs and source/archive hashes. Recovery metadata is also on the separate workstation; the recovery keys have an independently verified private Drive backup. Follow [the location and restore runbook](cold-archive-locations.md), not an assumed local path. |
@@ -41,21 +46,19 @@ may continue. Source integration, runtime adoption and live authority are separa
 
 ## Ordered non-live critical path
 
-1. Finish the approved archive campaign within admitted windows. Resume already
-   restored archives at fresh source review/reclaim; never repeat a spent upload,
-   download or restore namespace. Verify every event's final settlement before
-   any multi-day reclaim, and stop on failed evidence or admission.
-2. Keep the generated location catalog and independent recovery metadata current.
-   Preserve weather, settlements, replay inputs, local summary tables and July 31
-   onward. Retain failed attempts and all receipts. Count only proved allocation
-   savings; report actual free space separately.
-3. Publish the archive status and close the pending integration-documentation
-   transaction through its canonical manifest/check path.
-4. Review remaining recurring-job dispositions and fleet/ledger gaps, then scope
-   an admitted repair for confirmed omissions. Never infer ledger rows from flags.
-5. Qualify current campaign terms, books and adjusted-midpoint provenance before
-   using W3 for competitor-score scenarios. Continue W4 and offline W5 fixtures;
-   aggregate depth does not prove a per-maker reward denominator or profit.
+1. Complete exact-host launch qualification and existing production acceptance
+   checks before guarded adoption. In parallel, bound the settlement-source
+   audit and its consumers and freeze the required-output/deadline roster.
+   R2's off-host acceptance-contract revision remains separately qualified work.
+2. Continue authorized archive recovery in admitted windows. Resume restored
+   archives at fresh source review/reclaim; preserve failed namespaces and all
+   evidence. Count only proved allocation savings, with actual free space separate.
+3. Keep location/recovery metadata current and close the pending integration
+   documentation transaction against actual published and recovered tips.
+4. Confirm missing settlement/ledger outputs and maintain per-date repair
+   dispositions. A later daily trigger does not repair historical omissions.
+5. Continue non-live maker-economics work under item 330 after reliability and
+   resource needs are admitted; no market edge or paid/reconciled profit is proved.
 
 ## Standing decisions
 
