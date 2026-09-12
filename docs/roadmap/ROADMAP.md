@@ -77,7 +77,7 @@ infrastructure work remains.
 | 15 | [Reproducible Backfills [COMPLETE]](items/item-15-reproducible-backfills.md) |
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
-| 332 | [Bounded Settlement-Source Audit [PARTIAL 2026-09-12 - IMPLEMENTATION IN PROGRESS; QUALIFICATION OPEN]](items/item-332-bounded-settlement-source-audit.md) |
+| 332 | [Bounded Settlement-Source Audit [PARTIAL 2026-09-12 - WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN]](items/item-332-bounded-settlement-source-audit.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 
 ### Market Expansion

@@ -1,8 +1,8 @@
 """A bounded synthetic revision-history regression, with retained measurements.
 
-The input has a fixed 256 events and growing superseded history. Empty lineage
-paths deliberately isolate revision selection, aggregation and serialization
-from repeated external-file hashing; this is not a production-corpus benchmark.
+The fixtures separately grow superseded history and selected output. Empty
+lineage paths isolate selection, aggregation, publication and reader memory
+from external-file hashing; these are not production-corpus benchmarks.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _memory():
             "working_set_bytes": int(rss if sys.platform == "darwin" else rss * 1024)}
 
 
-def _profile(root: Path, history_rows: int):
+def _profile(root: Path, history_rows: int, *, event_count=256):
     root.mkdir()
     ledgers = root / "settlements"
     ledger = ledgers / "atlanta/ledger.jsonl"
@@ -47,7 +47,7 @@ def _profile(root: Path, history_rows: int):
     }
     with ledger.open("w", encoding="utf-8", newline="\n") as handle:
         for ordinal in range(history_rows):
-            row["event_slug"] = f"event-{ordinal % 256:04}"
+            row["event_slug"] = f"event-{ordinal % event_count:04}"
             handle.write(json.dumps(row) + "\n")
     gc.collect()
     initial = _memory()
@@ -72,10 +72,14 @@ def _profile(root: Path, history_rows: int):
         else:
             scope = nullcontext(audit.build_settlement_source_audit(**arguments))
         with scope as payload:
-            assert payload["summary"]["label_count"] == 256
+            assert payload["summary"]["label_count"] == event_count
             assert audit.settlement_label_gate_for_target_dates(payload, ["2026-06-19"])["status"] == "PASS"
             audit.write_outputs(payload, json_out=root / "audit.json", report_out=root / "audit.md")
+            index_bytes = sum(path.stat().st_size for path in root.glob("settlement-audit-*/audit.sqlite3"))
+        if hasattr(audit, "settlement_label_gate_from_path"):
+            assert audit.settlement_label_gate_from_path(root / "audit.json", ["2026-06-19"])["status"] == "PASS"
         _, peak_python = tracemalloc.get_traced_memory()
+        final_metrics = _memory()
     finally:
         elapsed = time.perf_counter() - started
         tracemalloc.stop()
@@ -88,8 +92,13 @@ def _profile(root: Path, history_rows: int):
     normalized["ledger_root"] = "<LEDGERS>"
     output_digest = hashlib.sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
     record = {
-        "scope": "synthetic_fixed_event_count_revision_history",
-        "history_rows": history_rows, "event_count": 256,
+        "scope": ("synthetic_fixed_event_count_revision_history" if event_count == 256
+                  else "synthetic_growing_selected_event_count"),
+        "history_rows": history_rows, "event_count": event_count,
+        "index_bytes": index_bytes,
+        "initial_private_bytes": initial["private_bytes"],
+        "measured_read_bytes": (final_metrics.get("read_bytes", 0) - initial.get("read_bytes", 0)) if os.name == "nt" else None,
+        "measured_write_bytes": (final_metrics.get("write_bytes", 0) - initial.get("write_bytes", 0)) if os.name == "nt" else None,
         "input_bytes": ledger.stat().st_size,
         "source_sha256": hashlib.sha256(Path(audit.__file__).read_bytes()).hexdigest(),
         "wall_seconds": round(elapsed, 6), "peak_traced_python_bytes": peak_python,
@@ -111,4 +120,11 @@ def test_superseded_history_does_not_accumulate_in_python_memory(tmp_path):
     # Eight times the obsolete history must not require eight times the heap.
     # This generous allowance covers parser buffers and variation across Python
     # builds; process/SQLite memory receives separate off-host qualification.
+    assert large["peak_traced_python_bytes"] <= small["peak_traced_python_bytes"] + 8 * 1024 * 1024
+
+
+def test_selected_output_and_consumers_do_not_accumulate_in_python_memory(tmp_path):
+    small = _profile(tmp_path / "small", 2048, event_count=2048)
+    large = _profile(tmp_path / "large", 16384, event_count=16384)
+    assert large["output_bytes"] > 7 * small["output_bytes"]
     assert large["peak_traced_python_bytes"] <= small["peak_traced_python_bytes"] + 8 * 1024 * 1024
