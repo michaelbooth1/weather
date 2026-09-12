@@ -567,6 +567,12 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             records = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
             assert records[-1]["detail"]["status"] == "FAIL"
             journal_bytes[journal_path] = journal_path.read_bytes()
+            if script_name == "bounded_worktree_test_suite.ps1":
+                phase_path = str(journal_path).removesuffix(".bootstrap.jsonl")
+                for stream, value in (("stdout", failed.stdout), ("stderr", failed.stderr)):
+                    stream_path = Path(phase_path + f".{stream}.log")
+                    stream_path.write_bytes(value.encode("utf-8"))
+                    journal_bytes[stream_path] = stream_path.read_bytes()
     for key in ("preflight_log", "full_suite_log", "suite_receipt"):
         assert not Path(manifest["evidence"][key]).exists()
 

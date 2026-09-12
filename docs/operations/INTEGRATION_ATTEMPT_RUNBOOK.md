@@ -194,8 +194,9 @@ PowerShell version, actual wrapper entry, bounded failure details and terminal
 disposition. Their 64 KiB ceiling fails closed; an existing journal is never
 appended to or replaced by another invocation.
 Closure includes each existing outer, preflight and full-suite bootstrap journal
-in the immutable receipt's `preserved_evidence` inventory by path and SHA256,
-including failures before any phase log or suite receipt exists. Older attempts
+and each phase's `.stdout.log` / `.stderr.log` files in the immutable receipt's
+`preserved_evidence` inventory by path and SHA256, including failures before any
+phase log or suite receipt exists. Older attempts
 without these journals remain closable; closure does not invent missing evidence.
 
 Child intent and actual child start are separate outer-journal events. A missing
@@ -203,8 +204,14 @@ bootstrap is absence of wrapper-entry evidence, not proof the task never ran;
 reconcile Scheduler's task identity, run time and result. Parameter binding,
 script parsing or a missing bootstrap helper can fail before a journal exists.
 The journals are diagnostics only and never substitute for a suite receipt,
-exact verdict, capture proof or downstream authority. Standard-output/error
-capture beyond these structured diagnostics remains separately qualified work.
+exact verdict, capture proof or downstream authority. Each integration phase
+captures stdout and stderr before child entry, preserving at most the first
+1 MiB of each stream in `<phase-log>.stdout.log` and `<phase-log>.stderr.log`.
+The parent continues draining excess bytes, records truncation explicitly, and
+hashes the retained files. A `CHILD_OUTPUT` journal event and the suite receipt's
+additive `native_output` records distinguish bytes retained, EOF completion and
+proved zero-child teardown. None of these diagnostics replaces the phase verdict.
+No output file is overwritten or automatically deleted.
 
 The shared Job helper exposes an opt-in `OutputCapture` parameter on
 `Start-WeatherProcessInJob`. Construct a
@@ -221,9 +228,14 @@ containing only NUL stdin and the two pipe writers; assignment still precedes
 resume. Parent readers and the Job handle remain non-inheritable. After bounded
 `TerminateAndWait` proves the Job empty, call `Complete(timeoutMilliseconds)`
 to drain EOF and durably flush, then dispose both objects in `finally`. Bound
-these waits by the caller's absolute deadline. Existing unredirected callers
-retain their no-inheritance launch path. The integration wrapper does not yet
-opt into this API; production adoption and actual-host S4U proof remain open.
+these waits by the caller's absolute deadline. The integration wrapper ends
+payload work eight seconds before 09:00, clamps the Job wait to five seconds
+and EOF drain to two seconds within the remaining time, and preserves one
+second for evidence finalization. A monotonic suite budget prevents wall-clock
+rollback from extending the original deadline. Failed teardown/drain makes the
+phase fail; retained bytes are still diagnostic evidence. Existing unredirected
+callers retain their no-inheritance launch path. Source qualification does not
+establish production adoption or the separately required actual-host S4U proof.
 
 New manifests also freeze the Git-identity and launch-diagnostic helper hashes.
 A new bound suite receipt must carry the same Git identity as its manifest.
