@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-10T10:33:03.970539+00:00
+Generated: 2026-09-12T21:13:05.750420+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 324 |
-| Active items | 35 |
+| Items | 325 |
+| Active items | 36 |
 | OPEN | 3 |
-| PARTIAL | 32 |
+| PARTIAL | 33 |
 | COMPLETE | 289 |
-| ROADMAP rows | 324 |
-| ROADMAP primary rows | 324 |
-| Metadata manifest rows | 324 |
+| ROADMAP rows | 325 |
+| ROADMAP primary rows | 325 |
+| Metadata manifest rows | 325 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -60,6 +60,7 @@ Status: `OK`
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 | 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 332 | PARTIAL | 2026-09-12 | IMPLEMENTATION IN PROGRESS; QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 
 ## Lint Issues
 
