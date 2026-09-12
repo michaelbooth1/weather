@@ -311,8 +311,11 @@ $existingEvidence = New-Object System.Collections.Generic.List[object]
 foreach ($path in @(
     (Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $contract),
     [string]$manifest.evidence.registration_receipt,
+    ($contract.ManifestPath + ".suite-bootstrap.jsonl"),
     [string]$manifest.evidence.preflight_log,
+    ([string]$manifest.evidence.preflight_log + ".bootstrap.jsonl"),
     [string]$manifest.evidence.full_suite_log,
+    ([string]$manifest.evidence.full_suite_log + ".bootstrap.jsonl"),
     [string]$manifest.evidence.suite_receipt,
     [string]$manifest.evidence.quiet_merge_report,
     [string]$manifest.evidence.merge_receipt

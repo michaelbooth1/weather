@@ -431,8 +431,9 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
 
 
 @WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("with_bootstrap_failures", [False, True], ids=["legacy", "early-failures"])
 def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
-    tmp_path: Path,
+    tmp_path: Path, with_bootstrap_failures: bool,
 ) -> None:
     attempt_root = tmp_path / "attempt"
     repo_root = tmp_path / "repo"
@@ -540,6 +541,35 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     executable = str(Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+    journal_bytes = {}
+    if with_bootstrap_failures:
+        failures = [(
+            "integration_attempt_suite.ps1",
+            ["-ManifestPath", str(manifest_path), "-ExpectedManifestSha256", "0" * 64],
+            Path(str(manifest_path) + ".suite-bootstrap.jsonl"),
+        )]
+        for phase in ("preflight_log", "full_suite_log"):
+            log_path = manifest["evidence"][phase]
+            failures.append((
+                "bounded_worktree_test_suite.ps1",
+                ["-RepoRoot", str(tmp_path / "missing-repository"),
+                 "-WorktreeRoot", str(worktree_root), "-ExpectedTip", expected_tip,
+                 "-BranchRef", "codex/close-test", "-LogPath", log_path],
+                Path(log_path + ".bootstrap.jsonl"),
+            ))
+        for script_name, arguments, journal_path in failures:
+            failed = subprocess.run(
+                [executable, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                 "-File", str(OPS / script_name), *arguments],
+                cwd=ROOT, check=False, capture_output=True, text=True, timeout=60,
+            )
+            assert failed.returncode != 0
+            records = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+            assert records[-1]["detail"]["status"] == "FAIL"
+            journal_bytes[journal_path] = journal_path.read_bytes()
+    for key in ("preflight_log", "full_suite_log", "suite_receipt"):
+        assert not Path(manifest["evidence"][key]).exists()
+
     registration_path = attempt_root / "registration-receipt.json"
     registration = {
         "schema": "weather_integration_attempt_registration_receipt_v1",
@@ -615,6 +645,13 @@ function Get-ScheduledTaskInfo { param([string]$TaskName, $ErrorAction); return 
     assert [task["disabled"] for task in closure["tasks"]] == [True, True]
     assert closure["tasks"][0]["registration_receipt_disagreed"] is True
     assert closure["tasks"][1]["registration_receipt_disagreed"] is False
+    expected_preserved = {registration_path: registration_path.read_bytes(), **journal_bytes}
+    assert {Path(entry["path"]): entry["sha256"] for entry in closure["preserved_evidence"]} == {
+        path: hashlib.sha256(content).hexdigest()
+        for path, content in expected_preserved.items()
+    }
+    for path, content in expected_preserved.items():
+        assert path.read_bytes() == content
 
 
 def test_execution_tape_adoption_accepts_only_hash_bound_attempt_receipts() -> None:

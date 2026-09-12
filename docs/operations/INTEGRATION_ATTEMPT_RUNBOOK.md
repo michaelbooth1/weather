@@ -193,6 +193,10 @@ Journals carry the supplied input binding, wrapper source hash, principal,
 PowerShell version, actual wrapper entry, bounded failure details and terminal
 disposition. Their 64 KiB ceiling fails closed; an existing journal is never
 appended to or replaced by another invocation.
+Closure includes each existing outer, preflight and full-suite bootstrap journal
+in the immutable receipt's `preserved_evidence` inventory by path and SHA256,
+including failures before any phase log or suite receipt exists. Older attempts
+without these journals remain closable; closure does not invent missing evidence.
 
 Child intent and actual child start are separate outer-journal events. A missing
 bootstrap is absence of wrapper-entry evidence, not proof the task never ran;
