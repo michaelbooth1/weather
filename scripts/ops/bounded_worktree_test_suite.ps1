@@ -94,7 +94,9 @@ if (-not [string]::IsNullOrWhiteSpace($AdditionalPythonPath)) {
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
 $jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
 $workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
-$gitIdentityScript = Join-Path $RepoRoot "scripts\ops\git_executable_identity.ps1"
+# A candidate may qualify before production has this new read-only helper.
+# Admission, containment and workload ownership still come from the production root.
+$gitIdentityScript = Join-Path $PSScriptRoot "git_executable_identity.ps1"
 foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript, $gitIdentityScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "required suite helper is missing: $requiredScript"

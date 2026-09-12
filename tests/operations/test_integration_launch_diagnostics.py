@@ -152,6 +152,34 @@ def test_bounded_suite_early_failure_is_durable_and_cannot_replace_evidence(tmp_
 
 
 @WINDOWS
+def test_candidate_bootstrap_does_not_require_git_helper_in_production(tmp_path: Path) -> None:
+    production = tmp_path / "production"
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    helpers = production / "scripts" / "ops"
+    helpers.mkdir(parents=True)
+    # Stop at the existing production-owned boundary, before any admission or
+    # native process work. The new helper exists only beside the candidate runner.
+    (helpers / "training_window_contract.ps1").write_text(
+        "throw 'reached-existing-production-boundary'\n", encoding="utf-8"
+    )
+    for name in ("windows_kill_on_close_job.ps1", "workload_admission.ps1"):
+        (helpers / name).write_text("# isolated fixture\n", encoding="utf-8")
+    log = tmp_path / "bootstrap.log"
+    result = _invoke_script(
+        "bounded_worktree_test_suite.ps1", "-RepoRoot", str(production),
+        "-WorktreeRoot", str(candidate), "-ExpectedTip", "a" * 40,
+        "-BranchRef", "codex/bootstrap-test", "-LogPath", str(log),
+    )
+    assert result.returncode != 0
+    assert not (helpers / "git_executable_identity.ps1").exists()
+    records = _journal(Path(str(log) + ".bootstrap.jsonl"))
+    assert records[-1]["detail"]["status"] == "FAIL"
+    assert "reached-existing-production-boundary" in records[-1]["detail"]["failure"]
+    assert not log.exists()
+
+
+@WINDOWS
 def test_outer_suite_records_bad_manifest_before_scheduler_or_child(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{}", encoding="utf-8")

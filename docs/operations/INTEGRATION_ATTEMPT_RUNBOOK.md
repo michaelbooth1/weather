@@ -144,6 +144,10 @@ selected executable blocks it. The bounded runner accepts the corresponding
 `GitExecutablePath`, `ExpectedGitExecutableSha256` and
 `ExpectedGitExecutableFileVersion` parameters as one complete binding. Legacy
 direct invocations without that binding retain their strict unique-PATH rule.
+The Git-identity helper loads beside the invoked runner so an isolated candidate
+can bootstrap before production contains the new helper. Existing admission,
+workload-lease and Job helpers still load from the production repository root;
+the candidate does not supply its own admission authority.
 The bounded runner's checked Git queries use a fixed read-only command grammar,
 clear ambient Git/proxy/helper controls,
 disable replacement refs, optional locks, hooks, fsmonitor, and global/system
