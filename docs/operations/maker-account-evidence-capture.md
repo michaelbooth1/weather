@@ -8,7 +8,7 @@ It does not authorize a live order or turn an accrual into cash.
 
 | Relationship | Required evidence | Current implementation boundary |
 | --- | --- | --- |
-| Maker and earning date to condition/asset accrual | Complete, exact-scope raw earnings pages and programme/date identity | `mm_liquidity_earnings_evidence` validates supplied pages; completed empty scope is distinct from missing pages |
+| Maker and earning date to condition/asset accrual | Complete, exact-scope raw earnings pages and programme/date identity | `mm_liquidity_earnings_capture` collects bounded raw pages for the existing validator; completed empty scope is distinct from missing pages |
 | Accrual to distribution | An authoritative stable allocation identifier linking programme, maker, earned period(s), condition attribution and integer native amount to a distribution | No qualified authoritative source/interface is established |
 | Distribution to wallet credit | Distribution identifier linked to exact chain, transaction hash, log index, recipient, asset and amount | `mm_exchange_reports.reconcile_incentive_payments` validates supplied links; caller-created IDs do not prove their authority |
 | Activity to confirmed asset transfer | Exact raw account activity plus successful receipt and finalized block evidence | `mm_paid_credit_activity` supports its documented legacy activity shape and pUSD transfer scope; it never proves the earned period |
@@ -62,6 +62,59 @@ termination. An empty completed date or below-minimum accrued date is not a
 positive receivable. Check finality after the documented daily cycle using a
 new capture; never overwrite the earlier snapshot.
 
+### Daily earnings collector
+
+[`weather.market.mm_liquidity_earnings_capture`](../../src/weather/market/mm_liquidity_earnings_capture.py)
+implements `capture_liquidity_earnings` for the earnings relationship only. Its
+keyword arguments freeze `query_date`, `maker_address`, `signer_address`,
+`signature_type`, `sponsored`, an absolute fresh `output_dir`, and a
+`headers_provider` callback. The callback receives `("GET", "/rewards/user", query)`
+and returns the existing five CLOB L2 headers. Query parameters are supplied
+separately so the caller can apply its already-reviewed signing contract.
+The caller must independently qualify the signer/maker/signature-type binding;
+the collector validates the declared signer header and requires matching maker
+and signer for EOA type 0. It does not derive or attest proxy-wallet ownership.
+
+This library entry point has no credential loader, SDK constructor, session
+mutation, environment discovery or unattended CLI. Calling it requires an
+already-qualified authentication context and authority for the account read.
+It constructs verified HTTPS connections to the fixed official host, sends only
+GET requests, and never follows redirects or retries. Existing capture-host and
+workstation admission rules still govern where it may execute.
+
+One invocation has a 60-second cooperative capture deadline, at most 10 seconds
+per socket operation, and the existing earnings page/byte budgets. The clock is
+checked between reads and requests; caller authentication code and system DNS
+resolution are outside that cooperative deadline. A caller requiring absolute
+process teardown must retain the governing workload wrapper. All pages retain
+all returned conditions and assets; projection happens only after termination.
+
+The registered capture schema has three artifact kinds, all created exclusively:
+
+- `intent.json` freezes scope and budgets before authentication or network work.
+- `request-NNN.json` preserves sequence, public request identity, header names,
+  request times, cursor state, HTTP metadata and exact response bytes/hash.
+  Failed and oversized responses retain available prefixes with
+  `body_complete=false`; a known authentication-secret echo is withheld and
+  makes the attempt incomplete.
+- `capture.json` binds request-file hashes and returns either `COMPLETE` or
+  `INCOMPLETE`. Only complete, scoped pages produce normalized earnings.
+  Available prior request files survive failure; an interrupted invocation
+  without a terminal receipt is incomplete and must not reuse its directory.
+
+The normalized earnings retain exact decimal spellings through the existing
+validator. To replay, verify the request-file hashes in `capture.json`, extract
+each request's `response` in sequence, and pass those raw pages to
+`normalize_liquidity_earnings_pages` using the frozen scope and cutoff.
+The owner tests perform this replay and compare the normalized result.
+
+A complete empty date is an empty accrual scope, not zero paid income. Every
+capture keeps paid amount unknown, attribution blocked, and payment, source
+authenticity, identity binding, whole-account completeness and live-authority
+claims false. A local collection receipt is not independent source attestation.
+This collector does not synthesize the missing distribution, earned-period or
+transaction/log relationship or feed inferred amounts into financial reporting.
+
 ### Activity and chain receipts
 
 The [activity-to-credit contract](paid-credit-activity-evidence.md) remains the
@@ -110,8 +163,9 @@ Otherwise retain `ATTRIBUTION_BLOCKED`, naming the missing relationship.
 The minimum reopening evidence is one authoritative distribution record that
 binds the maker, programme, earned period(s), condition allocation or explicit
 aggregate status, asset, integer amount, and exact credited transaction/log,
-plus documented coverage/finality semantics. Complete the transport and any
-necessary native-asset/v2 adapter only against that evidenced contract.
+plus documented coverage/finality semantics. The daily earnings collector
+closes only its raw acquisition boundary. Distribution collection and any
+necessary native-asset/v2 payment adapter still require that evidenced contract.
 
 ## Update when
 

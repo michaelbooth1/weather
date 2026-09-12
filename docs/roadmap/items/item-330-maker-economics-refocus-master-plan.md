@@ -1038,3 +1038,16 @@ when implementation or an operator decision changes them. Replace superseded
 plan text rather than appending incident histories. Refresh external rule facts
 in captured economics evidence at action time, not by treating this dated plan
 as venue authority.
+
+## 2026-09-11 raw daily earnings capture
+
+The reward-cash increment implements a bounded raw daily-earnings collector
+feeding the existing validator, with create-only request receipts, exact
+account/date scope, replayable response bytes, and explicit incomplete/empty
+dispositions. Its [capture contract](../../operations/maker-account-evidence-capture.md#daily-earnings-collector)
+keeps payment unknown. No account request or real credited payment was observed
+during implementation. The remaining collection prerequisite is an authoritative
+maker/programme/earned-period/condition/native-asset allocation linked to a
+distribution and exact transaction/log; the reviewed current earnings and
+activity interfaces do not establish that relationship. Whole-account cash
+completeness and payout finality remain independent W4 requirements.
