@@ -1,4 +1,4 @@
-# 331. Overnight Reliability Program [PARTIAL 2026-09-12 - IMPLEMENTATION STARTED; QUALIFICATION AND ADOPTION OPEN]
+# 331. Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]
 
 Owner/package: weather.operations, weather.reporting, scripts/ops
 Source: September 12, 2026 owner-approved reliability audit and implementation plan.
@@ -15,12 +15,28 @@ does not establish completion. No live trading or promotion is authorized.
 
 ## Current work
 
-The first candidate adds a selected Git path/hash/version to new integration
-manifests, create-once bootstrap journals before deep launch validation, native
-Windows regression tests, and an exact-candidate hosted Windows workflow.
-Qualification and production adoption remain open. Hosted regression evidence
-does not replace the currently required production bounded suite or actual-host
-S4U proof. Native stdout/stderr containment is the next launch work package.
+[PR 56](https://github.com/michaelbooth1/weather/pull/56) implements selected Git
+path/hash/version binding, create-once bootstrap journals, bounded native
+stdout/stderr capture, and hash-bound closure preservation. Native containment
+retains suspended creation, restricted handle inheritance, zero-child teardown,
+and deadline reserves. The exact-candidate hosted Windows workflow covers the
+new launch paths; the existing Linux suite remains required.
+
+At source `17f3d128aa819fe851026bfc83c04a3ad2607c20`,
+[70 native Windows checks passed](https://github.com/michaelbooth1/weather/actions/runs/34713482378)
+and the [full Linux suite passed](https://github.com/michaelbooth1/weather/actions/runs/34713482339)
+with 5,179 tests and 921 subtests. The earlier closure-only increment
+`32952d5cf0c8fca7ce39042d24eb7d52436f1dc8` also passed 47 focused tests through
+the admitted workstation wrapper. That workstation result does not qualify
+the later shared native helper. Subsequent candidates retain their own exact
+workflow/test identities; these recorded results are not transferable receipts.
+
+Actual-host S4U qualification, the production bounded-suite acceptance contract
+and guarded adoption remain open. The full Windows suite also has previously
+reproduced baseline path/SDK-case failures; focused native checks do not claim
+a full Windows pass. R2 must qualify any off-host acceptance substitution.
+R3's audit/consumer implementation and R0's required-output/deadline roster are
+the next independent source work; no unattended workstation worker is deployed.
 
 The initial branch is `codex/reliability-native-launch-20260912`, based on freshly
 fetched `origin/master` at `f3814173775335adb546b7201a2e73ecec7703bf`.
@@ -101,5 +117,6 @@ dates, release bindings, native settlement units and WU cutoff rules remain in f
 Source contracts and commands: [integration attempt runbook](../../operations/INTEGRATION_ATTEMPT_RUNBOOK.md).
 Verification ownership: [development guide](../../development.md) and
 [Windows workflow](../../../.github/workflows/windows-qualification.yml).
-Next gate: native Windows regression results, cumulative review and exact-host
-qualification before claiming R1 production adoption.
+Next gate: retain each candidate's qualification evidence, complete exact-host
+S4U and existing production acceptance checks, and perform guarded adoption.
+Native output diagnostics never substitute for a passing suite verdict.

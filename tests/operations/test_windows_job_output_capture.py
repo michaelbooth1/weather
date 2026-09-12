@@ -6,6 +6,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -253,3 +254,54 @@ def test_launcher_death_kills_child_and_grandchild_with_redirected_output(tmp_pa
             process.communicate(timeout=10)
         for handle in handles:
             kernel.CloseHandle(handle)
+
+
+
+def test_unredirected_caller_still_runs_inside_the_same_job(tmp_path):
+    (tmp_path / "child script.py").write_text("from pathlib import Path\nPath('ran.txt').write_text('yes')\nraise SystemExit(7)\n")
+    result = _run(tmp_path, r"""
+$ErrorActionPreference = 'Stop'
+. $env:R1B_HELPER
+$job = New-WeatherKillOnCloseJob
+$child = $null
+try {
+    $arguments = ConvertTo-WeatherWindowsArgumentString -Tokens @((Join-Path $env:R1B_TEMP 'child script.py'))
+    $child = Start-WeatherProcessInJob -Job $job -FilePath $env:R1B_PYTHON -ArgumentString $arguments -WorkingDirectory $env:R1B_TEMP
+    if (-not $child.WaitForExit(5000)) { throw 'Unredirected child did not exit' }
+    $code = $child.ExitCode
+    $job.TerminateAndWait(5000)
+    @{ code = $code } | ConvertTo-Json -Compress
+} finally { $job.Dispose(); if ($child) { $child.Dispose() } }
+""")
+    assert result == {"code": 7}
+    assert (tmp_path / "ran.txt").read_text() == "yes"
+    assert not (tmp_path / "stdout.bin").exists()
+
+
+def test_redirected_executable_path_with_spaces(tmp_path):
+    directory = tmp_path / "native executable directory"
+    directory.mkdir()
+    executable = directory / "command fixture.exe"
+    shutil.copyfile(Path(os.environ["SystemRoot"]) / "System32/cmd.exe", executable)
+    result = _run(tmp_path, r"""
+$ErrorActionPreference = 'Stop'
+. $env:R1B_HELPER
+$job = New-WeatherKillOnCloseJob
+$output = $null
+$child = $null
+try {
+    $output = [Weather.Operations.KillOnCloseJob+CapturedOutput]::new(
+        (Join-Path $env:R1B_TEMP 'stdout.bin'), (Join-Path $env:R1B_TEMP 'stderr.bin'), 4096)
+    $child = Start-WeatherProcessInJob -Job $job -FilePath $env:R1B_SPACE_EXE -ArgumentString '/d /c exit 7' -WorkingDirectory $env:R1B_TEMP -OutputCapture $output
+    if (-not $child.WaitForExit(5000)) { throw 'Small command fixture did not exit' }
+    $code = $child.ExitCode
+    $job.TerminateAndWait(5000)
+    $output.Complete(2000)
+    @{ code = $code; completed = $output.Completed } | ConvertTo-Json -Compress
+} finally {
+    $job.Dispose()
+    if ($child) { $child.Dispose() }
+    if ($output) { $output.Dispose() }
+}
+""", env={**_environment(tmp_path), "R1B_SPACE_EXE": str(executable)})
+    assert result == {"code": 7, "completed": True}

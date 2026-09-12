@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-12 America/Toronto (reliability implementation started).**
+**Last updated: 2026-09-12 America/Toronto (launch source implemented; host qualification open).**
 Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -33,7 +33,7 @@ adoption remains subject to its existing source, host and recovery gates.
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Reliability | Implementation starts from freshly fetched `origin/master` at `f3814173775335adb546b7201a2e73ecec7703bf`. Reviewed Git identity, early launch evidence and native Windows qualification are the first candidate; tests and production adoption are still open. Item 331 owns progress. |
+| Reliability | [PR 56](https://github.com/michaelbooth1/weather/pull/56) implements reviewed Git identity, early diagnostics, bounded native output and closure preservation. Hosted Windows and full Linux checks pass for the candidate recorded in item 331. Actual-host S4U qualification and guarded adoption remain open; production is unchanged by this branch. |
 | Production source | The archive/consumer stack at `562c85ec33d9411af897a04b8aa05401ada28b66` was guardedly adopted as master `e0a00eedf9ad41ee5580913af22d552e05663b96` at September 10 01:57:52 Toronto. The receipt proves three-worker and execution-tape recovery plus publication. Later archive-only execution source is on `codex/bulk-cold-archive-20260909`; do not infer its production adoption from a push. |
 | Archive and recovery | Pilot `e10c00000` completed encryption, private Drive upload, independent download, full restore, key custody, location publication and exact original reclaim: 7,614,464 allocated bytes. `e10d00001` has a complete independent restore and published recovery handback for five Atlanta July 10 files; its original reclaim was still pending at the 05:40 checkpoint. The 100 GB reclaim target is not achieved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds detailed receipts. |
 | Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Each catalog entry binds original paths, exact private cloud object IDs and source/archive hashes. Recovery metadata is also on the separate workstation; the recovery keys have an independently verified private Drive backup. Follow [the location and restore runbook](cold-archive-locations.md), not an assumed local path. |
@@ -46,9 +46,10 @@ adoption remains subject to its existing source, host and recovery gates.
 
 ## Ordered non-live critical path
 
-1. Qualify the Git-selection and launch-diagnostic repair, then bound the
-   settlement-source audit and its consumers. Add hosted Windows qualification
-   before overnight adoption; preserve the current production acceptance gates.
+1. Complete exact-host launch qualification and existing production acceptance
+   checks before guarded adoption. In parallel, bound the settlement-source
+   audit and its consumers and freeze the required-output/deadline roster.
+   R2's off-host acceptance-contract revision remains separately qualified work.
 2. Continue authorized archive recovery in admitted windows. Resume restored
    archives at fresh source review/reclaim; preserve failed namespaces and all
    evidence. Count only proved allocation savings, with actual free space separate.

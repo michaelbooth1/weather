@@ -78,7 +78,7 @@ infrastructure work remains.
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
-| 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - IMPLEMENTATION STARTED; QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
+| 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
 
 ### Market Expansion
 
