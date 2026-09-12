@@ -206,6 +206,25 @@ The journals are diagnostics only and never substitute for a suite receipt,
 exact verdict, capture proof or downstream authority. Standard-output/error
 capture beyond these structured diagnostics remains separately qualified work.
 
+The shared Job helper exposes an opt-in `OutputCapture` parameter on
+`Start-WeatherProcessInJob`. Construct a
+`Weather.Operations.KillOnCloseJob+CapturedOutput` with separate absolute local
+stdout/stderr paths and a per-stream byte limit (1 KiB through 8 MiB). It creates
+new files, rejects missing/reparse-point parents, and preserves raw byte prefixes.
+Poll `Drain()` while the child runs: each call reads at most 64 KiB per stream,
+continues draining after the retention cap, and exposes seen/retained counts and
+truncation flags. This API has one caller and no background reader threads.
+
+The opt-in launch uses suspended creation and a restricted Windows
+[handle list](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+containing only NUL stdin and the two pipe writers; assignment still precedes
+resume. Parent readers and the Job handle remain non-inheritable. After bounded
+`TerminateAndWait` proves the Job empty, call `Complete(timeoutMilliseconds)`
+to drain EOF and durably flush, then dispose both objects in `finally`. Bound
+these waits by the caller's absolute deadline. Existing unredirected callers
+retain their no-inheritance launch path. The integration wrapper does not yet
+opt into this API; production adoption and actual-host S4U proof remain open.
+
 New manifests also freeze the Git-identity and launch-diagnostic helper hashes.
 A new bound suite receipt must carry the same Git identity as its manifest.
 Historical manifests/receipts remain readable without the historical Git binary
