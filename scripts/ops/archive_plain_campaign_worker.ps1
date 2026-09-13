@@ -7,6 +7,7 @@ $source=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Assert-WeatherPlainSource $source $ExpectedSourceTip
 $configRecord=Read-WeatherPlainMetadata $ConfigPath $ConfigSha256 65536
 $c=Assert-WeatherPlainConfiguration $configRecord.Value
+$immediate=$c.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
 if($c.source_tip -cne $ExpectedSourceTip){throw 'Worker source/config mismatch'}
 $root=[IO.Path]::GetFullPath($c.production_root)
 $deadline=[DateTimeOffset]::Parse($c.end_utc).UtcDateTime
@@ -116,7 +117,9 @@ function Production-Phase([string]$Phase,$Row,$Request,[string]$Suffix){
  $out=Join-Path $root ('scratch/'+$family+'/'+$Row.archive_id+$Suffix)
  if(Test-Path -LiteralPath $out){throw 'Native phase attempt is spent'}
  $after=if($Phase -ceq 'reclaim'){300}else{0}
- Run-Child $Phase $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $source 'scripts/ops/production_cold_archive_run.ps1'),'-ProductionRepoRoot',$root,'-RequestPath',$proof.Path,'-RequestSha256',$proof.Sha256,'-OutputRoot',$out,'-ExpectedSourceTip',$ExpectedSourceTip,'-Operation',$Phase) 320 $after
+ $nativeTokens=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $source 'scripts/ops/production_cold_archive_run.ps1'),'-ProductionRepoRoot',$root,'-RequestPath',$proof.Path,'-RequestSha256',$proof.Sha256,'-OutputRoot',$out,'-ExpectedSourceTip',$ExpectedSourceTip,'-Operation',$Phase)
+ if($immediate){$nativeTokens+=@('-OwnerApprovedException','OWNER_APPROVED_ARCHIVE_RECOVERY_20260913_EVENING')}
+ Run-Child $Phase $ps $nativeTokens 320 $after
  $result=(Read-WeatherPlainMetadata (Join-Path $out 'wrapper-result.json') '' 524288).Value
  if($result.status -cne 'PASS' -or $result.teardown_proved -ne $true -or $result.source_git_sha -cne $ExpectedSourceTip -or $result.request_sha256 -cne $proof.Sha256){throw 'Native phase did not prove complete success'}
  return $result
@@ -143,7 +146,7 @@ function Backup-Metadata([string]$Kind,[string[]]$Paths){
 }
 
 try {
- if(-not $PreflightOnly -and ([DateTime]::UtcNow -lt [DateTimeOffset]::Parse($c.start_utc).UtcDateTime -or [DateTime]::UtcNow -gt [DateTimeOffset]::Parse($c.start_utc).UtcDateTime.AddSeconds(50))){throw 'Campaign is outside its one-shot start window'}
+ if(-not $PreflightOnly -and -not(Test-WeatherPlainStartWindow $c -GraceSeconds 50)){throw 'Campaign is outside its approved start window'}
  $known=Get-Item -LiteralPath $c.known_hosts -Force
  if($known.PSIsContainer -or $known.Length -gt 65536 -or ($known.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Get-FileHash -LiteralPath $known.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $c.known_hosts_sha256){throw 'Pinned known-hosts file differs'}
  foreach($name in @('owner_approval','proposal','selection','plan')){$null=Read-WeatherPlainMetadata $c.$name.path $c.$name.sha256}
@@ -164,7 +167,7 @@ try {
  }
  $capacity=Read-WeatherPlainMetadata $c.capacity.plan_path $c.capacity.plan_sha256 262144
  Assert-WeatherPlainSource $c.capacity.source_root $c.capacity.source_tip
- if($PreflightOnly){
+ if($PreflightOnly -and -not $immediate){
   Run-Child 'capacity-metadata-preflight' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early','-PreflightOnly') 75
  }
  $capacityPreflight=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'preflight/wrapper-result.json') '' 65536).Value
@@ -172,9 +175,10 @@ try {
  Remote-Command 'workstation-connectivity' @('git','-C',$c.workstation_root,'rev-parse','--verify','HEAD') 20
  if($PreflightOnly){$status='PREFLIGHT_PASS'}
  else {
-  if([DateTime]::UtcNow -lt [DateTimeOffset]::Parse($c.start_utc).UtcDateTime -or [DateTime]::UtcNow -gt [DateTimeOffset]::Parse($c.start_utc).UtcDateTime.AddSeconds(50)){throw 'Campaign missed its one-shot start window'}
+  if(-not(Test-WeatherPlainStartWindow $c -GraceSeconds 50)){throw 'Campaign missed its approved start window'}
   $free=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace
   if($free -lt [long]$c.initial_archive_headroom_bytes){
+   if($immediate){throw 'Immediate archive headroom is unavailable; no daytime compression is authorized'}
    Run-Child 'conditional-retained-compression' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early') ([int]([Math]::Floor(($deadline-[DateTime]::UtcNow).TotalSeconds)-20))
    $capacityResult=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'early/wrapper-result.json') '' 2097152).Value
    if($capacityResult.status -cne 'PASS' -or $capacityResult.teardown_proved -ne $true -or $capacityResult.deleted_files -ne 0 -or $capacityResult.plan_sha256 -cne $c.capacity.plan_sha256){throw 'Conditional capacity did not prove safe teardown'}

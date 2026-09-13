@@ -163,3 +163,19 @@ $null=[Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[
 if(@($parseErrors).Count){throw ($parseErrors|Out-String)}
 """, ROOT / "scripts/ops" / name)
     assert result.returncode == 0, result.stderr
+
+def test_immediate_config_retains_scope_and_requires_new_timing_authority(tmp_path):
+    value = config()
+    value.update(campaign_id="plain-20260913-test",
+                 start_utc="2026-09-13T22:46:00Z",
+                 end_utc="2026-09-14T04:30:00Z",
+                 expires_at_utc="2026-09-14T04:30:00Z",
+                 approved_at_utc="2026-09-13T22:45:43.134584Z")
+    if datetime.now(timezone.utc) < datetime.fromisoformat(value["approved_at_utc"]):
+        pytest.skip("owner timing correction not yet issued")
+    result = check_config(tmp_path, value)
+    assert result.returncode == 0, result.stderr
+    for key, altered in (("approved_at_utc", "2026-09-13T22:00:00Z"),
+                         ("end_utc", "2026-09-14T08:42:00Z"),
+                         ("campaign_id", "plain-20260914-test")):
+        assert check_config(tmp_path, {**value, key: altered}).returncode != 0

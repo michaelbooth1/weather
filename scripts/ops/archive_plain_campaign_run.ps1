@@ -28,9 +28,11 @@ $start=[DateTimeOffset]::Parse($c.start_utc).UtcDateTime
 $deadline=[DateTimeOffset]::Parse($c.end_utc).UtcDateTime
 $name='run'
 if($PreflightOnly){
- if([DateTime]::UtcNow -ge $start){throw 'Preflight must precede approved window'}
+ if($c.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)){
+  if(-not(Test-WeatherPlainStartWindow $c)){throw 'Immediate preflight is outside the approved window'}
+ }elseif([DateTime]::UtcNow -ge $start){throw 'Preflight must precede approved window'}
  $deadline=[DateTime]::UtcNow.AddSeconds(180);$name='preflight'
-}elseif([DateTime]::UtcNow -lt $start -or [DateTime]::UtcNow -gt $start.AddSeconds(20)){throw 'Campaign missed its exact one-shot launch'}
+}elseif(-not(Test-WeatherPlainStartWindow $c)){throw 'Campaign missed its approved launch window'}
 $campaignRoot=Join-Path $root ('scratch/archive_plain_campaigns/'+$c.campaign_id)
 Assert-WeatherNightDirectory $campaignRoot
 $outputRoot=Join-Path $campaignRoot $name

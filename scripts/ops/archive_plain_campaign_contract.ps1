@@ -44,7 +44,7 @@ function Assert-WeatherPlainLiteralPath {
 
 function Assert-WeatherPlainConfiguration {
  param($Config)
- if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-20260914-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
+ if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-2026091[34]-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
  if($Config.source_tip -cnotmatch '^[a-f0-9]{40}$' -or $Config.workstation_source_tip -cnotmatch '^[a-f0-9]{40}$'){throw 'Invalid source binding'}
  foreach($key in @('execution_host_id','backup_execution_host_id','known_hosts_sha256','initial_progress_sha256')){
   if($Config.$key -cnotmatch '^[a-f0-9]{64}$'){throw ('Invalid digest: '+$key)}
@@ -54,8 +54,12 @@ function Assert-WeatherPlainConfiguration {
  }
  if([IO.Path]::GetFullPath($Config.production_root) -ieq [IO.Path]::GetFullPath($Config.workstation_root) -or $Config.execution_host_id -ceq $Config.backup_execution_host_id){throw 'Archive host roles overlap'}
  if($Config.remote_host -cnotmatch '^192\.168\.1\.[0-9]{1,3}$' -or $Config.remote_user -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{0,31}$' -or $Config.drive_remote_name -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,63}$' -or $Config.drive_root_folder_id -cnotmatch '^[A-Za-z0-9_-]{10,128}$'){throw 'Invalid fixed transport identity'}
- if($Config.start_utc -cne '2026-09-14T04:30:00Z' -or $Config.end_utc -cne '2026-09-14T08:42:00Z' -or $Config.expires_at_utc -cne $Config.end_utc){throw 'Campaign exceeds approved date/window'}
+ $immediate=$Config.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
+ $start=if($immediate){'2026-09-13T22:46:00Z'}else{'2026-09-14T04:30:00Z'}
+ $end=if($immediate){'2026-09-14T04:30:00Z'}else{'2026-09-14T08:42:00Z'}
+ if($Config.start_utc -cne $start -or $Config.end_utc -cne $end -or $Config.expires_at_utc -cne $Config.end_utc){throw 'Campaign exceeds approved date/window'}
  $approved=[DateTimeOffset]::Parse($Config.approved_at_utc)
+ if($immediate -and $approved -lt [DateTimeOffset]::Parse('2026-09-13T22:45:43.134584Z')){throw 'Immediate campaign requires the current owner timing correction'}
  if($approved -gt [DateTimeOffset]::UtcNow -or $approved -ge [DateTimeOffset]::Parse($Config.start_utc) -or ([DateTimeOffset]::Parse($Config.end_utc)-$approved).TotalHours -gt 72){throw 'Campaign approval is future-dated or overlong'}
  if(-not $Config.approved_by -or $Config.approved_by.Length -gt 128 -or [long]$Config.target_bytes -ne 100000000000 -or [long]$Config.initial_archive_headroom_bytes -ne 23622320128){throw 'Campaign target or approval differs'}
  foreach($key in @('owner_approval','proposal','selection','plan')){
@@ -75,6 +79,13 @@ function Assert-WeatherPlainConfiguration {
  foreach($key in @('source_root','plan_path','result_root')){$null=Assert-WeatherPlainLiteralPath $Config.capacity.$key}
  if($Config.capacity.source_tip -cnotmatch '^[a-f0-9]{40}$' -or $Config.capacity.plan_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Capacity fallback is unbound'}
  return $Config
+}
+
+function Test-WeatherPlainStartWindow {
+ param($Config,[datetime]$Now=[DateTime]::UtcNow,[int]$GraceSeconds=20)
+ $start=[DateTimeOffset]::Parse($Config.start_utc).UtcDateTime
+ $end=if($Config.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)){[DateTimeOffset]::Parse($Config.end_utc).UtcDateTime.AddSeconds(-950)}else{$start.AddSeconds($GraceSeconds)}
+ return $Now -ge $start -and $Now -le $end
 }
 
 function Get-WeatherPlainBaseRequest {

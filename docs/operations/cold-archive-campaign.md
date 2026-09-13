@@ -109,6 +109,28 @@ receipt. The wrapper reports new original-source allocation separately from
 retained-file compression and current free-volume space; a partial failure never
 becomes a zero-removal assertion. QUEUE_COMPLETE, WINDOW_COMPLETE, and
 TARGET_REACHED remain distinct outcomes.
+
+## September 13 immediate-start correction
+
+At 22:45:43 UTC on September 13 the owner corrected the future start: "I didn't
+want it armed, I want you to do the transfer now." This retains the explicit
+transfer and verified-deletion approval for the exact twenty-batch primary
+queue. The future start was disabled before preparing this successor.
+
+The attended September 13 campaign admits a first start from 18:46 Toronto,
+ending absolutely at September 14 00:30. Its dated native archive token grants
+only the exact primary plan and selection a 20 GiB reserve. The ordinary
+workload window, other plans, qualification and compression retain their
+existing rules. No daytime compression fallback is admitted.
+
+The same clean-source, host, matching metadata preflight, create-only attempts,
+capture health, memory, shared lease, throttling, complete Job teardown,
+independent cloud verification, recovery backups and exact-source removal
+checks remain required. An immediate campaign can start after its approval
+time, but its immutable run directory can be consumed only once. Failed or
+partial phases require review and fresh requests; no automatic retry is added.
+The scheduled September 14 path retains its narrow one-shot launch checks.
+
 ## Update this file when
 
 Update when the approved transfer or original-deletion route changes.
