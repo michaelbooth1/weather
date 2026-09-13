@@ -551,6 +551,11 @@ boolean as a measured credential or exchange outcome.
 
 ## Verification and adoption
 
+A clean local Git status is a valid zero-row query. Native Windows qualification
+exercises both empty and nonempty query results at the runner's entry and exit
+under Windows PowerShell 5.1 strict mode; empty status must not fail before tests.
+
+
 Before merging this procedure, parse every changed PowerShell file, run the
 focused operation tests (including executable exact log-verdict, semantic
 PowerShell binding, disabled/PASS-grace wait decisions, recovery-dispatch,
