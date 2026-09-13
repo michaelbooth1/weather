@@ -1,5 +1,39 @@
 # 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
+## September 13 overnight review
+
+The owner's repeated overnight review exposed new first-landing qualification
+failures; the August acceptance below does not qualify a changed descendant.
+The combined launch/audit/prerequisite candidate is now tracked in
+[PR 61](https://github.com/michaelbooth1/weather/pull/61).
+
+An actual S4U attempt failed before native tests because PowerShell 5.1 strict
+mode rejected an empty Git-query result's array member access. Its retained
+bootstrap journal located the failure. A new descendant repaired the expressions
+and passed the complete 15-file native preflight under the scheduled principal.
+The ensuing full host suite then exposed disposable test fixtures that assumed
+the portable PC's identity, plus a launcher fixture using obsolete seal tokens.
+Production host assignment, lease and launcher gates were not relaxed.
+
+The repaired source at `384514ba47a7dcc89d1dbcb98b17ea9e18ee73c8` passed three
+hosted workflows. Expanded native Windows coverage passed 210 checks, including
+the storage fixture families and real launcher-template child-tree teardown.
+These are source qualification increments, not complete capture-host acceptance.
+
+The scheduled follow-through ended FAIL at 03:25:01 Toronto because its exact
+suite receipt deadline passed. It started neither the current-input audit nor
+the guarded merge. The host suite was still running with known failed chunks;
+the failed follow-through does not convert that running suite into terminal
+evidence. The original manifests and receipts remain immutable, and a repaired
+successor requires its own reviewed source, S4U readiness, full host suite and
+current-input audit. The 01:00-04:00 guarded roll window remains binding.
+
+Evidence is host-local under `scratch/handoffs/overnight-20260913-complete-a9/`
+and `scratch/handoffs/overnight-review-20260913-g7/`; the successor CI logs and
+review are under `scratch/handoffs/overnight-review-20260913-h8/`. These ignored
+receipts do not imply availability in a clean checkout. The broader proposed
+reliability program lives on PR 61 and is not completed by this incident repair.
+
 Goal: stop losing entire integration windows when one frozen cumulative tip
 hits a deterministic ratchet, transient host failure, or wrapper defect.
 

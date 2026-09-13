@@ -1,4 +1,92 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED]
+
+## September 13 retained-file qualification reserve
+
+The owner's September 12 overnight audit/progress instruction continued the
+existing lossless compression lane. Archive uploads and further original-source
+archive reclaim remain paused. The ordinary suite's 50 GiB disk floor was not
+lowered to admit qualification.
+
+At 02:16 Toronto, the bounded serial campaign had verified **1,335 distinct
+files and 12,808,867,840 allocated bytes saved**, with every source retained at
+its original path. Content hashes, native identities and timestamps match.
+This is NTFS compress-and-retain capacity, separate from the archive counter below.
+
+| August target date | Verified files | Allocated bytes saved | Selection disposition |
+| --- | ---: | ---: | --- |
+| 6 | 222 | 2,158,694,400 | Complete, including independently verified interruption recovery |
+| 7 | 222 | 2,067,550,208 | Complete |
+| 8 | 221 | 2,096,267,264 | Complete |
+| 9 | 211 | 1,826,729,984 | Complete |
+| 10 | 218 | 1,996,627,968 | Complete |
+| 11 | 219 | 2,069,340,160 | Complete |
+| 12 | 22 | 593,657,856 | Partial; the remaining 199 eligible files are held |
+
+Two original batches remain failed evidence. The August 12 batch stopped at
+71.033% host commit after two completed files; fresh inventory and paired
+journals reconciled both. The August 6 batch stopped on a denied capture-status
+read after ten paired files and one compressed file with an unfinished journal.
+Fresh inventory plus the canonical read-only retained-file verifier proved that
+file's original hash, identity and timestamps, accounting for 19,304,448 bytes
+once. A new inventory-bound pilot and new attempts then completed the remaining
+August 6 selection. Neither failed attempt was reused or relabeled PASS.
+
+Volume free space is a separate measurement. Windows shadow storage initially
+absorbed much of the capacity benefit. At 02:16:27, after the older shadow copy
+expired under the existing Windows policy, C: had **72,596,303,872 free bytes**
+(67.6 GiB); shadow storage used 1,541,144,576 bytes. No shadow-storage setting or
+restore point was manually changed. A later suite must still check fresh disk,
+RAM, capture identities, shared-lease ownership and child-tree teardown.
+
+Retained production evidence is under ignored
+`scratch/handoffs/overnight-review-20260913-e5/`: the final
+`verified-storage-aggregate.json` binds each original wrapper/result and prevents
+duplicate paths; both `august*-failure-reconciliation.json` files retain the
+failed-attempt dispositions. The underlying per-file journals remain under
+`scratch/cold_snapshot_compression/`. The separate volume sample is
+`scratch/handoffs/overnight-review-20260913-b2/storage-volume-0216.json`.
+These are host-local receipts, not clean-checkout fixtures or deletion authority.
+
+Further attended compression is held now that the qualification reserve is
+restored. The existing 05:00 projection and 06:00 raw-tape tiering lanes retain
+their own admission, parity, quiescence and exact-reclaim contracts.
+
+## September 11 measured campaign checkpoint
+
+**The owner accepted the recovered headroom and paused further uploads on September 11.**
+The original 100 GB target was not reached; its mathematical shortfall is
+20,894,193,664 bytes, but further capacity offload is no longer an active request. The reconciled
+campaign counter is **79,105,806,336 allocated bytes**, from **1,679
+distinct original files in 85 completed batches**. Each included batch
+has an exact successful source-removal receipt and qualified independent recovery.
+This counter excludes both scheduled tiering savings and temporary-copy cleanup.
+
+The campaign used approved source paths, native source identity/hash/allocation
+checks, exact private uploads,
+independent downloads, complete member verification and retained location records.
+Work remained within the capture-host admission windows; the protected tiering
+interval and 09:00 absolute end remained binding. The current execution window ended further payload work; pending originals
+remain in place until another admitted, qualified attempt.
+
+The workstation cleanup separately removed **10,234,171,392 allocated bytes**
+from **39 duplicate verification downloads** after their full hashes,
+retained archive copies and successful reclaim proofs matched. Metadata, required
+archive copies, cloud objects, earlier recovery keys and failed attempts remain
+retained. Uploaded archives awaiting qualified source disposition remain recoverable
+cloud copies with their originals preserved.
+
+Private recovery evidence and exact archive locations remain in the retained
+catalog and independently verified recovery backups. Use the
+[location and restore runbook](../../operations/cold-archive-locations.md);
+public repository prose does not replace those exact identities or restore proofs.
+The last full native archive admission at September 11 08:55 Toronto passed with all three capture workers active and nondegraded. Production C: had 87,606,325,248 free bytes at 08:57 Toronto.
+
+The requested capacity work is paused by the owner at this accepted checkpoint.
+Item 325 remains PARTIAL for a durable recurring retention service. Retain the
+staged archives, all pending originals and the precise completed-phase boundary.
+No continuation is scheduled. The prior execution configuration is expired;
+this checkpoint does not renew a window or qualify additional source paths.
+No future deletion, automatic cleanup expansion or live-market authority follows.
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
