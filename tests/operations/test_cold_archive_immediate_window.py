@@ -84,10 +84,10 @@ foreach($stamp in @('2026-09-13T18:45:59','2026-09-14T00:30:00','2026-09-15T18:4
 try{$null=Get-WeatherHeavyWorkloadPolicyWindow -Now ([datetime]'2026-09-13T18:46:00') -OwnerApprovedException $token -AllowStageAWindow}catch{$refused++}
 if($refused -ne 4){throw 'Expired or widened policy accepted'}
 $c=@{campaign_id='plain-20260913-test';start_utc='2026-09-13T22:46:00Z';end_utc='2026-09-14T04:30:00Z'}
-if(-not(Test-WeatherPlainStartWindow $c -Now ([datetime]'2026-09-14T01:00:00Z'))){throw 'Immediate start rejected'}
-if(Test-WeatherPlainStartWindow $c -Now ([datetime]'2026-09-14T04:30:00Z')){throw 'Expired start accepted'}
+if(-not(Test-WeatherPlainStartWindow $c -Now ([DateTimeOffset]::Parse('2026-09-14T01:00:00Z').UtcDateTime))){throw 'Immediate start rejected'}
+if(Test-WeatherPlainStartWindow $c -Now ([DateTimeOffset]::Parse('2026-09-14T04:30:00Z').UtcDateTime)){throw 'Expired start accepted'}
 $c=@{campaign_id='plain-20260914-test';start_utc='2026-09-14T04:30:00Z';end_utc='2026-09-14T08:42:00Z'}
-if(Test-WeatherPlainStartWindow $c -Now ([datetime]'2026-09-14T04:31:00Z')){throw 'Scheduled catch-up accepted'}
+if(Test-WeatherPlainStartWindow $c -Now ([DateTimeOffset]::Parse('2026-09-14T04:31:00Z').UtcDateTime)){throw 'Scheduled catch-up accepted'}
 foreach($name in @('production_cold_archive_run.ps1','workload_admission.ps1','archive_plain_campaign_contract.ps1','archive_plain_campaign_run.ps1','archive_plain_campaign_worker.ps1')){
  $tokens=$null;$errors=$null
  $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $args[0] ('scripts/ops/'+$name)),[ref]$tokens,[ref]$errors)
