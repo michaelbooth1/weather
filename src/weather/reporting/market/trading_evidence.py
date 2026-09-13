@@ -1554,11 +1554,7 @@ def _settlement_source_audit_gate(path, taker_payloads):
     target_dates = _settlement_scored_target_dates(taker_payloads)
     if not target_dates:
         return settlement_source_audit.settlement_label_gate_for_target_dates({}, [])
-    audit_payload = _read_json(path) if path else None
-    gate = settlement_source_audit.settlement_label_gate_for_target_dates(audit_payload or {}, target_dates)
-    gate["path"] = str(path) if path else None
-    gate["audit_status"] = (audit_payload or {}).get("status") if audit_payload else "MISSING"
-    return gate
+    return settlement_source_audit.settlement_label_gate_from_path(path, target_dates)
 
 
 def build_trading_evidence_summary(

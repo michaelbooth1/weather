@@ -92,7 +92,11 @@ def reclaim_args(corpus, monkeypatch, *, native=False, target=TARGET):
                  "restore_record": {"path": restore["record_path"], "sha256": restore["record_sha256"]},
                  "custody_record": custody},
         source_root=corpus.tmp, production_root=corpus.tmp, backup_host_id=BACKUP_HOST,
-        capture_loops=[], admission=lambda: True, deadline_monotonic=time.monotonic() + 30)
+        capture_loops=[], admission=lambda: True,
+        # Native removal flushes its recovery/journal files on the real volume.
+        # This fixture checks NTFS identity and exact removal, not disk latency;
+        # expired-deadline refusal is exercised explicitly in the fault test.
+        deadline_monotonic=time.monotonic() + (120 if native else 30))
 
 
 def campaign(corpus):

@@ -2,7 +2,7 @@
 
 The real wrapper and native Job/lease helpers run in a temporary Git repository.
 Only the fixture clock, fixture host assignment and mutex namespace change.
-The outer workstation-heavy wrapper still owns the real workstation mutex/Job.
+The outer host admission wrapper still owns the real host mutex and Job.
 A tiny child isolates launcher behavior; archive byte preservation has separate tests.
 """
 
@@ -21,6 +21,7 @@ import venv
 
 import pytest
 
+from weather.execution_host import current_execution_host_id
 from weather.paths import repo_path
 from weather.operations.process_lock_identity import observe_process_identity
 
@@ -159,7 +160,7 @@ def wrapper_fixture(tmp_path, request):
     wrapper_path = scripts / "production_cold_archive_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
-    assignment.update(dedicated_capture_execution_host_id=assignment["active_portable_execution_host_id"],
+    assignment.update(dedicated_capture_execution_host_id=current_execution_host_id(),
                       active_portable_execution_host_id=None, active_portable_execution_principal_id=None,
                       assignment_status="UNASSIGNED")
     (source / "config").mkdir()

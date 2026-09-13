@@ -1,0 +1,1395 @@
+{
+  "gates": [
+    {
+      "blocked_target_dates": [],
+      "blockers": [],
+      "reason": "no settlement-scored target dates",
+      "status": "SKIP",
+      "target_dates": []
+    },
+    {
+      "blocked_target_dates": [
+        "2026-06-19"
+      ],
+      "blockers": [
+        "2026-06-19:atlanta:SOURCE_DISAGREEMENT",
+        "2026-06-19:atlanta:PROVISIONAL",
+        "2026-06-19:atlanta:UNRECONCILED"
+      ],
+      "non_countable_reconciled": [
+        "2026-06-19:unknown:source_disagreement",
+        "2026-06-19:atlanta:manual_override",
+        "2026-06-19:atlanta:unreconciled",
+        "2026-06-19:atlanta:provisional",
+        "2026-06-19:atlanta:source_stale",
+        "2026-06-19:unknown:source_disagreement"
+      ],
+      "reason": "truth-label uncertainty blocks promotion-grade evidence",
+      "status": "BLOCK",
+      "target_dates": [
+        "2026-06-19"
+      ]
+    },
+    {
+      "blocked_target_dates": [],
+      "blockers": [],
+      "non_countable_reconciled": [],
+      "reason": "truth labels proof-grade",
+      "status": "PASS",
+      "target_dates": [
+        "2026-06-20"
+      ]
+    },
+    {
+      "blocked_target_dates": [],
+      "blockers": [],
+      "non_countable_reconciled": [],
+      "reason": "truth labels proof-grade",
+      "status": "PASS",
+      "target_dates": [
+        "2026-06-21"
+      ]
+    },
+    {
+      "blocked_target_dates": [
+        "2026-06-22"
+      ],
+      "blockers": [
+        "2026-06-22:missing_audit_row"
+      ],
+      "non_countable_reconciled": [],
+      "reason": "truth-label uncertainty blocks promotion-grade evidence",
+      "status": "BLOCK",
+      "target_dates": [
+        "2026-06-22"
+      ]
+    },
+    {
+      "blocked_target_dates": [
+        "2026-06-19",
+        "2026-06-22"
+      ],
+      "blockers": [
+        "2026-06-19:atlanta:SOURCE_DISAGREEMENT",
+        "2026-06-19:atlanta:PROVISIONAL",
+        "2026-06-19:atlanta:UNRECONCILED",
+        "2026-06-22:missing_audit_row"
+      ],
+      "non_countable_reconciled": [
+        "2026-06-19:unknown:source_disagreement",
+        "2026-06-19:atlanta:manual_override",
+        "2026-06-19:atlanta:unreconciled",
+        "2026-06-19:atlanta:provisional",
+        "2026-06-19:atlanta:source_stale",
+        "2026-06-19:unknown:source_disagreement"
+      ],
+      "reason": "truth-label uncertainty blocks promotion-grade evidence",
+      "status": "BLOCK",
+      "target_dates": [
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ]
+    }
+  ],
+  "markdown": "# Settlement Source Revision Audit\n\nGenerated: 2026-09-12T00:00:00+00:00\nStatus: **BLOCK**\n\n## Summary\n\n| Metric | Value |\n| :--- | :--- |\n| Labels | 18 |\n| Finalized | 8 |\n| Provisional | 2 |\n| Revised | 1 |\n| Source disagreement | 3 |\n| Manual overrides | 1 |\n| Unreconciled | 2 |\n| Proof-grade | 9 |\n| Promotion blocked | 9 |\n| Alternate-label changes result | 4 |\n\n## By Market\n\n| Market | Labels | Finalized | Uncertain | Disagreements | Max Finalization Lag Hours |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n| atlanta | 14 | 6 | 8 | 2 | 2.000278 |\n| toronto | 1 | 1 | 0 | 0 | 2.000278 |\n| unknown | 3 | 1 | 2 | 1 | 6.000278 |\n\n## Promotion Blockers\n\n| Date | Market | Status | Canonical | Disagreement Sources | Alternate Sensitivity |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n| 2026-06-19 | unknown | SOURCE_DISAGREEMENT | 80 | snapshot_high | CHANGES_RESULT |\n| 2026-06-19 | atlanta | MANUAL_OVERRIDE | 80 | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | atlanta | SOURCE_DISAGREEMENT | 80 | market_resolution | CHANGES_RESULT |\n| 2026-06-19 | atlanta | UNRECONCILED | - | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | atlanta | PROVISIONAL | 80 | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | atlanta | PROVISIONAL | 80 | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | atlanta | SOURCE_STALE | 80 | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | atlanta | UNRECONCILED | 80 | - | NO_ALTERNATE_LABEL |\n| 2026-06-19 | - | SOURCE_DISAGREEMENT | 80 | snapshot_high | CHANGES_RESULT |\n",
+  "payload": {
+    "by_market": [
+      {
+        "finalized_count": 6,
+        "label_count": 14,
+        "market_id": "atlanta",
+        "max_finalization_lag_hours": 2.000278,
+        "source_disagreement_count": 2,
+        "status_counts": {
+          "FINALIZED": 6,
+          "MANUAL_OVERRIDE": 1,
+          "PROVISIONAL": 2,
+          "SOURCE_DISAGREEMENT": 1,
+          "SOURCE_REVISION": 1,
+          "SOURCE_STALE": 1,
+          "UNRECONCILED": 2
+        },
+        "uncertain_count": 8
+      },
+      {
+        "finalized_count": 1,
+        "label_count": 1,
+        "market_id": "toronto",
+        "max_finalization_lag_hours": 2.000278,
+        "source_disagreement_count": 0,
+        "status_counts": {
+          "FINALIZED": 1
+        },
+        "uncertain_count": 0
+      },
+      {
+        "finalized_count": 1,
+        "label_count": 3,
+        "market_id": "unknown",
+        "max_finalization_lag_hours": 6.000278,
+        "source_disagreement_count": 1,
+        "status_counts": {
+          "FINALIZED": 1,
+          "SOURCE_DISAGREEMENT": 2
+        },
+        "uncertain_count": 2
+      }
+    ],
+    "generated_at_utc": "2026-09-12T00:00:00+00:00",
+    "labels_csv": "<ROOT>/labels.csv",
+    "ledger_root": "<ROOT>/settlements",
+    "rows": [
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 20,
+        "disagreement_sources": [],
+        "event_slug": "celsius",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-21T06:00:00Z",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "toronto",
+        "note": "",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 20,
+          "market_resolution": 20,
+          "wu_final": 20
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-20"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 75,
+        "disagreement_sources": [],
+        "event_slug": "cross-file",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00Z",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/z-last/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/z-last/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 75,
+          "wu_final": 75
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "duplicate",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00Z",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/z-last/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/z-last/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "ledger note survives empty label",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "empty-date",
+        "finalization_lag_hours": null,
+        "finalized_at_utc": "invalid",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": ""
+      },
+      {
+        "alternate_buckets": [
+          79
+        ],
+        "alternate_label_changes_result": true,
+        "alternate_label_sensitivity_status": "CHANGES_RESULT",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [
+          "snapshot_high"
+        ],
+        "event_slug": "explicit-unknown",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "unknown",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "source_disagreement",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "snapshot_high": 79,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 1,
+        "status": "SOURCE_DISAGREEMENT",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "label-only",
+        "finalization_lag_hours": -45.999722,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "ledger_path_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "canonical_settlement_ledger",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 2,
+        "lineage_missing_with_reason_count": 3,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-21"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "manual",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "manual_override",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "manual_override",
+        "reconciliation_status": "match",
+        "settlement_source": "override",
+        "source_buckets": {
+          "canonical_ledger": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "MANUAL_OVERRIDE",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [
+          81
+        ],
+        "alternate_label_changes_result": true,
+        "alternate_label_sensitivity_status": "CHANGES_RESULT",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [
+          "market_resolution"
+        ],
+        "event_slug": "mismatch",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "source_disagreement",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "complete",
+        "reconciliation_status": "mismatch",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "market_resolution": 81,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 1,
+        "status": "SOURCE_DISAGREEMENT",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": null,
+        "disagreement_sources": [],
+        "event_slug": "missing-bucket",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "unreconciled",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {},
+        "source_disagreement_count": 0,
+        "status": "UNRECONCILED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "missing-paths",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "path_not_found",
+            "path": "<ROOT>/absent.csv",
+            "sha256": "",
+            "source": "wu_daily_summary",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "snapshot_tape_path_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "snapshot_tape",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "ledger_path_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "canonical_settlement_ledger",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 0,
+        "lineage_missing_with_reason_count": 5,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [
+          79
+        ],
+        "alternate_label_changes_result": true,
+        "alternate_label_sensitivity_status": "CHANGES_RESULT",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [
+          "snapshot_high"
+        ],
+        "event_slug": "partial-countable",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "snapshot high=79 disagrees with daily_summary=80",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": true,
+        "proof_grade_basis": "promotion_countable",
+        "proof_grade_label": true,
+        "quality_grade": "partial",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "snapshot_high": 79,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 1,
+        "status": "SOURCE_REVISION",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "partial-excluded",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "provisional",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "partial",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "PROVISIONAL",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "provisional",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "provisional",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "partial",
+        "reconciliation_status": "pending",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "PROVISIONAL",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "revision",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "daily_summary=79 disagrees with snapshot high=80",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "snapshot_high": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "stale",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "source_stale",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "stale_source",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "SOURCE_STALE",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "unavailable",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "atlanta",
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "unreconciled",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "complete",
+        "reconciliation_status": "unavailable",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "UNRECONCILED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [],
+        "alternate_label_changes_result": false,
+        "alternate_label_sensitivity_status": "NO_ALTERNATE_LABEL",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [],
+        "event_slug": "unicode-東京",
+        "finalization_lag_hours": 6.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": "",
+        "note": "braces { } and \"quotes\", café, 東京\nsecond line",
+        "promotion_blocker": false,
+        "promotion_blocker_reason": "",
+        "promotion_countable": false,
+        "proof_grade_basis": "finalized",
+        "proof_grade_label": true,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 0,
+        "status": "FINALIZED",
+        "target_date": "2026-06-19"
+      },
+      {
+        "alternate_buckets": [
+          79
+        ],
+        "alternate_label_changes_result": true,
+        "alternate_label_sensitivity_status": "CHANGES_RESULT",
+        "canonical_settlement_bucket": 80,
+        "disagreement_sources": [
+          "snapshot_high"
+        ],
+        "event_slug": "unknown-market",
+        "finalization_lag_hours": 2.000278,
+        "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+        "lineage": [
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/daily summary.csv",
+            "sha256": "<HASH:wu_daily_summary:<ROOT>/daily summary.csv>",
+            "source": "wu_daily_summary",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/snapshot tape.csv",
+            "sha256": "<HASH:snapshot_tape:<ROOT>/snapshot tape.csv>",
+            "source": "snapshot_tape",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "",
+            "path": "<ROOT>/settlements/a-first/ledger.jsonl",
+            "sha256": "<HASH:canonical_settlement_ledger:<ROOT>/settlements/a-first/ledger.jsonl>",
+            "source": "canonical_settlement_ledger",
+            "status": "HASHED"
+          },
+          {
+            "missing_payload_reason": "weather_com_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "weather_com_max_since_7",
+            "status": "MISSING_WITH_REASON"
+          },
+          {
+            "missing_payload_reason": "market_resolution_raw_payload_not_recorded",
+            "path": "",
+            "sha256": "",
+            "source": "market_resolution",
+            "status": "MISSING_WITH_REASON"
+          }
+        ],
+        "lineage_hashed_source_count": 3,
+        "lineage_missing_with_reason_count": 2,
+        "lineage_status": "PASS",
+        "market_id": null,
+        "note": "",
+        "promotion_blocker": true,
+        "promotion_blocker_reason": "source_disagreement",
+        "promotion_countable": false,
+        "proof_grade_basis": null,
+        "proof_grade_label": false,
+        "quality_grade": "complete",
+        "reconciliation_status": "match",
+        "settlement_source": "daily_summary",
+        "source_buckets": {
+          "canonical_ledger": 80,
+          "snapshot_high": 79,
+          "wu_final": 80
+        },
+        "source_disagreement_count": 1,
+        "status": "SOURCE_DISAGREEMENT",
+        "target_date": "2026-06-19"
+      }
+    ],
+    "schema_version": "settlement_source_revision_audit_v0.1",
+    "status": "BLOCK",
+    "summary": {
+      "alternate_label_changes_result_count": 4,
+      "finalized_label_count": 8,
+      "label_count": 18,
+      "lineage_missing_with_reason_count": 40,
+      "manual_override_label_count": 1,
+      "promotion_blocked_label_count": 9,
+      "proof_grade_label_count": 9,
+      "provisional_label_count": 2,
+      "revised_label_count": 1,
+      "source_disagreement_label_count": 3,
+      "source_stale_label_count": 1,
+      "status_counts": {
+        "FINALIZED": 8,
+        "MANUAL_OVERRIDE": 1,
+        "PROVISIONAL": 2,
+        "SOURCE_DISAGREEMENT": 3,
+        "SOURCE_REVISION": 1,
+        "SOURCE_STALE": 1,
+        "UNRECONCILED": 2
+      },
+      "unreconciled_label_count": 2
+    }
+  }
+}
