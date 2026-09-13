@@ -35,8 +35,11 @@ Actual-host S4U qualification, the production bounded-suite acceptance contract
 and guarded adoption remain open. The full Windows suite also has previously
 reproduced baseline path/SDK-case failures; focused native checks do not claim
 a full Windows pass. R2 must qualify any off-host acceptance substitution.
-R3's audit/consumer implementation and R0's required-output/deadline roster are
-the next independent source work; no unattended workstation worker is deployed.
+R3's audit/consumer source is qualified in PR 57; current production inputs and
+lineage remain unqualified. The September 13 combined candidate preserves both
+repair histories and requires one exact combined host suite plus that current-input
+proof before guarded adoption. R0's required-output/deadline roster remains open;
+no unattended workstation worker is deployed.
 
 The initial branch is `codex/reliability-native-launch-20260912`, based on freshly
 fetched `origin/master` at `f3814173775335adb546b7201a2e73ecec7703bf`.
