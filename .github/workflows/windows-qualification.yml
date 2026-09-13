@@ -62,7 +62,7 @@ jobs:
       - name: Run native launch and integration regressions
         id: native
         run: |
-          python -m pytest -q tests/operations/test_integration_phase_output.py tests/operations/test_windows_job_output_capture.py tests/operations/test_integration_launch_diagnostics.py tests/operations/test_bounded_worktree_test_suite_script.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py tests/operations/test_cold_snapshot_compression_wrapper.py tests/operations/test_storage_recovery_inventory_wrapper.py tests/operations/test_replay_cache_compression_wrapper.py tests/operations/test_production_cold_archive_wrapper.py --junitxml "$env:RUNNER_TEMP/reliability-windows-junit.xml"
+          python -m pytest -q tests/operations/test_integration_phase_output.py tests/operations/test_windows_job_output_capture.py tests/operations/test_integration_launch_diagnostics.py tests/operations/test_bounded_worktree_test_suite_script.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py tests/operations/test_cold_snapshot_compression_wrapper.py tests/operations/test_storage_recovery_inventory_wrapper.py tests/operations/test_replay_cache_compression_wrapper.py tests/operations/test_production_cold_archive_wrapper.py tests/operations/test_live_wrapper_credential_launcher.py --junitxml "$env:RUNNER_TEMP/reliability-windows-junit.xml"
           if ($LASTEXITCODE -ne 0) { throw 'Native qualification failed.' }
 
       - name: Retain qualification identity
