@@ -1,0 +1,117 @@
+name: Windows Qualification
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-launch:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PYTHONUTF8: '1'
+      EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+
+      - name: Verify candidate and native shell
+        run: |
+          $actual = ([string](git rev-parse HEAD)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_CANDIDATE_SHA) {
+            throw 'Checkout is not the exact candidate commit.'
+          }
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
+            throw 'Native qualification requires Windows PowerShell 5.1.'
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
+          python -m pip install -e '.[test]'
+          if ($LASTEXITCODE -ne 0) { throw 'Project installation failed.' }
+
+      - name: Verify Python source identity
+        run: |
+          python -c "import pathlib, weather; actual=pathlib.Path(weather.__file__).resolve(); expected=pathlib.Path.cwd().resolve(); print(actual); assert actual.is_relative_to(expected)"
+          if ($LASTEXITCODE -ne 0) { throw 'Python imported outside the candidate checkout.' }
+
+      - name: Run native launch and integration regressions
+        id: native
+        run: |
+          python -m pytest -q tests/operations/test_integration_phase_output.py tests/operations/test_windows_job_output_capture.py tests/operations/test_integration_launch_diagnostics.py tests/operations/test_bounded_worktree_test_suite_script.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py --junitxml "$env:RUNNER_TEMP/reliability-windows-junit.xml"
+          if ($LASTEXITCODE -ne 0) { throw 'Native qualification failed.' }
+
+      - name: Retain qualification identity
+        if: always()
+        env:
+          NATIVE_OUTCOME: ${{ steps.native.outcome }}
+          CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          $actual = ([string](git rev-parse HEAD)).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify tested checkout.' }
+          $tree = ([string](git rev-parse 'HEAD^{tree}')).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify tested tree.' }
+          $resolved = @(python -m pip freeze --all)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot record resolved dependencies.' }
+          $junit = Join-Path $env:RUNNER_TEMP 'reliability-windows-junit.xml'
+          $receipt = [ordered]@{
+            format_version = 1
+            scope = 'native_launch_regressions_only'
+            production_adoption_authorized = $false
+            candidate_commit = $actual
+            expected_candidate_commit = $env:EXPECTED_CANDIDATE_SHA
+            candidate_base_commit = $env:CANDIDATE_BASE_SHA
+            tested_tree = $tree
+            workflow_commit = $env:WORKFLOW_SHA
+            workflow_ref = $env:WORKFLOW_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_image = $env:ImageOS
+            runner_image_version = $env:ImageVersion
+            powershell_version = $PSVersionTable.PSVersion.ToString()
+            python_version = [string](python --version)
+            requirements_sha256 = (Get-FileHash -LiteralPath requirements.txt -Algorithm SHA256).Hash
+            project_sha256 = (Get-FileHash -LiteralPath pyproject.toml -Algorithm SHA256).Hash
+            resolved_dependencies = $resolved
+            outcome = $env:NATIVE_OUTCOME
+            junit_sha256 = if (Test-Path -LiteralPath $junit) { (Get-FileHash -LiteralPath $junit -Algorithm SHA256).Hash } else { $null }
+          }
+          $json = $receipt | ConvertTo-Json -Depth 5
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'reliability-windows-qualification.json'), $json, [Text.UTF8Encoding]::new($false))
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-windows-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/reliability-windows-junit.xml
+            ${{ runner.temp }}/reliability-windows-qualification.json
+          if-no-files-found: error
+          retention-days: 7

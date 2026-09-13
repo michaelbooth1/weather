@@ -1,4 +1,41 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-11 - HEADROOM ACCEPTED; UPLOADS PAUSED]
+
+## September 11 measured campaign checkpoint
+
+**The owner accepted the recovered headroom and paused further uploads on September 11.**
+The original 100 GB target was not reached; its mathematical shortfall is
+20,894,193,664 bytes, but further capacity offload is no longer an active request. The reconciled
+campaign counter is **79,105,806,336 allocated bytes**, from **1,679
+distinct original files in 85 completed batches**. Each included batch
+has an exact successful source-removal receipt and qualified independent recovery.
+This counter excludes both scheduled tiering savings and temporary-copy cleanup.
+
+The campaign used approved source paths, native source identity/hash/allocation
+checks, exact private uploads,
+independent downloads, complete member verification and retained location records.
+Work remained within the capture-host admission windows; the protected tiering
+interval and 09:00 absolute end remained binding. The current execution window ended further payload work; pending originals
+remain in place until another admitted, qualified attempt.
+
+The workstation cleanup separately removed **10,234,171,392 allocated bytes**
+from **39 duplicate verification downloads** after their full hashes,
+retained archive copies and successful reclaim proofs matched. Metadata, required
+archive copies, cloud objects, earlier recovery keys and failed attempts remain
+retained. Uploaded archives awaiting qualified source disposition remain recoverable
+cloud copies with their originals preserved.
+
+Private recovery evidence and exact archive locations remain in the retained
+catalog and independently verified recovery backups. Use the
+[location and restore runbook](../../operations/cold-archive-locations.md);
+public repository prose does not replace those exact identities or restore proofs.
+The last full native archive admission at September 11 08:55 Toronto passed with all three capture workers active and nondegraded. Production C: had 87,606,325,248 free bytes at 08:57 Toronto.
+
+The requested capacity work is paused by the owner at this accepted checkpoint.
+Item 325 remains PARTIAL for a durable recurring retention service. Retain the
+staged archives, all pending originals and the precise completed-phase boundary.
+No continuation is scheduled. The prior execution configuration is expired;
+this checkpoint does not renew a window or qualify additional source paths.
+No future deletion, automatic cleanup expansion or live-market authority follows.
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
