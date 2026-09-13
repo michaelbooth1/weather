@@ -1,0 +1,310 @@
+{
+  "schema_version": "workstation_handback_v0.1",
+  "mission_id": "workstation-production-baseline-reconcile-rpc-repair-2026-09-96a",
+  "verdict": "PASS_REPAIRED",
+  "branch": "codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a",
+  "source": {
+    "tip": "1cd51d516875e279c674a76bf921e22ddaf30943",
+    "tree": "ba23363a956e66c4914ad7bdc4f3766d9e1678b8"
+  },
+  "implementation": {
+    "tip": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b",
+    "tree": "d1f31219d5d2f8b48b7e1174161b67cc7ba14f3b"
+  },
+  "superseded_blocker_report": {
+    "tip": "adab3295faa7dd70eb0459fe7578a1435a2c535a",
+    "tree": "cb2b3dc90e1fbaa59dba1fc4490206d0c0dde980",
+    "retained_in_ancestry": true
+  },
+  "final": {
+    "tip": null,
+    "tree": null,
+    "binding_status": "PENDING_EXTERNAL_FINAL_REPORT_PUBLICATION",
+    "binding_rule": "Resolve the commit containing this byte-exact receipt; require implementation..resolved commit to contain only the two required handback paths and require adab3295faa7dd70eb0459fe7578a1435a2c535a as its first parent; that resolved commit and its tree are the final identities. The implementation publication is proved, while the new report-only carrier remains local until the production master publishes its verified final bundle."
+  },
+  "entry_script": {
+    "path": "scripts/ops/quiet_window_merge.ps1",
+    "sha256": "40a912564452fbedf175e7015c4b800d765fc40407f9ce7e053f7b4f81956419"
+  },
+  "scheduler_rpc_helper": {
+    "path": "scripts/ops/production_baseline_scheduler_rpc.ps1",
+    "sha256": "249fc4e9e5bfb2d4c2cacca073c28c65c8f2b060473a50820a7889ff3fcbc885"
+  },
+  "pr": {
+    "number": 10,
+    "url": "https://github.com/michaelbooth1/weather/pull/10",
+    "state": "open",
+    "draft": true,
+    "base": "master",
+    "head_branch": "codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a",
+    "remote_head_after_failed_workstation_push": "1cd51d516875e279c674a76bf921e22ddaf30943",
+    "remote_head_verified_p3": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b"
+  },
+  "publication_audit": [
+    {
+      "event": "workstation_authentication_blocker",
+      "status": "SUPERSEDED_DIAGNOSTIC",
+      "detail": "HTTPS credential-store/token and existing-key SSH paths were unavailable; no remote update occurred and no credential value was inspected, created, changed, or exposed."
+    },
+    {
+      "event": "external_verified_bundle_publication",
+      "status": "PASS",
+      "detail": "The production master transferred a SHA-256-verified complete bundle over authenticated SSH, passed git bundle verify and git fsck --strict, and ordinary-fast-forwarded the topic branch from a separate temporary bare repository without touching the production checkout or master."
+    },
+    {
+      "event": "attempt_6_optional_cloudflare_mcp_startup",
+      "status": "SUPERSEDED_DIAGNOSTIC",
+      "detail": "An unrelated optional Cloudflare MCP OAuth session failed during Codex startup before repository work. The optional server was disabled for this invocation only; Codex settings were not mutated."
+    }
+  ],
+  "implementation_changed_paths": [
+    "docs/operations/OPERATIONS_DESIGN.md",
+    "docs/operations/STATE_OF_PLAY.md",
+    "docs/ops/streak-soak.md",
+    "scripts/ops/AGENTS.md",
+    "scripts/ops/production_baseline_scheduler_rpc.ps1",
+    "scripts/ops/quiet_window_merge.ps1",
+    "tests/operations/test_production_baseline_reconciler_execution.py",
+    "tests/operations/test_production_baseline_scheduler_rpc.py",
+    "tests/operations/test_quiet_window_merge_script.py"
+  ],
+  "all_changed_paths": [
+    "docs/operations/OPERATIONS_DESIGN.md",
+    "docs/operations/STATE_OF_PLAY.md",
+    "docs/ops/streak-soak.md",
+    "docs/roadmap/agent-report-2026-09-05-workstation-production-baseline-reconcile-rpc-repair.md",
+    "docs/roadmap/workstation-handback-2026-09-05-production-baseline-reconcile-rpc-repair.json",
+    "scripts/ops/AGENTS.md",
+    "scripts/ops/production_baseline_scheduler_rpc.ps1",
+    "scripts/ops/quiet_window_merge.ps1",
+    "tests/operations/test_production_baseline_reconciler_execution.py",
+    "tests/operations/test_production_baseline_scheduler_rpc.py",
+    "tests/operations/test_quiet_window_merge_script.py"
+  ],
+  "p0_reproductions": [
+    {
+      "defect": "divergent_export_serialization",
+      "reproduced": true,
+      "old_path": "parent name/path export hash versus child InputObject export hash",
+      "result": "old child exit 2: WeatherOneShotPush task XML changed from the reviewed definition",
+      "mutation_authority_claimed": false,
+      "mutation_dispatched": false
+    },
+    {
+      "defect": "null_trigger_array_count",
+      "reproduced": true,
+      "old_path": "@($Task.Triggers)",
+      "windows_powershell_5_1_old_and_repaired_counts": "1|0",
+      "result": "old child exit 2: WeatherOneShotPush static task or current-principal binding failed",
+      "mutation_authority_claimed": false,
+      "mutation_dispatched": false
+    }
+  ],
+  "preserved_fail_closed_contracts": [
+    "action mismatch",
+    "principal mismatch",
+    "state mismatch",
+    "execution timing mismatch",
+    "working-directory mismatch",
+    "task-path mismatch",
+    "singleton mismatch",
+    "changed canonical XML bytes with valid structured fields",
+    "one actual trigger",
+    "child RPC deadlines",
+    "kill-on-close child-tree containment",
+    "create-only request and result paths",
+    "request SHA-256 binding",
+    "bounded response shape",
+    "durable mutation claims",
+    "ambiguous-RPC spent-authority behavior",
+    "rollback and capture recovery",
+    "immutable journaling",
+    "one-push budget"
+  ],
+  "command_results": [
+    {
+      "name": "starting_identity_and_pr",
+      "exit_code": 0,
+      "counts": "clean exact branch/source tip/tree; cached/live remote equal; PR 10 open draft"
+    },
+    {
+      "name": "initial_worktree_local_venv_probe",
+      "exit_code": 1,
+      "counts": "diagnostic: interpreter absent; no pytest collected"
+    },
+    {
+      "name": "pre_repair_p0_two_case_red",
+      "exit_code": 1,
+      "counts": "2 failed in 0.92s"
+    },
+    {
+      "name": "post_repair_exact_p0",
+      "exit_code": 0,
+      "counts": "12 passed in 4.68s"
+    },
+    {
+      "name": "early_scheduler_rpc_complete",
+      "exit_code": 0,
+      "counts": "40 passed in 21.24s"
+    },
+    {
+      "name": "early_integration_selection",
+      "exit_code": 1,
+      "counts": "3 failed, 85 passed in 38.49s; stale assertion plus two default-temp literal file-remote identity artifacts; superseded"
+    },
+    {
+      "name": "short_temp_execution_control",
+      "exit_code": 0,
+      "counts": "1 passed in 34.69s"
+    },
+    {
+      "name": "intermediate_static_ratchet",
+      "exit_code": 1,
+      "counts": "1 failed, 44 passed in 0.28s; stale line-continuation assertion; superseded"
+    },
+    {
+      "name": "final_scheduler_rpc_and_quiet_merge_static",
+      "exit_code": 0,
+      "counts": "87 passed in 21.17s"
+    },
+    {
+      "name": "complete_reconciliation_execution_adversarial",
+      "exit_code": 0,
+      "counts": "70 passed in 1272.19s (0:21:12)"
+    },
+    {
+      "name": "complete_reconciliation_status_watchdog",
+      "exit_code": 0,
+      "counts": "93 passed in 632.94s (0:10:32)"
+    },
+    {
+      "name": "full_workstation_suite_ordinary_temp",
+      "exit_code": 1,
+      "counts": "4405 passed, 18 skipped, 13 warnings, 862 subtests passed, 12 documented Windows legacy-MAX_PATH failures in 2624.83s (0:43:44)"
+    },
+    {
+      "name": "complete_path_sensitive_executor_extended_prefix",
+      "exit_code": 0,
+      "counts": "24 passed in 3.53s"
+    },
+    {
+      "name": "compileall_app_src_tests",
+      "exit_code": 0,
+      "counts": "PASS"
+    },
+    {
+      "name": "powershell_ast_changed_scripts",
+      "exit_code": 0,
+      "counts": "2 parsed; 0 errors"
+    },
+    {
+      "name": "agent_docs_audit",
+      "exit_code": 0,
+      "counts": "18 agent files; 831 Markdown files"
+    },
+    {
+      "name": "roadmap_lint_check",
+      "exit_code": 0,
+      "counts": "generated report matches sources"
+    },
+    {
+      "name": "cumulative_and_staged_diff_check",
+      "exit_code": 0,
+      "counts": "PASS"
+    },
+    {
+      "name": "https_append_only_push",
+      "exit_code": 1,
+      "counts": "authentication unavailable; remote unchanged"
+    },
+    {
+      "name": "existing_ssh_authority_probe",
+      "exit_code": 128,
+      "counts": "permission denied publickey; remote unchanged"
+    },
+    {
+      "name": "final_workstation_https_publication_retry",
+      "exit_code": 1,
+      "counts": "hung on unavailable authentication, was terminated, and made no remote update; superseded diagnostic"
+    },
+    {
+      "name": "external_complete_bundle_publication",
+      "exit_code": null,
+      "counts": "external PASS: SHA-256 transport, git bundle verify, git fsck --strict, temporary bare repository, ordinary fast-forward; live branch exact implementation tip"
+    },
+    {
+      "name": "attempt_6_optional_cloudflare_mcp_startup",
+      "exit_code": null,
+      "counts": "diagnostic: OAuth startup failure before repository work; optional MCP disabled for this invocation; no settings mutation"
+    },
+    {
+      "name": "p3_local_identity_ancestry_and_credential_free_remote",
+      "exit_code": 0,
+      "counts": "clean exact adab3295faa7dd70eb0459fe7578a1435a2c535a/cb2b3dc90e1fbaa59dba1fc4490206d0c0dde980; implementation ancestor; live remote exact implementation tip"
+    },
+    {
+      "name": "public_actions_api_exact_head",
+      "exit_code": 0,
+      "counts": "run id 33787874477; run number 571; exact implementation head; completed success"
+    },
+    {
+      "name": "p3_receipt_docs_diff_and_path_checks",
+      "exit_code": 0,
+      "counts": "JSON parse/self-hash, report hash, documentation audit, roadmap lint/check, cumulative diff and exact-path checks PASS; no heavy tests rerun"
+    }
+  ],
+  "exact_head_ci": {
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/33787874477",
+    "id": 33787874477,
+    "run_number": 571,
+    "workflow_id": 311480585,
+    "event": "pull_request",
+    "head_sha": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b",
+    "status": "completed",
+    "conclusion": "success",
+    "verified_for_implementation": true
+  },
+  "production_owner_next_actions": [
+    "Publish the new local report/receipt-only commit from the verified final bundle without rewriting history.",
+    "Independently fetch and review the final exact report tip and the already-published implementation tip.",
+    "Run the canonical production-host roll verdict; no workstation verdict is countable.",
+    "Create a wholly new immutable reconciliation attempt."
+  ],
+  "spent_attempt": {
+    "id": "20260903_a1",
+    "frozen": true,
+    "retry_forbidden": true,
+    "rewrite_forbidden": true
+  },
+  "prohibited_actions_confirmed_absent": [
+    "production access",
+    "Scheduler read or write",
+    "real scheduled task access",
+    "merge",
+    "production master mutation",
+    "production retry",
+    "push-task invocation",
+    "capture action",
+    "credential-value inspection, creation, or modification",
+    "GitHub login during resumed P3",
+    "Git push during resumed P3",
+    "PR mutation during resumed P3",
+    "provider or exchange call",
+    "live execution",
+    "model, corpus, or outcome work",
+    "deletion",
+    "branch deletion",
+    "rebase",
+    "force-push"
+  ],
+  "report": {
+    "path": "docs/roadmap/agent-report-2026-09-05-workstation-production-baseline-reconcile-rpc-repair.md",
+    "sha256": "3cb69e8bb93ad49415b63274f866253f6c850a211b7f57beb7a03423629ec807"
+  },
+  "self_hash_rule": {
+    "algorithm": "SHA-256",
+    "normalization": "Parse this JSON, replace receipt_self_sha256 with 64 lowercase zero characters, serialize as UTF-8 canonical JSON with keys sorted, ensure_ascii=false, separators comma and colon, and no trailing newline, then hash those bytes.",
+    "placeholder": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "receipt_self_sha256": "cd64a592f2630a0564b353ebb406198dab9dcaf4968e22170d00484ddd8b21a5"
+}
