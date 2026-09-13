@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-12T19:23:34.498686+00:00
+Generated: 2026-09-13T03:12:54.404407+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 325 |
-| Active items | 36 |
+| Items | 326 |
+| Active items | 37 |
 | OPEN | 3 |
-| PARTIAL | 33 |
+| PARTIAL | 34 |
 | COMPLETE | 289 |
-| ROADMAP rows | 325 |
-| ROADMAP primary rows | 325 |
-| Metadata manifest rows | 325 |
+| ROADMAP rows | 326 |
+| ROADMAP primary rows | 326 |
+| Metadata manifest rows | 326 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -61,6 +61,7 @@ Status: `OK`
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 | 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 | 331 | PARTIAL | 2026-09-12 | LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
+| 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 
 ## Lint Issues
 
