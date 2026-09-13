@@ -32,9 +32,11 @@ the later shared native helper. Subsequent candidates retain their own exact
 workflow/test identities; these recorded results are not transferable receipts.
 
 Actual-host S4U qualification, the production bounded-suite acceptance contract
-and guarded adoption remain open. The full Windows suite also has previously
-reproduced baseline path/SDK-case failures; focused native checks do not claim
-a full Windows pass. R2 must qualify any off-host acceptance substitution.
+and guarded adoption remain open. The September 13 successor includes the
+previously qualified PR 11 executor path repair and canonicalizes SDK-test
+fixture paths to address the reproduced Windows baseline failures. Fresh
+combined-host qualification is still required; focused checks do not claim a
+full Windows pass. R2 must qualify any off-host acceptance substitution.
 R3's audit/consumer source is qualified in PR 57; current production inputs and
 lineage remain unqualified. The September 13 combined candidate preserves both
 repair histories and requires one exact combined host suite plus that current-input

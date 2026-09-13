@@ -16,6 +16,7 @@ def sha(path: Path) -> str:
 
 
 def build_fixture(tmp_path: Path, monkeypatch):
+    tmp_path = tmp_path.resolve()
     profile = tmp_path / "profile"
     root = profile / "ops/sdk-overlay"
     wheelhouse = profile / "ops/sdk-wheelhouse"
