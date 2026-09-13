@@ -183,7 +183,7 @@ def _run_pinned(args, root, output, request_path):
     staging.verify_archive_deadline(deadline, now, exception)
     plan_path = Path(request["plan_path"])
     plan, reserve = staging.load_plan_with_reserve(
-        plan_path, request["plan_sha256"], owner_approved_exception=exception)
+        plan_path, request["plan_sha256"], owner_approved_exception=exception, deadline=deadline)
     chunk = staging.validate_chunk(plan, request["chunk_id"], root, now)
     manifest = transfer._read_bound(request["production_manifest_path"], request["production_manifest_sha256"])
     validate_manifest_plan(manifest, plan, chunk)
