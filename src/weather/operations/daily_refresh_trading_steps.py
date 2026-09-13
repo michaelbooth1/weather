@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections import Counter
+from contextlib import ExitStack
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -618,9 +619,12 @@ def _provisional_target_blocker_slugs(payload, gate, target):
     blockers = gate.get("blockers") or []
     if not blockers or not all(str(b).endswith(":PROVISIONAL") for b in blockers):
         return []
+    rows = payload.get("rows") or ()
+    if hasattr(rows, "iter_target_dates"):
+        rows = rows.iter_target_dates([target])
     return sorted({
         row.get("event_slug")
-        for row in payload.get("rows") or []
+        for row in rows
         if row.get("target_date") == target
         and row.get("promotion_blocker")
         and str(row.get("status") or "").upper() == "PROVISIONAL"
@@ -690,56 +694,58 @@ def _retry_provisional_reconciliation(args, slugs):
 def run_settlement_source_audit_step(args):
     if getattr(args, "skip_settlement_source_audit", False):
         return {"status": "SKIPPED", "reason": "skip_settlement_source_audit"}
-    payload = settlement_source_audit.build_settlement_source_audit(
-        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
-        ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
-        generated_at_utc=utc_iso(),
-    )
-    # The settled-day analysis barrier asserts truth-label proof for the day
-    # being analyzed; item 319 ratified that historical non-proof-grade labels
-    # (permanent capture-gap days) must not fail-close current settled-day
-    # analysis. Gate the step on the analyzed target date and keep the global
-    # audit outcome visible alongside it.
-    target = settled_analysis_target_date(args).isoformat()
-    gate = settlement_source_audit.settlement_label_gate_for_target_dates(payload, [target])
-    reconciliation_retry = None
-    if gate.get("status") == "BLOCK":
-        retry_slugs = _provisional_target_blocker_slugs(payload, gate, target)
-        if retry_slugs:
-            reconciliation_retry = _retry_provisional_reconciliation(args, retry_slugs)
-            if reconciliation_retry.get("refinalized_count"):
-                payload = settlement_source_audit.build_settlement_source_audit(
-                    labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
-                    ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
-                    generated_at_utc=utc_iso(),
-                )
-                gate = settlement_source_audit.settlement_label_gate_for_target_dates(
-                    payload, [target]
-                )
-    json_out, report_out = settlement_source_audit.write_outputs(
-        payload,
-        json_out=backtest_path(args, "settlement_source_revision_audit.json"),
-        report_out=backtest_path(args, "settlement_source_revision_audit.md"),
-    )
-    summary = payload.get("summary") or {}
-    return {
-        "status": gate.get("status"),
-        "target_date": target,
-        "target_date_gate_blockers": gate.get("blockers") or [],
-        "target_date_non_countable_reconciled": gate.get("non_countable_reconciled") or [],
-        "reconciliation_retry": reconciliation_retry,
-        "global_status": payload.get("status"),
-        "json_out": as_path(json_out),
-        "report_out": as_path(report_out),
-        "label_count": summary.get("label_count"),
-        "finalized_label_count": summary.get("finalized_label_count"),
-        "provisional_label_count": summary.get("provisional_label_count"),
-        "revised_label_count": summary.get("revised_label_count"),
-        "source_disagreement_label_count": summary.get("source_disagreement_label_count"),
-        "unreconciled_label_count": summary.get("unreconciled_label_count"),
-        "promotion_blocked_label_count": summary.get("promotion_blocked_label_count"),
-        "proof_grade_label_count": summary.get("proof_grade_label_count"),
-    }
+    with ExitStack() as scopes:
+        def open_audit():
+            return scopes.enter_context(settlement_source_audit.open_settlement_source_audit(
+                labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+                ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
+                generated_at_utc=utc_iso(),
+                scratch_root=backtest_path(args, "settlement_source_audit_work"),
+            ))
+
+        payload = open_audit()
+        # The settled-day analysis barrier asserts truth-label proof for the day
+        # being analyzed; item 319 ratified that historical non-proof-grade labels
+        # (permanent capture-gap days) must not fail-close current settled-day
+        # analysis. Gate the step on the analyzed target date and keep the global
+        # audit outcome visible alongside it.
+        target = settled_analysis_target_date(args).isoformat()
+        gate = settlement_source_audit.settlement_label_gate_for_target_dates(payload, [target])
+        reconciliation_retry = None
+        if gate.get("status") == "BLOCK":
+            retry_slugs = _provisional_target_blocker_slugs(payload, gate, target)
+            if retry_slugs:
+                reconciliation_retry = _retry_provisional_reconciliation(args, retry_slugs)
+                if reconciliation_retry.get("refinalized_count"):
+                    scopes.close()
+                    payload = open_audit()
+                    gate = settlement_source_audit.settlement_label_gate_for_target_dates(
+                        payload, [target]
+                    )
+        json_out, report_out = settlement_source_audit.write_outputs(
+            payload,
+            json_out=backtest_path(args, "settlement_source_revision_audit.json"),
+            report_out=backtest_path(args, "settlement_source_revision_audit.md"),
+        )
+        summary = payload.get("summary") or {}
+        return {
+            "status": gate.get("status"),
+            "target_date": target,
+            "target_date_gate_blockers": gate.get("blockers") or [],
+            "target_date_non_countable_reconciled": gate.get("non_countable_reconciled") or [],
+            "reconciliation_retry": reconciliation_retry,
+            "global_status": payload.get("status"),
+            "json_out": as_path(json_out),
+            "report_out": as_path(report_out),
+            "label_count": summary.get("label_count"),
+            "finalized_label_count": summary.get("finalized_label_count"),
+            "provisional_label_count": summary.get("provisional_label_count"),
+            "revised_label_count": summary.get("revised_label_count"),
+            "source_disagreement_label_count": summary.get("source_disagreement_label_count"),
+            "unreconciled_label_count": summary.get("unreconciled_label_count"),
+            "promotion_blocked_label_count": summary.get("promotion_blocked_label_count"),
+            "proof_grade_label_count": summary.get("proof_grade_label_count"),
+        }
 
 
 def run_observed_floor_safety_monitor_step(args):

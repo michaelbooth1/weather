@@ -77,7 +77,9 @@ infrastructure work remains.
 | 15 | [Reproducible Backfills [COMPLETE]](items/item-15-reproducible-backfills.md) |
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
+| 332 | [Bounded Settlement-Source Audit [PARTIAL 2026-09-12 - WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN]](items/item-332-bounded-settlement-source-audit.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
+| 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
 
 ### Market Expansion
 
@@ -353,7 +355,7 @@ infrastructure work remains.
 | 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-22 - WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | [Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 325 | [Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-11 - HEADROOM ACCEPTED; UPLOADS PAUSED]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
 
