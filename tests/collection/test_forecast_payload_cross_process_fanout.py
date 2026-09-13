@@ -365,6 +365,65 @@ def test_oversized_receipt_is_rejected_before_json_decode(tmp_path):
         _fetch(coordinator, lambda: dict(FETCH_VALUE))
 
 
+def test_waiter_defers_visible_receipt_until_publisher_finishes_cleanup(tmp_path, monkeypatch):
+    root = tmp_path / "shared-cas"
+    holder = CrossProcessMarketInvariantFetchFanout(root, poll_seconds=0.002)
+    waiter = CrossProcessMarketInvariantFetchFanout(root, poll_seconds=0.002)
+    receipt_path, _ = holder._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1",
+    )
+    linked = threading.Event()
+    finish_publication = threading.Event()
+    waiter_read = threading.Event()
+    observed = []
+    calls = []
+    real_link = fanout_module.os.link
+    read_receipt = waiter._read_receipt
+
+    def pause_after_receipt_link(source, destination, *args, **kwargs):
+        real_link(source, destination, *args, **kwargs)
+        if os.path.abspath(destination) == os.path.abspath(receipt_path):
+            linked.set()
+            assert finish_publication.wait(timeout=5)
+
+    def observe_waiter_read(*args, **kwargs):
+        result = read_receipt(*args, **kwargs)
+        observed.append(result)
+        waiter_read.set()
+        return result
+
+    def holder_fetch():
+        calls.append("holder")
+        return dict(FETCH_VALUE)
+
+    def forbidden_waiter_fetch():
+        calls.append("waiter")
+        raise AssertionError("pending publication must not cause another fetch")
+
+    monkeypatch.setattr(fanout_module.os, "link", pause_after_receipt_link)
+    monkeypatch.setattr(waiter, "_read_receipt", observe_waiter_read)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        holder_future = pool.submit(_fetch, holder, holder_fetch)
+        try:
+            assert linked.wait(timeout=5)
+            assert receipt_path.is_file()
+            waiter_future = pool.submit(_fetch, waiter, forbidden_waiter_fetch)
+            assert waiter_read.wait(timeout=5)
+            assert observed[0] is None
+            assert not waiter_future.done()
+        finally:
+            finish_publication.set()
+        published = holder_future.result(timeout=5)
+        reused = waiter_future.result(timeout=5)
+
+    assert calls == ["holder"]
+    assert published.fetched and reused.reused
+    assert reused.value == published.value
+    assert reused.coordinator_receipt_sha256 == published.coordinator_receipt_sha256
+    assert list(receipt_path.parent.glob("*.claim")) == []
+    assert list(receipt_path.parent.glob(".*.staging-*")) == []
+
+
 def test_receipt_mutation_during_read_is_rejected(tmp_path, monkeypatch):
     root = tmp_path / "shared-cas"
     coordinator = CrossProcessMarketInvariantFetchFanout(root)
