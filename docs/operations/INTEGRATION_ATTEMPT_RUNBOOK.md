@@ -79,6 +79,7 @@ $attemptRoot = Join-Path $attemptParent "<attempt-id>"
   -BranchRef <branch> `
   -WorktreeRoot <isolated-worktree> `
   -ExpectedTip <full-reviewed-sha> `
+  -GitExecutablePath <absolute-reviewed-git.exe> `
   -SuiteAtLocal <local-datetime> `
   -MergeAtLocal <local-datetime> `
   -ReviewReference <pr-or-operator-review>
@@ -134,10 +135,23 @@ complete child tree at the earlier of its 90-minute total-runtime ceiling or the
 50 GiB minimum on every distinct production, candidate, evidence, and test-temp
 volume before work and before each chunk. Its authoritative log is opened once
 with create-new/no-delete-sharing semantics and flushed durably at teardown.
-Every parent-side Git identity query resolves one unambiguous regular executable,
-uses a fixed read-only command grammar, clears ambient Git/proxy/helper controls,
-disables replacement refs, optional locks, hooks, fsmonitor, and global/system
-configuration, and restores the caller environment after the bounded query.
+New attempts freeze one regular Git executable's absolute path, SHA256 and
+file version in `suite.git_executable`. `-GitExecutablePath` selects it explicitly;
+when omitted, preparation selects the first Git Application once and prints the
+identity for review. Runtime qualification never reselects from PATH. Multiple
+cmd/bin entries are therefore harmless to a bound attempt, while a changed
+selected executable blocks it. The bounded runner accepts the corresponding
+`GitExecutablePath`, `ExpectedGitExecutableSha256` and
+`ExpectedGitExecutableFileVersion` parameters as one complete binding. Legacy
+direct invocations without that binding retain their strict unique-PATH rule.
+The Git-identity helper loads beside the invoked runner so an isolated candidate
+can bootstrap before production contains the new helper. Existing admission,
+workload-lease and Job helpers still load from the production repository root;
+the candidate does not supply its own admission authority.
+The bounded runner's checked Git queries use a fixed read-only command grammar,
+clear ambient Git/proxy/helper controls,
+disable replacement refs, optional locks, hooks, fsmonitor, and global/system
+configuration, and restore the caller environment after the bounded query.
 This is also the
 bootstrap boundary for a candidate that strengthens the test sandbox itself:
 unmerged code may enforce the marker, but it may not be the component that
@@ -168,6 +182,74 @@ plus quiet-merge path.
 Registration holds the attempt terminal mutex from its closure/reconciliation
 check through intent, Scheduler mutation, receipt, and final readback. Suite and
 merge entry also refuse an attempt that already has either terminal receipt.
+
+## Early launch diagnostics
+
+The suite wrapper writes a create-once
+`manifest.json.suite-bootstrap.jsonl` beside its supplied manifest before
+manifest, helper, task or host validation. Each bounded child similarly writes
+`<phase-log>.bootstrap.jsonl` before resolving the repository or validating Git.
+Journals carry the supplied input binding, wrapper source hash, principal,
+PowerShell version, actual wrapper entry, bounded failure details and terminal
+disposition. Their 64 KiB ceiling fails closed; an existing journal is never
+appended to or replaced by another invocation.
+Closure includes each existing outer, preflight and full-suite bootstrap journal
+and each phase's `.stdout.log` / `.stderr.log` files in the immutable receipt's
+`preserved_evidence` inventory by path and SHA256, including failures before any
+phase log or suite receipt exists. Older attempts
+without these journals remain closable; closure does not invent missing evidence.
+
+Child intent and actual child start are separate outer-journal events. A missing
+bootstrap is absence of wrapper-entry evidence, not proof the task never ran;
+reconcile Scheduler's task identity, run time and result. Parameter binding,
+script parsing or a missing bootstrap helper can fail before a journal exists.
+The journals are diagnostics only and never substitute for a suite receipt,
+exact verdict, capture proof or downstream authority. Each integration phase
+captures stdout and stderr before child entry, preserving at most the first
+1 MiB of each stream in `<phase-log>.stdout.log` and `<phase-log>.stderr.log`.
+The parent continues draining excess bytes, records truncation explicitly, and
+hashes the retained files. A `CHILD_OUTPUT` journal event and the suite receipt's
+additive `native_output` records distinguish bytes retained, EOF completion and
+proved zero-child teardown. None of these diagnostics replaces the phase verdict.
+No output file is overwritten or automatically deleted.
+
+The shared Job helper exposes an opt-in `OutputCapture` parameter on
+`Start-WeatherProcessInJob`. Construct a
+`Weather.Operations.KillOnCloseJob+CapturedOutput` with separate absolute local
+stdout/stderr paths and a per-stream byte limit (1 KiB through 8 MiB). It creates
+new files, rejects missing/reparse-point parents, and preserves raw byte prefixes.
+Poll `Drain()` while the child runs: each call reads at most 64 KiB per stream,
+continues draining after the retention cap, and exposes seen/retained counts and
+truncation flags. This API has one caller and no background reader threads.
+
+The opt-in launch uses suspended creation and a restricted Windows
+[handle list](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+containing only NUL stdin and the two pipe writers; assignment still precedes
+resume. Parent readers and the Job handle remain non-inheritable. After bounded
+`TerminateAndWait` proves the Job empty, call `Complete(timeoutMilliseconds)`
+to drain EOF and durably flush, then dispose both objects in `finally`. Bound
+these waits by the caller's absolute deadline. The integration wrapper ends
+payload work eight seconds before 09:00, clamps the Job wait to five seconds
+and EOF drain to two seconds within the remaining time, and preserves one
+second for evidence finalization. A monotonic suite budget prevents wall-clock
+rollback from extending the original deadline. Failed teardown/drain makes the
+phase fail; retained bytes are still diagnostic evidence. Existing unredirected
+callers retain their no-inheritance launch path. Source qualification does not
+establish production adoption or the separately required actual-host S4U proof.
+
+New manifests also freeze the Git-identity and launch-diagnostic helper hashes.
+A new bound suite receipt must carry the same Git identity as its manifest.
+Historical manifests/receipts remain readable without the historical Git binary
+still being installed. Upgrading Git does not rewrite a frozen attempt: review
+the new executable and create an authorized successor under the existing
+closure/claim protocol.
+
+Hosted [Windows qualification](../../.github/workflows/windows-qualification.yml)
+checks the exact PR candidate with Windows PowerShell 5.1 and retains candidate,
+base, tested tree, workflow, resolved-dependency and JUnit identities. It is a
+focused regression check. It does not replace the admitted production bounded
+suite, exact-host S4U qualification, roll verdict, or guarded adoption. A full
+off-host substitution requires its own reviewed acceptance-contract change.
 
 ## Success contract
 

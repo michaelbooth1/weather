@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 import re
 from collections import Counter, defaultdict
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, time, timezone
 from pathlib import Path
+import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from weather.backtesting.settlement_ledger import (
@@ -17,7 +18,11 @@ from weather.backtesting.settlement_ledger import (
     DEFAULT_LEDGER_ROOT,
     parse_band_label,
 )
+from weather.io import write_json_streaming_atomic, write_text_atomic
 from weather.paths import data_path
+from weather.reporting.source_gates.settlement_audit_hashes import SealedLineageHashes
+from weather.reporting.source_gates.settlement_audit_reader import AuditJsonRows
+from weather.reporting.source_gates.settlement_audit_store import AuditStore, DEFAULT_MAX_INDEX_BYTES
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
 
@@ -25,6 +30,7 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("settlement_source_revision_audit")
 DEFAULT_JSON_OUT = data_path("backtest", "settlement_source_revision_audit.json")
 DEFAULT_REPORT_OUT = data_path("backtest", "settlement_source_revision_audit.md")
+DEFAULT_MAX_OUTPUT_BYTES = 512 * 1024 * 1024
 UNCERTAIN_STATUSES = {
     "PROVISIONAL",
     "SOURCE_STALE",
@@ -37,49 +43,6 @@ UNCERTAIN_STATUSES = {
 
 def _utc_iso():
     return datetime.now(timezone.utc).isoformat()
-
-
-def _read_csv(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
-
-
-def _read_jsonl(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    rows = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return rows
-
-
-def _ledger_rows(root):
-    rows = []
-    root = Path(root)
-    for path in sorted(root.glob("*/ledger.jsonl")):
-        for row in _read_jsonl(path):
-            row = dict(row)
-            row.setdefault("ledger_path", str(path))
-            rows.append(row)
-    return rows
-
-
-def _read_json(path):
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
-        return None
 
 
 def _parse_time(value):
@@ -131,14 +94,14 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-def _lineage_entry(name, path, missing_reason):
+def _lineage_entry(name, path, missing_reason, sha256):
     if path:
         candidate = Path(path)
         if candidate.exists():
             return {
                 "source": name,
                 "path": str(candidate),
-                "sha256": _sha256(candidate),
+                "sha256": sha256(candidate),
                 "missing_payload_reason": "",
                 "status": "HASHED",
             }
@@ -158,32 +121,37 @@ def _lineage_entry(name, path, missing_reason):
     }
 
 
-def _lineage(row):
+def _lineage(row, sha256):
     entries = [
         _lineage_entry(
             "wu_daily_summary",
             row.get("daily_summary_path"),
             "daily_summary_path_not_recorded",
+            sha256,
         ),
         _lineage_entry(
             "snapshot_tape",
             row.get("snapshot_tape_path"),
             "snapshot_tape_path_not_recorded",
+            sha256,
         ),
         _lineage_entry(
             "canonical_settlement_ledger",
             row.get("ledger_path"),
             "ledger_path_not_recorded",
+            sha256,
         ),
         _lineage_entry(
             "weather_com_max_since_7",
             _first_present(row, ("weather_com_raw_payload_path", "weather_com_payload_path")),
             "weather_com_raw_payload_not_recorded",
+            sha256,
         ),
         _lineage_entry(
             "market_resolution",
             _first_present(row, ("market_resolution_payload_path", "gamma_event_payload_path")),
             "market_resolution_raw_payload_not_recorded",
+            sha256,
         ),
     ]
     return {
@@ -292,28 +260,14 @@ def _classify(row, buckets, disagreement_sources):
     return "FINALIZED"
 
 
-def _merge_label_and_ledger_rows(label_rows, ledger_rows):
-    ledger_by_slug = {row.get("event_slug"): row for row in ledger_rows if row.get("event_slug")}
-    labels_by_slug = {row.get("event_slug"): row for row in label_rows if row.get("event_slug")}
-    slugs = sorted(set(ledger_by_slug) | set(labels_by_slug))
-    rows = []
-    for slug in slugs:
-        merged = dict(ledger_by_slug.get(slug) or {})
-        for key, value in (labels_by_slug.get(slug) or {}).items():
-            if value not in (None, ""):
-                merged[key] = value
-        rows.append(merged)
-    return rows
-
-
-def audit_row(row):
+def audit_row(row, *, sha256=None):
     buckets = _source_buckets(row)
     canonical = buckets.get("canonical_ledger")
     disagreement_sources = [
         source for source, bucket in buckets.items()
         if source != "canonical_ledger" and canonical is not None and bucket != canonical
     ]
-    lineage = _lineage(row)
+    lineage = _lineage(row, sha256 or _sha256)
     status = _classify(row, buckets, disagreement_sources)
     alternate_buckets = sorted({
         bucket for source, bucket in buckets.items()
@@ -374,70 +328,107 @@ def audit_row(row):
     }
 
 
+@contextmanager
+def open_settlement_source_audit(
+    *,
+    labels_csv=DEFAULT_LABELS_CSV,
+    ledger_root=DEFAULT_LEDGER_ROOT,
+    generated_at_utc=None,
+    scratch_root=None,
+    max_index_bytes=DEFAULT_MAX_INDEX_BYTES,
+    cancelled=None,
+    sealed_lineage_sha256=(),
+):
+    """Build a repeatable, disk-backed audit valid within the returned context.
+
+    The index is new for every invocation, so late revisions and label
+    corrections are reconsidered. Live lineage files are hashed directly;
+    their mtimes are never treated as immutable content identities. Offline
+    callers may supply an iterable of (absolute_path, expected_sha256) pairs
+    for a sealed corpus; these identities are verified against actual bytes.
+    """
+    with AuditStore(scratch_root=scratch_root, max_index_bytes=max_index_bytes,
+                    cancelled=cancelled) as store:
+        hashes = SealedLineageHashes(store, sealed_lineage_sha256, _sha256)
+        store.verify_lineage = hashes.verify
+        store.load(labels_csv, ledger_root)
+        status_counts = Counter()
+        by_market = defaultdict(Counter)
+        lag_by_market = {}
+        disagreements = Counter()
+        proof_count = blocked_count = alternate_count = missing_lineage_count = 0
+        for source_row in store.merged_rows():
+            row = audit_row(source_row, sha256=hashes)
+            store.add_audited_row(row)
+            status_counts[row["status"]] += 1
+            market_id = row.get("market_id") or "unknown"
+            if market_id not in by_market and len(by_market) >= 4096:
+                raise ValueError("Audit market-summary group limit exceeded")
+            by_market[market_id][row["status"]] += 1
+            if row.get("finalization_lag_hours") is not None:
+                lag = row["finalization_lag_hours"]
+                lag_by_market[market_id] = max(lag, lag_by_market.get(market_id, lag))
+            # Preserve the legacy unknown-market summary: absent/empty IDs
+            # group as unknown, but only an explicit "unknown" ID contributes
+            # to that group's disagreement count.
+            if row.get("market_id") == market_id and row.get("source_disagreement_count"):
+                disagreements[market_id] += 1
+            proof_count += bool(row.get("proof_grade_label"))
+            blocked_count += bool(row.get("promotion_blocker"))
+            alternate_count += bool(row.get("alternate_label_changes_result"))
+            missing_lineage_count += row.get("lineage_missing_with_reason_count") or 0
+        hashes.verify()
+        rows = store.finish()
+        market_rows = [{
+            "market_id": market_id,
+            "label_count": sum(by_market[market_id].values()),
+            "finalized_count": by_market[market_id].get("FINALIZED", 0),
+            "uncertain_count": sum(count for status, count in by_market[market_id].items()
+                                   if status in UNCERTAIN_STATUSES),
+            "source_disagreement_count": disagreements[market_id],
+            "max_finalization_lag_hours": lag_by_market.get(market_id),
+            "status_counts": dict(sorted(by_market[market_id].items())),
+        } for market_id in sorted(by_market)]
+        yield {
+            "schema_version": SCHEMA_VERSION,
+            "generated_at_utc": generated_at_utc or _utc_iso(),
+            "labels_csv": str(labels_csv),
+            "ledger_root": str(ledger_root),
+            "status": "MISSING" if not rows else ("BLOCK" if blocked_count else "PASS"),
+            "summary": {
+                "label_count": len(rows),
+                "finalized_label_count": status_counts.get("FINALIZED", 0),
+                "provisional_label_count": status_counts.get("PROVISIONAL", 0),
+                "revised_label_count": status_counts.get("SOURCE_REVISION", 0),
+                "source_disagreement_label_count": status_counts.get("SOURCE_DISAGREEMENT", 0),
+                "manual_override_label_count": status_counts.get("MANUAL_OVERRIDE", 0),
+                "unreconciled_label_count": status_counts.get("UNRECONCILED", 0),
+                "source_stale_label_count": status_counts.get("SOURCE_STALE", 0),
+                "proof_grade_label_count": proof_count,
+                "promotion_blocked_label_count": blocked_count,
+                "alternate_label_changes_result_count": alternate_count,
+                "lineage_missing_with_reason_count": missing_lineage_count,
+                "status_counts": dict(sorted(status_counts.items())),
+            },
+            "by_market": market_rows,
+            "rows": rows,
+        }
+
+
 def build_settlement_source_audit(
     *,
     labels_csv=DEFAULT_LABELS_CSV,
     ledger_root=DEFAULT_LEDGER_ROOT,
     generated_at_utc=None,
 ):
-    label_rows = _read_csv(labels_csv)
-    ledger = _ledger_rows(ledger_root)
-    rows = [audit_row(row) for row in _merge_label_and_ledger_rows(label_rows, ledger)]
-    status_counts = Counter(row["status"] for row in rows)
-    by_market = defaultdict(Counter)
-    lag_by_market = defaultdict(list)
-    for row in rows:
-        market_id = row.get("market_id") or "unknown"
-        by_market[market_id][row["status"]] += 1
-        if row.get("finalization_lag_hours") is not None:
-            lag_by_market[market_id].append(row["finalization_lag_hours"])
-    market_rows = []
-    for market_id in sorted(by_market):
-        lags = lag_by_market.get(market_id) or []
-        market_rows.append({
-            "market_id": market_id,
-            "label_count": sum(by_market[market_id].values()),
-            "finalized_count": by_market[market_id].get("FINALIZED", 0),
-            "uncertain_count": sum(
-                count for status, count in by_market[market_id].items()
-                if status in UNCERTAIN_STATUSES
-            ),
-            "source_disagreement_count": sum(
-                1 for row in rows
-                if row.get("market_id") == market_id and row.get("source_disagreement_count")
-            ),
-            "max_finalization_lag_hours": max(lags) if lags else None,
-            "status_counts": dict(sorted(by_market[market_id].items())),
-        })
-    proof_blocked = [row for row in rows if row.get("promotion_blocker")]
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": generated_at_utc or _utc_iso(),
-        "labels_csv": str(labels_csv),
-        "ledger_root": str(ledger_root),
-        "status": "MISSING" if not rows else ("BLOCK" if proof_blocked else "PASS"),
-        "summary": {
-            "label_count": len(rows),
-            "finalized_label_count": status_counts.get("FINALIZED", 0),
-            "provisional_label_count": status_counts.get("PROVISIONAL", 0),
-            "revised_label_count": status_counts.get("SOURCE_REVISION", 0),
-            "source_disagreement_label_count": status_counts.get("SOURCE_DISAGREEMENT", 0),
-            "manual_override_label_count": status_counts.get("MANUAL_OVERRIDE", 0),
-            "unreconciled_label_count": status_counts.get("UNRECONCILED", 0),
-            "source_stale_label_count": status_counts.get("SOURCE_STALE", 0),
-            "proof_grade_label_count": sum(1 for row in rows if row.get("proof_grade_label")),
-            "promotion_blocked_label_count": len(proof_blocked),
-            "alternate_label_changes_result_count": sum(
-                1 for row in rows if row.get("alternate_label_changes_result")
-            ),
-            "lineage_missing_with_reason_count": sum(
-                row.get("lineage_missing_with_reason_count") or 0 for row in rows
-            ),
-            "status_counts": dict(sorted(status_counts.items())),
-        },
-        "by_market": market_rows,
-        "rows": rows,
-    }
+    """Materialized compatibility API for small callers and existing fixtures.
+
+    Production builders and consumers use open_settlement_source_audit so the
+    final row set is not brought back into memory after indexed selection.
+    """
+    with open_settlement_source_audit(labels_csv=labels_csv, ledger_root=ledger_root,
+                                     generated_at_utc=generated_at_utc) as payload:
+        return {**payload, "rows": list(payload["rows"])}
 
 
 def settlement_label_gate_for_target_dates(payload, target_dates):
@@ -450,7 +441,36 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
             "blockers": [],
             "reason": "no settlement-scored target dates",
         }
-    if not payload or not payload.get("rows"):
+    source_rows = (payload or {}).get("rows")
+    has_rows = bool(source_rows) if hasattr(source_rows, "__len__") else False
+    selected = set(target_dates)
+    if hasattr(source_rows, "iter_target_dates"):
+        rows = source_rows.iter_target_dates(target_dates)
+    else:
+        rows = source_rows if source_rows is not None else ()
+    present = set()
+    bad_by_date = defaultdict(list)
+    reconciled_by_date = defaultdict(list)
+    # Exhaust a file-backed iterator even after finding the requested dates.
+    # A truncated or malformed tail must invalidate the entire file.
+    for row in rows:
+        has_rows = True
+        target_date = str(row.get("target_date") or "")
+        if target_date not in selected:
+            continue
+        present.add(target_date)
+        if not row.get("promotion_blocker"):
+            continue
+        if str(row.get("reconciliation_status") or "").strip().lower() == "match":
+            reconciled_by_date[target_date].append(
+                f"{target_date}:{row.get('market_id') or 'unknown'}:"
+                f"{row.get('promotion_blocker_reason') or row.get('status')}"
+            )
+        else:
+            bad_by_date[target_date].append(
+                f"{target_date}:{row.get('market_id') or 'unknown'}:{row.get('status')}"
+            )
+    if not has_rows:
         return {
             "status": "BLOCK",
             "target_dates": target_dates,
@@ -458,43 +478,18 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
             "blockers": ["settlement_source_audit_missing"],
             "reason": "settlement-scored evidence has no truth-label audit rows",
         }
-    rows_by_date = defaultdict(list)
-    for row in payload.get("rows") or []:
-        rows_by_date[str(row.get("target_date") or "")].append(row)
     blockers = []
     blocked_dates = []
     non_countable_reconciled = []
     for target_date in target_dates:
-        rows = rows_by_date.get(target_date) or []
-        if not rows:
+        if target_date not in present:
             blocked_dates.append(target_date)
             blockers.append(f"{target_date}:missing_audit_row")
             continue
-        bad = []
-        for row in rows:
-            if not row.get("promotion_blocker"):
-                continue
-            # The barrier asserts settlement TRUTH for the analyzed day.
-            # A label whose payout Polymarket confirmed (`match`) but whose
-            # intraday coverage is non-countable (decisive capture gap) is a
-            # corpus-admission exclusion, not a truth uncertainty: promotion
-            # corpus/countability gates already exclude it fail-closed, and
-            # halting the whole day's analysis for it lost 2026-07-05 to three
-            # such July-4 markets. Same item-319 principle as the historical
-            # non-proof-grade carve-out.
-            if str(row.get("reconciliation_status") or "").strip().lower() == "match":
-                non_countable_reconciled.append(
-                    f"{target_date}:{row.get('market_id') or 'unknown'}:"
-                    f"{row.get('promotion_blocker_reason') or row.get('status')}"
-                )
-                continue
-            bad.append(row)
-        if bad:
+        non_countable_reconciled.extend(reconciled_by_date[target_date])
+        if bad_by_date[target_date]:
             blocked_dates.append(target_date)
-            blockers.extend(
-                f"{target_date}:{row.get('market_id') or 'unknown'}:{row.get('status')}"
-                for row in bad
-            )
+            blockers.extend(bad_by_date[target_date])
     return {
         "status": "BLOCK" if blockers else "PASS",
         "target_dates": target_dates,
@@ -503,6 +498,19 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
         "non_countable_reconciled": non_countable_reconciled,
         "reason": "truth-label uncertainty blocks promotion-grade evidence" if blockers else "truth labels proof-grade",
     }
+
+
+def settlement_label_gate_from_path(path, target_dates):
+    """Read the legacy JSON with bounded memory and validate its complete tail."""
+    reader = AuditJsonRows(path) if path else None
+    try:
+        gate = settlement_label_gate_for_target_dates({"rows": reader}, target_dates)
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        reader = None
+        gate = settlement_label_gate_for_target_dates({}, target_dates)
+    gate["path"] = str(path) if path else None
+    gate["audit_status"] = reader.metadata.get("status") if reader and reader.has_fields else "MISSING"
+    return gate
 
 
 def render_report(payload):
@@ -546,7 +554,12 @@ def render_report(payload):
             for row in payload.get("by_market") or []
         ],
     )
-    blockers = [row for row in payload.get("rows") or [] if row.get("promotion_blocker")]
+    blockers = []
+    for row in payload.get("rows") or []:
+        if row.get("promotion_blocker"):
+            blockers.append(row)
+            if len(blockers) == 50:
+                break
     if blockers:
         lines += ["", "## Promotion Blockers", ""]
         lines += markdown_table(
@@ -567,13 +580,36 @@ def render_report(payload):
     return "\n".join(lines)
 
 
-def write_outputs(payload, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_OUT):
+def write_outputs(payload, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_OUT,
+                  *, max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES):
+    """Stage both representations and atomically publish complete files.
+
+    JSON remains the authoritative gate input and is replaced last. Markdown
+    is advisory; the pair is not a multi-file publication transaction.
+    """
     json_path = Path(json_out)
     report_path = Path(report_out)
+    if json_path.resolve() == report_path.resolve():
+        raise ValueError("Audit JSON and Markdown require distinct output paths")
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    report_path.write_text(render_report(payload), encoding="utf-8")
+    rows = payload.get("rows")
+    with ExitStack() as cleanup:
+        json_dir = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
+            prefix=".settlement-audit-", dir=json_path.parent)))
+        report_dir = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
+            prefix=".settlement-audit-", dir=report_path.parent)))
+        staged_json = json_dir / "audit.json"
+        staged_report = report_dir / "audit.md"
+        write_json_streaming_atomic(staged_json, payload, trailing_newline=True,
+                                    max_bytes=max_output_bytes)
+        write_text_atomic(staged_report, render_report(payload))
+        if hasattr(rows, "check_cancelled"):
+            rows.check_cancelled()
+        if hasattr(rows, "verify_lineage"):
+            rows.verify_lineage()
+        staged_report.replace(report_path)
+        staged_json.replace(json_path)
     return json_path, report_path
 
 
@@ -583,17 +619,25 @@ def build_parser():
     parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--scratch-root", default=None, help="Parent for this invocation\'s disposable disk index.")
+    parser.add_argument("--max-index-bytes", type=int, default=DEFAULT_MAX_INDEX_BYTES)
+    parser.add_argument("--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES)
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    payload = build_settlement_source_audit(
+    with open_settlement_source_audit(
         labels_csv=args.labels_csv,
         ledger_root=args.ledger_root,
-    )
-    json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
-    print(f"Settlement source audit: {payload.get('status')}")
+        scratch_root=args.scratch_root,
+        max_index_bytes=args.max_index_bytes,
+    ) as payload:
+        json_out, report_out = write_outputs(
+            payload, args.json_out, args.report_out, max_output_bytes=args.max_output_bytes,
+        )
+        status = payload.get("status")
+    print(f"Settlement source audit: {status}")
     print(f"JSON written to {json_out}")
     print(f"Report written to {report_out}")
     return 0

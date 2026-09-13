@@ -26,6 +26,9 @@ param(
     [ValidateRange(60, 5400)]
     [int]$MaxRuntimeSeconds = 5400,
     [string]$AdditionalPythonPath = "",
+    [string]$GitExecutablePath = "",
+    [string]$ExpectedGitExecutableSha256 = "",
+    [string]$ExpectedGitExecutableFileVersion = "",
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
     [switch]$SmokeTest,
@@ -33,6 +36,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$launchJournal = $null
+$launchStatus = "FAIL"
+$launchFailure = $null
+trap {
+    Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
+    throw
+}
+. (Join-Path $PSScriptRoot "integration_launch_diagnostics.ps1")
+$launchJournal = New-WeatherLaunchDiagnostics `
+    -Path ($LogPath + ".bootstrap.jsonl") -Operation "bounded_suite" `
+    -ScriptPath $PSCommandPath -Binding ([ordered]@{
+        expected_tip = $ExpectedTip
+        branch_ref = $BranchRef
+        log_path = $LogPath
+    })
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $WorktreeRoot = (Resolve-Path -LiteralPath $WorktreeRoot -ErrorAction Stop).Path
 $ExpectedTip = $ExpectedTip.ToLowerInvariant()
@@ -76,7 +94,10 @@ if (-not [string]::IsNullOrWhiteSpace($AdditionalPythonPath)) {
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
 $jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
 $workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
-foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)) {
+# A candidate may qualify before production has this new read-only helper.
+# Admission, containment and workload ownership still come from the production root.
+$gitIdentityScript = Join-Path $PSScriptRoot "git_executable_identity.ps1"
+foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript, $gitIdentityScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "required suite helper is missing: $requiredScript"
     }
@@ -84,6 +105,7 @@ foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)
 . $contractScript
 . $jobScript
 . $workloadLeaseScript
+. $gitIdentityScript
 
 function Test-WeatherQualificationSensitiveEnvironmentName {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -129,6 +151,23 @@ function Test-SuiteGitAmbientEnvironmentName {
 }
 
 function Get-SuiteGitExecutable {
+    param(
+        [string]$Path = "",
+        [string]$ExpectedSha256 = "",
+        [string]$ExpectedFileVersion = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Path) -or
+        -not [string]::IsNullOrWhiteSpace($ExpectedSha256) -or
+        -not [string]::IsNullOrWhiteSpace($ExpectedFileVersion)) {
+        return Assert-WeatherGitExecutableIdentity -Identity ([pscustomobject]@{
+            path = $Path
+            sha256 = $ExpectedSha256
+            file_version = $ExpectedFileVersion
+        })
+    }
+    # Legacy direct invocations retain their strict PATH resolution. New
+    # immutable attempts always pass a reviewed path/hash/version binding.
     $commands = @(Get-Command git.exe -CommandType Application -All -ErrorAction Stop)
     $paths = New-Object System.Collections.Generic.List[string]
     foreach ($command in $commands) {
@@ -190,7 +229,10 @@ function Invoke-SuiteCheckedLocalGit {
     if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
         throw "$Label repository root is missing"
     }
-    $gitExecutable = Get-SuiteGitExecutable
+    $gitExecutable = Get-SuiteGitExecutable `
+        -Path $GitExecutablePath `
+        -ExpectedSha256 $ExpectedGitExecutableSha256 `
+        -ExpectedFileVersion $ExpectedGitExecutableFileVersion
     $saved = @{}
     foreach ($name in @(
         [Environment]::GetEnvironmentVariables(
@@ -374,6 +416,11 @@ $runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
 $suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
 $suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
+Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "VALIDATING_GIT" -Detail ([ordered]@{
+    selected_path = $GitExecutablePath
+    expected_sha256 = $ExpectedGitExecutableSha256
+    expected_file_version = $ExpectedGitExecutableFileVersion
+})
 $worktreeQuery = Invoke-SuiteCheckedLocalGit `
     -Root $RepoRoot -Arguments @("worktree", "list", "--porcelain") `
     -Label "registered worktree enumeration"
@@ -451,6 +498,7 @@ try {
     )
     $suiteLogWriter.AutoFlush = $true
     Write-SuiteLog "=== bounded worktree suite starting ==="
+    Write-SuiteLog "selected_git=$($worktreeQuery.Executable) expected_git_sha256=$ExpectedGitExecutableSha256 expected_git_file_version=$ExpectedGitExecutableFileVersion"
     Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
     Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
     # Bootstrap the safety boundary needed to qualify the hardening revision
@@ -543,6 +591,7 @@ try {
     Assert-HostAdmission -CommitCeiling $StartCommitPercent -Phase "preflight"
     if ($PreflightOnly) {
         Write-SuiteLog "VERDICT: PREFLIGHT PASSED; no tests run"
+        $launchStatus = "PASS"
         exit 0
     }
 
@@ -741,14 +790,21 @@ try {
 
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
+        $launchStatus = "PASS"
         exit 0
     }
     if ($IntegrationPreflight) {
         Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
+        $launchStatus = "PASS"
         exit 0
     }
     Write-SuiteLog "VERDICT: ALL CHUNKS PASSED ($($chunks.Count)/$($chunks.Count)); exact tip eligible for separate reviewed merge"
+    $launchStatus = "PASS"
     exit 0
+}
+catch {
+    $launchFailure = $_
+    throw
 }
 finally {
     try {
@@ -786,5 +842,6 @@ finally {
             )
         }
         Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+        Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $launchStatus -Failure $launchFailure
     }
 }

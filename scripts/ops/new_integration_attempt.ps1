@@ -20,6 +20,7 @@ param(
     [string]$RepairClass = "initial",
     [string]$RepairOfReceiptPath,
     [string]$AdditionalPythonPath = "",
+    [string]$GitExecutablePath = "",
     [switch]$RequireLiveSdkContract
 )
 
@@ -36,7 +37,8 @@ function Invoke-WeatherGitLine {
         [string[]]$Arguments
     )
 
-    $output = @(& git -C $Root @Arguments)
+    $gitExecutable = Assert-WeatherGitExecutableIdentity -Identity $gitIdentity
+    $output = @(& $gitExecutable -C $Root @Arguments)
     if ($LASTEXITCODE -ne 0) {
         throw "git -C $Root $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }
@@ -47,6 +49,7 @@ $RepoRoot = Resolve-WeatherIntegrationPath -Path $RepoRoot
 $WorktreeRoot = Resolve-WeatherIntegrationPath -Path $WorktreeRoot
 $AttemptRoot = Resolve-WeatherIntegrationPath -Path $AttemptRoot
 $ExpectedTip = $ExpectedTip.ToLowerInvariant()
+$gitIdentity = Get-WeatherGitExecutableIdentity -Path $GitExecutablePath
 
 if ($AttemptId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
     throw "AttemptId must contain 1-48 safe task-name characters."
@@ -202,7 +205,7 @@ $maxFilesPerChunk = 20
 $expectedChunkCount = [int][math]::Ceiling($expectedTestFileCount / [double]$maxFilesPerChunk)
 
 if ($RepairClass -ne "initial") {
-    & git -C $RepoRoot merge-base --is-ancestor $priorTip $ExpectedTip
+    & (Assert-WeatherGitExecutableIdentity -Identity $gitIdentity) -C $RepoRoot merge-base --is-ancestor $priorTip $ExpectedTip
     if ($LASTEXITCODE -ne 0) {
         throw "A repair tip must descend from the exact failed tip $priorTip."
     }
@@ -247,7 +250,7 @@ if ($masterTip -ne $originMasterTip) {
 if ($productionBranch -ne "master" -or $productionHead -ne $masterTip) {
     throw "The production working tree must have exact master checked out before freezing an attempt."
 }
-& git -C $RepoRoot merge-base --is-ancestor $masterTip $ExpectedTip
+& (Assert-WeatherGitExecutableIdentity -Identity $gitIdentity) -C $RepoRoot merge-base --is-ancestor $masterTip $ExpectedTip
 if ($LASTEXITCODE -ne 0) {
     throw "The reviewed attempt tip must contain the exact production baseline $masterTip."
 }
@@ -255,6 +258,8 @@ $suiteTaskName = "WeatherIntegrationSuite_$AttemptId"
 $mergeTaskName = "WeatherIntegrationMerge_$AttemptId"
 $orchestrationPaths = [ordered]@{
     contract = Join-Path $RepoRoot "scripts\ops\integration_attempt_contract.ps1"
+    git_identity = Join-Path $RepoRoot "scripts\ops\git_executable_identity.ps1"
+    launch_diagnostics = Join-Path $RepoRoot "scripts\ops\integration_launch_diagnostics.ps1"
     attempt_creator = Join-Path $RepoRoot "scripts\ops\new_integration_attempt.ps1"
     attempt_registrar = Join-Path $RepoRoot "scripts\ops\register_integration_attempt.ps1"
     attempt_closer = Join-Path $RepoRoot "scripts\ops\close_integration_attempt.ps1"
@@ -307,6 +312,7 @@ $manifest = [ordered]@{
         merge_task_name = $mergeTaskName
     }
     suite = [ordered]@{
+        git_executable = $gitIdentity
         additional_python_path = $AdditionalPythonPath
         require_live_sdk_contract = [bool]$RequireLiveSdkContract
         expected_test_file_count = $expectedTestFileCount
@@ -362,6 +368,8 @@ if ($null -ne $priorClaimPath) {
 Write-Host "Created immutable integration attempt: $AttemptId"
 Write-Host "Manifest: $manifestPath"
 Write-Host "Manifest SHA256: $manifestSha256"
+Write-Host "Selected Git: $($gitIdentity.path)"
+Write-Host "Git SHA256: $($gitIdentity.sha256); file version: $($gitIdentity.file_version)"
 Write-Host "Suite task: $suiteTaskName at $($SuiteAtLocal.ToString('o'))"
 Write-Host "Merge task: $mergeTaskName at $($MergeAtLocal.ToString('o'))"
 Write-Host "The attempt is frozen; any repair must create a new attempt id and bind this attempt's FAIL receipt."

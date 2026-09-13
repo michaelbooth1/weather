@@ -1,0 +1,92 @@
+name: Settlement audit qualification
+
+on:
+  push:
+    branches: ['codex/bounded-settlement-audit-*']
+  pull_request:
+    paths:
+      - 'src/weather/io.py'
+      - 'src/weather/reporting/source_gates/settlement_audit*.py'
+      - 'src/weather/reporting/source_gates/settlement_source_audit.py'
+      - 'src/weather/operations/daily_refresh_trading_steps.py'
+      - 'src/weather/reporting/market/trading_evidence.py'
+      - 'tests/reporting/test_settlement*.py'
+      - 'tests/operations/test_settlement_audit_bounded_consumers.py'
+      - 'tests/test_io_streaming_limits.py'
+      - '.github/workflows/settlement-audit-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: settlement-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -e ".[test]"
+      - name: Record tested environment
+        shell: python
+        run: |
+          import json, pathlib, platform, subprocess, sys
+          out = pathlib.Path('evidence')
+          out.mkdir()
+          record = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+                    'python': sys.version, 'platform': platform.platform(),
+                    'scope': 'source qualification; no production adoption'}
+          (out / 'environment.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+          (out / 'dependencies.txt').write_bytes(subprocess.check_output([sys.executable, '-m', 'pip', 'freeze']))
+      - name: Compile and verify documentation
+        run: |
+          python -m compileall -q app src tests
+          python -m weather.operations.agent_docs_audit
+          python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+      - name: Full Linux regression suite
+        if: runner.os == 'Linux'
+        run: python -m pytest -q --junitxml=evidence/tests.xml
+      - name: Native Windows affected-owner regressions
+        if: runner.os == 'Windows'
+        run: >-
+          python -m pytest -q
+          tests/reporting/test_settlement_source_audit.py
+          tests/reporting/test_settlement_source_audit_parity.py
+          tests/reporting/test_settlement_source_audit_bounded.py
+          tests/reporting/test_settlement_source_audit_scaling.py
+          tests/reporting/test_settlement_audit_sealed_hashes.py
+          tests/reporting/test_settlement_audit_interruption.py
+          tests/operations/test_settlement_audit_bounded_consumers.py
+          tests/reporting/test_trading_evidence.py
+          tests/operations/test_daily_refresh.py
+          tests/operations/test_import_architecture.py
+          tests/test_io_streaming.py
+          tests/test_io_streaming_limits.py
+          tests/market/test_taker_profitability_artifact_verification_streaming.py
+          tests/market/test_taker_finalization_bounded_streaming.py
+          tests/backtesting/test_settlement_ledger.py
+          --junitxml=evidence/tests.xml
+          --basetemp=${{ runner.temp }}/settlement-audit-tests
+      - name: Retain qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settlement-audit-${{ runner.os }}-${{ github.sha }}
+          path: evidence/
+          retention-days: 7

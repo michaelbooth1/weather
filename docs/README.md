@@ -34,6 +34,7 @@ record that is valuable evidence but not current instruction.
 
 ## Durable technical contracts
 
+- [Settlement-source audit](operations/settlement-source-audit.md)
 - [Package dependency boundaries](operations/package-boundaries.md)
 - [Large-module ownership map](operations/module-ownership-map.md)
 - [Repository path policy](operations/path-policy.md)

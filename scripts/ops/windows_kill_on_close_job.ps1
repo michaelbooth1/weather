@@ -13,6 +13,7 @@ if (-not ("Weather.Operations.KillOnCloseJob" -as [type])) {
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -219,7 +220,8 @@ namespace Weather.Operations
             string executable,
             string arguments,
             string workingDirectory,
-            bool interactive
+            bool interactive,
+            CapturedOutput output = null
         )
         {
             if (String.IsNullOrWhiteSpace(executable))
@@ -238,20 +240,35 @@ namespace Weather.Operations
                 "\"" + executable + "\"" +
                 (String.IsNullOrWhiteSpace(arguments) ? "" : " " + arguments)
             );
-            bool created = CreateProcess(
-                executable,
-                commandLine,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                // Console attachment does not require inheriting every ambient
-                // inheritable handle held by the launcher process.
-                false,
-                CREATE_SUSPENDED | (interactive ? 0 : CREATE_NO_WINDOW),
-                IntPtr.Zero,
-                workingDirectory,
-                ref startup,
-                out processInfo
-            );
+            bool created;
+            if (output == null)
+            {
+                created = CreateProcess(
+                    executable, commandLine, IntPtr.Zero, IntPtr.Zero,
+                    // Console attachment does not require inheriting every ambient
+                    // inheritable handle held by the launcher process.
+                    false, CREATE_SUSPENDED | (interactive ? 0 : CREATE_NO_WINDOW),
+                    IntPtr.Zero, workingDirectory, ref startup, out processInfo
+                );
+            }
+            else
+            {
+                STARTUPINFOEX extended = new STARTUPINFOEX();
+                extended.StartupInfo = startup;
+                extended.StartupInfo.cb = Marshal.SizeOf(extended);
+                extended.StartupInfo.dwFlags = 0x00000100; // STARTF_USESTDHANDLES
+                extended.StartupInfo.hStdInput = output.InputHandle;
+                extended.StartupInfo.hStdOutput = output.OutputHandle;
+                extended.StartupInfo.hStdError = output.ErrorHandle;
+                extended.AttributeList = output.AttributeList;
+                created = CreateProcessWithAttributes(
+                    executable, commandLine, IntPtr.Zero, IntPtr.Zero,
+                    // TRUE is required with HANDLE_LIST; only its three handles
+                    // can be inherited. The Job and parent reader handles cannot.
+                    true, CREATE_SUSPENDED | CREATE_NO_WINDOW | 0x00080000,
+                    IntPtr.Zero, workingDirectory, ref extended, out processInfo
+                );
+            }
             if (!created)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess(CREATE_SUSPENDED) failed");
@@ -320,6 +337,269 @@ namespace Weather.Operations
                 workingDirectory,
                 true
             );
+        }
+
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct STARTUPINFOEX
+        {
+            public STARTUPINFO StartupInfo;
+            public IntPtr AttributeList;
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CreateProcessWithAttributes(
+            string applicationName, StringBuilder commandLine,
+            IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles,
+            UInt32 creationFlags, IntPtr environment, string currentDirectory,
+            ref STARTUPINFOEX startupInfo, out PROCESS_INFORMATION processInformation
+        );
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SECURITY_ATTRIBUTES
+        {
+            public Int32 Length;
+            public IntPtr SecurityDescriptor;
+            [MarshalAs(UnmanagedType.Bool)] public bool InheritHandle;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CreatePipe(out IntPtr read, out IntPtr write,
+            ref SECURITY_ATTRIBUTES attributes, UInt32 size);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetHandleInformation(IntPtr handle, UInt32 mask, UInt32 flags);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateFile(string name, UInt32 access, UInt32 share,
+            ref SECURITY_ATTRIBUTES attributes, UInt32 disposition, UInt32 flags, IntPtr template);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool InitializeProcThreadAttributeList(
+            IntPtr list, Int32 count, UInt32 flags, ref IntPtr size);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool UpdateProcThreadAttribute(
+            IntPtr list, UInt32 flags, IntPtr attribute, IntPtr value,
+            IntPtr size, IntPtr previous, IntPtr returned);
+        [DllImport("kernel32.dll")]
+        private static extern void DeleteProcThreadAttributeList(IntPtr list);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool PeekNamedPipe(IntPtr pipe, IntPtr buffer, UInt32 size,
+            IntPtr read, out UInt32 available, IntPtr remaining);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ReadFile(IntPtr file, byte[] buffer, UInt32 count,
+            out UInt32 read, IntPtr overlapped);
+
+        // Single-reader polling keeps teardown bounded: no background reader can
+        // hold a stream/lease while blocked waiting for an inherited pipe to close.
+        public sealed class CapturedOutput : IDisposable
+        {
+            private sealed class PipeOutput : IDisposable
+            {
+                internal IntPtr ReadHandle;
+                internal IntPtr WriteHandle;
+                internal FileStream File;
+                internal readonly string Path;
+                internal readonly Int32 Limit;
+                internal Int64 Total;
+                internal Int64 Retained;
+                internal bool Eof;
+                private readonly byte[] buffer = new byte[8192];
+
+                internal PipeOutput(string path, Int32 limit)
+                {
+                    Path = path;
+                    Limit = limit;
+                    try
+                    {
+                        File = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                        SECURITY_ATTRIBUTES attributes = new SECURITY_ATTRIBUTES();
+                        attributes.Length = Marshal.SizeOf(attributes);
+                        attributes.InheritHandle = true;
+                        if (!CreatePipe(out ReadHandle, out WriteHandle, ref attributes, 0))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed");
+                        if (!SetHandleInformation(ReadHandle, 1, 0))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Pipe reader inheritance removal failed");
+                    }
+                    catch { Dispose(); throw; }
+                }
+
+                internal void CloseWriter()
+                {
+                    if (WriteHandle != IntPtr.Zero) { CloseHandle(WriteHandle); WriteHandle = IntPtr.Zero; }
+                }
+
+                internal void Drain()
+                {
+                    // Bound each turn even when the child writes continuously.
+                    for (Int32 budget = 65536; budget > 0 && !Eof; )
+                    {
+                        UInt32 available;
+                        if (!PeekNamedPipe(ReadHandle, IntPtr.Zero, 0, IntPtr.Zero, out available, IntPtr.Zero))
+                        {
+                            Int32 error = Marshal.GetLastWin32Error();
+                            if (error == 109) { Eof = true; return; } // ERROR_BROKEN_PIPE
+                            throw new Win32Exception(error, "Output pipe peek failed");
+                        }
+                        if (available == 0) return;
+                        UInt32 read;
+                        UInt32 count = Math.Min(available, (UInt32)Math.Min(buffer.Length, budget));
+                        if (!ReadFile(ReadHandle, buffer, count, out read, IntPtr.Zero))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Output pipe read failed");
+                        if (read == 0) { Eof = true; return; }
+                        Total = checked(Total + read);
+                        Int32 retain = (Int32)Math.Min((Int64)read, Limit - Retained);
+                        if (retain > 0)
+                        {
+                            File.Write(buffer, 0, retain);
+                            Retained += retain;
+                            File.Flush();
+                        }
+                        budget -= (Int32)read;
+                    }
+                }
+
+                public void Dispose()
+                {
+                    CloseWriter();
+                    if (ReadHandle != IntPtr.Zero) { CloseHandle(ReadHandle); ReadHandle = IntPtr.Zero; }
+                    if (File != null)
+                    {
+                        try { File.Flush(true); }
+                        finally { File.Dispose(); File = null; }
+                    }
+                }
+            }
+
+            private PipeOutput stdout;
+            private PipeOutput stderr;
+            internal IntPtr InputHandle;
+            internal IntPtr AttributeList;
+            private IntPtr handleList;
+            private bool attributesInitialized;
+            private bool disposed;
+            private bool used;
+            public bool Completed { get; private set; }
+            public string StdoutPath { get { return stdout.Path; } }
+            public string StderrPath { get { return stderr.Path; } }
+            public Int64 StdoutBytesSeen { get { return stdout.Total; } }
+            public Int64 StderrBytesSeen { get { return stderr.Total; } }
+            public Int64 StdoutBytesRetained { get { return stdout.Retained; } }
+            public Int64 StderrBytesRetained { get { return stderr.Retained; } }
+            public bool StdoutTruncated { get { return stdout.Total > stdout.Retained; } }
+            public bool StderrTruncated { get { return stderr.Total > stderr.Retained; } }
+            internal IntPtr OutputHandle { get { return stdout.WriteHandle; } }
+            internal IntPtr ErrorHandle { get { return stderr.WriteHandle; } }
+
+            private static string ValidatePath(string path)
+            {
+                if (String.IsNullOrWhiteSpace(path) || path.Length < 3 || !Char.IsLetter(path[0]) ||
+                    path[1] != ':' || (path[2] != '\\' && path[2] != '/'))
+                    throw new ArgumentException("Output path must be an absolute local drive path.");
+                string full = System.IO.Path.GetFullPath(path);
+                DirectoryInfo parent = new DirectoryInfo(System.IO.Path.GetDirectoryName(full));
+                for (DirectoryInfo current = parent; current != null; current = current.Parent)
+                    if (!current.Exists || (current.Attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new ArgumentException("Output parent must exist and may not traverse a reparse point.");
+                return full;
+            }
+
+            public CapturedOutput(string stdoutPath, string stderrPath, Int32 maxBytesPerStream)
+            {
+                if (maxBytesPerStream < 1024 || maxBytesPerStream > 8388608)
+                    throw new ArgumentOutOfRangeException("maxBytesPerStream");
+                stdoutPath = ValidatePath(stdoutPath);
+                stderrPath = ValidatePath(stderrPath);
+                if (String.Equals(stdoutPath, stderrPath, StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("Stdout and stderr require distinct paths.");
+                try
+                {
+                    stdout = new PipeOutput(stdoutPath, maxBytesPerStream);
+                    stderr = new PipeOutput(stderrPath, maxBytesPerStream);
+                    SECURITY_ATTRIBUTES attributes = new SECURITY_ATTRIBUTES();
+                    attributes.Length = Marshal.SizeOf(attributes);
+                    attributes.InheritHandle = true;
+                    InputHandle = CreateFile("NUL", 0x80000000, 3, ref attributes, 3, 0, IntPtr.Zero);
+                    if (InputHandle == new IntPtr(-1))
+                    {
+                        InputHandle = IntPtr.Zero;
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Opening NUL stdin failed");
+                    }
+                    IntPtr size = IntPtr.Zero;
+                    InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
+                    if (size == IntPtr.Zero)
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Attribute-list sizing failed");
+                    AttributeList = Marshal.AllocHGlobal(size);
+                    if (!InitializeProcThreadAttributeList(AttributeList, 1, 0, ref size))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Attribute-list initialization failed");
+                    attributesInitialized = true;
+                    handleList = Marshal.AllocHGlobal(IntPtr.Size * 3);
+                    Marshal.WriteIntPtr(handleList, 0, InputHandle);
+                    Marshal.WriteIntPtr(handleList, IntPtr.Size, OutputHandle);
+                    Marshal.WriteIntPtr(handleList, IntPtr.Size * 2, ErrorHandle);
+                    // PROC_THREAD_ATTRIBUTE_HANDLE_LIST, never ambient inheritance.
+                    if (!UpdateProcThreadAttribute(AttributeList, 0, new IntPtr(0x20002),
+                        handleList, new IntPtr(IntPtr.Size * 3), IntPtr.Zero, IntPtr.Zero))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Restricted handle-list update failed");
+                }
+                catch { Dispose(); throw; }
+            }
+
+            internal void Claim()
+            {
+                if (disposed || used) throw new InvalidOperationException("Output capture can launch only one child.");
+                used = true;
+            }
+
+            internal void CloseChildHandles()
+            {
+                if (stdout != null) stdout.CloseWriter();
+                if (stderr != null) stderr.CloseWriter();
+                if (InputHandle != IntPtr.Zero) { CloseHandle(InputHandle); InputHandle = IntPtr.Zero; }
+                if (attributesInitialized) { DeleteProcThreadAttributeList(AttributeList); attributesInitialized = false; }
+                if (AttributeList != IntPtr.Zero) { Marshal.FreeHGlobal(AttributeList); AttributeList = IntPtr.Zero; }
+                if (handleList != IntPtr.Zero) { Marshal.FreeHGlobal(handleList); handleList = IntPtr.Zero; }
+            }
+
+            public void Drain()
+            {
+                if (disposed) throw new ObjectDisposedException("CapturedOutput");
+                stdout.Drain();
+                stderr.Drain();
+            }
+
+            // Call only after the containing Job proves zero active processes.
+            public void Complete(Int32 timeoutMilliseconds)
+            {
+                if (timeoutMilliseconds < 0) throw new ArgumentOutOfRangeException("timeoutMilliseconds");
+                Stopwatch wait = Stopwatch.StartNew();
+                while (true)
+                {
+                    Drain();
+                    if (stdout.Eof && stderr.Eof) break;
+                    if (wait.ElapsedMilliseconds >= timeoutMilliseconds)
+                        throw new TimeoutException("Output pipes did not reach EOF before the drain deadline.");
+                    Thread.Sleep(1);
+                }
+                stdout.File.Flush(true);
+                stderr.File.Flush(true);
+                Completed = true;
+            }
+
+            public void Dispose()
+            {
+                if (disposed) return;
+                disposed = true;
+                CloseChildHandles();
+                try { if (stdout != null) stdout.Dispose(); }
+                finally { if (stderr != null) stderr.Dispose(); }
+            }
+        }
+
+        public Process StartAssignedWithOutput(string executable, string arguments,
+            string workingDirectory, CapturedOutput output)
+        {
+            if (output == null) throw new ArgumentNullException("output");
+            output.Claim();
+            try { return StartAssignedInternal(executable, arguments, workingDirectory, false, output); }
+            finally { output.CloseChildHandles(); }
         }
 
         private UInt32 ActiveProcessCount()
@@ -425,9 +705,13 @@ function Start-WeatherProcessInJob {
         [Parameter(Mandatory = $true)]
         [string]$ArgumentString,
         [Parameter(Mandatory = $true)]
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        [Weather.Operations.KillOnCloseJob+CapturedOutput]$OutputCapture = $null
     )
 
+    if ($null -ne $OutputCapture) {
+        return $Job.StartAssignedWithOutput($FilePath, $ArgumentString, $WorkingDirectory, $OutputCapture)
+    }
     return $Job.StartAssigned($FilePath, $ArgumentString, $WorkingDirectory)
 }
 

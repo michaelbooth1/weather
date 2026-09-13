@@ -25,12 +25,16 @@ From the repository root on Windows:
 ```
 
 `pytest.ini` collects only `tests/` and exposes `src/`. The editable install is
-still the primary package contract. CI uses Python 3.11 on Ubuntu, so production
-modules must remain cross-platform even though scheduled operations are Windows
-specific. Tests that actually execute Windows PowerShell, ACL, Scheduler, or
-Job semantics carry precise non-Windows skips; their static and portable Python
-contracts continue to run on Ubuntu, while executable Windows coverage remains
-part of the admitted production-host bounded suite.
+still the primary package contract. The full CI suite uses Python 3.11 on
+Ubuntu; the [Windows qualification workflow](../.github/workflows/windows-qualification.yml)
+adds exact-candidate native launch/integration regressions under Windows
+PowerShell 5.1. Production modules must remain cross-platform. Tests that
+execute Windows PowerShell, ACL, Scheduler or Job semantics carry precise
+non-Windows skips; their static and portable contracts continue to run on Ubuntu.
+Hosted Windows evidence records its actual scope, candidate/tree, workflow and
+resolved dependencies. It does not replace the admitted production-host bounded
+suite or the actual-host S4U smoke. The existing production acceptance contract
+remains in force until a separately reviewed substitution is qualified.
 
 On the 16 GB production capture host, the commands above are not authority to
 run a direct full suite or parallel verification. Focused tests run serially

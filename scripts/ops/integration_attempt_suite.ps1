@@ -14,6 +14,18 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$launchJournal = $null
+trap {
+    Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
+    throw
+}
+. (Join-Path $PSScriptRoot "integration_launch_diagnostics.ps1")
+$launchJournal = New-WeatherLaunchDiagnostics `
+    -Path ($ManifestPath + ".suite-bootstrap.jsonl") -Operation "integration_suite" `
+    -ScriptPath $PSCommandPath -Binding ([ordered]@{
+        manifest_path = $ManifestPath
+        expected_manifest_sha256 = $ExpectedManifestSha256
+    })
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
 
@@ -38,6 +50,16 @@ function Invoke-WeatherAttemptSuitePhase {
         "-LogPath", $LogPath,
         "-MaxFilesPerChunk", [string]$manifest.suite.max_files_per_chunk
     )
+    $gitIdentityProperty = $manifest.suite.PSObject.Properties["git_executable"]
+    if ($null -ne $gitIdentityProperty) {
+        $identity = $gitIdentityProperty.Value
+        Assert-WeatherGitExecutableIdentity -Identity $identity | Out-Null
+        $tokens += @(
+            "-GitExecutablePath", [string]$identity.path,
+            "-ExpectedGitExecutableSha256", [string]$identity.sha256,
+            "-ExpectedGitExecutableFileVersion", [string]$identity.file_version
+        )
+    }
     if (-not [string]::IsNullOrWhiteSpace([string]$manifest.suite.additional_python_path)) {
         $tokens += @("-AdditionalPythonPath", [string]$manifest.suite.additional_python_path)
     }
@@ -51,27 +73,105 @@ function Invoke-WeatherAttemptSuitePhase {
     $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
     $job = $null
     $process = $null
+    $output = $null
+    $treeGone = $false
+    $remainingMilliseconds = {
+        # Wall-clock rollback cannot extend the original suite budget.
+        [int][Math]::Max(0, [Math]::Min(
+            ($hardStop - (Get-Date)).TotalMilliseconds,
+            $suiteDeadlineBudgetMilliseconds - $suiteDeadlineClock.ElapsedMilliseconds
+        ))
+    }
     try {
-        Write-Host "$Phase starting for attempt $($manifest.attempt_id)"
+        if ((& $remainingMilliseconds) -le 8000) {
+            throw "$Phase has no payload budget before the 09:00 teardown reserve"
+        }
         $job = New-WeatherKillOnCloseJob
+        $output = [Weather.Operations.KillOnCloseJob+CapturedOutput]::new(
+            ($LogPath + ".stdout.log"), ($LogPath + ".stderr.log"), 1048576
+        )
+        Write-Host "$Phase starting for attempt $($manifest.attempt_id)"
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_INTENT" -Detail ([ordered]@{
+            phase = $Phase
+            executable = $powerShellExecutable
+            phase_log = $LogPath
+            child_bootstrap = $LogPath + ".bootstrap.jsonl"
+            stdout_path = $output.StdoutPath
+            stderr_path = $output.StderrPath
+            max_bytes_per_stream = 1048576
+        })
         $process = Start-WeatherProcessInJob `
             -Job $job `
             -FilePath $powerShellExecutable `
             -ArgumentString $argumentString `
-            -WorkingDirectory ([string]$manifest.repo_root)
+            -WorkingDirectory ([string]$manifest.repo_root) `
+            -OutputCapture $output
+        if (-not $IntegrationPreflight) {
+            $suiteLaunchState.full_suite_started = $true
+        }
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_STARTED" -Detail ([ordered]@{
+            phase = $Phase
+            child_pid = $process.Id
+        })
         while (-not $process.HasExited) {
-            if ((Get-Date) -ge $hardStop) {
-                throw "$Phase reached the 09:00 hard teardown boundary"
+            if ((& $remainingMilliseconds) -le 8000) {
+                throw "$Phase reached the 09:00 hard teardown boundary reserve"
             }
-            Start-Sleep -Seconds 2
+            $output.Drain()
+            Start-Sleep -Milliseconds 50
             $process.Refresh()
         }
         $process.WaitForExit()
+        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_EXIT" -Detail ([ordered]@{
+            phase = $Phase
+            exit_code = [int]$process.ExitCode
+        })
         return [int]$process.ExitCode
     }
     finally {
-        if ($job) { $job.Dispose() }
-        if ($process) { $process.Dispose() }
+        try {
+            if ($job) {
+                $job.TerminateAndWait([Math]::Min(5000, [Math]::Max(0, (& $remainingMilliseconds) - 3000)))
+                $treeGone = $true
+            }
+            if ($output) {
+                $output.Complete([Math]::Min(2000, [Math]::Max(0, (& $remainingMilliseconds) - 1000)))
+            }
+        }
+        finally {
+            try {
+                if ($job) { $job.Dispose() }
+                if ($process) { $process.Dispose() }
+            }
+            finally {
+                if ($output) {
+                    try { $output.Dispose() }
+                    finally {
+                        $nativeEvidence = [ordered]@{
+                            phase = $Phase
+                            teardown_proved = $treeGone
+                            drain_completed = $output.Completed
+                            stdout = [ordered]@{
+                                path = $output.StdoutPath
+                                sha256 = Get-WeatherIntegrationFileSha256 -Path $output.StdoutPath
+                                bytes_seen = $output.StdoutBytesSeen
+                                bytes_retained = $output.StdoutBytesRetained
+                                truncated = $output.StdoutTruncated
+                            }
+                            stderr = [ordered]@{
+                                path = $output.StderrPath
+                                sha256 = Get-WeatherIntegrationFileSha256 -Path $output.StderrPath
+                                bytes_seen = $output.StderrBytesSeen
+                                bytes_retained = $output.StderrBytesRetained
+                                truncated = $output.StderrTruncated
+                            }
+                        }
+                        $suiteLaunchState.output_records.Add([pscustomobject]$nativeEvidence)
+                        Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "CHILD_OUTPUT" -Detail $nativeEvidence
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -80,8 +180,9 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         [Parameter(Mandatory = $true)][string]$Phase
     )
 
+    $qualificationGit = Get-WeatherIntegrationQualificationGit -Manifest $manifest
     $registered = $false
-    $worktreeRows = @(& git -C ([string]$manifest.repo_root) worktree list --porcelain)
+    $worktreeRows = @(& $qualificationGit -C ([string]$manifest.repo_root) worktree list --porcelain)
     if ($LASTEXITCODE -ne 0) {
         throw "$Phase could not enumerate registered worktrees."
     }
@@ -98,11 +199,11 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         throw "$Phase suite worktree is no longer registered by the production repository."
     }
 
-    $worktreeTipRows = @(& git -C ([string]$manifest.worktree_root) rev-parse HEAD)
+    $worktreeTipRows = @(& $qualificationGit -C ([string]$manifest.worktree_root) rev-parse HEAD)
     if ($LASTEXITCODE -ne 0 -or $worktreeTipRows.Count -ne 1) {
         throw "$Phase could not resolve the suite worktree HEAD."
     }
-    $branchTipRows = @(& git -C ([string]$manifest.repo_root) rev-parse ([string]$manifest.branch_ref))
+    $branchTipRows = @(& $qualificationGit -C ([string]$manifest.repo_root) rev-parse ([string]$manifest.branch_ref))
     if ($LASTEXITCODE -ne 0 -or $branchTipRows.Count -ne 1) {
         throw "$Phase could not resolve the frozen branch ref."
     }
@@ -113,11 +214,11 @@ function Assert-WeatherAttemptSuiteWorktreeState {
         throw "$Phase suite worktree or branch no longer resolves to the frozen expected tip."
     }
 
-    $dirty = @(& git -C ([string]$manifest.worktree_root) status --porcelain)
+    $dirty = @(& $qualificationGit -C ([string]$manifest.worktree_root) status --porcelain)
     if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
         throw "$Phase suite worktree is not clean."
     }
-    $trackedTestRows = @(& git -C ([string]$manifest.worktree_root) ls-files -- tests)
+    $trackedTestRows = @(& $qualificationGit -C ([string]$manifest.worktree_root) ls-files -- tests)
     if ($LASTEXITCODE -ne 0) {
         throw "$Phase could not enumerate the frozen pytest inventory."
     }
@@ -187,13 +288,20 @@ if ($localMinute -lt 30 -or $localMinute -ge (9 * 60)) {
     throw "Integration-attempt suite must start inside the 00:30-09:00 heavy-work window."
 }
 $hardStop = $localNow.Date.AddHours(9)
+$suiteDeadlineBudgetMilliseconds = ($hardStop - $localNow).TotalMilliseconds
+$suiteDeadlineClock = [Diagnostics.Stopwatch]::StartNew()
 $startedAt = $localNow.ToString("o")
 $status = "FAIL"
 $failure = $null
+$failureRecord = $null
 $preflightExitCode = $null
 $fullSuiteExitCode = $null
 $preflightVerdict = $null
 $fullSuiteVerdict = $null
+$suiteLaunchState = [pscustomobject]@{
+    full_suite_started = $false
+    output_records = New-Object System.Collections.Generic.List[object]
+}
 
 try {
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
@@ -232,6 +340,7 @@ try {
 }
 catch {
     $failure = $_.Exception.Message
+    $failureRecord = $_
     Write-Error $failure -ErrorAction Continue
 }
 finally {
@@ -271,6 +380,9 @@ finally {
         registration_intent_sha256 = $suiteTaskBinding.RegistrationIntentSha256
         branch_ref = [string]$manifest.branch_ref
         expected_tip = [string]$manifest.expected_tip
+        git_executable = if ($null -eq $manifest.suite.PSObject.Properties["git_executable"]) {
+            $null
+        } else { $manifest.suite.git_executable }
         worktree_root = [string]$manifest.worktree_root
         started_at_local = $startedAt
         completed_at_local = (Get-Date).ToString("o")
@@ -289,7 +401,8 @@ finally {
             preflight = $preflightLogRecord
             full_suite = $fullSuiteLogRecord
         }
-        full_suite_started = ($null -ne $fullSuiteExitCode -or (Test-Path -LiteralPath $fullSuiteLogPath -PathType Leaf))
+        full_suite_started = [bool]$suiteLaunchState.full_suite_started
+        native_output = @($suiteLaunchState.output_records | ForEach-Object { $_ })
         safety = [ordered]@{
             authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
             credential_value_access_authorized = $false
@@ -298,6 +411,8 @@ finally {
     }
     Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath -Payload $receipt
 }
+
+Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $status -Failure $failureRecord
 
 if ($status -ne "PASS") {
     Write-Host "Integration attempt $($manifest.attempt_id) failed. Evidence is frozen; repair by creating a new attempt bound to this FAIL receipt."
