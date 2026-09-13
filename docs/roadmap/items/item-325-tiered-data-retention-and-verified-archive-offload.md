@@ -1,4 +1,52 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - APPROVED CONTINUATION ARMED]
+
+## September 13 approved continuation for September 14
+
+**ARMED; execution and additional reclaim remain unproved.** The owner resumed
+the existing private Google Drive offload, approved the 20 GiB archive reserve
+for September 14 00:30-04:42 America/Toronto, and explicitly authorized transfer
+and verified deletion of the exact 20 reviewed batches. This supersedes the
+September 11 pause described in the historical checkpoints below.
+
+The unchanged allocation counter is 79,105,806,336 bytes from 1,679 original
+files in 85 completed batches. The next 20 chunks represent 13,772,853,248
+approval-time bytes, which are an upper-bound planning input, not new savings.
+One resumes after an independently reverified cloud upload; one resumes after
+successful staging. The remaining 18 have not started. The 78 stranded primary
+paths and conditional explanation-CSV reserve are outside this initial one-shot.
+
+[PR 64](https://github.com/michaelbooth1/weather/pull/64) pins the production
+controller at 7aca80915a2445f20e6f9d407eb499221f1e1e8a, stacked on the frozen archive
+source. Its separate native qualification branch is
+c7a4dd58193e84ec2a19e5af3105dcc9c9272ad6. The existing workstation upload source
+stays frozen. This is an isolated archive execution source, not runtime adoption.
+
+Validation passed 547 native Windows archive checks and 29 native PowerShell
+controller checks. The actual production S4U metadata preflight passed on
+September 13 at 18:15 Toronto with complete child teardown, zero source removals,
+and matching conditional-compression metadata preflight. The registered run is
+a single 00:30 launch with no late catch-up and an absolute 04:42 payload stop.
+The separate competing early compression task was disabled only after its
+exact XML and non-running state matched the retained registration proof.
+
+Below 22 GiB initial archive headroom, the serial controller first invokes the
+existing admitted retained-file compression lane. Its separate target restores
+working space; it retains all originals. Every archive reclaim still requires
+native identities and full hashes, current settlement/protected-input review,
+independent cloud-download verification, and recovery metadata backed up before
+and after reclaim. The ordinary 50 GiB qualification floor and 04:45-06:45 tiering
+reservation remain unchanged. Scheduled execution is not a successful reclaim.
+
+Private evidence remains under
+scratch/archive_plain_campaigns/plain-20260914-a1/: preflight wrapper/result,
+registration-run intent/XML/readback, and exact L12 retirement receipts.
+The immutable configuration and renewed approval records are under
+scratch/handoffs/. The prior complete recovery index and fresh existing-object
+download proof remain retained. The future run directory will hold every phase
+event, native receipt binding, backup proof and canonical-counter outcome.
+Use the [location and restore runbook](../../operations/cold-archive-locations.md)
+for retrieval; private cloud IDs and credential references are not published here.
+
 
 ## September 13 retained-file qualification reserve
 
