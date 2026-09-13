@@ -558,6 +558,9 @@ Disposable storage-wrapper test assignments bind the machine actually executing
 the fixture, never a configured portable workstation. Their native Windows CI
 coverage includes positive, wrong-host, binding and child-teardown cases; the
 production assignment and admission gates are unchanged.
+Native Windows CI also exercises original and temporary archive removal under
+real NTFS handles. Its synthetic fixture budget accommodates durable receipt
+flushes; explicit expiry tests retain deadline-refusal coverage.
 
 
 The bounded suite rechecks disk reserve, capture health and the abort commit
