@@ -554,6 +554,10 @@ boolean as a measured credential or exchange outcome.
 A clean local Git status is a valid zero-row query. Native Windows qualification
 exercises both empty and nonempty query results at the runner's entry and exit
 under Windows PowerShell 5.1 strict mode; empty status must not fail before tests.
+Disposable storage-wrapper test assignments bind the machine actually executing
+the fixture, never a configured portable workstation. Their native Windows CI
+coverage includes positive, wrong-host, binding and child-teardown cases; the
+production assignment and admission gates are unchanged.
 
 
 Before merging this procedure, parse every changed PowerShell file, run the
