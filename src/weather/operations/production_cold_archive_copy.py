@@ -263,7 +263,7 @@ def run_copy(args):
         plan_path = archive._safe_path(Path(request["plan_path"]))
         stack.enter_context(bridge._file_pin(plan_path))
         plan, reserve = staging.load_plan_with_reserve(
-            plan_path, request["plan_sha256"], owner_approved_exception=exception)
+            plan_path, request["plan_sha256"], owner_approved_exception=exception, deadline=deadline)
         chunk = staging.validate_chunk(plan, request["chunk_id"], root, now)
         known = archive._safe_path(Path(request["known_hosts"]))
         stack.enter_context(bridge._file_pin(known))

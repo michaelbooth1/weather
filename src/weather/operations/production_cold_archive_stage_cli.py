@@ -45,6 +45,16 @@ OVERNIGHT_DAY_PLAN_SHA256 = "96105932f57c12943de26c51e0a33c6ec6082dea20adcbcb4a9
 OVERNIGHT_PACKED_PLAN_SHA256 = "d96e680cf1c9df62d4d8929ef8b6efd5b8e98b137e5f661a5313887156a88c26"
 OVERNIGHT_SELECTION_SHA256 = "566e0fd15a0095c131068cc4ef3cf09e715ca570b1205286e6e6fd6927f607c9"
 OVERNIGHT_RESERVE_BYTES = 6 * GIB
+# Owner renewal 2026-09-13: existing plans, September 14 00:30-04:42 Toronto.
+RESUMPTION_PLAN_SHA256 = {
+    "2faae41470c42508a8639e98ec17ace7ecebc0b8715c09eaa92d33c0845251d3":
+        "566e0fd15a0095c131068cc4ef3cf09e715ca570b1205286e6e6fd6927f607c9",
+    "92878b66c9cb04f476de89ef6fac4d12203b5fe8b8a0b5f337a0c4a103caefbc":
+        "f56c554f9b93d58287cf751ea61b788471b13693b8e195e176f8942c38f0f5dd",
+}
+RESUMPTION_START = datetime(2026, 9, 14, 4, 30, tzinfo=timezone.utc)
+RESUMPTION_END = datetime(2026, 9, 14, 8, 42, tzinfo=timezone.utc)
+RESUMPTION_RESERVE_BYTES = 20 * GIB
 EVIDENCE_RESERVE_BYTES = 16 * 1024**2
 MAX_CHUNK_BYTES = GIB
 
@@ -142,7 +152,7 @@ def _read_pinned_json(path, maximum, expected_hash):
     return value, raw
 
 
-def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exception=""):
+def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exception="", deadline=None):
     # Verify actual bytes before granting the exception; a claimed digest is
     # insufficient. Every different or regenerated plan retains the normal floor.
     plan, _ = _read_pinned_json(path, MAX_PLAN_BYTES, expected_hash)
@@ -151,6 +161,12 @@ def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exce
             plan.get("selection_sha256") == APPROVED_ARCHIVE_SELECTION_SHA256):
         reserve = APPROVED_ARCHIVE_RESERVE_BYTES
     current = now or datetime.now(timezone.utc)
+    if (expected_hash in RESUMPTION_PLAN_SHA256
+            and plan.get("selection_sha256") == RESUMPTION_PLAN_SHA256[expected_hash]
+            and RESUMPTION_START <= current < RESUMPTION_END):
+        if deadline is None or not current < deadline <= RESUMPTION_END - timedelta(seconds=15):
+            raise ValueError("renewed archive reserve requires a deadline that preserves teardown")
+        reserve = RESUMPTION_RESERVE_BYTES
     if (expected_hash in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256, OVERNIGHT_PACKED_PLAN_SHA256)
             and plan.get("selection_sha256") == OVERNIGHT_SELECTION_SHA256
             and (
@@ -252,7 +268,7 @@ def _run_pinned(args, production_root, output, request_path):
     verify_archive_deadline(deadline, now, exception)
     plan_path = Path(request["plan_path"])
     plan, source_reserve_bytes = load_plan_with_reserve(
-        plan_path, request["plan_sha256"], owner_approved_exception=exception)
+        plan_path, request["plan_sha256"], owner_approved_exception=exception, deadline=deadline)
     chunk = validate_chunk(plan, request["chunk_id"], production_root, now)
     # The core reserves its complete worst-case output before opening a source
     # and enforces the remaining reserve on every write. Ongoing health probes

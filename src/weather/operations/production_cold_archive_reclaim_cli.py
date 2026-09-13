@@ -144,7 +144,7 @@ def _run_pinned(args, root, output, request_path, stack):
     plan_spec = request["plan"]
     stack.enter_context(reclaim.bridge._file_pin(reclaim.locations.safe_path(plan_spec["path"])))
     _, reserve = staging.load_plan_with_reserve(
-        Path(plan_spec["path"]), plan_spec["sha256"], owner_approved_exception=exception)
+        Path(plan_spec["path"]), plan_spec["sha256"], owner_approved_exception=exception, deadline=deadline)
     last_check, last_admission, capture_loops = 0.0, {}, []
 
     def resource_check(**observed):
