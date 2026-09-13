@@ -234,7 +234,7 @@ $ast = [Management.Automation.Language.Parser]::ParseFile(
     $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors
 )
 if ($errors.Count) { throw 'runner parse failure' }
-$expectedRows = @(ConvertFrom-Json $env:WEATHER_BOUNDED_SUITE_ROWS)
+$expectedRows = @(ConvertFrom-Json $env:WEATHER_BOUNDED_SUITE_ROWS | ForEach-Object { $_ })
 $RepoRoot = $env:TEMP
 $WorktreeRoot = $env:TEMP
 $BranchRef = 'refs/heads/test'
