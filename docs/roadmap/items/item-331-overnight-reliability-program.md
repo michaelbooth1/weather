@@ -47,6 +47,33 @@ The initial branch is `codex/reliability-native-launch-20260912`, based on fresh
 fetched `origin/master` at `f3814173775335adb546b7201a2e73ecec7703bf`.
 Existing generated configuration edits are outside the implementation scope.
 
+## September 13 morning disposition
+
+The 06:45 exact-source host attempt at
+`68a96a52bb08e306b36dcd23ce12964a4be1da6c` passed its S4U preflight,
+then stopped during full-suite chunk 11 when host commit reached 67.19%, above
+the unchanged 66% abort ceiling. Its continuous guard disposed the test child
+tree. Ten complete JUnit chunks retain one native archive-fixture failure;
+the interrupted and remaining chunks have no passing verdict. The dependent
+current-input audit refused the failed suite and performed no merge.
+
+The native archive fixture now reserves 120 seconds for durable NTFS receipt
+flushes instead of its generic 30-second test deadline. Production deadlines
+and the explicit expired-deadline fault test remain unchanged. Hosted Windows
+qualification now includes the complete native reclaim test file. A separate
+receipt-publication race repair from [PR 63](https://github.com/michaelbooth1/weather/pull/63)
+is merged into the cumulative [PR 61 candidate](https://github.com/michaelbooth1/weather/pull/61),
+with its deterministic concurrency regression also added to native Windows CI.
+
+The six spent qualification, follow-through and agent-memory-release task
+definitions were disabled after exact hash and terminal-state verification.
+Their original evidence remains unchanged. Existing recurring definitions were
+unchanged against the reviewed inventory; training and archive upload remain
+held. Fresh current-input acceptance and guarded production adoption are still
+required. A new complete host suite may use the existing general runner's
+smaller chunk parameter under a separately frozen first-landing review; this
+does not change the canonical immutable-attempt schema's 20-file contract.
+
 ## Ordered work packages
 
 | Package | Outcome | Acceptance / dependency |
