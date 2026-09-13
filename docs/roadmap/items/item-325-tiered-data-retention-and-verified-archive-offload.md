@@ -1,4 +1,55 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-11 - HEADROOM ACCEPTED; UPLOADS PAUSED]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED]
+
+## September 13 retained-file qualification reserve
+
+The owner's September 12 overnight audit/progress instruction continued the
+existing lossless compression lane. Archive uploads and further original-source
+archive reclaim remain paused. The ordinary suite's 50 GiB disk floor was not
+lowered to admit qualification.
+
+At 02:16 Toronto, the bounded serial campaign had verified **1,335 distinct
+files and 12,808,867,840 allocated bytes saved**, with every source retained at
+its original path. Content hashes, native identities and timestamps match.
+This is NTFS compress-and-retain capacity, separate from the archive counter below.
+
+| August target date | Verified files | Allocated bytes saved | Selection disposition |
+| --- | ---: | ---: | --- |
+| 6 | 222 | 2,158,694,400 | Complete, including independently verified interruption recovery |
+| 7 | 222 | 2,067,550,208 | Complete |
+| 8 | 221 | 2,096,267,264 | Complete |
+| 9 | 211 | 1,826,729,984 | Complete |
+| 10 | 218 | 1,996,627,968 | Complete |
+| 11 | 219 | 2,069,340,160 | Complete |
+| 12 | 22 | 593,657,856 | Partial; the remaining 199 eligible files are held |
+
+Two original batches remain failed evidence. The August 12 batch stopped at
+71.033% host commit after two completed files; fresh inventory and paired
+journals reconciled both. The August 6 batch stopped on a denied capture-status
+read after ten paired files and one compressed file with an unfinished journal.
+Fresh inventory plus the canonical read-only retained-file verifier proved that
+file's original hash, identity and timestamps, accounting for 19,304,448 bytes
+once. A new inventory-bound pilot and new attempts then completed the remaining
+August 6 selection. Neither failed attempt was reused or relabeled PASS.
+
+Volume free space is a separate measurement. Windows shadow storage initially
+absorbed much of the capacity benefit. At 02:16:27, after the older shadow copy
+expired under the existing Windows policy, C: had **72,596,303,872 free bytes**
+(67.6 GiB); shadow storage used 1,541,144,576 bytes. No shadow-storage setting or
+restore point was manually changed. A later suite must still check fresh disk,
+RAM, capture identities, shared-lease ownership and child-tree teardown.
+
+Retained production evidence is under ignored
+`scratch/handoffs/overnight-review-20260913-e5/`: the final
+`verified-storage-aggregate.json` binds each original wrapper/result and prevents
+duplicate paths; both `august*-failure-reconciliation.json` files retain the
+failed-attempt dispositions. The underlying per-file journals remain under
+`scratch/cold_snapshot_compression/`. The separate volume sample is
+`scratch/handoffs/overnight-review-20260913-b2/storage-volume-0216.json`.
+These are host-local receipts, not clean-checkout fixtures or deletion authority.
+
+Further attended compression is held now that the qualification reserve is
+restored. The existing 05:00 projection and 06:00 raw-tape tiering lanes retain
+their own admission, parity, quiescence and exact-reclaim contracts.
 
 ## September 11 measured campaign checkpoint
 

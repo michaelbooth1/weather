@@ -1,5 +1,24 @@
 # 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-22 - WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED]
 
+## September 13 overnight review
+
+The scheduled 09:30 Stage-A chain retains its existing definition and 11:55
+absolute child-tree teardown. Today's task audit proves registration and
+readiness only; its later terminal steps and output receipts own execution.
+
+The bounded settlement audit implementation is in the unadopted
+[PR 61 reliability candidate](https://github.com/michaelbooth1/weather/pull/61).
+Its latest hosted Windows audit-owner checks passed, but current production
+labels, all 12 authoritative ledgers and uncached lineage hashing have not yet
+passed the required exact-host acceptance. The predecessor follow-through
+refused before audit execution. Do not describe source publication or old replay
+results as proof that the current daily chain has recovered.
+
+Full-ledger reconciliation remains necessary before repairing a historical
+date. Earlier projection flags do not establish missing authoritative rows;
+confirmed repair must be separately admitted and end at
+`market_day_labels_finalize`, retaining all quality BLOCKs and resource gates.
+
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
 run alongside capture without starving or falsely destabilizing the live loops.

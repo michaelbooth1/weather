@@ -1,78 +1,73 @@
 # State of play
 
-**Last updated: 2026-09-13 America/Toronto (Windows prerequisites added; production acceptance pending).**
+**Last updated: 2026-09-13 America/Toronto (overnight qualification under review).**
 Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
 > current decision; numbered items and retained receipts own detailed evidence.
 
-**Objectives:** protect capture and settlement evidence, restore useful daily
-outputs through [item 331](../roadmap/items/item-331-overnight-reliability-program.md),
-and progress the non-live maker work in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+**Objectives:** protect capture and settlement evidence, restore reliable
+unattended execution through [item 331](../roadmap/items/item-331-overnight-reliability-program.md), and execute the non-live maker-economics refocus in
+[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
 **No market edge or profitable maker opportunity is proved.**
 
 ## Current authority
 
-The September 4 implementation/integration authority covers ordinary commits,
-publication, guarded adoption and recovery without repeated permission prompts.
-On September 12 the owner approved the overnight reliability implementation
-and requested an audit and preparation of all unattended overnight work.
-Source integration, runtime adoption and live authority remain separate.
-**No live trading or promotion is authorized.**
+The September 12 owner instruction requires review of all armed overnight work
+and useful unattended progress. Existing implementation, source publication,
+Scheduler and guarded integration authority remains in effect. **No live trading
+is authorized.** Source publication and host qualification are not adoption.
 
-On September 11 the owner accepted recovered storage headroom and paused archive
-uploads. **Uploads and further original-source archive reclaim remain paused.**
-The old 100 GB archive objective is no longer the active capacity request.
-Ordinary verified tiering and lossless retained-file compression retain their
-own admission, identity, verification and evidence-preservation requirements.
-
-The owner grants full program close/restart authority on the dedicated 16 GB
-production installation to recover RAM. This does not apply to applications
-on the separate 32 GB workstation. Protect capture and use verified identities.
+The owner accepted the September 11 archive headroom and paused further uploads.
+Retain pending originals, staged archives and recovery evidence. The subsequent
+lossless compression work retains original files and does not reopen uploads or
+archive-source reclaim. Ordinary qualification retains its 50 GiB disk floor.
 
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | Before this combined candidate's qualification, production remains at `f3814173775335adb546b7201a2e73ecec7703bf`. A published topic or green CI does not prove its adoption. Preserve the two existing generated-config modifications through the guarded merge path. |
-| Launch repair | [PR 56](https://github.com/michaelbooth1/weather/pull/56) implements reviewed Git identity, early diagnostics, bounded native output and closure preservation. Its final source passed 72 hosted native Windows checks and full Linux CI. Actual-host qualification and guarded adoption remain open; [item 331](../roadmap/items/item-331-overnight-reliability-program.md) owns the broader program. |
-| Settlement audit | [PR 57](https://github.com/michaelbooth1/weather/pull/57) streams/indexes audit inputs and bounds consumers. Its source qualification and historical-corpus parity passed. Current production lineage I/O, existing resource limits and an actual daily-chain run still need qualification; [item 332](../roadmap/items/item-332-bounded-settlement-source-audit.md) owns those gates. |
-| Combined candidate | `codex/reliability-complete-20260913` preserves the histories and runtime bytes of PRs 56/57 and the accepted archive-pause documentation from PR 48. The successor also includes PR 11's previously qualified Windows executor path repair and resolves SDK-test fixture path casing before a fresh exact-tip qualification. One exact combined full-suite receipt and current-input audit proof are required before a guarded merge. No source adoption is claimed by this preparation. |
-| Archive and recovery | The accepted result is 79,105,806,336 allocated original-source bytes across 85 completed batches and 1,679 distinct files. The separate workstation duplicate cleanup is not production reclaim. Preserve all remaining originals, staged copies and failed attempts. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds the accepted result and pause. |
-| Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Recovery metadata and earlier encryption keys retain independent custody. Follow the [location and restore runbook](cold-archive-locations.md); do not assume a local source still exists. |
-| Resource ordering | The September 12 evening audit found RAM headroom after authorized desktop/helper cleanup, but disk below the ordinary suite's 50 GiB floor. Storage recovery must precede qualification. Task readiness and old free-space observations are not reservations; never weaken the suite floor or two-hour tape quiescence rule. |
-| Capture | Snapshot, CLOB and observation-trigger retained healthy original workers through the RAM cleanup. Recheck live identities and progress at every payload boundary. Keep the public execution-tape producer operating; health is not price-path completeness or economic countability. |
-| Settlement / recurring work | The September 12 daily chain failed at `settlement_source_audit` with `resource_budget_exceeded`. The bounded recent-date monitor reports older settlement holes; confirm ledger truth and retain a per-date repair queue. A later daily trigger does not repair historical omissions. |
-| Maker changes | Reviewed maker/simulator/evidence source remains queued behind actual reliability, source and host acceptance. W3/G1 and W4 account/payment reconciliation remain substantive open gates. W5-W7 exchange sessions are not authorized. |
-| Documentation transaction | The overdue transaction binds actual guarded integration tips. Complete canonical closure against the final published, recovered tip and required checks; this state rewrite does not clear it. |
+| Production source | The archive-aware runtime is the stack adopted at `e0a00eedf9ad41ee5580913af22d552e05663b96`. Later guarded documentation integrations reached `f3814173775335adb546b7201a2e73ecec7703bf`. The reliability and maker candidates remain unadopted; this documentation follow-up introduces no runtime code. |
+| Archive outcome | The owner accepted 79,105,806,336 allocated original-source bytes reclaimed from 1,679 distinct files in 85 completed batches. The original 100 GB target was not reached and further uploads are paused. Full recovery and exact-removal receipts support the counter. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) owns the outcome and remaining retention-service work. |
+| Retained-file capacity | September 13 lossless NTFS compression verified 12,808,867,840 allocated bytes saved across 1,335 distinct retained files. August 6-11 selections completed; August 12 remains partial. This is separate from archive reclaim and free-volume measurements. Both interrupted attempts remain failed with separate reconciliation proofs; item 325 binds them. |
+| Recovery | Private archive copies, member identities, restore proofs and exact locations remain retained. Earlier encrypted archives still require their preserved recovery keys. Follow the [location and restore runbook](cold-archive-locations.md); pending originals and failed attempts remain evidence. |
+| Reliability candidate | [PR 61](https://github.com/michaelbooth1/weather/pull/61), `384514ba47a7dcc89d1dbcb98b17ea9e18ee73c8`, preserves the launch/audit/prerequisite histories and fixes actual-host test fixtures. Three workflows passed, including 210 native Windows launch checks, 265 Windows audit checks and full Linux regressions. CI does not replace exact capture-host qualification. |
+| Host qualification | The predecessor passed its S4U preflight but its complete host suite has native fixture failures. The 03:15 follow-through refused at its 03:25 receipt deadline, before any current-data audit or merge. The repaired candidate still requires a complete exact-source host PASS and uncached current labels/12-ledger audit. Immutable receipts own terminal outcomes; no successful adoption is claimed. |
+| Armed recurring work | The reviewed Scheduler inventory retained existing capture/safety supervisors, 05:00 projection and 06:00 raw-tape tiering, configuration/economics refreshes, paper roll, staleness/countability reports and the 09:30 Stage-A chain. Training and further archive upload remain disabled. Exact actions, identities, windows and later receipts live in the retained overnight review. A scheduled time is not completion. |
+| Capture | Qualification admission proved three healthy capture workers and adequate resources. Every later phase must recheck fresh identities, clean iterations, memory, disk and lease ownership. Worker health does not prove a graded streak, complete price paths or economic countability. |
+| Maker work | The cumulative [PR 55 candidate](https://github.com/michaelbooth1/weather/pull/55) remains behind reliability acceptance and guarded production qualification. W2/W4 source increments and later offline evidence do not establish current opportunity, paid rewards, complete account P&L or live readiness. Item 330 owns the economic scope. |
+| Settlement gaps | Historical fleet/ledger reconciliation and admitted per-date repair remain open. Earlier flags are investigation leads, not omitted-row proof. The next daily chain does not repair historical omissions automatically; existing truth-label BLOCKs remain BLOCK. |
+| Documentation transaction | The runtime pending record binds ten actual guarded integrations through `f3814173775335adb546b7201a2e73ecec7703bf`, plus any subsequent guarded documentation adoption. Completion requires its exact published documentation tip, canonical checks and matching immutable PASS receipt. This rewrite alone does not clear it. |
 
 ## Ordered non-live critical path
 
-1. Restore measured disk headroom through the existing bounded storage lanes.
-   Preserve archive pause, all evidence, scheduled tiering reservations and
-   capture health. Qualified allocation savings and current free space differ.
-2. Qualify the combined launch/audit candidate: early host regressions, current
-   production audit inputs/lineage, then the exact bounded full suite. Use the
-   guarded quiet-window merge only after every required receipt passes.
-3. Verify capture recovery, publication and an admitted daily-chain run. Close
-   the documentation transaction against actual results, including refusals.
-4. Confirm historical ledger omissions and process separately admitted date
-   slices ending at `market_day_labels_finalize`; retain unresolved dates.
-5. Continue item 331's output/deadline roster and qualification contracts, then
-   independently ready non-live maker work. Frozen workstation data is not a
-   current-input receipt; off-host suite substitution is not yet adopted.
+1. Preserve the failed qualification/follow-through receipts. Finish diagnosis;
+   qualify the reviewed repair with the admitted complete Windows host suite,
+   then the [bounded current-input audit](../roadmap/items/item-332-bounded-settlement-source-audit.md). Do not reuse spent attempt namespaces.
+2. Keep 04:45-06:45 available for scheduled tiering. Any later heavy qualification
+   must stop before 09:00, hold the shared lease and retain complete child teardown.
+   A roll-sensitive merge still requires the 01:00-04:00 quiet window.
+3. Publish this factual documentation reconciliation and complete the pending
+   transaction against only the integrations that actually entered production.
+4. After reliability acceptance, reconcile the cumulative maker candidate and
+   qualify its exact source. Reconcile the remaining independent PRs by ancestry
+   and scope; a passing ancestor does not qualify a changed descendant.
+5. Prove historical settlement omissions from authoritative complete ledgers,
+   then use individually admitted repair ending at `market_day_labels_finalize`.
+6. Complete W3/G1 campaign/book/midpoint provenance and W4 payment semantics.
+   Keep competitor scenarios conditional and distinguish allocation from profit.
 
 ## Standing decisions
 
 - International Polymarket only; no paid weather sources or new model-alpha work.
-- Capture-host heavy work is admitted, serial and time-gated. The separate
+- Capture-host heavy work is serial, admitted and time-gated. The separate
   workstation uses its exact host/principal wrapper and shared live/heavy mutex.
-- Source integration follows the canonical roll verdict and guarded adoption.
-  A roll-free branch can merge outside the quiet window; a pushed branch rolls nothing.
+- Roll-free documentation may be guardedly adopted outside the quiet window.
+  A pushed branch changes no production working-tree source.
 - Native settlement units, WU cutoffs, probability mass, train/serve parity,
   captured-input replay, release binding and evidence retention remain mandatory.
 
 ## Update this file when
 
-Rewrite after a new owner decision, source adoption, archive/reclaim result,
-validated settlement/job disposition, or economic-feasibility result.
+Rewrite after an owner decision, actual source adoption, measured storage
+outcome, validated settlement/job disposition, or economic-feasibility result.

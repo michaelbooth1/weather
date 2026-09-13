@@ -1,5 +1,29 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 13 overnight review
+
+The cumulative [PR 55 maker integration candidate](https://github.com/michaelbooth1/weather/pull/55)
+remains unadopted. Its source reconciliation is behind the launch/audit
+reliability candidate in [PR 61](https://github.com/michaelbooth1/weather/pull/61),
+whose actual host suite and current-input audit still require acceptance.
+The superseded maker suite/merge attempt remains held; no unchanged automatic
+retry or new exchange session was armed by this review.
+
+The retained PR inventory distinguishes ancestors of the reliability candidate,
+already integrated tips, the cumulative maker stack and independent changes
+requiring scope reconciliation. Ancestry alone is not a merge allowlist.
+After reliability adoption, preserve history: merge the reviewed production
+baseline into the cumulative candidate, review its complete diff and qualify
+the resulting exact source before guarded adoption. Historical passing tests
+do not qualify a changed descendant.
+
+The 06:50 International public economics refresh, paper roll and later
+countability reports retain their existing definitions. Their future outputs
+must prove their own target, generation and completeness. No accepted economics
+baseline, configured reward, supplied activity or paper result proves paid
+incentives or after-cost profit. W3/G1 provenance and W4 account/distribution
+semantics remain open; live work retains its separate explicit authority.
+
 ## September 11 non-live reconciliation
 
 The owner accepted the recovered archive headroom and paused further uploads;
