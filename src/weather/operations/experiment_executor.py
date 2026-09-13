@@ -70,6 +70,7 @@ MAX_CHILD_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_OUTPUT_TREE_ENTRIES = 10_000
 MAX_OUTPUT_TREE_DEPTH = 24
 MAX_OUTPUT_TREE_SECONDS = 15.0
+EXECUTOR_SCRATCH_DIRNAME = ".e"
 ALLOWED_MODULE_PREFIXES = (
     "weather.backtesting.",
     "weather.calibration.",
@@ -939,8 +940,7 @@ def _prepare_workspace(
     bound_release_fingerprint: Mapping[str, Any],
     max_copy_bytes: int,
 ) -> tuple[Path, dict[str, Any], dict[str, Any]]:
-    workspace = run_root / "workspace"
-    workspace.mkdir(parents=True, exist_ok=False)
+    workspace = run_root
     runtime_read_roots = _python_runtime_read_roots()
     staging_deadline = _tree_deadline(
         MAX_PARENT_TREE_SECONDS,
@@ -1426,6 +1426,74 @@ def _commit_candidate_tree(
         raise
 
 
+def _executor_run_root(
+    repo_root: Path,
+    candidate_root: Path,
+    manifest: Mapping[str, Any],
+) -> Path:
+    """Create a short, same-filesystem run root outside the candidate path."""
+
+    scratch_root = repo_root / EXECUTOR_SCRATCH_DIRNAME
+    _reject_symlink_components(
+        scratch_root,
+        repo_root,
+        "executor scratch directory",
+    )
+    scratch_root.mkdir(exist_ok=True)
+    _reject_symlink_components(
+        scratch_root,
+        repo_root,
+        "executor scratch directory",
+    )
+    if scratch_root.is_symlink() or not scratch_root.is_dir():
+        raise ExperimentExecutionError(
+            f"executor scratch root must be a regular directory: {scratch_root}"
+        )
+    try:
+        scratch_device = scratch_root.stat().st_dev
+        candidate_device = candidate_root.stat().st_dev
+    except OSError as exc:
+        raise ExperimentExecutionError(
+            f"cannot verify executor scratch filesystem: {type(exc).__name__}: {exc}"
+        ) from exc
+    if scratch_device != candidate_device:
+        raise ExperimentExecutionError(
+            "executor scratch root and candidate_output_root must share a filesystem"
+        )
+    run_root = scratch_root / f"{manifest['manifest_sha256'][:8]}{uuid.uuid4().hex}"
+    _reject_symlink_components(run_root, repo_root, "executor scratch directory")
+    run_root.mkdir(exist_ok=False)
+    return run_root
+
+
+def _write_staged_result_atomic(path: Path, result: Mapping[str, Any]) -> None:
+    """Write a staged result atomically and remove only its interrupted temp."""
+
+    try:
+        write_json_atomic(path, result, trailing_newline=True)
+    except BaseException:
+        prefix = f"{path.name}.{os.getpid()}."
+        try:
+            with os.scandir(path.parent) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not (
+                        name.startswith(prefix)
+                        and name.endswith(".tmp")
+                        and name[len(prefix) : -len(".tmp")].isdigit()
+                    ):
+                        continue
+                    if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                        continue
+                    try:
+                        Path(entry.path).unlink()
+                    except FileNotFoundError:
+                        pass
+        except OSError:
+            pass
+        raise
+
+
 def _quarantine_candidate_stage(stage_root: Path, run_root: Path) -> Path | None:
     """Detach untrusted/stale output in constant filesystem operations."""
 
@@ -1755,13 +1823,7 @@ def _execute_one_impl(
         [root / "artifacts" / "releases" / release_id],
         repo_root=root,
     )
-    run_root = (
-        experiments_root
-        / ".executor_runs"
-        / f"{manifest['manifest_sha256'][:16]}-{uuid.uuid4().hex}"
-    )
-    _reject_symlink_components(run_root, root, "executor scratch directory")
-    run_root.mkdir(parents=True, exist_ok=False)
+    run_root = _executor_run_root(root, candidate_root, manifest)
     try:
         claim_path = _acquire_claim(experiments_root, manifest)
     except BaseException:
@@ -1775,7 +1837,7 @@ def _execute_one_impl(
         raise
     _claim_observer(claim_path)
     started_at = utc_iso(current)
-    workspace = run_root / "workspace"
+    workspace = run_root
     stage_root = workspace.joinpath(
         *PurePosixPath(str(manifest["candidate_output_root"])).parts
     )
@@ -2121,7 +2183,7 @@ def _execute_one_impl(
             f"terminal result failed its self-hashed contract: {exc}"
         ) from exc
     staged_result = stage_root / output_path.relative_to(candidate_root)
-    write_json_atomic(staged_result, result, trailing_newline=True)
+    _write_staged_result_atomic(staged_result, result)
     _commit_candidate_tree(stage_root, candidate_root)
     if quarantine_path is None:
         try:
