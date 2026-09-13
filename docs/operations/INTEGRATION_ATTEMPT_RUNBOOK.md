@@ -560,6 +560,12 @@ coverage includes positive, wrong-host, binding and child-teardown cases; the
 production assignment and admission gates are unchanged.
 
 
+The bounded suite rechecks disk reserve, capture health and the abort commit
+ceiling during every running test chunk, on its first two-second poll after a
+five-second interval. A failed check tears down the contained child tree through
+the same finally block as a deadline failure; long native test chunks cannot
+defer resource enforcement until the next chunk.
+
 Before merging this procedure, parse every changed PowerShell file, run the
 focused operation tests (including executable exact log-verdict, semantic
 PowerShell binding, disabled/PASS-grace wait decisions, recovery-dispatch,

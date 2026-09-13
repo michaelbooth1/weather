@@ -277,3 +277,114 @@ foreach ($name in @('dirty', 'trackedTestFiles', 'finalWorktreeTipRows',
     payload = json.loads(result.stdout)
     assert payload["row_count"] == len(rows)
     assert len(payload["checked"]) == 6
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("breach", ["disk", "commit", "capture"])
+def test_running_chunk_rechecks_admission_and_disposes_child_tree(breach, tmp_path):
+    """Exercise the real running-child try/finally before the child can finish."""
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_BREACH"] = breach
+    env["WEATHER_BOUNDED_SUITE_TMP"] = str(tmp_path)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if ($errors.Count) { throw 'runner parse failure' }
+$chunk = @($ast.FindAll({
+    param($node)
+    if ($node -isnot [Management.Automation.Language.TryStatementAst]) { return $false }
+    return @($node.Body.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+        $_.Left.VariablePath.UserPath -ceq 'child'
+    }).Count -eq 1
+}, $true))
+if ($chunk.Count -ne 1) { throw 'missing unique running-child try/finally' }
+$admission = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Assert-HostAdmission'
+}, $true))
+if ($admission.Count -ne 1) { throw 'missing host admission function' }
+Invoke-Expression $admission[0].Extent.Text
+$script:diskChecks = 0
+$script:jobDisposals = 0
+$script:childDisposals = 0
+$script:lastLog = ''
+$suiteRuntimeStopwatch = [pscustomobject]@{ Elapsed = [timespan]::Zero }
+$suiteDeadline = (Get-Date).AddMinutes(1)
+$MaxRuntimeSeconds = 60
+$AbortCommitPercent = 66
+$ordinal = 1
+$python = 'fake-python.exe'
+$argumentString = ''
+$WorktreeRoot = $env:WEATHER_BOUNDED_SUITE_TMP
+$junitTempPath = Join-Path $WorktreeRoot 'absent.xml'
+function New-WeatherKillOnCloseJob {
+    $job = [pscustomobject]@{ Kind = 'fake-job' }
+    $job | Add-Member ScriptMethod Dispose { $script:jobDisposals++ }
+    return $job
+}
+function Start-WeatherProcessInJob {
+    param($Job, $FilePath, $ArgumentString, $WorkingDirectory)
+    $process = [pscustomobject]@{ HasExited = $false }
+    $process | Add-Member ScriptMethod Refresh { }
+    $process | Add-Member ScriptMethod Dispose { $script:childDisposals++ }
+    return $process
+}
+function Start-Sleep {
+    param([int]$Seconds)
+    $suiteRuntimeStopwatch.Elapsed += [timespan]::FromSeconds($Seconds)
+    if ($suiteRuntimeStopwatch.Elapsed.TotalSeconds -gt 10) {
+        throw 'running child was not checked promptly'
+    }
+}
+function Assert-SuiteDiskHeadroom {
+    $script:diskChecks++
+    if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'disk') { throw 'disk reserve breached' }
+}
+function Get-CommitPercent {
+    if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'commit') { return 67 }
+    return 60
+}
+function Get-HealthyCaptureWorkerCount {
+    if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'capture') { return 2 }
+    return 3
+}
+function Write-SuiteLog { param([string]$Message) $script:lastLog = $Message }
+$failure = $null
+try { Invoke-Expression $chunk[0].Extent.Text }
+catch { $failure = $_.Exception.Message }
+[pscustomobject]@{
+    failure = $failure
+    disk_checks = $script:diskChecks
+    job_disposals = $script:jobDisposals
+    child_disposals = $script:childDisposals
+    elapsed = $suiteRuntimeStopwatch.Elapsed.TotalSeconds
+    log = $script:lastLog
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    expected = {
+        "disk": "disk reserve breached",
+        "commit": "chunk-1-running refused: commit 67% exceeds 66%",
+        "capture": "chunk-1-running refused: expected three healthy capture workers, found 2",
+    }
+    assert payload["failure"] == expected[breach]
+    assert payload["disk_checks"] == 1
+    assert payload["job_disposals"] == payload["child_disposals"] == 1
+    assert payload["elapsed"] == 6
+    if breach != "disk":
+        assert "chunk-1-running admission:" in payload["log"]
+        assert "ceiling=66%" in payload["log"]

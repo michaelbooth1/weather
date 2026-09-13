@@ -688,11 +688,17 @@ try {
                 -FilePath $python `
                 -ArgumentString $argumentString `
                 -WorkingDirectory $WorktreeRoot
+            $nextChunkAdmissionSeconds = $suiteRuntimeStopwatch.Elapsed.TotalSeconds + 5
             while (-not $child.HasExited) {
                 if ($suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds -or
                     (Get-Date) -ge $suiteDeadline) {
                     Write-SuiteLog "chunk $ordinal reached the suite deadline; killing its complete child tree"
                     throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
+                }
+                if ($suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $nextChunkAdmissionSeconds) {
+                    Assert-SuiteDiskHeadroom
+                    Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal-running"
+                    $nextChunkAdmissionSeconds = $suiteRuntimeStopwatch.Elapsed.TotalSeconds + 5
                 }
                 Start-Sleep -Seconds 2
                 $child.Refresh()
