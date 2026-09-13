@@ -1,5 +1,42 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 11 non-live reconciliation
+
+The owner accepted the recovered archive headroom and paused further uploads;
+[item 325](item-325-tiered-data-retention-and-verified-archive-offload.md) owns the
+measured result and retained boundary. The following source/evidence increments
+retain the existing non-live authority.
+
+Prepared source already contains W2's paired configuration publication and W4's
+offline paid-incentive matcher plus supplied-activity credit bridge. PR #41 is the
+prepared dependency; PR #42 adds the configuration-generation work at
+`c2e0765dd65e666a7e461c7387ccd268b0c1ebb3`. These are implementation evidence,
+not a claim that production master contains the prepared stack.
+
+The separate earnings-page increment, published at
+`d99dc862b40e3984092bc806db71e41214961cd6`, is stacked on PR #42. It validates
+supplied raw daily earnings pages with bounded exact request scope, freshness,
+complete cursor sequencing, unique condition/asset rows and exact decimal values.
+The 320 focused workstation checks, changed-path compilation and documentation
+checks passed with matching source hashes across hosts. It collects no account
+evidence and does not turn accrual into paid income. Its PR-creation request was
+refused by the GitHub integration; no new exact-tip CI result is claimed. The
+canonical production verdict is roll-sensitive, so guarded adoption remains for
+an allowed quiet window after the dependency and review/CI gates pass.
+
+A September 11 public source capture covered 12 configured locations, 32
+current/upcoming events and 352 conditions. It found 136 positive configured
+reward allocations: 40 September 11 conditions with 100-share minimums, 44
+September 12 and 52 September 13 conditions with 20-share minimums. All used a
+4.5-cent maximum distance in that capture. The accepted economics baseline was
+not changed. Raw source and the bounded inventory have matching copies on both PCs.
+
+W3/G1 still need exact books, token-outcome mapping, authoritative adjusted-midpoint
+and campaign interval/epoch provenance, capital plus cleanup limits, and competitor
+and after-cost scenarios. W4 still needs qualified raw account transport and
+authoritative distribution semantics. No opportunity, paid reward, whole-account
+P&L, live readiness or trading authorization is established by these increments.
+
 Goal: determine whether a narrowly scoped International Polymarket weather
 maker can earn worthwhile returns from trading plus realized incentives, while
 reducing the system to what that decision and safe evidence collection require.
