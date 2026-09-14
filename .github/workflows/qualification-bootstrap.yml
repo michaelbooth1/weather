@@ -73,7 +73,7 @@ jobs:
       - name: Repository checks
         run: |
           set -euo pipefail
-          python -X pycache_prefix="$RUNNER_TEMP/qualification-compile-cache" -m compileall -q app src tests
+          python -X pycache_prefix="$RUNNER_TEMP/weather-bootstrap-compile-cache" -m compileall -q app src tests
           python -m weather.operations.agent_docs_audit 2>&1 | tee "$RUNNER_TEMP/qualification-docs.log"
           python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check 2>&1 | tee "$RUNNER_TEMP/qualification-roadmap.log"
       - name: Complete native regression suite

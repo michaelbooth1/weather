@@ -149,9 +149,24 @@ def checked_root(root: Path) -> Path:
     return root
 
 
+def _posix_retained_digest(descriptor: int, size: int) -> bytes:
+    # Linux filesystem timestamps may have coarser update resolution than their
+    # nanosecond representation. pread bypasses Python's existing read buffer
+    # and leaves the caller's position unchanged. This is sealed-file evidence,
+    # never a live-input staging reader.
+    hasher, offset = hashlib.sha256(), 0
+    while part := os.pread(descriptor, min(1024 * 1024, size + 1 - offset), offset):
+        offset += len(part)
+        require(offset <= size, "evidence changed while open")
+        hasher.update(part)
+    require(offset == size, "evidence changed while open")
+    return hasher.digest()
+
+
 @contextmanager
-def open_record(root: Path, name: str) -> Iterator[BinaryIO]:
+def open_record(root: Path, name: str, *, maximum=512 * 1024**2) -> Iterator[BinaryIO]:
     """Open regular evidence without following redirects, before reading bytes."""
+    integer(maximum, maximum=512 * 1024**2)
     root = checked_root(root)
     name = relative_path(name)
     target = root / name
@@ -205,9 +220,14 @@ def open_record(root: Path, name: str) -> Iterator[BinaryIO]:
     with os.fdopen(descriptor, "rb") as handle:
         before = os.fstat(handle.fileno())
         _regular(before)
+        require(before.st_size <= maximum, "evidence exceeds byte bound before reading")
         # Records are regular retained files, not aliases into mutable sources.
         require(before.st_nlink == 1, "path: hard-linked evidence forbidden")
+        initial_digest = _posix_retained_digest(handle.fileno(), before.st_size) if os.name != "nt" else None
         yield handle
+        if initial_digest is not None:
+            require(_posix_retained_digest(handle.fileno(), before.st_size) == initial_digest,
+                    "evidence changed while open")
         after = os.fstat(handle.fileno())
         _regular(after)
         require(after.st_nlink == 1, "path: hard-linked evidence forbidden")
@@ -237,7 +257,7 @@ def reference(value: object) -> dict:
 
 def read(root: Path, ref: dict) -> Record:
     ref = reference(ref)
-    with open_record(root, ref["path"]) as handle:
+    with open_record(root, ref["path"], maximum=ref["size"]) as handle:
         raw = handle.read(ref["size"] + 1)
     require(len(raw) == ref["size"], "record byte count mismatch")
     require(hashlib.sha256(raw).hexdigest() == ref["sha256"], "record digest mismatch")
