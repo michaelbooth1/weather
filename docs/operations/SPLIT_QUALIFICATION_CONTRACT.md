@@ -269,6 +269,13 @@ pre-registration intent and identity-bound task closure. The host task has a
 34-minute Scheduler backstop; its inner absolute execution/teardown plan remains
 the tighter authority. The historical suite retains its existing settings.
 
+The typed Python attempt reader binds the reviewed source/baseline, separate host
+plan, adoption day, canonical evidence names and attempt-local adopted control
+copy. It rejects suite aliases and mismatched scopes. Code consumption performs
+the full certificate/import/revocation checks and actual native signature
+verification. Both functions return no standalone integration authority; native
+identity, measurement, lifecycle and mutation-boundary checks remain mandatory.
+
 The public manifest reader still rejects v2 until the complete host and guarded
 adoption entrypoints are connected. Native fixture acceptance of a v2 task binding
 alone cannot arm a task or replace the legacy suite prerequisite.

@@ -183,8 +183,16 @@ def test_complete_native_audit_pipeline_shares_deadline_and_read_budget(staged, 
             target = trusted / path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)
-        native = process.windows_run(argv, powershell=Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
-            dispatcher=trusted / runner.TRUSTED_WINDOWS[0], scratch=scratch, **options)
+        try:
+            native = process.windows_run(argv, powershell=Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
+                dispatcher=trusted / runner.TRUSTED_WINDOWS[0], scratch=scratch, **options)
+        except Exception:
+            # Only this disposable offline fixture's bounded child transcript.
+            if options["transcript"].exists():
+                print(options["transcript"].read_text(errors="replace")[-16384:])
+            for path in scratch.glob("*result*.json"):
+                print(path.read_text(errors="replace")[:4096])
+            raise
     else:
         native = process.linux_run(argv, **options)
     assert native["completed"] and native["teardown_proved"], (native, options["transcript"].read_text(errors="replace"))

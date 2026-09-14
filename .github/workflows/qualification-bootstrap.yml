@@ -347,7 +347,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/operations/test_qualification_attempt_phase.py tests/operations/test_qualification_host_identity.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-attempt-phase.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-attempt-phase.log"
+          python -m pytest tests/operations/test_qualification_attempt.py tests/operations/test_qualification_attempt_phase.py tests/operations/test_qualification_host_identity.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-attempt-phase.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-attempt-phase.log"
       - name: Retain native lifecycle evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
