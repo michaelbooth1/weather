@@ -18,7 +18,7 @@ from .records import checked_root, digest, encode, integer, publish, read, requi
 
 
 TRUSTED_PYTHON = {
-    "child": "src/weather/operations/qualification/child.py",
+    "child": "scripts/ops/qualification_child.py",
     "guard": "src/weather/operations/qualification/offline_guard.py",
     "observer": "src/weather/operations/qualification/pytest_observer.py",
 }
@@ -103,7 +103,7 @@ class Runner:
             actual = environment.file_identity(self.trusted, path)
             require({key: actual[key] for key in ("sha256", "size")} == pin, "trusted launch dependency drift")
         for item in self.executables.values():
-            actual = environment.file_identity(Path(item["root"]), item["path"])
+            actual = environment.file_identity(Path(item["root"]), item["path"], native_installation=True)
             require(actual["sha256"] == item["sha256"] and actual["size"] == item["size"], "native executable drift")
 
     def blob(self, path):
@@ -119,7 +119,7 @@ class Runner:
             coverage.node_id(node)
         self.verify_launch()
         self.ordinal += 1
-        name = f"{self.ordinal:04d}-{mode}"
+        name = f"{self.platform}-{self.ordinal:04d}-{mode}"
         work = self.scratch / name
         work.mkdir()
         output = self.output / name

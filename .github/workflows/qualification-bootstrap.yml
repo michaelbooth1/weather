@@ -20,8 +20,16 @@ concurrency:
 
 jobs:
   native-boundary:
-    name: qualification-native-boundary
-    runs-on: windows-2022
+    name: qualification-native-boundary-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+          - platform: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     env:
       PYTHONDONTWRITEBYTECODE: '1'
@@ -43,12 +51,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/operations/test_qualification_native_job.py -q --junitxml="$RUNNER_TEMP/qualification-native.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-native.log"
+          python -m pytest tests/operations/test_qualification_native_job.py tests/operations/test_qualification_runner.py -q --junitxml="$RUNNER_TEMP/qualification-native.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-native.log"
       - name: Retain native fault evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qualification-native-${{ github.run_id }}-${{ github.run_attempt }}
+          name: qualification-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
           path: ${{ runner.temp }}/qualification-native.*
           if-no-files-found: error
           retention-days: 14

@@ -32,11 +32,11 @@ def distribution_name(value):
     return NAME.sub("-", value).lower()
 
 
-def file_identity(root, path, *, maximum=MAX_FILE_BYTES):
+def file_identity(root, path, *, maximum=MAX_FILE_BYTES, native_installation=False):
     """Hash the entire regular file through the shared anti-redirection reader."""
     relative_path(path)
     hasher, size = hashlib.sha256(), 0
-    with open_record(root, path) as handle:
+    with open_record(root, path, _native_installation=native_installation) as handle:
         while part := handle.read(min(1024 * 1024, maximum + 1 - size)):
             size += len(part)
             require(size <= maximum, "environment file exceeds bound")

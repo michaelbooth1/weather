@@ -164,7 +164,7 @@ def _posix_retained_digest(descriptor: int, size: int) -> bytes:
 
 
 @contextmanager
-def open_record(root: Path, name: str, *, maximum=512 * 1024**2, _check_posix_bytes=True) -> Iterator[BinaryIO]:
+def open_record(root: Path, name: str, *, maximum=512 * 1024**2, _check_posix_bytes=True, _native_installation=False) -> Iterator[BinaryIO]:
     """Open regular evidence without following redirects, before reading bytes."""
     integer(maximum, maximum=64 * 1024**3)
     root = checked_root(root)
@@ -222,7 +222,7 @@ def open_record(root: Path, name: str, *, maximum=512 * 1024**2, _check_posix_by
         _regular(before)
         require(before.st_size <= maximum, "evidence exceeds byte bound before reading")
         # Records are regular retained files, not aliases into mutable sources.
-        require(before.st_nlink == 1, "path: hard-linked evidence forbidden")
+        require(before.st_nlink == 1 or _native_installation, "path: hard-linked evidence forbidden")
         initial_digest = _posix_retained_digest(handle.fileno(), before.st_size) if os.name != "nt" and _check_posix_bytes else None
         yield handle
         if initial_digest is not None:
@@ -230,7 +230,7 @@ def open_record(root: Path, name: str, *, maximum=512 * 1024**2, _check_posix_by
                     "evidence changed while open")
         after = os.fstat(handle.fileno())
         _regular(after)
-        require(after.st_nlink == 1, "path: hard-linked evidence forbidden")
+        require(after.st_nlink == before.st_nlink and (after.st_nlink == 1 or _native_installation), "path: hard-linked evidence forbidden")
         current = target.lstat()
         _regular(current)
         require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==

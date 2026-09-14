@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def tool_pin(path):
     path = Path(path).resolve()
-    item = environment.file_identity(path.parent, path.name)
+    item = environment.file_identity(path.parent, path.name, native_installation=True)
     return {"root": str(path.parent), **{key: item[key] for key in ("path", "sha256", "size")}}
 
 
@@ -54,7 +54,15 @@ def native_runner(tmp_path):
 def test_actual_native_collection_and_chunk_have_verified_cleanup(native_runner, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-never-forward-this")
     monkeypatch.setenv("GITHUB_TOKEN", "fixture-never-forward-this")
-    collected = native_runner.collect()
+    try:
+        collected = native_runner.collect()
+    except Exception:
+        for output in native_runner.output.glob("*/*"):
+            if output.name in {"native.json", "transcript.txt"}:
+                print(output.name, output.read_text(errors="replace")[:16384])
+        for output in native_runner.scratch.glob("*/controller.log"):
+            print(output.name, output.read_text(errors="replace")[:16384])
+        raise
     nodes = collected["summary"]["collected"]
     assert nodes == ["tests/test_example.py::test_example"]
     expected = {"id": "chunk-1", "nodes": [{"nodeid": nodes[0], "disposition": "execute", "reason": None,
@@ -125,3 +133,15 @@ def test_linux_double_fork_new_session_is_owned_until_cleanup(tmp_path):
                                memory_bytes=1024**3, output_bytes=4096, minimum_disk_bytes=1)
     assert result["teardown_proved"] is True
     assert not process._descendants(process._linux_processes(), os.getpid())
+
+
+def test_native_installation_hardlinks_do_not_weaken_retained_evidence(tmp_path):
+    import os
+    from weather.operations.qualification import environment
+    source = tmp_path / "native.exe"
+    source.write_bytes(b"native fixture")
+    os.link(source, tmp_path / "native-alias.exe")
+    with pytest.raises(QualificationError, match="hard-linked"):
+        environment.file_identity(tmp_path, source.name)
+    observed = environment.file_identity(tmp_path, source.name, native_installation=True)
+    assert observed["size"] == len(b"native fixture")

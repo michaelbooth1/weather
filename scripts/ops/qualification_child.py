@@ -66,7 +66,7 @@ def main():
             identities.append({"module": module.__name__, "root": "candidate", "path": relative,
                                "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
         with open(request["imports"], "x", encoding="utf-8") as handle:
-            json.dump(identities, handle, sort_keys=True)
+            json.dump({"imports": identities}, handle, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
         return
