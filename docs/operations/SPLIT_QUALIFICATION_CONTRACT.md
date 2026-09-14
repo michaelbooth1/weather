@@ -207,6 +207,21 @@ accounting. Computation evidence retains existing semantic BLOCK outcomes and
 explicitly requires current validation. Its availability does not prove host
 admission, S4U identity, phase timing or integration eligibility.
 
+## Frozen adopted execution source
+
+`frozen.freeze` creates the attempt's control copy from actual adopted B Git
+blobs, independently of dirty working files. Its code-owned selection includes
+every canonical package Python file, operations Python/PowerShell file, tracked
+configuration file and package bootstrap. It excludes runtime data and artifacts.
+No candidate evidence can reduce this set. The owning native parent must admit
+and bound the copy and every later rehash.
+
+Before each deferred launch, `frozen.validate` compares the complete file set,
+raw SHA256s and Git blob identities against B. Extra bytecode, missing imports,
+or substituted bytes invalidate the copy even if an adjacent SHA256 was changed.
+Read-only copies preserve the source while S enters the production working tree;
+they do not themselves confer invocation or integration authority.
+
 ## Effective merge tree
 
 `merge_tree.preview` computes Git's complete S-plus-Q tree in memory without
