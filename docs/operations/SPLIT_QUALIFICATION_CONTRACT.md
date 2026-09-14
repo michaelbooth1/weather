@@ -192,6 +192,21 @@ authenticates both completed jobs and signs only its checked code certificate.
 The final artifact carries that certificate graph plus the native attestation.
 Workflow dispatch does not create a production task or change either host gate.
 
+## Host audit computation
+
+The fixed host audit child imports the candidate audit only after the trusted
+offline guard is installed. Its resolver/control modules execute from separately
+pinned in-memory bytes under a private package name; candidate imports cannot
+replace them. Every loaded `weather` module is checked against the source
+inventory before and after the audit. Candidate-facing readers use only sealed
+input bytes and cannot fall through to a mutable production path.
+
+Input preparation, the actual audit, complete output readback, consumer checks
+for every output date, and current-generation revalidation share cumulative read
+accounting. Computation evidence retains existing semantic BLOCK outcomes and
+explicitly requires current validation. Its availability does not prove host
+admission, S4U identity, phase timing or integration eligibility.
+
 ## Effective merge tree
 
 `merge_tree.preview` computes Git's complete S-plus-Q tree in memory without

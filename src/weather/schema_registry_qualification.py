@@ -6,6 +6,9 @@ from weather.schema_registry_types import SchemaSpec
 QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     SchemaSpec(name, name + "_v2", "weather.operations.qualification." + owner, "active", description)
     for name, owner, description in (
+        ("qualification_audit_preparation", "host_audit", "Strict complete current-input preparation and cumulative read accounting."),
+        ("qualification_audit_computation", "host_audit", "Sealed candidate audit computation preserving complete semantic output; current validation still required."),
+        ("qualification_audit_imports", "host_audit", "Actual before/after isolated candidate audit import bytes and computation reference."),
         ("qualification_configuration", "merge_tree", "Frozen generated configuration pair and complete current dependency reference."),
         ("qualification_effective_tree", "merge_tree", "Deterministic reviewed source plus exact generated configuration Git tree."),
         ("qualification_dispatch", "workflow", "Independently reviewed producer inputs, native profiles and installer closure."),
