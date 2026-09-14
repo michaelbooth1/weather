@@ -47,15 +47,14 @@ def test_real_fixed_host_probes_complete_inside_native_job(tmp_path):
     payload = {"manifest": {"worktree_root": str(ROOT), "repo_root": str(tmp_path / "production"),
         "control": {"root": str(trusted), "closure": closure}, "qualification": {"root": str(authority)}},
         "review": {"source_inventory": source_ref}, "host_plan": {"configuration": qref},
-        "selected": selected, "deadline": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat()}
+        "selected": selected, "deadline": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat().replace("+00:00", "Z")}
     request = records.publish(authority, "parent.json", payload)
-    # Only this test launcher adds the checked-out authority package. The fixed
+    # This disposable driver imports the installed authority package. The fixed
     # candidate child still verifies its source witness and runs all real probes.
     driver = tmp_path / "driver.py"
     driver.write_text("\n".join([
         "import json, sys",
         "from pathlib import Path",
-        "sys.path.insert(0, " + repr(str(ROOT / "src")) + ")",
         "from weather.operations.qualification import host_session, records",
         "from weather.operations.qualification.contracts import Graph",
         "root = Path(" + repr(str(authority)) + ")",
@@ -70,7 +69,7 @@ def test_real_fixed_host_probes_complete_inside_native_job(tmp_path):
         shutil.copyfile(ROOT / name, target)
     log = tmp_path / "native.log"
     try:
-        native = process.windows_run([str(python), "-I", "-S", "-B", str(driver)],
+        native = process.windows_run([str(python), "-I", "-B", str(driver)],
             powershell=Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
             dispatcher=trusted / runner.TRUSTED_WINDOWS[0], scratch=tmp_path,
             cwd=trusted, env=process.clean_environment(scratch=output, executable_paths=[python]),

@@ -35,7 +35,7 @@ foreach ($name in @('host-receipt.json', 'host.log', 'host-claim.json', 'host-in
 }
 Write-WeatherIntegrationImmutableJson -Path (Join-Path $contract.AttemptRoot 'host-claim.json') -Payload ([ordered]@{
     schema = 'qualification_host_claim_v2'; manifest_sha256 = $contract.ManifestSha256; pid = $PID
-    creation_utc_ticks = $identity.token.creation_utc_ticks; claimed_at = $now.ToUniversalTime().ToString('o') })
+    creation_utc_ticks = $identity.token.creation_utc_ticks; claimed_at = $now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", [Globalization.CultureInfo]::InvariantCulture) })
 Write-WeatherIntegrationImmutableJson -Path (Join-Path $contract.AttemptRoot 'host-invocation.json') -Payload $identity
 $invocationRef = Get-WeatherQualificationReference -Root $contract.AttemptRoot -Name 'host-invocation.json'
 $lease, $envelope, $failure = $null, $null, $null
@@ -91,7 +91,7 @@ $receipt = [ordered]@{
     schema = 'weather_integration_attempt_host_receipt_v2'; status = $status; attempt_id = $m.attempt_id
     manifest_sha256 = $contract.ManifestSha256; host_plan_sha256 = $m.host.sha256
     registration_receipt_sha256 = $identity.registration_receipt_sha256; registration_intent_sha256 = $identity.registration_intent_sha256
-    started_at = $now.ToUniversalTime().ToString('o'); completed_at = [DateTimeOffset]::UtcNow.ToString('o'); local_day = $plan.local_day
+    started_at = $now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", [Globalization.CultureInfo]::InvariantCulture); completed_at = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", [Globalization.CultureInfo]::InvariantCulture); local_day = $plan.local_day
     invocation = $invocationRef; phases = $proofs; probes = $probes; audit = $audit
     configuration_sha256 = $plan.configuration.sha256; environment_sha256 = $plan.environment.sha256
     code_sha256 = $m.qualification.certificate.sha256; capture_before = $before; capture_after = $after
