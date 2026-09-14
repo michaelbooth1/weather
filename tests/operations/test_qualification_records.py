@@ -55,10 +55,17 @@ def test_partial_record_cannot_be_consumed(tmp_path):
 def test_read_detects_same_length_rewrite_during_open(tmp_path):
     path = tmp_path / "record.json"
     path.write_bytes(b'{"n":1}')
-    with pytest.raises(r.QualificationError, match="changed"):
+    if os.name == "nt":
         with r.open_record(tmp_path, path.name) as handle:
             assert handle.read() == b'{"n":1}'
-            path.write_bytes(b'{"n":2}')
+            with pytest.raises(PermissionError):
+                path.write_bytes(b'{"n":2}')
+        assert path.read_bytes() == b'{"n":1}'
+    else:
+        with pytest.raises(r.QualificationError, match="changed"):
+            with r.open_record(tmp_path, path.name) as handle:
+                assert handle.read() == b'{"n":1}'
+                path.write_bytes(b'{"n":2}')
 
 
 def test_hard_link_is_not_independent_evidence(tmp_path):
@@ -84,3 +91,13 @@ def test_parent_symlink_is_rejected_before_read(tmp_path):
 def test_boolean_is_not_a_byte_count():
     with pytest.raises(r.QualificationError):
         r.reference({"path": "receipt.json", "size": True, "sha256": "a" * 64})
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native file-sharing contract")
+def test_preexisting_writer_prevents_sealed_evidence_read(tmp_path):
+    path = tmp_path / "record.json"
+    path.write_bytes(b'{"n":1}')
+    with path.open("r+b"):
+        with pytest.raises(OSError):
+            with r.open_record(tmp_path, path.name):
+                pytest.fail("unsealed writer-owned file was admitted")

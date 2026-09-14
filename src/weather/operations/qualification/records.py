@@ -169,7 +169,11 @@ def open_record(root: Path, name: str) -> Iterator[BinaryIO]:
         create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
                            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
         create.restype = wintypes.HANDLE
-        handle = create(str(target), 0x80000000, 7, None, 3, 0x00200000, None)
+        # Retained evidence is sealed, not a live writer's source. FILE_SHARE_READ
+        # rejects concurrent write/delete handles, including an already-open
+        # writer, instead of trusting timestamp granularity to notice a rewrite.
+        # Mutable-input staging uses a separate shared-prefix reader.
+        handle = create(str(target), 0x80000000, 1, None, 3, 0x00200000, None)
         if handle == ctypes.c_void_p(-1).value:
             raise OSError(ctypes.get_last_error(), "Cannot open qualification evidence")
         descriptor = None
@@ -205,6 +209,8 @@ def open_record(root: Path, name: str) -> Iterator[BinaryIO]:
         require(before.st_nlink == 1, "path: hard-linked evidence forbidden")
         yield handle
         after = os.fstat(handle.fileno())
+        _regular(after)
+        require(after.st_nlink == 1, "path: hard-linked evidence forbidden")
         current = target.lstat()
         _regular(current)
         require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
