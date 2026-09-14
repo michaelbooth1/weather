@@ -74,7 +74,8 @@ def test_unapproved_artifact_redirect_refuses_before_storage_request(monkeypatch
 @pytest.mark.parametrize("body,headers", [(b'{"x":1,"x":2}', {}),
                                          (b'{"id":123}', {"Link": "next-page"}),
                                          (b'{"id":123}', {"Content-Encoding": "gzip"}),
-                                         (b"x" * (2 * 1024**2 + 1), {})])
+                                         (b"x" * (2 * 1024**2 + 1), {})],
+                         ids=["duplicate-key", "pagination", "content-encoding", "oversized-body"])
 def test_incomplete_or_ambiguous_metadata_cannot_be_sealed(monkeypatch, body, headers):
     connections(monkeypatch, [Response(body, headers=headers)])
     with pytest.raises((QualificationError, RuntimeError)):
