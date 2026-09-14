@@ -355,3 +355,25 @@ and binds any required Git LFS executable to the qualified native inventory.
 Every host metadata child and the split primitive use the verified interpretation.
 The guarded merge integration remains disabled at the public manifest reader
 until the complete lifecycle and native mutation-boundary execution are verified.
+
+### Inert registration and arming publication
+
+Split host and merge entrypoints require a separate create-once
+`arming-receipt.json`. Registration alone supplies no execution authority.
+The fixed `arm_integration_attempt.ps1` parent runs from the frozen adopted
+control copy, under the terminal mutex, shared heavy-work lease, capture-host
+admission window and reviewed metadata native envelope. It binds the existing
+registration and verifies the complete code graph, actual offline signature,
+candidate source, host environment and generated configuration. Its final
+remote-query/code expiry check covers the latest 04:00 merge boundary.
+
+The native parent must prove zero descendants and publish within five seconds
+of final validation. Host and merge consumers still perform their own current
+checks. Arming grants neither host PASS nor integration success. Missing or
+spent arming evidence blocks both tasks; it is never replaced in place.
+
+New split evidence uses a fixed durable publication claim, create-new partial,
+file flush and same-volume write-through rename without replacement. Claims
+and interrupted partials remain evidence and prevent reuse. Historical v1
+records keep their existing reader/writer contract. The public v2 manifest
+route remains closed while creator/reconciliation integration is unfinished.

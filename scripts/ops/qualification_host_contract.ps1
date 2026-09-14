@@ -1,6 +1,7 @@
 # Native parent for the split host phase. No Scheduler/Git mutation occurs here.
 # The public integration manifest reader remains the registration authority.
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'qualification_durable_json.ps1')
 
 function Read-WeatherQualificationReference {
     param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)]$Reference)
@@ -180,7 +181,7 @@ function Invoke-WeatherQualificationHostPhase {
         -MaximumOutputBytes 2097152 -VolumePaths @([string]$m.repo_root, $directory) `
         -MinimumDiskBytes ([UInt64]$State.Policy.host.minimum_disk_bytes) -ReservedScratchBytes ([UInt64]$maximum.scratch_bytes) `
         -ResourceMode capture_s4u -ProductionRoot ([string]$m.repo_root) -CaptureBindings $CaptureBindings
-    Write-WeatherIntegrationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
+    Write-WeatherQualificationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
     if (-not $native.teardown_proved) { throw 'Host phase has no zero-child proof; admission must remain poisoned' }
     if (-not $native.completed -or $native.elapsed_ms -gt ($seconds * 1000)) { throw "Host phase failed: $Phase; $($native.failure)" }
     $ref = Get-WeatherQualificationReference -Root $directory -Name 'phase.json'

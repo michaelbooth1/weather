@@ -18,6 +18,8 @@ if (-not (Test-WeatherIntegrationPathEqual -Left $PSScriptRoot -Right (Join-Path
 Assert-WeatherQualificationControllerFiles -State $state
 Assert-WeatherIntegrationAttemptNotTerminal -AttemptContract $contract -Operation 'split host acceptance'
 Assert-WeatherIntegrationRepairClaim -AttemptContract $contract
+. (Join-Path $PSScriptRoot 'qualification_arming_contract.ps1')
+Assert-WeatherQualificationArming -AttemptContract $contract | Out-Null
 . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
 . (Join-Path $PSScriptRoot 'qualification_process.ps1')

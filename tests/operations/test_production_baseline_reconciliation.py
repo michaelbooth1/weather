@@ -744,10 +744,18 @@ def _powershell_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _write_adapted_boot_script(tmp_path: Path, repo: Path) -> Path:
-    source = BOOT_SCRIPT.read_bytes()
+def _adopted_boot_source() -> bytes:
+    # This fixture replays the historical adopted controller, even after the
+    # current boot controller acquires separately tested new receipt routing.
+    source = _git_bytes(REPO_ROOT, "show", f"{ADOPTED_PRODUCTION_COMMIT}:scripts/ops/boot_recovery.ps1")
     assert hashlib.sha256(source).hexdigest() == EXPECTED_BOOT_SHA256
-    assert _git(REPO_ROOT, "hash-object", str(BOOT_SCRIPT)).stdout.strip() == EXPECTED_BOOT_BLOB
+    header = b"blob " + str(len(source)).encode("ascii") + b"\0"
+    assert hashlib.sha1(header + source).hexdigest() == EXPECTED_BOOT_BLOB
+    return source
+
+
+def _write_adapted_boot_script(tmp_path: Path, repo: Path) -> Path:
+    source = _adopted_boot_source()
     needle = b'$repo = "C:\\Users\\micha\\Desktop\\github\\weather"'
     replacement = f"$repo = {_powershell_quote(str(repo.resolve()))}".encode("utf-8")
     assert source.count(needle) == 1
@@ -883,7 +891,7 @@ def test_replay_is_pinned_to_the_exact_adopted_production_boot_blob() -> None:
     if REAL_GIT is None:
         pytest.skip("Git is required to verify the adopted production blob")
 
-    source = BOOT_SCRIPT.read_bytes()
+    source = _adopted_boot_source()
     adopted_spec = f"{ADOPTED_PRODUCTION_COMMIT}:scripts/ops/boot_recovery.ps1"
     adopted_blob = _git(REPO_ROOT, "rev-parse", adopted_spec).stdout.strip().lower()
     adopted_source = subprocess.run(
@@ -894,7 +902,6 @@ def test_replay_is_pinned_to_the_exact_adopted_production_boot_blob() -> None:
     ).stdout
 
     assert hashlib.sha256(source).hexdigest() == EXPECTED_BOOT_SHA256
-    assert _git(REPO_ROOT, "hash-object", str(BOOT_SCRIPT)).stdout.strip() == EXPECTED_BOOT_BLOB
     assert adopted_blob == EXPECTED_BOOT_BLOB
     assert source == adopted_source
 

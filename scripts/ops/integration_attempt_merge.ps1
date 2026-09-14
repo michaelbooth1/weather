@@ -377,6 +377,10 @@ Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 $manifest = $contract.Manifest
 $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $contract
 $splitQualification = $phase.Version -eq 'v2'
+if ($splitQualification) {
+    . (Join-Path $PSScriptRoot 'qualification_arming_contract.ps1')
+    Assert-WeatherQualificationArming -AttemptContract $contract | Out-Null
+}
 Assert-WeatherIntegrationAttemptNotTerminal `
     -AttemptContract $contract -Operation "Integration-attempt merge execution"
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt

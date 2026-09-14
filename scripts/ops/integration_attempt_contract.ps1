@@ -229,6 +229,13 @@ function Write-WeatherIntegrationImmutableJson {
         [object]$Payload
     )
 
+    $schemaProperty = $Payload.PSObject.Properties['schema']
+    $schema = if ($Payload -is [System.Collections.IDictionary]) { [string]$Payload['schema'] } elseif ($schemaProperty) { [string]$schemaProperty.Value } else { '' }
+    if ($schema -cmatch '_v2$') {
+        . (Join-Path $PSScriptRoot 'qualification_durable_json.ps1')
+        Write-WeatherQualificationImmutableJson -Path $Path -Payload $Payload
+        return
+    }
     if (Test-Path -LiteralPath $Path) {
         throw "Immutable evidence already exists and will not be replaced: $Path"
     }

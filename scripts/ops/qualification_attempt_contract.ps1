@@ -19,7 +19,8 @@ function Get-WeatherQualificationOrchestrationNames {
         workload_admission = 'workload_admission.ps1'; roll_verdict = 'roll_verdict.ps1'
         qualification_attempt = 'qualification_attempt_contract.ps1'; qualification_host = 'qualification_host_contract.ps1'
         qualification_identity = 'qualification_host_identity.ps1'; qualification_process = 'qualification_process.ps1'
-        qualification_merge = 'qualification_merge_contract.ps1'
+        qualification_merge = 'qualification_merge_contract.ps1'; attempt_armer = 'arm_integration_attempt.ps1'
+        qualification_arming = 'qualification_arming_contract.ps1'; qualification_publication = 'qualification_durable_json.ps1'
     }
 }
 

@@ -1,6 +1,7 @@
 # Adopted split-mode calls made inside the existing guarded merge's lease.
 # The public v2 lifecycle remains closed until its complete routing is reviewed.
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'qualification_durable_json.ps1')
 
 function Assert-WeatherQualificationMergeController {
     param([Parameter(Mandatory = $true)]$State)
@@ -103,7 +104,7 @@ function Invoke-WeatherQualificationMergeBoundary {
     $request = [ordered]@{ manifest_path = $state.Contract.ManifestPath; manifest_sha256 = $state.Contract.ManifestSha256
         phase = $Phase; prepared_baseline = $PreparedBaseline
         deadline = $requestDeadline.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", [Globalization.CultureInfo]::InvariantCulture) }
-    Write-WeatherIntegrationImmutableJson -Path (Join-Path $directory 'request.json') -Payload $request
+    Write-WeatherQualificationImmutableJson -Path (Join-Path $directory 'request.json') -Payload $request
     $ref = Get-WeatherQualificationReference -Root $directory -Name 'request.json'
     $python = Join-Path $state.Profile.tools.python.root $state.Profile.tools.python.path
     $tokens = @('-I', '-S', '-B', (Join-Path $m.control.root 'scripts/ops/qualification_merge_control.py'),
@@ -116,7 +117,7 @@ function Invoke-WeatherQualificationMergeBoundary {
         -MaximumOutputBytes 2097152 -VolumePaths @([string]$m.repo_root, $directory) `
         -MinimumDiskBytes ([UInt64]$state.Policy.host.minimum_disk_bytes) -ReservedScratchBytes ([UInt64]$maximum.scratch_bytes) `
         -ResourceMode capture_s4u -ProductionRoot ([string]$m.repo_root) -CaptureBindings $capture
-    Write-WeatherIntegrationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
+    Write-WeatherQualificationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
     if (-not $native.completed -or -not $native.teardown_proved -or $native.elapsed_ms -gt $seconds * 1000) {
         throw "Split merge boundary failed: $Phase; $($native.failure)"
     }
@@ -179,7 +180,7 @@ function Invoke-WeatherQualificationDomain {
         -MaximumOutputBytes 2097152 -VolumePaths @([string]$m.repo_root, $directory) `
         -MinimumDiskBytes ([UInt64]$state.Policy.host.minimum_disk_bytes) -ReservedScratchBytes ([UInt64]$maximum.scratch_bytes) `
         -ResourceMode capture_s4u -ProductionRoot ([string]$m.repo_root) -CaptureBindings $capture
-    Write-WeatherIntegrationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
+    Write-WeatherQualificationImmutableJson -Path (Join-Path $directory 'native.json') -Payload $native
     if (-not $native.completed -or -not $native.teardown_proved) { throw ('Deferred baseline verifier failed: ' + $native.failure) }
     $ref = Get-WeatherQualificationReference -Root $directory -Name 'output.json'
     Read-WeatherQualificationReference -Root $directory -Reference $ref | Out-Null

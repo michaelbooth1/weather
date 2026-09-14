@@ -26,6 +26,8 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_configuration", "merge_tree", "Frozen generated configuration pair and complete current dependency reference."),
         ("qualification_effective_tree", "merge_tree", "Deterministic reviewed source plus exact generated configuration Git tree."),
         ("qualification_merge_boundary", "merge_session", "Actual guarded primitive source/config/index/parent check with separately proved native completion."),
+        ("qualification_arming_proof", "arming", "Actual offline code/source/environment/configuration proof and latest planned merge expiry."),
+        ("weather_integration_attempt_arming_receipt", "arming", "Create-once native arming authority; separate host and guarded merge proof remain mandatory."),
         ("qualification_dispatch", "workflow", "Independently reviewed producer inputs, native profiles and installer closure."),
         ("qualification_process", "runner", "Native bounded execution and zero-descendant cleanup bound to retained output."),
         ("qualification_process_request", "process", "Trusted-parent native Windows command request, never host authority."),
