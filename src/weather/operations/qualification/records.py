@@ -238,29 +238,69 @@ def read(root: Path, ref: dict) -> Record:
     return Record(ref["path"], ref["sha256"], len(raw), decode(raw))
 
 
-def publish(root: Path, name: str, value: dict) -> dict:
-    """Publish once. A failed write leaves its destination spent, never reusable.
+def _flush_directory(path: Path) -> None:
+    if os.name != "nt":
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
-    The final handle is create-new and is durably flushed before its digest is
-    returned to a parent. Until then no predecessor can legitimately bind it.
-    Compound evidence becomes visible through its create-once final root record.
+
+def _publish_no_replace(temporary: Path, target: Path) -> None:
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+        move.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+        move.restype = wintypes.BOOL
+        # MOVEFILE_WRITE_THROUGH; deliberately omit REPLACE_EXISTING.
+        if not move(str(temporary), str(target), 0x8):
+            raise ctypes.WinError(ctypes.get_last_error())
+    else:
+        # Same-volume create-only link publishes all bytes atomically. The
+        # transient two-link state cannot validate as retained evidence.
+        os.link(temporary, target, follow_symlinks=False)
+        temporary.unlink()
+        _flush_directory(target.parent)
+
+
+def publish(root: Path, name: str, value: dict) -> dict:
+    """Create a durable claim, then atomically publish one complete record.
+
+    The OS lock remains held through final readback. A crash or failed write
+    permanently spends the claim and retains partial files for reconciliation;
+    no path is automatically reused, replaced, removed or reported as PASS.
     """
     root = checked_root(root)
     name = relative_path(name)
     target = root / name
     checked_root(target.parent)
     raw = encode(value)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    with os.fdopen(os.open(target, flags, 0o600), "wb") as handle:
-        handle.write(raw)
-        handle.flush()
-        os.fsync(handle.fileno())
-    if os.name != "nt":
-        fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    ref = {"path": name, "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
-    read(root, ref)
-    return ref
+    claim = target.with_name(target.name + ".claim")
+    relative_path(claim.relative_to(root).as_posix())
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(claim, flags, 0o600), "w+b") as claim_handle:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(claim_handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(claim_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        claim_handle.write(b"qualification publication claim v2\n")
+        claim_handle.flush()
+        os.fsync(claim_handle.fileno())
+        _flush_directory(claim.parent)
+        require(not target.exists(), "publication destination already exists")
+        fd, temporary_name = tempfile.mkstemp(prefix=".qualification-", suffix=".partial", dir=target.parent)
+        temporary = Path(temporary_name)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        checked_root(target.parent)
+        _publish_no_replace(temporary, target)
+        ref = {"path": name, "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
+        read(root, ref)
+        return ref

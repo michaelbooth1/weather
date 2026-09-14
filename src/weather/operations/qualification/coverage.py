@@ -15,7 +15,7 @@ def node_id(value):
     return value
 
 
-def plan(value, *, platform, reviewed):
+def plan(value, *, platform, reviewed, graph):
     value = record(value, "qualification_coverage_plan_v2", {
         "platform", "source_inventory_sha256", "test_inventory_sha256", "collection_rules",
         "reviewed_changes", "chunks", "uncollected_files"})
@@ -30,8 +30,10 @@ def plan(value, *, platform, reviewed):
         text(item["reason"])
         text(item["owner"])
     seen_chunks, seen_nodes = set(), set()
-    for chunk in sequence(value["chunks"], minimum=1, maximum=2048):
-        fields(chunk, {"id", "nodes"})
+    expanded = []
+    for chunk_ref in sequence(value["chunks"], minimum=1, maximum=2048):
+        chunk = record(graph.get(chunk_ref), "qualification_chunk_plan_v2", {"id", "nodes"})
+        expanded.append(chunk)
         require(identifier(chunk["id"]) not in seen_chunks, "duplicate planned chunk")
         seen_chunks.add(chunk["id"])
         for node in sequence(chunk["nodes"], minimum=1):
@@ -54,7 +56,7 @@ def plan(value, *, platform, reviewed):
                     node_id(covered["nodeid"])
                 else:
                     require(node["covered_by"] is None, "expected failure is a retained limitation")
-    return value
+    return {**value, "chunks": expanded}
 
 
 def validate_collection_rules(value):

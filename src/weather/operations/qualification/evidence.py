@@ -110,12 +110,16 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
             require(item["path"] in source_files and source_files[item["path"]]["sha256"] == item["sha256"],
                     "import bytes differ from source inventory")
     collection = record(graph.get(job["collection"]), "qualification_collection_v2", {
-        "platform", "run", "job_id", "exit_code", "nodes", "deselected", "errors", "ignored_files"})
+        "platform", "run", "job_id", "exit_code", "node_chunks", "deselected", "errors", "ignored_files"})
     require(collection["platform"] == platform and collection["run"] == expected_run and
             collection["job_id"] == job["job_id"] and integer(collection["exit_code"]) == 0,
             "collection identity/failure")
     expected_nodes = [node["nodeid"] for chunk in expected_plan["chunks"] for node in chunk["nodes"]]
-    require(collection["nodes"] == expected_nodes and collection["deselected"] == [] and
+    collected_nodes = []
+    for ref in sequence(collection["node_chunks"], minimum=1, maximum=2048):
+        node_chunk = record(graph.get(ref), "qualification_collected_nodes_v2", {"nodes"})
+        collected_nodes.extend(sequence(node_chunk["nodes"], minimum=1))
+    require(collected_nodes == expected_nodes and collection["deselected"] == [] and
             collection["errors"] == [] and collection["ignored_files"] == expected_plan["uncollected_files"],
             "complete collection differs from reviewed plan")
     chunk_refs = sequence(job["chunks"], minimum=1)
@@ -161,7 +165,7 @@ def validate_code(graph, policy_ref, review_ref, certificate_ref, *, now=None):
     expected_run = run(cert["run"], p)
     plans = {}
     for platform in PLATFORMS:
-        plans[platform] = plan(graph.get(reviewed["plans"][platform]), platform=platform, reviewed=reviewed)
+        plans[platform] = plan(graph.get(reviewed["plans"][platform]), platform=platform, reviewed=reviewed, graph=graph)
         rules = validate_collection_rules(graph.get(plans[platform]["collection_rules"]))
         source_files = {item["path"]: item for item in graph.get(reviewed["source_inventory"])["files"]}
         baseline_files = {item["path"]: item for item in graph.get(reviewed["baseline_inventory"])["files"]}

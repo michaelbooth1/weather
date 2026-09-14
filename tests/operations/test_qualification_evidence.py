@@ -87,8 +87,9 @@ def bundle(tmp_path):
             "schema": "qualification_coverage_plan_v2", "platform": platform,
             "source_inventory_sha256": source["sha256"], "test_inventory_sha256": tests["sha256"],
             "collection_rules": rules, "reviewed_changes": changes, "uncollected_files": [],
-            "chunks": [{"id": "chunk-1", "nodes": [{"nodeid": NODE, "disposition": "execute",
-                        "reason": None, "owner": None, "covered_by": None}]}],
+            "chunks": [b.put(f"{platform}-chunk-plan", {"schema": "qualification_chunk_plan_v2", "id": "chunk-1",
+                       "nodes": [{"nodeid": NODE, "disposition": "execute", "reason": None, "owner": None,
+                                  "covered_by": None}]})],
         })
     review = b.put("review", {"schema": "qualification_review_v2", "policy_sha256": policy["sha256"],
         "source": SOURCE, "source_inventory": source, "baseline_inventory": source, "test_inventory": tests, "plans": plans,
@@ -106,7 +107,8 @@ def bundle(tmp_path):
                         for module, path in (("weather", "weather/__init__.py"),
                                              ("weather.paths", "src/weather/paths.py"))]})
         collection = b.put(f"{platform}-collection", {"schema": "qualification_collection_v2",
-            "platform": platform, "run": run, "job_id": job_id, "exit_code": 0, "nodes": [NODE],
+            "platform": platform, "run": run, "job_id": job_id, "exit_code": 0,
+            "node_chunks": [b.put(f"{platform}-collected-nodes", {"schema": "qualification_collected_nodes_v2", "nodes": [NODE]})],
             "deselected": [], "errors": [], "ignored_files": []})
         chunk = b.put(f"{platform}-chunk", {"schema": "qualification_chunk_v2", "id": "chunk-1",
             "platform": platform, "run": run, "job_id": job_id, "started_at": "2026-09-14T11:00:00Z",
@@ -225,7 +227,8 @@ def test_import_and_post_run_source_witness_is_bound(bundle, mutate):
 
 
 def test_full_collection_cannot_hide_extra_node(bundle):
-    rebind_job(bundle, collection_mutation=lambda c: c["nodes"].append(NODE + "_hidden"))
+    extra = bundle.put("extra-nodes", {"schema": "qualification_collected_nodes_v2", "nodes": [NODE + "_hidden"]})
+    rebind_job(bundle, collection_mutation=lambda c: c["node_chunks"].append(extra))
     with pytest.raises(records.QualificationError, match="complete collection"):
         bundle.validate()
 
