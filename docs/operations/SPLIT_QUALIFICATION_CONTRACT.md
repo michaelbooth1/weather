@@ -215,6 +215,14 @@ accounting. Computation evidence retains existing semantic BLOCK outcomes and
 explicitly requires current validation. Its availability does not prove host
 admission, S4U identity, phase timing or integration eligibility.
 
+The fixed pipeline controller now executes staging, the isolated candidate audit,
+complete output readback, and final current-generation validation in one native
+process tree. Its parent owns one absolute execution/teardown deadline and one
+aggregate memory cap. The controller carries every read count forward; it never
+resets the audit budget between phases. An output BLOCK remains BLOCK. Pipeline
+completion alone leaves integration eligibility false until host identity,
+admission, probes, configuration/environment and final native cleanup are proved.
+
 ## Frozen adopted execution source
 
 `frozen.freeze` creates the attempt's control copy from actual adopted B Git

@@ -8,6 +8,9 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     for name, owner, description in (
         ("qualification_control_closure", "frozen", "Exact adopted B source-only execution copy checked against actual Git blobs before deferred launches."),
         ("qualification_audit_preparation", "host_audit", "Strict complete current-input preparation and cumulative read accounting."),
+        ("qualification_host_audit_plan", "host", "Pinned fixed three-phase host audit with cumulative byte and absolute elapsed budgets."),
+        ("qualification_audit_current", "host", "Complete final current-generation validation bound to exact staging and computation."),
+        ("qualification_audit_pipeline", "host", "One fixed native-contained staging, candidate computation and final input validation chain."),
         ("qualification_audit_computation", "host_audit", "Sealed candidate audit computation preserving complete semantic output; current validation still required."),
         ("qualification_audit_imports", "host_audit", "Actual before/after isolated candidate audit import bytes and computation reference."),
         ("qualification_configuration", "merge_tree", "Frozen generated configuration pair and complete current dependency reference."),
