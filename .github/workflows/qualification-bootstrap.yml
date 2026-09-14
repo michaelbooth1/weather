@@ -140,3 +140,51 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           include-hidden-files: false
+
+  attestation-protocol:
+    name: qualification-attestation-protocol
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    # No checkout, candidate imports, production secrets or production subject.
+    # This fixture validates the actual hosted signing/offline-verifier protocol.
+    steps:
+      - name: Create fixed protocol fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/qualification-protocol"
+          printf '%s\n' '{"kind":"qualification-protocol-fixture","production_authority":false}' > "$RUNNER_TEMP/qualification-protocol/fixture.json"
+          gh --version > "$RUNNER_TEMP/qualification-protocol/gh-version.txt"
+          sha256sum "$(command -v gh)" > "$RUNNER_TEMP/qualification-protocol/gh-sha256.txt"
+      - name: Attest only the fixed fixture
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/qualification-protocol/fixture.json
+          create-storage-record: false
+      - name: Retain trust material and prove native offline verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/qualification-protocol"
+          cp "$BUNDLE_PATH" "$proof/attestation.jsonl"
+          gh attestation trusted-root > "$proof/trusted-root.jsonl"
+          mkdir "$proof/empty-home" "$proof/empty-gh"
+          gh_binary="$(command -v gh)"
+          timeout --kill-after=5s 30s sudo -n unshare --net -- env -i PATH=/usr/bin:/bin HOME="$proof/empty-home" GH_CONFIG_DIR="$proof/empty-gh" GH_PROMPT_DISABLED=1 NO_COLOR=1 "$gh_binary" attestation verify "$proof/fixture.json" --repo "$GITHUB_REPOSITORY" --bundle "$proof/attestation.jsonl" --custom-trusted-root "$proof/trusted-root.jsonl" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/qualification-bootstrap.yml" --signer-digest "$GITHUB_WORKFLOW_SHA" --source-digest "$GITHUB_SHA" --cert-oidc-issuer https://token.actions.githubusercontent.com --deny-self-hosted-runners --hostname github.com --predicate-type https://slsa.dev/provenance/v1 --format json > "$proof/verified.json" 2> "$proof/verifier-stderr.txt"
+          python -c 'import json,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"qualification-protocol"; value=json.loads((p/"verified.json").read_text()); assert isinstance(value,list) and value; print(json.dumps(value,indent=2))'
+      - name: Retain native protocol evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-protocol-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-protocol/*.*
+          if-no-files-found: error
+          retention-days: 14

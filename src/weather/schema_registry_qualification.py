@@ -8,6 +8,7 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     for name, owner, description in (
         ("qualification_process", "runner", "Native bounded execution and zero-descendant cleanup bound to retained output."),
         ("qualification_process_request", "process", "Trusted-parent native Windows command request, never host authority."),
+        ("qualification_dependency_lock", "installation", "Complete exact offline wheel set and installer interpreter binding."),
         ("qualification_policy", "contracts", "Independently approved policy, producer, native verifier and host ceilings."),
         ("qualification_review", "contracts", "Exact candidate/baseline, complete coverage and environment review."),
         ("qualification_source_inventory", "source", "Full tracked Git tree and corresponding raw working bytes."),

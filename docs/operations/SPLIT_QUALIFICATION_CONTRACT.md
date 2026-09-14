@@ -127,6 +127,36 @@ record. The verifier rejects absent/failed cleanup or resource proof even when
 the test journal and JUnit report success. Complete collection is corroborated
 by its actual collection-only event stream, not a producer-supplied node list.
 
+`producer.run_job` revalidates complete Git source and baseline inventories,
+the installation's raw bytes, all installed RECORDs and unexpected site files,
+then native imports before and after execution. Coverage is predetermined by
+the independent review. `installation.prepare` verifies the complete retained
+wheel set and emits a fixed offline, hash-required, no-dependency-resolution pip
+invocation into a new prefix. A plan or completed installer alone is insufficient:
+the producer must match the full resulting environment against the review.
+
+`publisher.seal` reads the actual authenticated exact-attempt jobs and requires
+both native jobs to have completed successfully while the selected publisher is
+running. Its code certificate is validated before its final path is published.
+Only the separate publisher job receives attestation authority. The signing
+action is pinned to a full commit of GitHub's
+[attestation action](https://github.com/actions/attest), and the signature binds
+the producer revision separately from the tested candidate revision.
+
+`transport.Github` reads only the selected repository's Actions API. It bounds
+time, metadata, artifact bytes and extraction, rejects pagination omissions and
+redirect ambiguity, and never forwards authentication to artifact storage.
+`importer.import_bundle` retains original API response bytes, rechecks all four
+current/exact-attempt/job/artifact pages, invokes the adopted contained signature
+verifier and seals the import only after graph, signature and cleanup success.
+An artifact download or saved verifier JSON is not an authenticated import.
+
+The bootstrap workflow also signs a fixed public protocol fixture in a job with
+no candidate checkout. It retains the actual verifier version/hash, signature,
+trust roots and JSON output, and tests the documented
+[offline verification](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline)
+command in a fresh network namespace with an empty credential/config directory.
+This fixture is never a production certificate or a policy trust root.
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
