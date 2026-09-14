@@ -65,6 +65,14 @@ transcript cannot complete a phase, even when native zero-child teardown is
 proved. Unproved teardown retains the caller's lease/poison boundary. This
 helper's `completed` field is process evidence, never host-acceptance authority.
 
+The host identity reader queries the actual primary token, authentication LUID,
+elevation and native logon session. A production invocation requires an
+unelevated batch logon plus the exact S4U task action and one Scheduler instance
+whose engine belongs to the wrapper's bounded ancestry. Registered task settings
+alone do not prove that an interactive process is that invocation. The reader
+uses Microsoft's documented [token statistics](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_statistics)
+and [logon session data](https://learn.microsoft.com/en-us/windows/win32/api/ntsecapi/ns-ntsecapi-security_logon_session_data).
+Hosted token/argument tests do not substitute for actual capture-host S4U probes.
 ## Current-input generation
 
 `inputs.open_current` is intentionally separate from immutable evidence reads:
