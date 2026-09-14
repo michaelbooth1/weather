@@ -70,7 +70,12 @@ def files_manifest(root, paths, *, native_installation=False):
 
 
 def enumerate_files(root, *, excluded_directories=()):
-    """Walk only an explicitly declared installation root; reject redirects."""
+    """Walk an explicit installation root; reject any included redirection.
+
+    The legacy parameter name also accepts exact excluded file paths. Such
+    exclusions are independently reviewed (for example unused linker aliases),
+    never inferred during acceptance. Nothing below an excluded path is opened.
+    """
     checked_root(root)
     for excluded in excluded_directories:
         relative_path(excluded)
@@ -80,14 +85,18 @@ def enumerate_files(root, *, excluded_directories=()):
         for name in sorted(names):
             path = Path(directory) / name
             relative = path.relative_to(root).as_posix()
+            if relative in excluded_directories:
+                continue
             info = path.lstat()
             require(not stat.S_ISLNK(info.st_mode) and not getattr(info, "st_file_attributes", 0) & 0x400,
                     "redirected installation directory")
-            if relative not in excluded_directories:
-                kept.append(name)
+            kept.append(name)
         names[:] = kept
         for name in sorted(files):
-            result.append((Path(directory) / name).relative_to(root).as_posix())
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if relative in excluded_directories:
+                continue
+            result.append(relative)
             require(len(result) <= MAX_ENVIRONMENT_FILES, "installation file count exceeds bound")
     distinct_paths(result)
     return sorted(result)

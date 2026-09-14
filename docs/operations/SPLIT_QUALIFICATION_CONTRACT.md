@@ -151,6 +151,20 @@ current/exact-attempt/job/artifact pages, invokes the adopted contained signatur
 verifier and seals the import only after graph, signature and cleanup success.
 An artifact download or saved verifier JSON is not an authenticated import.
 
+`verifier.ContainedVerifier` is the concrete off-host implementation of that
+invocation. It rechecks the pinned interpreter runtime, native executable and
+launch closure before and after execution. Its no-site child runs only the fixed
+offline `gh attestation verify` command; stdout and stderr have separate 2 MiB
+bounds and create-once retained files. Only actual zero-exit output with proved
+native cleanup reaches signature interpretation. Runtime exclusions are exact
+independently reviewed paths, including any unused platform linker aliases;
+included paths still reject redirection and every used executable is pinned.
+
+Separate unprivileged Windows/Linux jobs consume the bootstrap protocol fixture
+and exercise this actual contained binary invocation, including rejection of a
+wrong signer revision. The fixture tests replace only the graph-to-argv step;
+they do not claim that the fixture is a production code certificate.
+
 The bootstrap workflow also signs a fixed public protocol fixture in a job with
 no candidate checkout. It retains the actual verifier version/hash, signature,
 trust roots and JSON output, and tests the documented
