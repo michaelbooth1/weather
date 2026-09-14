@@ -53,6 +53,10 @@ if ($OwnerApprovedException) {
         $archiveStart = [datetime]'2026-09-10T19:43:24'
         $archiveEnd = [datetime]'2026-09-11T00:30:00'
     }
+    elseif ($OwnerApprovedException -ceq 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260913_EVENING') {
+        $archiveStart = [datetime]'2026-09-13T18:46:00'
+        $archiveEnd = [datetime]'2026-09-14T00:30:00'
+    }
     elseif ($OwnerApprovedException -cne 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910') {
         throw 'REFUSED: owner archive exception is invalid or expired'
     }

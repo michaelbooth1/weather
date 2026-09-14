@@ -24,6 +24,7 @@ from weather.operations.replay_cache_compression_admission import (
     check_capture_health, observe_capture_admission, set_current_process_below_normal,
     verify_current_lease, verify_storage_exception, storage_daytime_authorized,
     ARCHIVE_DAYTIME_EXCEPTION, ARCHIVE_DAYTIME_END, ARCHIVE_EXCEPTION_ENDS,
+    ARCHIVE_IMMEDIATE_EXCEPTION, ARCHIVE_IMMEDIATE_END,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -177,7 +178,15 @@ def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exce
                 < datetime(2026, 9, 11, 13, tzinfo=timezone.utc)
             )):
         reserve = OVERNIGHT_RESERVE_BYTES
-    if owner_approved_exception:
+    if owner_approved_exception == ARCHIVE_IMMEDIATE_EXCEPTION:
+        if (not storage_daytime_authorized(current, owner_approved_exception)
+                or expected_hash != "2faae41470c42508a8639e98ec17ace7ecebc0b8715c09eaa92d33c0845251d3"
+                or plan.get("selection_sha256") != OVERNIGHT_SELECTION_SHA256
+                or deadline is None
+                or not current < deadline <= ARCHIVE_IMMEDIATE_END - timedelta(seconds=15)):
+            raise ValueError("immediate archive authority requires the exact primary plan and bounded deadline")
+        reserve = RESUMPTION_RESERVE_BYTES
+    elif owner_approved_exception:
         if (owner_approved_exception not in ARCHIVE_EXCEPTION_ENDS
                 or not storage_daytime_authorized(current, owner_approved_exception)
                 or expected_hash not in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256,
