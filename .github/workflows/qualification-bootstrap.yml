@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: qualification-bootstrap-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: qualification-bootstrap-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -354,5 +354,41 @@ jobs:
         with:
           name: qualification-attempt-phase-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/qualification-attempt-phase.*
+          if-no-files-found: error
+          retention-days: 14
+
+  native-reconciler-fixture:
+    name: qualification-native-reconciler-fixture
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Install fixture dependencies
+        shell: bash
+        run: python -m pip install -r requirements.txt -e '.[test]'
+      - name: Run the two repaired native local-remote fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest 'tests/operations/test_production_baseline_reconciler_execution.py::test_reconciliation_adversarial_preflight_refuses_before_git_mutation[nonancestor]' 'tests/operations/test_production_baseline_reconciler_execution.py::test_reconciliation_adversarial_preflight_refuses_before_git_mutation[config_blob]' -vv --junitxml="$RUNNER_TEMP/qualification-reconciler-fixture.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-reconciler-fixture.log"
+      - name: Retain native fixture evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-reconciler-fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-reconciler-fixture.*
           if-no-files-found: error
           retention-days: 14

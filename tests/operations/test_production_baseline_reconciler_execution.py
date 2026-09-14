@@ -155,6 +155,9 @@ def _configure_repo(repo: Path) -> None:
         ("user.email", "reconciliation-execution@example.invalid"),
         ("commit.gpgSign", "false"),
         ("core.autocrlf", "false"),
+        # These disposable local remotes test Git/merge identity. An installed
+        # LFS pre-push hook must not upload or require historical model blobs.
+        ("core.hooksPath", str(repo / "empty-fixture-hooks")),
         ("gc.auto", "0"),
     ):
         _git(repo, "config", key, value)

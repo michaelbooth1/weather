@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: qualification-diagnostics-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   isolated:
     name: qualification-isolated-${{ matrix.platform }}-${{ matrix.file }}
