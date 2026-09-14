@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: qualification-bootstrap-${{ github.event.pull_request.number }}
+  group: qualification-bootstrap-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: true
 
 jobs:

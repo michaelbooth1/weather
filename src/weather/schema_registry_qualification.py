@@ -26,5 +26,7 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_remote_query", "remote", "Exact current/attempt/jobs/artifact authenticated response pages."),
         ("qualification_import", "authentication", "Sealed importer binding of authenticated remote state and retained bytes."),
         ("qualification_revocations", "authentication", "Adopted local policy, source or certificate revocations."),
+        ("qualification_inputs", "inputs", "Complete current-input generation pages and bounded validation interval."),
+        ("qualification_input_entries", "inputs", "Ordered staged original-byte identities and explicit optional absences."),
     )
 )

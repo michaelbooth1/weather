@@ -164,9 +164,9 @@ def _posix_retained_digest(descriptor: int, size: int) -> bytes:
 
 
 @contextmanager
-def open_record(root: Path, name: str, *, maximum=512 * 1024**2) -> Iterator[BinaryIO]:
+def open_record(root: Path, name: str, *, maximum=512 * 1024**2, _check_posix_bytes=True) -> Iterator[BinaryIO]:
     """Open regular evidence without following redirects, before reading bytes."""
-    integer(maximum, maximum=512 * 1024**2)
+    integer(maximum, maximum=64 * 1024**3)
     root = checked_root(root)
     name = relative_path(name)
     target = root / name
@@ -207,10 +207,10 @@ def open_record(root: Path, name: str, *, maximum=512 * 1024**2) -> Iterator[Bin
                 kernel.CloseHandle.argtypes = [wintypes.HANDLE]
                 kernel.CloseHandle(handle)
     else:
-        directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        directory_fd = os.open(root.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             parts = name.split("/")
-            for part in parts[:-1]:
+            for part in (*root.parts[1:], *parts[:-1]):
                 child_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
                 os.close(directory_fd)
                 directory_fd = child_fd
@@ -223,7 +223,7 @@ def open_record(root: Path, name: str, *, maximum=512 * 1024**2) -> Iterator[Bin
         require(before.st_size <= maximum, "evidence exceeds byte bound before reading")
         # Records are regular retained files, not aliases into mutable sources.
         require(before.st_nlink == 1, "path: hard-linked evidence forbidden")
-        initial_digest = _posix_retained_digest(handle.fileno(), before.st_size) if os.name != "nt" else None
+        initial_digest = _posix_retained_digest(handle.fileno(), before.st_size) if os.name != "nt" and _check_posix_bytes else None
         yield handle
         if initial_digest is not None:
             require(_posix_retained_digest(handle.fileno(), before.st_size) == initial_digest,

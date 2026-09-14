@@ -1,0 +1,124 @@
+# Split qualification implementation contract
+
+Status: proposed control-plane implementation, not an adopted production gate.
+The [integration-attempt runbook](INTEGRATION_ATTEMPT_RUNBOOK.md) remains the
+authority until the exact [first-landing transition](../roadmap/agent-report-2026-09-14-qualification-design.md#10-bootstrap-without-self-approval)
+is explicitly accepted. A development workflow, registered schema or structural
+verifier result cannot grant that authority.
+
+## Records and trust
+
+`weather.operations.qualification` owns bounded original-byte records, source
+and environment inventories, complete coverage, native event/JUnit agreement,
+authenticated remote-state bindings, and offline provenance verification.
+The [schema registry](../../src/weather/schema_registry_qualification.py) owns
+record names and their implementation modules. References bind the original
+UTF-8 bytes; paths are canonical and relative to an explicitly selected root.
+
+An independently selected policy and review are trust inputs. A downloaded
+certificate cannot nominate either one, a native executable or a command.
+Structural verification deliberately returns `eligible_to_arm=false` until the
+adopted caller verifies the pinned native attestation result, independently
+sealed import and current local revocations. All required native chunks and
+repository checks must be present; JUnit alone is insufficient.
+
+Publication claims are create-once and OS-locked through durable flush and
+atomic no-replace publication. A failed or interrupted publication spends its
+namespace. Retain partial bytes and claims for reconciliation. Do not remove
+them to turn a failed attempt into a retry.
+
+## Native execution boundary
+
+[`windows_kill_on_close_job.ps1`](../../scripts/ops/windows_kill_on_close_job.ps1)
+retains the existing scheduled-wrapper APIs. Its bounded APIs add explicit
+aggregate Job commit and process limits, BelowNormal priority, a completion
+port, a capped stdout/stderr pipe, and explicit inherited handles. The child is
+created suspended, assigned, and only then resumed. Assignment or output-file
+creation failure terminates the suspended child and waits for native proof.
+
+`EncloseCurrentProcess` places the controller, its monitor/output-reader threads
+and every descendant in an enclosing aggregate memory Job. That Job deliberately
+does not kill the controller when its handle closes. A nested kill-on-close Job
+owns candidate teardown, including parent death. `TerminateAndWait` refuses the
+controller envelope. Reviewed phase transitions may change the enclosing limit;
+closing the envelope does not exempt the running controller from its limits.
+
+[`qualification_process.ps1`](../../scripts/ops/qualification_process.ps1) samples
+the enclosing native process inventory and memory, bounds the transcript and
+absolute/monotonic deadlines, reserves teardown, and proves no descendants remain.
+Capture mode adds the stricter 64% initial and projected 66% commit checks, 4 GiB
+physical headroom, the ordinary 50 GiB floor on each declared volume, and repeated
+three-worker identity/heartbeat checks. Admission and launch-policy installation
+belong to its adopted caller; dot-sourcing this helper grants neither.
+
+Working-set and current private-byte maxima are sampled across the controller
+and descendants. A sample gap over one second refuses execution. Native Job
+peak accounting is retained separately: Windows can include a refused allocation
+attempt in that counter. Never clip it to the limit or report it as resident
+consumption. Completion notifications are supplementary; their absence cannot
+prove that a limit event never occurred. See Microsoft's
+[Job notifications](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_associate_completion_port)
+and [nested Job limits](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs).
+
+Output failure and cleanup are separate facts. A capped, failed or incomplete
+transcript cannot complete a phase, even when native zero-child teardown is
+proved. Unproved teardown retains the caller's lease/poison boundary. This
+helper's `completed` field is process evidence, never host-acceptance authority.
+
+## Current-input generation
+
+`inputs.open_current` is intentionally separate from immutable evidence reads:
+it shares the live source with writers and replacement. It never locks or pauses
+capture. The stager copies a complete observed generation, retains original bytes
+and file identity, rehashes the complete source, and records read intervals.
+Replacement, append, deletion or same-length byte changes invalidate the attempt.
+Optional missing lineage is explicit; an appearance at later validation is drift.
+
+All read bytes, including repeated validations and staged parsing, consume one
+absolute byte/time budget. A parser that does not consume and authenticate the
+entire declared file cannot satisfy input integrity. Complete ledger records
+must end in a newline. Blank lines remain ignorable. Malformed JSON, duplicate
+keys, invalid object types, nonfinite values, duplicate CSV headers and incorrect
+CSV widths block qualification without changing ordinary audit semantics.
+
+`settlement_inputs.prepare` reads the complete registry-selected ledger set and
+labels projection. Its bounded SQLite index preserves last encounter within each
+source and nonempty label overlays solely to discover the actual lineage closure.
+It does not stage unused alternative payloads or classify settlement truth.
+Undeclared roots, unsafe aliases and extra market ledgers are refused.
+
+The audit's optional `input_reader` dependency supplies staged label/ledger rows
+and lineage hashes. Ordinary callers retain their existing readers and gates.
+`SealedAuditReader` resolves only the declared generation, preserves original
+lineage names, and has a per-invocation verified-copy hash cache. Revalidate all
+staged bytes after the audit and the complete current source generation before
+mutation. These checks do not claim an atomic cross-file producer generation.
+No candidate or downstream caller may convert an existing truth-label BLOCK to
+PASS because staging, computation or resource checks completed.
+
+## Verification and first landing
+
+[`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
+checks out the exact PR head on Windows and Linux, retains the native environment,
+runs focused faults and repository checks, then the complete suite with native
+event journals and JUnit. Its ordinary dependency installation is development
+evidence; it does not claim a reproduced approved production environment or emit
+an authenticated code certificate. Keep its exact run-attempt artifacts for
+direct bootstrap review.
+
+Native tests exercise actual Windows Job/pipe/process behavior, controller
+accounting, memory refusal, output flooding, timeout, creation failure, parent
+death and cleanup. Input tests use disposable fixtures and compare the real audit
+with its sealed reader, including revisions, nonempty overlays and truth BLOCKs.
+They require no ignored production data.
+
+First landing must bind the final cumulative source, complete reviewed evidence,
+policy/adapter/verifier closure and a single-use owner envelope. The host's real
+S4U probes and measured resource gate remain separate from hosted CI. A green
+workflow is not permission to invoke the new production lane.
+
+## Update when
+
+Update when a record, trust boundary, native resource/teardown mechanism, input
+resolver or qualification invocation changes. The numbered integration work item
+and retained attempt receipts own implementation/adoption status.

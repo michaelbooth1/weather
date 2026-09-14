@@ -15,6 +15,11 @@ as immutable for the whole night. It does not weaken the exact-tip suite gate,
 the 01:00-04:00 quiet-window gate, capture recovery, documentation transaction,
 or `origin/master` acknowledgement.
 
+The proposed [split qualification implementation](SPLIT_QUALIFICATION_CONTRACT.md)
+has a separate versioned trust transition. Its source and development evidence
+do not replace this full-host-suite prerequisite before explicit first-landing
+acceptance and adoption.
+
 ## State machine
 
 ```text
