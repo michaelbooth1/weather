@@ -24,6 +24,7 @@ record that is valuable evidence but not current instruction.
 | Move the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
 | **Overnight integration and recovery** | [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
+| Proposed replacement for full capture-host regression qualification | [September 14 design](roadmap/agent-report-2026-09-14-qualification-design.md) and [fresh audit](roadmap/agent-report-2026-09-14-qualification-design-audit.md) | Proposal and dated review; not adopted authority |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Maker economics, liquidity rewards, and audit implementation | [Master plan / Item 330](roadmap/items/item-330-maker-economics-refocus-master-plan.md) | Numbered work item |

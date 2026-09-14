@@ -4,7 +4,8 @@ Date: September 14, 2026. Status: design for review, not an adopted runbook.
 Request: fix the qualification bottleneck first; finish the design, then audit
 it afresh from beginning to end. This document specifies the replacement;
 the [separate audit](agent-report-2026-09-14-qualification-design-audit.md)
-records the subsequent review. Neither document grants execution authority.
+records the subsequent review and corrections incorporated here. Neither
+document grants execution authority.
 
 ## 1. Decision and scope
 
@@ -216,9 +217,23 @@ Before arming, the source-control principal retrieves the exact bundle and
 current remote run state through the existing authorized route. An import
 receipt binds the authenticated query, exact IDs, bundle and policy. The S4U
 task consumes only sealed local files. Code evidence expires seven days after
-completion; remote disposition/revocation validation must be within 60 minutes
-of arming. Policy/source/environment mismatch invalidates it immediately.
-These are proposed conservative validity defaults, not existing guarantees.
+completion. The authenticated remote-state query must be within 60 minutes of
+finalizing arming and no more than 24 hours old at host launch and immediately
+before merge; the planned latest merge must fit both expiries. Early task
+registration is inert until its create-once arming receipt is present. Check
+the locally adopted revocation list at both consumption boundaries. This
+permits daytime preparation for the next night without pretending that an
+offline S4U process knows about subsequent remote revocation. The accepted
+remote-information lag is at most 24 hours; a missing timely import blocks the
+night. No new authenticated unattended importer is implied. Policy/source/
+environment mismatch or known local revocation invalidates evidence
+immediately. These are proposed policy defaults requiring review at cutover.
+
+The certificate's `completed_at` is the latest required test completion, not
+upload time. Use UTC instants for age and monotonic clocks for elapsed budgets;
+future timestamps beyond the reviewed clock-skew allowance fail. The remote
+snapshot cannot be refreshed by changing a local timestamp. An authenticated
+producer failure/revocation overrides previously downloaded success.
 
 ## 6. Attempt planning and resource admission
 
@@ -244,6 +259,14 @@ Proposed initial host budgets, all stricter than outer policy:
 | Pre-merge validation and receipt publication | 2 minutes | Bounded metadata only; hashes stream |
 | Qualification teardown reserve | 2 minutes inside the absolute deadline | Hold lease until proved zero children |
 
+Caps cover the parent, monitor and complete descendant tree together. Use the
+existing Job boundary with a native aggregate commit limit and a bounded
+external resource monitor; polling only one child PID is insufficient. A
+working-set ceiling is a sampled abort bound, not a promise of no transient
+overshoot. Run at BelowNormal priority, fail on lost telemetry, and reserve the
+full commit envelope even if the current working set is smaller. The precise
+native limit/monitor implementation and sampling interval require fault tests.
+
 These are design ceilings, not measured completion promises. Measure peak
 working set/private commit for the parent plus full child tree, disk scratch,
 CPU and elapsed time on representative synthetic and admitted current inputs.
@@ -265,6 +288,12 @@ Do not overlap the reserved 04:45-06:45 tiering block. Register consumer first,
 preserve the exact one-shot S4U/Limited/no-StartWhenAvailable contract, and
 reject ambiguous or nonexistent DST wall times. A missed slot is a recorded
 deferral, not permission to run in the protected windows.
+
+The final data rehash belongs to the bounded audit budget, not an unmeasured
+two-minute metadata allowance. Measure all repeated reads, lineage discovery,
+copying, SQLite work, output generation and verification together. Planning
+uses their upper bound plus merge/rollback reserve; the 32-minute target is
+withdrawn for any corpus that cannot pass this measurement gate.
 
 The entire host plan is under one absolute deadline; the merge phase receives
 its own existing containment/recovery budget. A consumer waiting on evidence
@@ -309,9 +338,30 @@ index and no cached audit result. Derive required markets from the frozen
 registry; the present 12-ledger expectation must not become a permanent count.
 Read complete declared inputs, including tails; preserve encounter order,
 last-encountered ledger semantics, nonempty overlays and late revisions.
-Missing, malformed or truncated inputs block this acceptance, even when a
-historical report previously passed. A frozen August workstation mirror cannot
-substitute for these inputs.
+Missing required top-level inputs, malformed records or truncated inputs block
+this qualification acceptance, even when a historical report passed. The
+current audit skips malformed JSONL records; add a separate strict streaming
+input-integrity check before it, rather than silently changing its established
+row semantics. It must also detect missing markets, unapproved extra ledger
+directories, invalid JSON types, incomplete final records and duplicate CSV
+headers. Blank lines retain their documented meaning. A frozen August
+workstation mirror cannot substitute for these inputs.
+
+D covers the full data dependency closure, not just labels and ledgers.
+`settlement_source_audit._lineage` also reads WU summaries, snapshot tapes,
+weather.com payloads and resolution payloads named by rows. Discover these
+references with a bounded streaming pass; accept only approved local roots,
+validate paths before opening, and deduplicate hashes only for verified sealed
+bytes. Include each observed missing optional payload and its existing reason;
+such a semantic outcome stays visible and does not masquerade as a missing
+mandatory ledger. A missing payload appearing later is relevant drift.
+
+Keep original record bytes and original source identities. A reviewed
+read-only resolver maps those identities to staged files; it cannot follow an
+unsealed absolute path back into mutable production data. Relative paths have
+one declared root, independent of cwd. The hash cache applies only to this
+invocation's verified immutable copies. Preserve output lineage identities and
+prove parity with the existing reader, including repeated and mixed-case paths.
 
 Input manifest D records ordered file identities, root/relative path, byte
 length, raw SHA256, coverage/cutoff and label/ledger generation. For a live
@@ -320,8 +370,28 @@ read handle, record its ending offset and prove the prefix unchanged. For a
 replaced projection, capture a stable file identity/generation. Detect removal,
 replacement, late append or same-length rewrite through end-of-audit and
 pre-merge validation. Initial v2 accepts only an unchanged complete generation:
-any later relevant change requires a new bounded audit in a new attempt. No
-row is silently excluded by choosing a convenient earlier cutoff.
+any later relevant change before the adoption decision requires a new bounded
+audit in a new attempt. No row is silently excluded by choosing a convenient
+earlier cutoff. A partial final record is never accepted as a complete ledger.
+
+The decision is explicitly as of the final D validation time, not a claim
+that live writers are frozen until publication. Record the per-file read
+intervals and require the complete generation stable across staging and audit.
+The guarded parent must begin mutation immediately after its final validation,
+with no wait for a future trigger or lease in between. Record elapsed time to
+mutation and impose a reviewed short maximum (initial target: five seconds).
+An already observed change always blocks; a later append is new evidence and
+does not retroactively turn the historical audit into current truth. Downstream
+users recheck freshness under their own gates. If a consumer requires an atomic
+cross-file current generation, v2 blocks until an actual producer-generation
+protocol exists; sequential hashes cannot prove that stronger property.
+
+Measure input stability as well as throughput before adopting this lane. If
+the full dependency closure changes throughout every eligible audit window,
+do not retry nightly: implement a separately reviewed producer-generation or
+append-aware audit contract first. This design grants no writer pause or
+automatic exemption for active tapes. Qualification is intended to finish
+predictably; safe repeated refusal is not the performance acceptance test.
 
 Stage exact read-only input snapshots inside the admitted budget, retaining
 lineage to canonical sources; never lock live writers for the audit duration.
@@ -350,10 +420,18 @@ authorize a new night's adoption.
 ## 8. Guarded adoption and rollback
 
 Use the existing `roll_verdict.ps1`; classification is never hand-derived.
-Only a trusted adopted integration consumer may invoke the unchanged guarded
-merge primitive after validating the complete v2 graph. Candidate-owned
+Only a trusted adopted integration consumer may invoke the guarded merge
+primitive after validating the complete v2 graph. Candidate-owned
 wrappers cannot be the authority for their own invocation. The consumer freezes
 its dependency closure, selected native tools and exact push-task definition.
+Execute the trusted orchestration and verifier from a read-only attempt-local
+copy of the approved B closure, including every deferred Python/PowerShell
+import, with explicit production and candidate roots. Rehash before each
+launch. A hash list alone does not preserve trust when a merge replaces the
+file that a later child imports. Candidate S cannot become the active verifier
+mid-attempt. Domain recovery checks that intentionally inspect S are distinct
+from the B authority that decides their sufficiency. This small control-plane
+execution copy does not change the live capture deployment topology.
 
 Immediately before mutation, prove branch `master`, synchronized HEAD/local/
 remote baseline B, candidate S/ancestry/cleanliness, Q/D and certificate
@@ -363,6 +441,25 @@ Bq; record its exact parent and allowlisted Q content. Require the final commit
 to have parents Bq (or B) and S and verify its effective source/config tree.
 Any other merge resolution invalidates qualification and is not improvised on
 production. The source branch never rewrites published history.
+
+The ordinary guarded wrapper currently checks parents but does not enforce
+this complete effective-tree contract. Therefore K must add a narrow, typed
+v2 binding to that wrapper; merely inspecting its report after push is too
+late. No caller-supplied executable callback is allowed. Its adopted verifier
+validates the frozen graph and Q/D under the mutation lease. Preview the
+deterministic S-plus-Q tree in an isolated index without touching production;
+refuse any conflict or result outside that tree. After the no-commit merge,
+verify the staged tree and working bytes before recovery can authorize commit;
+repeat Q/source/tree checks immediately before commit and push. Changed files
+after recovery invalidate the recovery proof. Also freeze/verify effective
+Git attributes, merge drivers, hooks and config; no ambient external merge
+driver or hook may execute. Pre-mutation failure leaves capture untouched;
+post-staging failure uses the existing rollback and recovery path.
+
+These checks extend the primitive at its existing mutation boundaries. They
+preserve its no-commit merge, MERGE_HEAD crash marker, recovery-before-commit,
+documentation-before-push and uncertain-publication behavior. The v2 envelope
+does not reuse the separate incident-specific baseline-reconciliation mode.
 
 The guarded wrapper continues to perform local integration, three-worker
 recovery plus required execution-tape recovery, documentation transaction,
@@ -409,9 +506,13 @@ because its own certificate says it passed. Resolve this openly with one narrow
 first-landing decision, not a hidden waiver or an endless legacy-suite loop.
 
 1. Build a minimal control-plane-only increment K from the current baseline.
-   It adds v2 verification and host acceptance without including unrelated
-   reliability/maker runtime changes. Qualify K off-host and audit its cumulative
-   diff, input parser, launch dependencies, negative cases and rollback.
+   It adds v2 verification, host acceptance and the guarded-wrapper checks in
+   section 8 without including unrelated reliability/maker runtime changes.
+   Qualify K off-host and audit its cumulative diff, input parser, launch
+   dependencies, negative cases and rollback. Bootstrap off-host records are
+   reviewed directly in the envelope; they do not require K's not-yet-adopted
+   publisher to approve K. Pin the actual reviewed CI workflow revision and
+   retrieve exact run-attempt logs/artifacts through authenticated access.
 2. Prepare a concrete first-landing envelope for separate explicit owner
    acceptance. Bind B, K/tree, approved test/coverage records, policy/verifier
    and adapter SHA256s, every dependency, precise host probes, resources,
@@ -423,18 +524,31 @@ first-landing decision, not a hidden waiver or an endless legacy-suite loop.
    a temporary trust root. Its bytes and closure are inspected independently of
    K and its self-tests; the owner-reviewed envelope is the authority. The
    adapter cannot select a new tip, policy, verifier, command, deadline or scope.
-   Use the already-adopted workload admission, offline-marker installation and
-   containment primitives. If a needed primitive cannot safely run the bounded
-   probe, repair the adapter/envelope and re-review; do not run candidate code
+   Use already-adopted workload admission and containment. Offline marker
+   installation and environment scrubbing currently live inline in the adopted
+   bounded-suite runner, not in a callable general-purpose helper. The envelope
+   therefore binds a minimal independently reviewed copy of that exact launch
+   logic in the adapter, or calls the existing runner's limited preflight where
+   sufficient; it never invokes an imaginary reusable helper. If a needed
+   primitive cannot safely run the bounded probe, repair the adapter/envelope
+   and re-review; do not run candidate code
    uncontained or change the installed hook.
 4. Run the actual S4U bounded probes for K in the normal admitted window. A
    control-plane-only K requires configuration/fixture acceptance, not the
    unrelated large settlement rewrite's current-input audit; the reviewed scope
    establishes this distinction in advance. The bootstrap result has its own
    schema and is never a legacy full-suite result.
-5. After independent verification, that adapter calls the already-adopted
-   guarded quiet-merge primitive for K, with exact baseline/tip/self hashes.
-   Preserve roll-verdict, lease, recovery, documentation and push checks. The
+5. After independent verification, the adapter invokes a separately reviewed,
+   hash-pinned temporary copy of the adopted guarded primitive with the section
+   8 checks added at its mutation boundaries. Its full diff and dependency
+   closure are part of the owner envelope, independent of K's self-tests; K
+   cannot select its own installer. This bounded exception avoids relying on a
+   post-push tree check while the ordinary installed primitive lacks that check.
+   K may not edit either generated config; bind exact B/K/Q and effective tree.
+   Retain the adopted lease, containment, roll-verdict, recovery, documentation,
+   boot-marker and push behavior. The temporary copy may interpret only this
+   exact bootstrap envelope and must refuse general v2 attempts. No persistent
+   hook, supervisor or boot-recovery installation is changed to run it. The
    primitive does not itself supply the missing qualification policy; the
    explicit envelope supplies this single bounded exception. No `-Force`,
    expired historical exception token, marker edit or fabricated v1 receipt.
@@ -459,8 +573,8 @@ than granting an unproved one. Capture continues on its recovered source.
 | --- | --- | --- |
 | A. Source and coverage evidence | `.github/workflows/`, trusted runner/publisher, package operations verifier and tests | Full Windows/Linux inventory with explained skips; exact S and environments; independently authenticated bundle; tamper failures |
 | B. Read-only v2 verifier | `src/weather/operations/`, strict schemas, `tests/operations/` | Table-driven valid/invalid evidence graph; no remote execution or adoption; compare with retained v1 proof without upgrading it |
-| C. Bounded host acceptance | `scripts/ops/`, package audit/probe helpers and native tests | Measured budgets, exact S4U evidence, offline launch, current-input parity and stable lineage; interruption/zero-child proof |
-| D. Attempt/consumer integration | Existing create/register/suite-or-host/merge/assert/close/dispatch/reconcile scripts | Explicit v1/v2 routing; immutable claims, deadlines, recovery and downstream checks all covered |
+| C. Bounded host acceptance | `scripts/ops/`, package audit/probe helpers and native tests | Measured budgets, exact S4U evidence, strict input integrity, full dependency closure and read-only resolver parity; stable lineage; interruption/zero-child proof |
+| D. Attempt/consumer integration | Existing create/register/suite-or-host/merge/assert/close/dispatch/reconcile scripts and guarded wrapper | Explicit v1/v2 routing; in-primitive tree/config checks; immutable claims, deadlines, recovery and downstream checks all covered |
 | E. Accepted first landing and one candidate adoption | Exact bootstrap envelope, then ordinary v2 attempt | K adopted safely, then one complete reliability-candidate evidence chain; no fictional full-host PASS |
 
 Keep A-D in one coherent minimal qualification candidate if splitting them
