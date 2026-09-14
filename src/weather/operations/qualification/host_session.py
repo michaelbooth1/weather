@@ -93,11 +93,30 @@ def _probes(checked, selected, output, deadline):
     with (output / "private-inheritable-fixture.txt").open("xb") as private:
         handle = msvcrt.get_osfhandle(private.fileno())
         os.set_handle_inheritable(handle, True)
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetFinalPathNameByHandleW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+        kernel.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+        name = ctypes.create_unicode_buffer(32768)
+        length = kernel.GetFinalPathNameByHandleW(handle, name, len(name), 0)
+        require(0 < length < len(name), "private fixture handle identity unavailable")
+        # Handle values are process-local and can be reused for unrelated
+        # objects. Compare the actual open file, with a positive inheritance
+        # control proving the child can detect that exact file handle.
         command = ("import ctypes; from ctypes import wintypes; "
                    "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-                   "k.GetHandleInformation.argtypes=[wintypes.HANDLE,ctypes.POINTER(wintypes.DWORD)]; "
-                   "flags=wintypes.DWORD(); "
-                   "raise SystemExit(9 if k.GetHandleInformation(" + str(handle) + ",ctypes.byref(flags)) else 0)")
+                   "k.GetFinalPathNameByHandleW.argtypes=[wintypes.HANDLE,wintypes.LPWSTR,wintypes.DWORD,wintypes.DWORD]; "
+                   "k.GetFinalPathNameByHandleW.restype=wintypes.DWORD; "
+                   "name=ctypes.create_unicode_buffer(32768); "
+                   "size=k.GetFinalPathNameByHandleW(" + str(handle) + ",name,len(name),0); "
+                   "raise SystemExit(9 if 0<size<len(name) and name.value.casefold()==" + repr(name.value.casefold()) + " else 0)")
+        inherited = subprocess.STARTUPINFO()
+        inherited.lpAttributeList = {"handle_list": [handle]}
+        control = subprocess.run([str(python), "-I", "-S", "-B", "-c", command], executable=str(python),
+            cwd=output, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=3, close_fds=True, startupinfo=inherited, check=False)
+        require(control.returncode == 9, "private handle positive inheritance control failed")
         isolated = subprocess.run([str(python), "-I", "-S", "-B", "-c", command], executable=str(python),
             cwd=output, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=3, close_fds=True, check=False)

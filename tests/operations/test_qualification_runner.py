@@ -67,7 +67,16 @@ def test_actual_native_collection_and_chunk_have_verified_cleanup(native_runner,
     assert nodes == ["tests/test_example.py::test_example"]
     expected = {"id": "chunk-1", "nodes": [{"nodeid": nodes[0], "disposition": "execute", "reason": None,
                                             "owner": None, "covered_by": None}]}
-    ref = native_runner.chunk(expected, run={"run_id": "1", "attempt": "1"}, job_id="2")
+    try:
+        ref = native_runner.chunk(expected, run={"run_id": "1", "attempt": "1"}, job_id="2")
+    except Exception:
+        for output in native_runner.output.glob("*/*"):
+            if output.name in {"native.json", "transcript.txt"}:
+                print(output.name, output.read_text(errors="replace")[:16384])
+        for output in native_runner.scratch.glob("*/*"):
+            if output.name in {"native-result.json", "controller.log"}:
+                print(output.name, output.read_text(errors="replace")[:16384])
+        raise
     graph = Graph(native_runner.output)
     chunk = graph.get(ref)
     receipt = runner.validate_process(graph, chunk["process"], platform=native_runner.platform, transcript=chunk["transcript"])

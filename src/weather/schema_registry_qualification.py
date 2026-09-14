@@ -25,6 +25,7 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_audit_imports", "host_audit", "Actual before/after isolated candidate audit import bytes and computation reference."),
         ("qualification_configuration", "merge_tree", "Frozen generated configuration pair and complete current dependency reference."),
         ("qualification_effective_tree", "merge_tree", "Deterministic reviewed source plus exact generated configuration Git tree."),
+        ("qualification_merge_boundary", "merge_session", "Actual guarded primitive source/config/index/parent check with separately proved native completion."),
         ("qualification_dispatch", "workflow", "Independently reviewed producer inputs, native profiles and installer closure."),
         ("qualification_process", "runner", "Native bounded execution and zero-descendant cleanup bound to retained output."),
         ("qualification_process_request", "process", "Trusted-parent native Windows command request, never host authority."),

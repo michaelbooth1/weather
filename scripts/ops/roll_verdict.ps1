@@ -44,11 +44,12 @@ param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$Base = "master",
     [int]$MaxStatusAgeHours = 24,
-    [string]$JsonOut = ""
+    [string]$JsonOut = "",
+    [string]$RepoRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
 $ErrorActionPreference = "Stop"
-$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 Set-Location $repo
 
 function Get-OptionalPropertyValue {

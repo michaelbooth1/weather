@@ -255,8 +255,23 @@ actual S-bound LFS pointer. Git tree identity remains the pointer identity.
 The stage and commit checks compare the entire Git tree and exact two parents.
 The working-byte check separately detects an unstaged rewrite hidden behind a
 correct index, and generated configuration must retain both its bytes and file
-generation. These helpers need calls from the guarded primitive at each required
-boundary; their availability alone does not enable split integration.
+generation. The existing guarded primitive's explicit split mode calls
+`merge_session` under its held lease before generated-config staging, before the
+merge, after staged recovery, before commit, after commit and before push. Each
+native call reopens the complete code/host/environment/configuration graph and
+checks actual working bytes, index, source refs and parents. Complete current
+input generations are reread immediately before the initial mutations, with a
+five-second native-parent freshness check. No cached PASS substitutes for a
+boundary. A failed or ambiguous commit invocation preserves local state for
+reconciliation instead of resetting a potentially committed merge.
+
+The split primitive retains a controller-inclusive native Job and poisons its
+lease when zero-child cleanup is unproved. Deferred capture, execution-tape status
+and documentation calls load the frozen B closure through fixed isolated
+entrypoints and explicit production paths. Read-only recovery remains possible
+after certificate expiry. Roll classification accepts an explicit `RepoRoot`
+so the frozen B script examines the actual capture checkout. Public v2 lifecycle
+routing and complete native verification remain required before registration.
 
 Native regression fixtures bind their disposable copied host assignment to the
 actual test installation. They retain production identity checks, canonical
@@ -326,6 +341,6 @@ The host's frozen control record also binds `qualification_git_policy_v2`.
 It rejects configuration includes, external merge/diff drivers, additional
 filters and attribute changes; fixes empty hooks and global/system exclusions;
 and binds any required Git LFS executable to the qualified native inventory.
-Every host metadata child uses the verified interpretation. The guarded merge
-integration remains disabled until these checks are wired at its mutation
-boundaries and their native execution is verified.
+Every host metadata child and the split primitive use the verified interpretation.
+The guarded merge integration remains disabled at the public manifest reader
+until the complete lifecycle and native mutation-boundary execution are verified.
