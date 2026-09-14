@@ -23,7 +23,7 @@ FAMILIES = re.compile(
 # its exact whole-file plan is reviewed. An unbound selection grants no scope.
 NEXT50_APPROVED_PLAN_SHA256 = ""
 NEXT50_FAMILIES = re.compile(
-    FAMILIES.pattern + r"|snapshot_explanations_long[.]csv")
+    FAMILIES.pattern + r"|order_books[.]jsonl[.]gz|snapshot_explanations_long[.]csv")
 
 
 class Observations:

@@ -93,3 +93,14 @@ def test_next_selection_cannot_archive_routine_or_weather_inputs(evidence, monke
     evidence[1]["files"][0]["path"] = f"snapshots/{evidence[2]}/{family}"
     with pytest.raises(ValueError, match="unreviewed detail"):
         run(evidence)
+
+
+def test_canonical_gzip_book_requires_the_new_exact_plan(evidence, monkeypatch):
+    root, entry, event, *_ = evidence
+    entry["files"][0]["path"] = f"snapshots/{event}/order_books.jsonl.gz"
+    with pytest.raises(ValueError, match="unreviewed detail"):
+        run(evidence)
+    assert not (root / "review").exists()
+    bind_next_selection(evidence, monkeypatch)
+    checked, _, _ = run(evidence)
+    assert checked["selection_kind"] == "primary"

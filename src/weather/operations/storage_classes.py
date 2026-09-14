@@ -197,6 +197,7 @@ ARTIFACT_FAMILIES = (
             "snapshots/clob*.jsonl",
             "snapshots/*/clob_tokens.jsonl",
             "snapshots/*/order_books.jsonl",
+            "snapshots/*/order_books.jsonl.gz",
             "snapshots/*/price_history.jsonl",
             "snapshots/*/price_history_raw_manifest.jsonl",
             "snapshots/*/price_history_raw/**/*.json",

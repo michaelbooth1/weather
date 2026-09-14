@@ -94,6 +94,14 @@ class TestStorageClassRegistry(unittest.TestCase):
             "daily_roll_exact_path_hash_bound_retention_manifest",
         )
 
+    def test_gzip_canonical_book_retains_protected_evidence_contract(self):
+        plain = classify_storage_path("data/snapshots/event/order_books.jsonl")
+        compressed = classify_storage_path("data/snapshots/event/order_books.jsonl.gz")
+        self.assertEqual(compressed, plain)
+        self.assertEqual(compressed.storage_class, CANONICAL_EVIDENCE)
+        self.assertTrue(compressed.protected)
+        self.assertEqual(compressed.delete_gate, "canonical_evidence_review_gate")
+
     def test_order_book_long_projection_has_specific_rebuild_contract(self):
         for path in (
             "data/snapshots/event/order_books_long.csv",
