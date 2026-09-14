@@ -47,7 +47,7 @@ $null=Write-WeatherPlainNew (Join-Path $registrationRoot 'intent.json') @{task_n
 $action=New-ScheduledTaskAction -Execute $ps -Argument $arguments -WorkingDirectory $source
 $trigger=New-ScheduledTaskTrigger -Once -At $at.ToLocalTime()
 $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Hidden -ExecutionTimeLimit (New-TimeSpan -Minutes $minutes) -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$principal=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 $null=Register-ScheduledTask -TaskName $name -TaskPath '\' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Owner-approved exact archive queue; native proof-gated removal; fixed deadline; no live authority.'
 $task=Get-ScheduledTask -TaskName $name -TaskPath '\'
 $actions=@($task.Actions);$triggers=@($task.Triggers)
