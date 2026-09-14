@@ -56,13 +56,13 @@ def rooted_path(root, path):
     return relative_path(result)
 
 
-def files_manifest(root, paths):
+def files_manifest(root, paths, *, native_installation=False):
     paths = sorted(paths)
     require(0 < len(paths) <= MAX_ENVIRONMENT_FILES, "installation file count exceeds bound")
     distinct_paths(paths)
     files, total = [], 0
     for path in paths:
-        item = file_identity(root, path)
+        item = file_identity(root, path, native_installation=native_installation)
         total += item["size"]
         require(total <= MAX_ENVIRONMENT_BYTES, "installation bytes exceed bound")
         files.append(item)

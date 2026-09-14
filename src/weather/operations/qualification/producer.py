@@ -45,9 +45,9 @@ def verify_environment(graph, reviewed_ref, *, platform, bindings, wheel_root, w
     interpreter_files = inventory(graph.get(expected["python"]["runtime_files"]), "qualification_runtime_files_v2")
     actual_paths = environment.enumerate_files(roots["interpreter"], excluded_directories=bindings["interpreter_exclusions"])
     require(actual_paths == [item["path"] for item in interpreter_files["files"]], "interpreter installation topology differs")
-    require(environment.files_manifest(roots["interpreter"], actual_paths) == interpreter_files, "interpreter runtime bytes differ")
+    require(environment.files_manifest(roots["interpreter"], actual_paths, native_installation=True) == interpreter_files, "interpreter runtime bytes differ")
     native_files = inventory(graph.get(expected["native_files"]), "qualification_runtime_files_v2")
-    require(environment.files_manifest(roots["native"], [item["path"] for item in native_files["files"]]) == native_files,
+    require(environment.files_manifest(roots["native"], [item["path"] for item in native_files["files"]], native_installation=True) == native_files,
             "reviewed native prerequisite bytes differ")
     return expected
 

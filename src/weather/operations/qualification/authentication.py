@@ -37,7 +37,7 @@ def verifier_command(graph, policy_ref, review_ref, certificate_ref, bundle_ref,
     require(Path(gh_path).is_absolute(), "verifier executable must be an absolute adopted path")
     gh_path = Path(gh_path)
     hasher, count = hashlib.sha256(), 0
-    with open_record(gh_path.parent, gh_path.name) as handle:
+    with open_record(gh_path.parent, gh_path.name, _native_installation=True) as handle:
         while block := handle.read(1024 * 1024):
             count += len(block)
             require(count <= 256 * 1024**2, "native verifier exceeds reviewed bound")

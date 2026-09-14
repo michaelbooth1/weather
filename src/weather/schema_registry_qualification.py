@@ -6,6 +6,7 @@ from weather.schema_registry_types import SchemaSpec
 QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     SchemaSpec(name, name + "_v2", "weather.operations.qualification." + owner, "active", description)
     for name, owner, description in (
+        ("qualification_dispatch", "workflow", "Independently reviewed producer inputs, native profiles and installer closure."),
         ("qualification_process", "runner", "Native bounded execution and zero-descendant cleanup bound to retained output."),
         ("qualification_process_request", "process", "Trusted-parent native Windows command request, never host authority."),
         ("qualification_dependency_lock", "installation", "Complete exact offline wheel set and installer interpreter binding."),

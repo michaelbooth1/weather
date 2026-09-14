@@ -34,13 +34,15 @@ def dependency_lock(tmp_path):
 def test_install_plan_is_fixed_offline_and_destination_single_use(dependency_lock, tmp_path):
     value, root, python = dependency_lock
     destination = tmp_path / "install"
-    argv = prepare(value, wheel_root=root, destination=destination, python_path=python)
-    assert argv[:7] == [str(python), "-I", "-B", "-m", "pip", "--isolated", "--disable-pip-version-check"]
+    argv = prepare(value, wheel_root=root, destination=destination, python_path=python, installer_sites=[str(tmp_path / "reviewed-sites")])
+    assert argv[:5] == [str(python), "-I", "-S", "-B", "-c"]
+    assert json.loads(argv[6]) == [str(tmp_path / "reviewed-sites")]
+    assert argv[7:9] == ["--isolated", "--disable-pip-version-check"]
     assert {"--no-index", "--no-deps", "--require-hashes", "--no-compile", "--only-binary=:all:"} <= set(argv)
     assert "--upgrade" not in argv
     assert (destination / "reviewed-requirements.txt").read_text().endswith(" --hash=sha256:" + value["wheels"][0]["sha256"] + "\n")
     with pytest.raises(records.QualificationError, match="namespace spent"):
-        prepare(value, wheel_root=root, destination=destination, python_path=python)
+        prepare(value, wheel_root=root, destination=destination, python_path=python, installer_sites=[str(tmp_path / "reviewed-sites")])
 
 
 @pytest.mark.parametrize("mutation", [
@@ -61,7 +63,7 @@ def test_changed_wheel_refuses_before_installation_namespace(dependency_lock, tm
     value, root, python = dependency_lock
     (root / value["wheels"][0]["filename"]).write_bytes(b"changed")
     with pytest.raises(records.QualificationError, match="wheel differs"):
-        prepare(value, wheel_root=root, destination=tmp_path / "install", python_path=python)
+        prepare(value, wheel_root=root, destination=tmp_path / "install", python_path=python, installer_sites=[str(tmp_path / "reviewed-sites")])
     assert not (tmp_path / "install").exists()
 
 

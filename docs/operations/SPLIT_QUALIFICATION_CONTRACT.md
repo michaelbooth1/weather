@@ -157,6 +157,27 @@ trust roots and JSON output, and tests the documented
 [offline verification](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline)
 command in a fresh network namespace with an empty credential/config directory.
 This fixture is never a production certificate or a policy trust root.
+The manual [`qualification.yml`](../../.github/workflows/qualification.yml)
+executes only at its independently approved producer revision. Dispatch inputs
+pin the complete candidate commit, preparation artifact bytes and a separate
+`qualification_dispatch_v2` reference. That authority binds both native profiles,
+their reviewed environment/coverage evidence, retained wheel artifacts, external
+executable paths and the full base interpreter/pip closure. Source inspection or
+environment discovery does not approve the observed values automatically.
+
+The installer checks that entire closure before and after its bounded invocation.
+Its `-I -S` bootstrap selects only the pinned pip import roots and never processes
+site hooks. The resulting isolated prefix must reproduce every installed file
+against the review. Native tools and dependency roots must be outside candidate
+source. OS installations may use stable hardlinks; retained evidence files still
+reject hardlinks and every native byte/identity remains checked.
+
+The native jobs have read-only source/Actions permissions. The separate publisher
+downloads only data files, rejects disagreements between native evidence copies,
+authenticates both completed jobs and signs only its checked code certificate.
+The final artifact carries that certificate graph plus the native attestation.
+Workflow dispatch does not create a production task or change either host gate.
+
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)

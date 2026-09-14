@@ -81,7 +81,10 @@ class Runner:
         self.executables = executables
         for value in executables.values():
             fields(value, {"root", "path", "sha256", "size"})
-            checked_root(Path(value["root"]))
+            tool_root = checked_root(Path(value["root"]))
+            require(not tool_root.is_relative_to(self.candidate) and
+                    not (tool_root / value["path"]).is_relative_to(self.candidate),
+                    "native executable must be outside candidate source")
         self.trusted_files = trusted_files
         paths = set(TRUSTED_PYTHON.values()) | (set(TRUSTED_WINDOWS) if os.name == "nt" else set())
         require(set(trusted_files) == paths, "incomplete/extra trusted launch closure")

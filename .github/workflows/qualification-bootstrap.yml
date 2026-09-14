@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/qualification-bootstrap.yml'
+      - '.github/workflows/qualification.yml'
       - 'src/weather/operations/qualification/**'
       - 'src/weather/schema_registry*.py'
       - 'scripts/ops/**'
@@ -51,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/operations/test_qualification_native_job.py tests/operations/test_qualification_runner.py -q --junitxml="$RUNNER_TEMP/qualification-native.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-native.log"
+          python -m pytest tests/operations/test_qualification_native_job.py tests/operations/test_qualification_runner.py tests/operations/test_qualification_producer.py tests/operations/test_qualification_workflow.py -q --junitxml="$RUNNER_TEMP/qualification-native.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-native.log"
       - name: Retain native fault evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

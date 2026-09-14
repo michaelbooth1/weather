@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import environment
-from .contracts import record, sequence, text
+from .contracts import inventory, record, sequence, text
 from .records import checked_root, digest, fields, integer, publish, relative_path, require
 
 
@@ -36,14 +36,48 @@ def lock(value):
     return value
 
 
-def prepare(value, *, wheel_root, destination, python_path):
+INSTALL_BOOTSTRAP = (
+    "import json,runpy,sys; sites=json.loads(sys.argv.pop(1)); "
+    "sys.path[:0]=sites; sys.argv[0]='pip'; runpy.run_module('pip',run_name='__main__')"
+)
+
+
+def verify_installer(graph, profile, *, candidate):
+    """Hash the complete separately reviewed base interpreter/pip installation.
+
+    Exclusions and import sites are part of the caller-pinned dispatch record.
+    The isolated bootstrap never executes site.py, .pth or sitecustomize.
+    """
+    fields(profile, {"root", "files", "exclusions", "sites"})
+    root = checked_root(Path(profile["root"]))
+    require(not root.is_relative_to(candidate), "installer must be outside candidate")
+    sites = sequence(profile["sites"], minimum=1, maximum=4)
+    for site in sites:
+        relative_path(site)
+        checked_root(root / site)
+    exclusions = sequence(profile["exclusions"], maximum=32)
+    paths = environment.enumerate_files(root, excluded_directories=exclusions)
+    expected = inventory(graph.get(profile["files"]), "qualification_runtime_files_v2")
+    require(paths == [item["path"] for item in expected["files"]] and
+            environment.files_manifest(root, paths, native_installation=True) == expected,
+            "reviewed installer runtime/pip bytes differ")
+    require(all(any(path.startswith(site + "/pip/") for path in paths) for site in sites),
+            "reviewed pip import closure is absent")
+    return [str(root / site) for site in sites]
+
+
+def prepare(value, *, wheel_root, destination, python_path, installer_sites):
     """Verify wheel bytes and emit only fixed offline pip arguments.
 
     The adopted off-host wrapper executes the returned argv with its pinned
     interpreter/pip closure and native containment. Returning argv is not an
     installation PASS; the producer verifies the resulting complete environment.
     """
+    import json
     value = lock(value)
+    sequence(installer_sites, minimum=1, maximum=4)
+    require(all(type(site) is str and Path(site).is_absolute() for site in installer_sites),
+            "explicit reviewed installer import roots required")
     wheel_root = checked_root(wheel_root)
     python_path = Path(python_path)
     require(python_path.is_absolute(), "absolute reviewed installer interpreter required")
@@ -69,7 +103,7 @@ def prepare(value, *, wheel_root, destination, python_path):
         import os
         os.fsync(handle.fileno())
     publish(destination, "installation-claim.json", value)
-    return [str(python_path), "-I", "-B", "-m", "pip", "--isolated", "--disable-pip-version-check", "install",
+    return [str(python_path), "-I", "-S", "-B", "-c", INSTALL_BOOTSTRAP, json.dumps(installer_sites), "--isolated", "--disable-pip-version-check", "install",
             "--no-input", "--no-index", "--no-deps", "--only-binary=:all:", "--no-compile", "--ignore-installed",
             "--require-hashes", "--find-links", str(wheel_root), "--prefix", str(destination / "prefix"),
             "--report", str(destination / "installation-report.json"), "-r", str(requirements)]
