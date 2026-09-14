@@ -33,6 +33,10 @@ atomic global and per-market-day status files are operator caches: they can be
 reconstructed from the append-only tapes, and each status names the physical
 files and fsynced receipts it last counted.
 
+Canonical full-book evidence includes both `order_books.jsonl` and its verified
+`order_books.jsonl.gz` representation. Gzip compression does not make the tape
+rebuildable or remove its protected evidence and exact-cleanup requirements.
+
 ## Operator Rule
 
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from

@@ -19,6 +19,12 @@ FAMILIES = re.compile(
     r"(?:clob_tokens[.]jsonl|market_ws[.]jsonl|order_books[.]jsonl|order_books_long[.]csv(?:[.]gz)?|"
     r"price_history[.]csv|variant_predictions[.]jsonl)")
 
+# The September 13 owner's additional selection is bound to its measured plan.
+# An unknown plan grants no additional date or family scope.
+NEXT50_APPROVED_PLAN_SHA256 = "bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027"
+NEXT50_FAMILIES = re.compile(
+    FAMILIES.pattern + r"|order_books[.]jsonl[.]gz")
+
 
 class Observations:
     def __init__(self):
@@ -78,7 +84,10 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
     events = sorted({archive._relative(row["path"]).split("/")[1] for row in entry["files"]})
     require(1 <= len(events) <= archive.MAX_MARKET_DAYS, "source review event bound")
     require(selection_kind in {"primary", "conditional_reserve"}, "unreviewed selection kind")
-    families = FAMILIES if selection_kind == "primary" else re.compile(r"snapshot_explanations_long[.]csv")
+    next50 = bool(NEXT50_APPROVED_PLAN_SHA256 and selection_kind == "primary"
+                  and entry.get("plan_sha256") == NEXT50_APPROVED_PLAN_SHA256)
+    families = (NEXT50_FAMILIES if next50 else FAMILIES) if selection_kind == "primary" else re.compile(
+        r"snapshot_explanations_long[.]csv")
     for row in entry["files"]:
         parts = row["path"].split("/")
         require(len(parts) == 3 and parts[0] == "snapshots" and families.fullmatch(parts[2]),
@@ -86,7 +95,10 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
     rows, settlements, all_countable = [], [], True
     for event in events:
         date = event_date(event).isoformat()
-        require("2026-06-15" <= date <= "2026-07-30", "source date outside approved primary")
+        first, last = ("2026-06-01", "2026-08-14") if next50 else ("2026-06-15", "2026-07-30")
+        require(first <= date <= last, "source date outside approved primary")
+        if next50:
+            require((current.date() - event_date(event)).days > 30, "source is inside thirty-day hot window")
         path = root / "data" / "snapshots" / event / "settlement.json"
         value = obs.json(path)
         reconciliation = value["polymarket_reconciliation"]
@@ -158,6 +170,7 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
         contracts.append(obs.spec(path))
     observations = {
         "observed_at_utc": current.isoformat(), "selected_events": rows,
+        **({"approved_plan_sha256": NEXT50_APPROVED_PLAN_SHA256} if next50 else {}),
         "exact_sources": [{"path": row["path"], "sha256": row["sha256"]} for row in entry["files"]],
         "barrier": {"source": obs.spec(barrier_path), "selected_market_day_referenced": False},
         "queues": {"review_queue": obs.spec(queue_path), "audit_source": obs.spec(audit_path),

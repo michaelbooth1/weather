@@ -131,6 +131,27 @@ time, but its immutable run directory can be consumed only once. Failed or
 partial phases require review and fresh requests; no automatic retry is added.
 The scheduled September 14 path retains its narrow one-shot launch checks.
 
+## Additional owner-selected cold data
+
+The September 13 instruction to select roughly another 50 GB and continue
+until the volume has 100 GB free requires a new proposal, owner-approval
+binding, measured selection, exact plan and independent allocation ledger.
+The old campaign counter does not establish that free-volume target.
+
+Only the additional plan pinned in `cold_archive_campaign_review` may select
+June 1-August 14 detail files and canonical gzip book tapes as primary inputs.
+It retains the thirty-day hot window and every settlement, queue, corpus,
+release, capture, native identity and complete verification check. Diagnostic
+explanation tables, routine token-map and prediction summary CSVs, weather
+inputs and replay inputs remain outside this additional scope. Unknown and
+prior plans retain their original date and family boundaries.
+
+New plans retain the ordinary 50 GiB archive reserve. Run admitted work in the
+ordinary overnight window, reserve time for scheduled tiering and qualification,
+and measure actual volume free space after each fully backed-up reclaim batch.
+Stop only at a verified batch boundary; do not add temporary-copy or compression
+savings to the original-source allocation ledger.
+
 ## Update this file when
 
 Update when the approved transfer or original-deletion route changes.
