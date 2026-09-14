@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from . import journal, junit
+from .runner import validate_process
 from .contracts import (CHECKS, PLATFORMS, Graph, fields, interval, inventory, pass_result, record,
                         remote_id, run, sequence, text, validate_trust)
 from .coverage import (plan, validate_chunk, validate_collection_rules,
@@ -102,7 +103,7 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
                     "import bytes differ from source inventory")
     require(checkout_roots[0] == checkout_roots[1], "candidate root changed during job")
     collection = record(graph.get(job["collection"]), "qualification_collection_v2", {
-        "platform", "run", "job_id", "exit_code", "node_chunks", "deselected", "errors", "ignored_files"})
+        "platform", "run", "job_id", "exit_code", "node_chunks", "deselected", "errors", "ignored_files", "journal", "transcript", "process"})
     require(collection["platform"] == platform and collection["run"] == expected_run and
             collection["job_id"] == job["job_id"] and integer(collection["exit_code"]) == 0,
             "collection identity/failure")
@@ -114,6 +115,12 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
     require(collected_nodes == expected_nodes and collection["deselected"] == [] and
             collection["errors"] == [] and collection["ignored_files"] == expected_plan["uncollected_files"],
             "complete collection differs from reviewed plan")
+    validate_process(graph, collection["process"], platform=platform, transcript=collection["transcript"])
+    verify_blob(graph, collection["journal"])
+    native_collection = journal.consume(graph.root, collection["journal"], candidate_root=checkout_roots[0],
+                                        native_exit_code=collection["exit_code"], collect_only=True, platform=platform)
+    require(native_collection["status"] == "PASS" and native_collection["collected"] == collected_nodes,
+            "collection summary contradicts native collection journal")
     chunk_refs = sequence(job["chunks"], minimum=1)
     require(len(chunk_refs) == len(expected_plan["chunks"]), "missing or extra planned chunks")
     totals = {"pass": 0, "skip": 0, "xfail": 0}
@@ -129,6 +136,7 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
             totals[name] += count
         for key in ("journal", "junit", "transcript"):
             verify_blob(graph, chunk[key])
+        validate_process(graph, chunk["process"], platform=platform, transcript=chunk["transcript"])
         native = journal.consume(graph.root, chunk["journal"], candidate_root=checkout_roots[0],
                                  native_exit_code=chunk["exit_code"], platform=platform)
         require(all(chunk[key] == native[key] for key in native), "chunk summary contradicts native journal")
@@ -136,12 +144,14 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
     checks = sequence(job["checks"], minimum=len(CHECKS), maximum=len(CHECKS))
     require([item.get("name") for item in checks if type(item) is dict] == list(CHECKS), "required checks absent")
     for check in checks:
-        fields(check, {"name", "status", "exit_code", "started_at", "completed_at", "transcript"})
+        fields(check, {"name", "status", "exit_code", "started_at", "completed_at", "transcript", "process"})
         pass_result(check["status"])
         require(integer(check["exit_code"]) == 0, "repository check failed")
         check_start, check_end = interval(check, now, skew)
         require(start <= check_start <= check_end <= end, "repository check outside job")
         verify_blob(graph, check["transcript"])
+        validate_process(graph, check["process"], platform=platform, transcript=check["transcript"])
+
     return job, totals
 
 

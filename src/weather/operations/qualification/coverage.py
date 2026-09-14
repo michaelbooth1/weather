@@ -97,11 +97,12 @@ def validate_chunk(value, expected, *, platform, run, job_id, now, skew):
     value = record(value, "qualification_chunk_v2", {
         "id", "platform", "run", "job_id", "started_at", "completed_at", "exit_code", "status",
         "collected", "deselected", "collection_errors", "started", "completed", "results",
-        "journal", "junit", "transcript"})
+        "journal", "junit", "transcript", "process"})
     require(value["id"] == expected["id"] and value["platform"] == platform, "unexpected chunk")
     require(value["run"] == run and remote_id(value["job_id"]) == job_id, "mixed job/run attempt")
     interval(value, now, skew)
     require(value["status"] == "PASS" and integer(value["exit_code"]) == 0, "chunk did not finish successfully")
+    reference(value["process"])
     nodes = [node["nodeid"] for node in expected["nodes"]]
     require(value["collected"] == nodes, "collection differs from reviewed nodes/order")
     require(value["deselected"] == [] and value["collection_errors"] == [], "hidden deselection/collection error")

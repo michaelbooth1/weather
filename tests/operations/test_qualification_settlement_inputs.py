@@ -119,3 +119,15 @@ def test_staged_payload_changes_invalidate_the_per_invocation_hash_cache(fixture
     copy.write_bytes(b"altered copy")
     with pytest.raises(ValueError):
         reader.verify_staged()
+
+
+def test_new_market_ledger_after_sealing_invalidates_current_generation(fixture):
+    stager, labels, ledgers, _ = fixture
+    prepare(stager, labels_identity=str(labels), ledger_root_identity=str(ledgers), markets=["market"])
+    reader = SealedAuditReader(Graph(stager.root), stager.seal(), stager.sources, stager.budget)
+    (ledgers / "new-market").mkdir()
+    (ledgers / "new-market/ledger.jsonl").write_text('{}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="extra market"):
+        reader.revalidate_current()
+    with pytest.raises(ValueError, match="extra market"):
+        stager.revalidate()

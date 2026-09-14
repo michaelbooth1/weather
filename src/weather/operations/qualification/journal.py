@@ -138,6 +138,7 @@ def consume(root, ref, *, candidate_root, native_exit_code, collect_only=False, 
     require(byte_count == ref["size"] and hasher.hexdigest() == ref["sha256"], "journal bytes changed")
     require(tail is not None and collection_finished, "missing collection/terminal tail")
     require(collect_only or completed == collected, "unexecuted tests in terminal stream")
+    require(not collect_only or (not started and not completed and not results), "execution events in collection-only stream")
     success = bool(collected) and native_exit_code == 0 and tail["tests_failed"] == 0 and not problems and not deselected
     if not collect_only:
         success = success and all(item["outcome"] in {"pass", "skip", "xfail"} for item in results)

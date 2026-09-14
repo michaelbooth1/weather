@@ -15,7 +15,7 @@ import stat
 
 from .contracts import record, sequence, text
 from .inputs import (MAX_INPUT_FILES, SourceRoots, Stager, _regular,
-                     label_rows, ledger_rows, verified_input)
+                     label_rows, ledger_rows, verified_input, validate_current_generation)
 from .records import digest, distinct_paths, fields, identifier, integer, require, timestamp
 
 
@@ -96,6 +96,8 @@ def prepare(stager: Stager, *, labels_identity, ledger_root_identity, markets):
     root_name, root_path = stager.sources.locate(ledger_root_identity)
     ledger_root = stager.sources.roots[root_name] / root_path
     topology = market_directories(ledger_root, markets)
+    require(not stager.topologies, "settlement topology may be bound only once")
+    stager.topologies.append({"kind": "market_ledgers", "root": root_name, "path": root_path, "markets": topology})
     index_path = stager.root / "lineage-preparation.sqlite"
     # Reserve the index namespace before SQLite can create or reopen anything.
     with index_path.open("xb"):
@@ -129,7 +131,16 @@ def prepare(stager: Stager, *, labels_identity, ledger_root_identity, markets):
 
 
 def load_entries(graph, ref):
-    value = record(graph.get(ref), "qualification_inputs_v2", {"pages", "file_count", "staged_bytes", "validation"})
+    value = record(graph.get(ref), "qualification_inputs_v2", {"pages", "file_count", "staged_bytes", "topologies", "validation"})
+    for topology in sequence(value["topologies"], maximum=1):
+        fields(topology, {"kind", "root", "path", "markets"})
+        require(topology["kind"] == "market_ledgers", "unapproved input topology")
+        identifier(topology["root"])
+        distinct_paths([topology["path"]])
+        distinct_paths(topology["markets"])
+        require(0 < len(topology["markets"]) <= 256, "invalid input topology market count")
+        for market in topology["markets"]:
+            identifier(market)
     validation = fields(value["validation"], {"started_at", "completed_at", "read_bytes"})
     require(timestamp(validation["started_at"]) <= timestamp(validation["completed_at"]), "reversed input validation interval")
     integer(validation["read_bytes"])
@@ -186,6 +197,13 @@ class SealedAuditReader:
     def __init__(self, graph, inputs_ref, sources: SourceRoots, budget):
         self.root, self.sources, self.budget = graph.root, sources, budget
         self.entries = load_entries(graph, inputs_ref)
+        self.topologies = graph.get(inputs_ref)["topologies"]
+        require(len(self.topologies) == 1, "sealed settlement audit requires its complete topology")
+        topology = self.topologies[0]
+        require(topology["root"] in sources.roots, "topology root has no adopted binding")
+        expected = {topology["path"] + "/" + market + "/ledger.jsonl" for market in topology["markets"]}
+        actual = {entry["path"] for entry in self.entries if entry["kind"] == "ledger" and entry["root"] == topology["root"]}
+        require(actual == expected, "sealed ledger entries differ from the complete topology")
         self.by_key, self.hashed = {}, set()
         for entry in self.entries:
             require(entry["root"] in sources.roots, "input root has no adopted source binding")
@@ -244,3 +262,6 @@ class SealedAuditReader:
             if entry["present"]:
                 self._verify(entry)
         return True
+
+    def revalidate_current(self):
+        return validate_current_generation(self.sources, self.entries, self.topologies, self.budget)

@@ -168,6 +168,36 @@ class SourceRoots:
         return name, relative
 
 
+def validate_current_generation(sources, entries, topologies, budget):
+    """Revalidate the complete declared source generation, including absence."""
+    started = utc_now()
+    for entry in entries:
+        budget.charge()
+        root, path = sources.roots[entry["root"]], entry["path"]
+        if not entry["present"]:
+            try:
+                with open_current(root, path):
+                    require(False, "previously missing lineage appeared")
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                if os.name == "nt" and exc.errno in {2, 3}:
+                    continue
+                raise
+        else:
+            with open_current(root, path) as (handle, current):
+                require(current == entry["generation"], "current-input generation drift")
+                require(_hash_handle(handle, current["size"], budget) == entry["staged"]["sha256"],
+                        "current-input byte drift")
+    for topology in topologies:
+        budget.charge()
+        # One fixed domain inventory, never a callback supplied in a manifest.
+        from .settlement_inputs import market_directories
+        market_directories(sources.roots[topology["root"]] / topology["path"], topology["markets"])
+    budget.charge()
+    return {"started_at": started, "completed_at": utc_now(), "read_bytes": budget.observed_bytes}
+
+
 class Stager:
     """Create-once staged bytes and explicit missing optional dependencies."""
 
@@ -175,7 +205,7 @@ class Stager:
         self.sources, self.root, self.budget = sources, checked_root(output_root), budget
         self.maximum_files = integer(maximum_files, minimum=1, maximum=MAX_INPUT_FILES)
         self.maximum_bytes = integer(maximum_bytes, minimum=1, maximum=MAX_CORPUS_BYTES)
-        self.entries, self.by_key, self.total_bytes = [], {}, 0
+        self.entries, self.by_key, self.total_bytes, self.topologies = [], {}, 0, []
         (self.root / "files").mkdir()  # a spent namespace is never reused
 
     def stage(self, identity, *, mandatory=False, kind="payload"):
@@ -235,26 +265,7 @@ class Stager:
         return entry
 
     def revalidate(self):
-        started = utc_now()
-        for entry in self.entries:
-            self.budget.charge()
-            root, path = self.sources.roots[entry["root"]], entry["path"]
-            if not entry["present"]:
-                try:
-                    with open_current(root, path):
-                        require(False, "previously missing lineage appeared")
-                except FileNotFoundError:
-                    continue
-                except OSError as exc:
-                    if os.name == "nt" and exc.errno in {2, 3}:
-                        continue
-                    raise
-            else:
-                with open_current(root, path) as (handle, current):
-                    require(current == entry["generation"], "current-input generation drift")
-                    require(_hash_handle(handle, current["size"], self.budget) == entry["staged"]["sha256"],
-                            "current-input byte drift")
-        return {"started_at": started, "completed_at": utc_now(), "read_bytes": self.budget.observed_bytes}
+        return validate_current_generation(self.sources, self.entries, self.topologies, self.budget)
 
     def seal(self, name="inputs.json"):
         require(self.entries, "empty input generation")
@@ -264,7 +275,7 @@ class Stager:
             pages.append(publish(self.root, f"inputs-{start // 128:04d}.json", {
                 "schema": "qualification_input_entries_v2", "entries": self.entries[start:start + 128]}))
         return publish(self.root, name, {"schema": "qualification_inputs_v2", "pages": pages,
-            "file_count": len(self.entries), "staged_bytes": self.total_bytes, "validation": validation})
+            "file_count": len(self.entries), "staged_bytes": self.total_bytes, "topologies": self.topologies, "validation": validation})
 
 
 def _input_object(raw):

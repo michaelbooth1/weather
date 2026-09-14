@@ -96,6 +96,37 @@ mutation. These checks do not claim an atomic cross-file producer generation.
 No candidate or downstream caller may convert an existing truth-label BLOCK to
 PASS because staging, computation or resource checks completed.
 
+## Off-host execution
+
+`qualification.runner.Runner` accepts an independently pinned launch closure,
+native executables, external dependency sites and separate trusted/candidate
+checkouts. It executes fixed collection, chunk, import and repository-check
+commands serially. Candidate children start with `-I -S`; the trusted bootstrap
+loads its guard before adding approved source and dependency paths. Candidate
+`sitecustomize` and installation `.pth` hooks do not run in this lane.
+
+The environment is an allowlist with scratch-owned home/temp directories and no
+inherited CI credentials. The Python audit guard refuses external network and
+credential access and writes outside assigned scratch. It is a guard for reviewed
+offline commands, not a security sandbox for hostile native code. The native
+controller and exact command/dependency review remain required.
+
+Windows uses the native Job controller. Its dispatcher rejects the dedicated
+capture installation, validates integer limits and scrubs CI identity before
+candidate launch. Linux uses a child-free serial parent, a native subreaper and
+complete `/proc` descendant accounting. Teardown retains parent identity until
+exit and uses PID file descriptors when signalling descendants; double-forked
+new sessions remain owned. Linux aggregate RSS is monitored and bounded; this
+does not claim a kernel aggregate allocation limit equivalent to Windows Job
+memory enforcement. Both platforms retain bounded output and require EOF and
+durable flush, explicit zero-descendant proof and a native exit consistent with
+the complete journal. Partial output and failed commands retain spent paths.
+
+Every collection, test chunk and repository check binds a separate process
+record. The verifier rejects absent/failed cleanup or resource proof even when
+the test journal and JUnit report success. Complete collection is corroborated
+by its actual collection-only event stream, not a producer-supplied node list.
+
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)

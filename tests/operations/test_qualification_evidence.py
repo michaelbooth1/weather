@@ -43,7 +43,7 @@ class Bundle:
                              self.refs["certificate"], now=kwargs.get("now", NOW))
 
 
-def native_blobs(b, platform):
+def native_blobs(b, platform, *, collect_only=False):
     checkout = "C:/fixture/source" if platform == "windows" else "/fixture/source"
     events = [{"event": "session_start", "root": checkout, "invocation": ["tests"]},
               {"event": "collected_node", "nodeid": NODE}, {"event": "collection_finish", "count": 1},
@@ -52,11 +52,33 @@ def native_blobs(b, platform):
                  "wasxfail": False, "reason": None} for when in ("setup", "call", "teardown")),
               {"event": "test_finish", "nodeid": NODE},
               {"event": "session_finish", "exit_code": 0, "tests_collected": 1, "tests_failed": 0}]
+    if collect_only:
+        events = events[:3] + events[-1:]
     raw = b"".join((json.dumps({"ordinal": number, "monotonic_ns": number, **event}) + "\n").encode()
                    for number, event in enumerate(events, 1))
     xml = (b'<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0">'
            b'<testcase classname="tests.test_example" name="test_example"/></testsuite></testsuites>')
     return b.blob(platform + "-journal", raw), b.blob(platform + "-junit", xml)
+
+
+def native_process(b, platform, transcript):
+    native = {"completed": True, "failure": None, "exit_code": 0, "teardown_proved": True,
+              "elapsed_ms": 60000, "peak_working_set_bytes": 10485760, "maximum_sample_gap_ms": 100,
+              "resource_samples": 600, "minimum_disk_bytes": 10 * 1024**3,
+              "started_at": "2026-09-14T11:00:00Z", "completed_at": "2026-09-14T11:01:00Z"}
+    if platform == "windows":
+        native.update(peak_private_bytes=10485760, native_peak_commit_bytes=10485760, system_commit_basis_points=4000)
+    return b.put(platform + "-process", {"schema": "qualification_process_v2", "platform": platform,
+                 "argv_sha256": "f" * 64, "native": native, "transcript": transcript,
+                 "limits": {"seconds": 1200, "teardown_seconds": 30, "memory_bytes": 4 * 1024**3,
+                            "output_bytes": 128 * 1024**2, "minimum_disk_bytes": 2 * 1024**3}})
+
+
+def native_check(b, platform, check):
+    transcript = b.blob(f"{platform}-{check}")
+    return {"name": check, "status": "PASS", "exit_code": 0, "started_at": "2026-09-14T11:00:00Z",
+            "completed_at": "2026-09-14T11:02:00Z", "transcript": transcript,
+            "process": native_process(b, platform, transcript)}
 
 
 @pytest.fixture
@@ -117,6 +139,9 @@ def bundle(tmp_path):
     jobs = []
     for platform, job_id in (("windows", "124"), ("linux", "125")):
         journal_ref, junit_ref = native_blobs(b, platform)
+        collection_journal, _ = native_blobs(b, platform, collect_only=True)
+        transcript = b.blob(f"{platform}-transcript")
+        process_ref = native_process(b, platform, transcript)
         witness = b.put(f"{platform}-witness", {"schema": "qualification_source_witness_v2", "source": SOURCE,
             "source_inventory_sha256": source["sha256"], "test_inventory_sha256": tests["sha256"],
             "environment_sha256": envs[platform]["sha256"], "artifacts_sha256": artifacts["sha256"],
@@ -128,7 +153,7 @@ def bundle(tmp_path):
         collection = b.put(f"{platform}-collection", {"schema": "qualification_collection_v2",
             "platform": platform, "run": run, "job_id": job_id, "exit_code": 0,
             "node_chunks": [b.put(f"{platform}-collected-nodes", {"schema": "qualification_collected_nodes_v2", "nodes": [NODE]})],
-            "deselected": [], "errors": [], "ignored_files": []})
+            "deselected": [], "errors": [], "ignored_files": [], "journal": collection_journal, "transcript": transcript, "process": process_ref})
         chunk = b.put(f"{platform}-chunk", {"schema": "qualification_chunk_v2", "id": "chunk-1",
             "platform": platform, "run": run, "job_id": job_id, "started_at": "2026-09-14T11:00:00Z",
             "completed_at": "2026-09-14T11:01:00Z", "exit_code": 0, "status": "PASS", "collected": [NODE],
@@ -136,15 +161,13 @@ def bundle(tmp_path):
             "results": [{"nodeid": NODE, "outcome": "pass", "reason": None, "phases": [
                 {"when": when, "outcome": "passed", "wasxfail": False} for when in ("setup", "call", "teardown")]}],
             "journal": journal_ref, "junit": junit_ref,
-            "transcript": b.blob(f"{platform}-transcript")})
+            "transcript": transcript, "process": process_ref})
         jobs.append(b.put(f"{platform}-job", {"schema": "qualification_job_v2", "status": "PASS",
             "platform": platform, "run": run, "job_id": job_id, "source": SOURCE,
             "plan_sha256": plans[platform]["sha256"], "environment_sha256": envs[platform]["sha256"],
             "started_at": "2026-09-14T10:59:00Z", "completed_at": "2026-09-14T11:02:00Z",
             "before": witness, "after": witness, "chunks": [chunk], "collection": collection,
-            "checks": [{"name": check, "status": "PASS", "exit_code": 0, "started_at": "2026-09-14T11:01:00Z",
-                        "completed_at": "2026-09-14T11:02:00Z", "transcript": b.blob(f"{platform}-{check}")}
-                       for check in ("compile", "agent_docs_audit", "roadmap_lint")]}))
+            "checks": [native_check(b, platform, check) for check in ("compile", "agent_docs_audit", "roadmap_lint")]}))
     b.put("certificate", {"schema": "code_qualification_v2", "status": "PASS", "policy_sha256": policy["sha256"],
         "review_sha256": review["sha256"], "source": SOURCE, "run": run,
         "completed_at": "2026-09-14T11:02:00Z", "jobs": jobs})
@@ -277,3 +300,25 @@ def test_graph_limits_and_conflicting_aliases(bundle):
         graph.get({**bundle.refs["policy"], "sha256": "0" * 64})
     with pytest.raises(records.QualificationError, match="byte limit"):
         Graph(bundle.root, maximum_bytes=1).get(bundle.refs["policy"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("teardown_proved", False), ("completed", False), ("failure", "lost child"),
+    ("exit_code", 7), ("resource_samples", 0), ("maximum_sample_gap_ms", 1001),
+    ("native_peak_commit_bytes", 8 * 1024**3), ("minimum_disk_bytes", 1),
+])
+def test_passing_journal_cannot_hide_native_process_failure(bundle, field, value):
+    b = bundle
+    process_ref = b.values["windows-chunk"]["process"]
+    process_record = deepcopy(Graph(b.root).get(process_ref))
+    process_record["native"][field] = value
+    replacement = b.put("broken-native-process", process_record)
+    rebind_job(b, chunk_mutation=lambda item: item.update(process=replacement))
+    with pytest.raises(records.QualificationError):
+        b.validate()
+
+
+def test_no_process_record_is_not_legacy_v2_success(bundle):
+    rebind_job(bundle, chunk_mutation=lambda item: item.pop("process"))
+    with pytest.raises(records.QualificationError):
+        bundle.validate()
