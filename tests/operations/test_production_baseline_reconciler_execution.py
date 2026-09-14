@@ -1335,6 +1335,8 @@ def _invoke(
     assert WINDOWS_POWERSHELL is not None
     assert REAL_GIT is not None
     environment = os.environ.copy()
+    # The historical-tree fixture needs pointer bytes, never remote model IO.
+    environment["GIT_LFS_SKIP_SMUDGE"] = "1"
     environment.update(
         {
             "RECON_TEST_SCRIPT": str(harness.script.resolve()),
