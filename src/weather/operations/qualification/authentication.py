@@ -109,11 +109,12 @@ def validate_import(value, *, p, policy_ref, review_ref, certificate_ref, certif
     """Consume an independently pinned importer receipt, not certificate metadata."""
     value = record(value, "qualification_import_v2", {
         "policy_sha256", "review_sha256", "certificate", "attestation", "run", "queried_at",
-        "query", "jobs", "artifact", "importer", "imported_at", "status"})
+        "query", "jobs", "artifact", "importer", "imported_at", "status", "remote_query"})
     pass_result(value["status"])
     require(value["policy_sha256"] == policy_ref["sha256"] and value["review_sha256"] == review_ref["sha256"] and
             value["certificate"] == certificate_ref and value["run"] == certificate["run"], "import binding mismatch")
     reference(value["attestation"])
+    reference(value["remote_query"])
     identifier(value["importer"])
     skew = p["validity"]["clock_skew_seconds"]
     queried = instant(value["queried_at"], now, skew)
@@ -145,11 +146,33 @@ def validate_import(value, *, p, policy_ref, review_ref, certificate_ref, certif
     remote_id(artifact["id"])
     require(artifact["expired"] is False and artifact["run_id"] == certificate["run"]["run_id"] and
             artifact["attempt"] == certificate["run"]["attempt"], "wrong/expired remote artifact")
-    reference(artifact["archive"])
+    fields(artifact["archive"], {"path", "sha256", "size"})
+    from .records import relative_path
+    relative_path(artifact["archive"]["path"])
+    digest(artifact["archive"]["sha256"])
+    integer(artifact["archive"]["size"], minimum=1, maximum=512 * 1024**2)
     identifier(artifact["name"])
     integer(query["total_artifacts"], minimum=1, maximum=10)
     return value
 
+
+def validate_import_graph(graph, import_ref, *, p, policy_ref, review_ref, certificate_ref, certificate, now, boundary):
+    """Validate both importer summary and complete retained authenticated pages.
+
+    import_ref must itself be bound by the adopted controller/attempt authority.
+    This is deliberately separate from signature verification of the producer.
+    """
+    from .remote import validate_pages
+
+    receipt = validate_import(graph.get(import_ref), p=p, policy_ref=policy_ref, review_ref=review_ref,
+                              certificate_ref=certificate_ref, certificate=certificate, now=now, boundary=boundary)
+    observed = validate_pages(graph, receipt["remote_query"], certificate=certificate,
+                              certificate_ref=certificate_ref, artifact_ref=receipt["artifact"]["archive"], now=now)
+    require(all(receipt[key] == observed[key] for key in ("query", "jobs", "artifact", "queried_at")),
+            "import summary contradicts retained remote pages")
+    graph.blob(receipt["attestation"], maximum=MAX_RECORD_BYTES)
+    graph.fresh()
+    return receipt
 
 def validate_revocations(value, *, policy_sha256, certificate_sha256, source_commit, now, skew):
     value = record(value, "qualification_revocations_v2", {"revision", "updated_at", "revoked"})

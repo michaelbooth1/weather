@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from .contracts import fields, sequence, text
 from .coverage import node_id
@@ -35,13 +36,25 @@ def _outcome(phases):
     return "pass", None
 
 
-def consume(root, ref, *, candidate_root, native_exit_code, collect_only=False):
+def execution_root(value, platform):
+    value = str(value)
+    require(platform in {"windows", "linux"} and 0 < len(value) <= 1024 and
+            not any(ord(char) < 32 for char in value), "invalid execution root")
+    parsed = PureWindowsPath(value) if platform == "windows" else PurePosixPath(value)
+    require(parsed.is_absolute() and ".." not in parsed.parts, "absolute candidate root required")
+    if platform == "windows":
+        require(len(parsed.drive) == 2 and parsed.drive[1] == ":", "local Windows candidate volume required")
+    return parsed
+
+
+def consume(root, ref, *, candidate_root, native_exit_code, collect_only=False, platform=None):
     fields(ref, {"path", "sha256", "size"})
     relative_path(ref["path"])
     digest(ref["sha256"])
     integer(ref["size"], minimum=1, maximum=128 * 1024**2)
     integer(native_exit_code, minimum=-(2**31), maximum=2**32 - 1)
-    require(Path(candidate_root).is_absolute(), "absolute candidate root required")
+    platform = platform or ("windows" if os.name == "nt" else "linux")
+    expected_root = execution_root(candidate_root, platform)
     collected, deselected, problems, started, completed, results = [], [], [], [], [], []
     collected_set = set()
     active, phases, tail = None, [], None
@@ -65,7 +78,7 @@ def consume(root, ref, *, candidate_root, native_exit_code, collect_only=False):
             require(elapsed >= last_ns, "journal clock reversed")
             last_ns = elapsed
             if ordinal == 1:
-                require(kind == "session_start" and Path(event["root"]) == Path(candidate_root),
+                require(kind == "session_start" and execution_root(event["root"], platform) == expected_root,
                         "journal source root mismatch")
                 for arg in sequence(event["invocation"], minimum=1):
                     text(arg, maximum=8192)

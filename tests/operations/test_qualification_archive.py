@@ -18,6 +18,12 @@ def bundle(tmp_path, members):
             member.external_attr = mode << 16
             output.writestr(member, content)
     raw = path.read_bytes()
+    # ZipInfo normalizes os.sep on Windows when writing. Fault injection must
+    # change the actual local/central header bytes, not merely its constructor.
+    for name, _, _ in members:
+        if "\\" in name:
+            raw = raw.replace(name.replace("\\", "/").encode(), name.encode())
+    path.write_bytes(raw)
     return {"path": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
 
 

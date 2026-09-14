@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from . import journal, junit
 from .contracts import (CHECKS, PLATFORMS, Graph, fields, interval, inventory, pass_result, record,
                         remote_id, run, sequence, text, validate_trust)
 from .coverage import (plan, validate_chunk, validate_collection_rules,
@@ -57,13 +58,14 @@ def environment(value, platform):
 def witness(value, reviewed, platform, expected_environment):
     value = record(value, "qualification_source_witness_v2", {
         "source", "source_inventory_sha256", "test_inventory_sha256", "environment_sha256",
-        "artifacts_sha256", "tracked_clean", "untracked_files", "imports", "platform", "data_absent"})
+        "artifacts_sha256", "tracked_clean", "untracked_files", "imports", "platform", "data_absent", "checkout_root"})
     require(value["source"] == reviewed["source"] and value["platform"] == platform, "wrong tested source")
     for key in ("source_inventory", "test_inventory", "artifacts"):
         require(digest(value[key + "_sha256"]) == reviewed[key]["sha256"], "tested inventory mismatch")
     require(digest(value["environment_sha256"]) == expected_environment, "installed environment drift")
     require(value["tracked_clean"] is True and value["untracked_files"] == [] and value["data_absent"] is True,
             "source not a clean isolated checkout")
+    journal.execution_root(value["checkout_root"], platform)
     imports = sequence(value["imports"], minimum=2)
     names = []
     for item in imports:
@@ -91,11 +93,14 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
     skew = p["validity"]["clock_skew_seconds"]
     start, end = interval(job, now, skew)
     source_files = {item["path"]: item for item in graph.get(reviewed["source_inventory"])["files"]}
+    checkout_roots = []
     for key in ("before", "after"):
         seen = witness(graph.get(job[key]), reviewed, platform, job["environment_sha256"])
+        checkout_roots.append(seen["checkout_root"])
         for item in seen["imports"]:
             require(item["path"] in source_files and source_files[item["path"]]["sha256"] == item["sha256"],
                     "import bytes differ from source inventory")
+    require(checkout_roots[0] == checkout_roots[1], "candidate root changed during job")
     collection = record(graph.get(job["collection"]), "qualification_collection_v2", {
         "platform", "run", "job_id", "exit_code", "node_chunks", "deselected", "errors", "ignored_files"})
     require(collection["platform"] == platform and collection["run"] == expected_run and
@@ -124,6 +129,10 @@ def _job(graph, ref, reviewed, p, expected_run, expected_plan, platform, now):
             totals[name] += count
         for key in ("journal", "junit", "transcript"):
             verify_blob(graph, chunk[key])
+        native = journal.consume(graph.root, chunk["journal"], candidate_root=checkout_roots[0],
+                                 native_exit_code=chunk["exit_code"], platform=platform)
+        require(all(chunk[key] == native[key] for key in native), "chunk summary contradicts native journal")
+        junit.verify(graph.root, chunk["junit"], native["results"])
     checks = sequence(job["checks"], minimum=len(CHECKS), maximum=len(CHECKS))
     require([item.get("name") for item in checks if type(item) is dict] == list(CHECKS), "required checks absent")
     for check in checks:

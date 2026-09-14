@@ -31,11 +31,11 @@ def observed(tmp_path):
         "spec = importlib.util.spec_from_file_location('qualification_observer', sys.argv[1])\n"
         "plugin = importlib.util.module_from_spec(spec)\n"
         "spec.loader.exec_module(plugin)\n"
-        "raise SystemExit(pytest.main(['tests', '-q'], plugins=[plugin]))\n", encoding="utf-8")
+        "raise SystemExit(pytest.main(['tests', '-q', '--junitxml=' + sys.argv[2]], plugins=[plugin]))\n", encoding="utf-8")
     path = tmp_path / "journal.jsonl"
     env = {key: value for key, value in os.environ.items() if key not in {"PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH"}}
     env.update({"WEATHER_QUALIFICATION_JOURNAL": str(path), "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
-    child = subprocess.run([sys.executable, "-I", str(driver), str(Path(pytest_observer.__file__).resolve())],
+    child = subprocess.run([sys.executable, "-I", str(driver), str(Path(pytest_observer.__file__).resolve()), str(tmp_path / "run.xml")],
                            cwd=candidate, env=env, capture_output=True, timeout=30, check=False)
     assert child.returncode == 0, (child.stdout + child.stderr).decode(errors="replace")
     raw = path.read_bytes()

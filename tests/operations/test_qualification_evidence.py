@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 
 import pytest
 
@@ -40,6 +41,22 @@ class Bundle:
     def validate(self, **kwargs):
         return validate_code(Graph(self.root), self.refs["policy"], self.refs["review"],
                              self.refs["certificate"], now=kwargs.get("now", NOW))
+
+
+def native_blobs(b, platform):
+    checkout = "C:/fixture/source" if platform == "windows" else "/fixture/source"
+    events = [{"event": "session_start", "root": checkout, "invocation": ["tests"]},
+              {"event": "collected_node", "nodeid": NODE}, {"event": "collection_finish", "count": 1},
+              {"event": "test_start", "nodeid": NODE},
+              *({"event": "test_phase", "nodeid": NODE, "when": when, "outcome": "passed",
+                 "wasxfail": False, "reason": None} for when in ("setup", "call", "teardown")),
+              {"event": "test_finish", "nodeid": NODE},
+              {"event": "session_finish", "exit_code": 0, "tests_collected": 1, "tests_failed": 0}]
+    raw = b"".join((json.dumps({"ordinal": number, "monotonic_ns": number, **event}) + "\n").encode()
+                   for number, event in enumerate(events, 1))
+    xml = (b'<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0">'
+           b'<testcase classname="tests.test_example" name="test_example"/></testsuite></testsuites>')
+    return b.blob(platform + "-journal", raw), b.blob(platform + "-junit", xml)
 
 
 @pytest.fixture
@@ -99,10 +116,12 @@ def bundle(tmp_path):
            **p["producer"]}
     jobs = []
     for platform, job_id in (("windows", "124"), ("linux", "125")):
+        journal_ref, junit_ref = native_blobs(b, platform)
         witness = b.put(f"{platform}-witness", {"schema": "qualification_source_witness_v2", "source": SOURCE,
             "source_inventory_sha256": source["sha256"], "test_inventory_sha256": tests["sha256"],
             "environment_sha256": envs[platform]["sha256"], "artifacts_sha256": artifacts["sha256"],
             "tracked_clean": True, "untracked_files": [], "data_absent": True, "platform": platform,
+            "checkout_root": "C:/fixture/source" if platform == "windows" else "/fixture/source",
             "imports": [{"module": module, "root": "candidate", "path": path, "sha256": "f" * 64}
                         for module, path in (("weather", "weather/__init__.py"),
                                              ("weather.paths", "src/weather/paths.py"))]})
@@ -116,7 +135,7 @@ def bundle(tmp_path):
             "deselected": [], "collection_errors": [], "started": [NODE], "completed": [NODE],
             "results": [{"nodeid": NODE, "outcome": "pass", "reason": None, "phases": [
                 {"when": when, "outcome": "passed", "wasxfail": False} for when in ("setup", "call", "teardown")]}],
-            "journal": b.blob(f"{platform}-journal"), "junit": b.blob(f"{platform}-junit"),
+            "journal": journal_ref, "junit": junit_ref,
             "transcript": b.blob(f"{platform}-transcript")})
         jobs.append(b.put(f"{platform}-job", {"schema": "qualification_job_v2", "status": "PASS",
             "platform": platform, "run": run, "job_id": job_id, "source": SOURCE,

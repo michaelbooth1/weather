@@ -89,7 +89,7 @@ def import_receipt(b):
     return {"schema": "qualification_import_v2", "policy_sha256": b.refs["policy"]["sha256"],
         "review_sha256": b.refs["review"]["sha256"], "certificate": b.refs["certificate"], "attestation": b.refs["root"],
         "run": run, "queried_at": "2026-09-14T11:30:00Z", "imported_at": "2026-09-14T11:31:00Z",
-        "importer": "reviewed-controller", "status": "PASS",
+        "importer": "reviewed-controller", "status": "PASS", "remote_query": page,
         "query": {"raw_pages": [page, page, page], "status": "completed", "conclusion": "success",
                   "head_sha": run["revision"], "run_id": run["run_id"], "attempt": run["attempt"],
                   "workflow": run["workflow"], "event": run["event"], "repository": run["repository"],
