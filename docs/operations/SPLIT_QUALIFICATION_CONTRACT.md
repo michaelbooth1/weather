@@ -281,6 +281,17 @@ the full certificate/import/revocation checks and actual native signature
 verification. Both functions return no standalone integration authority; native
 identity, measurement, lifecycle and mutation-boundary checks remain mandatory.
 
+`integration_attempt_host.ps1` is the fixed native parent. It requires its exact
+S4U instance and adopted attempt-local control copy, owns the shared workload
+lease, executes the four code-owned child phases with whole-tree telemetry,
+and retains a separate host receipt. Unknown native teardown poisons the attempt
+and retains the lease. `host_acceptance` checks complete measurement and phase
+records, the fixed probe inventory, current-input scope, and receipt expiry.
+The configuration check covers all tracked config/artifacts plus the current
+release pointer (including absence) and the complete pointed-to release directory.
+The parent and its real-host measurement path still require native qualification;
+source availability and parser acceptance do not qualify production.
+
 The public manifest reader still rejects v2 until the complete host and guarded
 adoption entrypoints are connected. Native fixture acceptance of a v2 task binding
 alone cannot arm a task or replace the legacy suite prerequisite.

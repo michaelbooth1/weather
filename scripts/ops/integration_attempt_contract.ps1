@@ -391,10 +391,13 @@ function Get-WeatherIntegrationExpectedTaskBinding {
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
     $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
     if ($Role -ne 'merge' -and $Role -cne $phase.Role) { throw 'Wrong prerequisite role for this attempt schema' }
+    $scriptRoot = if ($phase.Version -eq 'v2') {
+        Resolve-WeatherIntegrationPath -Path ([string]$manifest.control.root)
+    } else { $repoRoot }
     if ($Role -eq $phase.Role) {
         $taskName = $phase.TaskName
         $atLocal = ConvertFrom-WeatherIntegrationLocalTimestamp -Value $phase.AtLocal -Label "$Role at_local"
-        $scriptPath = Join-Path (Join-Path $repoRoot 'scripts/ops') $phase.ScriptName
+        $scriptPath = Join-Path (Join-Path $scriptRoot 'scripts/ops') $phase.ScriptName
         $scriptRecord = $manifest.orchestration.PSObject.Properties[$phase.ScriptKey].Value
         $executionTimeLimit = $phase.ExecutionTimeLimit
         $description = $phase.Description
@@ -404,7 +407,7 @@ function Get-WeatherIntegrationExpectedTaskBinding {
         $atLocal = ConvertFrom-WeatherIntegrationLocalTimestamp `
             -Value ([string]$manifest.schedule.merge_at_local) `
             -Label "merge_at_local"
-        $scriptPath = Join-Path $repoRoot "scripts\ops\integration_attempt_merge.ps1"
+        $scriptPath = Join-Path $scriptRoot "scripts\ops\integration_attempt_merge.ps1"
         $scriptRecord = $manifest.orchestration.attempt_merge
         $executionTimeLimit = "PT4H"
         $description = "Immutable integration attempt $($manifest.attempt_id): guarded merge"

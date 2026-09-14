@@ -7,6 +7,13 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     SchemaSpec(name, name + "_v2", "weather.operations.qualification." + owner, "active", description)
     for name, owner, description in (
         ("weather_integration_attempt_manifest", "attempt", "Explicit split qualification attempt with separate host proof and frozen adopted control authority."),
+        ("qualification_host_measurement", "host_acceptance", "Reviewed actual native host envelopes and current-input feasibility."),
+        ("qualification_current_feasibility", "host_acceptance", "Complete current-corpus throughput and unchanged-generation measurement."),
+        ("qualification_s4u_invocation", "host_acceptance", "Native batch-token, process lineage and exact Scheduler instance observations."),
+        ("qualification_host_probe", "host_acceptance", "One fixed disposable native host probe result."),
+        ("qualification_host_environment", "host_runtime", "Independently reviewed native host tool/runtime and retained wheel bindings."),
+        ("qualification_host_phase", "host_session", "Fixed admitted parent phase data; native completion remains required."),
+        ("weather_integration_attempt_host_receipt", "host_acceptance", "Separate complete native host proof; never a legacy full suite or standalone merge grant."),
         ("qualification_control_closure", "frozen", "Exact adopted B source-only execution copy checked against actual Git blobs before deferred launches."),
         ("qualification_audit_preparation", "host_audit", "Strict complete current-input preparation and cumulative read accounting."),
         ("qualification_host_audit_plan", "host", "Pinned fixed three-phase host audit with cumulative byte and absolute elapsed budgets."),

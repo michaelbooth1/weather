@@ -82,8 +82,10 @@ namespace Weather.Operations
                     if (!GetTokenInformation(identity.Token, 10, buffer, (UInt32)size, out returned) || returned != size)
                         throw new Win32Exception(Marshal.GetLastWin32Error(), "Native token statistics unavailable");
                     TOKEN_STATISTICS statistics = (TOKEN_STATISTICS)Marshal.PtrToStructure(buffer, typeof(TOKEN_STATISTICS));
-                    if (!GetTokenInformation(identity.Token, 20, buffer, (UInt32)size, out returned) || returned != 4)
-                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Native token elevation unavailable");
+                    if (!GetTokenInformation(identity.Token, 20, buffer, 4, out returned))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Native token elevation query failed; returned bytes=" + returned);
+                    if (returned != 4)
+                        throw new InvalidOperationException("Native token elevation length differs: " + returned);
                     Boolean elevated = Marshal.ReadInt32(buffer) != 0;
                     UInt32 status = LsaGetLogonSessionData(ref statistics.AuthenticationId, out session);
                     if (status != 0 || session == IntPtr.Zero)

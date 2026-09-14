@@ -90,12 +90,12 @@ jobs:
           architecture: x64
       - name: Install audit fixture dependencies
         shell: bash
-        run: python -m pip install -r requirements.txt -e '.[test]'
+        run: python -m pip install -r requirements.txt -e '.[test,live]'
       - name: Run actual isolated audit and generation drift checks
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/operations/test_qualification_host_audit.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-host-audit.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-host-audit.log"
+          python -m pytest tests/operations/test_qualification_host_audit.py tests/operations/test_qualification_host_acceptance.py tests/operations/test_qualification_host_configuration.py tests/operations/test_qualification_host_parent.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-host-audit.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-host-audit.log"
       - name: Retain native audit results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -150,7 +150,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --report "$RUNNER_TEMP/qualification-dependencies.json" -r requirements.txt
-          python -m pip install --disable-pip-version-check --report "$RUNNER_TEMP/qualification-project.json" -e '.[test]'
+          python -m pip install --disable-pip-version-check --report "$RUNNER_TEMP/qualification-project.json" -e '.[test,live]'
           python -m pip freeze --all > "$RUNNER_TEMP/qualification-distributions.txt"
       - name: Native control-plane tests
         run: |

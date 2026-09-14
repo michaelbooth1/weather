@@ -50,7 +50,7 @@ function New-FixtureContract([string]$version) {
         schedule = [pscustomobject]$schedule; orchestration = [pscustomobject]$orchestration
         evidence = [pscustomobject]@{ registration_intent = (Join-Path $directory 'registration-intent.json') }
     }
-    if ($version -eq 'v2') { $manifest['qualification_mode'] = 'split_v2' }
+    if ($version -eq 'v2') { $manifest['qualification_mode'] = 'split_v2'; $manifest['control'] = [pscustomobject]@{ root = $root } }
     return [pscustomobject]@{
         Manifest = [pscustomobject]$manifest; ManifestPath = (Join-Path $directory 'manifest.json')
         ManifestSha256 = ('c' * 64); AttemptRoot = $directory

@@ -81,6 +81,8 @@ def manifest(value, *, actual_root, now=None):
     require(production != candidate and not candidate.is_relative_to(production / "src"), "candidate is not isolated")
     require(not actual_root.is_relative_to(candidate) and not candidate.is_relative_to(actual_root),
             "attempt namespace overlaps candidate source")
+    require(not actual_root.is_relative_to(production) and not production.is_relative_to(actual_root),
+            "split attempt namespace must be outside the production checkout")
     require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}", text(value["branch_ref"])) is not None and
             ".." not in value["branch_ref"] and not value["branch_ref"].endswith("/"), "unsafe candidate ref")
     digest(value["expected_tip"], git=True)
@@ -142,6 +144,8 @@ def manifest(value, *, actual_root, now=None):
         require(audit["candidate"] == value["worktree_root"] and audit["trusted_root"] == str(control_root) and
                 audit["source_inventory"] == reviewed["source_inventory"] and audit["authority_root"] == q["root"],
                 "host audit is not bound to the exact candidate and adopted control copy")
+        require(Path(audit["receipt_root"]) == actual_root / "audit-receipts",
+                "noncanonical host audit receipt namespace")
     return {"manifest": value, "policy": p, "review": reviewed, "host_plan": planned,
             "graph": graph, "local": local, "registration_eligible": False, "integration_eligible": False}
 

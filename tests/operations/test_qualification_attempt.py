@@ -17,6 +17,8 @@ def split_attempt(bundle, tmp_path):
     # Candidate must be outside the evidence namespace in an actual attempt.
     candidate = tmp_path / "candidate"
     candidate.mkdir()
+    production = tmp_path / "production"
+    production.mkdir()
     placeholder = records.publish(root, "placeholder.json", {"test_only": True})
     config = records.publish(root, "configuration.json", {
         "schema": "qualification_configuration_v2", "source": SOURCE["commit"], "baseline": SOURCE["baseline"],
@@ -33,7 +35,7 @@ def split_attempt(bundle, tmp_path):
     plan_ref = records.publish(root, "host-plan.json", plan)
     manifest = {"schema": "weather_integration_attempt_manifest_v2", "qualification_mode": "split_v2",
         "attempt_id": "fixture", "created_at_local": "2026-09-14T09:00:00-04:00", "attempt_root": str(root),
-        "repo_root": str(root / "production"), "worktree_root": str(candidate), "branch_ref": "codex/fixture",
+        "repo_root": str(production), "worktree_root": str(candidate), "branch_ref": "codex/fixture",
         "expected_tip": SOURCE["commit"], "baseline": {"master": SOURCE["baseline"], "origin_master": SOURCE["baseline"]},
         "authorization": {"review_reference": "fixture review", "repair_class": "initial", "repair_of": None},
         "schedule": {"host_at_local": "2026-09-15T00:30:00-04:00", "merge_at_local": "2026-09-15T01:05:00-04:00",
