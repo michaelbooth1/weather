@@ -242,6 +242,20 @@ actual test installation. They retain production identity checks, canonical
 temporary paths and offline LFS pointer handling; they never change the real
 assignment, Scheduler, capture roots or expected acceptance outcomes.
 
+## Shared attempt lifecycle
+
+The common task-binding and immutable registration readers select the prerequisite
+per manifest: a historical v1 `suite` or an explicit v2 `host`. V2 never supplies
+suite fields or a full-suite log. Schema selection is local to each attempt, so
+reading a v2 attempt cannot change how a v1 predecessor is closed or verified.
+Both phases reuse the same exact S4U/Limited tokens, no-catch-up settings,
+pre-registration intent and identity-bound task closure. The host task has a
+34-minute Scheduler backstop; its inner absolute execution/teardown plan remains
+the tighter authority. The historical suite retains its existing settings.
+
+The public manifest reader still rejects v2 until the complete host and guarded
+adoption entrypoints are connected. Native fixture acceptance of a v2 task binding
+alone cannot arm a task or replace the legacy suite prerequisite.
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
