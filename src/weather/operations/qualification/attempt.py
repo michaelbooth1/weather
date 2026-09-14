@@ -111,9 +111,10 @@ def manifest(value, *, actual_root, now=None):
     fields(value["evidence"], set(EVIDENCE))
     for key, name in EVIDENCE.items():
         require(absolute(value["evidence"][key]) == actual_root / name, "noncanonical attempt evidence path")
-    control = fields(value["control"], {"root", "closure"})
+    control = fields(value["control"], {"root", "closure", "git_policy"})
     control_root = checked_root(absolute(control["root"]))
     reference(control["closure"])
+    reference(control["git_policy"])
     require(control_root == actual_root / "control" and not candidate.is_relative_to(control_root),
             "adopted control copy must have its unique attempt-local namespace")
     orchestration = value["orchestration"]

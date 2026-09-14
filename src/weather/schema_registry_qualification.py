@@ -14,6 +14,7 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_host_environment", "host_runtime", "Independently reviewed native host tool/runtime and retained wheel bindings."),
         ("qualification_host_phase", "host_session", "Fixed admitted parent phase data; native completion remains required."),
         ("weather_integration_attempt_host_receipt", "host_acceptance", "Separate complete native host proof; never a legacy full suite or standalone merge grant."),
+        ("qualification_git_policy", "git_policy", "Frozen local Git interpretation, attributes, empty hooks and exact qualified native LFS tool."),
         ("qualification_control_closure", "frozen", "Exact adopted B source-only execution copy checked against actual Git blobs before deferred launches."),
         ("qualification_audit_preparation", "host_audit", "Strict complete current-input preparation and cumulative read accounting."),
         ("qualification_host_audit_plan", "host", "Pinned fixed three-phase host audit with cumulative byte and absolute elapsed budgets."),

@@ -321,3 +321,11 @@ workflow is not permission to invoke the new production lane.
 Update when a record, trust boundary, native resource/teardown mechanism, input
 resolver or qualification invocation changes. The numbered integration work item
 and retained attempt receipts own implementation/adoption status.
+
+The host's frozen control record also binds `qualification_git_policy_v2`.
+It rejects configuration includes, external merge/diff drivers, additional
+filters and attribute changes; fixes empty hooks and global/system exclusions;
+and binds any required Git LFS executable to the qualified native inventory.
+Every host metadata child uses the verified interpretation. The guarded merge
+integration remains disabled until these checks are wired at its mutation
+boundaries and their native execution is verified.

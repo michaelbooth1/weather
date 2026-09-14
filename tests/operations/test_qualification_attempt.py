@@ -46,7 +46,7 @@ def split_attempt(bundle, tmp_path):
         "evidence": {key: str(root / name) for key, name in attempt.EVIDENCE.items()},
         "qualification": {"root": str(bundle.root), "policy": bundle.refs["policy"], "review": bundle.refs["review"],
                           "certificate": bundle.refs["certificate"], "import": placeholder, "revocations": placeholder},
-        "control": {"root": str(root / "control"), "closure": control}, "host": plan_ref}
+        "control": {"root": str(root / "control"), "closure": control, "git_policy": placeholder}, "host": plan_ref}
     return root, manifest, plan
 
 

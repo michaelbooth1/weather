@@ -119,9 +119,7 @@ def audit_completion(plan, preparation_ref, computation_ref, current_ref):
     inputs = Graph(Path(plan["inputs_root"]))
     outputs = Graph(Path(plan["output"]))
     prepared = host_audit.preparation(inputs, preparation_ref)
-    computed = record(outputs.get(computation_ref), "qualification_audit_computation_v2", {
-        "started_at", "completed_at", "preparation_sha256", "inputs_sha256", "audit", "consumer",
-        "counts", "read_bytes", "current_validation_required"})
+    computed = audit_computation(outputs, computation_ref, prepared, preparation_ref, plan["maximum"])
     receipts = Graph(Path(plan["receipt_root"]))
     current = record(receipts.get(current_ref), "qualification_audit_current_v2", {
         "preparation_sha256", "inputs_sha256", "computation_sha256", "started_at", "completed_at", "read_bytes"})

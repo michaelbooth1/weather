@@ -60,6 +60,11 @@ def verify_environment(checked, selected):
 def verify_source(checked, selected):
     m, reviewed = checked["manifest"], checked["review"]
     git, candidate, production = tool(selected, "git"), Path(m["worktree_root"]), Path(m["repo_root"])
+    from . import git_policy
+    options = git_policy.validate(checked["local"].get(m["control"]["git_policy"]), git=git,
+        production=production, candidate=candidate, baseline=m["baseline"]["master"], commit=m["expected_tip"],
+        graph=checked["graph"], environment_ref=selected["environment"], bindings=selected["bindings"])
+    source.bind_host_git_policy(options)
     frozen.validate(git, production, m["baseline"]["master"], destination=Path(m["control"]["root"]),
                     value=checked["local"].get(m["control"]["closure"]))
     require(source.identity(git, candidate, source=m["expected_tip"], baseline=m["baseline"]["master"]) == reviewed["source"],

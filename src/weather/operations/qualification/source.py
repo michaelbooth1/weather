@@ -13,6 +13,19 @@ from .records import checked_root, digest, distinct_paths, open_record, require
 MAX_TRACKED_FILES = 20_000
 MAX_TRACKED_BYTES = 2 * 1024**3
 MAX_SINGLE_FILE_BYTES = 512 * 1024**2
+_HOST_GIT_OPTIONS = ()
+
+
+def bind_host_git_policy(options):
+    """Called only by adopted host authority after actual policy validation.
+
+    Candidate execution is a separate process. This binding ensures subsequent
+    metadata/status helpers use the same fixed interpretation as native Git.
+    """
+    global _HOST_GIT_OPTIONS
+    require(type(options) is list and 0 < len(options) <= 64 and
+            all(type(item) is str and len(item) <= 8192 for item in options), "invalid fixed Git options")
+    _HOST_GIT_OPTIONS = tuple(options)
 
 
 def git_environment():
@@ -21,7 +34,7 @@ def git_environment():
     return {**{key: value for key, value in os.environ.items()
                if key.upper() in {"SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "PATHEXT",
                                   "PATH", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"}},
-            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_ATTR_NOSYSTEM": "1",
             "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "LC_ALL": "C"}
 
 
@@ -29,7 +42,7 @@ def git_argv(git: Path, root: Path, *arguments):
     require(Path(git).is_absolute(), "absolute reviewed Git executable required")
     checked_root(root)
     return [str(git), "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-            "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *arguments]
+            "-c", "core.hooksPath=" + os.devnull, *_HOST_GIT_OPTIONS, "-C", str(root), *arguments]
 
 
 def git_output(git, root, *arguments, maximum=8 * 1024**2):
