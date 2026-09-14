@@ -228,6 +228,7 @@ def windows_run(argv, *, powershell, dispatcher, cwd, env, transcript, seconds, 
         handle.flush()
         os.fsync(handle.fileno())
     started = utc()
+    outer_start = time.monotonic()
     # The parent is a serial hosted CI job. The dispatcher encloses itself and
     # every candidate descendant before launching any candidate bytes.
     parent_env = {**env, "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted"}
@@ -238,8 +239,9 @@ def windows_run(argv, *, powershell, dispatcher, cwd, env, transcript, seconds, 
         child = subprocess.run(command, cwd=cwd, env=parent_env, stdin=subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.STDOUT,
                                timeout=seconds + teardown_seconds + 30, check=False)
+    require(result_path.is_file(), 'native Windows controller produced no result')
     raw = result_path.read_bytes()
     require(len(raw) <= 16384, "native result exceeds metadata bound")
     result = decode(raw)
     require(child.returncode == 0 and result.get("completed") is True, "native Windows controller refused")
-    return {**result, "started_at": started, "completed_at": utc()}
+    return {**result, "started_at": started, "completed_at": utc(), "elapsed_ms": int((time.monotonic() - outer_start) * 1000)}

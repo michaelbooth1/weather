@@ -146,7 +146,7 @@ function Invoke-WeatherQualificationProcess {
     $totalMilliseconds = [Math]::Min($remaining, ($MaximumSeconds + $TeardownSeconds) * 1000)
     $executionMilliseconds = $totalMilliseconds - ($TeardownSeconds * 1000)
     if ($executionMilliseconds -le 0 -or $CommitBytes -lt 16777216 -or $WorkingSetBytes -lt 16777216) {
-        throw 'No reviewed execution and teardown envelope remains'
+        throw ("No reviewed execution and teardown envelope remains: execution_ms={0}; commit={1}; working={2}" -f $executionMilliseconds, $CommitBytes, $WorkingSetBytes)
     }
     if ($ResourceMode -eq 'capture_s4u' -and ($MinimumDiskBytes -lt 53687091200 -or $CaptureBindings.Count -ne 3)) {
         throw 'Production resource contract is incomplete'

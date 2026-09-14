@@ -41,6 +41,8 @@ def install(*, writable_roots, forbidden_roots, executable_paths):
 
     def check(value, *, write=False):
         path = _path(value)
+        if path == _path(os.devnull):
+            return
         if path is not None and (_inside(path, forbidden) or (write and not _inside(path, writable))):
             raise PermissionError("qualification offline file access refused")
 

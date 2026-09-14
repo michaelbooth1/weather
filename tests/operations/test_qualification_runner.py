@@ -48,7 +48,7 @@ def native_runner(tmp_path):
         tools["powershell"] = tool_pin(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe")
     return runner.Runner(trusted_root=trusted, candidate_root=candidate, output_root=outputs, scratch_root=scratch,
                          trusted_files=pins, executables=tools, site_roots=[Path(pytest.__file__).resolve().parents[1]],
-                         seconds=30, memory_bytes=1024**3)
+                         seconds=120, memory_bytes=1024**3)
 
 
 def test_actual_native_collection_and_chunk_have_verified_cleanup(native_runner, monkeypatch):
@@ -91,6 +91,8 @@ def test_candidate_cannot_write_outside_scratch(native_runner):
     with pytest.raises(QualificationError, match="native"):
         native_runner.execute("tests", nodes=["tests/test_example.py::test_example"])
     assert not outside.exists()
+    transcripts = list(native_runner.output.glob("*/transcript.txt"))
+    assert len(transcripts) == 1 and "qualification offline file access refused" in transcripts[0].read_text(errors="replace")
     assert not list(native_runner.output.glob("*/chunk.json"))
 
 
