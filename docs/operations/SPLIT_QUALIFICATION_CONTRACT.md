@@ -270,8 +270,10 @@ lease when zero-child cleanup is unproved. Deferred capture, execution-tape stat
 and documentation calls load the frozen B closure through fixed isolated
 entrypoints and explicit production paths. Read-only recovery remains possible
 after certificate expiry. Roll classification accepts an explicit `RepoRoot`
-so the frozen B script examines the actual capture checkout. Public v2 lifecycle
-routing and complete native verification remain required before registration.
+so the frozen B script examines the actual capture checkout. The wrapper consumes a typed host prerequisite and records the exact native
+proofs for every merge boundary, including current capture after publication.
+Public v2 manifest admission and complete native verification remain required
+before registration.
 
 Native regression fixtures bind their disposable copied host assignment to the
 actual test installation. They retain production identity checks, canonical
@@ -284,6 +286,15 @@ The common task-binding and immutable registration readers select the prerequisi
 per manifest: a historical v1 `suite` or an explicit v2 `host`. V2 never supplies
 suite fields or a full-suite log. Schema selection is local to each attempt, so
 reading a v2 attempt cannot change how a v1 predecessor is closed or verified.
+The merge wrapper, shared PASS reader, closer and recovery dispatcher select
+their receipt schema and prerequisite fields per attempt. The split wrapper
+executes from B, proves its native Scheduler invocation and passes the exact
+manifest to its contained quiet child. A durably flushed commit-invocation
+marker precedes Git commit; boot preserves an ambiguous split result for
+reviewed reconciliation. A published split report binds all native boundary
+records and post-publication B capture proof. These additions do not enable
+the public v2 registrar before its complete preparation/admission path is ready.
+
 Both phases reuse the same exact S4U/Limited tokens, no-catch-up settings,
 pre-registration intent and identity-bound task closure. The host task has a
 34-minute Scheduler backstop; its inner absolute execution/teardown plan remains

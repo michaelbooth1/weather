@@ -719,7 +719,7 @@ def _adapt_script(
     verdict_needle = (
         r'$verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"'
     )
-    assert adapted.count(verdict_needle) == 2
+    assert adapted.count(verdict_needle) == 1
     fake_verdict_path = str(fake_roll_verdict.resolve()).replace("'", "''")
     adapted = adapted.replace(
         verdict_needle,

@@ -42,6 +42,7 @@ param(
 $ErrorActionPreference = "Stop"
 $qualificationContext = $null
 $qualificationCommitAttempted = $false
+$qualificationPublishedCapture = $null
 $splitQualification = -not [string]::IsNullOrWhiteSpace($QualificationManifestPath)
 if ($splitQualification -ne (-not [string]::IsNullOrWhiteSpace($QualificationManifestSha256)) -or
     ($splitQualification -and ($QualificationManifestSha256 -cnotmatch '^[0-9a-f]{64}$' -or
@@ -133,6 +134,7 @@ $productionBaselineReconciliationMode = $ProductionBaselineReconciliation.IsPres
 $reconciliationModeName = if ($productionBaselineReconciliationMode) {
     "production_baseline_reconciliation_v0.1"
 }
+elseif ($splitQualification) { 'split_qualification_v2' }
 else { "ordinary_synchronized_merge_v0.1" }
 $reconciliationActualPreMerge = $null
 $reconciliationBootGuardCommit = $null
@@ -274,7 +276,17 @@ function Save-Report($ok, $stage, $detail) {
         publication_acknowledged = $publicationAcknowledged
         stage = $stage; detail = $detail; log = @($log)
     }
-    $json = $record | ConvertTo-Json -Depth 8
+    if ($splitQualification) {
+        $record['split_qualification'] = [ordered]@{
+            manifest_path = $QualificationManifestPath; manifest_sha256 = $QualificationManifestSha256
+            commit_invocation_started = $qualificationCommitAttempted
+            published_boundary = $(if ($qualificationPublishedCapture) { Get-WeatherQualificationReference -Root $qualificationContext.State.Contract.AttemptRoot -Name 'merge-work/published/boundary.json' } else { $null })
+            published_native = $(if ($qualificationPublishedCapture) { Get-WeatherQualificationReference -Root $qualificationContext.State.Contract.AttemptRoot -Name 'merge-work/published/native.json' } else { $null })
+            boundaries = $(if ($qualificationContext) { $qualificationContext.Proofs } else { $null })
+            capture = $qualificationPublishedCapture
+        }
+    }
+    $json = $record | ConvertTo-Json -Depth 12
     $reportPersisted = $false
     $attemptReportPersisted = $false
     $attemptReportExpectedSha256 = $null
@@ -483,6 +495,10 @@ function Write-QuietMergeMarker {
         auto_refreshed_sha256 = $rollbackContentSha256
         reconciliation_config_content_sha256 = $rollbackContentSha256
     }
+    if ($splitQualification) {
+        $marker['qualification'] = [ordered]@{ manifest_path = $QualificationManifestPath
+            manifest_sha256 = $QualificationManifestSha256; commit_invocation_started = $qualificationCommitAttempted }
+    }
     if ($productionBaselineReconciliationMode) {
         if ($reconciliationPostCommitMarkerArmed) {
             Assert-ReconciliationMergeCommit -Commit $mergeCommit
@@ -620,11 +636,13 @@ function Write-QuietMergeMarker {
     $replacementVerified = $false
     try {
         $markerJson = $marker | ConvertTo-Json -Depth 8
-        [IO.File]::WriteAllText(
-            $temp,
-            $markerJson,
-            (New-Object System.Text.UTF8Encoding($false))
-        )
+        if ($splitQualification) {
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes($markerJson)
+            $stream = [IO.File]::Open($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+        } else {
+            [IO.File]::WriteAllText($temp, $markerJson, (New-Object System.Text.UTF8Encoding($false)))
+        }
         if (Test-Path -LiteralPath $activeMarkerPath -PathType Leaf) {
             if ($productionBaselineReconciliationMode -or $ExpectedCurrentSha256) {
                 if ($ExpectedCurrentSha256 -notmatch '^[0-9a-f]{64}$' -or
@@ -3940,8 +3958,11 @@ try {
     # recoverable. Commit only now, then verify the exact two-parent identity.
     if ($splitQualification) {
         Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase before-commit -PreparedBaseline $preMerge | Out-Null
-        Assert-WeatherQualificationBoundaryFresh -Context $qualificationContext -Phase before-commit
+        # Persist the possibly-spent commit authority before invoking Git.
+        # A hard kill after the ref update must never fall through to boot reset.
         $qualificationCommitAttempted = $true
+        Write-QuietMergeMarker -Phase 'qualification_commit_invoked'
+        Assert-WeatherQualificationBoundaryFresh -Context $qualificationContext -Phase before-commit
     }
     $mergeCommitExit = Invoke-GitAllowingNativeStderr {
         & git commit -m "Merge $Branch into master" | Out-Null
@@ -4165,6 +4186,20 @@ catch {
     # are authoritative. If that report also fails, the previous durable
     # documented_unpublished marker remains for Git-backed reconciliation.
     Note "WARNING: publication succeeded but the durable marker phase could not be advanced"
+}
+if ($splitQualification) {
+    try {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase published -PreparedBaseline $preMerge | Out-Null
+        $qualificationPublishedCapture = Get-CaptureState
+        if (-not $qualificationPublishedCapture.ok -or @($qualificationPublishedCapture.workers).Count -ne 3 -or
+            @($qualificationPublishedCapture.workers | Where-Object { -not $_.ok }).Count -ne 0) {
+            $qualificationPublishedCapture = $null
+            throw 'Post-publication capture proof failed'
+        }
+    } catch {
+        Save-Report -ok $false -stage 'published_unverified' -detail ('Publication acknowledged; preserve and reconcile: ' + $_.Exception.Message)
+        exit 3
+    }
 }
 Note "pushed $mergeCommit via WeatherOneShotPush"
 Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"

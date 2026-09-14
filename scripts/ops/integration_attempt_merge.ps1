@@ -44,7 +44,7 @@ function Assert-WeatherIntegrationSuiteTaskBinding {
     # action mismatch, now extended to principal, trigger, and settings drift.
     return Assert-WeatherIntegrationAttemptTaskBinding `
         -AttemptContract $AttemptContract `
-        -Role "suite" `
+        -Role ((Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Role) `
         -IncludeTaskInfo
 }
 
@@ -62,7 +62,7 @@ function Assert-WeatherIntegrationSuiteTask {
         -PowerShellExecutable $PowerShellExecutable
     $task = $binding.Task
     $taskInfo = $binding.Info
-    $taskName = [string]$AttemptContract.Manifest.schedule.suite_task_name
+    $taskName = (Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).TaskName
     if ([string]$task.State -eq "Running") { throw "Suite task is still running: $taskName" }
     if ([string]$task.State -notin @("Ready", "Disabled")) {
         throw "Suite task is not terminal: $taskName state=$($task.State)"
@@ -79,7 +79,8 @@ function Assert-WeatherIntegrationSuiteTask {
         throw ("Suite task result is 0x{0:X}, not success." -f [int]$taskInfo.LastTaskResult)
     }
 
-    $receiptStarted = [datetime]::Parse([string]$SuiteReceiptContract.Receipt.started_at_local)
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    $receiptStarted = [DateTimeOffset]::Parse([string]$SuiteReceiptContract.Receipt.PSObject.Properties[$phase.StartedAtField].Value).LocalDateTime
     if ([math]::Abs(($receiptStarted - [datetime]$taskInfo.LastRunTime).TotalMinutes) -gt 5) {
         throw "Suite task LastRunTime does not correlate to the immutable receipt."
     }
@@ -93,9 +94,10 @@ function Wait-WeatherIntegrationSuiteTerminal {
     )
 
     $manifest = $AttemptContract.Manifest
-    $receiptPath = [string]$manifest.evidence.suite_receipt
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    $receiptPath = [string]$manifest.evidence.PSObject.Properties[$phase.ReceiptKey].Value
     $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$manifest.schedule.suite_at_local) `
+        -Value $phase.AtLocal `
         -Label "suite_at_local"
     $deadline = $suiteAt.Date.AddMinutes(220)
     $lastNotice = [datetime]::MinValue
@@ -131,7 +133,7 @@ function Wait-WeatherIntegrationSuiteTerminal {
             $null -eq $script:suitePassExitGraceEvidence) {
             $script:suitePassExitGraceEvidence = [ordered]@{
                 observed_at_local = $now.ToString("o")
-                task_name = [string]$manifest.schedule.suite_task_name
+                task_name = $phase.TaskName
                 reason = [string]$decision.Reason
                 grace_until_local = ([datetime]$decision.GraceUntil).ToString("o")
             }
@@ -142,7 +144,7 @@ function Wait-WeatherIntegrationSuiteTerminal {
             $null -eq $script:suiteStaleSchedulerResultEvidence) {
             $script:suiteStaleSchedulerResultEvidence = [ordered]@{
                 observed_at_local = $now.ToString("o")
-                task_name = [string]$manifest.schedule.suite_task_name
+                task_name = $phase.TaskName
                 task_state = [string]$binding.Task.State
                 last_task_result = [int]$binding.Info.LastTaskResult
                 receipt_status = $receiptStatus
@@ -151,7 +153,7 @@ function Wait-WeatherIntegrationSuiteTerminal {
         }
         if ([string]$decision.Action -eq "READY") { return }
         if ([string]$decision.Action -eq "STOP") {
-            $taskName = [string]$manifest.schedule.suite_task_name
+            $taskName = $phase.TaskName
             $script:suiteDeadlineStopEvidence = [ordered]@{
                 requested = $true
                 requested_at_local = $now.ToString("o")
@@ -221,7 +223,8 @@ function Invoke-WeatherQuietMergeChild {
         [Parameter(Mandatory = $true)][string]$ExpectedTip,
         [Parameter(Mandatory = $true)][string]$ExpectedBaseline,
         [Parameter(Mandatory = $true)][string]$AttemptReportPath,
-        [Parameter(Mandatory = $true)][string]$ExpectedQuietMergeSha256
+        [Parameter(Mandatory = $true)][string]$ExpectedQuietMergeSha256,
+        [AllowNull()]$SplitContract
     )
 
     $tokens = @(
@@ -237,6 +240,10 @@ function Invoke-WeatherQuietMergeChild {
         "-ExpectedSelfSha256", $ExpectedQuietMergeSha256,
         "-SettleSeconds", [string]$SettleSeconds
     )
+    if ($null -ne $SplitContract) {
+        $tokens += @('-QualificationManifestPath', $SplitContract.ManifestPath,
+                     '-QualificationManifestSha256', $SplitContract.ManifestSha256)
+    }
     $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
     $job = $null
     $process = $null
@@ -247,7 +254,8 @@ function Invoke-WeatherQuietMergeChild {
             -FilePath $PowerShellExecutable `
             -ArgumentString $argumentString `
             -WorkingDirectory $RepoRoot
-        $outerHardStop = (Get-Date).Date.AddHours(5)
+        $outerHardStop = if ($null -ne $SplitContract) { (Get-Date).Date.AddHours(4).AddMinutes(5) }
+                         else { (Get-Date).Date.AddHours(5) }
         while (-not $process.HasExited) {
             if ((Get-Date) -ge $outerHardStop) {
                 throw "Quiet merge child exceeded the 05:00 containment boundary."
@@ -256,6 +264,10 @@ function Invoke-WeatherQuietMergeChild {
             $process.Refresh()
         }
         $process.WaitForExit()
+        if ($null -ne $SplitContract) {
+            $job.TerminateAndWait(3000)
+            if ($job.Snapshot().ProcessIds.Count -ne 0) { throw 'Split quiet child teardown is unproved' }
+        }
         return [int]$process.ExitCode
     }
     finally {
@@ -363,6 +375,8 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 $manifest = $contract.Manifest
+$phase = Get-WeatherIntegrationPrerequisite -AttemptContract $contract
+$splitQualification = $phase.Version -eq 'v2'
 Assert-WeatherIntegrationAttemptNotTerminal `
     -AttemptContract $contract -Operation "Integration-attempt merge execution"
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
@@ -374,11 +388,26 @@ foreach ($freshPath in @($mergeReceiptPath, $attemptQuietReportPath)) {
 }
 
 $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-$suiteScript = Join-Path $repoRoot "scripts\ops\integration_attempt_suite.ps1"
-$quietMergeScript = Join-Path $repoRoot "scripts\ops\quiet_window_merge.ps1"
-$tokenContractScript = Join-Path $repoRoot "scripts\ops\training_window_contract.ps1"
-$jobScript = Join-Path $repoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+$controlRoot = if ($splitQualification) { [string]$manifest.control.root } else { $repoRoot }
+if ($splitQualification -and -not (Test-WeatherIntegrationPathEqual -Left $PSScriptRoot -Right (Join-Path $controlRoot 'scripts/ops'))) {
+    throw 'Split merge wrapper must execute from its adopted control copy'
+}
+$suiteScript = Join-Path (Join-Path $controlRoot 'scripts/ops') $phase.ScriptName
+$quietMergeScript = Join-Path $controlRoot "scripts\ops\quiet_window_merge.ps1"
+$tokenContractScript = Join-Path $controlRoot "scripts\ops\training_window_contract.ps1"
+$jobScript = Join-Path $controlRoot "scripts\ops\windows_kill_on_close_job.ps1"
 $python = Join-Path $repoRoot "venv\Scripts\python.exe"
+if ($splitQualification) {
+    . (Join-Path $PSScriptRoot 'workload_admission.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+    $splitState = Read-WeatherQualificationHostAttempt -ManifestPath $contract.ManifestPath -ExpectedManifestSha256 $contract.ManifestSha256
+    $python = Join-Path $splitState.Profile.tools.python.root $splitState.Profile.tools.python.path
+    $script:qualificationGit = Join-Path $splitState.Profile.tools.git.root $splitState.Profile.tools.git.path
+    if ((Get-WeatherIntegrationFileSha256 -Path $script:qualificationGit) -cne [string]$splitState.Profile.tools.git.sha256) { throw 'Qualified Git executable changed' }
+    function git { & $script:qualificationGit --no-replace-objects @args; $global:LASTEXITCODE = $LASTEXITCODE }
+}
 $quietReportPath = $attemptQuietReportPath
 foreach ($requiredPath in @($suiteScript, $quietMergeScript, $tokenContractScript, $jobScript, $python)) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
@@ -433,7 +462,7 @@ try {
         -PowerShellExecutable $powerShellExecutable
     Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "guarded merge" | Out-Null
-    $suiteReceiptContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $contract
+    $suiteReceiptContract = Assert-WeatherIntegrationPrerequisiteReceipt -AttemptContract $contract -RequireFresh
     $suiteReceiptSha256 = $suiteReceiptContract.ReceiptSha256
     Assert-WeatherIntegrationSuiteTask `
         -AttemptContract $contract `
@@ -448,6 +477,11 @@ try {
         throw "Branch moved after suite PASS. Expected $($manifest.expected_tip); got $branchTip"
     }
 
+    if ($splitQualification) {
+        $identity = Assert-WeatherQualificationS4UInvocation -AttemptContract $contract -Role merge `
+            -ExpectedHostId ([string]$splitState.Plan.host_id) -ExpectedPrincipalId ([string]$splitState.Plan.principal_id)
+        Write-WeatherIntegrationImmutableJson -Path (Join-Path $contract.AttemptRoot 'merge-invocation.json') -Payload $identity
+    }
     $quietMergeLaunchSha256 = Get-WeatherIntegrationFileSha256 -Path $quietMergeScript
     if ($quietMergeLaunchSha256 -ne [string]$manifest.orchestration.quiet_merge.sha256) {
         throw "Quiet-merge script changed immediately before child launch."
@@ -460,7 +494,8 @@ try {
         -ExpectedTip ([string]$manifest.expected_tip) `
         -ExpectedBaseline ([string]$manifest.baseline.master) `
         -AttemptReportPath $attemptQuietReportPath `
-        -ExpectedQuietMergeSha256 ([string]$manifest.orchestration.quiet_merge.sha256)
+        -ExpectedQuietMergeSha256 ([string]$manifest.orchestration.quiet_merge.sha256) `
+        -SplitContract $(if ($splitQualification) { $contract } else { $null })
     if ($quietMergeExitCode -ne 0) {
         throw "Guarded quiet merge failed with exit code $quietMergeExitCode."
     }
@@ -551,7 +586,11 @@ try {
     }
     $sourceTipIntegrated = $true
 
-    $captureRaw = @(& $python -m weather.operations.capture_recovery_check --repo-root $repoRoot --json)
+    if ($splitQualification) {
+        Assert-WeatherQualificationPublishedProof -AttemptContract $contract -QuietReport $quietReport
+        $captureRaw = @($quietReport.split_qualification.capture | ConvertTo-Json -Depth 12)
+        $global:LASTEXITCODE = 0
+    } else { $captureRaw = @(& $python -m weather.operations.capture_recovery_check --repo-root $repoRoot --json) }
     $captureExitCode = $LASTEXITCODE
     $captureProof = (($captureRaw -join "`n") | ConvertFrom-Json)
     $unhealthyWorkers = @($captureProof.workers | Where-Object { -not [bool]$_.ok })
@@ -646,15 +685,15 @@ finally {
         }
     }
     $receipt = [ordered]@{
-        schema = $script:WeatherIntegrationAttemptMergeReceiptSchema
+        schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind merge_receipt
         status = $status
         attempt_id = [string]$manifest.attempt_id
         manifest_path = $contract.ManifestPath
         manifest_sha256 = $contract.ManifestSha256
         branch_ref = [string]$manifest.branch_ref
         source_tip = [string]$manifest.expected_tip
-        suite_receipt_path = [string]$manifest.evidence.suite_receipt
-        suite_receipt_sha256 = $suiteReceiptSha256
+        ($phase.ReceiptPathField) = [string]$manifest.evidence.PSObject.Properties[$phase.ReceiptKey].Value
+        ($phase.ReceiptShaField) = $suiteReceiptSha256
         started_at_local = $startedAt.ToString("o")
         completed_at_local = (Get-Date).ToString("o")
         quiet_merge_exit_code = $quietMergeExitCode

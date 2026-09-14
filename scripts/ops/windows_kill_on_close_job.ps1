@@ -405,45 +405,46 @@ namespace Weather.Operations
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(UInt32 access, bool inherit, UInt32 pid);
+
         private void SampleProcessMemory(BoundedJobSnapshot snapshot)
         {
             foreach (Int32 pid in snapshot.ProcessIds)
             {
+                // Query through one native handle. Process.Handle can throw
+                // while a terminated process still appears in the Job.
+                IntPtr processHandle = OpenProcess(0x00100410, false, (UInt32)pid);
+                if (processHandle == IntPtr.Zero)
+                {
+                    Int32 error = Marshal.GetLastWin32Error();
+                    if (error == 87 && Array.IndexOf(ProcessIds(), pid) < 0) continue;
+                    throw new Win32Exception(error, "Job process telemetry handle unavailable");
+                }
                 try
                 {
-                    using (Process process = Process.GetProcessById(pid))
+                    if (WaitForSingleObject(processHandle, 0) == 0) continue;
+                    bool owned;
+                    if (!IsProcessInJob(processHandle, handle, out owned))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Job process membership telemetry failed");
+                    if (!owned) throw new InvalidOperationException("Job process identity changed during sampling");
+                    PROCESS_MEMORY_COUNTERS_EX memory = new PROCESS_MEMORY_COUNTERS_EX();
+                    memory.cb = (UInt32)Marshal.SizeOf(memory);
+                    if (!GetProcessMemoryInfo(processHandle, ref memory, memory.cb))
                     {
-                        bool owned;
-                        if (!IsProcessInJob(process.Handle, handle, out owned))
-                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Job process membership telemetry failed");
-                        if (!owned) throw new InvalidOperationException("Job process identity changed during sampling");
-                        PROCESS_MEMORY_COUNTERS_EX memory = new PROCESS_MEMORY_COUNTERS_EX();
-                        memory.cb = (UInt32)Marshal.SizeOf(memory);
-                        if (!GetProcessMemoryInfo(process.Handle, ref memory, memory.cb))
-                        {
-                            if (process.HasExited) continue;
-                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Job process memory telemetry unavailable");
-                        }
-                        checked
-                        {
-                            snapshot.SampledPrivateBytes += memory.PrivateUsage.ToUInt64();
-                            snapshot.SampledWorkingSetBytes += memory.WorkingSetSize.ToUInt64();
-                        }
+                        Int32 error = Marshal.GetLastWin32Error();
+                        if (WaitForSingleObject(processHandle, 0) == 0) continue;
+                        throw new Win32Exception(error, "Job process memory telemetry unavailable");
+                    }
+                    checked
+                    {
+                        snapshot.SampledPrivateBytes += memory.PrivateUsage.ToUInt64();
+                        snapshot.SampledWorkingSetBytes += memory.WorkingSetSize.ToUInt64();
                     }
                 }
-                catch (ArgumentException)
-                {
-                    // A process can exit between Job enumeration and opening its
-                    // handle. Only a second native inventory can excuse that race.
-                    if (Array.IndexOf(ProcessIds(), pid) >= 0) throw;
-                }
-                catch (InvalidOperationException)
-                {
-                    if (Array.IndexOf(ProcessIds(), pid) >= 0) throw;
-                }
+                finally { CloseHandle(processHandle); }
             }
         }
-
 
         private void SetJobInformation(Int32 kind, object value)
         {

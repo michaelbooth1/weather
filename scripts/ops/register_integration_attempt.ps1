@@ -49,9 +49,10 @@ if (Test-Path -LiteralPath $registrationIntentPath) {
     throw "Immutable pre-registration intent already exists and will not be replaced: $registrationIntentPath"
 }
 
-$tokenContractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
-$suiteScript = Join-Path (Join-Path $RepoRoot "scripts/ops") $phase.ScriptName
-$mergeScript = Join-Path $RepoRoot "scripts\ops\integration_attempt_merge.ps1"
+$controlRoot = if ($phase.Version -eq 'v2') { [string]$manifest.control.root } else { $RepoRoot }
+$tokenContractScript = Join-Path $controlRoot "scripts\ops\training_window_contract.ps1"
+$suiteScript = Join-Path (Join-Path $controlRoot "scripts/ops") $phase.ScriptName
+$mergeScript = Join-Path $controlRoot "scripts\ops\integration_attempt_merge.ps1"
 foreach ($requiredScript in @($tokenContractScript, $suiteScript, $mergeScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "Required integration-attempt registration script is missing: $requiredScript"

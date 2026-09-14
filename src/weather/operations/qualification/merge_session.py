@@ -17,7 +17,7 @@ from .records import checked_root, digest, publish, read, require, timestamp, ut
 
 
 BOUNDARIES = ("prepare", "before-config", "prepared", "before-stage", "staged",
-              "before-commit", "committed", "before-push")
+              "before-commit", "committed", "before-push", "published")
 
 
 def tree_boundary(checked, git, *, phase, prepared_baseline):
@@ -37,11 +37,12 @@ def tree_boundary(checked, git, *, phase, prepared_baseline):
     head = source.git_output(git, production, "rev-parse", "HEAD").decode("ascii").strip()
     branch = source.git_output(git, production, "symbolic-ref", "--quiet", "--short", "HEAD").decode().strip()
     require(branch == "master", "production branch differs from master")
-    require(source.git_output(git, production, "rev-parse", "origin/master").decode().strip() == baseline,
-            "published baseline moved before publication")
+    expected_origin = head if phase == "published" else baseline
+    require(source.git_output(git, production, "rev-parse", "origin/master").decode().strip() == expected_origin,
+            "published baseline moved or publication is unacknowledged")
     require(source.git_output(git, production, "rev-parse", m["branch_ref"]).decode().strip() == commit,
             "reviewed candidate ref moved")
-    merged = phase in {"staged", "before-commit", "committed", "before-push"}
+    merged = phase in {"staged", "before-commit", "committed", "before-push", "published"}
     expected_tree = preview["tree"] if merged else prepared_tree
     if phase in {"prepare", "before-config"}:
         require(head == baseline and prepared_baseline == baseline, "baseline advanced before preparation")

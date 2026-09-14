@@ -75,12 +75,12 @@ function Initialize-WeatherQualificationMerge {
     [void][IO.Directory]::CreateDirectory($directory)
     Import-Module ScheduledTasks -ErrorAction Stop
     $envelope = [Weather.Operations.KillOnCloseJob]::EncloseCurrentProcess([UInt64]$state.Policy.host.audit_commit_bytes, 64)
-    return [pscustomobject]@{ State = $state; Envelope = $envelope; GitOptions = @(); Last = $null; DomainOrdinal = 0 }
+    return [pscustomobject]@{ State = $state; Envelope = $envelope; GitOptions = @(); Last = $null; DomainOrdinal = 0; Proofs = [ordered]@{} }
 }
 
 function Invoke-WeatherQualificationMergeBoundary {
     param([Parameter(Mandatory = $true)]$Context,
-          [Parameter(Mandatory = $true)][ValidateSet('prepare', 'before-config', 'prepared', 'before-stage', 'staged', 'before-commit', 'committed', 'before-push')][string]$Phase,
+          [Parameter(Mandatory = $true)][ValidateSet('prepare', 'before-config', 'prepared', 'before-stage', 'staged', 'before-commit', 'committed', 'before-push', 'published')][string]$Phase,
           [Parameter(Mandatory = $true)][string]$PreparedBaseline)
     $state = $Context.State; $m = $state.Contract.Manifest
     Assert-WeatherQualificationMergeController -State $state
@@ -127,6 +127,10 @@ function Invoke-WeatherQualificationMergeBoundary {
         $result.integration_eligible -ne $false) { throw 'Split merge result binding differs' }
     $Context.GitOptions = @($result.git_options)
     Set-WeatherQualificationGitEnvironment -Options $Context.GitOptions
+    $Context.Proofs[$Phase] = [ordered]@{
+        boundary = Get-WeatherQualificationReference -Root $state.Contract.AttemptRoot -Name ("merge-work/$Phase/boundary.json")
+        native = Get-WeatherQualificationReference -Root $state.Contract.AttemptRoot -Name ("merge-work/$Phase/native.json")
+    }
     $Context.Last = $result
     return $result
 }

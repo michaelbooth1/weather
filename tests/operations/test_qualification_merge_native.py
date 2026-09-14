@@ -38,7 +38,10 @@ if (-not $refused) { throw 'Another boundary borrowed the current-input proof' }
 
 
 def test_all_modified_native_entrypoints_parse_without_execution(tmp_path):
-    names = ("quiet_window_merge.ps1", "roll_verdict.ps1", "qualification_merge_contract.ps1")
+    names = ("quiet_window_merge.ps1", "roll_verdict.ps1", "qualification_merge_contract.ps1",
+             "qualification_attempt_contract.ps1", "integration_attempt_contract.ps1", "integration_attempt_merge.ps1",
+             "close_integration_attempt.ps1", "dispatch_integration_attempt_recovery.ps1", "boot_recovery.ps1",
+             "register_integration_attempt.ps1")
     script = tmp_path / "parse.ps1"
     targets = ",".join("'" + str(ROOT / "scripts/ops" / name).replace("'", "''") + "'" for name in names)
     script.write_text("$ErrorActionPreference='Stop'\nforeach($path in @(" + targets + ")) {\n"

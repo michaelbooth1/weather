@@ -95,7 +95,7 @@ function Assert-WeatherClosureTasksQuiescent {
     else { $null }
     $attempt = $AttemptContract.Manifest
     foreach ($spec in @(
-        [pscustomobject]@{ Role = "suite"; Name = [string]$attempt.schedule.suite_task_name },
+        [pscustomobject]@{ Role = (Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Role; Name = (Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).TaskName },
         [pscustomobject]@{ Role = "merge"; Name = [string]$attempt.schedule.merge_task_name }
     )) {
         $prior = @($DisableEvidence | Where-Object {
@@ -197,6 +197,7 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 $manifest = $contract.Manifest
+$phase = Get-WeatherIntegrationPrerequisite -AttemptContract $contract
 $closurePath = [string]$manifest.evidence.closure_receipt
 if (Test-Path -LiteralPath $closurePath) {
     throw "Immutable closure receipt already exists and will not be replaced: $closurePath"
@@ -236,7 +237,7 @@ try {
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
-    if ([string]$mergeReceipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+    if ([string]$mergeReceipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind merge_receipt) -or
         [string]$mergeReceipt.attempt_id -ne [string]$manifest.attempt_id -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$mergeReceipt.manifest_path) -Right $contract.ManifestPath) -or
         [string]$mergeReceipt.manifest_sha256 -ne [string]$contract.ManifestSha256 -or
@@ -308,15 +309,16 @@ if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
 }
 
 $existingEvidence = New-Object System.Collections.Generic.List[object]
-foreach ($path in @(
+$evidencePaths = @(
     (Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $contract),
     [string]$manifest.evidence.registration_receipt,
-    [string]$manifest.evidence.preflight_log,
-    [string]$manifest.evidence.full_suite_log,
-    [string]$manifest.evidence.suite_receipt,
+    [string]$manifest.evidence.PSObject.Properties[$phase.ReceiptKey].Value,
     [string]$manifest.evidence.quiet_merge_report,
     [string]$manifest.evidence.merge_receipt
-)) {
+)
+if ($phase.Version -eq 'v1') { $evidencePaths += @([string]$manifest.evidence.preflight_log, [string]$manifest.evidence.full_suite_log) }
+else { $evidencePaths += [string]$manifest.evidence.host_log }
+foreach ($path in $evidencePaths) {
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         $existingEvidence.Add([ordered]@{
             path = Resolve-WeatherIntegrationPath -Path $path
@@ -336,7 +338,7 @@ $registrationReceiptSha256 = if (Test-Path -LiteralPath $registrationReceiptPath
 else { $null }
 
 $receipt = [ordered]@{
-    schema = $script:WeatherIntegrationAttemptClosureReceiptSchema
+    schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind closure_receipt
     status = "FAIL"
     classification = "ABANDONED"
     attempt_id = [string]$manifest.attempt_id

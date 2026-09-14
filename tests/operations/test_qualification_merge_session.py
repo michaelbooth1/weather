@@ -42,19 +42,25 @@ def test_every_real_mutation_boundary_accepts_only_the_effective_tree(merge_fixt
     run("commit", "-qm", "guarded fixture")
     for phase in ("committed", "before-push"):
         assert boundary(fixture, checked, phase, prepared)["head"] == run("rev-parse", "HEAD")
+    with pytest.raises(records.QualificationError, match="unacknowledged"):
+        boundary(fixture, checked, "published", prepared)
+    run("update-ref", "refs/remotes/origin/master", run("rev-parse", "HEAD"))
+    assert boundary(fixture, checked, "published", prepared)["head"] == run("rev-parse", "HEAD")
 
 
-@pytest.mark.parametrize("phase", ["prepare", "before-config", "prepared", "before-stage", "staged", "before-commit", "committed", "before-push"])
+@pytest.mark.parametrize("phase", ["prepare", "before-config", "prepared", "before-stage", "staged", "before-commit", "committed", "before-push", "published"])
 def test_hidden_working_rewrite_refuses_at_every_boundary(merge_fixture, phase):
     fixture, run = merge_fixture, merge_fixture[-1]
     checked = checked_fixture(fixture)
     prepared = fixture[2]
     if phase not in {"prepare", "before-config"}:
         prepared = prepare(fixture, checked)
-    if phase in {"staged", "before-commit", "committed", "before-push"}:
+    if phase in {"staged", "before-commit", "committed", "before-push", "published"}:
         run("merge", "--no-commit", "--no-ff", fixture[3])
-    if phase in {"committed", "before-push"}:
+    if phase in {"committed", "before-push", "published"}:
         run("commit", "-qm", "guarded fixture")
+    if phase == "published":
+        run("update-ref", "refs/remotes/origin/master", run("rev-parse", "HEAD"))
     (fixture[1] / "module.py").write_bytes(b"unreviewed = True\n")
     with pytest.raises(records.QualificationError, match="working source/config"):
         boundary(fixture, checked, phase, prepared)

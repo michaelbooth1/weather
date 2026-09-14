@@ -346,6 +346,7 @@ function Get-WeatherIntegrationPrerequisite {
             throw 'Split attempt cannot masquerade as a legacy full suite'
         }
         return [pscustomobject]@{
+            ReceiptKey = 'host_receipt'; ReceiptPathField = 'host_receipt_path'; ReceiptShaField = 'host_receipt_sha256'; StartedAtField = 'started_at'
             Role = 'host'; Version = 'v2'; TaskName = [string]$manifest.schedule.host_task_name
             AtLocal = [string]$manifest.schedule.host_at_local; ScriptName = 'integration_attempt_host.ps1'
             ScriptKey = 'attempt_host'; ExecutionTimeLimit = 'PT34M'; ScheduleGapMinutes = 34
@@ -358,6 +359,7 @@ function Get-WeatherIntegrationPrerequisite {
         throw 'Legacy attempt cannot carry split host phase fields'
     }
     return [pscustomobject]@{
+        ReceiptKey = 'suite_receipt'; ReceiptPathField = 'suite_receipt_path'; ReceiptShaField = 'suite_receipt_sha256'; StartedAtField = 'started_at_local'
         Role = 'suite'; Version = 'v1'; TaskName = [string]$manifest.schedule.suite_task_name
         AtLocal = [string]$manifest.schedule.suite_at_local; ScriptName = 'integration_attempt_suite.ps1'
         ScriptKey = 'attempt_suite'; ExecutionTimeLimit = 'PT8H'; ScheduleGapMinutes = 30
@@ -365,6 +367,15 @@ function Get-WeatherIntegrationPrerequisite {
     }
 }
 
+function Assert-WeatherIntegrationPrerequisiteReceipt {
+    param([Parameter(Mandatory = $true)]$AttemptContract, [switch]$RequireFresh)
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    if ($phase.Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        return Assert-WeatherQualificationHostReceipt -AttemptContract $AttemptContract -RequireFresh:$RequireFresh
+    }
+    return Assert-WeatherIntegrationSuiteReceipt -AttemptContract $AttemptContract
+}
 function Get-WeatherIntegrationRecordSchema {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
@@ -1506,6 +1517,11 @@ function Assert-WeatherIntegrationOrchestrationFiles {
     )
 
     $manifest = $AttemptContract.Manifest
+    if ((Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        Assert-WeatherQualificationOrchestration -AttemptContract $AttemptContract
+        return
+    }
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
     $expectedFiles = [ordered]@{
         contract = Join-Path $repoRoot "scripts\ops\integration_attempt_contract.ps1"
@@ -1686,7 +1702,7 @@ function Assert-WeatherIntegrationMergeReceipt {
     }
 
     $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema) {
+    if ([string]$receipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind merge_receipt)) {
         throw "Unsupported integration-attempt merge receipt schema: $($receipt.schema)"
     }
     if ([string]$receipt.status -ne "PASS") {
@@ -1749,13 +1765,18 @@ function Assert-WeatherIntegrationMergeReceipt {
     Assert-WeatherIntegrationQuietReportDocumentation `
         -AttemptContract $AttemptContract -QuietReport $quietReport | Out-Null
 
-    $suiteReceiptPath = [string]$manifest.evidence.suite_receipt
-    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.suite_receipt_path) -Right $suiteReceiptPath)) {
-        throw "Merge receipt suite-receipt path does not match the attempt manifest."
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    $prerequisitePath = [string]$manifest.evidence.PSObject.Properties[$phase.ReceiptKey].Value
+    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.PSObject.Properties[$phase.ReceiptPathField].Value) -Right $prerequisitePath)) {
+        throw 'Merge receipt prerequisite path does not match the attempt manifest.'
     }
-    $suiteReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath
-    if ($suiteReceiptSha256 -ne [string]$receipt.suite_receipt_sha256) {
-        throw "Suite receipt changed after the merge gate consumed it."
+    if ((Get-WeatherIntegrationFileSha256 -Path $prerequisitePath) -cne [string]$receipt.PSObject.Properties[$phase.ReceiptShaField].Value) {
+        throw 'Prerequisite receipt changed after the merge gate consumed it.'
+    }
+    if ($phase.Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        Assert-WeatherIntegrationPrerequisiteReceipt -AttemptContract $AttemptContract | Out-Null
+        Assert-WeatherQualificationPublishedProof -AttemptContract $AttemptContract -QuietReport $quietReport
     }
 
     return [pscustomobject]@{
@@ -1783,7 +1804,7 @@ function Assert-WeatherIntegrationMergedUnverifiedReceipt {
         throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
     }
     $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+    if ([string]$receipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind merge_receipt) -or
         [string]$receipt.status -ne "MERGED_UNVERIFIED") {
         throw "Reconciliation requires an immutable MERGED_UNVERIFIED merge receipt."
     }
