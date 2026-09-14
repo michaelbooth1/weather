@@ -70,24 +70,10 @@ def test_next_selection_keeps_the_thirty_day_hot_window(evidence, monkeypatch):
         run(changed)
 
 
-def test_diagnostic_explanation_requires_retained_raw_input(evidence, monkeypatch):
-    bind_next_selection(evidence, monkeypatch)
-    root, entry, event, folder, _ = evidence
-    entry["files"][0]["path"] = f"snapshots/{event}/snapshot_explanations_long.csv"
-    with pytest.raises((ValueError, FileNotFoundError)):
-        run(evidence)
-    assert not (root / "review").exists()
-    put(folder / "snapshot_explanations.jsonl", '{"fixture": true}\n')
-    checked, _, _ = run(evidence)
-    assert checked["selection_kind"] == "primary"
-    observed = json.loads((root / "review/observations.json").read_bytes())
-    assert any(row["path"] == str(folder / "snapshot_explanations.jsonl")
-               for row in observed["point_in_time"]["required_retained_inputs"])
-
-
 @pytest.mark.parametrize("family", [
     "clob_tokens.csv", "variant_predictions_long.csv", "snapshots_long.csv",
-    "replay_inputs.jsonl", "settlement.json", "forecast_payloads.jsonl"])
+    "replay_inputs.jsonl", "settlement.json", "forecast_payloads.jsonl",
+    "snapshot_explanations_long.csv"])
 def test_next_selection_cannot_archive_routine_or_weather_inputs(evidence, monkeypatch, family):
     bind_next_selection(evidence, monkeypatch)
     evidence[1]["files"][0]["path"] = f"snapshots/{evidence[2]}/{family}"

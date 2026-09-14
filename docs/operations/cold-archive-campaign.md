@@ -139,13 +139,12 @@ binding, measured selection, exact plan and independent allocation ledger.
 The old campaign counter does not establish that free-volume target.
 
 Only the additional plan pinned in `cold_archive_campaign_review` may select
-June 1-August 14 detail files, canonical gzip book tapes and diagnostic
-explanation CSVs as primary inputs. It retains the thirty-day hot window and every settlement, queue,
-corpus, release, capture, native identity and complete verification check.
-An explanation CSV additionally requires its raw explanation JSONL to remain
-locally available. Routine token-map and prediction summary CSVs, weather
-inputs and replay inputs remain outside this scope. Unknown and prior plans
-retain their original date and family boundaries.
+June 1-August 14 detail files and canonical gzip book tapes as primary inputs.
+It retains the thirty-day hot window and every settlement, queue, corpus,
+release, capture, native identity and complete verification check. Diagnostic
+explanation tables, routine token-map and prediction summary CSVs, weather
+inputs and replay inputs remain outside this additional scope. Unknown and
+prior plans retain their original date and family boundaries.
 
 New plans retain the ordinary 50 GiB archive reserve. Run admitted work in the
 ordinary overnight window, reserve time for scheduled tiering and qualification,

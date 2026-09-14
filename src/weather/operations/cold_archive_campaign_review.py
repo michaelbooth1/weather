@@ -19,11 +19,11 @@ FAMILIES = re.compile(
     r"(?:clob_tokens[.]jsonl|market_ws[.]jsonl|order_books[.]jsonl|order_books_long[.]csv(?:[.]gz)?|"
     r"price_history[.]csv|variant_predictions[.]jsonl)")
 
-# Populated only after the September 13 owner's next selection is measured and
-# its exact whole-file plan is reviewed. An unbound selection grants no scope.
-NEXT50_APPROVED_PLAN_SHA256 = ""
+# The September 13 owner's additional selection is bound to its measured plan.
+# An unknown plan grants no additional date or family scope.
+NEXT50_APPROVED_PLAN_SHA256 = "bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027"
 NEXT50_FAMILIES = re.compile(
-    FAMILIES.pattern + r"|order_books[.]jsonl[.]gz|snapshot_explanations_long[.]csv")
+    FAMILIES.pattern + r"|order_books[.]jsonl[.]gz")
 
 
 class Observations:
@@ -145,9 +145,6 @@ def review_sources(*, production_root, entry, entry_sha256, output_root, now=Non
                 "unexpected protected corpus dependency")
         names = ("snapshots_long.csv", "replay_inputs.jsonl", "settlement.json") if matches else (
             "settlement.json",)
-        if next50 and any(row["path"] == f"snapshots/{event}/snapshot_explanations_long.csv"
-                          for row in entry["files"]):
-            names += ("snapshot_explanations.jsonl",)
         if matches:
             corpus_events.append(event)
         for name in names:
