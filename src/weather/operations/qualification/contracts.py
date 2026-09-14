@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 import re
 
 from .records import (MAX_ITEMS, digest, distinct_paths, fields, identifier,
-                      integer, read, reference, relative_path, require, timestamp)
+                      integer, open_record, read, reference, relative_path, require, timestamp)
 
 
 PLATFORMS = ("windows", "linux")
@@ -142,13 +143,16 @@ def inventory(value, schema):
 class Graph:
     """Read only a bounded acyclic graph beneath one externally chosen root."""
 
-    def __init__(self, root: Path, *, maximum_records=4096, maximum_bytes=64 * 1024**2):
+    def __init__(self, root: Path, *, maximum_records=4096, maximum_bytes=64 * 1024**2, maximum_blob_bytes=2 * 1024**3):
         self.root = root
         self.maximum_records = maximum_records
         self.maximum_bytes = maximum_bytes
         self.records = {}
         self.paths = {}
         self.total_bytes = 0
+        self.maximum_blob_bytes = maximum_blob_bytes
+        self.blob_bytes = 0
+        self.blobs = {}
 
     def get(self, ref):
         reference(ref)
@@ -164,8 +168,34 @@ class Graph:
             self.total_bytes += ref["size"]
         return self.records[key].value
 
+    def blob(self, ref, *, maximum=128 * 1024**2, refresh=False):
+        fields(ref, {"path", "sha256", "size"})
+        key = relative_path(ref["path"]).casefold()
+        digest(ref["sha256"])
+        integer(ref["size"], minimum=1, maximum=maximum)
+        previous = self.paths.get(key)
+        require(previous is None or previous == ref, "graph path alias or conflicting reference")
+        if key in self.blobs and not refresh:
+            return
+        if key not in self.blobs:
+            require(len(self.blobs) < 8192 and self.blob_bytes + ref["size"] <= self.maximum_blob_bytes,
+                    "graph artifact limit exceeded")
+        hasher, count = hashlib.sha256(), 0
+        with open_record(self.root, ref["path"]) as handle:
+            while block := handle.read(min(1024 * 1024, ref["size"] + 1 - count)):
+                count += len(block)
+                require(count <= ref["size"], "artifact grew or exceeds bound")
+                hasher.update(block)
+        require(count == ref["size"] and hasher.hexdigest() == ref["sha256"], "artifact bytes differ")
+        if key not in self.blobs:
+            self.blob_bytes += count
+        self.blobs[key] = (dict(ref), maximum)
+        self.paths[key] = dict(ref)
+
     def fresh(self):
         """Do not carry an earlier byte observation across a consumption boundary."""
+        for ref, maximum in tuple(self.blobs.values()):
+            self.blob(ref, maximum=maximum, refresh=True)
         for key, previous in self.records.items():
             current = read(self.root, self.paths[key])
             require(current.sha256 == previous.sha256, "retained graph changed")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-import hashlib
 
 from .contracts import (CHECKS, PLATFORMS, Graph, fields, interval, inventory, pass_result, record,
                         remote_id, run, sequence, text, validate_trust)
@@ -14,19 +13,7 @@ from .records import (digest, integer, open_record, reference, relative_path,
 
 
 def verify_blob(graph: Graph, ref, *, maximum=128 * 1024**2):
-    fields(ref, {"path", "sha256", "size"})
-    relative_path(ref["path"])
-    digest(ref["sha256"])
-    integer(ref["size"], minimum=1, maximum=maximum)
-    require(graph.total_bytes + ref["size"] <= graph.maximum_bytes, "graph byte limit exceeded")
-    hasher, count = hashlib.sha256(), 0
-    with open_record(graph.root, ref["path"]) as handle:
-        while block := handle.read(min(1024 * 1024, ref["size"] + 1 - count)):
-            count += len(block)
-            require(count <= ref["size"], "artifact grew or exceeds bound")
-            hasher.update(block)
-    require(count == ref["size"] and hasher.hexdigest() == ref["sha256"], "artifact bytes differ")
-    graph.total_bytes += count
+    graph.blob(ref, maximum=maximum)
 
 
 def environment(value, platform):
