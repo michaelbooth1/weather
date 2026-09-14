@@ -2707,6 +2707,12 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "split_v2",
+        "weather.operations.qualification.attempt",
+        "qualification_mode",
+        "Explicit attempt prerequisite discriminator, not a serialized evidence schema.",
+    ),
+    SchemaLiteralExclusion(
         "capture_s4u_split_v2",
         "weather.operations.qualification.contracts",
         "qualification_host_profile",

@@ -64,9 +64,7 @@ def main():
     # The native parent's strict decoder/hash gate precedes this bootstrap.
     common = {"phase", "candidate", "trusted_root", "trusted_modules", "sites", "authority_root", "source_inventory",
               "inputs_root", "roots", "output", "maximum"}
-    phase_fields = {"stage": {"labels", "ledgers", "markets"}, "audit": {"preparation"},
-                    "current": {"preparation", "computation", "previously_read"}}
-    if request.get("phase") not in phase_fields or set(request) != common | phase_fields[request["phase"]]:
+    if request.get("phase") != "audit" or set(request) != common | {"preparation"}:
         raise ValueError("unsupported host child request")
     candidate = Path(request["candidate"])
     if not candidate.is_absolute() or Path.cwd().resolve() != candidate.resolve():
@@ -85,26 +83,6 @@ def main():
     forbidden = list(roots.roots.values())
     records.require(not any(candidate == root or candidate.is_relative_to(root) or inputs_root.is_relative_to(root)
                             or output.is_relative_to(root) for root in forbidden), "audit roots overlap mutable sources")
-    # These two modes execute only the frozen authority package. Candidate
-    # imports and all subprocesses remain disabled while mutable inputs are read.
-    if request["phase"] == "stage":
-        offline_guard.install(writable_roots=[str(inputs_root)], forbidden_roots=[], executable_paths=[])
-        host_audit.stage(output=inputs_root, roots=request["roots"], labels=request["labels"],
-                         ledgers=request["ledgers"], markets=request["markets"], maximum=request["maximum"])
-        return
-    if request["phase"] == "current":
-        offline_guard.install(writable_roots=[str(output)], forbidden_roots=[], executable_paths=[])
-        prepared = host_audit.preparation(contracts.Graph(inputs_root), request["preparation"])
-        computed = contracts.Graph(output).get(request["computation"])
-        records.require(request["previously_read"] >= computed["read_bytes"] and
-                        computed["preparation_sha256"] == request["preparation"]["sha256"] and
-                        computed["inputs_sha256"] == prepared["inputs"]["sha256"], "current audit binding differs")
-        current = host_audit.revalidate(input_graph=contracts.Graph(inputs_root), preparation_ref=request["preparation"],
-            roots=request["roots"], maximum=request["maximum"], previously_read=request["previously_read"])
-        records.publish(output, "audit-current.json", {"schema": "qualification_audit_current_v2",
-            "preparation_sha256": request["preparation"]["sha256"], "inputs_sha256": prepared["inputs"]["sha256"],
-            "computation_sha256": request["computation"]["sha256"], **current})
-        return
     sites = [records.checked_root(Path(site)) for site in contracts.sequence(request["sites"], minimum=1, maximum=4)]
     records.require(not any(site.is_relative_to(candidate) for site in sites), "candidate cannot supply dependency sites")
     offline_guard.install(writable_roots=[str(output)], forbidden_roots=[str(root) for root in forbidden], executable_paths=[])

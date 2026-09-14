@@ -68,11 +68,11 @@ def main():
     request = records.decode(raw)
     plan = host.audit_plan(request["plan"])
     scratch = records.checked_root(Path(request["scratch"]))
-    for protected in (plan["candidate"], plan["trusted_root"], plan["authority_root"], *plan["roots"]["roots"].values()):
+    for protected in (plan["candidate"], plan["trusted_root"], plan["authority_root"], plan["inputs_root"], plan["output"], plan["receipt_root"], *plan["roots"]["roots"].values()):
         protected = records.checked_root(Path(protected))
         records.require(not scratch.is_relative_to(protected) and not protected.is_relative_to(scratch),
                         "controller scratch overlaps protected inputs")
-    offline_guard.install(writable_roots=[str(scratch), plan["inputs_root"], plan["output"]],
+    offline_guard.install(writable_roots=[str(scratch), plan["inputs_root"], plan["output"], plan["receipt_root"]],
                           forbidden_roots=[], executable_paths=[sys.executable])
     host.run_audit(plan, scratch=scratch)
 

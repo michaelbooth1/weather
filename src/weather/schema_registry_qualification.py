@@ -6,6 +6,7 @@ from weather.schema_registry_types import SchemaSpec
 QUALIFICATION_REGISTERED_SCHEMAS = tuple(
     SchemaSpec(name, name + "_v2", "weather.operations.qualification." + owner, "active", description)
     for name, owner, description in (
+        ("weather_integration_attempt_manifest", "attempt", "Explicit split qualification attempt with separate host proof and frozen adopted control authority."),
         ("qualification_control_closure", "frozen", "Exact adopted B source-only execution copy checked against actual Git blobs before deferred launches."),
         ("qualification_audit_preparation", "host_audit", "Strict complete current-input preparation and cumulative read accounting."),
         ("qualification_host_audit_plan", "host", "Pinned fixed three-phase host audit with cumulative byte and absolute elapsed budgets."),

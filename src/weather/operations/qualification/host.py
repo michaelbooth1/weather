@@ -23,24 +23,27 @@ def audit_plan(value):
     """An independently pinned local plan, never a command from a certificate."""
     value = record(value, "qualification_host_audit_plan_v2", {
         "candidate", "trusted_root", "trusted_modules", "sites", "authority_root", "source_inventory",
-        "inputs_root", "roots", "output", "maximum", "labels", "ledgers", "markets", "deadline", "child_sha256"})
+        "inputs_root", "roots", "output", "receipt_root", "maximum", "labels", "ledgers", "markets", "deadline", "child_sha256"})
     roots = {key: checked_root(Path(value[key])) for key in
-             ("candidate", "trusted_root", "authority_root", "inputs_root", "output")}
+             ("candidate", "trusted_root", "authority_root", "inputs_root", "output", "receipt_root")}
     # Candidate execution must not have a write grant over any trusted or
     # canonical source directory, including through a parent alias.
-    for writable in (roots["inputs_root"], roots["output"]):
+    for writable in (roots["inputs_root"], roots["output"], roots["receipt_root"]):
         for protected in (roots["candidate"], roots["trusted_root"], roots["authority_root"]):
             require(not protected.is_relative_to(writable) and not writable.is_relative_to(protected),
                     "host audit output overlaps protected source")
-    require(not roots["inputs_root"].is_relative_to(roots["output"]) and
-            not roots["output"].is_relative_to(roots["inputs_root"]), "audit output overlaps sealed inputs")
+    from itertools import combinations
+    for left, right in combinations((roots["inputs_root"], roots["output"], roots["receipt_root"]), 2):
+        require(not left.is_relative_to(right) and not right.is_relative_to(left),
+                "audit input/output/parent receipt roots overlap")
     fields(value["trusted_modules"], set(AUDIT_MODULES))
     for pin in value["trusted_modules"].values():
         digest(pin)
     for site in sequence(value["sites"], minimum=1, maximum=4):
         site = checked_root(Path(site))
         require(not site.is_relative_to(roots["candidate"]) and
-                not site.is_relative_to(roots["inputs_root"]) and not site.is_relative_to(roots["output"]),
+                not site.is_relative_to(roots["inputs_root"]) and not site.is_relative_to(roots["output"]) and
+                not site.is_relative_to(roots["receipt_root"]),
                 "audit dependencies overlap candidate or output")
     reference(value["source_inventory"])
     inventory(Graph(roots["authority_root"]).get(value["source_inventory"]), "qualification_source_inventory_v2")
@@ -119,7 +122,8 @@ def audit_completion(plan, preparation_ref, computation_ref, current_ref):
     computed = record(outputs.get(computation_ref), "qualification_audit_computation_v2", {
         "started_at", "completed_at", "preparation_sha256", "inputs_sha256", "audit", "consumer",
         "counts", "read_bytes", "current_validation_required"})
-    current = record(outputs.get(current_ref), "qualification_audit_current_v2", {
+    receipts = Graph(Path(plan["receipt_root"]))
+    current = record(receipts.get(current_ref), "qualification_audit_current_v2", {
         "preparation_sha256", "inputs_sha256", "computation_sha256", "started_at", "completed_at", "read_bytes"})
     require(current["preparation_sha256"] == preparation_ref["sha256"] and
             current["inputs_sha256"] == prepared["inputs"]["sha256"] and
@@ -132,6 +136,7 @@ def audit_completion(plan, preparation_ref, computation_ref, current_ref):
     integer(current["read_bytes"], minimum=computed["read_bytes"], maximum=plan["maximum"]["read_bytes"])
     inputs.fresh()
     outputs.fresh()
+    receipts.fresh()
     return {"preparation": preparation_ref, "computation": computation_ref, "current": current_ref,
             "inputs": prepared["inputs"], "counts": computed["counts"], "read_bytes": current["read_bytes"],
             "started_at": prepared["started_at"], "completed_at": current["completed_at"], "integration_eligible": False}
@@ -171,11 +176,14 @@ def run_audit(plan, *, scratch):
         "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"}}
     env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "WEATHER_INTEGRATION_TEST_OFFLINE": "1"})
+    # Candidate temporary files belong only to its writable output namespace.
+    for key in ("TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+        env[key] = plan["output"]
     remaining = (timestamp(plan["deadline"]) - datetime.now(timezone.utc)).total_seconds()
     require(remaining > 0, "audit preparation exhausted the absolute deadline")
     native = subprocess.run([sys.executable, "-I", "-S", "-B", str(child),
                              str(scratch / request_ref["path"]), request_ref["sha256"]],
-                            cwd=plan["candidate"], env=env, stdin=subprocess.DEVNULL,
+                            executable=sys.executable, cwd=plan["candidate"], env=env, stdin=subprocess.DEVNULL,
                             timeout=remaining, check=False)
     require(native.returncode == 0, "isolated candidate audit failed")
     # Read a fixed output path, not a child-selected external reference.
@@ -187,8 +195,8 @@ def run_audit(plan, *, scratch):
     current = host_audit.revalidate(input_graph=Graph(Path(plan["inputs_root"])), preparation_ref=prepared,
         roots=plan["roots"], maximum=current_request["maximum"], previously_read=current_request["previously_read"])
     prepared_value = Graph(Path(plan["inputs_root"])).get(prepared)
-    current_ref = publish(Path(plan["output"]), "audit-current.json", {"schema": "qualification_audit_current_v2",
+    current_ref = publish(Path(plan["receipt_root"]), "audit-current.json", {"schema": "qualification_audit_current_v2",
         "preparation_sha256": prepared["sha256"], "inputs_sha256": prepared_value["inputs"]["sha256"],
         "computation_sha256": computation["sha256"], **current})
     result = audit_completion(plan, prepared, computation, current_ref)
-    return publish(Path(plan["output"]), "audit-pipeline.json", {"schema": "qualification_audit_pipeline_v2", **result})
+    return publish(Path(plan["receipt_root"]), "audit-pipeline.json", {"schema": "qualification_audit_pipeline_v2", **result})

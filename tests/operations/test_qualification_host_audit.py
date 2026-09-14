@@ -154,9 +154,9 @@ def test_complete_native_audit_pipeline_shares_deadline_and_read_budget(staged, 
     scripts.mkdir(parents=True)
     for name in ("qualification_host_child.py", "qualification_host_pipeline.py"):
         shutil.copyfile(ROOT / "scripts/ops" / name, scripts / name)
-    authority, inputs, output, scratch = [staged["root"] / ("pipeline-" + name) for name in
-                                         ("authority", "inputs", "output", "scratch")]
-    for directory in (authority, inputs, output, scratch):
+    authority, inputs, output, scratch, receipts = [staged["root"] / ("pipeline-" + name) for name in
+                                                   ("authority", "inputs", "output", "scratch", "receipts")]
+    for directory in (authority, inputs, output, scratch, receipts):
         directory.mkdir()
     paths = sorted(path.relative_to(ROOT).as_posix() for directory in (ROOT / "src/weather", ROOT / "weather")
                    for path in directory.rglob("*.py"))
@@ -166,10 +166,14 @@ def test_complete_native_audit_pipeline_shares_deadline_and_read_budget(staged, 
         "trusted_modules": {key: pins[key] for key in host.AUDIT_MODULES},
         "sites": [str(Path(pytest.__file__).resolve().parents[1])], "authority_root": str(authority),
         "source_inventory": source_ref, "inputs_root": str(inputs), "roots": staged["roots"], "output": str(output),
+        "receipt_root": str(receipts),
         "maximum": staged["maximum"], "labels": str(staged["ledger"].parents[2] / "labels.csv"),
         "ledgers": str(staged["ledger"].parent.parent), "markets": ["market"],
         "deadline": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat().replace("+00:00", "Z"),
         "child_sha256": hashlib.sha256((scripts / "qualification_host_child.py").read_bytes()).hexdigest()}
+    for unsafe in (output, inputs, output.parent):
+        with pytest.raises(ValueError, match="overlap"):
+            host.audit_plan({**plan, "receipt_root": str(unsafe)})
     request = {"plan": plan, "controller_modules": pins, "scratch": str(scratch)}
     request_ref = publish(authority, "pipeline-request.json", request)
     python = Path(sys.executable).resolve()
@@ -196,13 +200,15 @@ def test_complete_native_audit_pipeline_shares_deadline_and_read_budget(staged, 
     else:
         native = process.linux_run(argv, **options)
     assert native["completed"] and native["teardown_proved"], (native, options["transcript"].read_text(errors="replace"))
-    result = json.loads((output / "audit-pipeline.json").read_text())
+    result = json.loads((receipts / "audit-pipeline.json").read_text())
+    assert not (output / "audit-current.json").exists()
+    assert not (output / "audit-pipeline.json").exists()
     assert result["counts"]["semantic_status"] == "BLOCK"
     assert result["integration_eligible"] is False
     computed = Graph(output).get(result["computation"])
     assert result["read_bytes"] > computed["read_bytes"]
     assert result["completed_at"] <= plan["deadline"]
-    assert Graph(output).get(result["current"])["computation_sha256"] == result["computation"]["sha256"]
+    assert Graph(receipts).get(result["current"])["computation_sha256"] == result["computation"]["sha256"]
     # A receipt cannot be replayed into another plan or extend its budget.
     with pytest.raises(ValueError, match="deadline|envelope"):
         host.audit_completion({**plan, "maximum": {**plan["maximum"], "seconds": 1},

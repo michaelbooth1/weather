@@ -219,7 +219,12 @@ The fixed pipeline controller now executes staging, the isolated candidate audit
 complete output readback, and final current-generation validation in one native
 process tree. Its parent owns one absolute execution/teardown deadline and one
 aggregate memory cap. The controller carries every read count forward; it never
-resets the audit budget between phases. An output BLOCK remains BLOCK. Pipeline
+resets the audit budget between phases. The audit child has only one computation
+mode and one writable output directory. Staged inputs, controller scratch and
+parent receipts occupy separate, non-overlapping roots. The controller explicitly
+names its approved interpreter on Windows as well as Linux, and publishes final
+current-validation/pipeline records only in its own receipt directory. An output
+BLOCK remains BLOCK. Pipeline
 completion alone leaves integration eligibility false until host identity,
 admission, probes, configuration/environment and final native cleanup are proved.
 
