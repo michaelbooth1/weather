@@ -1,6 +1,69 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - APPROVED CONTINUATION ARMED]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - IMMEDIATE TRANSFER COMPLETE; ONE BATCH HELD]
 
-## September 13 approved continuation for September 14
+## September 13 immediate transfer outcome
+
+**Nineteen of the twenty approved batches completed; one remains held.** The
+owner corrected the future schedule to immediate execution at 18:45 Toronto.
+The duplicate September 14 archive task was disabled, and the attended transfer
+ran through the exact September 13 18:46-September 14 00:30 exception with its
+shared workload lease, native resource checks and bounded child teardown.
+The owner explicitly reaffirmed the protected-hours exception for the final
+four batches at 21:35 Toronto; the final index preserves that approval.
+
+Verified native reclaim added **12,460,273,664 allocated original-source bytes**
+from **310 distinct files**. The cumulative counter is now **91,566,080,000 bytes,
+1,989 files and 104 completed batches**, with status READY. The original
+100,000,000,000-byte target remains short by **8,433,920,000 bytes**. These
+figures exclude retained-file compression, temporary copies and free-volume
+changes. Fresh native allocation, rather than the approval-time estimate,
+determines the counter.
+
+Every completed batch has an independently downloaded cloud copy, complete
+archive/member validation, native same-handle source identity and full hash
+checks, exact removal receipts, and private recovery metadata backed up before
+and after reclaim. The final index reconciles all 310 member paths, all nineteen
+receipt increments and their backed-up counters against the earlier 85-batch
+checkpoint. It was itself independently backed up and verified.
+
+Two interruptions remain preserved. The initial controller stopped at batch
+p11k00086 because its planned New York July 16 order_books.jsonl no longer
+existed. Existing tiering metadata records its gzip counterpart; no new archive
+proof or archive savings are claimed for that path. The other nine originals
+in that batch remain held (608,649,216 approval-time allocated bytes). The exact
+plan was not rewritten and the gzip file was not substituted. Batch p11k00116
+later had a connection failure during upload. A reviewed fresh u2 namespace
+passed upload and independent download before its originals were reclaimed;
+the failed u1 namespace and failure receipt remain evidence.
+
+[PR 66](https://github.com/michaelbooth1/weather/pull/66) publishes the immediate
+archive source, including the frozen execution tip
+7b9681883e418a4d8f50500baf42480d7e04a97e. Its native
+archive qualification and corrected-fixture checks are recorded there; the
+exact capture-host metadata preflight passed before execution. This isolated
+execution source was not adopted into the production capture working tree.
+The existing qualification and audit schedules retain their own gates.
+
+Private recovery evidence is under scratch/handoffs/:
+archive-immediate-final-index-20260913-a3.json has SHA-256
+8a55335900e28e83aa94bb027ea7487e70553b401eaedc75407488cc8b572745;
+p11nowfinalindex-backup-verified.json has SHA-256
+cec891b2293c087134c6c722b17957afbaab8bcf95113bcb753976b003a90b70.
+The index links native catalog/reclaim receipts, both per-batch recovery backups,
+the held-source record, both upload-attempt dispositions and the original
+failed controller receipt. It includes exact private cloud locations and the
+previous recovery checkpoint. Use the
+[location and restore runbook](../../operations/cold-archive-locations.md);
+public documentation does not replace these retained private records.
+
+The immediate approved scope is closed with nineteen completed batches and the
+one held disposition. Further repacking or extension requires a reviewed plan;
+this checkpoint does not arm another archive run. Item 325 remains PARTIAL for
+the remaining retention-service work.
+
+## September 13 future-run preparation (superseded by immediate execution)
+
+The following checkpoint records the preparation before the owner's timing
+correction above. Its ARMED status is historical; the duplicate run is disabled.
 
 **ARMED; execution and additional reclaim remain unproved.** The owner resumed
 the existing private Google Drive offload, approved the 20 GiB archive reserve
