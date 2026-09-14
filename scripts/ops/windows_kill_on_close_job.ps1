@@ -23,6 +23,8 @@ namespace Weather.Operations
     {
         public Int32[] ProcessIds;
         public UInt64 PeakCommitBytes;
+        public UInt64 SampledPrivateBytes;
+        public UInt64 SampledWorkingSetBytes;
         public UInt64 CommitLimitBytes;
         public bool NativeLimitExceeded;
         public Int64 UserTime100ns;
@@ -353,6 +355,96 @@ namespace Weather.Operations
             catch { job.Dispose(); throw; }
         }
 
+        private bool includesController;
+
+        // This non-killing enclosing Job accounts for the trusted controller,
+        // output reader, monitor and every descendant together. A nested
+        // kill-on-close Job separately owns candidate teardown. Closing this
+        // handle does not remove the enclosing limits from the running process.
+        public static KillOnCloseJob EncloseCurrentProcess(UInt64 maximumCommitBytes, UInt32 maximumProcesses)
+        {
+            KillOnCloseJob envelope = CreateBounded(maximumCommitBytes, maximumProcesses);
+            try
+            {
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = envelope.ReadJobInformation<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(9);
+                limits.BasicLimitInformation.LimitFlags &= ~JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                envelope.SetJobInformation(9, limits);
+                using (Process current = Process.GetCurrentProcess())
+                {
+                    if (!AssignProcessToJobObject(envelope.handle, current.Handle))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Controller memory-envelope assignment failed");
+                }
+                envelope.includesController = true;
+                return envelope;
+            }
+            catch { envelope.Dispose(); throw; }
+        }
+
+        public void SetEnvelopeCommitLimit(UInt64 maximumCommitBytes)
+        {
+            if (!includesController || handle == IntPtr.Zero)
+                throw new InvalidOperationException("An active controller envelope is required");
+            if (maximumCommitBytes < 16UL * 1024 * 1024 || maximumCommitBytes > 64UL * 1024 * 1024 * 1024)
+                throw new ArgumentOutOfRangeException("maximumCommitBytes");
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = ReadJobInformation<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(9);
+            limits.JobMemoryLimit = new UIntPtr(maximumCommitBytes);
+            SetJobInformation(9, limits);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_MEMORY_COUNTERS_EX
+        {
+            public UInt32 cb;
+            public UInt32 PageFaultCount;
+            public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage;
+            public UIntPtr QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage, PrivateUsage;
+        }
+
+        [DllImport("psapi.dll", SetLastError = true)]
+        private static extern bool GetProcessMemoryInfo(IntPtr process, ref PROCESS_MEMORY_COUNTERS_EX information, UInt32 size);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+
+        private void SampleProcessMemory(BoundedJobSnapshot snapshot)
+        {
+            foreach (Int32 pid in snapshot.ProcessIds)
+            {
+                try
+                {
+                    using (Process process = Process.GetProcessById(pid))
+                    {
+                        bool owned;
+                        if (!IsProcessInJob(process.Handle, handle, out owned))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Job process membership telemetry failed");
+                        if (!owned) throw new InvalidOperationException("Job process identity changed during sampling");
+                        PROCESS_MEMORY_COUNTERS_EX memory = new PROCESS_MEMORY_COUNTERS_EX();
+                        memory.cb = (UInt32)Marshal.SizeOf(memory);
+                        if (!GetProcessMemoryInfo(process.Handle, ref memory, memory.cb))
+                        {
+                            if (process.HasExited) continue;
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Job process memory telemetry unavailable");
+                        }
+                        checked
+                        {
+                            snapshot.SampledPrivateBytes += memory.PrivateUsage.ToUInt64();
+                            snapshot.SampledWorkingSetBytes += memory.WorkingSetSize.ToUInt64();
+                        }
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // A process can exit between Job enumeration and opening its
+                    // handle. Only a second native inventory can excuse that race.
+                    if (Array.IndexOf(ProcessIds(), pid) >= 0) throw;
+                }
+                catch (InvalidOperationException)
+                {
+                    if (Array.IndexOf(ProcessIds(), pid) >= 0) throw;
+                }
+            }
+        }
+
+
         private void SetJobInformation(Int32 kind, object value)
         {
             Int32 size = Marshal.SizeOf(value);
@@ -428,12 +520,14 @@ namespace Weather.Operations
             }
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = ReadJobInformation<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(9);
             JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting = ReadJobInformation<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(1);
-            return new BoundedJobSnapshot {
+            BoundedJobSnapshot snapshot = new BoundedJobSnapshot {
                 ProcessIds = ProcessIds(), PeakCommitBytes = limits.PeakJobMemoryUsed.ToUInt64(),
                 CommitLimitBytes = limits.JobMemoryLimit.ToUInt64(), NativeLimitExceeded = nativeLimitExceeded,
                 UserTime100ns = accounting.TotalUserTime, KernelTime100ns = accounting.TotalKernelTime,
                 ActiveProcesses = accounting.ActiveProcesses, TotalProcesses = accounting.TotalProcesses
             };
+            SampleProcessMemory(snapshot);
+            return snapshot;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -702,6 +796,7 @@ namespace Weather.Operations
 
         public void TerminateAndWait(Int32 timeoutMilliseconds)
         {
+            if (includesController) throw new InvalidOperationException("Terminate only the nested candidate Job, never the controller envelope");
             if (handle == IntPtr.Zero)
             {
                 throw new ObjectDisposedException("KillOnCloseJob");

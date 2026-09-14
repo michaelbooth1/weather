@@ -105,7 +105,7 @@ try {
         if ($snapshot.NativeLimitExceeded) { break }
         Start-Sleep -Milliseconds 10
     } while ($clock.Elapsed.TotalSeconds -lt 2)
-    if (-not $snapshot.NativeLimitExceeded -or $snapshot.PeakCommitBytes -gt 67108864) { throw 'native cap proof absent' }
+    if (-not $snapshot.NativeLimitExceeded -or $snapshot.PeakCommitBytes -gt 67108864) { throw ("native cap proof absent: notification={0} peak={1} cap={2}" -f $snapshot.NativeLimitExceeded, $snapshot.PeakCommitBytes, $snapshot.CommitLimitBytes) }
 } finally {
     $job.TerminateAndWait(5000)
     if ($child) { [void]$child.WaitForCapture(5000); $child.Dispose() }
@@ -164,3 +164,64 @@ Start-Sleep -Seconds 60
         if wrapper.poll() is None:
             wrapper.terminate()
             wrapper.wait(timeout=5)
+
+
+def test_controller_and_nested_child_share_native_memory_envelope(tmp_path):
+    (tmp_path / "child.py").write_text(
+        "import ctypes, time\nk = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+        "k.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong, ctypes.c_ulong]\n"
+        "k.VirtualAlloc.restype = ctypes.c_void_p\n"
+        "value = k.VirtualAlloc(None, 805306368, 0x3000, 4)\n"
+        "print('denied' if value is None else 'unexpected allocation', flush=True)\n"
+        "time.sleep(2)\nraise SystemExit(0 if value is None else 3)\n", encoding="utf-8")
+    run(tmp_path, r'''
+$envelope = [Weather.Operations.KillOnCloseJob]::EncloseCurrentProcess(536870912, 16)
+$job = [Weather.Operations.KillOnCloseJob]::CreateBounded(1073741824, 8)
+$child = $null
+try {
+    $before = $envelope.Snapshot()
+    if ($before.ProcessIds -notcontains $PID -or $before.SampledPrivateBytes -le 0 -or $before.SampledWorkingSetBytes -le 0) {
+        throw 'controller missing from native accounting'
+    }
+    $arguments = ConvertTo-WeatherWindowsArgumentString -Tokens @('-u', (Join-Path $root 'child.py'))
+    $child = $job.StartAssignedCaptured($python, $arguments, $root, (Join-Path $root 'output.log'), 4096)
+    $running = $envelope.Snapshot()
+    if ($running.ProcessIds -notcontains $PID -or $running.ProcessIds -notcontains $child.Process.Id) {
+        throw 'enclosing Job does not include controller and child'
+    }
+    if (-not $child.Process.WaitForExit(10000) -or $child.Process.ExitCode -ne 0) { throw 'enclosing native limit did not reject allocation' }
+    $job.TerminateAndWait(5000)
+    if (-not $child.WaitForCapture(5000)) { throw 'nested output did not finish' }
+    if ($envelope.Snapshot().ProcessIds.Count -ne 1 -or $job.Snapshot().ProcessIds.Count -ne 0) { throw 'nested cleanup incomplete' }
+    $envelope.SetEnvelopeCommitLimit(805306368)
+    if ($envelope.Snapshot().CommitLimitBytes -ne 805306368) { throw 'phase cap not updated' }
+    $refused = $false
+    try { $envelope.TerminateAndWait(1) } catch { $refused = $true }
+    if (-not $refused) { throw 'controller envelope exposed candidate termination' }
+} finally {
+    $job.TerminateAndWait(5000)
+    if ($child) { [void]$child.WaitForCapture(5000); $child.Dispose() }
+    $job.Dispose()
+    $envelope.Dispose()
+}
+[IO.File]::WriteAllText((Join-Path $root 'controller-survived.txt'), 'closed without killing controller')
+''')
+    assert "denied" in (tmp_path / "output.log").read_text()
+    assert (tmp_path / "controller-survived.txt").exists()
+
+
+def test_creation_failure_leaves_no_suspended_candidate(tmp_path):
+    (tmp_path / "output.log").write_text("existing receipt bytes", encoding="utf-8")
+    (tmp_path / "child.py").write_text("from pathlib import Path\nPath('must-not-run').touch()\n", encoding="utf-8")
+    run(tmp_path, r'''
+$job = [Weather.Operations.KillOnCloseJob]::CreateBounded(268435456, 8)
+try {
+    $arguments = ConvertTo-WeatherWindowsArgumentString -Tokens @('-u', (Join-Path $root 'child.py'))
+    $refused = $false
+    try { $null = $job.StartAssignedCaptured($python, $arguments, $root, (Join-Path $root 'output.log'), 4096) }
+    catch { $refused = $true }
+    if (-not $refused -or $job.Snapshot().ProcessIds.Count -ne 0) { throw 'failed output creation left a suspended child' }
+} finally { $job.TerminateAndWait(5000); $job.Dispose() }
+''')
+    assert not (tmp_path / "must-not-run").exists()
+    assert (tmp_path / "output.log").read_text() == "existing receipt bytes"
