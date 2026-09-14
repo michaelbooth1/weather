@@ -85,7 +85,7 @@ try {
     assert (tmp_path / "output.log").stat().st_size == 4096
 
 
-def test_native_job_denies_aggregate_commit_above_its_limit(tmp_path):
+def test_native_job_denies_allocation_and_retains_attempted_peak(tmp_path):
     (tmp_path / "child.py").write_text(
         "import ctypes\nk = ctypes.WinDLL('kernel32', use_last_error=True)\n"
         "k.VirtualAlloc.restype = ctypes.c_void_p\n"
@@ -105,7 +105,7 @@ try {
         if ($snapshot.NativeLimitExceeded) { break }
         Start-Sleep -Milliseconds 10
     } while ($clock.Elapsed.TotalSeconds -lt 2)
-    if (-not $snapshot.NativeLimitExceeded -or $snapshot.PeakCommitBytes -gt 67108864) { throw ("native cap proof absent: notification={0} peak={1} cap={2}" -f $snapshot.NativeLimitExceeded, $snapshot.PeakCommitBytes, $snapshot.CommitLimitBytes) }
+    if (-not $snapshot.NativeLimitExceeded -or $snapshot.PeakCommitBytes -lt 268435456 -or $snapshot.CommitLimitBytes -ne 67108864) { throw ("native cap proof absent: notification={0} peak={1} cap={2}" -f $snapshot.NativeLimitExceeded, $snapshot.PeakCommitBytes, $snapshot.CommitLimitBytes) }
 } finally {
     $job.TerminateAndWait(5000)
     if ($child) { [void]$child.WaitForCapture(5000); $child.Dispose() }
@@ -225,3 +225,61 @@ try {
 ''')
     assert not (tmp_path / "must-not-run").exists()
     assert (tmp_path / "output.log").read_text() == "existing receipt bytes"
+
+
+@pytest.mark.parametrize("scenario", ["success", "nonzero", "timeout", "flood"])
+def test_actual_controller_monitor_returns_bounded_result_and_zero_children(tmp_path, scenario):
+    bodies = {
+        "success": "print('complete output')\n",
+        "nonzero": "raise SystemExit(7)\n",
+        "timeout": "import time\ntime.sleep(60)\n",
+        "flood": "import os\nwhile True: os.write(1, b'x' * 8192)\n",
+    }
+    (tmp_path / "child.py").write_text(bodies[scenario], encoding="utf-8")
+    monitor = HELPER.parent / "qualification_process.ps1"
+    body = ". " + ps_literal(monitor) + "\n" + r'''
+$envelope = [Weather.Operations.KillOnCloseJob]::EncloseCurrentProcess(536870912, 32)
+try {
+    $result = Invoke-WeatherQualificationProcess -Envelope $envelope -Executable $python `
+        -Tokens @('-u', (Join-Path $root 'child.py')) -WorkingDirectory $root `
+        -Transcript (Join-Path $root 'output.log') -DeadlineUtc ([DateTimeOffset]::UtcNow.AddSeconds(15)) `
+        -MaximumSeconds 2 -TeardownSeconds 5 -CommitBytes 536870912 -WorkingSetBytes 536870912 `
+        -MaximumOutputBytes 4096 -VolumePaths @($root) -MinimumDiskBytes 1
+    if (-not $result.teardown_proved) { throw ('monitor did not prove cleanup: ' + $result.failure) }
+    if ($envelope.Snapshot().ProcessIds.Count -ne 1) { throw 'monitor left descendants' }
+    if ($result.resource_samples -le 0 -or $result.peak_private_bytes -le 0 -or $result.peak_working_set_bytes -le 0) { throw 'resource proof absent' }
+    [IO.File]::WriteAllText((Join-Path $root 'result.json'), ($result | ConvertTo-Json -Depth 4))
+} finally { $envelope.Dispose() }
+'''
+    run(tmp_path, body)
+    import json
+    result = json.loads((tmp_path / "result.json").read_text(encoding="utf-8-sig"))
+    assert result["completed"] is (scenario == "success")
+    assert result["elapsed_ms"] < 15000
+    assert (tmp_path / "output.log").stat().st_size <= 4096
+    if scenario == "timeout":
+        assert "deadline" in result["failure"]
+    if scenario == "flood":
+        assert "Output" in result["failure"]
+
+
+def test_native_controller_refuses_disk_reservation_before_candidate_launch(tmp_path):
+    monitor = HELPER.parent / "qualification_process.ps1"
+    (tmp_path / "child.py").write_text("from pathlib import Path\nPath('must-not-run').touch()\n", encoding="utf-8")
+    body = ". " + ps_literal(monitor) + "\n" + r'''
+$envelope = [Weather.Operations.KillOnCloseJob]::EncloseCurrentProcess(536870912, 32)
+try {
+    $refused = $false
+    try {
+        $null = Invoke-WeatherQualificationProcess -Envelope $envelope -Executable $python `
+            -Tokens @('-u', (Join-Path $root 'child.py')) -WorkingDirectory $root `
+            -Transcript (Join-Path $root 'output.log') -DeadlineUtc ([DateTimeOffset]::UtcNow.AddSeconds(15)) `
+            -MaximumSeconds 2 -TeardownSeconds 5 -CommitBytes 536870912 -WorkingSetBytes 536870912 `
+            -MaximumOutputBytes 4096 -VolumePaths @($root) -MinimumDiskBytes 1 -ReservedScratchBytes ([UInt64]::MaxValue)
+    } catch { $refused = $_.Exception.Message -like '*disk reservation*' }
+    if (-not $refused -or $envelope.Snapshot().ProcessIds.Count -ne 1) { throw 'disk refusal did not stop before launch' }
+} finally { $envelope.Dispose() }
+'''
+    run(tmp_path, body)
+    assert not (tmp_path / "must-not-run").exists()
+    assert not (tmp_path / "output.log").exists()

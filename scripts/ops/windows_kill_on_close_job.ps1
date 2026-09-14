@@ -526,6 +526,13 @@ namespace Weather.Operations
                 UserTime100ns = accounting.TotalUserTime, KernelTime100ns = accounting.TotalKernelTime,
                 ActiveProcesses = accounting.ActiveProcesses, TotalProcesses = accounting.TotalProcesses
             };
+            // Native peak accounting retains refused allocation attempts on
+            // supported Windows. Keep the raw counter; never clip it to the
+            // cap or describe it as measured resident consumption. Completion
+            // messages are supplementary and absence is not a no-breach proof.
+            if (snapshot.CommitLimitBytes > 0 && snapshot.PeakCommitBytes > snapshot.CommitLimitBytes)
+                nativeLimitExceeded = true;
+            snapshot.NativeLimitExceeded = nativeLimitExceeded;
             SampleProcessMemory(snapshot);
             return snapshot;
         }
