@@ -19,7 +19,8 @@ def git_environment():
     # Inherited credentials remain with the outer publisher/importer, never a
     # candidate subprocess. This metadata helper itself performs no remote I/O.
     return {**{key: value for key, value in os.environ.items()
-               if not key.upper().startswith(("GIT_", "GH_", "GITHUB_", "PYTHON"))},
+               if key.upper() in {"SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "PATHEXT",
+                                  "PATH", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"}},
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "LC_ALL": "C"}
 

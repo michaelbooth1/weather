@@ -192,6 +192,26 @@ authenticates both completed jobs and signs only its checked code certificate.
 The final artifact carries that certificate graph plus the native attestation.
 Workflow dispatch does not create a production task or change either host gate.
 
+## Effective merge tree
+
+`merge_tree.preview` computes Git's complete S-plus-Q tree in memory without
+changing the production index or invoking a merge driver. Only the canonical
+generated pair can overlay S. Initial v2 refuses tracked artifact changes;
+it has no environment or artifact migration lane. When an existing working
+artifact is an expanded LFS payload, its complete SHA256 and size must match the
+actual S-bound LFS pointer. Git tree identity remains the pointer identity.
+
+The stage and commit checks compare the entire Git tree and exact two parents.
+The working-byte check separately detects an unstaged rewrite hidden behind a
+correct index, and generated configuration must retain both its bytes and file
+generation. These helpers need calls from the guarded primitive at each required
+boundary; their availability alone does not enable split integration.
+
+Native regression fixtures bind their disposable copied host assignment to the
+actual test installation. They retain production identity checks, canonical
+temporary paths and offline LFS pointer handling; they never change the real
+assignment, Scheduler, capture roots or expected acceptance outcomes.
+
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
