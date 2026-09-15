@@ -42,6 +42,19 @@ The approved package must already contain:
   start/deadline, resource budgets, owner identity/approval time, and rollback
   policy preserving ambiguous committed state.
 
+A must also contain `bootstrap-install-only.json` at its root, with exactly
+the following UTF-8 bytes and a final LF; include this file in A's pinned
+inventory. It is a temporary-copy marker and is not placed in production:
+
+```json
+{"schema":"qualification_bootstrap_install_only_v1"}
+```
+
+The shared primitive checks this marker before loading invocation dependencies
+and refuses every general v2 or legacy invocation from that temporary copy.
+The installer verifies its exact bytes before any merge mutation.
+
+All envelope and Python request timestamps use UTC with a final `Z`.
 The closed fields and references are defined by
 `weather.operations.qualification.bootstrap_install.context`. Use its exact
 schema; adding an arbitrary command, ordinary v2 manifest, candidate certificate
@@ -94,8 +107,8 @@ files are not held open across the merge.
 ## Guarded mutation and terminal evidence
 
 The fixed child invokes the existing quiet-window primitive in separate
-`bootstrap_installation_v1` mode. It refuses mixing bootstrap input with v2
-manifest arguments or override modes. The existing merge, capture recovery,
+`bootstrap_installation_v1` mode. Its marked temporary copy refuses general v2/legacy
+calls, and bootstrap calls refuse v2 manifest arguments or override modes. The existing merge, capture recovery,
 documentation transaction and single publication route remain in force.
 
 Read-only contained boundaries revalidate source/environment/configuration,

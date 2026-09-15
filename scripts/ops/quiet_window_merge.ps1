@@ -72,6 +72,10 @@ if ($ExpectedSelfSha256) {
         throw "quiet-window merge script changed after its caller froze the launch contract"
     }
 }
+$bootstrapOnlyMarker = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'bootstrap-install-only.json'
+if ((Test-Path -LiteralPath $bootstrapOnlyMarker -PathType Leaf) -and -not $bootstrapInstallation) {
+    throw 'This temporary guarded primitive is bootstrap-only; ordinary v2 and legacy invocations are forbidden'
+}
 if ($bootstrapInstallation) {
     # The native parent independently pins and locks this entire temporary
     # closure before startup. Only the fixed bootstrap contract is evaluated.

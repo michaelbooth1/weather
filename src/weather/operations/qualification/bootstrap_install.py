@@ -21,7 +21,9 @@ from .records import checked_root, digest, integer, publish, read, reference, re
 
 SCHEMA = "qualification_bootstrap_install_envelope_v1"
 MAXIMUM_SECONDS = 2700
+BOOTSTRAP_ONLY_MARKER = b'{"schema":"qualification_bootstrap_install_only_v1"}\n'
 REQUIRED_ADAPTER = {
+    "bootstrap-install-only.json",
     "scripts/ops/bootstrap_qualification_install.ps1",
     "scripts/ops/close_bootstrap_qualification_install.ps1",
     "scripts/ops/qualification_bootstrap_install_child.ps1",
@@ -226,6 +228,8 @@ def verify_inputs(checked):
     paths = [row["path"] for row in closure["files"]]
     require(environment.enumerate_files(authority) == paths and environment.files_manifest(authority, paths) == closure,
             "independently reviewed installation adapter changed")
+    require((authority / "bootstrap-install-only.json").read_bytes() == BOOTSTRAP_ONLY_MARKER,
+            "temporary guarded primitive is not bootstrap-only")
     adopted = value["baseline_control"]
     baseline_closure = frozen.validate(git, production, value["baseline"], destination=Path(adopted["root"]),
                                       value=local.get(adopted["closure"]))

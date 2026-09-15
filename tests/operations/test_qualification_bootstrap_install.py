@@ -203,7 +203,7 @@ def test_bootstrap_boundary_calls_actual_effective_tree_gate(merge_fixture, monk
         assert value["schema"] == "qualification_bootstrap_install_boundary_v1"
         assert value["effective_tree"] == effective["tree"]
         assert value["integration_eligible"] is False
-        with pytest.raises(ValueError, match="exists|spent|immutable"):
+        with pytest.raises((ValueError, FileExistsError), match="exists|spent|immutable"):
             bootstrap_install.run_boundary(output / request["path"], request["sha256"])
 
 
@@ -271,7 +271,7 @@ def test_installer_checks_real_reviewed_candidate_before_loading_adapter(merge_f
     identity = bootstrap_install.source.identity(git, isolated, source=candidate, baseline=baseline)
     source_ref = records.publish(graph.root, "installation-source.json",
         bootstrap_install.source.inventory(git, isolated, candidate, verify_working=True))
-    placeholder = records.publish(graph.root, "installation-placeholder.json", {})
+    placeholder = records.publish(graph.root, "installation-placeholder.json", {"files": []})
     authority = tmp_path / "adapter"
     authority.mkdir()
     checked = {"manifest": {"repo_root": str(repo), "worktree_root": str(isolated), "expected_tip": candidate,
@@ -295,3 +295,24 @@ def test_installer_checks_real_reviewed_candidate_before_loading_adapter(merge_f
     else:
         with pytest.raises(ValueError, match="generated configuration|no control-plane change|clean|modified|dirty"):
             bootstrap_install.verify_inputs(checked)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="actual temporary native primitive refuses general invocation")
+@pytest.mark.parametrize("ordinary_v2", [False, True])
+def test_frozen_first_landing_copy_rejects_general_invocations_before_dependency_loading(tmp_path, ordinary_v2):
+    authority = tmp_path / "authority"
+    scripts = authority / "scripts/ops"
+    scripts.mkdir(parents=True)
+    script = scripts / "quiet_window_merge.ps1"
+    script.write_bytes((ROOT / "scripts/ops/quiet_window_merge.ps1").read_bytes())
+    (authority / "bootstrap-install-only.json").write_bytes(bootstrap_install.BOOTSTRAP_ONLY_MARKER)
+    extra = ["-QualificationManifestPath", str(tmp_path / "ordinary.json"),
+             "-QualificationManifestSha256", "d" * 64] if ordinary_v2 else []
+    result = subprocess.run([str(PS), "-NoProfile", "-NonInteractive", "-File", str(script),
+        "-RepoRoot", str(ROOT), "-Branch", "refs/remotes/origin/codex/fixture", "-ExpectedTip", "a" * 40,
+        "-ExpectedBaseline", "b" * 40, "-ExpectedSelfSha256", hashlib.sha256(script.read_bytes()).hexdigest(),
+        "-AttemptReportPath", str(tmp_path / "report.json"), *extra],
+        capture_output=True, text=True, timeout=20)
+    assert result.returncode != 0
+    assert "bootstrap-only" in result.stdout + result.stderr
+    assert not (tmp_path / "report.json").exists()

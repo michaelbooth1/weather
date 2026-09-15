@@ -196,7 +196,7 @@ function Get-WeatherBootstrapProbeReference {
         if($stream.Length -lt 1 -or $stream.Length -gt 2097152) { throw 'Bootstrap result exceeds metadata bound' }
         $sha=[Security.Cryptography.SHA256]::Create()
         try {$hash=-join($sha.ComputeHash($stream) | ForEach-Object {$_.ToString('x2')})} finally {$sha.Dispose()}
-        return [ordered]@{path=$Name;sha256=$hash;size=[Int64]$stream.Length}
+        return [pscustomobject][ordered]@{path=$Name;sha256=$hash;size=[Int64]$stream.Length}
     } finally {$stream.Dispose()}
 }
 

@@ -105,7 +105,7 @@ try {
         }
         $locks.Add((Open-WeatherBootstrapPinnedFile (Join-Path $authority $pin.path) $pin.sha256 $pin.size))
     }
-    foreach($name in @('scripts/ops/bootstrap_qualification_install.ps1','scripts/ops/qualification_bootstrap_probe_contract.ps1','scripts/ops/qualification_bootstrap_install_contract.ps1',
+    foreach($name in @('bootstrap-install-only.json','scripts/ops/bootstrap_qualification_install.ps1','scripts/ops/qualification_bootstrap_probe_contract.ps1','scripts/ops/qualification_bootstrap_install_contract.ps1',
         'scripts/ops/qualification_bootstrap_install_domain.py','scripts/ops/quiet_window_merge.ps1','scripts/ops/roll_verdict.ps1',
         'scripts/ops/qualification_bootstrap_install_child.ps1','scripts/ops/qualification_bootstrap_install_control.py',
         'scripts/ops/qualification_host_identity.ps1','scripts/ops/qualification_process.ps1','scripts/ops/windows_kill_on_close_job.ps1')) {

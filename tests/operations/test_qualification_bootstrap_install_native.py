@@ -294,18 +294,23 @@ $script:scheduler | Add-Member ScriptMethod GetTask {
 # The sole external boundary is a disposable Scheduler model. The real
 # closeout consumes actual immutable records and executes its mutation guards.
 function New-Object {
-    [CmdletBinding()]param([Parameter(Position=0)][string]$TypeName,[string]$ComObject,[object[]]$ArgumentList)
+    [CmdletBinding(DefaultParameterSetName='Net')]
+    param(
+        [Parameter(Mandatory=$true,Position=0,ParameterSetName='Net')][string]$TypeName,
+        [Parameter(Mandatory=$true,ParameterSetName='Com')][string]$ComObject,
+        [Parameter(Position=1,ParameterSetName='Net')][object[]]$ArgumentList
+    )
     if($ComObject -eq 'Schedule.Service'){return $script:scheduler}
     Microsoft.PowerShell.Utility\New-Object @PSBoundParameters
 }
-$refused=$false
-try {Close-WeatherBootstrapInstallation $value.envelope $value.sha256 $resultSha} catch {$refused=$true}
+$refused=$false;$closeFailure=''
+try {Close-WeatherBootstrapInstallation $value.envelope $value.sha256 $resultSha} catch {$refused=$true;$closeFailure=($_ | Out-String)+$_.ScriptStackTrace}
 if(-not $script:tasks['UnrelatedFixtureTask'].Enabled){throw 'unrelated task changed'}
 $claim=Test-Path -LiteralPath (Join-Path $root 'close-use.json')
 $installed=Test-Path -LiteralPath (Join-Path $root 'installed-root.json')
 switch($failureMode) {
     'none' {
-        if($refused -or -not $claim -or -not $installed -or $script:mutations.Count -ne 2){throw 'complete closeout was not proved'}
+        if($refused -or -not $claim -or -not $installed -or $script:mutations.Count -ne 2){throw ("complete closeout was not proved: "+$closeFailure)}
         $record=Get-Content -LiteralPath (Join-Path $root 'installed-root.json') -Raw | ConvertFrom-Json
         if($record.bootstrap_id_revoked -cne $value.envelope.bootstrap_id -or -not $record.future_attempts_require_split_qualification){
             throw 'installed policy root lacks revocation/ordinary-gate requirement'
@@ -315,7 +320,7 @@ switch($failureMode) {
         if(-not $refused -or $claim -or $installed -or $script:mutations.Count){throw 'invalid task reached closeout authority'}
     }
     default {
-        if(-not $refused -or -not $claim -or $installed -or $script:mutations.Count -ne 1){throw 'partial closeout lost its spent claim'}
+        if(-not $refused -or -not $claim -or $installed -or $script:mutations.Count -ne 1){throw ("partial closeout lost its spent claim: "+$closeFailure)}
     }
 }
 $before=@($script:mutations).Count

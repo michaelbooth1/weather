@@ -83,6 +83,7 @@ QUALIFICATION_REGISTERED_SCHEMAS += tuple(
 QUALIFICATION_REGISTERED_SCHEMAS += tuple(
     SchemaSpec(name, name + "_v1", "weather.operations.qualification.bootstrap_install", "active", description)
     for name, description in (
+        ("qualification_bootstrap_install_only", "Pinned temporary-root marker that makes the shared primitive refuse all general invocations."),
         ("qualification_bootstrap_install_envelope", "Separate owner-approved K-only first landing with exact evidence, source, configuration and invocation."),
         ("qualification_bootstrap_install_review", "Directly reviewed off-host runs, dependency closure, cumulative diff and rollback."),
         ("qualification_bootstrap_probe_review", "Independent acceptance of the exact completed native fixed-probe observation."),
