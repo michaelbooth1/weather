@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import sys
 
+# Restore the repository import root used by the original module invocation.
+sys.path[0] = str(Path(__file__).resolve().parent.parent)
 import pytest
 
 
