@@ -155,7 +155,8 @@ if($refused -ne 3){throw 'Upload provenance check failed'}
 
 
 @pytest.mark.parametrize("name", ["archive_plain_campaign_contract.ps1", "archive_plain_campaign_worker.ps1",
-                                 "archive_plain_campaign_run.ps1", "register_archive_plain_campaign.ps1"])
+                                 "archive_plain_campaign_run.ps1", "register_archive_plain_campaign.ps1",
+                                 "prepare_capacity_recovery_20260916.ps1"])
 def test_native_powershell_parse(tmp_path, name):
     result = run_ps(tmp_path, r"""
 $tokens=$null;$parseErrors=$null

@@ -242,7 +242,7 @@ def capacity_selection(plan):
         root / "scratch/handoffs/capacity-150gb-20260915-owner-approval-a1.json", 16384,
         "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5")
     if (authority.get("temporary_disk_exception_authorized") is not True
-            or selected.get("schema_version") != "local_retained_capacity_selection_v1"
+            or selected.get("schema_version") != schema_version("local_retained_capacity_selection")
             or selected.get("execution_host_id") != plan["execution_host_id"]
             or selected.get("archive_selection_excluded_sha256") !=
             "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214"

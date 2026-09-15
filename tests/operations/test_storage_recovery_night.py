@@ -467,3 +467,30 @@ def test_capacity_bridge_target_does_not_replace_overall_target():
     assert contract.capacity_free_target(plan, "early") == 55*contract.GIB
     assert contract.capacity_free_target(plan, "late") == 150000000000
     assert plan["target_free_disk_bytes"] == 150000000000
+
+
+def test_capacity_selection_excludes_first_seven_groups_and_pins_both_records(tmp_path, monkeypatch):
+    plan = fixture_plan(tmp_path)
+    plan["plan_id"] = contract.CAPACITY_PLAN_ID
+    held = {"files": [capacity_row("previous-interrupted.jsonl")]}
+    rows = [{**capacity_row(), "path": FOLDER+f"/file-{i}.jsonl"} for i in range(8754)]
+    selected = {"schema_version": schema_version("local_retained_capacity_selection"),
+                "execution_host_id": HOST, "excluded_archive_paths": 1066,
+                "archive_selection_excluded_sha256":
+                "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214",
+                "groups": [held]*7 + [{"files": rows}] + [{"files": []}]*54}
+    calls = []
+    def read(path, maximum, expected_hash=None):
+        calls.append(expected_hash)
+        if path.name.startswith("local-retained"):
+            return selected, expected_hash
+        return {"temporary_disk_exception_authorized": True}, expected_hash
+    monkeypatch.setattr(contract, "read_json", read)
+    allowed = contract.capacity_selection(plan)
+    assert len(allowed) == 8754
+    assert held["files"][0]["path"].casefold() not in allowed
+    assert calls == [contract.CAPACITY_SELECTION_SHA,
+        "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5"]
+    selected["archive_selection_excluded_sha256"] = "0"*64
+    with pytest.raises(ValueError, match="selection"):
+        contract.capacity_selection(plan)

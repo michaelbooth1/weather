@@ -7,6 +7,16 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "capacity_disk_exception", "capacity_disk_exception_v1",
+        "weather.operations.production_cold_archive_stage_cli", "active",
+        "Dated, exact-selection disk reserve exception bound to owner, host and source.",
+    ),
+    SchemaSpec(
+        "local_retained_capacity_selection", "local_retained_capacity_selection_v1",
+        "weather.operations.storage_recovery_night_contract", "active",
+        "Retained metadata selection of cold local files excluding the held archive cohort.",
+    ),
+    SchemaSpec(
         "production_cold_archive_copy_request", "production_cold_archive_copy_request_v0.1",
         "weather.operations.production_cold_archive_copy", "active",
         "Expiring host-bound copy of three verified archive staging files to a fresh PC scratch namespace.",
@@ -1474,3 +1484,4 @@ RECENT_REGISTERED_SCHEMAS = (
         "Immutable bound phase claims and completions; started mutations are never dispatched twice.",
     ),
 )
+

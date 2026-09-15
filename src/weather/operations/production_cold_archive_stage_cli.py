@@ -208,7 +208,7 @@ def capacity_recovery_reserve(path, digest, plan, plan_digest, now, deadline):
     required = {"schema", "owner_approval", "source_git_sha", "execution_host_id",
                 "production_root", "plan_sha256", "selection_sha256", "expires_at_utc",
                 "hard_reserve_bytes", "output_cap_bytes", "capture_bytes_per_second"}
-    if set(record) != required or record["schema"] != "capacity_disk_exception_v1":
+    if set(record) != required or record["schema"] != schema_version("capacity_disk_exception"):
         raise ValueError("invalid capacity disk exception record")
     if (record["plan_sha256"] != plan_digest or plan_digest !=
             "bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027"

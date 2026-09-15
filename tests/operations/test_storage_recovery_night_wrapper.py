@@ -245,9 +245,11 @@ def test_registrar_readback_refuses_reuse_and_settings_drift_without_real_schedu
     assert receipt.exists() is passed
 
 
-@pytest.mark.parametrize("wrong_duration,passed,expected_calls", [(False, True, 2), (True, False, 1)])
+@pytest.mark.parametrize("only_segment,wrong_duration,passed,expected_calls", [
+    ("both", False, True, 2), ("both", True, False, 1),
+    ("late", False, True, 1), ("early", False, True, 1)])
 def test_both_segments_accept_scheduler_normalized_durations_and_reject_changed_limits(
-        native_fixture, wrong_duration, passed, expected_calls):
+        native_fixture, only_segment, wrong_duration, passed, expected_calls):
     source, production, head, host = native_fixture
     now = datetime.now(timezone.utc)
     night = (now + timedelta(days=1)).date()
@@ -277,7 +279,7 @@ def test_both_segments_accept_scheduler_normalized_durations_and_reject_changed_
         "task_name": "WeatherStorageRecovery-" + plan["plan_id"] + "-preflight",
         "task_xml_sha256": hashlib.sha256(b"<Task>fixture export</Task>").hexdigest()}))
     calls = production / "calls.txt"
-    script = SCHEDULER_MOCKS.replace(" -PreflightOnly\n", "\n")
+    script = SCHEDULER_MOCKS.replace(" -PreflightOnly\n", f" -OnlySegment {only_segment}\n")
     script = script.replace("$global:weatherNightStoredTask = $null", "$global:weatherNightStoredTasks = @{}")
     script = script.replace(
         "if ($global:weatherNightStoredTask) { return $global:weatherNightStoredTask }",
@@ -308,6 +310,12 @@ def test_both_segments_accept_scheduler_normalized_durations_and_reject_changed_
                               "-File", str(harness)], capture_output=True, text=True, timeout=40)
     assert (observed.returncode == 0) is passed, observed.stdout + observed.stderr
     assert len(calls.read_text().splitlines()) == expected_calls
+    selected = ("early", "late") if only_segment == "both" else (only_segment,)
+    if passed:
+        assert set(calls.read_text().splitlines()) == {
+            "WeatherStorageRecovery-"+plan["plan_id"]+"-"+s for s in selected}
+    mode = "registration-segments" + ("" if only_segment == "both" else "-"+only_segment)
     for segment in ("early", "late"):
-        receipt = night_root / "registration-segments" / (segment + "-result.json")
-        assert receipt.exists() is passed
+        receipt = night_root / mode / (segment + "-result.json")
+        assert receipt.exists() is (passed and segment in selected)
+
