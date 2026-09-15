@@ -26,7 +26,7 @@ $requestPath=Join-Path $fixture 'request.json'
 $resultPath=Join-Path $fixture 'result.json'
 $at=(Get-Date).AddMinutes(2).ToString('yyyy-MM-ddTHH:mm:ss')
 $account='wq'+$id.Substring(0,12)
-$userCreated=$false
+$userCreated=$false;$batchGranted=$false
 try {
     if(Get-LocalUser -Name $account -ErrorAction SilentlyContinue){throw 'fixture account collision'}
     $fixturePassword=ConvertTo-SecureString (([Guid]::NewGuid().ToString('N'))+'aA!9') -AsPlainText -Force
@@ -34,6 +34,43 @@ try {
     $userCreated=$true
     Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $fixtureUser
     $sid=[string]$fixtureUser.SID.Value
+    # Grant only this disposable account the batch-logon right. The hosted
+    # image's standard Users group has no such right by default.
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+public static class QualificationFixtureBatchRight {
+    [StructLayout(LayoutKind.Sequential)] struct ObjectAttributes {
+        public uint Length; public IntPtr RootDirectory; public IntPtr ObjectName;
+        public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct UnicodeString {
+        public ushort Length; public ushort MaximumLength; public IntPtr Buffer;
+    }
+    [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref ObjectAttributes attributes, uint access, out IntPtr handle);
+    [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr handle, byte[] sid, UnicodeString[] rights, uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaRemoveAccountRights(IntPtr handle, byte[] sid, [MarshalAs(UnmanagedType.U1)] bool all, IntPtr rights, uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr handle);
+    [DllImport("advapi32.dll")] static extern uint LsaNtStatusToWinError(uint status);
+    static void Check(uint status) { if(status != 0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); }
+    public static void Set(string identity, bool grant) {
+        var sid = new SecurityIdentifier(identity); var bytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes, 0);
+        var attributes = new ObjectAttributes(); attributes.Length = (uint)Marshal.SizeOf(typeof(ObjectAttributes));
+        IntPtr handle; Check(LsaOpenPolicy(IntPtr.Zero, ref attributes, 0x810, out handle));
+        try {
+            if(!grant) { Check(LsaRemoveAccountRights(handle, bytes, true, IntPtr.Zero, 0)); return; }
+            const string name = "SeBatchLogonRight";
+            var right = new UnicodeString { Length = (ushort)(name.Length*2), MaximumLength = (ushort)((name.Length+1)*2), Buffer = Marshal.StringToHGlobalUni(name) };
+            try { Check(LsaAddAccountRights(handle, bytes, new [] { right }, 1)); }
+            finally { Marshal.FreeHGlobal(right.Buffer); }
+        } finally { LsaClose(handle); }
+    }
+}
+'@
+    [QualificationFixtureBatchRight]::Set($sid,$true)
+    $batchGranted=$true
     $acl=Get-Acl -LiteralPath $fixture
     $acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($fixtureUser.SID,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $fixture -AclObject $acl
@@ -92,6 +129,10 @@ $trigger=$definition.Triggers.Create(1);$trigger.StartBoundary=$at
 $definition.Settings.MultipleInstances=2
 $definition.Settings.StartWhenAvailable=$false
 $definition.Settings.ExecutionTimeLimit='PT34M'
+$definition.Settings.Enabled=$true
+$definition.Settings.AllowDemandStart=$true
+$definition.Settings.DisallowStartIfOnBatteries=$false
+$definition.Settings.StopIfGoingOnBatteries=$false
 $registered=$false
 try {
     if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'disposable task name collision'}
@@ -104,7 +145,11 @@ try {
     $clock=[Diagnostics.Stopwatch]::StartNew()
     while(-not (Test-Path -LiteralPath $resultPath) -and -not (Test-Path -LiteralPath (Join-Path $fixture 'failure.txt')) -and $clock.Elapsed.TotalSeconds -lt 45){Start-Sleep -Milliseconds 200}
     if(Test-Path -LiteralPath (Join-Path $fixture 'failure.txt')){throw ([IO.File]::ReadAllText((Join-Path $fixture 'failure.txt')))}
-    if(-not (Test-Path -LiteralPath $resultPath)){throw ('S4U fixture produced no result: '+((Get-ScheduledTaskInfo -TaskName $name) | Out-String))}
+    if(-not (Test-Path -LiteralPath $resultPath)){
+        $observed=$scheduler.GetFolder('\').GetTask($name)
+        $events=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational';StartTime=(Get-Date).AddMinutes(-2)} -MaxEvents 30 -ErrorAction SilentlyContinue | Where-Object {$_.Message -like ('*'+$name+'*')} | Select-Object Id,Message)
+        throw ('S4U fixture produced no result: '+((Get-ScheduledTaskInfo -TaskName $name) | Out-String)+' state='+$observed.State+' xml='+$observed.Xml+' events='+($events | ConvertTo-Json -Depth 3))
+    }
     $value=Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
     if($value.token.logon_type -ne 4 -or $value.token.token_type -ne 1 -or $value.token.elevated -or
         $value.engine_pid -notin @($value.ancestry.pid) -or $value.task_xml_sha256 -cnotmatch '^[0-9a-f]{64}$'){throw 'native S4U fixture is incomplete'}
@@ -120,6 +165,7 @@ try {
     if($userCreated){
         $retained=Get-LocalUser -Name $account -ErrorAction Stop
         if([string]$retained.SID.Value -cne $sid){throw 'fixture account identity changed; refuse cleanup'}
+        if($batchGranted){[QualificationFixtureBatchRight]::Set($sid,$false)}
         Remove-LocalUser -InputObject $retained
     }
 }
