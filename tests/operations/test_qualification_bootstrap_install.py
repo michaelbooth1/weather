@@ -38,7 +38,7 @@ def installation(envelope, tmp_path):
     probe_ref = records.publish(probe_root, "envelope.json", probe)
     observation = records.publish(observations, "observation.json", {
         "schema": "qualification_bootstrap_probe_observation_v1", "envelope_sha256": probe_ref["sha256"],
-        "started_at": (NOW + timedelta(seconds=1)).isoformat(), "completed_at": (NOW + timedelta(seconds=100)).isoformat(),
+        "started_at": (NOW + timedelta(seconds=1)).isoformat().replace("+00:00", "Z"), "completed_at": (NOW + timedelta(seconds=100)).isoformat().replace("+00:00", "Z"),
         "source": probe["source"], "configuration": {"fixture_only": True}, "results": results, "markets": [],
         "native_parent_completion_required": True, "integration_eligible": False, "full_suite_replacement": False})
     observation = {**observation, "path": "probe-work/observations/" + observation["path"]}
@@ -52,7 +52,7 @@ def installation(envelope, tmp_path):
     probe_review = records.publish(root, "probe-review.json", {
         "schema": "qualification_bootstrap_probe_review_v1", "envelope_sha256": probe_ref["sha256"],
         "result_sha256": result["sha256"], "source": probe["source"], "reviewer": "fixture reviewer",
-        "reviewed_at": (NOW + timedelta(seconds=490)).isoformat(), "decision": "ACCEPT_FIXED_PROBES_FOR_K"})
+        "reviewed_at": (NOW + timedelta(seconds=490)).isoformat().replace("+00:00", "Z"), "decision": "ACCEPT_FIXED_PROBES_FOR_K"})
     closure = records.publish(root, "closure.json", {"schema": "qualification_runtime_files_v2",
         "files": [{"path": path, "sha256": "d" * 64, "size": 1, "mode": "100644"}
                   for path in sorted(bootstrap_install.REQUIRED_ADAPTER)]})
@@ -72,11 +72,11 @@ def installation(envelope, tmp_path):
         "baseline_control": {"root": str(adopted), "closure": placeholder}, "environment": placeholder,
         "configuration": placeholder, "effective_tree": "e" * 40, "host": deepcopy(probe["host"]),
         "task": {"name": "WeatherQualificationBootstrapInstall_fixture"},
-        "not_before": (NOW + timedelta(seconds=600)).isoformat(), "deadline": (NOW + timedelta(seconds=1800)).isoformat(),
+        "not_before": (NOW + timedelta(seconds=600)).isoformat().replace("+00:00", "Z"), "deadline": (NOW + timedelta(seconds=1800)).isoformat().replace("+00:00", "Z"),
         "limits": {"commit_bytes": 512 * 1024**2, "working_set_bytes": 512 * 1024**2, "scratch_bytes": 64 * 1024**2,
                    "read_bytes": 8 * 1024**3, "metadata_seconds": 120, "metadata_read_bytes": 2 * 1024**3, "teardown_seconds": 30},
         "adopted_helpers": deepcopy(probe["adopted_helpers"]), "review_evidence": reviewed,
-        "approval": {"owner": "fixture owner", "approved_at": (NOW + timedelta(seconds=500)).isoformat(),
+        "approval": {"owner": "fixture owner", "approved_at": (NOW + timedelta(seconds=500)).isoformat().replace("+00:00", "Z"),
                      "replaces_full_host_suite_for_K_only": True},
         "probe": {"root": str(probe_root), "envelope": probe_ref, "result": result, "review": probe_review,
                   "task_xml_sha256": hashlib.sha256(b"<fixture-only/>").hexdigest()},
@@ -116,10 +116,10 @@ def test_changed_unapproved_or_overbroad_installations_are_refused(installation,
     elif fault == "approval": value["approval"]["replaces_full_host_suite_for_K_only"] = False
     elif fault == "string-approval": value["approval"]["replaces_full_host_suite_for_K_only"] = "true"
     elif fault == "owner": value["approval"]["owner"] = ""
-    elif fault == "future-approval": value["approval"]["approved_at"] = (now + timedelta(seconds=1)).isoformat()
+    elif fault == "future-approval": value["approval"]["approved_at"] = (now + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
     elif fault == "too-early": now -= timedelta(seconds=1)
     elif fault == "expired": now = NOW + timedelta(seconds=1800)
-    elif fault == "long-window": value["deadline"] = (now + timedelta(seconds=2701)).isoformat()
+    elif fault == "long-window": value["deadline"] = (now + timedelta(seconds=2701)).isoformat().replace("+00:00", "Z")
     elif fault == "memory": value["limits"]["commit_bytes"] = 2 * 1024**3 + 1
     elif fault == "working-set": value["limits"]["working_set_bytes"] += 1
     elif fault == "scratch": value["limits"]["scratch_bytes"] = 128 * 1024**2 + 1
@@ -164,7 +164,7 @@ def test_request_pin_and_single_use_boundary_refuse_before_validation(installati
     envelope = records.publish(root, "envelope.json", value)
     request = records.publish(work, "request.json", {
         "envelope_path": str(root / envelope["path"]), "envelope_sha256": envelope["sha256"], "phase": "prepare",
-        "prepared_baseline": value["baseline"], "deadline": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()})
+        "prepared_baseline": value["baseline"], "deadline": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat().replace("+00:00", "Z")})
     called = []
     monkeypatch.setattr(bootstrap_install, "context", lambda *_: called.append(True))
     with pytest.raises(ValueError, match="request changed"):
@@ -188,7 +188,7 @@ def test_bootstrap_boundary_calls_actual_effective_tree_gate(merge_fixture, monk
     request = records.publish(output, "request.json", {
         "envelope_path": str(root / envelope["path"]), "envelope_sha256": envelope["sha256"],
         "phase": "before-commit", "prepared_baseline": prepared,
-        "deadline": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()})
+        "deadline": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat().replace("+00:00", "Z")})
     monkeypatch.setattr(bootstrap_install, "context", lambda *_: checked)
     monkeypatch.setattr(bootstrap_install, "verify_inputs", lambda *_: ({}, git, {"fixture_only": True}))
     checked["manifest"]["control"] = {"git_policy": config_ref}
@@ -240,7 +240,8 @@ def test_temporary_guarded_entry_cannot_mix_first_landing_with_v2_or_overrides(t
     script = ROOT / "scripts/ops/quiet_window_merge.ps1"
     for extra in (["-QualificationManifestPath", "ordinary.json"], ["-Force"], ["-DryRun"]):
         result = subprocess.run([str(PS), "-NoProfile", "-NonInteractive", "-File", str(script),
-            "-Branch", "refs/remotes/origin/codex/fixture", "-ExpectedTip", "a" * 40, "-ExpectedBaseline", "b" * 40,
+            "-RepoRoot", str(ROOT), "-Branch", "refs/remotes/origin/codex/fixture",
+            "-ExpectedTip", "a" * 40, "-ExpectedBaseline", "b" * 40,
             "-ExpectedSelfSha256", hashlib.sha256(script.read_bytes()).hexdigest(),
             "-BootstrapEnvelopePath", str(tmp_path / "absent.json"), "-BootstrapEnvelopeSha256", "c" * 64,
             "-AttemptReportPath", str(tmp_path / "report.json"), *extra],
@@ -248,3 +249,49 @@ def test_temporary_guarded_entry_cannot_mix_first_landing_with_v2_or_overrides(t
         assert result.returncode != 0
         assert "requires" in (result.stdout + result.stderr).lower() or "forbidden" in (result.stdout + result.stderr).lower()
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("fault", ["none", "generated-change", "no-control-change", "dirty-candidate"])
+def test_installer_checks_real_reviewed_candidate_before_loading_adapter(merge_fixture, tmp_path, monkeypatch, fault):
+    git, repo, baseline, candidate, graph, _, _, _, run = merge_fixture
+    monkeypatch.setattr(bootstrap_install.source, "_HOST_GIT_OPTIONS", ())
+    isolated = tmp_path / "isolated"
+    run("worktree", "add", "--detach", str(isolated), baseline if fault == "no-control-change" else candidate)
+
+    def candidate_git(*args):
+        return bootstrap_install.source.git_output(git, isolated, *args).decode().strip()
+
+    if fault == "generated-change":
+        (isolated / bootstrap_install.merge_tree.GENERATED[0]).write_bytes(b'{"candidate":"must not own Q"}\n')
+        candidate_git("add", ".")
+        candidate_git("commit", "-qm", "reviewed fixture config change")
+    elif fault == "no-control-change":
+        candidate_git("commit", "--allow-empty", "-qm", "reviewed fixture with no control change")
+    candidate = candidate_git("rev-parse", "HEAD")
+    identity = bootstrap_install.source.identity(git, isolated, source=candidate, baseline=baseline)
+    source_ref = records.publish(graph.root, "installation-source.json",
+        bootstrap_install.source.inventory(git, isolated, candidate, verify_working=True))
+    placeholder = records.publish(graph.root, "installation-placeholder.json", {})
+    authority = tmp_path / "adapter"
+    authority.mkdir()
+    checked = {"manifest": {"repo_root": str(repo), "worktree_root": str(isolated), "expected_tip": candidate,
+                            "control": {"root": str(authority), "closure": placeholder, "git_policy": placeholder}},
+        "envelope": {"baseline": baseline, "source": identity, "environment": placeholder},
+        "graph": graph, "local": graph, "review": {"source_inventory": source_ref}}
+    selected = {"environment": placeholder, "bindings": {}}
+    monkeypatch.setattr(bootstrap_install.host_runtime, "profile", lambda *_args, **_kwargs: selected)
+    monkeypatch.setattr(bootstrap_install.host_runtime, "verify_environment", lambda *_: None)
+    monkeypatch.setattr(bootstrap_install.host_runtime, "tool", lambda *_: git)
+    monkeypatch.setattr(bootstrap_install.git_policy, "validate", lambda *_args, **_kwargs: ["--no-replace-objects"])
+
+    def reached_adapter(_root):
+        raise RuntimeError("candidate verified before adapter")
+    monkeypatch.setattr(bootstrap_install.environment, "enumerate_files", reached_adapter)
+    if fault == "dirty-candidate":
+        (isolated / "module.py").write_bytes(b"unreviewed = True\n")
+    if fault == "none":
+        with pytest.raises(RuntimeError, match="candidate verified before adapter"):
+            bootstrap_install.verify_inputs(checked)
+    else:
+        with pytest.raises(ValueError, match="generated configuration|no control-plane change|clean|modified|dirty"):
+            bootstrap_install.verify_inputs(checked)

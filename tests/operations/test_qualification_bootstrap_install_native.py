@@ -199,3 +199,128 @@ foreach($fault in @('no-teardown','string-teardown','string-exit','no-publicatio
     result = subprocess.run([str(ps), "-NoProfile", "-NonInteractive", "-File", str(script)],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
+
+def test_native_boundary_deadline_round_trips_through_exact_python_timestamp_reader(tmp_path):
+    body = ". " + ps_literal(ROOT / "scripts/ops/workload_admission.ps1") + "\n. " + \
+        ps_literal(ROOT / "scripts/ops/qualification_bootstrap_install_contract.ps1") + "\n" + r'''
+# Replace only the external operation. Exercise the actual native writer,
+# byte references, response binding and Python timestamp reader.
+function Invoke-WeatherBootstrapInstallNative {
+    param($Context,$Directory,$Tokens,$Transcript)
+    $request=Get-Content -LiteralPath (Join-Path $Directory 'request.json') -Raw | ConvertFrom-Json
+    Write-WeatherBootstrapProbeRecord (Join-Path $Directory 'boundary.json') ([ordered]@{
+        schema='qualification_bootstrap_install_boundary_v1';envelope_sha256=$Context.Sha256
+        phase=$request.phase;prepared_baseline=$request.prepared_baseline;effective_tree=$Context.Value.effective_tree
+        integration_eligible=$false;native_parent_completion_required=$true
+        git_options=@('--no-replace-objects','-c','core.hooksPath='+$root)
+    })
+    Write-WeatherBootstrapProbeRecord (Join-Path $Directory 'native.json') @{fixture_only=$true}
+}
+$context=[pscustomobject]@{
+    Root=$root;Path=(Join-Path $root 'envelope.json');Sha256=('d'*64);Last=$null;GitOptions=@();Proofs=[ordered]@{}
+    State=[pscustomobject]@{Contract=[pscustomobject]@{AttemptRoot=(Join-Path $root 'install-work')}}
+    Value=[pscustomobject]@{deadline=[DateTime]::UtcNow.AddMinutes(8).ToString('o');effective_tree=('e'*40)
+        limits=[pscustomobject]@{metadata_seconds=120;teardown_seconds=30}
+        control=[pscustomobject]@{root=$root}}
+}
+[void](Invoke-WeatherQualificationMergeBoundary $context 'prepare' ('b'*40))
+'''
+    run(tmp_path, body)
+    request = json.loads((tmp_path / "install-work/merge-work/prepare/request.json").read_text(encoding="utf-8"))
+    assert request["deadline"].endswith("Z")
+    assert records.timestamp(request["deadline"]) > datetime.now(timezone.utc)
+
+
+@pytest.mark.parametrize("fault", ["none", "running", "changed", "partial", "post-close-xml"])
+def test_closeout_disables_only_exact_terminal_tasks_and_retains_partial_claim(completed_installation, fault):
+    root, fixture = completed_installation
+    value = json.loads(fixture.read_text(encoding="utf-8"))
+    envelope = value["envelope"]
+    native = records.publish(root, "install-work/native-result.json", value["native"])
+    quiet = records.publish(root, "install-work/quiet-native.json", value["quiet"])
+    report = records.publish(root, "install-work/quiet-report.json", value["report"])
+    records.publish(root, "install-work/invocation.json", {"task_xml": "<install-fixture/>"})
+    result = records.publish(root, "install-result.json", {
+        "schema": "qualification_bootstrap_install_result_v1", "status": "PUBLISHED_CLOSEOUT_REQUIRED",
+        "envelope_sha256": value["sha256"], "outer_teardown_proved": True, "child_exit_code": 0,
+        "full_host_suite_pass": False, "retry_authorized": False, "native": native, "quiet_native": quiet,
+        "report": report, "completed_at": envelope["not_before"], "merge_commit": value["report"]["merge_commit"],
+        "source": envelope["source"], "policy": envelope["qualification"]["policy"]})
+    body = ". " + ps_literal(ROOT / "scripts/ops/workload_admission.ps1") + "\n. " + \
+        ps_literal(ROOT / "scripts/ops/qualification_bootstrap_install_contract.ps1") + "\n" + \
+        "$fixture=" + ps_literal(fixture) + "\n$failureMode=" + ps_literal(fault) + \
+        "\n$resultSha=" + ps_literal(result["sha256"]) + "\n" + r'''
+$value=Get-Content -LiteralPath $fixture -Raw | ConvertFrom-Json
+$probe=Read-WeatherBootstrapProbeReference $value.envelope.probe.root $value.envelope.probe.envelope
+$probeInvocation=Get-Content -LiteralPath (Join-Path $value.envelope.probe.root 'probe-work/invocation.json') -Raw | ConvertFrom-Json
+$script:mutations=@()
+$script:tasks=@{}
+function AddFixtureTask {
+    param($Name,$Xml,$Started)
+    $task=[pscustomobject]@{Name=$Name;OriginalXml=$Xml;ClosedXml=('<closed-fixture name="'+$Name+'"/>')
+        EnabledValue=$true;StateValue=3;Instances=@();LastTaskResult=0
+        LastRunTime=[DateTimeOffset]::Parse($Started).LocalDateTime}
+    $task | Add-Member ScriptProperty Xml {if($this.EnabledValue){$this.OriginalXml}else{$this.ClosedXml}}
+    $task | Add-Member ScriptProperty State {$this.StateValue}
+    $task | Add-Member ScriptProperty Enabled {$this.EnabledValue} {
+        $this.EnabledValue=[bool]$args[0];$this.StateValue=1;$script:mutations+=@($this.Name)
+        if($failureMode -eq 'partial'){throw 'fixture response lost after exact mutation'}
+        if($failureMode -eq 'post-close-xml'){$this.ClosedXml='<unreviewed-change/>'}
+    }
+    $task | Add-Member ScriptMethod GetInstances {param($Flags) return $this.Instances}
+    $task | Add-Member ScriptProperty Definition {
+        $definition=[pscustomobject]@{Settings=[pscustomobject]@{Enabled=$this.EnabledValue}
+            OriginalXml=$this.OriginalXml;ClosedXml=$this.ClosedXml}
+        $definition | Add-Member ScriptProperty XmlText {
+            if($this.Settings.Enabled){$this.OriginalXml}else{$this.ClosedXml}
+        }
+        return $definition
+    }
+    $script:tasks[$Name]=$task
+}
+AddFixtureTask $probe.task.name $probeInvocation.task_xml $probe.not_before
+AddFixtureTask $value.envelope.task.name '<install-fixture/>' $value.envelope.not_before
+AddFixtureTask 'UnrelatedFixtureTask' '<unrelated/>' $value.envelope.not_before
+if($failureMode -eq 'running'){$script:tasks[$probe.task.name].StateValue=4}
+if($failureMode -eq 'changed'){$script:tasks[$probe.task.name].OriginalXml='<changed-definition/>'}
+$script:scheduler=[pscustomobject]@{}
+$script:scheduler | Add-Member ScriptMethod Connect {}
+$script:scheduler | Add-Member ScriptMethod GetFolder {param($Path) if($Path -cne '\'){throw 'wrong folder'};return $this}
+$script:scheduler | Add-Member ScriptMethod GetTask {
+    param($Name)
+    if(-not $script:tasks.ContainsKey($Name)){throw 'unbound fixture task'}
+    return $script:tasks[$Name]
+}
+# The sole external boundary is a disposable Scheduler model. The real
+# closeout consumes actual immutable records and executes its mutation guards.
+function New-Object {
+    [CmdletBinding()]param([Parameter(Position=0)][string]$TypeName,[string]$ComObject,[object[]]$ArgumentList)
+    if($ComObject -eq 'Schedule.Service'){return $script:scheduler}
+    Microsoft.PowerShell.Utility\New-Object @PSBoundParameters
+}
+$refused=$false
+try {Close-WeatherBootstrapInstallation $value.envelope $value.sha256 $resultSha} catch {$refused=$true}
+if(-not $script:tasks['UnrelatedFixtureTask'].Enabled){throw 'unrelated task changed'}
+$claim=Test-Path -LiteralPath (Join-Path $root 'close-use.json')
+$installed=Test-Path -LiteralPath (Join-Path $root 'installed-root.json')
+switch($failureMode) {
+    'none' {
+        if($refused -or -not $claim -or -not $installed -or $script:mutations.Count -ne 2){throw 'complete closeout was not proved'}
+        $record=Get-Content -LiteralPath (Join-Path $root 'installed-root.json') -Raw | ConvertFrom-Json
+        if($record.bootstrap_id_revoked -cne $value.envelope.bootstrap_id -or -not $record.future_attempts_require_split_qualification){
+            throw 'installed policy root lacks revocation/ordinary-gate requirement'
+        }
+    }
+    {$_ -in @('running','changed')} {
+        if(-not $refused -or $claim -or $installed -or $script:mutations.Count){throw 'invalid task reached closeout authority'}
+    }
+    default {
+        if(-not $refused -or -not $claim -or $installed -or $script:mutations.Count -ne 1){throw 'partial closeout lost its spent claim'}
+    }
+}
+$before=@($script:mutations).Count
+$retryRefused=$false
+try {Close-WeatherBootstrapInstallation $value.envelope $value.sha256 $resultSha} catch {$retryRefused=$true}
+if(-not $retryRefused -or $script:mutations.Count -ne $before){throw 'closeout retried an invalid or spent task pair'}
+'''
+    run(root, body)

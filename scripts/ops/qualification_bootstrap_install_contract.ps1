@@ -188,7 +188,7 @@ function Invoke-WeatherQualificationMergeBoundary {
     $end=[DateTimeOffset]::Parse([string]$Context.Value.deadline).AddSeconds(-2*[int]$Context.Value.limits.teardown_seconds-20)
     if($deadline -gt $end) {$deadline=$end}
     $request=[ordered]@{envelope_path=$Context.Path;envelope_sha256=$Context.Sha256;phase=$Phase
-        prepared_baseline=$PreparedBaseline;deadline=$deadline.ToUniversalTime().ToString('o')}
+        prepared_baseline=$PreparedBaseline;deadline=$deadline.UtcDateTime.ToString('o')}
     Write-WeatherBootstrapProbeRecord (Join-Path $directory 'request.json') $request
     $ref=Get-WeatherBootstrapProbeReference $directory 'request.json'
     $tokens=@('-I','-S','-B',(Join-Path $Context.Value.control.root 'scripts/ops/qualification_bootstrap_install_control.py'),
