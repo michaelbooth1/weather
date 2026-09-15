@@ -155,6 +155,8 @@ function Set-WeatherQualificationOfflineEnvironment {
                         'WEATHER_INTEGRATION_TEST_OFFLINE', 'GIT_CONFIG_NOSYSTEM', 'GIT_LFS_SKIP_SMUDGE')) {
         [Environment]::SetEnvironmentVariable($name, '1', 'Process')
     }
+    # Native PowerShell reads this at startup, before any candidate command.
+    [Environment]::SetEnvironmentVariable('PSModuleAnalysisCachePath', 'nul', 'Process')
     [Environment]::SetEnvironmentVariable('GIT_CONFIG_GLOBAL', 'NUL', 'Process')
     [Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', '0', 'Process')
 }

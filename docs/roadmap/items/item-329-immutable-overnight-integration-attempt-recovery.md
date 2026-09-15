@@ -29,6 +29,13 @@ reconciliation/tool-pin checks. Exact attempt logs and artifacts are retained in
 [bootstrap run 34911409949](https://github.com/michaelbooth1/weather/actions/runs/34911409949)
 and [diagnostic run 34914515184](https://github.com/michaelbooth1/weather/actions/runs/34914515184).
 
+The retained [checkout attribution](https://github.com/michaelbooth1/weather/actions/runs/34919656717)
+identified PowerShell's `ModuleAnalysisCache` during the contained candidate-audit
+test; its focused run passed 480 tests with eight skips. The repair fixes the
+cache setting before native startup and verifies it in the child environment.
+The temporary diagnostics were removed after attribution. Complete final-source
+regressions and the production acceptance gates below still apply.
+
 Remaining acceptance is explicit: complete final-source native regression
 evidence; connected consumer verification and independent implementation review;
 real capture-host S4U measurements/probes; the exact owner-approved first-landing

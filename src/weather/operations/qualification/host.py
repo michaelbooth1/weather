@@ -173,7 +173,8 @@ def run_audit(plan, *, scratch):
         "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "PATHEXT", "PATH", "TEMP", "TMP", "TMPDIR",
         "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"}}
     env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "WEATHER_INTEGRATION_TEST_OFFLINE": "1"})
+                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "WEATHER_INTEGRATION_TEST_OFFLINE": "1",
+                "PSModuleAnalysisCachePath": os.devnull})
     # Candidate temporary files belong only to its writable output namespace.
     for key in ("TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
         env[key] = plan["output"]

@@ -109,9 +109,31 @@ def test_clean_environment_is_an_allowlist(tmp_path, monkeypatch):
     monkeypatch.setenv("UNKNOWN_NEW_PROVIDER_AUTH", "never-forward")
     monkeypatch.setenv("PYTHONPATH", "candidate-selected")
     monkeypatch.setenv("PYTEST_ADDOPTS", "--ignore=tests")
+    monkeypatch.setenv("PSModuleAnalysisCachePath", str(tmp_path / "unreviewed-cache"))
     env = process.clean_environment(scratch=tmp_path, executable_paths=[Path(sys.executable).absolute()])
     assert not {"UNKNOWN_NEW_PROVIDER_AUTH", "PYTHONPATH", "PYTEST_ADDOPTS"}.intersection(env)
     assert env["HOME"] == str(tmp_path)
+    assert env["PSModuleAnalysisCachePath"] == os.devnull
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows PowerShell cache behavior")
+def test_scrubbed_native_powershell_does_not_create_a_checkout_cache(tmp_path, monkeypatch):
+    checkout, scratch = tmp_path / "checkout", tmp_path / "scratch"
+    checkout.mkdir()
+    scratch.mkdir()
+    powershell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    monkeypatch.setenv("PSModuleAnalysisCachePath", str(checkout / "inherited-cache"))
+    env = process.clean_environment(scratch=scratch, executable_paths=[powershell])
+    body = (
+        "$ErrorActionPreference = 'Stop'; "
+        "if ($env:PSModuleAnalysisCachePath -cne 'nul') { throw 'Inherited cache path reached native startup' }; "
+        "Import-Module Microsoft.PowerShell.Management -Force; "
+        "Get-ChildItem -LiteralPath '.' | Out-Null; Start-Sleep -Seconds 2"
+    )
+    result = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", body],
+                            cwd=checkout, env=env, capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert list(checkout.iterdir()) == []
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="native Linux subreaper; Windows has its Job tests")

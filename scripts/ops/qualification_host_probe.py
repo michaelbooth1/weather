@@ -75,10 +75,13 @@ def main():
     records.require(identities, "native candidate imports are empty")
     records.require(sys.stdin.read() == "", "probe stdin inherited interactive authority")
     approved = {"SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "PATHEXT", "PATH", "TEMP", "TMP", "TMPDIR",
-                "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE",
+                "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PSMODULEANALYSISCACHEPATH",
+                "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE",
                 "PYTHONHASHSEED", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "WEATHER_INTEGRATION_TEST_OFFLINE",
                 "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_LFS_SKIP_SMUDGE", "TZ", "LANG", "LC_ALL"}
     records.require(all(key.upper() in approved for key in os.environ), "probe environment contains undeclared authority")
+    records.require(os.environ.get("PSModuleAnalysisCachePath") == os.devnull,
+                    "native PowerShell module cache is not disabled")
     paths = [os.path.normcase(os.path.realpath(entry)) for entry in os.environ["PATH"].split(os.pathsep) if entry]
     records.require(len(paths) == len(set(paths)), "native PATH contains duplicate executable roots")
     once = records.publish(output, "create-once.json", {"nonce": "native-disposable-probe"})

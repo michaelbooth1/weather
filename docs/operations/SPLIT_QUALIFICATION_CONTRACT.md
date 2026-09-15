@@ -114,8 +114,12 @@ loads its guard before adding approved source and dependency paths. Candidate
 `sitecustomize` and installation `.pth` hooks do not run in this lane.
 
 The environment is an allowlist with scratch-owned home/temp directories and no
-inherited CI credentials. The Python audit guard refuses external network and
-credential access and writes outside assigned scratch. It is a guard for reviewed
+inherited CI credentials. Every clean child environment fixes
+`PSModuleAnalysisCachePath` to the platform null device before native startup,
+following Microsoft's [module-cache control](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_variables?view=powershell-5.1#powershell-environment-variables).
+This prevents background PowerShell cache writes into a candidate checkout; the
+native probe verifies the fixed value. The Python audit guard refuses external
+network and credential access and writes outside assigned scratch. It is a guard for reviewed
 offline commands, not a security sandbox for hostile native code. The native
 controller and exact command/dependency review remain required.
 

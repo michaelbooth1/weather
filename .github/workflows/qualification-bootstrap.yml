@@ -156,7 +156,7 @@ jobs:
       - name: Native control-plane tests
         run: |
           set -euo pipefail
-          python .github/qualification_checkout_trace.py tests/operations/test_qualification*.py tests/operations/test_schema_registry.py tests/operations/test_import_architecture.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-focused.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-focused.log"
+          python -m pytest tests/operations/test_qualification*.py tests/operations/test_schema_registry.py tests/operations/test_import_architecture.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-focused.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-focused.log"
       - name: Repository checks
         run: |
           set -euo pipefail
@@ -168,7 +168,7 @@ jobs:
           WEATHER_QUALIFICATION_JOURNAL: ${{ runner.temp }}/qualification-full.jsonl
         run: |
           set -euo pipefail
-          python .github/qualification_checkout_trace.py tests --strict-config --strict-markers -p weather.operations.qualification.pytest_observer -q --junitxml="$RUNNER_TEMP/qualification-full.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-full.log"
+          python -m pytest tests --strict-config --strict-markers -p weather.operations.qualification.pytest_observer -q --junitxml="$RUNNER_TEMP/qualification-full.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-full.log"
       - name: Verify final source identity
         if: always()
         run: |

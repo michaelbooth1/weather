@@ -36,7 +36,10 @@ def clean_environment(*, scratch, executable_paths, extra=None):
                 "LOCALAPPDATA": str(scratch), "TEMP": str(scratch), "TMP": str(scratch), "TMPDIR": str(scratch),
                 "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
                 "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
-                "WEATHER_INTEGRATION_TEST_OFFLINE": "1", "TZ": "UTC"})
+                "WEATHER_INTEGRATION_TEST_OFFLINE": "1", "TZ": "UTC",
+                # Set before native PowerShell starts: its background cache can
+                # otherwise resolve relative to the candidate checkout.
+                "PSModuleAnalysisCachePath": os.devnull})
     for key, value in (extra or {}).items():
         require(key in {"WEATHER_QUALIFICATION_JOURNAL", "WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT",
                         "WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT"}, "unsupported candidate environment override")
