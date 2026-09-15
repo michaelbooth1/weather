@@ -296,6 +296,7 @@ function Assert-WeatherBootstrapProbeNativeResult {
         $Value.native.completed -isnot [bool] -or -not $Value.native.completed -or
         $Value.native.teardown_proved -isnot [bool] -or -not $Value.native.teardown_proved -or
         $null -ne $Value.native.failure -or $Value.native.exit_code -is [bool] -or
+        ($Value.native.exit_code -isnot [int] -and $Value.native.exit_code -isnot [long]) -or
         $null -eq $Value.native.exit_code -or $Value.native.exit_code -ne 0 -or
         $Value.native_read_bytes -is [bool] -or
         ($Value.native_read_bytes -isnot [int] -and $Value.native_read_bytes -isnot [long]) -or

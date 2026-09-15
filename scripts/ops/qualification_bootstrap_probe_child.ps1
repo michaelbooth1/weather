@@ -43,13 +43,14 @@ Set-WeatherBootstrapProbeEnvironment $profile $work
 $capture=@(Get-WeatherBootstrapProbeCaptureBindings -ProductionRoot $repo)
 $nativeEnvelope=[Weather.Operations.KillOnCloseJob]::EncloseCurrentProcess([UInt64]$limits.commit_bytes,64)
 try {
-    $seconds=[int][Math]::Floor(($deadline-[DateTimeOffset]::UtcNow).TotalSeconds)-[int]$limits.teardown_seconds-10
+    $childDeadline=$deadline.AddSeconds(-[int]$limits.teardown_seconds-10)
+    $seconds=[int][Math]::Floor(($childDeadline-[DateTimeOffset]::UtcNow).TotalSeconds)-[int]$limits.teardown_seconds
     if($seconds -lt 1 -or $seconds -gt 480) { throw 'No bounded bootstrap execution budget remains' }
     $python=Join-Path $profile.tools.python.root $profile.tools.python.path
     $tokens=@('-I','-S','-B',(Join-Path $PSScriptRoot 'qualification_bootstrap_probe_control.py'),$EnvelopePath,$ExpectedEnvelopeSha256)
     $native=Invoke-WeatherQualificationProcess -Envelope $nativeEnvelope -Executable $python -Tokens $tokens `
         -WorkingDirectory ([IO.Path]::GetFullPath([string]$value.control.root)) -Transcript (Join-Path $work 'native.log') `
-        -DeadlineUtc $deadline.AddSeconds(-5) -MaximumSeconds $seconds -TeardownSeconds ([int]$limits.teardown_seconds) `
+        -DeadlineUtc $childDeadline -MaximumSeconds $seconds -TeardownSeconds ([int]$limits.teardown_seconds) `
         -CommitBytes ([UInt64]$limits.commit_bytes) -WorkingSetBytes ([UInt64]$limits.working_set_bytes) `
         -MaximumOutputBytes 2097152 -VolumePaths @($repo,$root) -MinimumDiskBytes 53687091200 `
         -ReservedScratchBytes ([UInt64]$limits.scratch_bytes) -MaximumReadBytes ([UInt64]$limits.read_bytes) `

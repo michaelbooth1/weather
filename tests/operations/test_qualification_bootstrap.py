@@ -225,6 +225,9 @@ foreach($name in @('completed','teardown_proved')){
     MustRefuse {Assert-WeatherBootstrapProbeNativeResult $value $sha 10}
     $value.native.$name=$true
 }
+$value.native.exit_code='0'
+MustRefuse {Assert-WeatherBootstrapProbeNativeResult $value $sha 10}
+$value.native.exit_code=0
 $value.native_read_bytes=$true
 MustRefuse {Assert-WeatherBootstrapProbeNativeResult $value $sha 10}
 $value.native_read_bytes=11

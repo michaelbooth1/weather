@@ -134,9 +134,16 @@ try {
     if([IO.Path]::GetFullPath((Join-Path $profile.tools.powershell.root $profile.tools.powershell.path)) -ine $powershell) {
         throw 'Bootstrap native PowerShell differs from the reviewed runtime'
     }
+    [Int64]$preflightReadBytes=$metadataBytes
     foreach($name in @('python','powershell','git','gh')) {
+        if([DateTimeOffset]::UtcNow -ge $deadline.AddSeconds(-70)) { throw 'Bootstrap tool verification exhausted its deadline reserve' }
         $tool=$profile.tools.PSObject.Properties[$name].Value
-        $locks.Add((Open-WeatherBootstrapPinnedFile (Join-Path $tool.root $tool.path) $tool.sha256 $tool.size 536870912))
+        if($tool.size -is [bool] -or ($tool.size -isnot [int] -and $tool.size -isnot [long]) -or $tool.size -lt 1) {
+            throw 'Invalid bootstrap executable size'
+        }
+        $preflightReadBytes+=[Int64]$tool.size
+        if($preflightReadBytes -gt 268435456) { throw 'Bootstrap startup verification exceeds 256 MiB' }
+        $locks.Add((Open-WeatherBootstrapPinnedFile (Join-Path $tool.root $tool.path) $tool.sha256 $tool.size 268435456))
     }
     # Before isolated Python startup, pin the complete reviewed interpreter and
     # the selected native prerequisites. Package imports remain disabled (-S).
@@ -150,13 +157,15 @@ try {
     }
     Assert-WeatherBootstrapProbeTree -Root $runtimeRoot -Inventory $runtime -Exclusions @($profile.bindings.interpreter_exclusions)
     $nativeFiles=Read-WeatherBootstrapProbeReference $qroot $environment.native_files
-    [Int64]$preflightReadBytes=$metadataBytes
     foreach($group in @(@{root=$runtimeRoot;files=@($runtime.files)},@{root=[string]$profile.bindings.native;files=@($nativeFiles.files)})) {
         if($group.files.Count -gt 8192) { throw 'Bootstrap startup pin count exceeded' }
         foreach($pin in $group.files) {
             if([DateTimeOffset]::UtcNow -ge $deadline.AddSeconds(-70)) { throw 'Bootstrap startup verification exhausted its deadline reserve' }
             if($pin.path -isnot [string] -or $pin.path -match '[\\:*?"<>|]' -or
                 $pin.path -match '(^|/)(\.|\.\.|)(/|$)' -or $pin.path.StartsWith('/')) { throw 'Unsafe bootstrap startup file path' }
+            if($pin.size -is [bool] -or ($pin.size -isnot [int] -and $pin.size -isnot [long]) -or $pin.size -lt 0) {
+                throw 'Invalid bootstrap startup file size'
+            }
             $preflightReadBytes+=[Int64]$pin.size
             if($preflightReadBytes -gt 268435456) { throw 'Bootstrap startup verification exceeds 256 MiB' }
             $locks.Add((Open-WeatherBootstrapPinnedFile (Join-Path $group.root $pin.path) $pin.sha256 $pin.size 268435456))

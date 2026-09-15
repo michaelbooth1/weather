@@ -120,12 +120,18 @@ def test_fixed_bootstrap_pipeline_records_all_nine_native_probes_without_accepta
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
     log = tmp_path / "native.log"
-    native = process.windows_run([str(python), "-I", "-B", str(driver)],
-        powershell=Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
-        dispatcher=trusted / runner.TRUSTED_WINDOWS[0], scratch=tmp_path, cwd=trusted,
-        env=process.clean_environment(scratch=output, executable_paths=[python]),
-        transcript=log, seconds=120, teardown_seconds=30, memory_bytes=1024**3,
-        output_bytes=1024**2, minimum_disk_bytes=1)
+    try:
+        native = process.windows_run([str(python), "-I", "-B", str(driver)],
+            powershell=Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe",
+            dispatcher=trusted / runner.TRUSTED_WINDOWS[0], scratch=tmp_path, cwd=trusted,
+            env=process.clean_environment(scratch=output.parent, executable_paths=[python]),
+            transcript=log, seconds=120, teardown_seconds=30, memory_bytes=1024**3,
+            output_bytes=1024**2, minimum_disk_bytes=1)
+    except Exception:
+        for path in (log, output / "probe-streams.log"):
+            if path.exists():
+                print(path.read_text(errors="replace")[-16384:])
+        raise
     assert native["completed"] and native["teardown_proved"], (native, log.read_text(errors="replace"))
     result = json.loads((output / "observation.json").read_text())
     assert result["schema"] == "qualification_bootstrap_probe_observation_v1"
