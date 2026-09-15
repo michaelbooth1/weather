@@ -25,9 +25,28 @@ $driver=Join-Path $fixture 'driver.ps1'
 $requestPath=Join-Path $fixture 'request.json'
 $resultPath=Join-Path $fixture 'result.json'
 $at=(Get-Date).AddMinutes(2).ToString('yyyy-MM-ddTHH:mm:ss')
+$account='wq'+$id.Substring(0,12)
+$userCreated=$false
+try {
+    if(Get-LocalUser -Name $account -ErrorAction SilentlyContinue){throw 'fixture account collision'}
+    $fixturePassword=ConvertTo-SecureString (([Guid]::NewGuid().ToString('N'))+'aA!9') -AsPlainText -Force
+    $fixtureUser=New-LocalUser -Name $account -Password $fixturePassword -AccountNeverExpires -PasswordNeverExpires -Description 'Disposable qualification S4U CI fixture'
+    $userCreated=$true
+    Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $fixtureUser
+    $sid=[string]$fixtureUser.SID.Value
+    $acl=Get-Acl -LiteralPath $fixture
+    $acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($fixtureUser.SID,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
+    Set-Acl -LiteralPath $fixture -AclObject $acl
+    $controllerRoot=Join-Path $fixture 'controller'
+    $scripts=Join-Path $controllerRoot 'scripts/ops';[void][IO.Directory]::CreateDirectory($scripts)
+    foreach($file in @('integration_attempt_contract.ps1','workload_admission.ps1','qualification_host_identity.ps1','measure_split_qualification.ps1')){
+        Copy-Item -LiteralPath (Join-Path $root ('scripts/ops/'+$file)) -Destination (Join-Path $scripts $file)
+    }
+    $hashing=[Security.Cryptography.SHA256]::Create()
+    try{$principal=-join($hashing.ComputeHash([Text.Encoding]::UTF8.GetBytes("international_live_execution_principal_v1`0"+$sid.ToLowerInvariant())) | ForEach-Object{$_.ToString('x2')})}finally{$hashing.Dispose()}
 $request=[ordered]@{measurement_id=$id;repo_root=$fixture
-    plan=@{host_id=(Get-WeatherExecutionHostId);principal_id=(Get-WeatherExecutionPrincipalId);not_before=$at}
-    task=@{name=$name;user_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}}
+    plan=@{host_id=(Get-WeatherExecutionHostId);principal_id=$principal;not_before=$at}
+    task=@{name=$name;user_sid=$sid}}
 [IO.File]::WriteAllText($requestPath,($request | ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
 $hash=(Get-FileHash -LiteralPath $requestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $preamble=@'
@@ -57,14 +76,14 @@ try {
     exit 1
 }
 '@
-$quotedRoot="'" + $root.Replace("'","''") + "'"
+$quotedRoot="'" + $controllerRoot.Replace("'","''") + "'"
 [IO.File]::WriteAllText($driver,($preamble+"`n"+'$root='+$quotedRoot+"`n"+$body),[Text.UTF8Encoding]::new($false))
 $exe=Join-Path $PSHOME 'powershell.exe'
 $arguments=ConvertTo-WeatherIntegrationScheduledTaskArgumentString -Tokens @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$driver,
     '-RequestPath',$requestPath,'-ExpectedRequestSha256',$hash)
 $action=New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $fixture
 $trigger=New-ScheduledTaskTrigger -Once -At ([DateTime]::Parse($at))
-$principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType S4U -RunLevel Limited
+$principal=New-ScheduledTaskPrincipal -UserId ($env:COMPUTERNAME+'\'+$account) -LogonType S4U -RunLevel Limited
 $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(34))
 $registered=$false
 try {
@@ -85,6 +104,13 @@ try {
         if($task.Actions.Count -ne 1 -or $task.Actions[0].Arguments -cne $arguments){throw 'fixture task changed; refuse cleanup'}
         if([string]$task.State -eq 'Running'){Stop-ScheduledTask -InputObject $task}
         Unregister-ScheduledTask -InputObject $task -Confirm:$false
+    }
+}
+} finally {
+    if($userCreated){
+        $retained=Get-LocalUser -Name $account -ErrorAction Stop
+        if([string]$retained.SID.Value -cne $sid){throw 'fixture account identity changed; refuse cleanup'}
+        Remove-LocalUser -InputObject $retained
     }
 }
 ''', encoding="utf-8")
