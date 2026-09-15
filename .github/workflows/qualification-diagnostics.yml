@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows, linux]
-        file: [importer, transport, frozen, reconciliation, reconciliation_native, planning]
+        file: [importer, transport, frozen, reconciliation, reconciliation_native, planning, connected_native]
         include:
           - platform: windows
             os: windows-2022

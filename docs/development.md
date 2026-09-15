@@ -153,6 +153,7 @@ path while an installed hook prevents dispatch of its own proposed repair.
 | Market, maker, or taker logic | matching `tests/market`; keep execution non-live |
 | Daily/nightly/supervisor behavior | matching `tests/operations`; use status/dry-run paths |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
+| Split qualification source, evidence or lifecycle | Native Windows and Linux qualification workflows; complete inventory and negative evidence cases; actual native parent/consumer fixtures; production S4U and measured budgets remain separate |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
 | Canonical docs/agent files | `python -m weather.operations.agent_docs_audit` |
 | Roadmap item/index or generated backlog | roadmap lint plus `roadmap_backlog --fail-on-lint --check` after regeneration |

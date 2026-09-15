@@ -1,5 +1,39 @@
 # 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
+## September 14 split qualification implementation
+
+The historical completion in this item's title is the adopted v1 workflow.
+The separately reviewed split design is being implemented in
+[PR 69](https://github.com/michaelbooth1/weather/pull/69), stacked on the
+[design and audit, PR 68](https://github.com/michaelbooth1/weather/pull/68).
+Its owning contract is [Split Qualification](../../operations/SPLIT_QUALIFICATION_CONTRACT.md).
+No new numbered item is allocated while the prepared 331/332 assignments remain
+unreconciled; this evidence belongs to the existing integration contract.
+
+The candidate implements strict source/coverage/provenance records, native
+offline signature verification, bounded host audit/probes, frozen adopted
+controllers, and explicit v1/v2 create/register/arm/merge/close/dispatch/readers.
+The guarded primitive verifies the complete S-plus-Q tree at its mutation
+boundaries and retains ambiguous commit history for typed reconciliation.
+It has not been adopted on the capture host.
+
+At `c9a6455cc0ae8657510d239557bbf482b50bf209`, native Windows lifecycle checks
+and Linux regressions passed; the complete Windows regression job remains
+pending its terminal result. All 220 repaired legacy Windows fixture checks
+passed. At `fb8c52434fec38bc390705e9a74303bc42e47559`, the isolated planning and
+reconciliation checks passed on both systems, including 27 native Windows
+reconciliation/tool-pin checks. Exact attempt logs and artifacts are retained in
+[bootstrap run 34911409949](https://github.com/michaelbooth1/weather/actions/runs/34911409949)
+and [diagnostic run 34914515184](https://github.com/michaelbooth1/weather/actions/runs/34914515184).
+
+Remaining acceptance is explicit: complete final-source native regression
+evidence; connected consumer verification and independent implementation review;
+real capture-host S4U measurements/probes; the exact owner-approved first-landing
+envelope and guarded K adoption; then a separately qualified reliability
+candidate with its complete current-input audit. Hosted tests are development
+evidence and supply none of these missing production claims. The v1 gate stays
+in force until the explicit transition is accepted and adopted.
+
 ## September 13 overnight review
 
 The owner's repeated overnight review exposed new first-landing qualification
