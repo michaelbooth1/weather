@@ -65,3 +65,36 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_input_entries", "inputs", "Ordered staged original-byte identities and explicit optional absences."),
     )
 )
+
+
+QUALIFICATION_REGISTERED_SCHEMAS += tuple(
+    SchemaSpec("qualification_bootstrap_probe_" + name, "qualification_bootstrap_probe_" + name + "_v1",
+               "weather.operations.qualification.bootstrap_probe", "active", description)
+    for name, description in (
+        ("envelope", "Directly reviewed fixed first-landing probe request; no acceptance or installation authority."),
+        ("observation", "Nine fixed probe observations awaiting native completion and independent review."),
+        ("use", "Create-once bootstrap probe claim bound to its actual parent process generation."),
+        ("native_result", "Bounded probe child execution and lifetime read accounting; no integration authority."),
+        ("result", "Native completed probe observations for review, never a qualification PASS."),
+        ("failure", "Retained probe failure that cannot reopen its spent namespace."),
+    )
+)
+
+QUALIFICATION_REGISTERED_SCHEMAS += tuple(
+    SchemaSpec(name, name + "_v1", "weather.operations.qualification.bootstrap_install", "active", description)
+    for name, description in (
+        ("qualification_bootstrap_install_only", "Pinned temporary-root marker that makes the shared primitive refuse all general invocations."),
+        ("qualification_bootstrap_install_envelope", "Separate owner-approved K-only first landing with exact evidence, source, configuration and invocation."),
+        ("qualification_bootstrap_install_review", "Directly reviewed off-host runs, dependency closure, cumulative diff and rollback."),
+        ("qualification_bootstrap_probe_review", "Independent acceptance of the exact completed native fixed-probe observation."),
+        ("qualification_bootstrap_install_boundary", "Read-only actual B/K/Q tree check inside the temporary guarded primitive."),
+        ("qualification_bootstrap_install_use", "Create-once installation authority claim; no ordinary retry."),
+        ("qualification_bootstrap_install_monitor", "Exact native monitor generation between adopted outer containment and guarded primitive."),
+        ("qualification_bootstrap_install_quiet_native", "Primitive-local zero-descendant and native accounting proof."),
+        ("qualification_bootstrap_install_native_result", "Continuous guarded-roll resource monitor and complete child teardown."),
+        ("qualification_bootstrap_install_result", "Acknowledged installation awaiting exact non-running task closeout; never a full-host-suite PASS."),
+        ("qualification_bootstrap_install_failure", "Conservative retained failure that may include a committed or published merge."),
+        ("qualification_bootstrap_install_close_use", "Create-once exact completed-task closeout claim; partial closeout requires review."),
+        ("qualification_bootstrap_installed_root", "Published K/policy identity and revoked bootstrap ID with proved exact task closure."),
+    )
+)

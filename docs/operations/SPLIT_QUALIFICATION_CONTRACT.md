@@ -386,6 +386,15 @@ policy/adapter/verifier closure and a single-use owner envelope. The host's real
 S4U probes and measured resource gate remain separate from hosted CI. A green
 workflow is not permission to invoke the new production lane.
 
+The temporary [first-landing probe adapter](BOOTSTRAP_QUALIFICATION_PROBES.md)
+runs only fixed disposable probes under independent direct byte review and
+adopted B admission/outer containment. Its observations cannot replace code
+qualification, host acceptance, the complete owner envelope or guarded
+installation. The separate [guarded first-landing installer](BOOTSTRAP_QUALIFICATION_INSTALLATION.md)
+consumes that explicit owner envelope, reuses the existing guarded primitive,
+and records K/policy only after acknowledged publication and exact task closeout.
+It cannot issue an ordinary v2 qualification or a v1 full-host-suite PASS.
+
 ## Update when
 
 Update when a record, trust boundary, native resource/teardown mechanism, input

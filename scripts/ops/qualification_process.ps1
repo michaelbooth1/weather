@@ -127,7 +127,7 @@ function Invoke-WeatherQualificationProcess {
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string]$Transcript,
         [Parameter(Mandatory = $true)][DateTimeOffset]$DeadlineUtc,
-        [Parameter(Mandatory = $true)][ValidateRange(1, 1200)][int]$MaximumSeconds,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 2700)][int]$MaximumSeconds,
         [Parameter(Mandatory = $true)][ValidateRange(1, 120)][int]$TeardownSeconds,
         [Parameter(Mandatory = $true)][UInt64]$CommitBytes,
         [Parameter(Mandatory = $true)][UInt64]$WorkingSetBytes,
@@ -135,12 +135,23 @@ function Invoke-WeatherQualificationProcess {
         [Parameter(Mandatory = $true)][string[]]$VolumePaths,
         [Parameter(Mandatory = $true)][UInt64]$MinimumDiskBytes,
         [UInt64]$ReservedScratchBytes = 0,
+        [UInt64]$MaximumReadBytes = 0,
         [ValidateSet('offhost', 'capture_s4u')][string]$ResourceMode = 'offhost',
         [string]$ProductionRoot,
-        [object[]]$CaptureBindings = @()
+        [object[]]$CaptureBindings = @(),
+        [switch]$GuardedCaptureReadoption
     )
     # Native tests may exercise this mechanism off-host. The production entry
     # point must supply capture_s4u; this helper never produces acceptance PASS.
+    # Only an independently authorized guarded merge owns capture readoption.
+    # This primitive grants no mutation authority; all resource limits remain
+    # continuous while its guarded child proves recovery before commit/push.
+    if ($GuardedCaptureReadoption -and $ResourceMode -cne 'capture_s4u') {
+        throw 'Guarded readoption requires the complete capture-host resource policy'
+    }
+    if ($MaximumSeconds -gt 1200 -and -not $GuardedCaptureReadoption) {
+        throw 'Only a guarded readoption monitor may exceed the metadata/audit wall cap'
+    }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $remaining = ($DeadlineUtc.UtcDateTime - [DateTime]::UtcNow).TotalMilliseconds
     $totalMilliseconds = [Math]::Min($remaining, ($MaximumSeconds + $TeardownSeconds) * 1000)
@@ -174,6 +185,7 @@ function Invoke-WeatherQualificationProcess {
     $peakPrivate = $start.SampledPrivateBytes
     $peakWorking = $start.SampledWorkingSetBytes
     $peakCommit = $start.PeakCommitBytes
+    $readBytes = $start.ReadBytes
     $peakSystem = [double](100.0 * $system.CommittedBytes / $system.CommitLimitBytes)
     $maxSampleGap = 0
     $samples = 0
@@ -201,6 +213,10 @@ function Invoke-WeatherQualificationProcess {
             $peakPrivate = [Math]::Max($peakPrivate, $snapshot.SampledPrivateBytes)
             $peakWorking = [Math]::Max($peakWorking, $snapshot.SampledWorkingSetBytes)
             $peakCommit = [Math]::Max($peakCommit, $snapshot.PeakCommitBytes)
+            $readBytes = [Math]::Max($readBytes, $snapshot.ReadBytes)
+            if ($MaximumReadBytes -gt 0 -and $readBytes -gt $MaximumReadBytes) {
+                throw 'Native process-tree read budget exceeded'
+            }
             $percent = 100.0 * $system.CommittedBytes / $system.CommitLimitBytes
             $peakSystem = [Math]::Max($peakSystem, $percent)
             if ($snapshot.CommitLimitBytes -ne $CommitBytes -or $snapshot.NativeLimitExceeded -or
@@ -214,7 +230,7 @@ function Invoke-WeatherQualificationProcess {
             if ($now -ge $nextSlowSample) {
                 $disk = Assert-WeatherQualificationDisk -VolumePaths $VolumePaths -MinimumFreeBytes $MinimumDiskBytes
                 $minimumDisk = [Math]::Min($minimumDisk, $disk)
-                if ($ResourceMode -eq 'capture_s4u') { Assert-WeatherQualificationCapture -ProductionRoot $ProductionRoot -Bindings $CaptureBindings }
+                if ($ResourceMode -eq 'capture_s4u' -and -not $GuardedCaptureReadoption) { Assert-WeatherQualificationCapture -ProductionRoot $ProductionRoot -Bindings $CaptureBindings }
                 $nextSlowSample = $now + 1000
             }
             if ($child.Process.HasExited) { $exitCode = $child.Process.ExitCode; break }
@@ -233,10 +249,14 @@ function Invoke-WeatherQualificationProcess {
                     throw 'Descendant teardown is incomplete'
                 }
                 $teardown = $true
+                $readBytes = [Math]::Max($readBytes, $Envelope.Snapshot().ReadBytes)
                 if ($child) {
                     $remainingCapture = [Math]::Min($totalMilliseconds - $clock.ElapsedMilliseconds, ($DeadlineUtc.UtcDateTime - [DateTime]::UtcNow).TotalMilliseconds)
                     if ($remainingCapture -le 0 -or -not $child.WaitForCapture([int][Math]::Min(120000, $remainingCapture))) { throw 'Output EOF/flush not proved before deadline' }
                     if ($child.OutputExceeded -or $child.CaptureError) { throw 'Output retained with non-authorizing capture failure' }
+                }
+                if ($MaximumReadBytes -gt 0 -and $readBytes -gt $MaximumReadBytes) {
+                    throw 'Native process-tree read budget exceeded during teardown'
                 }
             }
             catch { $failure = $_.Exception.Message }

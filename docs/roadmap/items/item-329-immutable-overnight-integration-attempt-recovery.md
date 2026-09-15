@@ -1,5 +1,38 @@
 # 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
+## September 15 guarded-installer source increment
+
+[PR 70](https://github.com/michaelbooth1/weather/pull/70) adds the separate
+[guarded first-landing installer](../../operations/BOOTSTRAP_QUALIFICATION_INSTALLATION.md).
+It consumes an exact K-only owner envelope and independently reviewed completed
+probe evidence, retains B admission/domain authority, and connects the existing
+guarded primitive to complete B/K/Q mutation checks. Native containment covers
+the roll; uncertain commit/publication remains spent for reconciliation.
+Successful closeout records the installed policy root and disables only the
+two exact completed tasks.
+
+Closed-envelope, real-Git boundary and native refusal/containment tests run in
+hosted CI. Their exact revision/run results remain in the PR checks. This is
+source implementation, not an approved execution envelope, Scheduler
+registration, production adoption or host qualification. Final-source CI,
+independent review and the actual production acceptance below remain required.
+
+## September 15 probe-adapter source increment
+
+A separate source increment adds the bounded
+[first-landing probe adapter](../../operations/BOOTSTRAP_QUALIFICATION_PROBES.md),
+stacked on the split implementation at
+`7dda3847e094cde9384c2b331df5d4828db9d0c0`.
+It executes only the existing nine disposable control-plane probes under
+adopted admission and outer containment, with independently pinned startup
+files, native read limits, immutable attempt claims and non-authorizing
+result records. Hosted refusal, cleanup and probe-wiring tests cover this
+component; their exact source/run results remain in the PR checks.
+
+This is daytime source work. No adapter envelope has been approved for host
+execution, no task has been registered, and no first-landing installation or
+reliability adoption is claimed. The remaining acceptance below still applies.
+
 ## September 14 split qualification implementation
 
 The historical completion in this item's title is the adopted v1 workflow.

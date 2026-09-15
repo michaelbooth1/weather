@@ -31,6 +31,7 @@ namespace Weather.Operations
         public Int64 KernelTime100ns;
         public UInt32 ActiveProcesses;
         public UInt32 TotalProcesses;
+        public UInt64 ReadBytes;
     }
 
     public sealed class CapturedJobProcess : IDisposable
@@ -169,6 +170,13 @@ namespace Weather.Operations
             public UInt32 TotalProcesses;
             public UInt32 ActiveProcesses;
             public UInt32 TotalTerminatedProcesses;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION
+        {
+            public JOBOBJECT_BASIC_ACCOUNTING_INFORMATION BasicInfo;
+            public IO_COUNTERS IoInfo;
         }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -521,11 +529,14 @@ namespace Weather.Operations
             }
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = ReadJobInformation<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(9);
             JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting = ReadJobInformation<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(1);
+            // Include terminated readers and nested child jobs in the bound.
+            JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION io = ReadJobInformation<JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION>(8);
             BoundedJobSnapshot snapshot = new BoundedJobSnapshot {
                 ProcessIds = ProcessIds(), PeakCommitBytes = limits.PeakJobMemoryUsed.ToUInt64(),
                 CommitLimitBytes = limits.JobMemoryLimit.ToUInt64(), NativeLimitExceeded = nativeLimitExceeded,
                 UserTime100ns = accounting.TotalUserTime, KernelTime100ns = accounting.TotalKernelTime,
-                ActiveProcesses = accounting.ActiveProcesses, TotalProcesses = accounting.TotalProcesses
+                ActiveProcesses = accounting.ActiveProcesses, TotalProcesses = accounting.TotalProcesses,
+                ReadBytes = io.IoInfo.ReadTransferCount
             };
             // Native peak accounting retains refused allocation attempts on
             // supported Windows. Keep the raw counter; never clip it to the

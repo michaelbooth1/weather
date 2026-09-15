@@ -24,6 +24,8 @@ param(
     [string]$ExpectedBaseline = "",
     [string]$QualificationManifestPath = "",
     [string]$QualificationManifestSha256 = "",
+    [string]$BootstrapEnvelopePath = "",
+    [string]$BootstrapEnvelopeSha256 = "",
     [switch]$ProductionBaselineReconciliation,
     [string]$ExpectedLocalBaseline = "",
     [string]$ExpectedPublishedTarget = "",
@@ -43,23 +45,22 @@ $ErrorActionPreference = "Stop"
 $qualificationContext = $null
 $qualificationCommitAttempted = $false
 $qualificationPublishedCapture = $null
+$bootstrapInstallation = -not [string]::IsNullOrWhiteSpace($BootstrapEnvelopePath)
+if ($bootstrapInstallation -ne (-not [string]::IsNullOrWhiteSpace($BootstrapEnvelopeSha256)) -or
+    ($bootstrapInstallation -and ($QualificationManifestPath -or $QualificationManifestSha256 -or
+     $BootstrapEnvelopeSha256 -cnotmatch '^[0-9a-f]{64}$' -or -not $AttemptReportPath))) {
+    throw 'First landing requires its separate exact envelope and report; generic v2 attempts are forbidden'
+}
+if ($bootstrapInstallation) {
+    $QualificationManifestPath = $BootstrapEnvelopePath
+    $QualificationManifestSha256 = $BootstrapEnvelopeSha256
+}
 $splitQualification = -not [string]::IsNullOrWhiteSpace($QualificationManifestPath)
 if ($splitQualification -ne (-not [string]::IsNullOrWhiteSpace($QualificationManifestSha256)) -or
     ($splitQualification -and ($QualificationManifestSha256 -cnotmatch '^[0-9a-f]{64}$' -or
       $ExpectedTip -cnotmatch '^[0-9a-f]{40}$' -or $ExpectedBaseline -cnotmatch '^[0-9a-f]{40}$' -or
       -not $ExpectedSelfSha256 -or $Force -or $DryRun -or $OwnerApprovedException -or $ProductionBaselineReconciliation))) {
     throw 'Split qualification requires an exact manifest/source/baseline/self binding without override modes'
-}
-if ($splitQualification) {
-    . (Join-Path $PSScriptRoot 'integration_attempt_contract.ps1')
-    . (Join-Path $PSScriptRoot 'qualification_host_contract.ps1')
-    . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
-    . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
-    . (Join-Path $PSScriptRoot 'qualification_process.ps1')
-    . (Join-Path $PSScriptRoot 'qualification_merge_contract.ps1')
-    # Preserve the primitive's historical optional-property handling. The
-    # split readers enforce their exact data schemas independently.
-    Set-StrictMode -Off
 }
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
@@ -70,6 +71,30 @@ if ($ExpectedSelfSha256) {
     if ($actualSelfSha256 -ne $ExpectedSelfSha256) {
         throw "quiet-window merge script changed after its caller froze the launch contract"
     }
+}
+$bootstrapOnlyMarker = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'bootstrap-install-only.json'
+if ((Test-Path -LiteralPath $bootstrapOnlyMarker -PathType Leaf) -and -not $bootstrapInstallation) {
+    throw 'This temporary guarded primitive is bootstrap-only; ordinary v2 and legacy invocations are forbidden'
+}
+if ($bootstrapInstallation) {
+    # The native parent independently pins and locks this entire temporary
+    # closure before startup. Only the fixed bootstrap contract is evaluated.
+    . (Join-Path $PSScriptRoot 'qualification_bootstrap_install_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
+    . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_process.ps1')
+    Set-StrictMode -Off
+}
+elseif ($splitQualification) {
+    . (Join-Path $PSScriptRoot 'integration_attempt_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
+    . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_process.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_merge_contract.ps1')
+    # Preserve the primitive's historical optional-property handling. The
+    # split readers enforce their exact data schemas independently.
+    Set-StrictMode -Off
 }
 $repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $py = Join-Path $repo "venv\Scripts\python.exe"
@@ -91,7 +116,18 @@ if ($OwnerApprovedException) {
     }
 }
 else {
-    $workloadLeaseScript = if ($splitQualification) { Join-Path $PSScriptRoot 'workload_admission.ps1' }
+    $workloadLeaseScript = if ($bootstrapInstallation) {
+        # B supplies the strict reader below; the enclosing pinned parent has
+        # already locked and validated this exact envelope and B copy.
+        $bootstrapRaw = [IO.File]::ReadAllBytes($BootstrapEnvelopePath)
+        if ($bootstrapRaw.Length -lt 1 -or $bootstrapRaw.Length -gt 2097152) { throw 'Bootstrap envelope exceeds bound' }
+        $bootstrapHasher = [Security.Cryptography.SHA256]::Create()
+        try { $bootstrapHash = -join ($bootstrapHasher.ComputeHash($bootstrapRaw) | ForEach-Object { $_.ToString('x2') }) }
+        finally { $bootstrapHasher.Dispose() }
+        if ($bootstrapHash -cne $BootstrapEnvelopeSha256) { throw 'Bootstrap envelope changed before B reader loading' }
+        $bootstrapNativeValue = [Text.UTF8Encoding]::new($false,$true).GetString($bootstrapRaw) | ConvertFrom-Json
+        Join-Path $bootstrapNativeValue.baseline_control.root 'scripts/ops/workload_admission.ps1'
+    } elseif ($splitQualification) { Join-Path $PSScriptRoot 'workload_admission.ps1' }
                            else { Join-Path $repo "scripts\ops\workload_admission.ps1" }
 }
 if ($ProductionBaselineReconciliation.IsPresent) {
@@ -134,6 +170,7 @@ $productionBaselineReconciliationMode = $ProductionBaselineReconciliation.IsPres
 $reconciliationModeName = if ($productionBaselineReconciliationMode) {
     "production_baseline_reconciliation_v0.1"
 }
+elseif ($bootstrapInstallation) { 'bootstrap_installation_v1' }
 elseif ($splitQualification) { 'split_qualification_v2' }
 else { "ordinary_synchronized_merge_v0.1" }
 $reconciliationActualPreMerge = $null
@@ -277,7 +314,7 @@ function Save-Report($ok, $stage, $detail) {
         stage = $stage; detail = $detail; log = @($log)
     }
     if ($splitQualification) {
-        $record['split_qualification'] = [ordered]@{
+        $record[$(if ($bootstrapInstallation) { 'bootstrap_installation' } else { 'split_qualification' })] = [ordered]@{
             manifest_path = $QualificationManifestPath; manifest_sha256 = $QualificationManifestSha256
             commit_invocation_started = $qualificationCommitAttempted
             published_boundary = $(if ($qualificationPublishedCapture) { Get-WeatherQualificationReference -Root $qualificationContext.State.Contract.AttemptRoot -Name 'merge-work/published/boundary.json' } else { $null })
@@ -420,6 +457,12 @@ function Write-QuietMergeMarker {
         -not $reconciliationPostCommitMarkerArmed) {
         $reconciliationBootGuardCommit
     }
+    elseif ($bootstrapInstallation -and $qualificationCommitAttempted -and -not $mergeCommit) {
+        # B's existing boot guard will abort MERGE_HEAD, but cannot hard-reset
+        # an ambiguous committed tree to K: K is proved not to be a config-only
+        # child of B. The real preparation parent stays in the bootstrap data.
+        $ExpectedTip
+    }
     else { $preMerge }
     $marker = [ordered]@{
         schema = "quiet_window_merge_in_progress_v0.1"
@@ -496,8 +539,9 @@ function Write-QuietMergeMarker {
         reconciliation_config_content_sha256 = $rollbackContentSha256
     }
     if ($splitQualification) {
-        $marker['qualification'] = [ordered]@{ manifest_path = $QualificationManifestPath
-            manifest_sha256 = $QualificationManifestSha256; commit_invocation_started = $qualificationCommitAttempted }
+        $marker[$(if ($bootstrapInstallation) { 'bootstrap_installation' } else { 'qualification' })] = [ordered]@{
+            manifest_path = $QualificationManifestPath; manifest_sha256 = $QualificationManifestSha256
+            commit_invocation_started = $qualificationCommitAttempted; prepared_baseline = $preMerge }
     }
     if ($productionBaselineReconciliationMode) {
         if ($reconciliationPostCommitMarkerArmed) {
@@ -3292,17 +3336,32 @@ if (-not $ownerProtectedWindowException -and $h -ge 12 -and $h -lt 18) {
 if (-not $ownerProtectedWindowException -and ($h -ge 18 -or $h -lt 0.5)) {
     Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h)
 }
+$workloadLease = $null
+if (-not $bootstrapInstallation) {
 $workloadLease = Enter-WeatherHeavyWorkloadLease `
     -RepoRoot $repo `
     -Workload "quiet_window_merge" `
     -OwnerApprovedException $OwnerApprovedException
 if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+}
+# First landing's independently verified outer parent owns B's one shared
+# lease until the complete monitor/primitive child tree is proved absent.
 try {
 
 if ($splitQualification) {
+    if ($bootstrapInstallation) {
+        $qualificationContext = Initialize-WeatherBootstrapInstallMerge -ManifestPath $BootstrapEnvelopePath `
+            -ManifestSha256 $BootstrapEnvelopeSha256 -ProductionRoot $repo -Source $ExpectedTip `
+            -Baseline $ExpectedBaseline -SelfPath $PSCommandPath
+        if ($Branch -cne [string]$qualificationContext.Value.branch_ref -or
+            [IO.Path]::GetFullPath($AttemptReportPath) -ine (Join-Path $qualificationContext.Root 'install-work/quiet-report.json')) {
+            throw 'First-landing branch/report differs from the exact envelope'
+        }
+    } else {
     $qualificationContext = Initialize-WeatherQualificationMerge -ManifestPath $QualificationManifestPath `
         -ManifestSha256 $QualificationManifestSha256 -ProductionRoot $repo -Source $ExpectedTip `
         -Baseline $ExpectedBaseline -SelfPath $PSCommandPath
+    }
     Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase prepare -PreparedBaseline $ExpectedBaseline | Out-Null
     $py = Join-Path $qualificationContext.State.Profile.tools.python.root $qualificationContext.State.Profile.tools.python.path
     function git {
@@ -4207,7 +4266,9 @@ exit 0
 }
 finally {
     if ($qualificationContext) {
-        if (Close-WeatherQualificationMerge -Context $qualificationContext -Lease $workloadLease) {
+        if ($bootstrapInstallation) {
+            Close-WeatherBootstrapInstallMerge -Context $qualificationContext
+        } elseif (Close-WeatherQualificationMerge -Context $qualificationContext -Lease $workloadLease) {
             Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
         }
     } else { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
