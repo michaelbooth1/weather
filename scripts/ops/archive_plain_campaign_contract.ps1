@@ -44,7 +44,7 @@ function Assert-WeatherPlainLiteralPath {
 
 function Assert-WeatherPlainConfiguration {
  param($Config)
- if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-2026091[34]-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
+ if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-2026091[346]-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
  if($Config.source_tip -cnotmatch '^[a-f0-9]{40}$' -or $Config.workstation_source_tip -cnotmatch '^[a-f0-9]{40}$'){throw 'Invalid source binding'}
  foreach($key in @('execution_host_id','backup_execution_host_id','known_hosts_sha256','initial_progress_sha256')){
   if($Config.$key -cnotmatch '^[a-f0-9]{64}$'){throw ('Invalid digest: '+$key)}
@@ -54,6 +54,33 @@ function Assert-WeatherPlainConfiguration {
  }
  if([IO.Path]::GetFullPath($Config.production_root) -ieq [IO.Path]::GetFullPath($Config.workstation_root) -or $Config.execution_host_id -ceq $Config.backup_execution_host_id){throw 'Archive host roles overlap'}
  if($Config.remote_host -cnotmatch '^192\.168\.1\.[0-9]{1,3}$' -or $Config.remote_user -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{0,31}$' -or $Config.drive_remote_name -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,63}$' -or $Config.drive_root_folder_id -cnotmatch '^[A-Za-z0-9_-]{10,128}$'){throw 'Invalid fixed transport identity'}
+ if($Config.campaign_id -ceq 'plain-20260916-cap150'){
+  if($Config.start_utc -cne '2026-09-16T04:30:00Z' -or $Config.end_utc -cne '2026-09-16T08:42:00Z' -or $Config.expires_at_utc -cne $Config.end_utc){throw 'Capacity campaign date/window differs'}
+  if($Config.approved_at_utc -cne '2026-09-15T23:17:20.425091Z' -or [DateTimeOffset]::Parse($Config.approved_at_utc) -gt [DateTimeOffset]::UtcNow){throw 'Capacity owner approval differs'}
+  if([long]$Config.target_bytes -ne 150000000000 -or [long]$Config.initial_archive_headroom_bytes -ne 30GB){throw 'Capacity target or initial reserve differs'}
+  foreach($key in @('owner_approval','proposal','selection','plan','current_owner_approval','disk_exception')){
+   $null=Assert-WeatherPlainLiteralPath $Config.$key.path
+   if($Config.$key.sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Capacity metadata binding missing'}
+  }
+  if($Config.owner_approval.sha256 -cne '0bae773d078f4ad2a0ee3f537a75fb8e5b6a0253da74476f4452f4b09c12d66e' -or
+     $Config.proposal.sha256 -cne '5d47113237e50854b4c73cdc089b19e56b5ed8402c5d42622d7f39201c0d9c4c' -or
+     $Config.plan.sha256 -cne 'bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027' -or
+     $Config.selection.sha256 -cne 'ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214' -or
+     $Config.current_owner_approval.sha256 -cne '2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5'){throw 'Capacity campaign approval scope differs'}
+  if($Config.execution_host_id -cne '6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7' -or
+     $Config.backup_execution_host_id -cne 'a740ee7dc03165b0c88094f8b313aa6676f0984b30737ec5bcd9f723709fe5dc' -or
+     $Config.drive_root_folder_id -cne '1-HZZb9QuRB1AlK9UYSWB_JdeUabhza9H'){throw 'Capacity host or private destination differs'}
+  $ids=@{}
+  if(@($Config.queue).Count -ne 56){throw 'Capacity queue cardinality differs'}
+  foreach($row in $Config.queue){
+   if($row.chunk_id -cnotmatch '^chunk-000[0-5][0-9]$'){throw 'Capacity chunk differs'}
+   $number=[int]$row.chunk_id.Substring(6)
+   if($number -gt 55 -or $ids.ContainsKey($row.chunk_id) -or $row.archive_id -cne ('p16m'+$row.chunk_id.Substring(6)) -or $row.start_at -cne 'stage'){throw 'Capacity queue identity or resume differs'}
+   $ids[$row.chunk_id]=$true
+  }
+  if($Config.initial_progress_sha256 -cne ('0'*64)){throw 'Capacity campaign must begin with an absent progress ledger'}
+  return $Config
+ }
  $immediate=$Config.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
  $start=if($immediate){'2026-09-13T22:46:00Z'}else{'2026-09-14T04:30:00Z'}
  $end=if($immediate){'2026-09-14T04:30:00Z'}else{'2026-09-14T08:42:00Z'}
@@ -106,3 +133,4 @@ function Assert-WeatherPlainUpload {
  $age=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($Upload.completed_at_utc)).TotalHours
  if($age -lt 0 -or $age -ge 24){throw 'Independent download proof is stale or future-dated'}
 }
+

@@ -83,14 +83,21 @@ finally {
    $receipt.canonical_progress_sha256=$progress.Sha256
    $receipt.canonical_progress_status=$progress.Value.status
    $receipt.canonical_total_original_reclaimed_bytes=$progress.Value.reclaimed_allocated_bytes
-   if($progress.Value.status -ceq 'READY' -and $progress.Value.owner_approval_sha256 -ceq $c.owner_approval.sha256 -and [long]$progress.Value.reclaimed_allocated_bytes -ge 79105806336 -and [long]$progress.Value.deleted_files -ge 1679){
-    $receipt.verified_new_original_reclaimed_bytes=[long]$progress.Value.reclaimed_allocated_bytes-79105806336
-    $receipt.verified_new_original_deleted_files=[long]$progress.Value.deleted_files-1679
+   $baselineBytes=79105806336;$baselineFiles=1679
+   if($c.campaign_id -ceq 'plain-20260916-cap150'){$baselineBytes=0;$baselineFiles=0}
+   if($progress.Value.status -ceq 'READY' -and $progress.Value.owner_approval_sha256 -ceq $c.owner_approval.sha256 -and [long]$progress.Value.reclaimed_allocated_bytes -ge $baselineBytes -and [long]$progress.Value.deleted_files -ge $baselineFiles){
+    $receipt.verified_new_original_reclaimed_bytes=[long]$progress.Value.reclaimed_allocated_bytes-$baselineBytes
+    $receipt.verified_new_original_deleted_files=[long]$progress.Value.deleted_files-$baselineFiles
    }
-  }catch {$receipt.progress_error=$_.Exception.Message}
+  }catch {
+   if($c.campaign_id -ceq 'plain-20260916-cap150' -and $PreflightOnly -and -not(Test-Path -LiteralPath $c.progress_path)){
+    $receipt.verified_new_original_reclaimed_bytes=0;$receipt.verified_new_original_deleted_files=0
+   }else{$receipt.progress_error=$_.Exception.Message}
+  }
   $receipt.completed_at_utc=[DateTime]::UtcNow.ToString('o')
   if(Test-Path -LiteralPath $outputRoot -PathType Container){$null=Write-WeatherPlainNew (Join-Path $outputRoot 'wrapper-result.json') $receipt 65536}
  }
 }
 $receipt|ConvertTo-Json -Depth 8 -Compress
 exit $exitCode
+

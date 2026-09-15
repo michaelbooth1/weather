@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import time
 from zoneinfo import ZoneInfo
 
@@ -194,7 +195,54 @@ def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exce
                 or plan.get("selection_sha256") != OVERNIGHT_SELECTION_SHA256):
             raise ValueError("daytime archive authority requires the exact approved plan and selection")
         reserve = OVERNIGHT_RESERVE_BYTES
+    exception_path = os.environ.get(ENV_PREFIX + "DISK_EXCEPTION_PATH", "")
+    if exception_path:
+        reserve = capacity_recovery_reserve(
+            Path(exception_path), os.environ.get(ENV_PREFIX + "DISK_EXCEPTION_SHA256", ""),
+            plan, expected_hash, current, deadline)
     return plan, reserve
+
+def capacity_recovery_reserve(path, digest, plan, plan_digest, now, deadline):
+    """One owner-approved disk exception; ordinary time and lease gates still apply."""
+    record, _ = _read_pinned_json(path, 16384, digest)
+    required = {"schema", "owner_approval", "source_git_sha", "execution_host_id",
+                "production_root", "plan_sha256", "selection_sha256", "expires_at_utc",
+                "hard_reserve_bytes", "output_cap_bytes", "capture_bytes_per_second"}
+    if set(record) != required or record["schema"] != "capacity_disk_exception_v1":
+        raise ValueError("invalid capacity disk exception record")
+    if (record["plan_sha256"] != plan_digest or plan_digest !=
+            "bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027"
+            or record["selection_sha256"] != plan.get("selection_sha256")
+            or record["selection_sha256"] !=
+            "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214"):
+        raise ValueError("capacity exception is outside the exact approved selection")
+    for key, suffix in (("source_git_sha", "SOURCE_SHA"),
+                        ("execution_host_id", "EXECUTION_HOST_ID"),
+                        ("production_root", "PRODUCTION_ROOT")):
+        if not record[key] or record[key] != os.environ.get(ENV_PREFIX + suffix):
+            raise ValueError("capacity exception host/source binding differs")
+    approval = record["owner_approval"]
+    if approval.get("sha256") != "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5":
+        raise ValueError("capacity exception requires the post-denial owner approval")
+    authority, _ = _read_pinned_json(Path(approval["path"]), 16384, approval["sha256"])
+    if authority.get("post_denial_approval") is not True or authority.get("archive_selection_sha256") != record["selection_sha256"]:
+        raise ValueError("capacity owner authority differs")
+    start = datetime(2026, 9, 16, 4, 30, tzinfo=timezone.utc)
+    expiry = datetime(2026, 9, 16, 13, tzinfo=timezone.utc)
+    if (record["expires_at_utc"] != "2026-09-16T13:00:00Z" or not start <= now < expiry
+            or deadline is None or not now < deadline <= expiry - timedelta(seconds=15)
+            or (deadline - now).total_seconds() > MAX_SECONDS):
+        raise ValueError("capacity disk exception is expired or its deadline is unbounded")
+    if (record["hard_reserve_bytes"] != 25 * GIB or record["output_cap_bytes"] != 2 * GIB
+            or record["capture_bytes_per_second"] != 1024**2):
+        raise ValueError("capacity disk exception bounds differ")
+    # Normal admission resumes once its full output reservation fits.
+    if shutil.disk_usage(record["production_root"]).free >= SOURCE_RESERVE_BYTES + 2 * GIB:
+        return SOURCE_RESERVE_BYTES
+    # Fixed reserve includes all capped output and capture growth for the maximum
+    # five-minute child. The archive writer separately bounds its <=1 GiB chunk.
+    return 25 * GIB + 2 * GIB + MAX_SECONDS * 1024**2
+
 
 
 def verify_archive_exception(lease, now, *, exception=None):
@@ -376,3 +424,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
