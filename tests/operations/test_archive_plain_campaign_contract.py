@@ -203,6 +203,7 @@ def capacity_config():
     }
     for key, digest in bindings.items():
         value[key] = {"path": "C:/fixture/"+key+".json", "sha256": digest}
+    value["capacity"]["source_tip"] = value["source_tip"]
     value["queue"] = [
         {"archive_id": f"p16m{n:05}", "chunk_id": f"chunk-{n:05}", "start_at": "stage"}
         for n in range(56)

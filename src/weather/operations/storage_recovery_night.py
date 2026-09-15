@@ -75,6 +75,7 @@ class NightRunner:
         self.admission = admission or (lambda: observe_capture_admission(self.root, night_resources))
         self.deadline = contract.segment_times(datetime.fromisoformat(plan["night_date"]).date(), segment)[1]
         self.baseline, self.baseline_bytes = contract.read_baseline(plan)
+        self.selected_capacity_files = contract.capacity_selection(plan)
         self.rows, self.pending, self.reconcile_rows = [], None, []
         self.group_index = self.attempts = self.recoveries = self.input_bytes = self.output_bytes = 0
         self.completed_groups, self.events = [], []
@@ -348,7 +349,8 @@ class NightRunner:
             self.verify_pending(context, manifest)
             # The scheduled gzip jobs may replace their original paths in the
             # 04:45-06:45 gap. Leave those filenames exclusively to their owner.
-            planning_manifest = {**manifest, "files": [row for row in manifest["files"]
+            allowed_manifest = contract.restrict_capacity_inventory(manifest, self.selected_capacity_files)
+            planning_manifest = {**allowed_manifest, "files": [row for row in allowed_manifest["files"]
                 if row["path"].rsplit("/", 1)[-1].casefold() not in contract.SCHEDULED_TIERING_FILENAMES]}
             try:
                 pilot_plan = planner.prepare(planning_manifest, context, production_root=self.root,
@@ -413,7 +415,7 @@ class NightRunner:
         saved = self.baseline_bytes + sum(r["allocation_saving_bytes"] for r in self.rows)
         return (not self.pending and not self.reconcile_rows
                 and saved >= self.plan["target_new_reclaimed_bytes"]
-                and shutil.disk_usage(self.root).free >= self.plan["target_free_disk_bytes"])
+                and shutil.disk_usage(self.root).free >= contract.capacity_free_target(self.plan, self.segment))
 
     def run(self):
         status, error = "CANDIDATES_EXHAUSTED", None
@@ -455,6 +457,8 @@ class NightRunner:
             "verified_ledger_sha256": ledger_sha, "pending": self.pending, "reconcile_rows": self.reconcile_rows,
             "unverified_files": None if status == "BLOCKED" else int(self.pending is not None),
             "free_disk_bytes": shutil.disk_usage(self.root).free, "target_met": self.target_met(),
+            "segment_target_free_disk_bytes": contract.capacity_free_target(self.plan, self.segment),
+            "overall_target_free_disk_bytes": self.plan["target_free_disk_bytes"],
             "final_admission": self.last_admission,
             "excluded_scheduled_tiering_filenames": sorted(contract.SCHEDULED_TIERING_FILENAMES),
             "deleted_files": 0, "cleanup_eligible": False,
@@ -488,10 +492,12 @@ def main(argv=None):
             if output.name != "preflight" or os.environ.get(contract.ENV + "PREFLIGHT") != "1":
                 raise ValueError("preflight is not bound to the wrapper's read-only mode")
             rows, total = contract.read_baseline(plan)
+            selected = contract.capacity_selection(plan)
             result = {"schema_version": schema_version("storage_recovery_night_receipt"), "status": "PREFLIGHT_PASS",
                       "plan_sha256": args.plan_sha256, "source_git_sha": args.source_git_sha,
                       "execution_host_id": plan["execution_host_id"], "verified_baseline_files": len(rows),
                       "verified_baseline_reclaimed_bytes": total, "groups": len(plan["groups"]),
+                      "selected_capacity_files": None if selected is None else len(selected),
                       "source_payload_bytes_read": 0, "source_files_changed": 0, "deleted_files": 0,
                       "cleanup_eligible": False}
             contract.write_json(output / "result.json", result)
@@ -511,3 +517,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

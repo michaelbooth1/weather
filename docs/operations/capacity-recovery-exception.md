@@ -17,3 +17,9 @@ The fresh `plain-20260916-cap150` campaign begins at 00:30 and ends absolutely a
 A metadata-only S4U preflight must pass before registration of the payload task. A failed or interrupted attempt is retained and must be reconciled before another attempt. Do not reuse an old progress ledger or spent staging identity. No late campaign is armed by this registrar. Further compress-and-retain work uses its existing independently qualified lane and must not overlap this campaign.
 
 Update this document when the exception arguments, date, exact selection, reserve calculation or scheduled continuation contract changes.
+
+## Compression prerequisite and continuation
+
+If early free space is below 55 GiB, the archive campaign first runs the bounded retained-file night controller. Its dated plan reads the hash-bound local selection and uses only groups 7 onward: 8,754 untouched paths, with every held archive path excluded. A fresh complete inventory must still match each selected file's native identity, size and modification time. Already-compressed paths supply no new authority or credit. The first seven groups, including earlier interrupted attempts, remain excluded.
+
+The early compression segment stops at 55 GiB of actual free volume; its overall target remains 150 GB. The late segment resumes the same verified ledger and targets 150 GB, with its existing 08:55 absolute stop. `register_storage_recovery_night.ps1 -OnlySegment late` arms only that continuation, avoiding a duplicate early trigger while the archive campaign owns the early conditional dispatch. Preflight registration still uses the full plan. Late qualification and audit must remain unarmed while the storage continuation owns the late window.

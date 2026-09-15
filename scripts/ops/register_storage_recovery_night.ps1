@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][string]$PlanPath,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$PlanSha256,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [ValidateSet('both','early','late')][string]$OnlySegment = 'both'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
@@ -19,6 +20,8 @@ Assert-WeatherNightDirectory $nightRoot
 $early = Get-WeatherNightTimes $plan 'early'
 if ([DateTime]::UtcNow.AddMinutes(5) -ge $early.Start) { throw 'register at least five minutes before the night' }
 $mode = 'segments'
+if ($OnlySegment -ne 'both') { $mode += '-' + $OnlySegment }
+if ($PreflightOnly -and $OnlySegment -ne 'both') { throw 'Preflight must use the complete immutable plan' }
 if ($PreflightOnly) { $mode = 'preflight' }
 $registrationRoot = Join-Path $nightRoot ('registration-' + $mode)
 if (Test-Path -LiteralPath $registrationRoot) { throw 'spent registration namespace' }
@@ -56,6 +59,7 @@ if (-not $PreflightOnly) {
         ([DateTimeOffset]::Parse($wrapper.started_at_utc).UtcDateTime - $preflightInfo.LastRunTime.ToUniversalTime()).Duration().TotalSeconds -gt 60) { throw 'S4U preflight has not closed successfully' }
 }
 $segments = @('early','late')
+if ($OnlySegment -ne 'both') { $segments = @($OnlySegment) }
 if ($PreflightOnly) { $segments = @('preflight') }
 foreach ($segment in $segments) {
     $name = 'WeatherStorageRecovery-' + $plan.plan_id + '-' + $segment
@@ -120,3 +124,4 @@ foreach ($segment in $segments) {
     }
     Write-Output ('Registered and verified ' + $name + ' at ' + $at.ToString('o'))
 }
+

@@ -224,3 +224,68 @@ def read_baseline(plan):
             or ledger.get("deleted_files") != 0 or ledger.get("cleanup_eligible") is not False):
         raise ValueError("baseline is incomplete or inconsistent")
     return rows, total
+
+
+# This continuation uses only untouched groups from the retained exact selection.
+CAPACITY_PLAN_ID = "capacity-20260916-cap150"
+CAPACITY_SELECTION_SHA = "721dd300298d00397906e8ebc703150d519aa30077a2d0a9b6faa636f7ae9eed"
+
+
+def capacity_selection(plan):
+    if plan["plan_id"] != CAPACITY_PLAN_ID:
+        return None
+    root = Path(plan["production_repo_root"])
+    selected, _ = read_json(
+        root / "scratch/handoffs/local-retained-capacity-selection-20260914-a1.json",
+        8*MIB, CAPACITY_SELECTION_SHA)
+    authority, _ = read_json(
+        root / "scratch/handoffs/capacity-150gb-20260915-owner-approval-a1.json", 16384,
+        "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5")
+    if (authority.get("temporary_disk_exception_authorized") is not True
+            or selected.get("schema_version") != "local_retained_capacity_selection_v1"
+            or selected.get("execution_host_id") != plan["execution_host_id"]
+            or selected.get("archive_selection_excluded_sha256") !=
+            "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214"
+            or selected.get("excluded_archive_paths") != 1066):
+        raise ValueError("capacity selection or current owner binding differs")
+    groups = selected.get("groups")
+    if not isinstance(groups, list) or len(groups) != 62:
+        raise ValueError("capacity selection group inventory differs")
+    rows = [row for group in groups[7:] for row in group["files"]]
+    if len(rows) != 8754:
+        raise ValueError("capacity untouched selection cardinality differs")
+    allowed = {}
+    for row in rows:
+        name = row["path"].casefold()
+        if name in allowed:
+            raise ValueError("duplicate capacity selected path")
+        allowed[name] = row
+    planned = {folder.casefold() for group in plan["groups"] for folder in group["folders"]}
+    eligible = {"/".join(name.split("/")[:2]) for name in allowed}
+    if not planned <= eligible:
+        raise ValueError("capacity folder is outside untouched selected groups")
+    return allowed
+
+
+def restrict_capacity_inventory(manifest, selected):
+    if selected is None:
+        return manifest
+    rows = []
+    for row in manifest["files"]:
+        prior = selected.get(row["path"].casefold())
+        if prior is None:
+            continue
+        # Already-compressed files supply no new authority or savings.
+        if int(row["attributes"]) & 2048:
+            continue
+        for key in ("device", "file_id", "mtime_ns", "size_bytes"):
+            if native_integer(row[key]) != native_integer(prior[key]):
+                raise ValueError("capacity selected native identity or content metadata changed")
+        rows.append(row)
+    return {**manifest, "files": rows}
+
+
+def capacity_free_target(plan, segment):
+    if plan["plan_id"] == CAPACITY_PLAN_ID and segment == "early":
+        return 55 * GIB
+    return plan["target_free_disk_bytes"]

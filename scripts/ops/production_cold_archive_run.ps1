@@ -181,6 +181,7 @@ if ($isTransfer) {
     if ($Operation -eq 'publish') { $receipt.upload_performed = $false; $receipt.upload_state = 'NOT_PERFORMED' }
 }
 try {
+    # Identity, time and live lease precede even create-only attempt evidence.
     if ([bool]$DiskExceptionPath -ne [bool]$DiskExceptionSha256) { throw 'Disk exception requires path and digest' }
     if ($DiskExceptionPath) {
         $diskInfo=Get-Item -LiteralPath $DiskExceptionPath -Force
@@ -190,7 +191,6 @@ try {
             throw 'Disk exception identity differs'
         }
     }
-    # Identity, time and live lease precede even create-only attempt evidence.
     $null = New-Item -ItemType Directory -Path $OutputRoot
     $env:PYTHONPATH = Join-Path $sourceRoot 'src'
     $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT = $sourceRoot

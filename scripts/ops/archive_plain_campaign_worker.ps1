@@ -174,22 +174,22 @@ try {
   }
   if($row.start_at -ceq 'stage' -and (Test-Path -LiteralPath (Join-Path $root ('scratch/production_cold_archive/'+$row.archive_id+'s1')))){throw 'Queued stage was already used'}
  }
- if(-not $capacity150){
  $capacity=Read-WeatherPlainMetadata $c.capacity.plan_path $c.capacity.plan_sha256 262144
  Assert-WeatherPlainSource $c.capacity.source_root $c.capacity.source_tip
- if($PreflightOnly -and -not $immediate){
+ if($capacity150 -and ($capacity.Value.plan_id -cne 'capacity-20260916-cap150' -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
+ if($PreflightOnly -and -not $immediate -and -not $capacity150){
   Run-Child 'capacity-metadata-preflight' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early','-PreflightOnly') 75
  }
  $capacityPreflight=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'preflight/wrapper-result.json') '' 65536).Value
  if($capacityPreflight.status -cne 'PASS' -or $capacityPreflight.child_status -cne 'PREFLIGHT_PASS' -or $capacityPreflight.teardown_proved -ne $true -or $capacityPreflight.plan_sha256 -cne $c.capacity.plan_sha256 -or $capacityPreflight.source_git_sha -cne $c.capacity.source_tip -or $capacityPreflight.deleted_files -ne 0){throw 'Conditional capacity lacks matching metadata preflight'}
- }
  Remote-Command 'workstation-connectivity' @('git','-C',$c.workstation_root,'rev-parse','--verify','HEAD') 20
  if($PreflightOnly){$status='PREFLIGHT_PASS'}
  else {
   if(-not(Test-WeatherPlainStartWindow $c -GraceSeconds 50)){throw 'Campaign missed its approved start window'}
   $free=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace
-  if($free -lt [long]$c.initial_archive_headroom_bytes){
-   if($immediate -or $capacity150){throw 'Immediate archive headroom is unavailable; no daytime compression is authorized'}
+  $bridgeTarget=if($capacity150){55GB}else{[long]$c.initial_archive_headroom_bytes}
+  if($free -lt $bridgeTarget){
+   if($immediate){throw 'Immediate archive headroom is unavailable; no daytime compression is authorized'}
    Run-Child 'conditional-retained-compression' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early') ([int]([Math]::Floor(($deadline-[DateTime]::UtcNow).TotalSeconds)-20))
    $capacityResult=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'early/wrapper-result.json') '' 2097152).Value
    if($capacityResult.status -cne 'PASS' -or $capacityResult.teardown_proved -ne $true -or $capacityResult.deleted_files -ne 0 -or $capacityResult.plan_sha256 -cne $c.capacity.plan_sha256){throw 'Conditional capacity did not prove safe teardown'}

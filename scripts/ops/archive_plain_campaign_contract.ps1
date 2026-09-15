@@ -70,6 +70,8 @@ function Assert-WeatherPlainConfiguration {
   if($Config.execution_host_id -cne '6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7' -or
      $Config.backup_execution_host_id -cne 'a740ee7dc03165b0c88094f8b313aa6676f0984b30737ec5bcd9f723709fe5dc' -or
      $Config.drive_root_folder_id -cne '1-HZZb9QuRB1AlK9UYSWB_JdeUabhza9H'){throw 'Capacity host or private destination differs'}
+  foreach($key in @('source_root','plan_path','result_root')){$null=Assert-WeatherPlainLiteralPath $Config.capacity.$key}
+  if($Config.capacity.source_tip -cne $Config.source_tip -or $Config.capacity.plan_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Capacity prerequisite is unbound'}
   $ids=@{}
   if(@($Config.queue).Count -ne 56){throw 'Capacity queue cardinality differs'}
   foreach($row in $Config.queue){

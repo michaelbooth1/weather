@@ -430,3 +430,40 @@ def test_unclassified_capture_refusal_still_blocks_without_retry(tmp_path, monke
     runner.admission = lambda: {"status": "BLOCK", "reasons": ["capture_unhealthy:snapshot"]}
     assert runner.run() == 1
     assert not simulation.calls
+
+
+
+def capacity_row(name="replay_inputs.jsonl"):
+    return {"path": FOLDER+"/"+name, "device": "12", "file_id": "34",
+            "mtime_ns": "56", "size_bytes": 1024**2, "attributes": 32}
+
+
+def test_capacity_exact_allowlist_excludes_archive_and_partial_groups():
+    row = capacity_row()
+    excluded = capacity_row("held-archive.jsonl")
+    manifest = {"files": [row, excluded], "complete": True}
+    actual = contract.restrict_capacity_inventory(manifest, {row["path"].casefold(): row})
+    assert actual["files"] == [row]
+    assert manifest["files"] == [row, excluded]
+
+
+@pytest.mark.parametrize("field", ["device", "file_id", "mtime_ns", "size_bytes"])
+def test_capacity_replacement_or_modified_file_cannot_borrow_selection(field):
+    row = capacity_row()
+    changed = {**row, field: int(row[field])+1}
+    with pytest.raises(ValueError, match="identity"):
+        contract.restrict_capacity_inventory({"files": [changed]}, {row["path"].casefold(): row})
+
+
+def test_capacity_already_compressed_file_has_no_new_apply_authority():
+    row = capacity_row()
+    current = {**row, "attributes": 2080}
+    assert contract.restrict_capacity_inventory({"files": [current]},
+        {row["path"].casefold(): row})["files"] == []
+
+
+def test_capacity_bridge_target_does_not_replace_overall_target():
+    plan = {"plan_id": contract.CAPACITY_PLAN_ID, "target_free_disk_bytes": 150000000000}
+    assert contract.capacity_free_target(plan, "early") == 55*contract.GIB
+    assert contract.capacity_free_target(plan, "late") == 150000000000
+    assert plan["target_free_disk_bytes"] == 150000000000
