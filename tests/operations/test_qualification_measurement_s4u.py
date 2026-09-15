@@ -81,14 +81,24 @@ $quotedRoot="'" + $controllerRoot.Replace("'","''") + "'"
 $exe=Join-Path $PSHOME 'powershell.exe'
 $arguments=ConvertTo-WeatherIntegrationScheduledTaskArgumentString -Tokens @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$driver,
     '-RequestPath',$requestPath,'-ExpectedRequestSha256',$hash)
-$action=New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $fixture
-$trigger=New-ScheduledTaskTrigger -Once -At ([DateTime]::Parse($at))
-$principal=New-ScheduledTaskPrincipal -UserId ($env:COMPUTERNAME+'\'+$account) -LogonType S4U -RunLevel Limited
-$settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(34))
+$scheduler=New-Object -ComObject 'Schedule.Service';$scheduler.Connect()
+$definition=$scheduler.NewTask(0)
+$definition.Principal.UserId=$env:COMPUTERNAME+'\'+$account
+$definition.Principal.LogonType=2
+$definition.Principal.RunLevel=0
+$action=$definition.Actions.Create(0)
+$action.Path=$exe;$action.Arguments=$arguments;$action.WorkingDirectory=$fixture
+$trigger=$definition.Triggers.Create(1);$trigger.StartBoundary=$at
+$definition.Settings.MultipleInstances=2
+$definition.Settings.StartWhenAvailable=$false
+$definition.Settings.ExecutionTimeLimit='PT34M'
 $registered=$false
 try {
     if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'disposable task name collision'}
-    Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+    # Cross-account S4U registration requires its password; Scheduler does not
+    # retain it. The random fixture credential is never printed or written.
+    $credential=[Management.Automation.PSCredential]::new($definition.Principal.UserId,$fixturePassword)
+    [void]$scheduler.GetFolder('\').RegisterTaskDefinition($name,$definition,2,$definition.Principal.UserId,$credential.GetNetworkCredential().Password,2,$null)
     $registered=$true
     Start-ScheduledTask -TaskName $name
     $clock=[Diagnostics.Stopwatch]::StartNew()

@@ -18,8 +18,11 @@ boundaries and retains ambiguous commit history for typed reconciliation.
 It has not been adopted on the capture host.
 
 At `c9a6455cc0ae8657510d239557bbf482b50bf209`, native Windows lifecycle checks
-and Linux regressions passed; the complete Windows regression job remains
-pending its terminal result. All 220 repaired legacy Windows fixture checks
+and Linux regressions passed. The complete Windows suite passed 5,999 tests
+and 921 subtests (26 skipped); its job failed afterward because the final
+checkout check found an untracked `Microsoft/` directory. The exact HEAD
+check passed. That failed job is retained as development evidence, not an
+authorizing PASS. All 220 repaired legacy Windows fixture checks
 passed. At `fb8c52434fec38bc390705e9a74303bc42e47559`, the isolated planning and
 reconciliation checks passed on both systems, including 27 native Windows
 reconciliation/tool-pin checks. Exact attempt logs and artifacts are retained in
