@@ -22,7 +22,7 @@ function Get-WeatherQualificationOrchestrationNames {
         qualification_merge = 'qualification_merge_contract.ps1'; attempt_armer = 'arm_integration_attempt.ps1'
         qualification_arming = 'qualification_arming_contract.ps1'; qualification_publication = 'qualification_durable_json.ps1'
         qualification_preparation = 'qualification_preparation.ps1'; qualification_creation = 'qualification_attempt_creation.ps1'
-        qualification_reconciliation = 'qualification_reconcile_contract.ps1'; attempt_planner = 'prepare_split_qualification.ps1'
+        qualification_reconciliation = 'qualification_reconcile_contract.ps1'; attempt_planner = 'prepare_split_qualification.ps1'; measurement_parent = 'measure_split_qualification.ps1'
     }
 }
 

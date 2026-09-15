@@ -21,7 +21,7 @@ $ref=Get-WeatherQualificationReference -Root $root -Name (Split-Path -Leaf $path
 if($ref.sha256 -cne $ExpectedRequestSha256){throw 'Reviewed planning request changed'}
 $request=Read-WeatherQualificationReference -Root $root -Reference $ref
 Assert-WeatherQualificationFields -Value $request -Names @('schema','operation','repo_root','candidate','qualification','environment','maximum','metadata','deadline')
-if([string]$request.schema -cne 'qualification_planning_request_v2' -or [string]$request.operation -cnotin @('configuration','draft')){throw 'Unknown planning operation'}
+if([string]$request.schema -cne 'qualification_planning_request_v2' -or [string]$request.operation -cnotin @('configuration','draft','measurement-draft')){throw 'Unknown planning operation'}
 $repo=Resolve-WeatherIntegrationPath -Path $request.repo_root
 if(-not (Test-WeatherIntegrationPathEqual -Left $PSScriptRoot -Right (Join-Path $repo 'scripts/ops'))){throw 'Planning must execute the currently adopted B controller'}
 foreach($sourceRoot in @($repo,[IO.Path]::GetFullPath([string]$request.candidate))) {

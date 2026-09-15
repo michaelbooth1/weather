@@ -338,6 +338,29 @@ It publishes the exact original draft bytes as `manifest.json`, together with
 preparation evidence and any atomic predecessor claim. The registrar requires
 this preparation proof before its first Scheduler write. Creation and
 registration supply no host PASS or integration authority.
+## Feasibility before host-plan approval
+
+The planner's `measurement-draft` operation freezes B and creates a separate
+`qualification_measurement_request_v2`; it does not require prior measurements.
+`measure_split_qualification.ps1 -RequestPath <absolute-request>
+-ExpectedRequestSha256 <sha256>` runs only as the exact one-shot
+`WeatherQualificationMeasure_<id>` under S4U/Limited, with its fixed action,
+principal, trigger, native engine lineage and PT34M Scheduler backstop verified.
+Registration of that measurement task remains a separate authorized operation.
+
+The adopted parent holds the shared capture-host lease inside 00:30-09:00,
+enforces the 32-minute total and per-phase policy caps, records actual whole-tree
+native samples, CPU time, bounded scratch inventory and complete read counts,
+and proves cleanup. It authenticates the same code/environment/source graph as
+acceptance. Reliability measurements run the complete current audit and repeat
+current-generation validation twice after the pipeline's first validation.
+
+The result is observation evidence requiring independent review. It is not a
+host receipt, does not register or arm integration tasks, and cannot authorize
+a merge. Reviewed observations may supply the existing measurement record;
+the subsequent host attempt repeats its own acceptance under its own deadline.
+This removes a circular measurement prerequisite without weakening that gate.
+
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
