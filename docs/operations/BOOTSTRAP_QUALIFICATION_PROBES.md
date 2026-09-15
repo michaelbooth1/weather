@@ -15,8 +15,8 @@ integration marker. Its terminal status is `PROBES_RECORDED`; all records
 keep `integration_eligible=false`.
 
 The adapter is one component of first landing. The complete first-landing
-envelope, guarded installation, measured current-input feasibility and actual
-host acceptance remain separately required. Hosted fixtures do not establish
+envelope, [guarded installation](BOOTSTRAP_QUALIFICATION_INSTALLATION.md),
+measured current-input feasibility and actual host acceptance remain separately required. Hosted fixtures do not establish
 an actual production S4U observation.
 
 ## Independent inputs

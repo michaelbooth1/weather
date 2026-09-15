@@ -1,5 +1,22 @@
 # 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
+## September 15 guarded-installer source increment
+
+[PR 70](https://github.com/michaelbooth1/weather/pull/70) adds the separate
+[guarded first-landing installer](../../operations/BOOTSTRAP_QUALIFICATION_INSTALLATION.md).
+It consumes an exact K-only owner envelope and independently reviewed completed
+probe evidence, retains B admission/domain authority, and connects the existing
+guarded primitive to complete B/K/Q mutation checks. Native containment covers
+the roll; uncertain commit/publication remains spent for reconciliation.
+Successful closeout records the installed policy root and disables only the
+two exact completed tasks.
+
+Closed-envelope, real-Git boundary and native refusal/containment tests run in
+hosted CI. Their exact revision/run results remain in the PR checks. This is
+source implementation, not an approved execution envelope, Scheduler
+registration, production adoption or host qualification. Final-source CI,
+independent review and the actual production acceptance below remain required.
+
 ## September 15 probe-adapter source increment
 
 A separate source increment adds the bounded

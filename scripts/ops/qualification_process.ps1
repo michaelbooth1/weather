@@ -127,7 +127,7 @@ function Invoke-WeatherQualificationProcess {
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string]$Transcript,
         [Parameter(Mandatory = $true)][DateTimeOffset]$DeadlineUtc,
-        [Parameter(Mandatory = $true)][ValidateRange(1, 1200)][int]$MaximumSeconds,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 2700)][int]$MaximumSeconds,
         [Parameter(Mandatory = $true)][ValidateRange(1, 120)][int]$TeardownSeconds,
         [Parameter(Mandatory = $true)][UInt64]$CommitBytes,
         [Parameter(Mandatory = $true)][UInt64]$WorkingSetBytes,
@@ -138,10 +138,20 @@ function Invoke-WeatherQualificationProcess {
         [UInt64]$MaximumReadBytes = 0,
         [ValidateSet('offhost', 'capture_s4u')][string]$ResourceMode = 'offhost',
         [string]$ProductionRoot,
-        [object[]]$CaptureBindings = @()
+        [object[]]$CaptureBindings = @(),
+        [switch]$GuardedCaptureReadoption
     )
     # Native tests may exercise this mechanism off-host. The production entry
     # point must supply capture_s4u; this helper never produces acceptance PASS.
+    # Only an independently authorized guarded merge owns capture readoption.
+    # This primitive grants no mutation authority; all resource limits remain
+    # continuous while its guarded child proves recovery before commit/push.
+    if ($GuardedCaptureReadoption -and $ResourceMode -cne 'capture_s4u') {
+        throw 'Guarded readoption requires the complete capture-host resource policy'
+    }
+    if ($MaximumSeconds -gt 1200 -and -not $GuardedCaptureReadoption) {
+        throw 'Only a guarded readoption monitor may exceed the metadata/audit wall cap'
+    }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $remaining = ($DeadlineUtc.UtcDateTime - [DateTime]::UtcNow).TotalMilliseconds
     $totalMilliseconds = [Math]::Min($remaining, ($MaximumSeconds + $TeardownSeconds) * 1000)
@@ -220,7 +230,7 @@ function Invoke-WeatherQualificationProcess {
             if ($now -ge $nextSlowSample) {
                 $disk = Assert-WeatherQualificationDisk -VolumePaths $VolumePaths -MinimumFreeBytes $MinimumDiskBytes
                 $minimumDisk = [Math]::Min($minimumDisk, $disk)
-                if ($ResourceMode -eq 'capture_s4u') { Assert-WeatherQualificationCapture -ProductionRoot $ProductionRoot -Bindings $CaptureBindings }
+                if ($ResourceMode -eq 'capture_s4u' -and -not $GuardedCaptureReadoption) { Assert-WeatherQualificationCapture -ProductionRoot $ProductionRoot -Bindings $CaptureBindings }
                 $nextSlowSample = $now + 1000
             }
             if ($child.Process.HasExited) { $exitCode = $child.Process.ExitCode; break }

@@ -390,7 +390,10 @@ The temporary [first-landing probe adapter](BOOTSTRAP_QUALIFICATION_PROBES.md)
 runs only fixed disposable probes under independent direct byte review and
 adopted B admission/outer containment. Its observations cannot replace code
 qualification, host acceptance, the complete owner envelope or guarded
-installation.
+installation. The separate [guarded first-landing installer](BOOTSTRAP_QUALIFICATION_INSTALLATION.md)
+consumes that explicit owner envelope, reuses the existing guarded primitive,
+and records K/policy only after acknowledged publication and exact task closeout.
+It cannot issue an ordinary v2 qualification or a v1 full-host-suite PASS.
 
 ## Update when
 
