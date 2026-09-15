@@ -65,3 +65,17 @@ QUALIFICATION_REGISTERED_SCHEMAS = tuple(
         ("qualification_input_entries", "inputs", "Ordered staged original-byte identities and explicit optional absences."),
     )
 )
+
+
+QUALIFICATION_REGISTERED_SCHEMAS += tuple(
+    SchemaSpec("qualification_bootstrap_probe_" + name, "qualification_bootstrap_probe_" + name + "_v1",
+               "weather.operations.qualification.bootstrap_probe", "active", description)
+    for name, description in (
+        ("envelope", "Directly reviewed fixed first-landing probe request; no acceptance or installation authority."),
+        ("observation", "Nine fixed probe observations awaiting native completion and independent review."),
+        ("use", "Create-once bootstrap probe claim bound to its actual parent process generation."),
+        ("native_result", "Bounded probe child execution and lifetime read accounting; no integration authority."),
+        ("result", "Native completed probe observations for review, never a qualification PASS."),
+        ("failure", "Retained probe failure that cannot reopen its spent namespace."),
+    )
+)

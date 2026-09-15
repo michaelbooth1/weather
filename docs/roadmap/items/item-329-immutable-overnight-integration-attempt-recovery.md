@@ -1,5 +1,21 @@
 # 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
+## September 15 probe-adapter source increment
+
+A separate source increment adds the bounded
+[first-landing probe adapter](../../operations/BOOTSTRAP_QUALIFICATION_PROBES.md),
+stacked on the split implementation at
+`7dda3847e094cde9384c2b331df5d4828db9d0c0`.
+It executes only the existing nine disposable control-plane probes under
+adopted admission and outer containment, with independently pinned startup
+files, native read limits, immutable attempt claims and non-authorizing
+result records. Hosted refusal, cleanup and probe-wiring tests cover this
+component; their exact source/run results remain in the PR checks.
+
+This is daytime source work. No adapter envelope has been approved for host
+execution, no task has been registered, and no first-landing installation or
+reliability adoption is claimed. The remaining acceptance below still applies.
+
 ## September 14 split qualification implementation
 
 The historical completion in this item's title is the adopted v1 workflow.

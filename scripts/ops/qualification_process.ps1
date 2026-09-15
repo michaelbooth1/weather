@@ -135,6 +135,7 @@ function Invoke-WeatherQualificationProcess {
         [Parameter(Mandatory = $true)][string[]]$VolumePaths,
         [Parameter(Mandatory = $true)][UInt64]$MinimumDiskBytes,
         [UInt64]$ReservedScratchBytes = 0,
+        [UInt64]$MaximumReadBytes = 0,
         [ValidateSet('offhost', 'capture_s4u')][string]$ResourceMode = 'offhost',
         [string]$ProductionRoot,
         [object[]]$CaptureBindings = @()
@@ -174,6 +175,7 @@ function Invoke-WeatherQualificationProcess {
     $peakPrivate = $start.SampledPrivateBytes
     $peakWorking = $start.SampledWorkingSetBytes
     $peakCommit = $start.PeakCommitBytes
+    $readBytes = $start.ReadBytes
     $peakSystem = [double](100.0 * $system.CommittedBytes / $system.CommitLimitBytes)
     $maxSampleGap = 0
     $samples = 0
@@ -201,6 +203,10 @@ function Invoke-WeatherQualificationProcess {
             $peakPrivate = [Math]::Max($peakPrivate, $snapshot.SampledPrivateBytes)
             $peakWorking = [Math]::Max($peakWorking, $snapshot.SampledWorkingSetBytes)
             $peakCommit = [Math]::Max($peakCommit, $snapshot.PeakCommitBytes)
+            $readBytes = [Math]::Max($readBytes, $snapshot.ReadBytes)
+            if ($MaximumReadBytes -gt 0 -and $readBytes -gt $MaximumReadBytes) {
+                throw 'Native process-tree read budget exceeded'
+            }
             $percent = 100.0 * $system.CommittedBytes / $system.CommitLimitBytes
             $peakSystem = [Math]::Max($peakSystem, $percent)
             if ($snapshot.CommitLimitBytes -ne $CommitBytes -or $snapshot.NativeLimitExceeded -or
@@ -233,10 +239,14 @@ function Invoke-WeatherQualificationProcess {
                     throw 'Descendant teardown is incomplete'
                 }
                 $teardown = $true
+                $readBytes = [Math]::Max($readBytes, $Envelope.Snapshot().ReadBytes)
                 if ($child) {
                     $remainingCapture = [Math]::Min($totalMilliseconds - $clock.ElapsedMilliseconds, ($DeadlineUtc.UtcDateTime - [DateTime]::UtcNow).TotalMilliseconds)
                     if ($remainingCapture -le 0 -or -not $child.WaitForCapture([int][Math]::Min(120000, $remainingCapture))) { throw 'Output EOF/flush not proved before deadline' }
                     if ($child.OutputExceeded -or $child.CaptureError) { throw 'Output retained with non-authorizing capture failure' }
+                }
+                if ($MaximumReadBytes -gt 0 -and $readBytes -gt $MaximumReadBytes) {
+                    throw 'Native process-tree read budget exceeded during teardown'
                 }
             }
             catch { $failure = $_.Exception.Message }
