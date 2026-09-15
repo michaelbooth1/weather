@@ -17,6 +17,9 @@ function Read-WeatherQualificationReference {
         throw 'Qualification reference escaped its evidence root'
     }
     $path = Join-Path $Root ([string]$Reference.path)
+    if (-not (Get-Command ConvertFrom-WeatherExactJson -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot 'workload_admission.ps1')
+    }
     # The CLR reader survives function scope; a dot-sourced initializer does
     # not. Make this public reader independent of the caller's import scope.
     if (-not ('Weather.Operations.ExecutionHostAssignmentReaderV1' -as [type])) {

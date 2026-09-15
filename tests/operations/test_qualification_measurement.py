@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
-def request(bundle, tmp_path):
+def measurement_request(bundle, tmp_path):
     root, production, candidate = [tmp_path / name for name in ("measurement", "production", "candidate")]
     for path in (root, production, candidate):
         path.mkdir()
@@ -36,8 +36,8 @@ def request(bundle, tmp_path):
     return root, value
 
 
-def test_measurement_context_accepts_declared_caps_without_manufactured_prior_samples(request):
-    root, value = request
+def test_measurement_context_accepts_declared_caps_without_manufactured_prior_samples(measurement_request):
+    root, value = measurement_request
     result = measurement.context(value, root, now=NOW)
     assert "measurements" not in result["host_plan"]
     assert "integration_eligible" not in result
@@ -46,8 +46,8 @@ def test_measurement_context_accepts_declared_caps_without_manufactured_prior_sa
 
 
 @pytest.mark.parametrize("fault", ["prior-sample", "source", "scope", "missing-audit", "wrong-task", "memory", "time", "reserve", "early", "late", "root"])
-def test_measurement_preparation_cannot_select_an_unbounded_or_different_execution(request, fault):
-    root, original = request
+def test_measurement_preparation_cannot_select_an_unbounded_or_different_execution(measurement_request, fault):
+    root, original = measurement_request
     value = deepcopy(original)
     now = NOW
     if fault == "prior-sample": value["plan"]["measurements"] = value["plan"]["configuration"]
