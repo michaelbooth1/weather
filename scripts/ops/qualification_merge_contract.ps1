@@ -194,7 +194,7 @@ function Set-WeatherQualificationGitEnvironment {
     $count = 0
     for ($index = 1; $index -lt $Options.Count; $index += 2) {
         if ($Options[$index] -cne '-c') { throw 'Unexpected Git execution option' }
-        $pair = $Options[$index + 1].Split(@('='), 2)
+        $pair = $Options[$index + 1].Split([char[]]@('='), 2, [StringSplitOptions]::None)
         if ($pair.Count -ne 2) { throw 'Malformed fixed Git setting' }
         [Environment]::SetEnvironmentVariable(('GIT_CONFIG_KEY_' + $count), $pair[0], 'Process')
         [Environment]::SetEnvironmentVariable(('GIT_CONFIG_VALUE_' + $count), $pair[1], 'Process')

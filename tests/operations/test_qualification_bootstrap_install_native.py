@@ -329,3 +329,23 @@ try {Close-WeatherBootstrapInstallation $value.envelope $value.sha256 $resultSha
 if(-not $retryRefused -or $script:mutations.Count -ne $before){throw 'closeout retried an invalid or spent task pair'}
 '''
     run(root, body)
+
+
+@pytest.mark.parametrize("contract", ["qualification_bootstrap_install_contract.ps1", "qualification_merge_contract.ps1"])
+def test_native_git_settings_split_once_under_windows_powershell_51(tmp_path, contract):
+    body = "$contract=" + ps_literal(ROOT / "scripts/ops" / contract) + "\n" + r'''
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($contract,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw ($errors | Out-String)}
+$function=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Set-WeatherQualificationGitEnvironment'},$true)
+Invoke-Expression $function.Extent.Text
+Set-WeatherQualificationGitEnvironment @('--no-replace-objects','-c','core.hooksPath=C:\fixture=a=b','-c','user.name=fixture=name')
+if($env:GIT_CONFIG_COUNT -cne '2' -or $env:GIT_CONFIG_KEY_0 -cne 'core.hooksPath' -or
+    $env:GIT_CONFIG_VALUE_0 -cne 'C:\fixture=a=b' -or $env:GIT_CONFIG_KEY_1 -cne 'user.name' -or
+    $env:GIT_CONFIG_VALUE_1 -cne 'fixture=name') {throw 'native split lost or changed a reviewed Git setting'}
+$refused=$false
+try {Set-WeatherQualificationGitEnvironment @('--no-replace-objects','-c','missing-separator')} catch {$refused=$true}
+if(-not $refused){throw 'malformed Git setting was accepted'}
+'''
+    run(tmp_path, body)
