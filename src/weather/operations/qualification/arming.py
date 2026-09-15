@@ -38,7 +38,9 @@ def run(request_path, request_sha256):
     output = checked_root(request_path.parent)
     ref = _raw_reference(output, request_path.name)
     require(ref["sha256"] == request_sha256, "arming request bytes changed")
-    request = fields(read(output, ref).value, {"manifest_path", "manifest_sha256", "deadline"})
+    request = fields(read(output, ref).value, {"manifest_path", "manifest_sha256", "deadline", "purpose"})
+    require(request["purpose"] in {"prepare", "arm"}, "unknown metadata preparation purpose")
+    purpose = request["purpose"]
     deadline = timestamp(request["deadline"])
     require(datetime.now(timezone.utc) < deadline <= datetime.now(timezone.utc) + timedelta(seconds=120),
             "arming metadata deadline exceeds native bound")
@@ -48,7 +50,7 @@ def run(request_path, request_sha256):
     require(manifest_ref["sha256"] == request["manifest_sha256"], "arming manifest changed")
     checked = attempt.manifest(read(root, manifest_ref).value, actual_root=root)
     m, plan = checked["manifest"], checked["host_plan"]
-    require(output == root / "arm-work", "arming evidence escaped its fixed namespace")
+    require(output == root / (purpose + "-work"), "metadata evidence escaped its fixed namespace")
     selected = host_runtime.profile(checked["local"].get(plan["environment"]), checked=checked)
     measured = host_acceptance.measurements(checked["local"], plan["measurements"], policy=checked["policy"], host_plan=plan)
     host_runtime.verify_source(checked, selected)
@@ -63,7 +65,7 @@ def run(request_path, request_sha256):
     checked["local"].fresh()
     completed = utc_now()
     require(timestamp(completed) <= deadline, "arming proof missed its deadline")
-    return publish(output, "proof.json", {"schema": "qualification_arming_proof_v2",
+    return publish(output, "proof.json", {"schema": "qualification_" + ("arming" if purpose == "arm" else "preparation") + "_proof_v2",
         "manifest_sha256": manifest_ref["sha256"], "host_plan_sha256": m["host"]["sha256"],
         "configuration_sha256": plan["configuration"]["sha256"], "environment_sha256": plan["environment"]["sha256"],
         "certificate_sha256": m["qualification"]["certificate"]["sha256"], "import_sha256": m["qualification"]["import"]["sha256"],

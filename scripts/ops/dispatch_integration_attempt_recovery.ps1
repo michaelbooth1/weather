@@ -52,10 +52,14 @@ if (Test-Path -LiteralPath $dispatchPath) {
     throw "Immutable recovery dispatch already exists and will not be replaced: $dispatchPath"
 }
 
+if ((Get-WeatherIntegrationPrerequisite -AttemptContract $contract).Version -ceq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+    Assert-WeatherQualificationNoCommitClaim -AttemptContract $contract
+}
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
-    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED")) {
+    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED", "COMMIT_UNVERIFIED")) {
         throw "An attempt that reached production does not permit recovery dispatch."
     }
 }

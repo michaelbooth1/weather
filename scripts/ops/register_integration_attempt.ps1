@@ -25,6 +25,10 @@ Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "attempt 
 $manifest = $contract.Manifest
 $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $contract
 $phaseRole = $phase.Role
+if ($phase.Version -eq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_preparation.ps1')
+    Assert-WeatherQualificationPreparation -AttemptContract $contract | Out-Null
+}
 if (-not (Test-WeatherIntegrationPathEqual -Left $RepoRoot -Right ([string]$manifest.repo_root))) {
     throw "Registrar RepoRoot does not match the immutable attempt manifest."
 }

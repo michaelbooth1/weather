@@ -234,6 +234,10 @@ try {
         throw "A guarded merge or other production mutation owns the shared workload mutex; closure refuses to race it."
     }
 
+if ((Get-WeatherIntegrationPrerequisite -AttemptContract $contract).Version -ceq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+    Assert-WeatherQualificationNoCommitClaim -AttemptContract $contract
+}
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
@@ -248,7 +252,7 @@ if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
         [bool]$mergeReceipt.safety.live_exchange_mutation_authorized) {
         throw "Merge receipt exists but is malformed or not bound to this attempt; closure is unsafe."
     }
-    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED")) {
+    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED", "COMMIT_UNVERIFIED")) {
         throw "An attempt that reached production cannot be abandoned or retried."
     }
     if ([string]$mergeReceipt.status -ne "FAIL") {
@@ -291,6 +295,7 @@ Assert-WeatherClosureTasksQuiescent `
 # task does not stop an instance that already began, so only freeze ABANDONED
 # after exact tasks are terminal+Disabled and the full marker/MERGE_HEAD/Git
 # classification is immediately re-proved.
+if ($phase.Version -ceq 'v2') { Assert-WeatherQualificationNoCommitClaim -AttemptContract $contract }
 $postDisableGitProof = Assert-WeatherClosureNonIntegratedState -AttemptContract $contract
 $postDisableQuietReport = Read-WeatherClosureQuietReport -AttemptContract $contract
 if ($null -ne $postDisableQuietReport -and [bool]$postDisableQuietReport.RecoveredMergeProved) {

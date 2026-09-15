@@ -57,7 +57,7 @@ try {
     $admissionEnd = [DateTimeOffset]::new((Get-Date).Date.AddHours(9))
     $triggerReserve = [DateTimeOffset]::Parse([string]$m.schedule.host_at_local).AddMinutes(-1)
     if ($deadline -gt $admissionEnd -or $deadline -gt $triggerReserve) { throw 'Arming cannot finish before admission or trigger reserve' }
-    $request = [ordered]@{ manifest_path=$contract.ManifestPath; manifest_sha256=$contract.ManifestSha256
+    $request = [ordered]@{ manifest_path=$contract.ManifestPath; manifest_sha256=$contract.ManifestSha256; purpose='arm'
         deadline=$deadline.AddSeconds(-4).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", [Globalization.CultureInfo]::InvariantCulture) }
     Write-WeatherQualificationImmutableJson -Path (Join-Path $directory 'request.json') -Payload $request
     $ref = Get-WeatherQualificationReference -Root $directory -Name 'request.json'

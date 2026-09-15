@@ -122,7 +122,8 @@ def revalidate_generated(production, config_graph, configuration_ref):
     config_graph.fresh()
 
 
-def working_bytes(git, production, *, source_root, source_commit, source_inventory, config_graph, configuration_ref):
+def working_bytes(git, production, *, source_root, source_commit, source_inventory, config_graph, configuration_ref,
+                  allow_generated_refresh=False):
     """Check every represented source byte, including unsmudged LFS payloads.
 
     An existing LFS payload is admissible only when the source's actual pointer
@@ -138,6 +139,11 @@ def working_bytes(git, production, *, source_root, source_commit, source_invento
     require(set(indexed) == set(entries) and len(indexed) == len(entries), "production tracked file set differs")
     for item in files:
         path = item["path"]
+        # Terminal inspection can outlive ordinary generated refreshes. It
+        # still proves original Q in the committed tree and every source byte;
+        # no mutation/qualification caller enables this read-only exception.
+        if allow_generated_refresh and path in overlays:
+            continue
         expected = overlays[path]["payload"] if path in overlays else item
         actual = environment.file_identity(production, path)
         if (actual["sha256"], actual["size"]) == (expected["sha256"], expected["size"]):
@@ -148,7 +154,8 @@ def working_bytes(git, production, *, source_root, source_commit, source_invento
         match = re.fullmatch(rb"version https://git-lfs.github.com/spec/v1\noid sha256:([0-9a-f]{64})\nsize ([0-9]+)\n", pointer)
         require(match is not None and actual["sha256"] == match[1].decode("ascii") and actual["size"] == int(match[2]),
                 "working artifact is not the source-bound complete LFS payload")
-    revalidate_generated(production, config_graph, configuration_ref)
+    if not allow_generated_refresh:
+        revalidate_generated(production, config_graph, configuration_ref)
 
 
 def staged_tree(git, production, expected_tree):

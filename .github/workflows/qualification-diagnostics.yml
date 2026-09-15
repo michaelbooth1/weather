@@ -22,14 +22,14 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows, linux]
-        file: [importer, transport, frozen]
+        file: [importer, transport, frozen, reconciliation, reconciliation_native, planning]
         include:
           - platform: windows
             os: windows-2022
           - platform: linux
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'

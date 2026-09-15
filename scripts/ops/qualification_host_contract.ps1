@@ -35,6 +35,27 @@ function Get-WeatherQualificationReference {
     return $result
 }
 
+function Assert-WeatherQualificationNativeToolPins {
+    param([Parameter(Mandatory = $true)]$Profile,[Parameter(Mandatory = $true)]$Policy,
+          [Parameter(Mandatory = $true)]$Review,[Parameter(Mandatory = $true)][string]$GraphRoot)
+    $expectedRef=$Review.environments.windows
+    if([string]$Profile.schema -cne 'qualification_host_environment_v2' -or
+        [string]$Profile.environment.path -cne [string]$expectedRef.path -or
+        [string]$Profile.environment.sha256 -cne [string]$expectedRef.sha256 -or
+        [Int64]$Profile.environment.size -ne [Int64]$expectedRef.size){throw 'Native launch environment is not the independently reviewed Windows environment'}
+    $expected=Read-WeatherQualificationReference -Root $GraphRoot -Reference $expectedRef
+    if([string]$expected.schema -cne 'qualification_environment_v2' -or [string]$expected.platform -cne 'windows'){throw 'Wrong native launch environment schema/platform'}
+    $pins=@{python=[string]$expected.python.executable_sha256;git=[string]$expected.git.sha256
+        powershell=[string]$expected.powershell.sha256;gh=[string]$Policy.verifier.gh_sha256}
+    $names=@($Profile.tools.PSObject.Properties.Name | Sort-Object)
+    if(($names -join '|') -cne 'gh|git|powershell|python'){throw 'Native launch tool set differs'}
+    foreach($name in $pins.Keys){
+        if($pins[$name] -cnotmatch '^[0-9a-f]{64}$' -or [string]$Profile.tools.PSObject.Properties[$name].Value.sha256 -cne $pins[$name]){
+            throw ('Native launch executable is not independently pinned: '+$name)
+        }
+    }
+}
+
 function Read-WeatherQualificationHostAttempt {
     param([Parameter(Mandatory = $true)][string]$ManifestPath, [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256)
     $path = Resolve-WeatherIntegrationPath -Path $ManifestPath
@@ -63,6 +84,8 @@ function Read-WeatherQualificationHostAttempt {
     $profile = Read-WeatherQualificationReference -Root $root -Reference $plan.environment
     $policy = Read-WeatherQualificationReference -Root ([string]$manifest.qualification.root) -Reference $manifest.qualification.policy
     $measurements = Read-WeatherQualificationReference -Root $root -Reference $plan.measurements
+    $review = Read-WeatherQualificationReference -Root ([string]$manifest.qualification.root) -Reference $manifest.qualification.review
+    Assert-WeatherQualificationNativeToolPins -Profile $profile -Policy $policy -Review $review -GraphRoot ([string]$manifest.qualification.root)
     if ([string]$plan.schema -cne 'qualification_host_plan_v2' -or
         [string]$profile.schema -cne 'qualification_host_environment_v2' -or
         [string]$policy.schema -cne 'qualification_policy_v2' -or

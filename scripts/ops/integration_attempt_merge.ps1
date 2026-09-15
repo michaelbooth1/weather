@@ -288,6 +288,11 @@ function Get-WeatherIntegrationRecoverableActiveMarker {
         return $null
     }
     $markerSha256 = Get-WeatherIntegrationFileSha256 -Path $markerPath
+    if ((Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Version -ceq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+        $bound = Read-WeatherQualificationCommitEvidence -AttemptContract $AttemptContract -Kind ActiveMarker -ExpectedSha256 $markerSha256
+        return [pscustomobject]@{Path=$bound.Path;Sha256=$bound.Reference.sha256;Payload=$bound.Payload}
+    }
     $markerRaw = Read-WeatherIntegrationSharedText -Path $markerPath
     try { $marker = $markerRaw | ConvertFrom-Json }
     catch { throw "Active quiet-merge marker JSON is unreadable after child failure." }
@@ -688,6 +693,14 @@ finally {
             else { "$failure; active-marker inspection: $markerFailure" }
         }
     }
+    if ($splitQualification -and $status -ceq 'FAIL' -and $null -ne $quietReport) {
+        try {
+            . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+            Read-WeatherQualificationCommitEvidence -AttemptContract $contract -Kind QuietReport -ExpectedSha256 $quietReportSha256 | Out-Null
+            $status = 'COMMIT_UNVERIFIED'
+        }
+        catch { } # An unbound report grants no status; the marker still blocks retry.
+    }
     $receipt = [ordered]@{
         schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind merge_receipt
         status = $status
@@ -734,7 +747,7 @@ finally {
         }
     }
     if ($null -eq $deferredMergeReceiptMarker -and
-        (-not $preserveQuietReportForReconciliation -or $status -eq "MERGED_UNVERIFIED")) {
+        (-not $preserveQuietReportForReconciliation -or $status -in @("MERGED_UNVERIFIED", "COMMIT_UNVERIFIED"))) {
         Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath -Payload $receipt
     }
     elseif ($null -ne $deferredMergeReceiptMarker) {
@@ -761,6 +774,9 @@ if ($status -ne "PASS") {
     }
     elseif ($preserveQuietReportForReconciliation -and $status -ne "MERGED_UNVERIFIED") {
         Write-Host "Integration attempt $($manifest.attempt_id) has an exact pushed report but production advanced before a matching receipt could be proved. Do not close or retry it; reconcile quiet-report SHA256 $quietReportSha256."
+    }
+    elseif ($status -eq 'COMMIT_UNVERIFIED') {
+        Write-Host "Integration attempt $($manifest.attempt_id) may have committed. Do not close or retry it; reconcile the exact retained report or marker."
     }
     elseif ($status -eq "MERGED_UNVERIFIED") {
         Write-Host "Integration attempt $($manifest.attempt_id) was published but its final proof is incomplete. Do not close or retry it; reconcile production from this receipt."

@@ -871,6 +871,18 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 $manifest = $contract.Manifest
+if ((Get-WeatherIntegrationPrerequisite -AttemptContract $contract).Version -ceq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+    $evidenceSha = switch ($PSCmdlet.ParameterSetName) {
+        'MergeReceipt' { $ExpectedMergeReceiptSha256 }
+        'QuietReport' { $ExpectedQuietMergeReportSha256 }
+        'ActiveMarker' { $ExpectedActiveMarkerSha256 }
+    }
+    Invoke-WeatherQualificationReconciliation -AttemptContract $contract -Kind $PSCmdlet.ParameterSetName `
+        -ExpectedSha256 $evidenceSha.ToLowerInvariant() -ReviewReference $ReviewReference -Notes $Notes -ResumePublication:$ResumePublication |
+        ConvertTo-Json -Depth 20
+    exit 0
+}
 $terminalMutexRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
 $terminalMutex = Enter-WeatherIntegrationControlMutex `
     -RepositoryRoot $terminalMutexRoot `

@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 
 function Assert-WeatherQualificationArming {
-    param([Parameter(Mandatory = $true)]$AttemptContract)
+    param([Parameter(Mandatory = $true)]$AttemptContract, [switch]$Historical)
     . (Join-Path $PSScriptRoot 'workload_admission.ps1')
     . (Join-Path $PSScriptRoot 'qualification_host_contract.ps1')
     . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
@@ -28,18 +28,19 @@ function Assert-WeatherQualificationArming {
     $completed = ConvertFrom-WeatherIntegrationEvidenceTimestamp -Value ([string]$receipt.completed_at) -Label 'armed completed_at'
     $validated = ConvertFrom-WeatherIntegrationEvidenceTimestamp -Value ([string]$proof.validated_at) -Label 'arming validated_at'
     if ($completed -lt $validated -or ($completed - $validated).TotalSeconds -gt 5 -or $completed -gt [DateTimeOffset]::UtcNow -or
-        [DateTimeOffset]::UtcNow -gt [DateTimeOffset]::Parse([string]$proof.latest_merge)) { throw 'Arming publication missed freshness or planned adoption expiry' }
+        (-not $Historical -and [DateTimeOffset]::UtcNow -gt [DateTimeOffset]::Parse([string]$proof.latest_merge))) { throw 'Arming publication missed freshness or planned adoption expiry' }
     return $receipt
 }
 
 function Assert-WeatherQualificationArmingProof {
-    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)]$Proof, [Parameter(Mandatory = $true)]$Native)
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)]$Proof, [Parameter(Mandatory = $true)]$Native, [switch]$Preparation)
     $m, $p = $State.Contract.Manifest, $State.Plan
     Assert-WeatherQualificationFields -Value $Proof -Names @('schema', 'manifest_sha256', 'host_plan_sha256', 'configuration_sha256',
         'environment_sha256', 'certificate_sha256', 'import_sha256', 'validated_at', 'latest_merge', 'signature',
         'native_parent_completion_required', 'integration_eligible')
     $maximum = $State.Measurements.phases.metadata.maximum
-    if ([string]$Proof.schema -cne 'qualification_arming_proof_v2' -or
+    $schema = if ($Preparation) { 'qualification_preparation_proof_v2' } else { 'qualification_arming_proof_v2' }
+    if ([string]$Proof.schema -cne $schema -or
         [string]$Proof.manifest_sha256 -cne $State.Contract.ManifestSha256 -or [string]$Proof.host_plan_sha256 -cne [string]$m.host.sha256 -or
         [string]$Proof.configuration_sha256 -cne [string]$p.configuration.sha256 -or [string]$Proof.environment_sha256 -cne [string]$p.environment.sha256 -or
         [string]$Proof.certificate_sha256 -cne [string]$m.qualification.certificate.sha256 -or [string]$Proof.import_sha256 -cne [string]$m.qualification.import.sha256 -or

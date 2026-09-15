@@ -1197,6 +1197,11 @@ function Assert-WeatherIntegrationAttemptManifest {
     }
 
     $manifest = Read-WeatherIntegrationSharedJson -Path $resolvedManifestPath
+    if ([string]$manifest.schema -ceq 'weather_integration_attempt_manifest_v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        return Assert-WeatherQualificationAttemptManifest -ManifestPath $resolvedManifestPath -ExpectedSha256 $actualSha256
+    }
+    if ($null -ne $manifest.PSObject.Properties['qualification_mode']) { throw 'Split qualification cannot use the legacy manifest schema' }
     if ([string]$manifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema) {
         throw "Unsupported integration-attempt manifest schema: $($manifest.schema)"
     }
@@ -1465,7 +1470,14 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor FAIL receipt changed after the successor was frozen."
     }
     $priorReceipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$priorReceipt.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+    $priorManifestPath = Resolve-WeatherIntegrationPath -Path ([string]$priorReceipt.manifest_path)
+    $priorManifestSha256 = Get-WeatherIntegrationFileSha256 -Path $priorManifestPath
+    if ($priorManifestSha256 -ne [string]$priorReceipt.manifest_sha256) {
+        throw "The predecessor manifest changed after closure."
+    }
+    $priorManifest = Read-WeatherIntegrationSharedJson -Path $priorManifestPath
+    $priorContract = [pscustomobject]@{ Manifest = $priorManifest }
+    if ([string]$priorReceipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind closure_receipt) -or
         [string]$priorReceipt.status -ne "FAIL") {
         throw "A successor attempt must bind an immutable closure FAIL receipt."
     }
@@ -1479,7 +1491,7 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor recovery dispatch changed after the successor was frozen."
     }
     $dispatch = Read-WeatherIntegrationSharedJson -Path $dispatchPath
-    if ([string]$dispatch.schema -ne $script:WeatherIntegrationAttemptRecoveryDispatchSchema -or
+    if ([string]$dispatch.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind recovery_dispatch) -or
         [string]$dispatch.status -ne "READY_FOR_SUCCESSOR_REVIEW" -or
         [string]$dispatch.repair_class -ne [string]$manifest.authorization.repair_class -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$dispatch.closure_receipt_path) -Right $receiptPath) -or
@@ -1487,12 +1499,7 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor recovery dispatch does not authorize this successor."
     }
 
-    $priorManifestPath = Resolve-WeatherIntegrationPath -Path ([string]$priorReceipt.manifest_path)
-    $priorManifestSha256 = Get-WeatherIntegrationFileSha256 -Path $priorManifestPath
-    if ($priorManifestSha256 -ne [string]$priorReceipt.manifest_sha256) {
-        throw "The predecessor manifest changed after closure."
-    }
-    $priorManifest = Read-WeatherIntegrationSharedJson -Path $priorManifestPath
+
     $priorAttemptRoot = Resolve-WeatherIntegrationPath -Path ([string]$priorManifest.attempt_root)
     $expectedClaimPath = Join-Path $priorAttemptRoot "successor-claim.json"
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$repairOf.claim_path) -Right $expectedClaimPath)) {
@@ -1500,7 +1507,7 @@ function Assert-WeatherIntegrationRepairClaim {
     }
 
     $claim = Read-WeatherIntegrationSharedJson -Path $expectedClaimPath
-    if ([string]$claim.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
+    if ([string]$claim.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind successor_claim) -or
         [string]$claim.status -ne "CLAIMED") {
         throw "The predecessor successor claim is unsupported."
     }
@@ -1784,6 +1791,9 @@ function Assert-WeatherIntegrationMergeReceipt {
         . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
         Assert-WeatherIntegrationPrerequisiteReceipt -AttemptContract $AttemptContract | Out-Null
         Assert-WeatherQualificationPublishedProof -AttemptContract $AttemptContract -QuietReport $quietReport
+        . (Join-Path $PSScriptRoot 'qualification_preparation.ps1')
+        Assert-WeatherQualificationPreparation -AttemptContract $AttemptContract | Out-Null
+        Assert-WeatherQualificationArming -AttemptContract $AttemptContract -Historical | Out-Null
     }
 
     return [pscustomobject]@{

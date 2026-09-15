@@ -112,14 +112,14 @@ if (-not $refused) { throw 'invalid host phase was accepted' }
 ''')
 
 
-def test_host_role_cannot_be_interpreted_as_suite_and_unfinished_v2_cannot_arm(tmp_path):
+def test_host_role_cannot_be_interpreted_as_suite_and_incomplete_v2_cannot_arm(tmp_path):
     run(tmp_path, r'''
 $contract = New-FixtureContract 'v2'
 $refused = $false
 try { Get-WeatherIntegrationExpectedTaskBinding -AttemptContract $contract -Role suite -UserId 'fixture-user' | Out-Null } catch { $refused = $true }
 if (-not $refused) { throw 'host reinterpreted as full suite' }
-# Until the full v2 manifest/authentication reader is connected, the public
-# registrar's first gate must continue to reject this partial implementation.
+# A task binding is only a small part of the complete manifest. The public
+# reader must reject it before preparation or registration can be attempted.
 Write-WeatherIntegrationImmutableJson -Path $contract.ManifestPath -Payload $contract.Manifest
 $sha = Get-WeatherIntegrationFileSha256 -Path $contract.ManifestPath
 $refused = $false

@@ -292,8 +292,8 @@ executes from B, proves its native Scheduler invocation and passes the exact
 manifest to its contained quiet child. A durably flushed commit-invocation
 marker precedes Git commit; boot preserves an ambiguous split result for
 reviewed reconciliation. A published split report binds all native boundary
-records and post-publication B capture proof. These additions do not enable
-the public v2 registrar before its complete preparation/admission path is ready.
+records and post-publication B capture proof. The public reader routes v2 only
+through the complete typed split manifest; v1 retains its historical reader.
 
 Both phases reuse the same exact S4U/Limited tokens, no-catch-up settings,
 pre-registration intent and identity-bound task closure. The host task has a
@@ -318,9 +318,26 @@ release pointer (including absence) and the complete pointed-to release director
 The parent and its real-host measurement path still require native qualification;
 source availability and parser acceptance do not qualify production.
 
-The public manifest reader still rejects v2 until the complete host and guarded
-adoption entrypoints are connected. Native fixture acceptance of a v2 task binding
-alone cannot arm a task or replace the legacy suite prerequisite.
+`prepare_split_qualification.ps1` supplies two fixed preparatory operations from
+currently adopted B. A hash-pinned `qualification_planning_request_v2` selects
+`configuration` to stage the complete current config/artifact/pointer closure,
+or `draft` to construct the frozen B source copy, Git policy and manifest. Both
+run inside capture-host admission, the shared lease, a 120-second absolute
+native deadline, 2 GiB commit/1.5 GiB working-set caps and the 50 GiB disk floor.
+They require the exact host/principal and independently pinned native tools.
+Neither operation approves its resulting records or executes candidate code.
+Configuration and host measurements are reviewed before `draft` consumes the
+host-plan reference; the manifest cannot nominate its controller bindings.
+
+The explicit creator takes a reviewed `prepared-manifest.json` and its exact
+SHA256 through `new_integration_attempt.ps1 -SplitDraftPath
+<absolute-draft> -ExpectedSplitDraftSha256 <sha256> -RepoRoot <production>`.
+It invokes adopted B under the shared lease and reviewed native metadata budget
+to verify copied control source, environment, complete Q and offline signature.
+It publishes the exact original draft bytes as `manifest.json`, together with
+preparation evidence and any atomic predecessor claim. The registrar requires
+this preparation proof before its first Scheduler write. Creation and
+registration supply no host PASS or integration authority.
 ## Verification and first landing
 
 [`qualification-bootstrap.yml`](../../.github/workflows/qualification-bootstrap.yml)
@@ -353,8 +370,9 @@ It rejects configuration includes, external merge/diff drivers, additional
 filters and attribute changes; fixes empty hooks and global/system exclusions;
 and binds any required Git LFS executable to the qualified native inventory.
 Every host metadata child and the split primitive use the verified interpretation.
-The guarded merge integration remains disabled at the public manifest reader
-until the complete lifecycle and native mutation-boundary execution are verified.
+The public split path requires typed preparation, exact registration, separate
+arming and native host proof before the guarded mutation boundaries. Source
+publication does not install that path on the capture host.
 
 ### Inert registration and arming publication
 
@@ -375,5 +393,28 @@ spent arming evidence blocks both tasks; it is never replaced in place.
 New split evidence uses a fixed durable publication claim, create-new partial,
 file flush and same-volume write-through rename without replacement. Claims
 and interrupted partials remain evidence and prevent reuse. Historical v1
-records keep their existing reader/writer contract. The public v2 manifest
-route remains closed while creator/reconciliation integration is unfinished.
+records keep their existing reader/writer contract.
+
+### Ambiguous commit reconciliation
+
+Once Git commit may have been invoked, an incomplete split report is
+`COMMIT_UNVERIFIED`. A completed publication with incomplete final proof remains
+`MERGED_UNVERIFIED`. Exact interrupted markers can be reconciled even when the
+wrapper never wrote a terminal receipt. Closure and successor dispatch refuse
+the retained commit-invocation claim independently of generic FAIL status.
+
+The existing `reconcile_integration_attempt.ps1` routes v2 to its frozen B
+controller. The exact reviewed report/marker/receipt, terminal mutex, shared
+admitted lease, native metadata envelope, complete B+Q/M tree and current capture
+proof govern the observation. Uncommitted or unpublished outcomes retain the
+observation and stay blocked for separate recovery review. This path cannot
+repeat commit or publication and refuses `-ResumePublication` for v2.
+
+Only an exact published M with current health can receive a separate immutable
+`MERGED_RECONCILED` record. Its two exact non-running tasks are disabled, and any
+owned active marker is moved without replacement into the retained observation
+directory after receipt publication. The original bytes remain available;
+cleanup can be repeated against the same receipt and marker hash. Reconciliation
+never upgrades historical proof and never authorizes downstream work. The PASS
+consumer additionally rechecks retained preparation and historical arming proof;
+later certificate expiry does not erase an already verified historical adoption.

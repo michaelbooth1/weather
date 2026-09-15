@@ -1,5 +1,5 @@
 # Adopted split-mode calls made inside the existing guarded merge's lease.
-# The public v2 lifecycle remains closed until its complete routing is reviewed.
+# Typed preparation, arming and host receipts remain separate prerequisites.
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'qualification_durable_json.ps1')
 

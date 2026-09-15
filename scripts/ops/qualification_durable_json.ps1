@@ -1,8 +1,7 @@
 # Create-once split evidence. A claim/partial survives every failed publication.
 Set-StrictMode -Version Latest
 
-function Write-WeatherQualificationImmutableJson {
-    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Payload)
+function Initialize-WeatherQualificationPublication {
     if (-not ('Weather.Operations.QualificationPublication' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -41,6 +40,17 @@ namespace Weather.Operations {
 }
 '@
     }
+}
+
+function Write-WeatherQualificationImmutableRaw {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][byte[]]$Bytes)
+    Initialize-WeatherQualificationPublication
+    [Weather.Operations.QualificationPublication]::Write($Path, $Bytes)
+}
+
+function Write-WeatherQualificationImmutableJson {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Payload)
+    Initialize-WeatherQualificationPublication
     $json = ConvertTo-Json -InputObject $Payload -Depth 80 -Compress
     $bytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($json + "`n")
     [Weather.Operations.QualificationPublication]::Write($Path, $bytes)
