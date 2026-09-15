@@ -229,6 +229,13 @@ function Write-WeatherIntegrationImmutableJson {
         [object]$Payload
     )
 
+    $schemaProperty = $Payload.PSObject.Properties['schema']
+    $schema = if ($Payload -is [System.Collections.IDictionary]) { [string]$Payload['schema'] } elseif ($schemaProperty) { [string]$schemaProperty.Value } else { '' }
+    if ($schema -cmatch '_v2$') {
+        . (Join-Path $PSScriptRoot 'qualification_durable_json.ps1')
+        Write-WeatherQualificationImmutableJson -Path $Path -Payload $Payload
+        return
+    }
     if (Test-Path -LiteralPath $Path) {
         throw "Immutable evidence already exists and will not be replaced: $Path"
     }
@@ -324,10 +331,73 @@ function Get-WeatherIntegrationRegistrationIntentPath {
     return Resolve-WeatherIntegrationPath -Path $expectedPath
 }
 
+function Get-WeatherIntegrationPrerequisite {
+    param([Parameter(Mandatory = $true)][object]$AttemptContract)
+
+    $manifest = $AttemptContract.Manifest
+    $schema = $manifest.PSObject.Properties['schema']
+    # Legacy isolated binding fixtures omit schema. Actual entrypoints first
+    # require Assert-WeatherIntegrationAttemptManifest, which never omits it.
+    $version = if ($null -eq $schema) { 'v1' } else {
+        switch -Exact ([string]$schema.Value) {
+            'weather_integration_attempt_manifest_v1' { 'v1' }
+            'weather_integration_attempt_manifest_v2' { 'v2' }
+            default { throw 'Unsupported integration attempt phase schema' }
+        }
+    }
+    if ($version -eq 'v2') {
+        if ([string]$manifest.qualification_mode -cne 'split_v2' -or
+            $null -ne $manifest.PSObject.Properties['suite'] -or
+            $null -ne $manifest.schedule.PSObject.Properties['suite_task_name'] -or
+            $null -ne $manifest.schedule.PSObject.Properties['suite_at_local']) {
+            throw 'Split attempt cannot masquerade as a legacy full suite'
+        }
+        return [pscustomobject]@{
+            ReceiptKey = 'host_receipt'; ReceiptPathField = 'host_receipt_path'; ReceiptShaField = 'host_receipt_sha256'; StartedAtField = 'started_at'
+            Role = 'host'; Version = 'v2'; TaskName = [string]$manifest.schedule.host_task_name
+            AtLocal = [string]$manifest.schedule.host_at_local; ScriptName = 'integration_attempt_host.ps1'
+            ScriptKey = 'attempt_host'; ExecutionTimeLimit = 'PT34M'; ScheduleGapMinutes = 34
+            Description = "Immutable integration attempt $($manifest.attempt_id): bounded split host qualification"
+        }
+    }
+    if ($null -ne $manifest.PSObject.Properties['qualification_mode'] -or
+        $null -ne $manifest.schedule.PSObject.Properties['host_task_name'] -or
+        $null -ne $manifest.schedule.PSObject.Properties['host_at_local']) {
+        throw 'Legacy attempt cannot carry split host phase fields'
+    }
+    return [pscustomobject]@{
+        ReceiptKey = 'suite_receipt'; ReceiptPathField = 'suite_receipt_path'; ReceiptShaField = 'suite_receipt_sha256'; StartedAtField = 'started_at_local'
+        Role = 'suite'; Version = 'v1'; TaskName = [string]$manifest.schedule.suite_task_name
+        AtLocal = [string]$manifest.schedule.suite_at_local; ScriptName = 'integration_attempt_suite.ps1'
+        ScriptKey = 'attempt_suite'; ExecutionTimeLimit = 'PT8H'; ScheduleGapMinutes = 30
+        Description = "Immutable integration attempt $($manifest.attempt_id): preflight and full suite"
+    }
+}
+
+function Assert-WeatherIntegrationPrerequisiteReceipt {
+    param([Parameter(Mandatory = $true)]$AttemptContract, [switch]$RequireFresh)
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    if ($phase.Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        return Assert-WeatherQualificationHostReceipt -AttemptContract $AttemptContract -RequireFresh:$RequireFresh
+    }
+    return Assert-WeatherIntegrationSuiteReceipt -AttemptContract $AttemptContract
+}
+function Get-WeatherIntegrationRecordSchema {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('registration_intent', 'registration_receipt', 'merge_receipt', 'closure_receipt',
+                     'successor_claim', 'recovery_dispatch', 'reconciliation_receipt')][string]$Kind
+    )
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    return "weather_integration_attempt_${Kind}_$($phase.Version)"
+}
+
 function Get-WeatherIntegrationExpectedTaskBinding {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
+        [Parameter(Mandatory = $true)][ValidateSet("suite", "host", "merge")][string]$Role,
         [Parameter(Mandatory = $true)][string]$UserId,
         [string]$PowerShellExecutable = (Join-Path $PSHOME "powershell.exe")
     )
@@ -337,22 +407,25 @@ function Get-WeatherIntegrationExpectedTaskBinding {
     }
     $manifest = $AttemptContract.Manifest
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-    if ($Role -eq "suite") {
-        $taskName = [string]$manifest.schedule.suite_task_name
-        $atLocal = ConvertFrom-WeatherIntegrationLocalTimestamp `
-            -Value ([string]$manifest.schedule.suite_at_local) `
-            -Label "suite_at_local"
-        $scriptPath = Join-Path $repoRoot "scripts\ops\integration_attempt_suite.ps1"
-        $scriptRecord = $manifest.orchestration.attempt_suite
-        $executionTimeLimit = "PT8H"
-        $description = "Immutable integration attempt $($manifest.attempt_id): preflight and full suite"
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    if ($Role -ne 'merge' -and $Role -cne $phase.Role) { throw 'Wrong prerequisite role for this attempt schema' }
+    $scriptRoot = if ($phase.Version -eq 'v2') {
+        Resolve-WeatherIntegrationPath -Path ([string]$manifest.control.root)
+    } else { $repoRoot }
+    if ($Role -eq $phase.Role) {
+        $taskName = $phase.TaskName
+        $atLocal = ConvertFrom-WeatherIntegrationLocalTimestamp -Value $phase.AtLocal -Label "$Role at_local"
+        $scriptPath = Join-Path (Join-Path $scriptRoot 'scripts/ops') $phase.ScriptName
+        $scriptRecord = $manifest.orchestration.PSObject.Properties[$phase.ScriptKey].Value
+        $executionTimeLimit = $phase.ExecutionTimeLimit
+        $description = $phase.Description
     }
     else {
         $taskName = [string]$manifest.schedule.merge_task_name
         $atLocal = ConvertFrom-WeatherIntegrationLocalTimestamp `
             -Value ([string]$manifest.schedule.merge_at_local) `
             -Label "merge_at_local"
-        $scriptPath = Join-Path $repoRoot "scripts\ops\integration_attempt_merge.ps1"
+        $scriptPath = Join-Path $scriptRoot "scripts\ops\integration_attempt_merge.ps1"
         $scriptRecord = $manifest.orchestration.attempt_merge
         $executionTimeLimit = "PT4H"
         $description = "Immutable integration attempt $($manifest.attempt_id): guarded merge"
@@ -455,7 +528,7 @@ function Assert-WeatherIntegrationBooleanProperties {
 function Assert-WeatherIntegrationTaskBindingRecord {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
+        [Parameter(Mandatory = $true)][ValidateSet("suite", "host", "merge")][string]$Role,
         [Parameter(Mandatory = $true)][object]$Record,
         [Parameter(Mandatory = $true)][string]$UserId
     )
@@ -543,6 +616,7 @@ function Assert-WeatherIntegrationRegistrationIntent {
         [string]$ExpectedSha256 = ""
     )
 
+    $phaseRole = (Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Role
     $intentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $AttemptContract
     $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $intentPath
     if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
@@ -553,7 +627,7 @@ function Assert-WeatherIntegrationRegistrationIntent {
     $intent = Read-WeatherIntegrationSharedJson -Path $intentPath
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent `
-        -Names @("schema", "status", "binding_contract", "attempt_id", "intent_path", "manifest_path", "manifest_sha256", "prepared_at_local", "principal", "suite", "merge", "safety") `
+        -Names @("schema", "status", "binding_contract", "attempt_id", "intent_path", "manifest_path", "manifest_sha256", "prepared_at_local", "principal", $phaseRole, "merge", "safety") `
         -Label "Registration intent"
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent.principal `
@@ -567,7 +641,7 @@ function Assert-WeatherIntegrationRegistrationIntent {
         -Object $intent.safety `
         -Names @("credential_value_access_authorized", "live_exchange_mutation_authorized") `
         -Label "Registration intent safety boundary"
-    if ([string]$intent.schema -ne $script:WeatherIntegrationAttemptRegistrationIntentSchema -or
+    if ([string]$intent.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind registration_intent) -or
         [string]$intent.status -ne "PREPARED" -or
         [string]$intent.binding_contract -ne $script:WeatherIntegrationAttemptTaskBindingContract -or
         [string]$intent.attempt_id -ne [string]$AttemptContract.Manifest.attempt_id -or
@@ -591,8 +665,8 @@ function Assert-WeatherIntegrationRegistrationIntent {
         -Label "registration intent prepared_at_local"
     Assert-WeatherIntegrationTaskBindingRecord `
         -AttemptContract $AttemptContract `
-        -Role "suite" `
-        -Record $intent.suite `
+        -Role $phaseRole `
+        -Record $intent.PSObject.Properties[$phaseRole].Value `
         -UserId ([string]$intent.principal.user_id) | Out-Null
     Assert-WeatherIntegrationTaskBindingRecord `
         -AttemptContract $AttemptContract `
@@ -617,11 +691,12 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         [switch]$RequirePass
     )
 
+    $phaseRole = (Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Role
     $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$AttemptContract.Manifest.evidence.registration_receipt)
     $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt `
-        -Names @("schema", "status", "binding_contract", "attempt_id", "manifest_path", "manifest_sha256", "registration_intent_path", "registration_intent_sha256", "registered_at_local", "principal", "suite", "merge", "downstream_tasks_created", "safety") `
+        -Names @("schema", "status", "binding_contract", "attempt_id", "manifest_path", "manifest_sha256", "registration_intent_path", "registration_intent_sha256", "registered_at_local", "principal", $phaseRole, "merge", "downstream_tasks_created", "safety") `
         -Label "Registration receipt"
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt.principal `
@@ -639,7 +714,7 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         -Object $receipt.safety `
         -Names @("credential_value_access_authorized", "live_exchange_mutation_authorized") `
         -Label "Registration receipt safety boundary"
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
+    if ([string]$receipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind registration_receipt) -or
         [string]$receipt.binding_contract -ne $script:WeatherIntegrationAttemptTaskBindingContract -or
         [string]$receipt.attempt_id -ne [string]$AttemptContract.Manifest.attempt_id -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
@@ -687,7 +762,7 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         @($receipt.principal.required_privileges).Count -ne 0) {
         throw "Registration receipt principal disagrees with its immutable intent."
     }
-    foreach ($role in @("suite", "merge")) {
+    foreach ($role in @($phaseRole, "merge")) {
         $record = $receipt.PSObject.Properties[$role].Value
         Assert-WeatherIntegrationRequiredProperties `
             -Object $record `
@@ -727,7 +802,7 @@ function Assert-WeatherIntegrationScheduledTaskObject {
     param(
         [Parameter(Mandatory = $true)][object]$Task,
         [Parameter(Mandatory = $true)][object]$BindingEvidence,
-        [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role
+        [Parameter(Mandatory = $true)][ValidateSet("suite", "host", "merge")][string]$Role
     )
 
     $record = $BindingEvidence.PSObject.Properties[$Role].Value
@@ -832,7 +907,7 @@ function Assert-WeatherIntegrationScheduledTaskObject {
 function Assert-WeatherIntegrationScheduledTaskBinding {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
+        [Parameter(Mandatory = $true)][ValidateSet("suite", "host", "merge")][string]$Role,
         [Parameter(Mandatory = $true)][object]$BindingEvidence,
         [switch]$IncludeTaskInfo
     )
@@ -864,7 +939,7 @@ function Assert-WeatherIntegrationScheduledTaskBinding {
 function Assert-WeatherIntegrationAttemptTaskBinding {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
+        [Parameter(Mandatory = $true)][ValidateSet("suite", "host", "merge")][string]$Role,
         [switch]$IncludeTaskInfo
     )
 
@@ -1122,6 +1197,11 @@ function Assert-WeatherIntegrationAttemptManifest {
     }
 
     $manifest = Read-WeatherIntegrationSharedJson -Path $resolvedManifestPath
+    if ([string]$manifest.schema -ceq 'weather_integration_attempt_manifest_v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        return Assert-WeatherQualificationAttemptManifest -ManifestPath $resolvedManifestPath -ExpectedSha256 $actualSha256
+    }
+    if ($null -ne $manifest.PSObject.Properties['qualification_mode']) { throw 'Split qualification cannot use the legacy manifest schema' }
     if ([string]$manifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema) {
         throw "Unsupported integration-attempt manifest schema: $($manifest.schema)"
     }
@@ -1237,7 +1317,7 @@ function Disable-WeatherIntegrationAttemptTasks {
     if (Test-Path -LiteralPath $registrationReceiptPath -PathType Leaf) {
         try {
             $registrationReceipt = Read-WeatherIntegrationSharedJson -Path $registrationReceiptPath
-            if ([string]$registrationReceipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
+            if ([string]$registrationReceipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind registration_receipt) -or
                 [string]$registrationReceipt.attempt_id -ne [string]$manifest.attempt_id -or
                 -not (Test-WeatherIntegrationPathEqual -Left ([string]$registrationReceipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
                 [string]$registrationReceipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
@@ -1263,8 +1343,9 @@ function Disable-WeatherIntegrationAttemptTasks {
         }
     }
 
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
     $taskSpecs = @(
-        [pscustomobject]@{ name = [string]$manifest.schedule.suite_task_name; role = "suite" },
+        [pscustomobject]@{ name = $phase.TaskName; role = $phase.Role },
         [pscustomobject]@{ name = [string]$manifest.schedule.merge_task_name; role = "merge" }
     )
     $taskEvidence = New-Object System.Collections.Generic.List[object]
@@ -1389,7 +1470,14 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor FAIL receipt changed after the successor was frozen."
     }
     $priorReceipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$priorReceipt.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+    $priorManifestPath = Resolve-WeatherIntegrationPath -Path ([string]$priorReceipt.manifest_path)
+    $priorManifestSha256 = Get-WeatherIntegrationFileSha256 -Path $priorManifestPath
+    if ($priorManifestSha256 -ne [string]$priorReceipt.manifest_sha256) {
+        throw "The predecessor manifest changed after closure."
+    }
+    $priorManifest = Read-WeatherIntegrationSharedJson -Path $priorManifestPath
+    $priorContract = [pscustomobject]@{ Manifest = $priorManifest }
+    if ([string]$priorReceipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind closure_receipt) -or
         [string]$priorReceipt.status -ne "FAIL") {
         throw "A successor attempt must bind an immutable closure FAIL receipt."
     }
@@ -1403,7 +1491,7 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor recovery dispatch changed after the successor was frozen."
     }
     $dispatch = Read-WeatherIntegrationSharedJson -Path $dispatchPath
-    if ([string]$dispatch.schema -ne $script:WeatherIntegrationAttemptRecoveryDispatchSchema -or
+    if ([string]$dispatch.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind recovery_dispatch) -or
         [string]$dispatch.status -ne "READY_FOR_SUCCESSOR_REVIEW" -or
         [string]$dispatch.repair_class -ne [string]$manifest.authorization.repair_class -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$dispatch.closure_receipt_path) -Right $receiptPath) -or
@@ -1411,12 +1499,7 @@ function Assert-WeatherIntegrationRepairClaim {
         throw "The predecessor recovery dispatch does not authorize this successor."
     }
 
-    $priorManifestPath = Resolve-WeatherIntegrationPath -Path ([string]$priorReceipt.manifest_path)
-    $priorManifestSha256 = Get-WeatherIntegrationFileSha256 -Path $priorManifestPath
-    if ($priorManifestSha256 -ne [string]$priorReceipt.manifest_sha256) {
-        throw "The predecessor manifest changed after closure."
-    }
-    $priorManifest = Read-WeatherIntegrationSharedJson -Path $priorManifestPath
+
     $priorAttemptRoot = Resolve-WeatherIntegrationPath -Path ([string]$priorManifest.attempt_root)
     $expectedClaimPath = Join-Path $priorAttemptRoot "successor-claim.json"
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$repairOf.claim_path) -Right $expectedClaimPath)) {
@@ -1424,7 +1507,7 @@ function Assert-WeatherIntegrationRepairClaim {
     }
 
     $claim = Read-WeatherIntegrationSharedJson -Path $expectedClaimPath
-    if ([string]$claim.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
+    if ([string]$claim.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $priorContract -Kind successor_claim) -or
         [string]$claim.status -ne "CLAIMED") {
         throw "The predecessor successor claim is unsupported."
     }
@@ -1448,6 +1531,11 @@ function Assert-WeatherIntegrationOrchestrationFiles {
     )
 
     $manifest = $AttemptContract.Manifest
+    if ((Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract).Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        Assert-WeatherQualificationOrchestration -AttemptContract $AttemptContract
+        return
+    }
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
     $expectedFiles = [ordered]@{
         contract = Join-Path $repoRoot "scripts\ops\integration_attempt_contract.ps1"
@@ -1628,7 +1716,7 @@ function Assert-WeatherIntegrationMergeReceipt {
     }
 
     $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema) {
+    if ([string]$receipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind merge_receipt)) {
         throw "Unsupported integration-attempt merge receipt schema: $($receipt.schema)"
     }
     if ([string]$receipt.status -ne "PASS") {
@@ -1691,13 +1779,21 @@ function Assert-WeatherIntegrationMergeReceipt {
     Assert-WeatherIntegrationQuietReportDocumentation `
         -AttemptContract $AttemptContract -QuietReport $quietReport | Out-Null
 
-    $suiteReceiptPath = [string]$manifest.evidence.suite_receipt
-    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.suite_receipt_path) -Right $suiteReceiptPath)) {
-        throw "Merge receipt suite-receipt path does not match the attempt manifest."
+    $phase = Get-WeatherIntegrationPrerequisite -AttemptContract $AttemptContract
+    $prerequisitePath = [string]$manifest.evidence.PSObject.Properties[$phase.ReceiptKey].Value
+    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.PSObject.Properties[$phase.ReceiptPathField].Value) -Right $prerequisitePath)) {
+        throw 'Merge receipt prerequisite path does not match the attempt manifest.'
     }
-    $suiteReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath
-    if ($suiteReceiptSha256 -ne [string]$receipt.suite_receipt_sha256) {
-        throw "Suite receipt changed after the merge gate consumed it."
+    if ((Get-WeatherIntegrationFileSha256 -Path $prerequisitePath) -cne [string]$receipt.PSObject.Properties[$phase.ReceiptShaField].Value) {
+        throw 'Prerequisite receipt changed after the merge gate consumed it.'
+    }
+    if ($phase.Version -eq 'v2') {
+        . (Join-Path $PSScriptRoot 'qualification_attempt_contract.ps1')
+        Assert-WeatherIntegrationPrerequisiteReceipt -AttemptContract $AttemptContract | Out-Null
+        Assert-WeatherQualificationPublishedProof -AttemptContract $AttemptContract -QuietReport $quietReport
+        . (Join-Path $PSScriptRoot 'qualification_preparation.ps1')
+        Assert-WeatherQualificationPreparation -AttemptContract $AttemptContract | Out-Null
+        Assert-WeatherQualificationArming -AttemptContract $AttemptContract -Historical | Out-Null
     }
 
     return [pscustomobject]@{
@@ -1725,7 +1821,7 @@ function Assert-WeatherIntegrationMergedUnverifiedReceipt {
         throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
     }
     $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+    if ([string]$receipt.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $AttemptContract -Kind merge_receipt) -or
         [string]$receipt.status -ne "MERGED_UNVERIFIED") {
         throw "Reconciliation requires an immutable MERGED_UNVERIFIED merge receipt."
     }

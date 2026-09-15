@@ -52,10 +52,14 @@ if (Test-Path -LiteralPath $dispatchPath) {
     throw "Immutable recovery dispatch already exists and will not be replaced: $dispatchPath"
 }
 
+if ((Get-WeatherIntegrationPrerequisite -AttemptContract $contract).Version -ceq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_reconcile_contract.ps1')
+    Assert-WeatherQualificationNoCommitClaim -AttemptContract $contract
+}
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
-    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED")) {
+    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED", "COMMIT_UNVERIFIED")) {
         throw "An attempt that reached production does not permit recovery dispatch."
     }
 }
@@ -66,7 +70,7 @@ if ($actualClosureSha256 -ne $ExpectedClosureReceiptSha256.ToLowerInvariant()) {
     throw "Closure receipt hash mismatch. Expected $ExpectedClosureReceiptSha256; got $actualClosureSha256"
 }
 $closure = Read-WeatherIntegrationSharedJson -Path $closurePath
-if ([string]$closure.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+if ([string]$closure.schema -ne (Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind closure_receipt) -or
     [string]$closure.status -ne "FAIL" -or
     [string]$closure.attempt_id -ne [string]$manifest.attempt_id -or
     -not (Test-WeatherIntegrationPathEqual -Left ([string]$closure.manifest_path) -Right $contract.ManifestPath) -or
@@ -96,7 +100,7 @@ if ($repairClass -eq "retry_unchanged" -and
 }
 
 $dispatch = [ordered]@{
-    schema = $script:WeatherIntegrationAttemptRecoveryDispatchSchema
+    schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind recovery_dispatch
     status = "READY_FOR_SUCCESSOR_REVIEW"
     dispatched_at_local = (Get-Date).ToString("o")
     attempt_id = [string]$manifest.attempt_id

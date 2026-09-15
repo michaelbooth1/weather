@@ -1,26 +1,30 @@
+[CmdletBinding(DefaultParameterSetName = "Legacy")]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$AttemptRoot,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$AttemptId,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$BranchRef,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$WorktreeRoot,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$ExpectedTip,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [datetime]$SuiteAtLocal,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [datetime]$MergeAtLocal,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Legacy")]
     [string]$ReviewReference,
     [ValidateSet("initial", "retry_unchanged", "schema_registry", "ownership_metadata", "orchestration_wrapper", "manual_reviewed_change")]
     [string]$RepairClass = "initial",
     [string]$RepairOfReceiptPath,
     [string]$AdditionalPythonPath = "",
-    [switch]$RequireLiveSdkContract
+    [switch]$RequireLiveSdkContract,
+    [Parameter(Mandatory = $true, ParameterSetName = "Split")][string]$SplitDraftPath,
+    [Parameter(Mandatory = $true, ParameterSetName = "Split")]
+    [ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedSplitDraftSha256
 )
 
 Set-StrictMode -Version Latest
@@ -41,6 +45,16 @@ function Invoke-WeatherGitLine {
         throw "git -C $Root $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }
     return (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+}
+
+if ($PSCmdlet.ParameterSetName -eq 'Split') {
+    . (Join-Path $PSScriptRoot 'qualification_attempt_creation.ps1')
+    $created = New-WeatherQualificationAttempt -RepositoryRoot $RepoRoot -DraftPath $SplitDraftPath -ExpectedDraftSha256 $ExpectedSplitDraftSha256
+    Write-Host "Created inert split attempt: $($created.Manifest.attempt_id)"
+    Write-Host "Manifest: $($created.ManifestPath)"
+    Write-Host "Manifest SHA256: $($created.ManifestSha256)"
+    Write-Host 'Registration, arming, host acceptance and guarded integration remain separate.'
+    exit 0
 }
 
 $RepoRoot = Resolve-WeatherIntegrationPath -Path $RepoRoot

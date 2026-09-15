@@ -15,6 +15,42 @@ as immutable for the whole night. It does not weaken the exact-tip suite gate,
 the 01:00-04:00 quiet-window gate, capture recovery, documentation transaction,
 or `origin/master` acknowledgement.
 
+The proposed [split qualification implementation](SPLIT_QUALIFICATION_CONTRACT.md)
+has a separate versioned trust transition. Its source and development evidence
+do not replace this full-host-suite prerequisite before explicit first-landing
+acceptance and adoption.
+
+## Split v2 routing after accepted cutover
+
+The installed v1 path below remains the production gate until the separately
+approved first landing. The v2 code path is explicit: it never consumes a
+`suite_receipt` or represents host probes as a full suite. Its complete contract
+is [Split Qualification](SPLIT_QUALIFICATION_CONTRACT.md).
+
+1. Produce and independently import the complete off-host code certificate for
+   the exact source, adopted baseline, policy and approved environments.
+2. From adopted B, run `prepare_split_qualification.ps1` with an exact request
+   path/SHA256 and host/principal bindings. Its `configuration` operation seals
+   Q; its `draft` operation freezes the B control copy and Git policy. Review
+   the host scope, measured budgets, profiles and generated records before use.
+3. Pass the exact draft to `new_integration_attempt.ps1 -SplitDraftPath
+   <absolute-prepared-manifest> -ExpectedSplitDraftSha256 <sha256>` with the
+   production `-RepoRoot`. Native preparation must succeed before registration.
+4. Register the exact host and merge tasks, then invoke the frozen B
+   `arm_integration_attempt.ps1` with the exact manifest path/SHA256. Registration
+   alone cannot launch either phase. Arming is create-once and expires with its
+   planned adoption day; a missed or failed attempt requires closure/review.
+5. The scheduled host parent proves actual S4U identity, contained probes,
+   current config/environment and any required complete current-input audit.
+   The merge consumer requires that separate receipt and repeats complete
+   source/config/input checks at the guarded primitive's mutation boundaries.
+
+V2 evidence and its control copy must live outside both production and candidate
+checkouts. The v1 `data/integration_attempts` example below is not a v2 path.
+`COMMIT_UNVERIFIED` and `MERGED_UNVERIFIED` block ordinary closure and successor
+dispatch. The typed reconciler retains a separate current observation; it cannot
+repeat commit or push and cannot authorize downstream work.
+
 ## State machine
 
 ```text

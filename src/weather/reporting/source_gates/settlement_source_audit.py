@@ -158,29 +158,30 @@ def _lineage_entry(name, path, missing_reason):
     }
 
 
-def _lineage(row):
+def _lineage(row, input_reader=None):
+    lineage_entry = _lineage_entry if input_reader is None else input_reader.lineage
     entries = [
-        _lineage_entry(
+        lineage_entry(
             "wu_daily_summary",
             row.get("daily_summary_path"),
             "daily_summary_path_not_recorded",
         ),
-        _lineage_entry(
+        lineage_entry(
             "snapshot_tape",
             row.get("snapshot_tape_path"),
             "snapshot_tape_path_not_recorded",
         ),
-        _lineage_entry(
+        lineage_entry(
             "canonical_settlement_ledger",
             row.get("ledger_path"),
             "ledger_path_not_recorded",
         ),
-        _lineage_entry(
+        lineage_entry(
             "weather_com_max_since_7",
             _first_present(row, ("weather_com_raw_payload_path", "weather_com_payload_path")),
             "weather_com_raw_payload_not_recorded",
         ),
-        _lineage_entry(
+        lineage_entry(
             "market_resolution",
             _first_present(row, ("market_resolution_payload_path", "gamma_event_payload_path")),
             "market_resolution_raw_payload_not_recorded",
@@ -306,14 +307,14 @@ def _merge_label_and_ledger_rows(label_rows, ledger_rows):
     return rows
 
 
-def audit_row(row):
+def audit_row(row, *, input_reader=None):
     buckets = _source_buckets(row)
     canonical = buckets.get("canonical_ledger")
     disagreement_sources = [
         source for source, bucket in buckets.items()
         if source != "canonical_ledger" and canonical is not None and bucket != canonical
     ]
-    lineage = _lineage(row)
+    lineage = _lineage(row, input_reader=input_reader)
     status = _classify(row, buckets, disagreement_sources)
     alternate_buckets = sorted({
         bucket for source, bucket in buckets.items()
@@ -379,10 +380,13 @@ def build_settlement_source_audit(
     labels_csv=DEFAULT_LABELS_CSV,
     ledger_root=DEFAULT_LEDGER_ROOT,
     generated_at_utc=None,
+    input_reader=None,
 ):
-    label_rows = _read_csv(labels_csv)
-    ledger = _ledger_rows(ledger_root)
-    rows = [audit_row(row) for row in _merge_label_and_ledger_rows(label_rows, ledger)]
+    # Qualification can supply a reviewed read-only generation. Ordinary callers
+    # retain the canonical readers and all existing classification/gate behavior.
+    label_rows = _read_csv(labels_csv) if input_reader is None else input_reader.labels(labels_csv)
+    ledger = _ledger_rows(ledger_root) if input_reader is None else input_reader.ledgers(ledger_root)
+    rows = [audit_row(row, input_reader=input_reader) for row in _merge_label_and_ledger_rows(label_rows, ledger)]
     status_counts = Counter(row["status"] for row in rows)
     by_market = defaultdict(Counter)
     lag_by_market = defaultdict(list)

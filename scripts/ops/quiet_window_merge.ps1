@@ -22,6 +22,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$ExpectedTip = "",
     [string]$ExpectedBaseline = "",
+    [string]$QualificationManifestPath = "",
+    [string]$QualificationManifestSha256 = "",
     [switch]$ProductionBaselineReconciliation,
     [string]$ExpectedLocalBaseline = "",
     [string]$ExpectedPublishedTarget = "",
@@ -38,6 +40,27 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$qualificationContext = $null
+$qualificationCommitAttempted = $false
+$qualificationPublishedCapture = $null
+$splitQualification = -not [string]::IsNullOrWhiteSpace($QualificationManifestPath)
+if ($splitQualification -ne (-not [string]::IsNullOrWhiteSpace($QualificationManifestSha256)) -or
+    ($splitQualification -and ($QualificationManifestSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+      $ExpectedTip -cnotmatch '^[0-9a-f]{40}$' -or $ExpectedBaseline -cnotmatch '^[0-9a-f]{40}$' -or
+      -not $ExpectedSelfSha256 -or $Force -or $DryRun -or $OwnerApprovedException -or $ProductionBaselineReconciliation))) {
+    throw 'Split qualification requires an exact manifest/source/baseline/self binding without override modes'
+}
+if ($splitQualification) {
+    . (Join-Path $PSScriptRoot 'integration_attempt_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_contract.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_host_identity.ps1')
+    . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_process.ps1')
+    . (Join-Path $PSScriptRoot 'qualification_merge_contract.ps1')
+    # Preserve the primitive's historical optional-property handling. The
+    # split readers enforce their exact data schemas independently.
+    Set-StrictMode -Off
+}
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
     if ($ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {
@@ -68,7 +91,8 @@ if ($OwnerApprovedException) {
     }
 }
 else {
-    $workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+    $workloadLeaseScript = if ($splitQualification) { Join-Path $PSScriptRoot 'workload_admission.ps1' }
+                           else { Join-Path $repo "scripts\ops\workload_admission.ps1" }
 }
 if ($ProductionBaselineReconciliation.IsPresent) {
     $expectedAdoptedWorkloadAdmissionSha256 =
@@ -110,6 +134,7 @@ $productionBaselineReconciliationMode = $ProductionBaselineReconciliation.IsPres
 $reconciliationModeName = if ($productionBaselineReconciliationMode) {
     "production_baseline_reconciliation_v0.1"
 }
+elseif ($splitQualification) { 'split_qualification_v2' }
 else { "ordinary_synchronized_merge_v0.1" }
 $reconciliationActualPreMerge = $null
 $reconciliationBootGuardCommit = $null
@@ -251,7 +276,17 @@ function Save-Report($ok, $stage, $detail) {
         publication_acknowledged = $publicationAcknowledged
         stage = $stage; detail = $detail; log = @($log)
     }
-    $json = $record | ConvertTo-Json -Depth 8
+    if ($splitQualification) {
+        $record['split_qualification'] = [ordered]@{
+            manifest_path = $QualificationManifestPath; manifest_sha256 = $QualificationManifestSha256
+            commit_invocation_started = $qualificationCommitAttempted
+            published_boundary = $(if ($qualificationPublishedCapture) { Get-WeatherQualificationReference -Root $qualificationContext.State.Contract.AttemptRoot -Name 'merge-work/published/boundary.json' } else { $null })
+            published_native = $(if ($qualificationPublishedCapture) { Get-WeatherQualificationReference -Root $qualificationContext.State.Contract.AttemptRoot -Name 'merge-work/published/native.json' } else { $null })
+            boundaries = $(if ($qualificationContext) { $qualificationContext.Proofs } else { $null })
+            capture = $qualificationPublishedCapture
+        }
+    }
+    $json = $record | ConvertTo-Json -Depth 12
     $reportPersisted = $false
     $attemptReportPersisted = $false
     $attemptReportExpectedSha256 = $null
@@ -460,6 +495,10 @@ function Write-QuietMergeMarker {
         auto_refreshed_sha256 = $rollbackContentSha256
         reconciliation_config_content_sha256 = $rollbackContentSha256
     }
+    if ($splitQualification) {
+        $marker['qualification'] = [ordered]@{ manifest_path = $QualificationManifestPath
+            manifest_sha256 = $QualificationManifestSha256; commit_invocation_started = $qualificationCommitAttempted }
+    }
     if ($productionBaselineReconciliationMode) {
         if ($reconciliationPostCommitMarkerArmed) {
             Assert-ReconciliationMergeCommit -Commit $mergeCommit
@@ -597,11 +636,13 @@ function Write-QuietMergeMarker {
     $replacementVerified = $false
     try {
         $markerJson = $marker | ConvertTo-Json -Depth 8
-        [IO.File]::WriteAllText(
-            $temp,
-            $markerJson,
-            (New-Object System.Text.UTF8Encoding($false))
-        )
+        if ($splitQualification) {
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes($markerJson)
+            $stream = [IO.File]::Open($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+        } else {
+            [IO.File]::WriteAllText($temp, $markerJson, (New-Object System.Text.UTF8Encoding($false)))
+        }
         if (Test-Path -LiteralPath $activeMarkerPath -PathType Leaf) {
             if ($productionBaselineReconciliationMode -or $ExpectedCurrentSha256) {
                 if ($ExpectedCurrentSha256 -notmatch '^[0-9a-f]{64}$' -or
@@ -3258,6 +3299,19 @@ $workloadLease = Enter-WeatherHeavyWorkloadLease `
 if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
 
+if ($splitQualification) {
+    $qualificationContext = Initialize-WeatherQualificationMerge -ManifestPath $QualificationManifestPath `
+        -ManifestSha256 $QualificationManifestSha256 -ProductionRoot $repo -Source $ExpectedTip `
+        -Baseline $ExpectedBaseline -SelfPath $PSCommandPath
+    Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase prepare -PreparedBaseline $ExpectedBaseline | Out-Null
+    $py = Join-Path $qualificationContext.State.Profile.tools.python.root $qualificationContext.State.Profile.tools.python.path
+    function git {
+        $nativeGit = Join-Path $qualificationContext.State.Profile.tools.git.root $qualificationContext.State.Profile.tools.git.path
+        & $nativeGit @($qualificationContext.GitOptions) @args
+        $global:LASTEXITCODE = $LASTEXITCODE
+    }
+}
+
 # ---- window guard, proportional to the branch's actual roll verdict ----
 # This used to demand 01:00-04:00 for EVERY branch, including branches that cannot roll
 # anything. That is a guard against a risk the branch does not carry, and it was the real
@@ -3269,7 +3323,8 @@ try {
 # hand -- exit 0 roll-free, 2 roll-free-only-while-a-loop-stays-dormant, 3 roll-sensitive,
 # 1 undecidable. Anything that is not a clean 0 is treated as roll-sensitive: the cost of a
 # wrong "free" is a streak day, the cost of a wrong "sensitive" is waiting until 01:00.
-$verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"
+$verdictScript = if ($splitQualification) { Join-Path $PSScriptRoot 'roll_verdict.ps1' }
+                 else { Join-Path $repo "scripts\ops\roll_verdict.ps1" }
 $rollFree = $false
 $rollVerdictReadable = $false
 $executionTapeActive = Test-ExecutionTapeActive
@@ -3289,8 +3344,13 @@ $verdictRef = $ExpectedTip
 if (Test-Path -LiteralPath $verdictScript) {
     $verdictJsonPath = Join-Path ([IO.Path]::GetTempPath()) ("weather-roll-verdict-{0}.json" -f [guid]::NewGuid().ToString("N"))
     try {
-        & $verdictScript -Branch $verdictRef -JsonOut $verdictJsonPath |
-            ForEach-Object { Note "roll_verdict: $_" }
+        if ($splitQualification) {
+            & $verdictScript -Branch $verdictRef -Base $ExpectedBaseline -RepoRoot $repo -JsonOut $verdictJsonPath |
+                ForEach-Object { Note "roll_verdict: $_" }
+        } else {
+            & $verdictScript -Branch $verdictRef -JsonOut $verdictJsonPath |
+                ForEach-Object { Note "roll_verdict: $_" }
+        }
         $verdictExitCode = $LASTEXITCODE
         $rollFree = ($verdictExitCode -eq 0)
         if (Test-Path -LiteralPath $verdictJsonPath -PathType Leaf) {
@@ -3384,7 +3444,10 @@ if ($unexpected.Count -gt 0) {
 # exactly the way push does. That is survivable -- the local refs are what we merge -- but
 # it means merging whatever copy of the branch was last fetched, so say so rather than
 # letting a stale merge look like a fresh one.
-$gitFetchExit = Invoke-GitAllowingNativeStderr { & git fetch origin --prune | Out-Null }
+$gitFetchExit = 0
+if (-not $splitQualification) { $gitFetchExit = Invoke-GitAllowingNativeStderr { & git fetch origin --prune | Out-Null } }
+# Split mode consumes independently refreshed, sealed remote metadata; its S4U
+# mutation process has no credential or remote-fetch authority.
 if ($gitFetchExit -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
 $branchCommitRef = "{0}^{{commit}}" -f $Branch
 $branchVerifyExit = Invoke-GitAllowingNativeStderr { & git rev-parse --verify $branchCommitRef | Out-Null }
@@ -3486,6 +3549,10 @@ catch {
 
 if ($dirtyTracked.Count -gt 0) {
     Note "committing $($dirtyTracked.Count) fleet-generated drift file(s) so the merge starts clean"
+    if ($splitQualification) {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase before-config -PreparedBaseline $baselineCommit | Out-Null
+        Assert-WeatherQualificationMutationFresh -Context $qualificationContext -Phase before-config
+    }
     $gitAddExit = Invoke-GitAllowingNativeStderr { & git add -- $autoRefreshed }
     if ($gitAddExit -ne 0) { Stop-AfterPreparationFailure "failed to stage fleet-generated drift (git exit $gitAddExit)" }
     $gitCommitExit = Invoke-GitAllowingNativeStderr {
@@ -3497,6 +3564,10 @@ if ($dirtyTracked.Count -gt 0) {
 # restores this exact tree, then mixed-resets the original baseline so the
 # generated contents survive as allowlisted working-tree drift.
 $preMerge = (& git rev-parse HEAD).Trim()
+if ($splitQualification) {
+    try { Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase prepared -PreparedBaseline $preMerge | Out-Null }
+    catch { Stop-AfterPreparationFailure ('Split prepared-tree check failed: ' + $_.Exception.Message) }
+}
 try {
     # Refresh the preparation journal with the exact temporary config commit,
     # but do not call it prepared until the pre-roll producer identities below
@@ -3524,7 +3595,8 @@ Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(
 # fingerprint against the current tree. That is the same recovery contract supervisors own.
 function Get-CaptureState {
     try {
-        $raw = @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json)
+        $raw = if ($splitQualification) { @(Invoke-WeatherQualificationDomain -Context $qualificationContext -Mode capture) }
+               else { @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json) }
         $exitCode = $LASTEXITCODE
         $state = (($raw -join "`n") | ConvertFrom-Json)
         if ($exitCode -ne 0) { $state.ok = $false }
@@ -3538,7 +3610,8 @@ function Get-CaptureState {
 function Get-ExecutionTapeState {
     $writerLockPath = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
     try {
-        $raw = @(& $py -m weather.operations.execution_tape_supervisor status --stale-after-seconds 180)
+        $raw = if ($splitQualification) { @(Invoke-WeatherQualificationDomain -Context $qualificationContext -Mode execution-status) }
+               else { @(& $py -m weather.operations.execution_tape_supervisor status --stale-after-seconds 180) }
         $exitCode = $LASTEXITCODE
         $payload = (($raw -join "`n") | ConvertFrom-Json)
         $health = $payload.health
@@ -3785,6 +3858,10 @@ if ($DryRun) {
 # merge commit below.
 $mergeCommitted = $false
 try {
+    if ($splitQualification) {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase before-stage -PreparedBaseline $preMerge | Out-Null
+        Assert-WeatherQualificationMutationFresh -Context $qualificationContext -Phase before-stage
+    }
     $mergeExit = Invoke-GitAllowingNativeStderr {
         & git merge --no-commit --no-ff $mergeTarget | Out-Null
     }
@@ -3805,6 +3882,9 @@ try {
     # ---- wait for every affected producer to readopt, then prove recovery ----
     Note "waiting ${SettleSeconds}s for supervisors to readopt the new code..."
     Start-Sleep -Seconds $SettleSeconds
+    # Native verification requires healthy capture. The intentional readoption
+    # interval ends before this check; no commit can precede it.
+    if ($splitQualification) { Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase staged -PreparedBaseline $preMerge | Out-Null }
     $after = Get-CaptureState
     Note "capture after: ok=$($after.ok), workers=$(@($after.workers).Count)"
 
@@ -3876,10 +3956,19 @@ try {
 
     # Recovery is proved while MERGE_HEAD still makes the operation boot-
     # recoverable. Commit only now, then verify the exact two-parent identity.
+    if ($splitQualification) {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase before-commit -PreparedBaseline $preMerge | Out-Null
+        # Persist the possibly-spent commit authority before invoking Git.
+        # A hard kill after the ref update must never fall through to boot reset.
+        $qualificationCommitAttempted = $true
+        Write-QuietMergeMarker -Phase 'qualification_commit_invoked'
+        Assert-WeatherQualificationBoundaryFresh -Context $qualificationContext -Phase before-commit
+    }
     $mergeCommitExit = Invoke-GitAllowingNativeStderr {
         & git commit -m "Merge $Branch into master" | Out-Null
     }
     if ($mergeCommitExit -ne 0) {
+        if ($splitQualification) { throw 'Split commit invocation failed or was ambiguous; retain local state for reconciliation' }
         Invoke-RollbackAndProve -Reasons @("recovery passed but explicit merge commit failed (git exit $mergeCommitExit)")
     }
     $candidateMergeCommit = (& git rev-parse HEAD).Trim().ToLowerInvariant()
@@ -3888,14 +3977,20 @@ try {
     if ((Test-Path -LiteralPath $mergeHeadPath -PathType Leaf) -or
         $firstParent -ne $preMerge.ToLowerInvariant() -or
         $secondParent -ne $resolvedBranchTip.ToLowerInvariant()) {
+        if ($splitQualification) { throw 'Split committed parent proof differs; retain local state for reconciliation' }
         Invoke-RollbackAndProve -Reasons @("explicit merge commit did not bind the exact pre-merge and reviewed-tip parents")
     }
     $mergeCommit = $candidateMergeCommit
+    if ($splitQualification) { Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase committed -PreparedBaseline $preMerge | Out-Null }
     Write-QuietMergeMarker -Phase "merge_committed_unpublished"
     $mergeCommitted = $true
     Note "recovery-proved merge committed locally as $mergeCommit (NOT pushed yet)"
 }
 catch {
+    if ($splitQualification -and $qualificationCommitAttempted) {
+        Save-Report -ok $false -stage "merge_commit_unverified" -detail ('Split commit was invoked; preserve exact local state and reconcile: ' + $_.Exception.Message)
+        exit 3
+    }
     if (-not $mergeCommitted) {
         Invoke-RollbackAndProve -Reasons @("unexpected pre-commit failure: $($_.Exception.GetType().Name)")
     }
@@ -3918,7 +4013,8 @@ if ($ExpectedTip) { $documentationArgs += @("--expected-tip", $ExpectedTip) }
 $previousDocumentationErrorPreference = $ErrorActionPreference
 try {
     $ErrorActionPreference = "Continue"
-    $documentationOutput = & $py @documentationArgs
+    $documentationOutput = if ($splitQualification) { Invoke-WeatherQualificationDomain -Context $qualificationContext -Mode documentation }
+                           else { & $py @documentationArgs }
     $documentationExit = $LASTEXITCODE
 }
 finally {
@@ -4059,7 +4155,13 @@ catch {
     exit 3
 }
 Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
-try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
+try {
+    if ($splitQualification) {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase before-push -PreparedBaseline $preMerge | Out-Null
+        Assert-WeatherQualificationBoundaryFresh -Context $qualificationContext -Phase before-push
+    }
+    Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop
+}
 catch {
     Note "could not start WeatherOneShotPush: $($_.Exception.Message)"
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task start failed; commit $mergeCommit is local"
@@ -4085,8 +4187,28 @@ catch {
     # documented_unpublished marker remains for Git-backed reconciliation.
     Note "WARNING: publication succeeded but the durable marker phase could not be advanced"
 }
+if ($splitQualification) {
+    try {
+        Invoke-WeatherQualificationMergeBoundary -Context $qualificationContext -Phase published -PreparedBaseline $preMerge | Out-Null
+        $qualificationPublishedCapture = Get-CaptureState
+        if (-not $qualificationPublishedCapture.ok -or @($qualificationPublishedCapture.workers).Count -ne 3 -or
+            @($qualificationPublishedCapture.workers | Where-Object { -not $_.ok }).Count -ne 0) {
+            $qualificationPublishedCapture = $null
+            throw 'Post-publication capture proof failed'
+        }
+    } catch {
+        Save-Report -ok $false -stage 'published_unverified' -detail ('Publication acknowledged; preserve and reconcile: ' + $_.Exception.Message)
+        exit 3
+    }
+}
 Note "pushed $mergeCommit via WeatherOneShotPush"
 Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"
 exit 0
 }
-finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+finally {
+    if ($qualificationContext) {
+        if (Close-WeatherQualificationMerge -Context $qualificationContext -Lease $workloadLease) {
+            Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+        }
+    } else { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+}

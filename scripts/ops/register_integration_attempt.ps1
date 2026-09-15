@@ -23,6 +23,12 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "attempt registration" | Out-Null
 $manifest = $contract.Manifest
+$phase = Get-WeatherIntegrationPrerequisite -AttemptContract $contract
+$phaseRole = $phase.Role
+if ($phase.Version -eq 'v2') {
+    . (Join-Path $PSScriptRoot 'qualification_preparation.ps1')
+    Assert-WeatherQualificationPreparation -AttemptContract $contract | Out-Null
+}
 if (-not (Test-WeatherIntegrationPathEqual -Left $RepoRoot -Right ([string]$manifest.repo_root))) {
     throw "Registrar RepoRoot does not match the immutable attempt manifest."
 }
@@ -47,9 +53,10 @@ if (Test-Path -LiteralPath $registrationIntentPath) {
     throw "Immutable pre-registration intent already exists and will not be replaced: $registrationIntentPath"
 }
 
-$tokenContractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
-$suiteScript = Join-Path $RepoRoot "scripts\ops\integration_attempt_suite.ps1"
-$mergeScript = Join-Path $RepoRoot "scripts\ops\integration_attempt_merge.ps1"
+$controlRoot = if ($phase.Version -eq 'v2') { [string]$manifest.control.root } else { $RepoRoot }
+$tokenContractScript = Join-Path $controlRoot "scripts\ops\training_window_contract.ps1"
+$suiteScript = Join-Path (Join-Path $controlRoot "scripts/ops") $phase.ScriptName
+$mergeScript = Join-Path $controlRoot "scripts\ops\integration_attempt_merge.ps1"
 foreach ($requiredScript in @($tokenContractScript, $suiteScript, $mergeScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "Required integration-attempt registration script is missing: $requiredScript"
@@ -66,7 +73,7 @@ if ([string]::IsNullOrWhiteSpace($env:USERNAME)) {
 }
 
 $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-    -Value ([string]$manifest.schedule.suite_at_local) `
+    -Value $phase.AtLocal `
     -Label "suite_at_local"
 $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
     -Value ([string]$manifest.schedule.merge_at_local) `
@@ -86,14 +93,14 @@ if ($suiteMinute -lt 30 -or $suiteMinute -ge (9 * 60)) {
 if ($mergeMinute -lt 60 -or $mergeMinute -ge 220) {
     throw "Merge trigger is outside the guarded 01:00-03:40 quiet window."
 }
-if (($mergeAt - $suiteAt) -lt [TimeSpan]::FromMinutes(30)) {
+if (($mergeAt - $suiteAt) -lt [TimeSpan]::FromMinutes($phase.ScheduleGapMinutes)) {
     throw "Merge trigger must remain at least 30 minutes after the suite trigger."
 }
 
-$suiteTaskName = [string]$manifest.schedule.suite_task_name
+$suiteTaskName = $phase.TaskName
 $mergeTaskName = [string]$manifest.schedule.merge_task_name
 foreach ($taskName in @($suiteTaskName, $mergeTaskName)) {
-    if ($taskName -notmatch '^WeatherIntegration(?:Suite|Merge)_[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
+    if ($taskName -notmatch '^WeatherIntegration(?:Suite|Host|Merge)_[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
         throw "Manifest task name is unsafe: $taskName"
     }
     if ($null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
@@ -103,7 +110,7 @@ foreach ($taskName in @($suiteTaskName, $mergeTaskName)) {
 
 $suiteBinding = Get-WeatherIntegrationExpectedTaskBinding `
     -AttemptContract $contract `
-    -Role "suite" `
+    -Role $phaseRole `
     -UserId $env:USERNAME `
     -PowerShellExecutable $powerShellExecutable
 $mergeBinding = Get-WeatherIntegrationExpectedTaskBinding `
@@ -130,7 +137,7 @@ $principal = New-ScheduledTaskPrincipal `
     -RunLevel Limited
 $suiteSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 8) `
+    -ExecutionTimeLimit ([System.Xml.XmlConvert]::ToTimeSpan($phase.ExecutionTimeLimit)) `
     -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
@@ -145,7 +152,7 @@ $mergeSettings = New-ScheduledTaskSettingsSet `
 # mutation. If the registrar process is interrupted at any later instruction,
 # the closer can still validate and disable only these exact task definitions.
 $intent = [ordered]@{
-    schema = $script:WeatherIntegrationAttemptRegistrationIntentSchema
+    schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind registration_intent
     status = "PREPARED"
     binding_contract = $script:WeatherIntegrationAttemptTaskBindingContract
     attempt_id = [string]$manifest.attempt_id
@@ -163,7 +170,7 @@ $intent = [ordered]@{
         process_token_sid_type = "Default"
         required_privileges = @()
     }
-    suite = $suiteBinding
+    $phaseRole = $suiteBinding
     merge = $mergeBinding
     safety = [ordered]@{
         authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
@@ -209,7 +216,7 @@ try {
     $suiteRegistered = $true
     $registeredSuite = Assert-WeatherIntegrationScheduledTaskBinding `
         -AttemptContract $contract `
-        -Role "suite" `
+        -Role $phaseRole `
         -BindingEvidence $intentContract.Intent
     if ([string]$registeredSuite.Task.State -ne "Ready" -or
         -not [bool]$registeredSuite.Task.Settings.Enabled) {
@@ -223,7 +230,7 @@ catch {
 }
 finally {
     $receipt = [ordered]@{
-        schema = $script:WeatherIntegrationAttemptRegistrationReceiptSchema
+        schema = Get-WeatherIntegrationRecordSchema -AttemptContract $contract -Kind registration_receipt
         status = $status
         binding_contract = $script:WeatherIntegrationAttemptTaskBindingContract
         attempt_id = [string]$manifest.attempt_id
@@ -242,7 +249,7 @@ finally {
             process_token_sid_type = "Default"
             required_privileges = @()
         }
-        suite = [ordered]@{
+        $phaseRole = [ordered]@{
             task_name = $suiteTaskName
             trigger_at_local = $suiteAt.ToString("o")
             registered = $suiteRegistered
@@ -289,7 +296,7 @@ if ($status -ne "PASS") {
 $registrationContract = Assert-WeatherIntegrationRegistrationReceipt `
     -AttemptContract $contract `
     -RequirePass
-foreach ($role in @("suite", "merge")) {
+foreach ($role in @($phaseRole, "merge")) {
     $registeredTask = Assert-WeatherIntegrationScheduledTaskBinding `
         -AttemptContract $contract `
         -Role $role `

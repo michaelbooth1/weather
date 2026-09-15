@@ -155,6 +155,9 @@ def _configure_repo(repo: Path) -> None:
         ("user.email", "reconciliation-execution@example.invalid"),
         ("commit.gpgSign", "false"),
         ("core.autocrlf", "false"),
+        # These disposable local remotes test Git/merge identity. An installed
+        # LFS pre-push hook must not upload or require historical model blobs.
+        ("core.hooksPath", str(repo.parent / (repo.name + "-empty-fixture-hooks"))),
         ("gc.auto", "0"),
     ):
         _git(repo, "config", key, value)
@@ -716,7 +719,7 @@ def _adapt_script(
     verdict_needle = (
         r'$verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"'
     )
-    assert adapted.count(verdict_needle) == 2
+    assert adapted.count(verdict_needle) == 1
     fake_verdict_path = str(fake_roll_verdict.resolve()).replace("'", "''")
     adapted = adapted.replace(
         verdict_needle,
@@ -1335,6 +1338,8 @@ def _invoke(
     assert WINDOWS_POWERSHELL is not None
     assert REAL_GIT is not None
     environment = os.environ.copy()
+    # The historical-tree fixture needs pointer bytes, never remote model IO.
+    environment["GIT_LFS_SKIP_SMUDGE"] = "1"
     environment.update(
         {
             "RECON_TEST_SCRIPT": str(harness.script.resolve()),

@@ -89,7 +89,7 @@ def _frozen_manifest(path, snapshots_root):
 class TestPromotionOutputContainment(unittest.TestCase):
     def test_frozen_promotion_tree_writes_only_below_output_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            sandbox = Path(tmp)
+            sandbox = Path(tmp).resolve()
             inputs = sandbox / "inputs"
             snapshots = inputs / "snapshots"
             snapshots.mkdir(parents=True)
@@ -358,7 +358,7 @@ class TestPromotionOutputContainment(unittest.TestCase):
 
     def test_live_promotion_tree_writes_only_below_output_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            sandbox = Path(tmp)
+            sandbox = Path(tmp).resolve()
             inputs = sandbox / "inputs"
             snapshots = inputs / "snapshots"
             snapshots.mkdir(parents=True)

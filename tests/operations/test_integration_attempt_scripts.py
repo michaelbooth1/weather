@@ -133,7 +133,7 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     merge = _text("integration_attempt_merge.ps1")
     downstream = _text("assert_integration_attempt_success.ps1")
 
-    suite_gate = merge.index("Assert-WeatherIntegrationSuiteReceipt")
+    suite_gate = merge.index("Assert-WeatherIntegrationPrerequisiteReceipt")
     task_gate = merge.index("Assert-WeatherIntegrationSuiteTask")
     quiet_merge = merge.index("$quietMergeExitCode = Invoke-WeatherQuietMergeChild")
     assert suite_gate < quiet_merge

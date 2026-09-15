@@ -83,7 +83,9 @@ def native_fixture(tmp_path):
     wrapper = wrapper.replace("try {\n    $null = New-Item", "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(6)\n    $null = New-Item")
     (scripts / "storage_recovery_night_run.ps1").write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
-    host = assignment["active_portable_execution_host_id"]
+    # This copied fixture must match the native runner, not a named workstation.
+    from weather.execution_host import current_execution_host_id
+    host = current_execution_host_id()
     assignment.update(dedicated_capture_execution_host_id=host, active_portable_execution_host_id=None,
                       active_portable_execution_principal_id=None, assignment_status="UNASSIGNED")
     (source / "config").mkdir()

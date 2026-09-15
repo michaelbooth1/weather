@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from weather.schema_registry_types import SchemaSpec
+from weather.schema_registry_qualification import QUALIFICATION_REGISTERED_SCHEMAS
 
 
 RECENT_REGISTERED_SCHEMAS = (
@@ -1423,4 +1424,4 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
-)
+) + QUALIFICATION_REGISTERED_SCHEMAS

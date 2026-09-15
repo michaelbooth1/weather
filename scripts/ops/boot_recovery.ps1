@@ -150,7 +150,17 @@ if ($mergeMarkerPresent) {
 }
 $untrustedMergeHeadRecoveryRequired = $mergeHeadExists -and -not $markerReadable
 
-if ($markerReadable) {
+# A durable split commit claim precedes the Git call. Even if power loss
+# leaves an old/unknown ref result, it is spent authority, not rollback proof.
+$splitCommitPending = $markerReadable -and
+    [string]$marker.operation_mode -ceq 'split_qualification_v2' -and
+    $marker.qualification.commit_invocation_started -eq $true
+if ($splitCommitPending) {
+    $mergeReconciliationRequired = $true
+    $untrustedMergeHeadRecoveryRequired = $false
+    $notes.Add('split commit invocation survived reboot; preserve marker, index and refs for exact qualification reconciliation')
+}
+elseif ($markerReadable) {
     $baseline = ([string]$marker.baseline_commit).ToLowerInvariant()
     $preMerge = ([string]$marker.pre_merge_commit).ToLowerInvariant()
     $markerMergeCommit = ([string]$marker.merge_commit).ToLowerInvariant()

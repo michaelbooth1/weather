@@ -1,0 +1,360 @@
+name: Qualification bootstrap review
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qualification-bootstrap.yml'
+      - '.github/workflows/qualification.yml'
+      - 'src/weather/operations/qualification/**'
+      - 'src/weather/schema_registry*.py'
+      - 'scripts/ops/**'
+      - 'tests/operations/test_qualification*.py'
+
+# These are development/bootstrap records for direct review. This workflow has
+# no signing or production role and cannot emit a code_qualification_v2 PASS.
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-bootstrap-${{ github.event.pull_request.number }}
+  # A source change invalidates qualification; retain the earlier partial evidence.
+  cancel-in-progress: true
+
+jobs:
+  native-boundary:
+    name: qualification-native-boundary-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+          - platform: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+      WEATHER_INTEGRATION_TEST_SECRET_POLICY: conservative_v1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Install native-test dependency
+        run: python -m pip install pytest==9.0.3
+      - name: Exercise actual native containment boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/operations/test_qualification_native_job.py tests/operations/test_qualification_runner.py tests/operations/test_qualification_producer.py tests/operations/test_qualification_workflow.py tests/operations/test_qualification_importer.py tests/operations/test_qualification_transport.py tests/operations/test_qualification_merge_tree.py tests/operations/test_qualification_frozen.py tests/operations/test_qualification_git_policy.py tests/operations/test_qualification_merge_session.py tests/operations/test_qualification_merge_native.py tests/operations/test_qualification_lifecycle_native.py tests/operations/test_qualification_arming_native.py tests/operations/test_qualification_arming.py tests/operations/test_qualification_reconciliation.py tests/operations/test_qualification_reconciliation_native.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-native.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-native.log"
+      - name: Retain native fault evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: ${{ runner.temp }}/qualification-native.*
+          if-no-files-found: error
+          retention-days: 14
+
+  native-host-audit:
+    name: qualification-native-host-audit-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+          - platform: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Install audit fixture dependencies
+        shell: bash
+        run: python -m pip install -r requirements.txt -e '.[test,live]'
+      - name: Run actual isolated audit and generation drift checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/operations/test_qualification_host_audit.py tests/operations/test_qualification_host_acceptance.py tests/operations/test_qualification_host_configuration.py tests/operations/test_qualification_host_parent.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-host-audit.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-host-audit.log"
+      - name: Retain native audit results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-host-audit-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: ${{ runner.temp }}/qualification-host-audit.*
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: qualification-bootstrap-${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+          - platform: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+      WEATHER_INTEGRATION_TEST_SECRET_POLICY: conservative_v1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Record exact source and native environment
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/qualification-source.txt"
+          python -VV > "$RUNNER_TEMP/qualification-python.txt"
+          git --version > "$RUNNER_TEMP/qualification-git.txt"
+          git status --porcelain=v1 > "$RUNNER_TEMP/qualification-before.txt"
+          test ! -s "$RUNNER_TEMP/qualification-before.txt"
+      - name: Install regression dependencies and retain resolution
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --report "$RUNNER_TEMP/qualification-dependencies.json" -r requirements.txt
+          python -m pip install --disable-pip-version-check --report "$RUNNER_TEMP/qualification-project.json" -e '.[test,live]'
+          python -m pip freeze --all > "$RUNNER_TEMP/qualification-distributions.txt"
+      - name: Native control-plane tests
+        run: |
+          set -euo pipefail
+          python -m pytest tests/operations/test_qualification*.py tests/operations/test_schema_registry.py tests/operations/test_import_architecture.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-focused.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-focused.log"
+      - name: Repository checks
+        run: |
+          set -euo pipefail
+          python -X pycache_prefix="$RUNNER_TEMP/weather-bootstrap-compile-cache" -m compileall -q app src tests
+          python -m weather.operations.agent_docs_audit 2>&1 | tee "$RUNNER_TEMP/qualification-docs.log"
+          python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check 2>&1 | tee "$RUNNER_TEMP/qualification-roadmap.log"
+      - name: Complete native regression suite
+        env:
+          WEATHER_QUALIFICATION_JOURNAL: ${{ runner.temp }}/qualification-full.jsonl
+        run: |
+          set -euo pipefail
+          python -m pytest tests --strict-config --strict-markers -p weather.operations.qualification.pytest_observer -q --junitxml="$RUNNER_TEMP/qualification-full.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-full.log"
+      - name: Verify final source identity
+        if: always()
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          git status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/qualification-after.txt"
+          test ! -s "$RUNNER_TEMP/qualification-after.txt"
+      - name: Retain exact-attempt development evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: ${{ runner.temp }}/qualification-*
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: false
+
+  attestation-protocol:
+    name: qualification-attestation-protocol
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    # No checkout, candidate imports, production secrets or production subject.
+    # This fixture validates the actual hosted signing/offline-verifier protocol.
+    steps:
+      - name: Create fixed protocol fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/qualification-protocol"
+          printf '%s\n' '{"kind":"qualification-protocol-fixture","production_authority":false}' > "$RUNNER_TEMP/qualification-protocol/fixture.json"
+          gh --version > "$RUNNER_TEMP/qualification-protocol/gh-version.txt"
+          sha256sum "$(command -v gh)" > "$RUNNER_TEMP/qualification-protocol/gh-sha256.txt"
+      - name: Attest only the fixed fixture
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/qualification-protocol/fixture.json
+          create-storage-record: false
+      - name: Retain trust material and prove native offline verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/qualification-protocol"
+          cp "$BUNDLE_PATH" "$proof/attestation.jsonl"
+          gh attestation trusted-root > "$proof/trusted-root.jsonl"
+          mkdir "$proof/empty-home" "$proof/empty-gh"
+          gh_binary="$(command -v gh)"
+          timeout --kill-after=5s 30s sudo -n unshare --net -- env -i PATH=/usr/bin:/bin HOME="$proof/empty-home" GH_CONFIG_DIR="$proof/empty-gh" GH_PROMPT_DISABLED=1 NO_COLOR=1 "$gh_binary" attestation verify "$proof/fixture.json" --repo "$GITHUB_REPOSITORY" --bundle "$proof/attestation.jsonl" --custom-trusted-root "$proof/trusted-root.jsonl" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/qualification-bootstrap.yml" --signer-digest "$GITHUB_WORKFLOW_SHA" --source-digest "$GITHUB_SHA" --cert-oidc-issuer https://token.actions.githubusercontent.com --deny-self-hosted-runners --hostname github.com --predicate-type https://slsa.dev/provenance/v1 --format json > "$proof/verified.json" 2> "$proof/verifier-stderr.txt"
+          python -c 'import json,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"qualification-protocol"; value=json.loads((p/"verified.json").read_text()); assert isinstance(value,list) and value; print(json.dumps(value,indent=2))'
+      - name: Retain native protocol evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-protocol-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-protocol/*.*
+          if-no-files-found: error
+          retention-days: 14
+
+  native-verifier:
+    name: qualification-offline-verifier-${{ matrix.platform }}
+    needs: attestation-protocol
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+          - platform: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualification-protocol-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-protocol
+      - name: Install native-test dependency
+        run: python -m pip install pytest==9.0.3
+      - name: Verify actual native signature and wrong-revision refusal
+        shell: bash
+        env:
+          WEATHER_QUALIFICATION_PROTOCOL_ROOT: ${{ runner.temp }}/qualification-protocol
+        run: |
+          set -euo pipefail
+          python -m pytest tests/operations/test_qualification_verifier_native.py -q --basetemp="$RUNNER_TEMP/qualification-verifier-tests" --junitxml="$RUNNER_TEMP/qualification-verifier.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-verifier.log"
+      - name: Retain actual native verifier evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-verifier-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/qualification-verifier.xml
+            ${{ runner.temp }}/qualification-verifier.log
+            ${{ runner.temp }}/qualification-verifier-tests/**/verify/*.*
+          if-no-files-found: error
+          retention-days: 14
+
+  # The complete native suite above includes the legacy portability fixtures.
+  native-attempt-phase:
+    name: qualification-native-attempt-phase
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Install task-contract test dependencies
+        shell: bash
+        run: python -m pip install -r requirements.txt -e '.[test]'
+      - name: Exercise shared host and historical suite contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/operations/test_qualification_attempt.py tests/operations/test_qualification_attempt_phase.py tests/operations/test_qualification_host_identity.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py -vv -o faulthandler_timeout=60 --durations=20 --junitxml="$RUNNER_TEMP/qualification-attempt-phase.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-attempt-phase.log"
+      - name: Retain native lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-attempt-phase-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-attempt-phase.*
+          if-no-files-found: error
+          retention-days: 14
+
+  native-reconciler-fixture:
+    name: qualification-native-reconciler-fixture
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11.0'
+          architecture: x64
+      - name: Install fixture dependencies
+        shell: bash
+        run: python -m pip install -r requirements.txt -e '.[test]'
+      - name: Run the two repaired native local-remote fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest 'tests/operations/test_production_baseline_reconciler_execution.py::test_reconciliation_adversarial_preflight_refuses_before_git_mutation[nonancestor]' 'tests/operations/test_production_baseline_reconciler_execution.py::test_reconciliation_adversarial_preflight_refuses_before_git_mutation[config_blob]' -vv --junitxml="$RUNNER_TEMP/qualification-reconciler-fixture.xml" 2>&1 | tee "$RUNNER_TEMP/qualification-reconciler-fixture.log"
+      - name: Retain native fixture evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-reconciler-fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-reconciler-fixture.*
+          if-no-files-found: error
+          retention-days: 14

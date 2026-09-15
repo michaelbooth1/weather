@@ -91,7 +91,9 @@ def wrapper_fixture(tmp_path, request):
     wrapper_path = scripts / "storage_recovery_inventory_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
-    assignment.update(dedicated_capture_execution_host_id=assignment["active_portable_execution_host_id"],
+    # Bind only the disposable fixture to this actual test installation.
+    from weather.execution_host import current_execution_host_id
+    assignment.update(dedicated_capture_execution_host_id=current_execution_host_id(),
                       active_portable_execution_host_id=None, active_portable_execution_principal_id=None,
                       assignment_status="UNASSIGNED")
     (source / "config").mkdir()
