@@ -212,7 +212,7 @@ function Invoke-WeatherBootstrapInstallNative {
         schema='qualification_bootstrap_install_boundary_v1';envelope_sha256=$Context.Sha256
         phase=$request.phase;prepared_baseline=$request.prepared_baseline;effective_tree=$Context.Value.effective_tree
         integration_eligible=$false;native_parent_completion_required=$true
-        git_options=@('--no-replace-objects','-c','core.hooksPath='+$root)
+        git_options=@('--no-replace-objects','-c',('core.hooksPath='+$root))
     })
     Write-WeatherBootstrapProbeRecord (Join-Path $Directory 'native.json') @{fixture_only=$true}
 }
