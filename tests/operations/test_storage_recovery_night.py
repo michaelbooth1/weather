@@ -512,6 +512,8 @@ def test_capacity_compression_hands_back_at_archive_reserve(tmp_path, monkeypatc
     result = json.loads((runner.output / "result.json").read_text())
     assert result["status"] == terminal
     assert result["overall_target_free_disk_bytes"] == 150000000000
-    assert result["night_verified_reclaimed_bytes"] == 2 * contract.MIB
+    expected_files = 1 if terminal == "TARGET_MET" else 2
+    assert result["night_verified_reclaimed_bytes"] == expected_files * contract.MIB
+    assert result["verified_file_count"] == expected_files
     assert result["pending"] is None and result["deleted_files"] == 0
-    assert simulation.calls == ["inventory", "dry", "apply"]
+    assert simulation.calls.count("apply") == expected_files

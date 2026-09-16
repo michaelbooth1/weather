@@ -268,3 +268,20 @@ $record.Bytes
     assert result.returncode == 0, result.stderr
     assert int(result.stdout.strip()) == len(raw)
     assert run_ps(tmp_path, body, ROOT, path, "0"*64).returncode != 0
+
+
+@pytest.mark.parametrize("now,allowed", [
+    ("2026-09-16T00:30:00Z", True),
+    ("2026-09-15T20:30:00-04:00", True),
+    ("2026-09-16T04:24:59Z", True),
+    ("2026-09-16T00:24:59-04:00", True),
+    ("2026-09-16T04:25:00Z", False),
+    ("2026-09-16T00:25:00-04:00", False),
+])
+def test_capacity_preparation_deadline_compares_instants(tmp_path, now, allowed):
+    result = run_ps(tmp_path, r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+Test-WeatherCapacityPreparationWindow -Now $args[1]
+""", ROOT, now)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().lower() == str(allowed).lower()

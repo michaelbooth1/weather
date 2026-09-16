@@ -15,7 +15,7 @@ Assert-WeatherNightDirectory $ProductionRepoRoot
 $hostId=Get-WeatherExecutionHostId
 $assignment=Get-WeatherExecutionHostAssignment -RepoRoot $source
 if($hostId -cne $assignment.dedicated_capture_execution_host_id -or $hostId -cne '6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7'){throw 'Preparation requires the approved capture installation'}
-if([DateTime]::UtcNow -ge [DateTime]'2026-09-16T04:25:00Z'){throw 'Preparation is too late for reviewed preflight'}
+if(-not(Test-WeatherCapacityPreparationWindow)){throw 'Preparation is too late for reviewed preflight'}
 $handoffs=Join-Path $ProductionRepoRoot 'scratch/handoffs'
 $owner=Read-WeatherPlainMetadata (Join-Path $handoffs 'capacity-150gb-20260915-owner-approval-a1.json') '2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5' 16384
 $selection=Read-WeatherPlainMetadata (Join-Path $handoffs 'local-retained-capacity-selection-20260914-a1.json') '721dd300298d00397906e8ebc703150d519aa30077a2d0a9b6faa636f7ae9eed' 8388608

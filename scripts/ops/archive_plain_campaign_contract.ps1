@@ -139,3 +139,9 @@ function Assert-WeatherPlainUpload {
  if($age -lt 0 -or $age -ge 24){throw 'Independent download proof is stale or future-dated'}
 }
 
+
+
+function Test-WeatherCapacityPreparationWindow {
+ param([DateTimeOffset]$Now=[DateTimeOffset]::UtcNow)
+ return $Now -lt [DateTimeOffset]::Parse('2026-09-16T04:25:00Z')
+}
