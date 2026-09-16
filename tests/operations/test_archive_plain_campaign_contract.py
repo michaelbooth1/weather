@@ -248,3 +248,22 @@ def test_capacity_duplicate_or_missing_chunk_refused(tmp_path):
     value = capacity_config()
     value["queue"].pop()
     assert check_config(tmp_path, value).returncode != 0
+
+
+@pytest.mark.parametrize("bom", [False, True])
+def test_bounded_metadata_accepts_utf8_bom_without_changing_hash(tmp_path, bom):
+    import hashlib
+    raw = (b"\xef\xbb\xbf" if bom else b"") + b'{"approved": true}\n'
+    path = tmp_path / "approval.json"
+    path.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    body = r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+$record=Read-WeatherPlainMetadata $args[1] $args[2] 16384
+if($record.Value.approved -ne $true -or $record.Sha256 -cne $args[2]){throw 'metadata differs'}
+$record.Bytes
+"""
+    result = run_ps(tmp_path, body, ROOT, path, digest)
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) == len(raw)
+    assert run_ps(tmp_path, body, ROOT, path, "0"*64).returncode != 0

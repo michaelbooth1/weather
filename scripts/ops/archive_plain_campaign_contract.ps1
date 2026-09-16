@@ -15,7 +15,10 @@ function Read-WeatherPlainMetadata {
  $algorithm=[Security.Cryptography.SHA256]::Create()
  try {$digest=[BitConverter]::ToString($algorithm.ComputeHash($raw)).Replace('-','').ToLowerInvariant()} finally {$algorithm.Dispose()}
  if($Sha256 -and $Sha256 -cne $digest){throw ('Metadata hash differs: '+$info.Name)}
- $value=[Text.UTF8Encoding]::new($false,$true).GetString($raw)|ConvertFrom-Json
+ $text=[Text.UTF8Encoding]::new($false,$true).GetString($raw)
+ # Windows PowerShell metadata may contain a UTF-8 BOM; the digest covers the original bytes.
+ if($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF){$text=$text.Substring(1)}
+ $value=$text|ConvertFrom-Json
  [pscustomobject]@{Value=$value;Sha256=$digest;Bytes=$raw.Length;Raw=$raw;Path=$info.FullName}
 }
 
