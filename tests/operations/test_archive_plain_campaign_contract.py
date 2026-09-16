@@ -186,7 +186,7 @@ def test_immediate_config_retains_scope_and_requires_new_timing_authority(tmp_pa
 def capacity_config():
     value = config()
     value.update(
-        campaign_id="plain-20260916-cap150", start_utc="2026-09-16T04:30:00Z",
+        campaign_id="plain-20260916-cap150b", start_utc="2026-09-16T04:30:00Z",
         end_utc="2026-09-16T08:42:00Z", expires_at_utc="2026-09-16T08:42:00Z",
         approved_at_utc="2026-09-15T23:17:20.425091Z", target_bytes=150000000000,
         initial_archive_headroom_bytes=30*1024**3, initial_progress_sha256="0"*64,
@@ -206,7 +206,7 @@ def capacity_config():
         value[key] = {"path": "C:/fixture/"+key+".json", "sha256": digest}
     value["capacity"]["source_tip"] = value["source_tip"]
     value["queue"] = [
-        {"archive_id": f"p16m{n:05}", "chunk_id": f"chunk-{n:05}", "start_at": "stage"}
+        {"archive_id": f"p16n{n:05}", "chunk_id": f"chunk-{n:05}", "start_at": "stage"}
         for n in range(56)
     ]
     return value
@@ -227,6 +227,7 @@ def test_capacity_current_approval_exact_selection_and_window(tmp_path):
     (("end_utc",), "2026-09-16T09:00:00Z"),
     (("target_bytes",), 200000000000),
     (("initial_archive_headroom_bytes",), 25*1024**3),
+    (("initial_archive_headroom_bytes",), 55*1024**3),
     (("queue",0,"start_at"), "reclaim"),
     (("queue",0,"archive_id"), "p11m00000"),
     (("queue",0,"chunk_id"), "chunk-00056"),

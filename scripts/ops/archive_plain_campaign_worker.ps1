@@ -7,7 +7,7 @@ $source=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Assert-WeatherPlainSource $source $ExpectedSourceTip
 $configRecord=Read-WeatherPlainMetadata $ConfigPath $ConfigSha256 65536
 $c=Assert-WeatherPlainConfiguration $configRecord.Value
-$capacity150=$c.campaign_id -ceq 'plain-20260916-cap150'
+$capacity150=$c.campaign_id -ceq 'plain-20260916-cap150b'
 $immediate=$c.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
 if($c.source_tip -cne $ExpectedSourceTip){throw 'Worker source/config mismatch'}
 $root=[IO.Path]::GetFullPath($c.production_root)
@@ -176,7 +176,7 @@ try {
  }
  $capacity=Read-WeatherPlainMetadata $c.capacity.plan_path $c.capacity.plan_sha256 262144
  Assert-WeatherPlainSource $c.capacity.source_root $c.capacity.source_tip
- if($capacity150 -and ($capacity.Value.plan_id -cne 'capacity-20260916-cap150' -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
+ if($capacity150 -and ($capacity.Value.plan_id -cne 'capacity-20260916-cap150b' -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
  if($PreflightOnly -and -not $immediate -and -not $capacity150){
   Run-Child 'capacity-metadata-preflight' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early','-PreflightOnly') 75
  }
@@ -187,7 +187,7 @@ try {
  else {
   if(-not(Test-WeatherPlainStartWindow $c -GraceSeconds 50)){throw 'Campaign missed its approved start window'}
   $free=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace
-  $bridgeTarget=if($capacity150){55GB}else{[long]$c.initial_archive_headroom_bytes}
+  $bridgeTarget=[long]$c.initial_archive_headroom_bytes
   if($free -lt $bridgeTarget){
    if($immediate){throw 'Immediate archive headroom is unavailable; no daytime compression is authorized'}
    Run-Child 'conditional-retained-compression' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early') ([int]([Math]::Floor(($deadline-[DateTime]::UtcNow).TotalSeconds)-20))

@@ -44,7 +44,7 @@ foreach($group in @($selection.Value.groups | Select-Object -Skip 7)){
 if($total -ne 8754 -or $groups.Count -ne 55){throw 'Untouched compression selection accounting differs'}
 $package=Join-Path $handoffs ('capacity-150gb-20260916-'+$AttemptLabel)
 if(Test-Path -LiteralPath $package){throw 'Spent preparation namespace'}
-$baselinePrefix=Join-Path $handoffs ('capacity-20260916-cap150-'+$AttemptLabel)
+$baselinePrefix=Join-Path $handoffs ('capacity-20260916-cap150b-'+$AttemptLabel)
 foreach($suffix in @('-baseline-files.json','-baseline.json')){if(Test-Path -LiteralPath ($baselinePrefix+$suffix)){throw 'Spent baseline namespace'}}
 if(Test-Path -LiteralPath $c.progress_path){throw 'The approved archive progress ledger exists; reconcile before preparation'}
 $activeRecovery=@(Get-CimInstance Win32_Process | Where-Object {
@@ -64,7 +64,7 @@ $baseline=Write-WeatherPlainNew ($baselinePrefix+'-baseline.json') @{
  scope='Selected untouched groups only; no global reconciliation or prior savings credit is asserted.'
 }
 $plan=@{
- schema_version='storage_recovery_night_plan_v1';plan_id='capacity-20260916-cap150';night_date='2026-09-16'
+ schema_version='storage_recovery_night_plan_v1';plan_id='capacity-20260916-cap150b';night_date='2026-09-16'
  approved_by='Michael; September 15 exact capacity-recovery approval';approved_at_utc='2026-09-15T23:17:20.425091Z'
  expires_at_utc='2026-09-16T13:00:00Z';production_repo_root=$ProductionRepoRoot;execution_host_id=$hostId
  source_root=$source;source_git_sha=$ExpectedSourceTip;baseline_receipt=$baseline.Path;baseline_receipt_sha256=$baseline.Sha256
@@ -79,7 +79,7 @@ $exception=Write-WeatherPlainNew (Join-Path $package 'disk-exception.json') @{
  plan_sha256=$c.plan.sha256;selection_sha256=$c.selection.sha256;expires_at_utc='2026-09-16T13:00:00Z'
  hard_reserve_bytes=26843545600;output_cap_bytes=2147483648;capture_bytes_per_second=1048576
 } 16384
-$c.campaign_id='plain-20260916-cap150';$c.source_tip=$ExpectedSourceTip;$c.created_at_utc=[DateTime]::UtcNow.ToString('o')
+$c.campaign_id='plain-20260916-cap150b';$c.source_tip=$ExpectedSourceTip;$c.created_at_utc=[DateTime]::UtcNow.ToString('o')
 $c.approved_by='Michael; exact post-denial approval on September 15';$c.approved_at_utc='2026-09-15T23:17:20.425091Z'
 $c.start_utc='2026-09-16T04:30:00Z';$c.end_utc='2026-09-16T08:42:00Z';$c.expires_at_utc=$c.end_utc
 $c.target_bytes=150000000000
@@ -89,9 +89,9 @@ $c|Add-Member -NotePropertyName current_owner_approval -NotePropertyValue @{path
 $c|Add-Member -NotePropertyName disk_exception -NotePropertyValue @{path=$exception.Path;sha256=$exception.Sha256} -Force
 $c|Add-Member -NotePropertyName capacity -NotePropertyValue @{
  source_root=$source;source_tip=$ExpectedSourceTip;plan_path=$planRecord.Path;plan_sha256=$planRecord.Sha256
- result_root=(Join-Path $ProductionRepoRoot 'scratch/storage_recovery_nights/capacity-20260916-cap150')
+ result_root=(Join-Path $ProductionRepoRoot 'scratch/storage_recovery_nights/capacity-20260916-cap150b')
 } -Force
-foreach($row in $c.queue){$row.archive_id='p16m'+$row.chunk_id.Substring(6);$row.start_at='stage'}
+foreach($row in $c.queue){$row.archive_id='p16n'+$row.chunk_id.Substring(6);$row.start_at='stage'}
 # Preserve only configuration fields consumed by the registered controller.
 foreach($obsolete in @('owner_instruction','operating_windows','windows','supersedes_unused_configuration','minimum_free_disk_bytes','native_archive_reserve_bytes','initial_free_disk_bytes','initial_progress_status')){$c.PSObject.Properties.Remove($obsolete)}
 $null=Assert-WeatherPlainConfiguration $c

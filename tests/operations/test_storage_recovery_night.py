@@ -464,7 +464,7 @@ def test_capacity_already_compressed_file_has_no_new_apply_authority():
 
 def test_capacity_bridge_target_does_not_replace_overall_target():
     plan = {"plan_id": contract.CAPACITY_PLAN_ID, "target_free_disk_bytes": 150000000000}
-    assert contract.capacity_free_target(plan, "early") == 55*contract.GIB
+    assert contract.capacity_free_target(plan, "early") == 30*contract.GIB
     assert contract.capacity_free_target(plan, "late") == 150000000000
     assert plan["target_free_disk_bytes"] == 150000000000
 
@@ -494,3 +494,24 @@ def test_capacity_selection_excludes_first_seven_groups_and_pins_both_records(tm
     selected["archive_selection_excluded_sha256"] = "0"*64
     with pytest.raises(ValueError, match="selection"):
         contract.capacity_selection(plan)
+
+
+@pytest.mark.parametrize("segment,free_gib,terminal", [
+    ("early", 31, "TARGET_MET"),
+    ("early", 29, "CANDIDATES_EXHAUSTED"),
+    ("late", 31, "CANDIDATES_EXHAUSTED"),
+])
+def test_capacity_compression_hands_back_at_archive_reserve(tmp_path, monkeypatch, segment, free_gib, terminal):
+    from types import SimpleNamespace
+    runner, simulation = runner_fixture(tmp_path, monkeypatch, segment=segment)
+    runner.plan.update(plan_id=contract.CAPACITY_PLAN_ID,
+                       target_new_reclaimed_bytes=1, target_free_disk_bytes=150000000000)
+    monkeypatch.setattr(subject.shutil, "disk_usage",
+                        lambda _: SimpleNamespace(free=free_gib * contract.GIB))
+    assert runner.run() == 0
+    result = json.loads((runner.output / "result.json").read_text())
+    assert result["status"] == terminal
+    assert result["overall_target_free_disk_bytes"] == 150000000000
+    assert result["night_verified_reclaimed_bytes"] == 2 * contract.MIB
+    assert result["pending"] is None and result["deleted_files"] == 0
+    assert simulation.calls == ["inventory", "dry", "apply"]
