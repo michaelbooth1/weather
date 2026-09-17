@@ -110,4 +110,3 @@ $manifest=Write-WeatherPlainNew (Join-Path $package 'prepared.json') @{
  predecessor_audit=@{path=$audit.Path;sha256=$audit.Sha256};excluded_interrupted_group='2026-07-22';prior_savings_credited=0
 }
 $manifest.Value|ConvertTo-Json -Depth 8
-

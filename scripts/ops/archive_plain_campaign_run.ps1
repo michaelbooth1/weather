@@ -100,5 +100,3 @@ finally {
 }
 $receipt|ConvertTo-Json -Depth 8 -Compress
 exit $exitCode
-
-

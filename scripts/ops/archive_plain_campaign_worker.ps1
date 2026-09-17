@@ -253,5 +253,3 @@ try {
 }
 if($status -ceq 'FAILED_RETAIN_AND_INSPECT'){exit 1}
 exit 0
-
-

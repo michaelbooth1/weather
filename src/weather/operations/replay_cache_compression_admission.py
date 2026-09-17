@@ -331,4 +331,3 @@ def verify_lease_file_locked(path):
         raise ValueError("compression lease file is not held against another writer")
     if ctypes.get_last_error() != 32:
         raise ValueError("compression lease ownership cannot be proved by the sharing lock")
-

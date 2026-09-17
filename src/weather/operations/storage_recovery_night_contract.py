@@ -292,4 +292,3 @@ def capacity_free_target(plan, segment):
     if plan["plan_id"] in CAPACITY_SELECTION_SCOPES and segment == "early":
         return 30 * GIB
     return plan["target_free_disk_bytes"]
-

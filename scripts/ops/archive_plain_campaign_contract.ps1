@@ -149,4 +149,3 @@ function Test-WeatherCapacityPreparationWindow {
        [ValidateSet('2026-09-16','2026-09-17')][string]$NightDate='2026-09-16')
  return $Now -lt [DateTimeOffset]::Parse($NightDate+'T04:25:00Z')
 }
-
