@@ -301,3 +301,50 @@ def test_successor_capacity_campaign_requires_fresh_date_and_staging_identities(
     value["queue"][0]["archive_id"] = "p17a00000"
     value["end_utc"] = "2026-09-18T08:42:00Z"
     assert check_config(tmp_path, value).returncode != 0
+
+
+@pytest.mark.parametrize("scenario,ahead,expected", [
+    ("normal", -1, True), ("normal", 0.0911794, True), ("normal", 5, True),
+    ("normal", 5.001, False), ("normal", -86400, False),
+    ("deadline", 0.2, False), ("frozen", 1, False),
+    ("backwards", 1, False), ("bad_hash", 0.1, False),
+    ("naive", 0, False), ("invalid_date", 0, False),
+])
+def test_cross_host_download_clock_wait_is_bounded_and_keeps_strict_proof(tmp_path, scenario, ahead, expected):
+    result = run_ps(tmp_path, r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+$scenario=$args[1];$ahead=[double]::Parse($args[2],[Globalization.CultureInfo]::InvariantCulture)
+$c=@{backup_execution_host_id=('b'*64);drive_root_folder_id='fixtureFolderId'}
+$stage=@{archive_sha256=('a'*64);archive_bytes=123}
+$script:clock=@{now=[DateTimeOffset]::Parse('2026-09-17T04:37:16Z');elapsed=0.0;polls=0}
+$deadline=$script:clock.now.AddMinutes(1)
+if($scenario -ceq 'deadline'){$deadline=$script:clock.now.AddMilliseconds(100)}
+$upload=@{status='PASS';payload_encryption='none';independent_download_verified=$true;originals_deleted=0;execution_host_id=('b'*64);bundle_sha256=('a'*64);bytes=123;drive=@{root_folder_id='fixtureFolderId'};attempt_id='p17a00003u1';completed_at_utc=$script:clock.now.AddSeconds($ahead).ToString('o')}
+if($scenario -ceq 'bad_hash'){$upload.bundle_sha256='c'*64}
+if($scenario -ceq 'naive'){$upload.completed_at_utc='2026-09-17T04:37:16'}
+if($scenario -ceq 'invalid_date'){$upload.completed_at_utc='2026-99-17T04:37:16Z'}
+$original=$upload|ConvertTo-Json -Compress -Depth 5
+$accepted=$false
+try{
+ Wait-WeatherPlainUpload $c $stage $upload 'p17a00003' -Deadline $deadline `
+  -UtcNow {$script:clock.now} -MonotonicSeconds {$script:clock.elapsed} `
+  -Sleep {param($ms)
+    $script:clock.polls++
+    $script:clock.elapsed+=$ms/1000.0
+    if($scenario -ceq 'backwards'){$script:clock.elapsed=-1}
+    if($scenario -cne 'frozen'){$script:clock.now=$script:clock.now.AddMilliseconds($ms)}
+  }
+ # The downstream strict checker must accept the same, unchanged proof.
+ Assert-WeatherPlainUpload $c $stage $upload 'p17a00003' -Now $script:clock.now
+ $accepted=$true
+}catch{}
+if(($upload|ConvertTo-Json -Compress -Depth 5) -cne $original){throw 'Proof was rewritten'}
+if($script:clock.polls -gt 100){throw 'Clock wait was unbounded'}
+if($scenario -cin @('bad_hash','naive','invalid_date') -and $script:clock.polls -ne 0){throw 'Invalid proof waited'}
+@{accepted=$accepted;polls=$script:clock.polls}|ConvertTo-Json -Compress
+""", ROOT, scenario, ahead)
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    assert observed["accepted"] is expected
+    if scenario == "normal" and 0 < ahead <= 5:
+        assert observed["polls"] > 0

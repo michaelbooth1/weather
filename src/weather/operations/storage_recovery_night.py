@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
-import math
 import os
 from pathlib import Path
 import shutil
@@ -16,6 +15,9 @@ from weather.operations import storage_recovery_inventory as metadata
 from weather.operations import storage_recovery_night_contract as contract
 from weather.operations import storage_recovery_night_evidence as evidence
 from weather.operations import storage_recovery_night_steps as steps
+from weather.operations.storage_recovery_resource_recovery import (
+    classify_resources as night_resources, recoverable_refusal,
+)
 from weather.operations.replay_cache_compression_admission import (
     observe_capture_admission, set_current_process_below_normal, process_memory_bytes,
 )
@@ -31,37 +33,6 @@ class SegmentStop(Exception):
 
 class GroupSkipped(Exception):
     pass
-
-
-def night_resources(**kwargs):
-    """Classify recoverable timestamp staleness without changing admission."""
-    result = compression.check_resources(**kwargs)
-    reasons = set(result["reasons"]) - contract.MEMORY_REASONS
-    allowed = {"capture_unhealthy:snapshot", "capture_unhealthy:clob",
-               "capture_unhealthy:observation_trigger",
-               "snapshot_clean_iteration_missing_or_stale"}
-    if not reasons or not reasons <= allowed:
-        return result
-    # Re-evaluate only to classify the refusal. Never return this hypothetical
-    # PASS as actual admission. Missing/future clocks and every non-clock health
-    # or native-identity disagreement remain terminal.
-    refreshed = []
-    for row in kwargs["loops"]:
-        probe = dict(row)
-        keys = ["heartbeat_age_seconds"]
-        if row.get("name") == "snapshot":
-            keys.append("last_clean_iteration_age_seconds")
-        for key in keys:
-            age = row.get(key)
-            if type(age) not in (int, float) or not math.isfinite(age) or age < 0:
-                return result
-            probe[key] = 0
-        probe["heartbeat_fresh"] = True
-        refreshed.append(probe)
-    probe = compression.check_resources(**{**kwargs, "loops": refreshed})
-    if not set(probe["reasons"]) - contract.MEMORY_REASONS:
-        result["waitable_capture_reasons"] = sorted(reasons)
-    return result
 
 
 class NightRunner:
@@ -255,7 +226,7 @@ class NightRunner:
                 self.recover("shared lease busy before dispatch")
                 continue
             if outcome["wrapper"]["status"] != "PASS":
-                if contract.memory_refusal(steps.failure_error(outcome)):
+                if recoverable_refusal(outcome.get("result") or outcome.get("refusal")):
                     self.recover(steps.failure_error(outcome), outcome["attempt"])
                     continue
                 result = outcome.get("result") or {}
@@ -300,8 +271,8 @@ class NightRunner:
             self.add_rows(added)
             return True, outcome
         error = steps.failure_error(outcome)
-        if not contract.memory_refusal(error):
-            raise ValueError("compression failed outside the memory-only recovery policy")
+        if not recoverable_refusal(outcome.get("result") or outcome.get("refusal")):
+            raise ValueError("compression failed outside the bounded resource recovery policy")
         self.reconcile_rows = added
         if pending:
             ordinal = pending["ordinal"]
@@ -328,8 +299,8 @@ class NightRunner:
                 self.recover("shared lease busy before verification")
                 continue
             if outcome["wrapper"]["status"] != "PASS":
-                if not contract.memory_refusal(steps.failure_error(outcome)):
-                    raise ValueError("retained verification failed outside the memory-only policy")
+                if not recoverable_refusal(outcome.get("result") or outcome.get("refusal")):
+                    raise ValueError("retained verification failed outside the bounded resource recovery policy")
                 self.recover(steps.failure_error(outcome), outcome["attempt"])
                 continue
             row = evidence.inspect_verification(request, outcome["wrapper"], outcome["result"],
@@ -365,8 +336,8 @@ class NightRunner:
                 self.recover("shared lease busy before dry run")
                 continue
             if dry["wrapper"]["status"] != "PASS":
-                if not contract.memory_refusal(steps.failure_error(dry)):
-                    raise ValueError("pilot dry run failed outside the memory-only policy")
+                if not recoverable_refusal(dry.get("result") or dry.get("refusal")):
+                    raise ValueError("pilot dry run failed outside the bounded resource recovery policy")
                 self.recover(steps.failure_error(dry), dry["attempt"])
                 continue
             if ((dry.get("result") or {}).get("status") != "PASS"

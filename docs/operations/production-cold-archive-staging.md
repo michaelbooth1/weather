@@ -316,6 +316,28 @@ and deadline guards. This avoids repeated filename listings against the shared
 client quota. Credential refresh remains a separate preparation step; no
 plaintext credential is written into an archive receipt.
 
+## Plain campaign clock boundary
+
+The plain archive controller validates the independently downloaded upload proof
+before backing up recovery metadata and requesting reclaim. A proof timestamp
+up to five seconds ahead of the controller may wait for the controller clock to
+catch up. It never authorizes a future-dated proof: the unchanged strict
+zero-to-less-than-24-hour freshness check must pass afterward, and native reclaim
+still independently checks the proof. The wait is capped at ten monotonic seconds,
+100 polls and the campaign's absolute deadline. Missing/ambiguous UTC timestamps,
+larger skew, stale evidence, identity/hash disagreements and deadline expiry stop
+the attempt without upload retries or reclaim authority. Receipt bytes remain
+unchanged; failed attempts and original files remain retained evidence.
+
+Repair qualification must exercise the complete first-batch chain: stage, copy,
+independent download, recovery metadata backup, full restore/exact original
+verification, reclaim, canonical counter reconciliation and final recovery
+backup. Native fixture tests and metadata-only S4U preflight do not establish a
+successful production chain. Before renewed expansion, use a fresh, bounded
+production pilot in the admitted window and retain its complete receipts and
+child teardown proof. Reconcile existing uploaded objects and spent attempts
+before preparing the new namespace; never silently rerun a failed campaign.
+
 ## Publishing an already committed upload
 
 When a reviewed workstation transfer has already uploaded the four bound objects,

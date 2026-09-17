@@ -135,11 +135,41 @@ function Get-WeatherPlainTransport {
  return $tokens
 }
 
-function Assert-WeatherPlainUpload {
+function Get-WeatherPlainUploadCompleted {
  param($Config,$Stage,$Upload,[string]$ArchiveId)
  if($Upload.status -cne 'PASS' -or $Upload.payload_encryption -cne 'none' -or $Upload.independent_download_verified -ne $true -or $Upload.originals_deleted -ne 0 -or $Upload.execution_host_id -cne $Config.backup_execution_host_id -or $Upload.bundle_sha256 -cne $Stage.archive_sha256 -or [long]$Upload.bytes -ne [long]$Stage.archive_bytes -or $Upload.drive.root_folder_id -cne $Config.drive_root_folder_id -or $Upload.attempt_id -cnotmatch ('^'+[regex]::Escape($ArchiveId)+'u[1-9][0-9]*$')){throw 'Independent upload proof differs'}
- $age=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($Upload.completed_at_utc)).TotalHours
+ if($Upload.completed_at_utc -isnot [string] -or $Upload.completed_at_utc -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|\+00:00)$'){throw 'Independent download proof requires an explicit UTC timestamp'}
+ return [DateTimeOffset]::Parse($Upload.completed_at_utc,[Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Assert-WeatherPlainUpload {
+ param($Config,$Stage,$Upload,[string]$ArchiveId,[DateTimeOffset]$Now=[DateTimeOffset]::UtcNow)
+ $completed=Get-WeatherPlainUploadCompleted $Config $Stage $Upload $ArchiveId
+ $age=($Now-$completed).TotalHours
  if($age -lt 0 -or $age -ge 24){throw 'Independent download proof is stale or future-dated'}
+}
+
+function Wait-WeatherPlainUpload {
+ param($Config,$Stage,$Upload,[string]$ArchiveId,[DateTimeOffset]$Deadline,
+       [scriptblock]$UtcNow={ [DateTimeOffset]::UtcNow },
+       [scriptblock]$MonotonicSeconds={ [Diagnostics.Stopwatch]::GetTimestamp()/[double][Diagnostics.Stopwatch]::Frequency },
+       [scriptblock]$Sleep={ param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds })
+ # Never accept future evidence: wait for the controller clock to catch up.
+ # The immutable proof may be at most five seconds ahead, with a ten-second
+ # monotonic cap and the campaign's absolute deadline independently enforced.
+ $completed=Get-WeatherPlainUploadCompleted $Config $Stage $Upload $ArchiveId
+ $started=[double](& $MonotonicSeconds)
+ for($poll=0;$poll -le 100;$poll++){
+  $now=[DateTimeOffset](& $UtcNow)
+  $elapsed=[double](& $MonotonicSeconds)-$started
+  if($now -ge $Deadline -or $elapsed -lt 0 -or $elapsed -ge 10 -or $poll -eq 100){throw 'Independent download clock wait exceeded its deadline'}
+  $ahead=($completed-$now).TotalSeconds
+  if($ahead -gt 5){throw 'Independent download proof exceeds the five-second clock skew bound'}
+  if($ahead -le 0){Assert-WeatherPlainUpload $Config $Stage $Upload $ArchiveId -Now $now;return}
+  $remaining=($Deadline-$now).TotalMilliseconds
+  if($remaining -le 100){throw 'Independent download clock wait lacks deadline reserve'}
+  $null=& $Sleep 100
+ }
 }
 
 

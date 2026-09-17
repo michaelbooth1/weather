@@ -37,7 +37,8 @@ ENV_PREFIX = "WEATHER_STORAGE_INVENTORY_"
 
 def check_resources(*, now, available, commit, free_disk, loops, owner_approved_exception=""):
     result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
-                                  owner_approved_exception=owner_approved_exception)
+                                  owner_approved_exception=owner_approved_exception,
+                                  allow_planned_snapshot_sleep=True)
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=MIN_FREE_DISK_BYTES)
     if type(free_disk) is not int or free_disk < MIN_FREE_DISK_BYTES:
         result["reasons"].append("inventory_disk_reservation_unmet")

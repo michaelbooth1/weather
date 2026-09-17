@@ -88,13 +88,27 @@ remain terminal. A persistent timestamp-only refusal ends RESOURCE_LIMITED,
 allowing the separately scheduled late segment to recheck fresh admission.
 Progress records the latest admission and distinguishes capture from memory waits.
 
-A busy lease before dispatch or explicit memory-only admission failure
-with proved complete teardown may also pause and resume automatically. Reconcile all
-completed journals against fresh inventory before crediting interrupted work.
-An unmatched durable preimage requires fresh inventory and the qualified
-read-only verifier before further compression. Hash, native identity, source,
-request, missing-receipt, hard-stop, capture-health failure during a child, unexpected failure and
-unproved-teardown disagreements stop the night. Spent attempts remain intact.
+Inventory, compression, retained verification and the controller all honor the
+same bounded, advertised snapshot sleep. This requires an idle snapshot, a
+completed clean iteration, matching live process identities and a heartbeat
+within the announced sleep plus ten seconds. Busy snapshot iterations and the
+other producers keep the ordinary three-minute heartbeat bound.
+
+A busy lease before dispatch or explicit memory-only admission failure with
+proved complete teardown may also pause and resume automatically. A compression,
+dry-run or verification child interrupted solely by old valid capture timestamps
+may recover only when its complete native observation independently reproduces
+the exact refusal and every non-clock health check passes. A bare error string
+does not authorize clock recovery. The child records this observation even if
+its first check refuses before opening a candidate. Admission remains BLOCK;
+the controller must wait for fresh capture and stable headroom before dispatch.
+
+Reconcile all completed journals against fresh inventory before crediting
+interrupted work. An unmatched durable preimage requires fresh inventory and the
+qualified read-only verifier before further compression. Hash, native identity,
+source, request, missing-receipt, hard-stop, non-clock capture-health, unexpected
+failure and unproved-teardown disagreements stop the night. Spent attempts remain
+intact. All retry, time, I/O and receipt budgets continue to apply.
 
 Late continuation requires a complete hash-bound safe early result and ledger,
 zero-child teardown and a consistent group cursor. Existing early output without

@@ -41,7 +41,8 @@ ENV_PREFIX = "WEATHER_COLD_SNAPSHOT_COMPRESSION_"
 
 def check_resources(*, now, available, commit, free_disk, loops, owner_approved_exception=""):
     result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
-                                  owner_approved_exception=owner_approved_exception)
+                                  owner_approved_exception=owner_approved_exception,
+                                  allow_planned_snapshot_sleep=True)
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=MIN_FREE_DISK_BYTES)
     if type(free_disk) is not int or free_disk < MIN_FREE_DISK_BYTES:
         result["reasons"].append("cold_snapshot_compression_disk_reservation_unmet")
@@ -290,11 +291,7 @@ def run_pinned(args, production_root, output):
             if admission["status"] != "PASS":
                 raise ValueError("capture admission refused: " + ",".join(admission["reasons"]))
 
-    guard(force=True)
-    read_inventory(request, candidates, production_root=production_root, source_git_sha=args.source_git_sha)
-    preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
-                if verify_retained else None)
-    write_receipt_bytes(output / "request.json", raw, MAX_REQUEST_BYTES)
+
     results = []
     receipt = {"schema_version": schema_version("cold_snapshot_compression_receipt"),
                "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
@@ -309,6 +306,13 @@ def run_pinned(args, production_root, output):
                        preimage_sha256=request["preimage_sha256"],
                        predecessor_wrapper_sha256=request["predecessor_wrapper_sha256"])
     try:
+        # Persist a bound terminal observation even when capture becomes stale
+        # between controller admission and the child's first resource check.
+        guard(force=True)
+        read_inventory(request, candidates, production_root=production_root, source_git_sha=args.source_git_sha)
+        preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
+                    if verify_retained else None)
+        write_receipt_bytes(output / "request.json", raw, MAX_REQUEST_BYTES)
         for index, candidate in enumerate(candidates):
             def journal(phase, row, index=index):
                 write_receipt(output / f"{index:03d}-{phase}.json", {**receipt, **row})
