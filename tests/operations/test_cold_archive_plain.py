@@ -169,3 +169,48 @@ def test_plain_publication_can_resume_with_identical_proof(plain_case):
     assert first["catalog_entry"] == second["catalog_entry"]
     assert first["source_review"] != second["source_review"]
     assert all((case.c.day / name).is_file() for name in case.c.contents)
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="native PowerShell to Python archive handoff")
+@pytest.mark.parametrize("mutate_after_wait", [False, True])
+def test_native_clock_gate_hands_unchanged_proof_to_real_archive_reclaim(plain_case, mutate_after_wait):
+    from tests.operations.test_archive_plain_campaign_contract import ROOT, run_ps
+    case = plain_case
+    before = datetime.now(timezone.utc)
+    case.uploaded["completed_at_utc"] = (before + timedelta(seconds=3)).isoformat()
+    upload = case.request["plain_upload"]
+    upload.update(record(Path(upload["path"]), case.uploaded))
+    proofs = {name: plain.catalog._proof(Path(case.request[name]["path"]), case.request[name]["sha256"])[1]
+              for name in plain.PROOFS}
+    with pytest.raises((RuntimeError, ValueError), match="future-dated"):
+        plain.validated(proofs, source_root=case.c.root, backup_host_id=BACKUP,
+                        archive_id=case.request["archive_id"], now=before)
+    upload_bytes = Path(upload["path"]).read_bytes()
+    result = run_ps(case.c.tmp, r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+$u=(Read-WeatherPlainMetadata $args[1] $args[2]).Value
+$m=(Read-WeatherPlainMetadata $args[3] $args[4]).Value
+$c=@{backup_execution_host_id=$args[5];drive_root_folder_id=$u.drive.root_folder_id}
+Wait-WeatherPlainUpload $c $m $u $args[6] -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(15))
+'STRICT_FRESHNESS_PASS'
+""", ROOT, upload["path"], upload["sha256"], case.request["production_manifest"]["path"],
+                    case.request["production_manifest"]["sha256"], BACKUP, case.request["archive_id"])
+    assert result.returncode == 0, result.stderr
+    assert "STRICT_FRESHNESS_PASS" in result.stdout
+    assert Path(upload["path"]).read_bytes() == upload_bytes
+    if mutate_after_wait:
+        Path(upload["path"]).write_bytes(upload_bytes + b" ")
+        with pytest.raises((RuntimeError, ValueError), match="hash|SHA|sha|digest"):
+            prepare(case)
+        assert all((case.c.day / name).read_bytes() == content for name, content in case.c.contents.items())
+        return
+    result = remove(case, prepare(case))
+    assert result["status"] == "PASS"
+    assert result["deleted_files"] == len(case.c.contents)
+    assert result["reclaimed_allocated_bytes"] == sum(row["allocated_bytes"] for row in case.c.manifest["files"])
+    for name in case.c.contents:
+        assert not (case.c.day / name).exists()
+        assert locations.load_location(case.c.day / name).entry["payload_encryption"] == "none"
+    assert Path(case.uploaded["source_path"]).is_file()
+    assert Path(case.uploaded["downloaded_path"]).is_file()
+    assert Path(upload["path"]).read_bytes() == upload_bytes
