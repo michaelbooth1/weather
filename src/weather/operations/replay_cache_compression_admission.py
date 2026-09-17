@@ -187,10 +187,12 @@ def capture_admission(production_root: Path):
 
 
 def observe_capture_admission(production_root: Path, resource_checker, *, memory_reader=None):
-    # Retry only transient archive status reads; every health gate runs fresh.
+    # Retry only bounded status/lock permission failures for every caller.
+    # The optional memory reader selects a measurement source, never retry policy.
+    # Each retry starts the complete health observation again; no PASS is cached.
     names = {spec.status_path.name for spec in default_loop_specs(production_root / "data" / "snapshots")}
     names |= {"." + name + ".writer.lock" for name in names}
-    attempts = 3 if memory_reader is not None else 1
+    attempts = 3
     for attempt in range(attempts):
         try:
             return _observe_capture_admission_once(production_root, resource_checker, memory_reader=memory_reader)

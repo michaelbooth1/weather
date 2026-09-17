@@ -179,3 +179,14 @@ compression receipts can establish saved bytes.
 Update when bounds, allowed files, admission, wrapper parameters, request or
 receipt fields, or verification semantics change. Record measured outcomes in
 item 325.
+
+
+## Concurrent capture-status publication
+
+Capture admission retries a permission failure only for the exact three status
+files and their writer locks, for at most three complete observations with
+50 ms and 100 ms delays. Compression, inventory, night controllers and archive
+callers use the same policy. Every retry re-reads health, identities, memory,
+disk and timestamps; missing, malformed, unrelated or persistently unreadable
+evidence still refuses admission. A retry never supplies cached health evidence
+or changes an interrupted attempt's historical result.

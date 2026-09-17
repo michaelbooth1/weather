@@ -7,6 +7,7 @@ $source=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Assert-WeatherPlainSource $source $ExpectedSourceTip
 $configRecord=Read-WeatherPlainMetadata $ConfigPath $ConfigSha256 65536
 $c=Assert-WeatherPlainConfiguration $configRecord.Value
+$capacity150=$c.campaign_id -cin @('plain-20260916-cap150b','plain-20260917-cap150')
 $immediate=$c.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
 if($c.source_tip -cne $ExpectedSourceTip){throw 'Worker source/config mismatch'}
 $root=[IO.Path]::GetFullPath($c.production_root)
@@ -118,6 +119,7 @@ function Production-Phase([string]$Phase,$Row,$Request,[string]$Suffix){
  if(Test-Path -LiteralPath $out){throw 'Native phase attempt is spent'}
  $after=if($Phase -ceq 'reclaim'){300}else{0}
  $nativeTokens=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $source 'scripts/ops/production_cold_archive_run.ps1'),'-ProductionRepoRoot',$root,'-RequestPath',$proof.Path,'-RequestSha256',$proof.Sha256,'-OutputRoot',$out,'-ExpectedSourceTip',$ExpectedSourceTip,'-Operation',$Phase)
+ if($capacity150){$nativeTokens+=@('-DiskExceptionPath',$c.disk_exception.path,'-DiskExceptionSha256',$c.disk_exception.sha256)}
  if($immediate){$nativeTokens+=@('-OwnerApprovedException','OWNER_APPROVED_ARCHIVE_RECOVERY_20260913_EVENING')}
  Run-Child $Phase $ps $nativeTokens 320 $after
  $result=(Read-WeatherPlainMetadata (Join-Path $out 'wrapper-result.json') '' 524288).Value
@@ -150,6 +152,12 @@ try {
  $known=Get-Item -LiteralPath $c.known_hosts -Force
  if($known.PSIsContainer -or $known.Length -gt 65536 -or ($known.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Get-FileHash -LiteralPath $known.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $c.known_hosts_sha256){throw 'Pinned known-hosts file differs'}
  foreach($name in @('owner_approval','proposal','selection','plan')){$null=Read-WeatherPlainMetadata $c.$name.path $c.$name.sha256}
+ if($capacity150){
+  $null=Read-WeatherPlainMetadata $c.current_owner_approval.path $c.current_owner_approval.sha256 16384
+  $disk=(Read-WeatherPlainMetadata $c.disk_exception.path $c.disk_exception.sha256 16384).Value
+  if($disk.source_git_sha -cne $ExpectedSourceTip -or $disk.execution_host_id -cne $c.execution_host_id -or $disk.plan_sha256 -cne $c.plan.sha256){throw 'Capacity disk exception binding differs'}
+  if(Test-Path -LiteralPath $c.progress_path){throw 'Capacity campaign progress already exists; reconcile before resumption'}
+ }else{
  $initial=Read-WeatherPlainMetadata $c.progress_path $c.initial_progress_sha256 524288
  if($initial.Value.status -cne 'READY' -or $initial.Value.sequence -ne 85 -or [long]$initial.Value.reclaimed_allocated_bytes -ne 79105806336){throw 'Initial reclaim checkpoint changed; review before resumption'}
  $oldStage=Stage-Metadata $c.queue[0]
@@ -157,6 +165,7 @@ try {
  Assert-WeatherPlainUpload $c $oldStage.Manifest.Value $existing.Value $c.queue[0].archive_id
  if(([DateTimeOffset]::Parse($c.end_utc)-[DateTimeOffset]::Parse($existing.Value.completed_at_utc)).TotalHours -ge 24){throw 'Existing download proof will expire before the campaign ends'}
  $null=Stage-Metadata $c.queue[1]
+ }
  foreach($row in $c.queue){
   foreach($family in @('production_cold_archive_reclaim','production_cold_archive_copy')){
    $suffix=if($family -ceq 'production_cold_archive_copy'){'c1'}else{'r1'}
@@ -167,7 +176,8 @@ try {
  }
  $capacity=Read-WeatherPlainMetadata $c.capacity.plan_path $c.capacity.plan_sha256 262144
  Assert-WeatherPlainSource $c.capacity.source_root $c.capacity.source_tip
- if($PreflightOnly -and -not $immediate){
+ if($capacity150 -and ($capacity.Value.plan_id -cne $c.campaign_id.Replace('plain-','capacity-') -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
+ if($PreflightOnly -and -not $immediate -and -not $capacity150){
   Run-Child 'capacity-metadata-preflight' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early','-PreflightOnly') 75
  }
  $capacityPreflight=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'preflight/wrapper-result.json') '' 65536).Value
@@ -177,7 +187,8 @@ try {
  else {
   if(-not(Test-WeatherPlainStartWindow $c -GraceSeconds 50)){throw 'Campaign missed its approved start window'}
   $free=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace
-  if($free -lt [long]$c.initial_archive_headroom_bytes){
+  $bridgeTarget=[long]$c.initial_archive_headroom_bytes
+  if($free -lt $bridgeTarget){
    if($immediate){throw 'Immediate archive headroom is unavailable; no daytime compression is authorized'}
    Run-Child 'conditional-retained-compression' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early') ([int]([Math]::Floor(($deadline-[DateTime]::UtcNow).TotalSeconds)-20))
    $capacityResult=(Read-WeatherPlainMetadata (Join-Path $c.capacity.result_root 'early/wrapper-result.json') '' 2097152).Value
@@ -186,7 +197,9 @@ try {
   if([IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace -lt [long]$c.initial_archive_headroom_bytes){throw 'Archive working reserve remains unavailable'}
   Remote-Command 'new-remote-metadata-directory' @($ps.Replace('\','/'),'-NoProfile','-NonInteractive','-Command','New-Item','-ItemType','Directory','-Path',($c.workstation_root+'/scratch/ac-control/'+$c.campaign_id),'-ErrorAction','Stop') 20
   foreach($row in $c.queue){
-   if([long](Read-WeatherPlainMetadata $c.progress_path '' 524288).Value.reclaimed_allocated_bytes -ge [long]$c.target_bytes){$status='TARGET_REACHED';break}
+   if($capacity150){
+    if([IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace -ge [long]$c.target_bytes){$status='TARGET_REACHED';break}
+   }elseif([long](Read-WeatherPlainMetadata $c.progress_path '' 524288).Value.reclaimed_allocated_bytes -ge [long]$c.target_bytes){$status='TARGET_REACHED';break}
    $script:currentArchive=$row.archive_id
    $minimum=if($row.start_at -ceq 'reclaim'){950}elseif($row.start_at -ceq 'copy'){2200}else{2520}
    if([DateTime]::UtcNow.AddSeconds($minimum) -ge $deadline){$status='WINDOW_COMPLETE';break}
@@ -235,7 +248,7 @@ try {
  if($reason -ceq 'WINDOW_COMPLETE_BEFORE_NEXT_PHASE'){$status='WINDOW_COMPLETE'}else{$status='FAILED_RETAIN_AND_INSPECT'}
 } finally {
  try {$final=(Read-WeatherPlainMetadata $c.progress_path '' 524288).Value} catch {$final=$null}
- $value=[ordered]@{status=$status;reason=$reason;config_sha256=$ConfigSha256;source_git_sha=$ExpectedSourceTip;execution_host_id=$c.execution_host_id;completed_at_utc=[DateTime]::UtcNow.ToString('o');current_archive=$script:currentArchive;current_phase=$script:currentPhase;completed_batches=$script:completed.ToArray();canonical_progress=$final;preflight_only=[bool]$PreflightOnly;source_payload_bytes_read_by_controller=0;source_files_deleted_by_controller=0}
+ $value=[ordered]@{status=$status;reason=$reason;config_sha256=$ConfigSha256;source_git_sha=$ExpectedSourceTip;execution_host_id=$c.execution_host_id;completed_at_utc=[DateTime]::UtcNow.ToString('o');current_archive=$script:currentArchive;current_phase=$script:currentPhase;completed_batches=$script:completed.ToArray();canonical_progress=$final;preflight_only=[bool]$PreflightOnly;source_payload_bytes_read_by_controller=0;source_files_deleted_by_controller=0;actual_free_disk_bytes=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace;target_free_disk_bytes=if($capacity150){$c.target_bytes}else{$null}}
  $null=Write-WeatherPlainNew (Join-Path $OutputRoot 'result.json') $value
 }
 if($status -ceq 'FAILED_RETAIN_AND_INSPECT'){exit 1}

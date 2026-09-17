@@ -7,7 +7,9 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
     [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim', 'copy')][string]$Operation = 'stage',
-    [string]$OwnerApprovedException = ''
+    [string]$OwnerApprovedException = '',
+    [string]$DiskExceptionPath = '',
+    [string]$DiskExceptionSha256 = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -148,9 +150,14 @@ $oldSource = $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT
 $oldOwner = $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID
 $oldDeadline = $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC
 $oldException = $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION
+$diskEnvironment=@{}
+foreach($key in @('DISK_EXCEPTION_PATH','DISK_EXCEPTION_SHA256','SOURCE_SHA','EXECUTION_HOST_ID','PRODUCTION_ROOT')){
+    $diskEnvironment[$key]=[Environment]::GetEnvironmentVariable('WEATHER_PRODUCTION_ARCHIVE_'+$key)
+}
 $receipt = [ordered]@{
     source_git_sha = $ExpectedSourceTip; request_sha256 = $RequestSha256
     execution_host_id = $hostIdentity; operation = $Operation
+    disk_exception_sha256 = $DiskExceptionSha256
     owner_approved_exception = $OwnerApprovedException
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
@@ -175,12 +182,26 @@ if ($isTransfer) {
 }
 try {
     # Identity, time and live lease precede even create-only attempt evidence.
+    if ([bool]$DiskExceptionPath -ne [bool]$DiskExceptionSha256) { throw 'Disk exception requires path and digest' }
+    if ($DiskExceptionPath) {
+        $diskInfo=Get-Item -LiteralPath $DiskExceptionPath -Force
+        if ($diskInfo.PSIsContainer -or $diskInfo.Length -gt 16384 -or ($diskInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $DiskExceptionSha256 -cnotmatch '^[a-f0-9]{64}$' -or
+            (Get-FileHash -LiteralPath $diskInfo.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $DiskExceptionSha256) {
+            throw 'Disk exception identity differs'
+        }
+    }
     $null = New-Item -ItemType Directory -Path $OutputRoot
     $env:PYTHONPATH = Join-Path $sourceRoot 'src'
     $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID = [string]$PID
     $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC = $deadline.ToString('o')
     $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION = $OwnerApprovedException
+    $env:WEATHER_PRODUCTION_ARCHIVE_DISK_EXCEPTION_PATH = $DiskExceptionPath
+    $env:WEATHER_PRODUCTION_ARCHIVE_DISK_EXCEPTION_SHA256 = $DiskExceptionSha256
+    $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_SHA = $ExpectedSourceTip
+    $env:WEATHER_PRODUCTION_ARCHIVE_EXECUTION_HOST_ID = $hostIdentity
+    $env:WEATHER_PRODUCTION_ARCHIVE_PRODUCTION_ROOT = $ProductionRepoRoot
     $arguments = @('-m', $module, $Operation,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
@@ -367,6 +388,9 @@ finally {
         $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID = $oldOwner
         $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC = $oldDeadline
         $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION = $oldException
+        foreach($key in $diskEnvironment.Keys){
+            [Environment]::SetEnvironmentVariable('WEATHER_PRODUCTION_ARCHIVE_'+$key,$diskEnvironment[$key])
+        }
         if ($teardownProved) { Exit-WeatherHeavyWorkloadLease -Lease $lease }
         else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease }
         if (Test-Path -LiteralPath $OutputRoot -PathType Container) {
@@ -384,3 +408,4 @@ finally {
 }
 Write-Output ($receipt | ConvertTo-Json -Depth 8 -Compress)
 exit $exitCode
+

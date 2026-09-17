@@ -430,3 +430,115 @@ def test_unclassified_capture_refusal_still_blocks_without_retry(tmp_path, monke
     runner.admission = lambda: {"status": "BLOCK", "reasons": ["capture_unhealthy:snapshot"]}
     assert runner.run() == 1
     assert not simulation.calls
+
+
+
+def capacity_row(name="replay_inputs.jsonl"):
+    return {"path": FOLDER+"/"+name, "device": "12", "file_id": "34",
+            "mtime_ns": "56", "size_bytes": 1024**2, "attributes": 32}
+
+
+def test_capacity_exact_allowlist_excludes_archive_and_partial_groups():
+    row = capacity_row()
+    excluded = capacity_row("held-archive.jsonl")
+    manifest = {"files": [row, excluded], "complete": True}
+    actual = contract.restrict_capacity_inventory(manifest, {row["path"].casefold(): row})
+    assert actual["files"] == [row]
+    assert manifest["files"] == [row, excluded]
+
+
+@pytest.mark.parametrize("field", ["device", "file_id", "mtime_ns", "size_bytes"])
+def test_capacity_replacement_or_modified_file_cannot_borrow_selection(field):
+    row = capacity_row()
+    changed = {**row, field: int(row[field])+1}
+    with pytest.raises(ValueError, match="identity"):
+        contract.restrict_capacity_inventory({"files": [changed]}, {row["path"].casefold(): row})
+
+
+def test_capacity_already_compressed_file_has_no_new_apply_authority():
+    row = capacity_row()
+    current = {**row, "attributes": 2080}
+    assert contract.restrict_capacity_inventory({"files": [current]},
+        {row["path"].casefold(): row})["files"] == []
+
+
+def test_capacity_bridge_target_does_not_replace_overall_target():
+    plan = {"plan_id": contract.CAPACITY_PLAN_ID, "target_free_disk_bytes": 150000000000}
+    assert contract.capacity_free_target(plan, "early") == 30*contract.GIB
+    assert contract.capacity_free_target(plan, "late") == 150000000000
+    assert plan["target_free_disk_bytes"] == 150000000000
+
+
+def test_capacity_selection_excludes_first_seven_groups_and_pins_both_records(tmp_path, monkeypatch):
+    plan = fixture_plan(tmp_path)
+    plan["plan_id"] = contract.CAPACITY_PLAN_ID
+    held = {"files": [capacity_row("previous-interrupted.jsonl")]}
+    rows = [{**capacity_row(), "path": FOLDER+f"/file-{i}.jsonl"} for i in range(8754)]
+    selected = {"schema_version": schema_version("local_retained_capacity_selection"),
+                "execution_host_id": HOST, "excluded_archive_paths": 1066,
+                "archive_selection_excluded_sha256":
+                "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214",
+                "groups": [held]*7 + [{"files": rows}] + [{"files": []}]*54}
+    calls = []
+    def read(path, maximum, expected_hash=None):
+        calls.append(expected_hash)
+        if path.name.startswith("local-retained"):
+            return selected, expected_hash
+        return {"temporary_disk_exception_authorized": True}, expected_hash
+    monkeypatch.setattr(contract, "read_json", read)
+    allowed = contract.capacity_selection(plan)
+    assert len(allowed) == 8754
+    assert held["files"][0]["path"].casefold() not in allowed
+    assert calls == [contract.CAPACITY_SELECTION_SHA,
+        "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5"]
+    selected["archive_selection_excluded_sha256"] = "0"*64
+    with pytest.raises(ValueError, match="selection"):
+        contract.capacity_selection(plan)
+
+
+@pytest.mark.parametrize("segment,free_gib,terminal", [
+    ("early", 31, "TARGET_MET"),
+    ("early", 29, "CANDIDATES_EXHAUSTED"),
+    ("late", 31, "CANDIDATES_EXHAUSTED"),
+])
+def test_capacity_compression_hands_back_at_archive_reserve(tmp_path, monkeypatch, segment, free_gib, terminal):
+    from types import SimpleNamespace
+    runner, simulation = runner_fixture(tmp_path, monkeypatch, segment=segment)
+    runner.plan.update(plan_id=contract.CAPACITY_PLAN_ID,
+                       target_new_reclaimed_bytes=1, target_free_disk_bytes=150000000000)
+    monkeypatch.setattr(subject.shutil, "disk_usage",
+                        lambda _: SimpleNamespace(free=free_gib * contract.GIB))
+    assert runner.run() == 0
+    result = json.loads((runner.output / "result.json").read_text())
+    assert result["status"] == terminal
+    assert result["overall_target_free_disk_bytes"] == 150000000000
+    expected_files = 1 if terminal == "TARGET_MET" else 2
+    assert result["night_verified_reclaimed_bytes"] == expected_files * contract.MIB
+    assert result["verified_file_count"] == expected_files
+    assert result["pending"] is None and result["deleted_files"] == 0
+    assert simulation.calls.count("apply") == expected_files
+
+
+def test_successor_excludes_entire_interrupted_group_and_never_credits_it(tmp_path, monkeypatch):
+    plan = fixture_plan(tmp_path)
+    plan["plan_id"] = "capacity-20260917-cap150"
+    held = {"files": [capacity_row("interrupted-july22.jsonl")]}
+    rows = [{**capacity_row(), "path": FOLDER+f"/file-{i}.jsonl"} for i in range(8545)]
+    selected = {"schema_version": schema_version("local_retained_capacity_selection"),
+                "execution_host_id": HOST, "excluded_archive_paths": 1066,
+                "archive_selection_excluded_sha256":
+                "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214",
+                "groups": [held]*8 + [{"files": rows}] + [{"files": []}]*53}
+    def read(path, maximum, expected_hash=None):
+        if path.name.startswith("local-retained"):
+            assert expected_hash == contract.CAPACITY_SELECTION_SHA
+            return selected, expected_hash
+        return {"temporary_disk_exception_authorized": True}, expected_hash
+    monkeypatch.setattr(contract, "read_json", read)
+    allowed = contract.capacity_selection(plan)
+    assert len(allowed) == 8545
+    assert held["files"][0]["path"].casefold() not in allowed
+    assert contract.capacity_free_target(plan, "early") == 30*contract.GIB
+    selected["groups"][8]["files"].pop()
+    with pytest.raises(ValueError, match="cardinality"):
+        contract.capacity_selection(plan)

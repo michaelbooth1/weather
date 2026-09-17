@@ -155,7 +155,8 @@ if($refused -ne 3){throw 'Upload provenance check failed'}
 
 
 @pytest.mark.parametrize("name", ["archive_plain_campaign_contract.ps1", "archive_plain_campaign_worker.ps1",
-                                 "archive_plain_campaign_run.ps1", "register_archive_plain_campaign.ps1"])
+                                 "archive_plain_campaign_run.ps1", "register_archive_plain_campaign.ps1",
+                                 "prepare_capacity_recovery_20260916.ps1", "prepare_capacity_recovery_20260917.ps1"])
 def test_native_powershell_parse(tmp_path, name):
     result = run_ps(tmp_path, r"""
 $tokens=$null;$parseErrors=$null
@@ -179,3 +180,124 @@ def test_immediate_config_retains_scope_and_requires_new_timing_authority(tmp_pa
                          ("end_utc", "2026-09-14T08:42:00Z"),
                          ("campaign_id", "plain-20260914-test")):
         assert check_config(tmp_path, {**value, key: altered}).returncode != 0
+
+
+
+def capacity_config():
+    value = config()
+    value.update(
+        campaign_id="plain-20260916-cap150b", start_utc="2026-09-16T04:30:00Z",
+        end_utc="2026-09-16T08:42:00Z", expires_at_utc="2026-09-16T08:42:00Z",
+        approved_at_utc="2026-09-15T23:17:20.425091Z", target_bytes=150000000000,
+        initial_archive_headroom_bytes=30*1024**3, initial_progress_sha256="0"*64,
+        execution_host_id="6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7",
+        backup_execution_host_id="a740ee7dc03165b0c88094f8b313aa6676f0984b30737ec5bcd9f723709fe5dc",
+        drive_root_folder_id="1-HZZb9QuRB1AlK9UYSWB_JdeUabhza9H",
+    )
+    bindings = {
+        "owner_approval": "0bae773d078f4ad2a0ee3f537a75fb8e5b6a0253da74476f4452f4b09c12d66e",
+        "proposal": "5d47113237e50854b4c73cdc089b19e56b5ed8402c5d42622d7f39201c0d9c4c",
+        "plan": "bc30c32fc0403fd3f836501cbbe454aa791e025a29ef796b5ee8737f09043027",
+        "selection": "ce4d38697e1d24e7ba66a53cb41f407f074bfdd58fcf7118b926d9cd2b31f214",
+        "current_owner_approval": "2eb7309a03b9b5383f1bd848a43b9a268f6ffd390c236b3a27361f58d445cef5",
+        "disk_exception": "e"*64,
+    }
+    for key, digest in bindings.items():
+        value[key] = {"path": "C:/fixture/"+key+".json", "sha256": digest}
+    value["capacity"]["source_tip"] = value["source_tip"]
+    value["queue"] = [
+        {"archive_id": f"p16n{n:05}", "chunk_id": f"chunk-{n:05}", "start_at": "stage"}
+        for n in range(56)
+    ]
+    return value
+
+
+def test_capacity_current_approval_exact_selection_and_window(tmp_path):
+    if datetime.now(timezone.utc) < datetime(2026,9,15,23,18,tzinfo=timezone.utc):
+        pytest.skip("dated owner approval not yet issued")
+    result = check_config(tmp_path, capacity_config())
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("path,value", [
+    (("current_owner_approval","sha256"), "0"*64),
+    (("plan","sha256"), "0"*64), (("selection","sha256"), "0"*64),
+    (("drive_root_folder_id",), "differentPrivateFolder"),
+    (("execution_host_id",), "e"*64),
+    (("end_utc",), "2026-09-16T09:00:00Z"),
+    (("target_bytes",), 200000000000),
+    (("initial_archive_headroom_bytes",), 25*1024**3),
+    (("initial_archive_headroom_bytes",), 55*1024**3),
+    (("queue",0,"start_at"), "reclaim"),
+    (("queue",0,"archive_id"), "p11m00000"),
+    (("queue",0,"chunk_id"), "chunk-00056"),
+    (("initial_progress_sha256",), "a"*64),
+])
+def test_capacity_changed_scope_refused(tmp_path, path, value):
+    altered = capacity_config()
+    node = altered
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    assert check_config(tmp_path, altered).returncode != 0
+
+
+def test_capacity_duplicate_or_missing_chunk_refused(tmp_path):
+    value = capacity_config()
+    value["queue"][1] = value["queue"][0]
+    assert check_config(tmp_path, value).returncode != 0
+    value = capacity_config()
+    value["queue"].pop()
+    assert check_config(tmp_path, value).returncode != 0
+
+
+@pytest.mark.parametrize("bom", [False, True])
+def test_bounded_metadata_accepts_utf8_bom_without_changing_hash(tmp_path, bom):
+    import hashlib
+    raw = (b"\xef\xbb\xbf" if bom else b"") + b'{"approved": true}\n'
+    path = tmp_path / "approval.json"
+    path.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    body = r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+$record=Read-WeatherPlainMetadata $args[1] $args[2] 16384
+if($record.Value.approved -ne $true -or $record.Sha256 -cne $args[2]){throw 'metadata differs'}
+$record.Bytes
+"""
+    result = run_ps(tmp_path, body, ROOT, path, digest)
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) == len(raw)
+    assert run_ps(tmp_path, body, ROOT, path, "0"*64).returncode != 0
+
+
+@pytest.mark.parametrize("now,allowed", [
+    ("2026-09-16T00:30:00Z", True),
+    ("2026-09-15T20:30:00-04:00", True),
+    ("2026-09-16T04:24:59Z", True),
+    ("2026-09-16T00:24:59-04:00", True),
+    ("2026-09-16T04:25:00Z", False),
+    ("2026-09-16T00:25:00-04:00", False),
+])
+def test_capacity_preparation_deadline_compares_instants(tmp_path, now, allowed):
+    result = run_ps(tmp_path, r"""
+. (Join-Path $args[0] 'scripts/ops/archive_plain_campaign_contract.ps1')
+Test-WeatherCapacityPreparationWindow -Now $args[1]
+""", ROOT, now)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().lower() == str(allowed).lower()
+
+
+def test_successor_capacity_campaign_requires_fresh_date_and_staging_identities(tmp_path):
+    value = capacity_config()
+    value.update(campaign_id="plain-20260917-cap150",
+                 start_utc="2026-09-17T04:30:00Z", end_utc="2026-09-17T08:42:00Z",
+                 expires_at_utc="2026-09-17T08:42:00Z")
+    for row in value["queue"]:
+        row["archive_id"] = row["archive_id"].replace("p16n", "p17a")
+    result = check_config(tmp_path, value)
+    assert result.returncode == 0, result.stderr
+    value["queue"][0]["archive_id"] = "p16n00000"
+    assert check_config(tmp_path, value).returncode != 0
+    value["queue"][0]["archive_id"] = "p17a00000"
+    value["end_utc"] = "2026-09-18T08:42:00Z"
+    assert check_config(tmp_path, value).returncode != 0
