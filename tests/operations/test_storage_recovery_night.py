@@ -632,7 +632,8 @@ def test_clock_interruption_with_changed_completed_identity_blocks_before_retry(
     def dispatch(*args, **kwargs):
         outcome = simulation(*args, **kwargs)
         if (outcome.get("result") or {}).get("error") == clock_failure()["error"]:
-            simulation.current[FOLDER + "/1.jsonl"]["file_index"] += 100
+            current = simulation.current[FOLDER + "/1.jsonl"]
+            simulation.current[FOLDER + "/1.jsonl"] = {**current, "file_index": current["file_index"] + 100}
         return outcome
     runner.dispatch = dispatch
     assert runner.run() == 1
