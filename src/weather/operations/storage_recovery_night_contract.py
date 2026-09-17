@@ -228,11 +228,13 @@ def read_baseline(plan):
 
 # This continuation uses only untouched groups from the retained exact selection.
 CAPACITY_PLAN_ID = "capacity-20260916-cap150b"
+# The September 17 successor excludes the entire July 22 interrupted group.
+CAPACITY_SELECTION_SCOPES = {CAPACITY_PLAN_ID: (7, 8754), "capacity-20260917-cap150": (8, 8545)}
 CAPACITY_SELECTION_SHA = "721dd300298d00397906e8ebc703150d519aa30077a2d0a9b6faa636f7ae9eed"
 
 
 def capacity_selection(plan):
-    if plan["plan_id"] != CAPACITY_PLAN_ID:
+    if plan["plan_id"] not in CAPACITY_SELECTION_SCOPES:
         return None
     root = Path(plan["production_repo_root"])
     selected, _ = read_json(
@@ -251,8 +253,9 @@ def capacity_selection(plan):
     groups = selected.get("groups")
     if not isinstance(groups, list) or len(groups) != 62:
         raise ValueError("capacity selection group inventory differs")
-    rows = [row for group in groups[7:] for row in group["files"]]
-    if len(rows) != 8754:
+    offset, expected_count = CAPACITY_SELECTION_SCOPES[plan["plan_id"]]
+    rows = [row for group in groups[offset:] for row in group["files"]]
+    if len(rows) != expected_count:
         raise ValueError("capacity untouched selection cardinality differs")
     allowed = {}
     for row in rows:
@@ -286,6 +289,7 @@ def restrict_capacity_inventory(manifest, selected):
 
 
 def capacity_free_target(plan, segment):
-    if plan["plan_id"] == CAPACITY_PLAN_ID and segment == "early":
+    if plan["plan_id"] in CAPACITY_SELECTION_SCOPES and segment == "early":
         return 30 * GIB
     return plan["target_free_disk_bytes"]
+

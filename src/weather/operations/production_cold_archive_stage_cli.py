@@ -227,9 +227,13 @@ def capacity_recovery_reserve(path, digest, plan, plan_digest, now, deadline):
     authority, _ = _read_pinned_json(Path(approval["path"]), 16384, approval["sha256"])
     if authority.get("post_denial_approval") is not True or authority.get("archive_selection_sha256") != record["selection_sha256"]:
         raise ValueError("capacity owner authority differs")
-    start = datetime(2026, 9, 16, 4, 30, tzinfo=timezone.utc)
-    expiry = datetime(2026, 9, 16, 13, tzinfo=timezone.utc)
-    if (record["expires_at_utc"] != "2026-09-16T13:00:00Z" or not start <= now < expiry
+    approved_nights = {"2026-09-16T13:00:00Z": 16, "2026-09-17T13:00:00Z": 17}
+    day = approved_nights.get(record["expires_at_utc"])
+    if day is None:
+        raise ValueError("capacity disk exception date is not an approved recovery night")
+    start = datetime(2026, 9, day, 4, 30, tzinfo=timezone.utc)
+    expiry = datetime(2026, 9, day, 13, tzinfo=timezone.utc)
+    if (not start <= now < expiry
             or deadline is None or not now < deadline <= expiry - timedelta(seconds=15)
             or (deadline - now).total_seconds() > MAX_SECONDS):
         raise ValueError("capacity disk exception is expired or its deadline is unbounded")
@@ -424,4 +428,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 

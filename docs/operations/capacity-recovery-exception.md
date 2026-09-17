@@ -12,7 +12,7 @@ The lower reserve is 25 GiB, plus 2 GiB of bounded job output and 300 MiB for fi
 
 ## Scheduled continuation
 
-The fresh `plain-20260916-cap150b` campaign begins at 00:30 and ends absolutely at 04:42 Toronto. It preserves 04:45–06:45 for recurring tiering. It accepts all 56 exact chunks under new attempt identities, requires the new approval, and stops at actual free volume of 150,000,000,000 bytes or the window boundary. Queue completion alone is not the capacity target.
+The fresh `plain-20260916-cap150b` campaign begins at 00:30 and ends absolutely at 04:42 Toronto. It preserves 04:45â€“06:45 for recurring tiering. It accepts all 56 exact chunks under new attempt identities, requires the new approval, and stops at actual free volume of 150,000,000,000 bytes or the window boundary. Queue completion alone is not the capacity target.
 
 A metadata-only S4U preflight must pass before registration of the payload task. A failed or interrupted attempt is retained and must be reconciled before another attempt. Do not reuse an old progress ledger or spent staging identity. No late campaign is armed by this registrar. Further compress-and-retain work uses its existing independently qualified lane and must not overlap this campaign.
 
@@ -25,3 +25,27 @@ If early free space is below 30 GiB, the archive campaign first runs the bounded
 The early compression segment stops at the same 30 GiB of actual free volume required to start archiving; its overall target remains 150 GB. The late segment resumes the same verified ledger and targets 150 GB, with its existing 08:55 absolute stop. `register_storage_recovery_night.ps1 -OnlySegment late` arms only that continuation, avoiding a duplicate early trigger while the archive campaign owns the early conditional dispatch. Preflight registration still uses the full plan. Late qualification and audit must remain unarmed while the storage continuation owns the late window.
 
 The metadata-only `prepare_capacity_recovery_20260916.ps1` producer creates fresh immutable baseline, compression-plan, disk-exception and archive-config records beneath the production handoff directory. It reads only the pinned existing selection and approval metadata, validates the capture installation and clean source tip, and does not register a task or touch any payload. Complete exact-source native checks before invoking it, then register and prove both metadata-only S4U preflights before arming the archive task and late-only compression continuation.
+
+
+## September 17 successor
+
+The owner requested preparation for the next overnight after the September 16
+failure. The successor is `plain-20260917-cap150`, with new `p17a` staging
+identities and the same 00:30–04:42 archive window, 06:45–08:55 compression
+window, exact archive selection and reserve limits. Its separate disk-exception
+record expires September 17 at 09:00 Toronto. The expired September 16 record
+does not authorize another day.
+
+`prepare_capacity_recovery_20260917.ps1` binds the failed predecessor's audit,
+requires zero archive payload attempts/removals, and excludes all first eight
+retained-selection groups. This holds the entire July 22 interrupted group,
+including its 24 completed files. The 54 remaining groups contain 8,545 selected
+paths; fresh inventory and identity matching are still required. Its new
+baseline carries zero prior savings. The held files cannot be compressed again
+or credited through this successor. Native reconciliation of their old journals
+is a separate read-only operation in an admitted window; the old failure remains
+failed. All old attempt records remain immutable.
+
+The status-read repair applies the same three-attempt bounded permission retry
+to compression and archive admission. Every attempt rechecks health and resource
+evidence; persistent or unrelated read failures remain terminal.

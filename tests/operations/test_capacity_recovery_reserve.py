@@ -91,3 +91,20 @@ def test_changed_record_bytes_fail_digest_before_scope_check(tmp_path):
     path.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="digest"):
         stage.capacity_recovery_reserve(path, "0"*64, {}, PLAN, NOW, NOW+timedelta(seconds=295))
+
+
+@pytest.mark.parametrize("day", [16, 17])
+def test_each_recovery_night_is_separately_bounded(reserve, day):
+    record, _, evaluate = reserve
+    record["expires_at_utc"] = f"2026-09-{day}T13:00:00Z"
+    now = datetime(2026, 9, day, 5, tzinfo=timezone.utc)
+    assert evaluate(now) == 27 * stage.GIB + 300 * 1024**2
+    for wrong in (now - timedelta(days=1), now + timedelta(days=1)):
+        with pytest.raises(ValueError):
+            evaluate(wrong)
+
+def test_unapproved_third_night_is_not_an_automatic_extension(reserve):
+    record, _, evaluate = reserve
+    record["expires_at_utc"] = "2026-09-18T13:00:00Z"
+    with pytest.raises(ValueError, match="date"):
+        evaluate(datetime(2026, 9, 18, 5, tzinfo=timezone.utc))

@@ -156,7 +156,7 @@ if($refused -ne 3){throw 'Upload provenance check failed'}
 
 @pytest.mark.parametrize("name", ["archive_plain_campaign_contract.ps1", "archive_plain_campaign_worker.ps1",
                                  "archive_plain_campaign_run.ps1", "register_archive_plain_campaign.ps1",
-                                 "prepare_capacity_recovery_20260916.ps1"])
+                                 "prepare_capacity_recovery_20260916.ps1", "prepare_capacity_recovery_20260917.ps1"])
 def test_native_powershell_parse(tmp_path, name):
     result = run_ps(tmp_path, r"""
 $tokens=$null;$parseErrors=$null
@@ -285,3 +285,19 @@ Test-WeatherCapacityPreparationWindow -Now $args[1]
 """, ROOT, now)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().lower() == str(allowed).lower()
+
+
+def test_successor_capacity_campaign_requires_fresh_date_and_staging_identities(tmp_path):
+    value = capacity_config()
+    value.update(campaign_id="plain-20260917-cap150",
+                 start_utc="2026-09-17T04:30:00Z", end_utc="2026-09-17T08:42:00Z",
+                 expires_at_utc="2026-09-17T08:42:00Z")
+    for row in value["queue"]:
+        row["archive_id"] = row["archive_id"].replace("p16n", "p17a")
+    result = check_config(tmp_path, value)
+    assert result.returncode == 0, result.stderr
+    value["queue"][0]["archive_id"] = "p16n00000"
+    assert check_config(tmp_path, value).returncode != 0
+    value["queue"][0]["archive_id"] = "p17a00000"
+    value["end_utc"] = "2026-09-18T08:42:00Z"
+    assert check_config(tmp_path, value).returncode != 0

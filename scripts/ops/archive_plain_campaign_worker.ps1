@@ -7,7 +7,7 @@ $source=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Assert-WeatherPlainSource $source $ExpectedSourceTip
 $configRecord=Read-WeatherPlainMetadata $ConfigPath $ConfigSha256 65536
 $c=Assert-WeatherPlainConfiguration $configRecord.Value
-$capacity150=$c.campaign_id -ceq 'plain-20260916-cap150b'
+$capacity150=$c.campaign_id -cin @('plain-20260916-cap150b','plain-20260917-cap150')
 $immediate=$c.campaign_id.StartsWith('plain-20260913-',[StringComparison]::Ordinal)
 if($c.source_tip -cne $ExpectedSourceTip){throw 'Worker source/config mismatch'}
 $root=[IO.Path]::GetFullPath($c.production_root)
@@ -176,7 +176,7 @@ try {
  }
  $capacity=Read-WeatherPlainMetadata $c.capacity.plan_path $c.capacity.plan_sha256 262144
  Assert-WeatherPlainSource $c.capacity.source_root $c.capacity.source_tip
- if($capacity150 -and ($capacity.Value.plan_id -cne 'capacity-20260916-cap150b' -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
+ if($capacity150 -and ($capacity.Value.plan_id -cne $c.campaign_id.Replace('plain-','capacity-') -or $capacity.Value.target_free_disk_bytes -ne 150000000000)){throw 'Capacity bridge plan differs'}
  if($PreflightOnly -and -not $immediate -and -not $capacity150){
   Run-Child 'capacity-metadata-preflight' $ps @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $c.capacity.source_root 'scripts/ops/storage_recovery_night_run.ps1'),'-ProductionRepoRoot',$root,'-PlanPath',$c.capacity.plan_path,'-PlanSha256',$c.capacity.plan_sha256,'-ExpectedSourceTip',$c.capacity.source_tip,'-Segment','early','-PreflightOnly') 75
  }
@@ -253,4 +253,5 @@ try {
 }
 if($status -ceq 'FAILED_RETAIN_AND_INSPECT'){exit 1}
 exit 0
+
 

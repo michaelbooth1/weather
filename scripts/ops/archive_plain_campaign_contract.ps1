@@ -47,7 +47,7 @@ function Assert-WeatherPlainLiteralPath {
 
 function Assert-WeatherPlainConfiguration {
  param($Config)
- if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-2026091[346]-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
+ if($Config.schema_version -cne 'plain_archive_campaign_config_v1' -or $Config.campaign_id -cnotmatch '^plain-2026091[3467]-[a-z0-9]{1,12}$'){throw 'Invalid campaign identity'}
  if($Config.source_tip -cnotmatch '^[a-f0-9]{40}$' -or $Config.workstation_source_tip -cnotmatch '^[a-f0-9]{40}$'){throw 'Invalid source binding'}
  foreach($key in @('execution_host_id','backup_execution_host_id','known_hosts_sha256','initial_progress_sha256')){
   if($Config.$key -cnotmatch '^[a-f0-9]{64}$'){throw ('Invalid digest: '+$key)}
@@ -57,8 +57,11 @@ function Assert-WeatherPlainConfiguration {
  }
  if([IO.Path]::GetFullPath($Config.production_root) -ieq [IO.Path]::GetFullPath($Config.workstation_root) -or $Config.execution_host_id -ceq $Config.backup_execution_host_id){throw 'Archive host roles overlap'}
  if($Config.remote_host -cnotmatch '^192\.168\.1\.[0-9]{1,3}$' -or $Config.remote_user -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{0,31}$' -or $Config.drive_remote_name -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,63}$' -or $Config.drive_root_folder_id -cnotmatch '^[A-Za-z0-9_-]{10,128}$'){throw 'Invalid fixed transport identity'}
- if($Config.campaign_id -ceq 'plain-20260916-cap150b'){
-  if($Config.start_utc -cne '2026-09-16T04:30:00Z' -or $Config.end_utc -cne '2026-09-16T08:42:00Z' -or $Config.expires_at_utc -cne $Config.end_utc){throw 'Capacity campaign date/window differs'}
+ $capacityDates=@{'plain-20260916-cap150b'='2026-09-16';'plain-20260917-cap150'='2026-09-17'}
+ if($capacityDates.ContainsKey([string]$Config.campaign_id)){
+  $capacityDate=$capacityDates[[string]$Config.campaign_id]
+  $archivePrefix=if($capacityDate -ceq '2026-09-17'){'p17a'}else{'p16n'}
+  if($Config.start_utc -cne ($capacityDate+'T04:30:00Z') -or $Config.end_utc -cne ($capacityDate+'T08:42:00Z') -or $Config.expires_at_utc -cne $Config.end_utc){throw 'Capacity campaign date/window differs'}
   if($Config.approved_at_utc -cne '2026-09-15T23:17:20.425091Z' -or [DateTimeOffset]::Parse($Config.approved_at_utc) -gt [DateTimeOffset]::UtcNow){throw 'Capacity owner approval differs'}
   if([long]$Config.target_bytes -ne 150000000000 -or [long]$Config.initial_archive_headroom_bytes -ne 30GB){throw 'Capacity target or initial reserve differs'}
   foreach($key in @('owner_approval','proposal','selection','plan','current_owner_approval','disk_exception')){
@@ -80,7 +83,7 @@ function Assert-WeatherPlainConfiguration {
   foreach($row in $Config.queue){
    if($row.chunk_id -cnotmatch '^chunk-000[0-5][0-9]$'){throw 'Capacity chunk differs'}
    $number=[int]$row.chunk_id.Substring(6)
-   if($number -gt 55 -or $ids.ContainsKey($row.chunk_id) -or $row.archive_id -cne ('p16n'+$row.chunk_id.Substring(6)) -or $row.start_at -cne 'stage'){throw 'Capacity queue identity or resume differs'}
+   if($number -gt 55 -or $ids.ContainsKey($row.chunk_id) -or $row.archive_id -cne ($archivePrefix+$row.chunk_id.Substring(6)) -or $row.start_at -cne 'stage'){throw 'Capacity queue identity or resume differs'}
    $ids[$row.chunk_id]=$true
   }
   if($Config.initial_progress_sha256 -cne ('0'*64)){throw 'Capacity campaign must begin with an absent progress ledger'}
@@ -142,6 +145,8 @@ function Assert-WeatherPlainUpload {
 
 
 function Test-WeatherCapacityPreparationWindow {
- param([DateTimeOffset]$Now=[DateTimeOffset]::UtcNow)
- return $Now -lt [DateTimeOffset]::Parse('2026-09-16T04:25:00Z')
+ param([DateTimeOffset]$Now=[DateTimeOffset]::UtcNow,
+       [ValidateSet('2026-09-16','2026-09-17')][string]$NightDate='2026-09-16')
+ return $Now -lt [DateTimeOffset]::Parse($NightDate+'T04:25:00Z')
 }
+
