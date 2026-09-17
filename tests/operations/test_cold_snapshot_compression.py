@@ -268,3 +268,70 @@ def test_native_run_retains_exact_bytes_and_receipts(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         subject.run(args)
     assert json.loads((output / "result.json").read_text()) == result
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native NTFS interruption boundary")
+@pytest.mark.parametrize("boundary", ["planned_sleep", "initial", "preimage", "completed"])
+def test_native_child_records_clock_refusal_at_each_mutation_boundary(tmp_path, monkeypatch, boundary):
+    from weather.operations.storage_recovery_resource_recovery import recoverable_refusal
+    now = datetime.now(timezone.utc)
+    source = tmp_path / "data" / RELATIVE
+    source.parent.mkdir(parents=True)
+    original = b'{"synthetic":"' + b"a" * (2 * MIB) + b'"}\n'
+    source.write_bytes(original)
+    stamp = int((now - timedelta(days=45)).timestamp()) * 10**9
+    os.utime(source, ns=(stamp, stamp))
+    observed = metadata.inventory(tmp_path / "data", [FOLDER], as_of=now.date(), guard=lambda: None)
+    payload = request(tmp_path, observed["files"])
+    payload.update(approved_at_utc=(now - timedelta(minutes=1)).isoformat(),
+                   expires_at_utc=(now + timedelta(hours=1)).isoformat())
+    inventory_chain(tmp_path, payload)
+    request_path = tmp_path / "approved.json"
+    digest = save(request_path, payload)
+    save(tmp_path / "data/logs/heavy_workload.lock", {"execution_host_id": "a" * 64})
+    output = tmp_path / "scratch/cold_snapshot_compression/clock-attempt"
+    output.mkdir(parents=True)
+    monkeypatch.setenv(subject.ENV_PREFIX + "SOURCE_ROOT", str(repo_path()))
+    monkeypatch.setenv(subject.ENV_PREFIX + "OWNER_PID", "1")
+    monkeypatch.setenv(subject.ENV_PREFIX + "DEADLINE_UTC", (now + timedelta(seconds=60)).isoformat())
+    monkeypatch.setattr(subject, "verify_current_lease", lambda *a, **k: None)
+    monkeypatch.setattr(subject, "set_current_process_below_normal", lambda: None)
+    # Force each I/O guard to sample; real NTFS handles, bytes and journals remain native.
+    ticks = iter(range(10000))
+    monkeypatch.setattr(subject.time, "monotonic", lambda: next(ticks))
+    samples = []
+    def observe(root, check):
+        refused = (boundary == "initial"
+                   or (boundary == "preimage" and (output / "000-before.json").exists())
+                   or (boundary == "completed" and (output / "000-after.json").exists()))
+        age = 181 if refused or (boundary == "planned_sleep" and samples) else 178
+        loops = [{"name": name, "active": True, "degraded": False, "heartbeat_fresh": True,
+                  "pid_agreement": True, "process_identity_matches_lock": True,
+                  "heartbeat_age_seconds": age if name == "snapshot" else 5,
+                  "last_clean_iteration_age_seconds": age if name == "snapshot" else None,
+                  "process_diagnostics": {"status_pid_alive": True, "lock_pid_alive": True}}
+                 for name in ("snapshot", "clob", "observation_trigger")]
+        if boundary == "planned_sleep":
+            loops[0].update(last_sleep_seconds=234.3, markets_in_progress=[])
+        result = check(now=NOW, available=6 * 1024**3, commit=60,
+                       free_disk=30 * 1024**3, loops=loops)
+        samples.append(result)
+        return result
+    monkeypatch.setattr(subject, "observe_capture_admission", observe)
+    args = Namespace(production_repo_root=str(tmp_path), output_root=str(output),
+                     request=str(request_path), request_sha256=digest, source_git_sha=SHA, apply=True)
+    assert subject.run(args) == (0 if boundary == "planned_sleep" else 1)
+    result = json.loads((output / "result.json").read_text())
+    assert source.read_bytes() == original
+    assert result["request_sha256"] == digest and result["source_git_sha"] == SHA
+    assert result["deleted_files"] == 0 and result["cleanup_eligible"] is False
+    assert result["final_admission"] == samples[-1]
+    assert recoverable_refusal(result) is (boundary != "planned_sleep")
+    assert (output / "000-before.json").exists() is (boundary != "initial")
+    assert (output / "000-after.json").exists() is (boundary in {"completed", "planned_sleep"})
+    assert len(result["results"]) == (1 if boundary in {"completed", "planned_sleep"} else 0)
+    if boundary in {"completed", "planned_sleep"}:
+        assert result["reclaimed_bytes"] > 0
+        assert result["results"][0]["sha256"] == hashlib.sha256(original).hexdigest()
+    else:
+        assert result["reclaimed_bytes"] == 0

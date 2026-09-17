@@ -226,7 +226,7 @@ try {
     Remote-Command 'upload-and-independent-download' @($ps.Replace('\','/'),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',($c.workstation_root+'/scripts/ops/workstation_heavy.ps1'),'-Kind','weather_heavy','-PythonPath',$c.workstation_python,'-ArgumentsBase64',$encoded,'-RepoRoot',$c.workstation_root) 930
     $upload=Copy-RemoteReceipt ($c.workstation_root+'/scratch/ac-backup/'+$row.archive_id+'u1/receipt.json') (Join-Path $OutputRoot ($row.archive_id+'-upload-verified.json'))
    } else {$upload=$existing}
-   Assert-WeatherPlainUpload $c $stage.Manifest.Value $upload.Value $row.archive_id
+   Wait-WeatherPlainUpload $c $stage.Manifest.Value $upload.Value $row.archive_id -Deadline ([DateTimeOffset]::new($deadline))
    Backup-Metadata 'b1' @($ConfigPath,$stage.Manifest.Path,$stage.Receipt.Path,$upload.Path)
    $request=Get-WeatherPlainBaseRequest $c 'production_cold_archive_plain_reclaim_request_v0.1' 'reclaim'
    $request.attempt_id=$row.archive_id+'r1';$request.archive_id=$row.archive_id;$request.payload_encryption='none'

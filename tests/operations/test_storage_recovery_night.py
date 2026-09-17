@@ -180,7 +180,9 @@ class Simulation:
                         wrapper["hard_stop"] = True
                     result.update(status="FAILED_RETAIN_AND_INSPECT",
                                   error=MEMORY_ERROR if self.fault in {"memory", "completed_memory"} else "hash mismatch")
-                    if self.fault != "completed_memory":
+                    if self.fault in {"clock", "completed_clock"}:
+                        result.update(clock_failure())
+                    if self.fault not in {"completed_memory", "completed_clock"}:
                         break
                 journals[f"{i:03d}-after.json"] = {**result, **row}
                 rows.append(row)
@@ -224,7 +226,7 @@ def test_success_and_memory_recovery_count_each_identity_once(tmp_path, monkeypa
     assert result["verified_file_count"] == 2
     assert result["pending"] is None and result["reconcile_rows"] == []
     assert result["target_met"] is False and result["deleted_files"] == 0
-    assert ("verify" in simulation.calls) is (fault == "memory")
+    assert ("verify" in simulation.calls) is (fault in {"memory", "clock"})
     if fault:
         assert result["recoveries"] == 1
 
@@ -542,3 +544,97 @@ def test_successor_excludes_entire_interrupted_group_and_never_credits_it(tmp_pa
     selected["groups"][8]["files"].pop()
     with pytest.raises(ValueError, match="cardinality"):
         contract.capacity_selection(plan)
+
+
+@pytest.mark.parametrize("consumer", ["inventory", "compression", "controller"])
+@pytest.mark.parametrize("age", [178.26, 180.683915, 234.3, 244.3])
+def test_every_storage_consumer_honors_the_same_bounded_snapshot_idle(consumer, age):
+    from weather.operations import storage_recovery_inventory_cli as inventory_cli
+    check = {"inventory": inventory_cli.check_resources, "compression": compression.check_resources,
+             "controller": subject.night_resources}[consumer]
+    sample = capture_sample(age)
+    sample["loops"][0].update(last_clean_iteration_age_seconds=age - 0.012,
+                              last_sleep_seconds=234.3, markets_in_progress=[])
+    assert check(**sample)["status"] == "PASS"
+
+
+@pytest.mark.parametrize("change", [
+    {"markets_in_progress": ["Toronto"]}, {"last_sleep_seconds": 601},
+    {"heartbeat_age_seconds": 245}, {"last_clean_iteration_age_seconds": 182},
+    {"last_clean_iteration_age_seconds": None}, {"heartbeat_age_seconds": -1},
+    {"pid_agreement": False}, {"process_identity_matches_lock": False},
+    {"active": False}, {"degraded": True}, {"heartbeat_fresh": False},
+    {"process_diagnostics": {"status_pid_alive": False, "lock_pid_alive": True}},
+])
+def test_planned_idle_does_not_excuse_busy_stale_or_unhealthy_capture(change):
+    from weather.operations import storage_recovery_inventory_cli as inventory_cli
+    sample = capture_sample(181)
+    sample["loops"][0].update(last_sleep_seconds=234.3, markets_in_progress=[])
+    sample["loops"][0].update(change)
+    for check in (inventory_cli.check_resources, compression.check_resources, subject.night_resources):
+        assert check(**sample)["status"] == "BLOCK"
+
+
+def clock_failure(change=None):
+    sample = capture_sample()
+    if change:
+        change(sample)
+    observed = compression.check_resources(**sample)
+    return {"status": "FAILED_RETAIN_AND_INSPECT", "final_admission": observed,
+            "error": "capture admission refused: " + ",".join(observed["reasons"])}
+
+
+@pytest.mark.parametrize("change", [
+    lambda s: s["loops"][0].update(active=False),
+    lambda s: s["loops"][0].update(degraded=True),
+    lambda s: s["loops"][0].update(process_identity_matches_lock=False),
+    lambda s: s["loops"][0].update(heartbeat_age_seconds=-1),
+    lambda s: s["loops"][0].update(last_clean_iteration_age_seconds=None),
+    lambda s: s.update(free_disk=0), lambda s: s.update(now=NOW.replace(hour=18)),
+])
+def test_child_recovery_recomputes_health_and_rejects_non_clock_failures(change):
+    from weather.operations.storage_recovery_resource_recovery import recoverable_refusal
+    assert not recoverable_refusal(clock_failure(change))
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda r: r.pop("final_admission"), lambda r: r.update(error="hash mismatch"),
+    lambda r: r.update(status="PASS"),
+    lambda r: r["final_admission"].update(checked_at_utc="not a timestamp"),
+    lambda r: r["final_admission"].update(reasons=["capture_unhealthy:clob"]),
+    lambda r: r["final_admission"].update(status="PASS"),
+    lambda r: r["final_admission"].update(capture_loops=[]),
+])
+def test_incomplete_or_conflicting_child_clock_evidence_never_authorizes_retry(mutate):
+    from weather.operations.storage_recovery_resource_recovery import recoverable_refusal
+    result = clock_failure()
+    assert recoverable_refusal(result)
+    mutate(result)
+    assert not recoverable_refusal(result)
+
+
+@pytest.mark.parametrize("fault", ["clock", "completed_clock"])
+def test_clock_interruption_reconciles_actual_journals_before_any_new_work(tmp_path, monkeypatch, fault):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch, fault)
+    assert runner.run() == 0
+    result = json.loads((runner.output / "result.json").read_text())
+    assert result["recoveries"] == 1 and result["verified_file_count"] == 2
+    assert result["night_verified_reclaimed_bytes"] == 2 * contract.MIB
+    assert result["pending"] is None and result["reconcile_rows"] == []
+    # Second apply was interrupted. Fresh inventory precedes verification or retry.
+    interrupted = [i for i, kind in enumerate(simulation.calls) if kind == "apply"][1]
+    assert simulation.calls[interrupted + 1] == "inventory"
+    assert ("verify" in simulation.calls) is (fault in {"memory", "clock"})
+
+
+def test_clock_interruption_with_changed_completed_identity_blocks_before_retry(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch, "completed_clock")
+    def dispatch(*args, **kwargs):
+        outcome = simulation(*args, **kwargs)
+        if (outcome.get("result") or {}).get("error") == clock_failure()["error"]:
+            simulation.current[FOLDER + "/1.jsonl"]["file_index"] += 100
+        return outcome
+    runner.dispatch = dispatch
+    assert runner.run() == 1
+    assert simulation.calls[-1] == "inventory"
+    assert len(runner.rows) == 1

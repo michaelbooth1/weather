@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from weather.operations import cold_snapshot_compression as compression
 from weather.operations import storage_recovery_night_contract as contract
+from weather.operations.storage_recovery_resource_recovery import recoverable_refusal
 
 NATIVE_FIELDS = frozenset({"size_bytes", "allocation_bytes", "mtime_ns", "volume_serial",
                           "file_index", "attributes", "creation_filetime", "compression_format"})
@@ -141,8 +142,8 @@ def inspect_apply(request, wrapper, result, journals, *, request_sha, plan):
                 or wrapper.get("reclaimed_bytes") != result["reclaimed_bytes"]):
             raise ValueError("PASS does not cover every approved file")
     else:
-        if result is not None and not contract.memory_refusal(result.get("error")):
-            raise ValueError("failed compression is not an approved memory-only interruption")
+        if result is not None and not recoverable_refusal(result):
+            raise ValueError("failed compression is not an approved resource interruption")
     return completed, pending
 
 
