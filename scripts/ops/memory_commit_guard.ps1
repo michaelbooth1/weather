@@ -195,26 +195,38 @@ function Stop-VerifiedProcessTree(
         $pending = @($next)
     }
 
+    # NEVER name this variable $pid. PowerShell names are case-insensitive and $PID is a
+    # Constant, AllScope automatic variable holding THIS process's id, so `$pid = ...` raises a
+    # statement-terminating error that the default Continue preference swallows. From
+    # 2026-08-23 to 2026-09-19 that left every lookup below pointed at the guard itself: the
+    # CreationDate comparison always mismatched, "creation identity changed" was logged once
+    # per tree member with the guard's own pid, and Stop-Process was never reached. Every tree
+    # kill this guard owns was inert for 27 days (memory_commit_guard.log 2026-09-10T21:29).
     $ok = $true
     $ordered = @($tree | Sort-Object @{ Expression = {
-        $pid = [uint32]$_.ProcessId
-        if ($depthByPid.ContainsKey($pid)) { -[int]$depthByPid[$pid] } else { 0 }
+        $memberId = [uint32]$_.ProcessId
+        if ($depthByPid.ContainsKey($memberId)) { -[int]$depthByPid[$memberId] } else { 0 }
     } })
     Write-GuardLog "ACTION" ("{0}; terminating verified process tree root pid {1} members {2}" -f $Reason, $RootRow.ProcessId, $tree.Count)
     foreach ($row in $ordered) {
-        $pid = [uint32]$row.ProcessId
-        $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $pid) -ErrorAction SilentlyContinue
+        $memberId = [uint32]$row.ProcessId
+        if ($memberId -eq [uint32]$PID) {
+            Write-GuardLog "CRITICAL" ("refusing to terminate the guard's own process pid {0}" -f $memberId)
+            $ok = $false
+            continue
+        }
+        $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $memberId) -ErrorAction SilentlyContinue
         if (-not $current) { continue }
         if ([datetime]$current.CreationDate -ne [datetime]$row.CreationDate) {
-            Write-GuardLog "ERROR" ("pid {0} creation identity changed before termination" -f $pid)
+            Write-GuardLog "ERROR" ("pid {0} creation identity changed before termination" -f $memberId)
             $ok = $false
             continue
         }
         try {
-            Stop-Process -Id $pid -Force -Confirm:$false -ErrorAction Stop
+            Stop-Process -Id $memberId -Force -Confirm:$false -ErrorAction Stop
         }
         catch {
-            Write-GuardLog "ERROR" ("failed to terminate pid {0}: {1}" -f $pid, $_.Exception.Message)
+            Write-GuardLog "ERROR" ("failed to terminate pid {0}: {1}" -f $memberId, $_.Exception.Message)
             $ok = $false
         }
     }
