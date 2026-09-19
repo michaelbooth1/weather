@@ -271,17 +271,28 @@ class TestMarketMicrostructure(unittest.TestCase):
                     "model_probability": "0.25",
                     "market_yes": "0.12",
                 })
-            result = capture_event_books(
-                sample_event(),
-                market_id="toronto",
-                clob_client=fake,
-                root=tmp,
-                outcomes="yes",
-                history_minutes=60,
-                websocket_factory=factory,
-                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            # The checked-in config/storage_pressure.json is an operator activation switch, so
+            # this test pins the writing policy instead of reading production configuration.
+            writing_policy = StoragePressurePolicy(
+                write_order_books_long_csv=True,
+                status="configured",
+                path="fixture-policy.json",
             )
-            token_rows = list(csv.DictReader((root / "clob_tokens.csv").open(encoding="utf-8", newline="")))
+            with patch(
+                "weather.market.market_microstructure_capture.load_storage_pressure_policy",
+                return_value=writing_policy,
+            ):
+                result = capture_event_books(
+                    sample_event(),
+                    market_id="toronto",
+                    clob_client=fake,
+                    root=tmp,
+                    outcomes="yes",
+                    history_minutes=60,
+                    websocket_factory=factory,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+            token_rows =list(csv.DictReader((root / "clob_tokens.csv").open(encoding="utf-8", newline="")))
             summary_rows = list(csv.DictReader((root / "order_books_summary.csv").open(encoding="utf-8", newline="")))
             level_rows = list(csv.DictReader((root / "order_books_long.csv").open(encoding="utf-8", newline="")))
             history_rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
