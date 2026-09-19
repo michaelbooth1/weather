@@ -24,6 +24,14 @@ DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "clob_order_book_tiering.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "clob_order_book_tiering_report.md"
 DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
+# The gzip this job writes is ~1/25 of the CSV it replaces (item 325 measured 1.44 GB -> 57 MB
+# per market-day). Reserving the whole SOURCE size on top of the floor made the host's only
+# recurring reclaim refuse exactly when the disk was tightest: ~2.5 GiB free was "insufficient"
+# to write ~60 MB and then free ~1.4 GB. Reserve a deliberately pessimistic quarter instead. The
+# estimate is not the safety: the writer re-checks the floor as it streams and aborts, leaving
+# the source untouched, if free space ever falls below it.
+EXPECTED_GZIP_DIVISOR = 4
+HEADROOM_RECHECK_BYTES = 64 * 1024 * 1024
 ORDER_BOOK_LONG = "order_books_long.csv"
 ORDER_BOOK_LONG_GZIP = "order_books_long.csv.gz"
 EVENT_DATE_RE = re.compile(r"\bon-([a-z]+)-(\d{1,2})-(\d{4})$")
@@ -262,7 +270,15 @@ def build_payload(
     }
 
 
-def _gzip_source(source: Path, gzip_path: Path) -> dict[str, Any]:
+class InsufficientHeadroom(Exception):
+    """Free space fell below the floor while the gzip was being written."""
+
+
+def expected_gzip_bytes(source_bytes: int) -> int:
+    return -(-int(source_bytes) // EXPECTED_GZIP_DIVISOR)
+
+
+def _gzip_source(source: Path, gzip_path: Path, *, min_free_bytes: int = 0) -> dict[str, Any]:
     source_sha256, source_lines = sha256_and_line_count(source)
     tmp_path = gzip_path.with_name(gzip_path.name + ".tmp")
     if tmp_path.exists():
@@ -270,7 +286,21 @@ def _gzip_source(source: Path, gzip_path: Path) -> dict[str, Any]:
     try:
         with source.open("rb") as src, tmp_path.open("wb") as raw:
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
-                shutil.copyfileobj(src, gz, length=1024 * 1024)
+                since_check = 0
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    gz.write(chunk)
+                    since_check += len(chunk)
+                    if min_free_bytes > 0 and since_check >= HEADROOM_RECHECK_BYTES:
+                        since_check = 0
+                        free = int(shutil.disk_usage(tmp_path.parent).free)
+                        if free < min_free_bytes:
+                            raise InsufficientHeadroom(
+                                f"free space {free} fell below the {min_free_bytes} byte floor "
+                                "while writing; source left untouched"
+                            )
         payload_sha256, payload_lines = gzip_payload_sha256_and_line_count(tmp_path)
         if payload_sha256 != source_sha256 or payload_lines != source_lines:
             raise ValueError("gzip verification failed against source bytes")
@@ -298,15 +328,16 @@ def apply_tiering(
     candidates = [row for row in payload.get("rows") or [] if row.get("status") == "candidate"]
     if limit is not None:
         candidates = candidates[: max(0, int(limit))]
-    actions = []
-    for row in candidates:
+    min_free_bytes = int(payload.get("min_free_bytes") or 0)
+
+    def apply_one(row: dict[str, Any]) -> dict[str, Any]:
         source = Path(row["source_path"])
         gzip_path = Path(row["gzip_path"])
         _assert_under_root(source, root)
         _assert_under_root(gzip_path, root)
         source_bytes = int(row.get("source_bytes") or 0)
         usage = shutil.disk_usage(source.parent)
-        required_free = source_bytes + int(payload.get("min_free_bytes") or 0)
+        required_free = expected_gzip_bytes(source_bytes) + min_free_bytes
         action = {
             "source_path": str(source),
             "gzip_path": str(gzip_path),
@@ -328,7 +359,7 @@ def apply_tiering(
             action["insufficient_bytes"] = required_free - int(usage.free)
         else:
             try:
-                result = _gzip_source(source, gzip_path)
+                result = _gzip_source(source, gzip_path, min_free_bytes=min_free_bytes)
                 action.update(result)
                 if delete_source:
                     _assert_under_root(source, root)
@@ -356,10 +387,25 @@ def apply_tiering(
                     action["source_deleted"] = False
                 if action.get("status") != "skipped_cleanup_preflight_block":
                     action["status"] = "compressed"
+            except InsufficientHeadroom as exc:
+                action["status"] = "skipped_insufficient_headroom"
+                action["floor_breached_during_write"] = True
+                action["error"] = str(exc)
             except Exception as exc:  # noqa: BLE001 - report and continue with other candidates
                 action["status"] = "failed"
                 action["error"] = f"{type(exc).__name__}: {exc}"
-        actions.append(action)
+        return action
+
+    actions = [apply_one(row) for row in candidates]
+    # Each verified delete frees far more than its gzip cost, so a candidate that did not fit at
+    # its turn may fit once later ones have finished. Retry those once, in place, rather than
+    # reporting BLOCKED on a disk this same run has just made roomier.
+    if any(action.get("source_deleted") for action in actions):
+        for index, action in enumerate(actions):
+            if action.get("status") == "skipped_insufficient_headroom":
+                retried = apply_one(candidates[index])
+                retried["retried_after_reclaim"] = True
+                actions[index] = retried
     blocked = [row for row in actions if row.get("status") == "skipped_insufficient_headroom"]
     failed = [row for row in actions if str(row.get("status") or "").startswith("failed")]
     if blocked:
