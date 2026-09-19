@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import datetime as dt
 import os
 import re
 import subprocess
@@ -22,6 +23,7 @@ from weather.paths import REPO_ROOT
 
 REQUIRED_FILES = (
     "AGENTS.md",
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "app/AGENTS.md",
     "artifacts/AGENTS.md",
@@ -31,8 +33,16 @@ REQUIRED_FILES = (
     "docs/architecture.md",
     "docs/development.md",
     "docs/documentation-maintenance.md",
+    "docs/git-workflow.md",
     "docs/operations/AGENT_CONTEXT.md",
+    "docs/operations/DELEGATION_CONTRACT.md",
+    "docs/operations/ESTABLISHED_FINDINGS.md",
+    "docs/operations/FINDINGS_DIGEST.md",
+    "docs/operations/HOST_LOAD_POLICY.md",
+    "docs/operations/OPERATIONS_AGENT_ROLE.md",
     "docs/operations/README.md",
+    "docs/operations/RETRACTED_AND_FALSE_LEADS.md",
+    "docs/operations/STATE_OF_PLAY.md",
     "docs/roadmap/AGENTS.md",
     "docs/roadmap/active-backlog.md",
     "scripts/ops/AGENTS.md",
@@ -82,6 +92,49 @@ UPDATE_TRIGGER_DOCS = (
     "docs/operations/package-boundaries.md",
     "docs/operations/path-policy.md",
 )
+
+STATE_OF_PLAY = "docs/operations/STATE_OF_PLAY.md"
+OPERATIONS_INDEX = "docs/operations/README.md"
+DOCS_INDEX = "docs/README.md"
+
+#: Files every agent loads before acting. A budget is a ceiling on physical lines:
+#: these files are paid for in context on every task, so growth must be a decision.
+LINE_BUDGETS = {
+    "AGENTS.md": 170,
+    "CLAUDE.md": 25,
+    STATE_OF_PLAY: 95,
+    "docs/operations/FINDINGS_DIGEST.md": 250,
+    # Distinct production safety rules with no other owner document; cut from 239 on 2026-09-19.
+    "scripts/ops/AGENTS.md": 160,
+}
+#: Every nested AGENTS.md gets this ceiling unless it has an explicit entry above.
+NESTED_AGENT_FILE_LINE_BUDGET = 130
+
+#: Claims the project has retired. A retired claim that reappears in a file agents treat
+#: as current is a contradiction, and agents act on whichever copy they read first.
+#: When a claim is retracted, add its phrase here in the same change.
+RETIRED_CLAIMS = (
+    (
+        re.compile(r"#1 operational objective", re.IGNORECASE),
+        "streak contiguity is a diagnostic, not the first objective (ESTABLISHED_FINDINGS 0d)",
+    ),
+    (
+        re.compile(r"\$16/day is still \$16/day"),
+        "the configured reward pool was re-measured on 2026-09-19; see FINDINGS_DIGEST",
+    ),
+    (
+        re.compile(r"18:00\s*[-–]\s*00:05"),
+        "the protected near-close window ends at 00:30, where the workload lease opens",
+    ),
+)
+#: Files that quote retired claims on purpose.
+RETIRED_CLAIM_EXEMPT = frozenset(
+    {
+        "docs/operations/RETRACTED_AND_FALSE_LEADS.md",
+        "docs/operations/HOW_WE_GET_THINGS_WRONG.md",
+    }
+)
+STATE_DATE_RE = re.compile(r"\*\*Last updated:\s*(\d{4}-\d{2}-\d{2})")
 
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 HISTORICAL_MISSING_LINK_EXCLUSIONS = frozenset(
@@ -347,6 +400,85 @@ def _builtin_market_rows(repo_root: Path) -> list[dict[str, str]]:
     return [specs[name] for name in builtin_names]
 
 
+def line_budget_errors(repo_root: Path) -> list[str]:
+    """Always-loaded files must stay inside their line budget."""
+    errors: list[str] = []
+    budgets = {repo_root / relative: limit for relative, limit in LINE_BUDGETS.items()}
+    for path in _agent_files(repo_root):
+        budgets.setdefault(path, NESTED_AGENT_FILE_LINE_BUDGET)
+    for path, limit in sorted(budgets.items()):
+        if not path.is_file():
+            continue
+        count = len(path.read_text(encoding="utf-8-sig").splitlines())
+        if count > limit:
+            errors.append(
+                f"{path.relative_to(repo_root).as_posix()}: {count} lines exceeds the "
+                f"always-loaded budget of {limit}; move detail to its owner file and link"
+            )
+    return errors
+
+
+def unindexed_operations_docs(repo_root: Path) -> list[str]:
+    """Every operations document must be reachable from an index an agent reads."""
+    operations = repo_root / "docs" / "operations"
+    if not operations.is_dir():
+        return []
+    index_text = ""
+    for relative in (OPERATIONS_INDEX, DOCS_INDEX):
+        path = repo_root / relative
+        if path.is_file():
+            index_text += path.read_text(encoding="utf-8-sig")
+    errors = []
+    for path in sorted(operations.glob("*.md")):
+        if path.name == "README.md":
+            continue
+        if f"({path.name})" not in index_text and f"operations/{path.name})" not in index_text:
+            errors.append(
+                f"docs/operations/{path.name}: not linked from {OPERATIONS_INDEX} or {DOCS_INDEX}"
+            )
+    return errors
+
+
+def retired_claim_errors(repo_root: Path, paths: list[Path]) -> list[str]:
+    """A retired claim must not reappear in a file agents treat as current."""
+    errors = []
+    for path in sorted(set(paths)):
+        relative = path.relative_to(repo_root).as_posix()
+        if relative in RETIRED_CLAIM_EXEMPT or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        for pattern, reason in RETIRED_CLAIMS:
+            match = pattern.search(text)
+            if match:
+                line = text.count("\n", 0, match.start()) + 1
+                errors.append(f"{relative}:{line}: retired claim {match.group(0)!r}: {reason}")
+    return errors
+
+
+def state_of_play_age_errors(
+    repo_root: Path, *, today: dt.date, max_age_days: int
+) -> list[str]:
+    """The file that answers "what is true now" must not silently go stale.
+
+    Its rewrite used to be triggered only by a successful integration, so it froze exactly
+    when integration stalled. Age is measured from the date the file itself declares.
+    """
+    path = repo_root / STATE_OF_PLAY
+    if not path.is_file():
+        return [f"{STATE_OF_PLAY}: missing"]
+    match = STATE_DATE_RE.search(path.read_text(encoding="utf-8-sig"))
+    if not match:
+        return [f"{STATE_OF_PLAY}: no parseable **Last updated: YYYY-MM-DD** line"]
+    declared = dt.date.fromisoformat(match.group(1))
+    age = (today - declared).days
+    if age > max_age_days:
+        return [
+            f"{STATE_OF_PLAY}: declared {declared.isoformat()}, {age} days old; rewrite it or "
+            f"re-attest it (limit {max_age_days} days)"
+        ]
+    return []
+
+
 def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
     repo_root = repo_root.resolve()
     errors: list[str] = []
@@ -422,6 +554,16 @@ def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
                 f"{path.relative_to(repo_root)}: legacy command surface: {match}"
             )
 
+    claude = repo_root / "CLAUDE.md"
+    if claude.is_file() and "@AGENTS.md" not in claude.read_text(encoding="utf-8-sig"):
+        errors.append("CLAUDE.md: must import @AGENTS.md so every harness shares one entry point")
+
+    current_paths = list(active_paths)
+    current_paths.extend(repo_root / relative for relative in REQUIRED_FILES)
+    errors.extend(line_budget_errors(repo_root))
+    errors.extend(unindexed_operations_docs(repo_root))
+    errors.extend(retired_claim_errors(repo_root, current_paths))
+
     return sorted(set(errors))
 
 
@@ -430,12 +572,29 @@ def build_parser() -> argparse.ArgumentParser:
         description="Validate agent-facing documentation and knowledge contracts."
     )
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    parser.add_argument(
+        "--max-state-age-days",
+        type=int,
+        default=None,
+        help=(
+            "Also fail when STATE_OF_PLAY.md declares a date older than this many days. "
+            "Off by default so the audit stays deterministic in CI."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     errors = audit_repo(args.repo_root)
+    if args.max_state_age_days is not None:
+        errors.extend(
+            state_of_play_age_errors(
+                args.repo_root.resolve(),
+                today=dt.date.today(),
+                max_age_days=args.max_state_age_days,
+            )
+        )
     if errors:
         print(f"Agent docs audit: FAIL ({len(errors)} issue(s))")
         for error in errors:

@@ -135,10 +135,11 @@ PROTECTED_WINDOWS = (
         "scripts/ops/quiet_window_merge.ps1",
     ),
     (
-        "18:00-00:05 local",
-        "Near-close capture",
-        "Near-close fast CLOB capture, MM quoting, and settlement watch. Policy says nothing "
-        "heavy, ever. Weigh any exception against what is actually live at the time.",
+        "18:00-00:30 local",
+        "Near-close capture and daily roll-over",
+        "Near-close fast CLOB capture, MM quoting, settlement watch, then the 00:05-00:30 "
+        "taker/MM daily roll-over. Policy says nothing heavy, ever; the workload lease "
+        "refuses every hour outside 00:30-09:00.",
         "docs/operations/HOST_LOAD_POLICY.md",
     ),
 )
