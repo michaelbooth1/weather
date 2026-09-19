@@ -1,7 +1,26 @@
 # The forecast archive covers the wrong 52 days of the year
 
-Status: canonical. Measured 2026-08-06 on the production host. This is the binding constraint
-on the project's #2 objective (find a model that beats the market).
+- **Owns:** the 2026-08-06 finding that the forecast archive's fixed fetch window excluded the
+  retrain's target season, and why the coverage gate could not see it.
+- **Read when:** touching forecast-archive coverage, the first-retrain corpus, or any gate whose
+  standard comes from the thing it judges.
+- **Do not use for:** the current code (the constants quoted below no longer exist) or current
+  priorities (`STATE_OF_PLAY.md`).
+- **Verify with:** `archive_window_for_target` in `src/weather/sources/forecast_history.py`, and
+  `python -m weather.sources.forecast_history fleet-coverage --target-date <yyyy-mm-dd>`
+  (network-free read of the archive; respect the host load windows).
+
+> **CODE FIXED 2026-08-06 (`b0f57cdba`); DATA STATUS NOT RECORDED HERE.** `SEASON_START` /
+> `SEASON_END` were removed: the archive window is now derived from `--target-date`
+> (`archive_window_for_target`), and `backfill`, `coverage` and `fleet-coverage` take that flag, so
+> the gate checks relevance to a declared target. That commit changes code only. Whether the
+> archive was actually re-fetched for a July/August target is **not recorded in this file** —
+> run the `fleet-coverage` command above for the target before assuming either way. The body
+> below is the finding as measured on 2026-08-06, kept unedited. The retrain it blocks is itself
+> paused (no new model-alpha work; training disabled).
+
+Status: finding as measured 2026-08-06 on the production host. At the time this was the binding
+constraint on the then-#2 objective (find a model that beats the market).
 
 ## The finding
 

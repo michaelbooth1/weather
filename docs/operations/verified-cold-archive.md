@@ -1,5 +1,20 @@
 # Verified Cold-Archive Foundation
 
+- **Owns:** the fixture-only `verified_cold_archive` contract and the two
+  workstation-only provisional modules (`workstation_cold_archive_stage`,
+  `workstation_cold_archive_restore`): schemas, CLI flags, refusal rules.
+- **Read when:** you change or test one of those three modules, or need to know
+  what their receipts do and do not prove.
+- **Do not use for:** archiving or restoring real production data (see
+  [production-cold-archive-staging.md](production-cold-archive-staging.md) and
+  [cold-archive-locations.md](cold-archive-locations.md)), or for any delete.
+  Nothing here grants cleanup authority. Further archive uploads are currently
+  **disabled** by owner decision ([STATE_OF_PLAY.md](STATE_OF_PLAY.md)).
+- **Verify with:** the argparse blocks in
+  `src/weather/operations/verified_cold_archive.py` (`_build_parser`, five
+  subcommands) and `PATH_ARGUMENTS` in `workstation_cold_archive_restore.py`;
+  the admitted module list in `scripts/ops/workstation_heavy.ps1`.
+
 `weather.operations.verified_cold_archive` defines the create-only archive,
 verification, restore-drill, and cleanup-plan contracts for one sealed market-day
 folder. The current command surface is deliberately restricted to marked
@@ -40,7 +55,8 @@ The plan has no generated timestamp, and its file inventory uses sorted relative
 paths, byte sizes, and SHA-256 identities so repeated plans over unchanged input
 are byte-for-byte deterministic.
 
-The minimum and default hot window are both 30 days. A day is eligible only when
+The minimum and default hot window are both 30 days (`MINIMUM_HOT_WINDOW_DAYS`,
+`DEFAULT_HOT_WINDOW_DAYS`; `plan --hot-window-days` may only raise it). A day is eligible only when
 its target date is strictly older than the selected window. The planner also
 requires:
 
@@ -101,8 +117,8 @@ rejects duplicate or unexpected members, links, special members, traversal,
 missing members, truncation, and destination drift. A requested
 `verified_cold_archive_verification_receipt_v0.1` is written create-only.
 
-Off-site cloud transport remains unimplemented. The eventual off-site adapter
-is `rclone` to Google Drive through an `rclone crypt` remote, followed by
+This module implements no off-site transport; real production transfer is owned
+by the separate production lane linked above. The off-site adapter contract is `rclone` to Google Drive through an `rclone crypt` remote, followed by
 `rclone cryptcheck` or an equivalently verified encrypted transport. It must
 preserve append-only copy semantics equivalent to `robocopy /E`, and must never
 expose `/MIR`, `rclone sync`, remote deletion, or overwrite behavior.
@@ -378,3 +394,9 @@ protocol. It uses exact native-pinned production staging evidence and never
 relabels a provisional mirror copy. The fixture cleanup planner remains
 fixture-only. Production consumer closure, current source identity and the
 reviewed deletion/ledger mechanism are still required before reclaim.
+## Update this file when
+
+Update when a subcommand, flag, schema name, fixture-boundary rule, hot-window
+constant, admitted workstation module, or receipt invariant in the three modules
+above changes. Production transfer, locations and reclaim belong to their own
+runbooks.

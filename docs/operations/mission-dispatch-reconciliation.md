@@ -2,6 +2,13 @@
 
 Status: canonical method. Written 2026-08-06 for the production/briefing agent.
 
+- **Owns:** how to tell a never-dispatched workstation mission from a completed, superseded or withdrawn one.
+- **Read when:** a handoff under `docs/roadmap/` has no visible branch and you are about to report it as lost.
+- **Do not use for:** the handoff and report format ([DELEGATION_CONTRACT](DELEGATION_CONTRACT.md),
+  [roadmap agent guide](../roadmap/AGENTS.md)). The handoff channel has been dormant since 2026-08-11 and no new
+  model-alpha missions are being dispatched; the method stays valid, the worked example below is a dated snapshot.
+- **Verify with:** the four `git` and path checks in "The four records"; all are light and read-only.
+
 The 2026-08-05 morning briefing recorded, about two commissioned missions:
 
 > From this host the two cases are indistinguishable: doc committed, no branch.

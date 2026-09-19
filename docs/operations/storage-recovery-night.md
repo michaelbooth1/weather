@@ -1,6 +1,22 @@
 # One-night retained-file storage recovery
 
-Status: canonical. Owner: operations.
+- **Owns:** the one-night controller that chains inventory, dry run, apply and
+  retained verification: plan schema, registrar, task names, segment timing,
+  automatic pause/resume rules and closeout evidence.
+- **Read when:** the owner authorizes an unattended compression night, or you
+  reconcile a `scratchstorage_recovery_nights<plan_id>` result.
+- **Do not use for:** single attended batches
+  ([cold-snapshot-compression.md](cold-snapshot-compression.md)), archive upload
+  or deletion, or measured savings (item 325).
+- **Verify with:** `Get-ScheduledTask -TaskName 'WeatherStorageRecovery-*'`
+  (what is armed), `Get-WeatherNightTimes` in
+  `scripts/ops/storage_recovery_night_contract.ps1` (segment minutes) and
+  `src/weather/operations/storage_recovery_night_contract.py` (budget ceilings).
+
+**Status:** not recurring. Each night needs a new immutable plan, a new named
+owner approval and fresh registration; task and output names are single-use.
+Nothing here is armed by a merge. Check the scheduler before assuming a night
+is or is not registered.
 
 This controller composes the [qualified compression and retained verification
 wrappers](cold-snapshot-compression.md) under explicit one-night authority.
@@ -93,8 +109,8 @@ with proved complete teardown may also pause and resume automatically. Reconcile
 completed journals against fresh inventory before crediting interrupted work.
 An unmatched durable preimage requires fresh inventory and the qualified
 read-only verifier before further compression. Hash, native identity, source,
-request, missing-receipt, hard-stop, capture-health failure during a child, unexpected failure and
-unproved-teardown disagreements stop the night. Spent attempts remain intact.
+request, missing-receipt, hard-stop, capture-health failure during a child,
+unexpected failure and unproved-teardown disagreements stop the night. Spent attempts remain intact.
 
 Late continuation requires a complete hash-bound safe early result and ledger,
 zero-child teardown and a consistent group cursor. Existing early output without
@@ -117,7 +133,7 @@ establish the requested capacity outcome. Deduplicate retained path and native
 identity across the baseline and both segments. Report unverified or uncredited
 files explicitly; a blocked result uses unknown integrity status, never zero.
 
-## Update when
+## Update this file when
 
 Update when night authority, scheduler timing, budgets, automatic recovery,
 containment, continuation or evidence contracts change. Record measured outcomes

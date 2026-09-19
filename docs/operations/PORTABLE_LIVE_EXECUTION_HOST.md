@@ -1,5 +1,20 @@
 # Portable International Live Execution Host
 
+| | |
+| --- | --- |
+| **Current authority** | **NO live trading is authorized.** This file grants none; read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md). |
+| **Owns** | Provisioning, host assignment, relocation and the Git source-authority rule for the `portable_execution_v1` profile on the separate Windows PC. |
+| **Read when** | Provisioning or moving the second PC, changing `config/international_live_execution_host.json` or `src/weather/execution_host.py`, or checking which branch may supply live code. |
+| **Do not use for** | The staged live protocol and stop conditions ([`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md)); attempt history ([item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md)); ordinary workstation heavy-work rules ([`HOST_LOAD_POLICY.md`](HOST_LOAD_POLICY.md)). |
+
+> **Status of the branch exception below (noted 2026-09-19).** The exception
+> was granted for one portable Stage 0/1 session. That session ran on
+> 2026-09-06, from `origin/codex/live-gate-provenance-20260831` — the branch
+> record says the exception was re-pointed to that branch on 2026-08-31, which
+> `master` never recorded. **Treat the exception as spent**: a future portable
+> session needs a new dated owner authorization naming its exact branch. The
+> provisioning and relocation procedure in this file is unaffected.
+
 Status: canonical provisioning and relocation runbook.
 
 This lane lets the attended Stage 0/1 lifecycle test run from a Windows PC

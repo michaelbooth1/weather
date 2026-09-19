@@ -1,5 +1,21 @@
 # Cold snapshot NTFS compression
 
+- **Owns:** the attended compress-and-retain lane for old snapshot files
+  (`cold_snapshot_compression_run.ps1`), its request schema, bounds, receipts,
+  the read-only `-VerifyRetained` mode and the batch planner.
+- **Read when:** the owner asks for more retained-file capacity, or you must
+  reconcile an interrupted compression attempt.
+- **Do not use for:** replay-cache files
+  ([replay-cache-compression.md](replay-cache-compression.md)), gzip tiering or
+  deletion ([data-retention-policy.md](data-retention-policy.md)), or measured
+  savings to date (item 325 and [STATE_OF_PLAY.md](STATE_OF_PLAY.md)).
+- **Verify with:** the `param()` block of
+  `scripts/ops/cold_snapshot_compression_run.ps1` and the `MAX_*` /
+  `MIN_FREE_DISK_BYTES` constants in
+  `src/weather/operations/cold_snapshot_compression.py`.
+
+This lane is attended and unscheduled; nothing runs it automatically.
+
 This is a compress-and-retain capacity operation. Every source file, logical
 byte, native file identity, and timestamp remains in place. NTFS provides the
 same content to existing readers; no gzip reader migration or off-site
@@ -7,14 +23,13 @@ deletion eligibility is involved. It complements the
 [verified archive path](verified-cold-archive.md), whose independent restore
 and exact-file cleanup gates still govern any source removal.
 
-The optional `-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908`
-uses the [September 8 owner exception](HOST_LOAD_POLICY.md#owner-storage-exception-september-8-2026).
-It expires at 18:00 Toronto that day. The independently authorized September 9
-continuation uses `OWNER_APPROVED_STORAGE_RECOVERY_20260909` and expires at
-18:00 Toronto on September 9; see the matching dated host-policy section.
-All resource, lease, capture and teardown checks remain mandatory. Without an
-exact authorized dated argument the ordinary
-overnight window and scheduled-tiering reserve apply.
+**Both dated window exceptions are expired.** The wrapper still recognises
+`-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908` and
+`..._20260909`, but each is bound to its own calendar date (expiring 18:00
+Toronto that day) and now refuses. The owner record is in the
+[expired host-load exceptions appendix](history/host-load-policy-expired-exceptions.md).
+Do not pass either argument; the ordinary overnight window and scheduled-tiering reserve
+apply, and all resource, lease, capture and teardown checks remain mandatory.
 
 ## Selection and approval
 
@@ -100,7 +115,6 @@ Concurrent capture means the two numbers can differ. Previously counted file
 identities must never contribute twice. All receipts keep `deleted_files=0`
 and `cleanup_eligible=false`; none is an archive restore or deletion proof.
 
-
 ## Read-only verification after interruption
 
 Use the same wrapper with `-VerifyRetained`, never together with `-Apply`.
@@ -160,7 +174,6 @@ spending compression work on negligible allocation savings. Review its
 with `-Apply`, each in its own new output attempt.
 
 `--mode expand` additionally requires `--pilot-wrapper-receipt` and
-
 `--pilot-wrapper-sha256`. It verifies the hash chain, completed apply,
 unchanged file identity and positive allocation delta for one pilot file
 from this same inventory and source. The pilot path is excluded from expansion.
@@ -174,7 +187,7 @@ Eligible and selected allocation totals are candidate capacity. Estimated
 reclaim stays null and actual reclaim stays zero in the plan. Only the
 compression receipts can establish saved bytes.
 
-## Update when
+## Update this file when
 
 Update when bounds, allowed files, admission, wrapper parameters, request or
 receipt fields, or verification semantics change. Record measured outcomes in

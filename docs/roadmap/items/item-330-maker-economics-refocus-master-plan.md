@@ -1,5 +1,81 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 19 reward-pool measurement, authored studies and open owner decisions
+
+No status change: non-live implementation continues and economic proof is
+open. **No live trading is authorized.** Nothing below is a result about our
+own account.
+
+**Measurement (W3/G1 input).** The configured liquidity-reward pool for the 12
+captured markets is about **2,800 per day for same-day events and about 4,800
+per day across all active events**, stable on 31 of 31 sampled days from
+2026-08-15 to 2026-09-19. It comes from this project's own
+`exchange_economics_snapshot.json`, field
+`markets[].liquidity_rewards.current_daily_rate_usdc`, summed across markets.
+The September 11 inventory below counted 136 allocations and recorded no
+total. Measurement, table and caveats are owned by
+[ESTABLISHED_FINDINGS.md section 10a](../../operations/ESTABLISHED_FINDINGS.md);
+the superseded "about $16 per day" figure is recorded in
+[RETRACTED_AND_FALSE_LEADS.md section 4a](../../operations/RETRACTED_AND_FALSE_LEADS.md).
+Binding caveats: a pool shared by all makers is not income; no paid reward has
+ever been observed by this project; the unit of `rate_per_day` is unconfirmed
+by any paid epoch; configured campaigns can change daily.
+
+**What it changes.** The binding unknown for the rewards hypothesis is no
+longer the size of the pool. It is **the share a capped quoter can win**, set
+beside what resting quotes lose to informed flow. W3's acceptance (a feasible
+exact condition, or a bounded infeasibility result) is unchanged; its reward
+range now starts from a measured configured rate per band instead of an
+assumed small one. The July `NOT_VIABLE_CURRENT_TRACK` report and the
+zero-edge sensitivity grid used the June scale as input; their inputs are
+stale, their logic is not reopened here.
+
+**Two studies authored, both UNEXECUTED as of 2026-09-19.** Neither has been
+run on any data, neither is on `master`, and neither produces a trading
+authorization, a promotion input, or a statement about our own fills.
+
+| Branch | What it is | State |
+| --- | --- | --- |
+| `codex/execution-tape-markout-20260919` | Maker markout from the public execution tape ([item 326](item-326-supervised-continuous-public-execution-tape.md)), the tape's first analytical consumer. **Pre-registered before any result** (`docs/research/execution-tape-markout-preregistration-2026-09-19.md` on that branch). Primary metric, fixed: **share-weighted net maker P&L per share at the 5-minute horizon**, all markets pooled, two-sided midpoints only, **date-clustered** 90% interval. Fewer than 10 date clusters prints `UNDERPOWERED` and forces `INCONCLUSIVE`. The break-even reward per filled share `R` is deliberately unfilled and must be frozen before the analysis is read. | authored and tested; not executed |
+| `codex/reward-share-estimate-20260919` | Bounded estimator of our Q-score share from captured books: competing qualifying depth within the maximum distance of the adjusted midpoint, per rewarded band, for a 20-share and a 100-share two-sided quote. Per-maker depth is not observable, so it reports two bounding assumptions side by side (`single` competitor, `many` two-sided makers) and states that the truth may be worse than both. | authored and tested; not executed |
+
+Their stated caveats bind any citation: the tape shows other makers' fills,
+queue position is unknown, cancelled quotes are invisible, midpoints come from
+REST captures tens of seconds apart, and the rebate term is nominal because
+sampled tape rows on 2026-09-19 carried `fee_rate_bps: "0"` (unverified at
+scale; if it holds, the maker-rebate component of section 3 is zero on these
+markets).
+
+**Cap-versus-minimum conflict (W3, open).** The 10 pUSD per-band ceiling cannot
+hold a reward-eligible quote: a two-sided 20-share quote reserves about 19.60
+pUSD and the 100-share same-day bands need about 98. On 2026-09-19 the minimum
+was 100 shares on 26 same-day bands and 20 shares on the other 15 same-day
+bands and every T+1/T+2 band. The `market_harvest` lane additionally clamps
+size to 5 shares. Section 5 W3 forbids a cap increase inside this plan, so
+under current caps the rewards hypothesis is **infeasible by construction**,
+and W3 should say so unless the owner moves the cap. This is the same first
+leg the July report gave.
+
+**Geographic eligibility — recorded as resolved by owner statement,
+2026-09-19.** The 2026-09-06 Ontario geoblock readings were a tunnel used to
+reach files on the owner's home PC; the execution PC is physically in a
+trade-eligible location and never moves. Operating rule: that tunnel is down
+for the whole of any live session
+([pilot runbook](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md), prerequisite
+9; attempt ledger in [item 67](item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md)).
+It is not a viability blocker for this item.
+
+**Open owner decisions** (section 7 parameters that now have something
+concrete to decide against; none is needed for non-live work to continue):
+
+| Decision | Why it is open |
+| --- | --- |
+| Hurdle `H` | Section 7 "minimum worthwhile return" has no value. Without it G1 and G4 can only return a negative. |
+| Stop rule and date for G1 | No project-level stop date, spend cap or capture-only fallback exists; only a negative desk outcome is currently executable. |
+| Caps | Whether the per-band ceiling moves to admit a 20-share (about 25 pUSD) or 100-share (about 100 pUSD) two-sided quote, and the total capital at risk. |
+| Dedicated wallet | The 2026-09-06 test used the owner's existing wallet under a declared allocation; account-wide cancel-all reaches personal orders. A dedicated wallet funded to the cap restores the documented isolated-wallet control. |
+| Live authority | Standing instruction is no live trading. A fresh Stage 0/1 is required before any Stage 2 in any case. |
+
 ## September 13 overnight review
 
 The cumulative [PR 55 maker integration candidate](https://github.com/michaelbooth1/weather/pull/55)

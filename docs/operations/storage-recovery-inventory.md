@@ -1,17 +1,31 @@
 # Bounded storage recovery inventory
 
-This is the metadata selection step for [verified cold archive](verified-cold-archive.md).
-It measures candidate capacity; it grants no archive or cleanup eligibility.
+- **Owns:** the metadata-only inventory lane
+  (`storage_recovery_inventory_run.ps1`): request fields, traversal scope,
+  bounds, admission and how to read its totals.
+- **Read when:** you need a source-bound file selection for
+  [cold snapshot compression](cold-snapshot-compression.md) or archive
+  staging, or must interpret an inventory receipt.
+- **Do not use for:** the routine retention report
+  ([data-retention-policy.md](data-retention-policy.md)) or any compression,
+  archive or cleanup authority. It grants none.
+- **Verify with:** the `param()` block of
+  `scripts/ops/storage_recovery_inventory_run.ps1` and the `MAX_*` constants in
+  `src/weather/operations/storage_recovery_inventory.py`.
+
+This is the metadata selection step for the compression and
+[verified cold archive](verified-cold-archive.md) lanes. It is attended and
+unscheduled. It measures candidate capacity; it grants no archive or cleanup eligibility.
 Use an isolated clean reviewed source worktree and the production interpreter.
 
-The optional `-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908`
-uses the [September 8 owner exception](HOST_LOAD_POLICY.md#owner-storage-exception-september-8-2026).
-It expires at 18:00 Toronto that day. The independently authorized September 9
-continuation uses `OWNER_APPROVED_STORAGE_RECOVERY_20260909` and expires at
-18:00 Toronto on September 9; see the matching dated host-policy section.
-All resource, lease, capture and teardown checks remain mandatory. Without an
-exact authorized dated argument the ordinary
-overnight window and scheduled-tiering reserve apply.
+**Both dated window exceptions are expired.** The wrapper still recognises
+`-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908` and
+`..._20260909`, but each is bound to its own calendar date and now refuses; see
+the
+[expired host-load exceptions appendix](history/host-load-policy-expired-exceptions.md).
+Do not pass either argument. The ordinary overnight window and
+scheduled-tiering reserve apply, and all resource, lease, capture and teardown
+checks remain mandatory.
 
 The optional request field `traversal_scope` is either `recursive` (the
 backward-compatible default) or `immediate_files`. The latter enumerates only
@@ -82,7 +96,7 @@ reclaimed bytes and `cleanup_eligible=false`. It is not the verified archive
 manifest: source hashes, dependency closure, independent restore, and reviewed
 exact-file cleanup remain required by the archive contract.
 
-## Update when
+## Update this file when
 
 Update when selection, bounds, admission, request fields, receipt interpretation,
 or wrapper parameters change. Put measured capacity and reclaim in item 325.

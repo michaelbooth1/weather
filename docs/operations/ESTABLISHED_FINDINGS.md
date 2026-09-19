@@ -1,13 +1,19 @@
 # Established Findings
 
-Status: canonical distillation of the agent correspondence. Written for LLM agents.
+Status: canonical **reference depth**. Written for LLM agents. **Do not read this file top to bottom.**
 
-`docs/roadmap/` holds ~600 dated handoffs and reports. No agent can read them. This file is the
-distilled state of what they established, so that a cold agent — or one whose context was compacted —
-starts from what we know instead of re-deriving it.
+| | |
+| --- | --- |
+| **Owns** | The measured results of the agent correspondence under `docs/roadmap/` (handoffs and reports nobody can read in bulk): verdict, numbers, support, scope limits and source report for each finding. |
+| **Read first instead** | [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — every conclusion in one screen, each linked to its section here. A cold agent reads the digest, not this file. |
+| **Read a section here when** | you are about to cite a number, reopen a question, design a measurement, or change code that a finding constrains. Find the section id in the [section index](#section-index), then load only that section (`Grep` for `^## <id>\.` gives the line; `Read` from there). |
+| **Do not use for** | current host or work state ([STATE_OF_PLAY.md](STATE_OF_PLAY.md)), invariants ([AGENT_CONTEXT.md](AGENT_CONTEXT.md)), claims that were withdrawn ([RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md)), the α budget ([CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md)). |
 
-**How to use this file.**
+**How to use a section.**
 
+- Sections are appended as results arrive; older sections are **not** rewritten. A section that a
+  later result overtook carries a `SUPERSEDED` banner naming its replacement. Where a section and
+  the digest disagree, the newer dated section wins and the digest must be fixed in the same change.
 - Findings here are **measured results with dates and support**, not invariants. They are durable as
   *records* even when the world moves. `AGENT_CONTEXT.md` owns invariants; this file owns evidence.
 - **Before citing any interval in a decision or report, re-verify it against the named source
@@ -16,6 +22,78 @@ starts from what we know instead of re-deriving it.
 - Claims that were retracted, and traps that look true, live in
   [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md). **Read that file too.** Several of the
   costliest hours in this project were spent re-discovering something already known to be false.
+
+## Section index
+
+Ids are stable; headings are long, so search by id (`^## 1c\.`). Mission ids such as `-09-56a` are
+sequence numbers, not calendar dates.
+
+| Id | What the section establishes |
+| --- | --- |
+| **Objectives and owner decisions** | |
+| 0 | Objective order: capture and settlement evidence, maker economics, then forecast |
+| 0a | The point-in-time 21-field wall is real on the free tier; 12 of 21 fields are available, 9 are not (`-09-55a`) |
+| 0b | Owner decision 2026-08-09: aim for a better model, not a qualified one; release machinery leaves the critical path (partly superseded) |
+| 0c | Central goal: a better forecast from our own information, never by consuming the benchmark (MM ordering superseded) |
+| 0d | The streak gates nothing on the critical path; countable date volume is what matters |
+| **Model versus market** | |
+| 1 | We do not beat the market; four legacy headline numbers retired |
+| 1b | Five audit assumptions: primary objective unmeasurable, nowhere we win, gate stricter than economics, no executions on tape, gap decomposition |
+| 1c | The gap is information, not calibration (`-09-56a`) |
+| 1d | What the panel can certify: a floor set by 12 markets, not dates (`-09-57a`) |
+| 1e | The point-in-time source stops 2026-06-23; the `-09-58a` null is blind, not precise |
+| 1f | The tail is centre overconfidence and is predictable ex ante (`-09-59a`) |
+| 1g | Where the loss is is not where the fix works; distribution reshaping closed (`-09-60a`) |
+| 1h | The point-in-time field test is pre-registered and frozen (`-09-61a`) |
+| 1i | α = 0.0025 is short on the thin tail; quantile amendment A1 (`-09-62a`) |
+| 1j | Decision 10 closed unused; Gate 3 fired on a floor never served (`-09-63a`) |
+| 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered |
+| 2 | The cool bias is real, seasonal-coverage caused, and not correctable at serve |
+| 3 | The serving floor fix: the one shipped win |
+| 4 | The model was feature-blind all day, fleet-wide; repaired; the repair did not move the gap |
+| 4a-bis | The forecast archive is necessary but not sufficient for the retrain (`-09-50a`..`-09-53a`) |
+| 4b | The forecast archive covers the wrong 52 days |
+| 4c | No target-year row is ever in-sample |
+| 4d | The severe tail is identifiable ex ante at band granularity |
+| 4e | The gap does not vanish in-season |
+| 4f | The free tier has the data but cannot express a point-in-time corpus |
+| 4g | The retrain blocks on 14 cells; the floor of 18 is not a knob |
+| **Method** | |
+| 5 | Method rules binding on every measurement (crossed date × market clustering, power, denominators) |
+| 6 | Training data is contaminated at fit time |
+| 7 | Two independent retrain lanes exist; branch names mislead |
+| 8 | The self-sizing gate defect |
+| **Market making and execution evidence** | |
+| 8b | The maker countable-day clock counts the wrong property |
+| 8bb | The maker cannot quote market-centred at all under the promotion gate (`-09-48a`) |
+| 8c | Public execution capture and own-account fills answer different questions; bounded pilot |
+| 8h | Maker recovery outside the evidence window is non-countable waste |
+| 8k | Historical maker legs need their own captured International economics |
+| 8m | Target-date validation must precede the active-day maker launch |
+| 8n, 8s, 8t | International Stage 0/1/2 software: suite-proved and adopted, not live-proven (see 10f for the 2026-09-06 test) |
+| 8q | The paper market-harvest route works; an end-of-day market is not a safe live candidate |
+| **Operations** | |
+| 8d | A terminated scheduled wrapper can leave its governed child alive |
+| 8e | Large live logs caused capture failure; bounded non-deleting rotation |
+| 8f | Daily-roll launch decisions must be serialized |
+| 8g | A DEAD status with a source closure is a tombstone |
+| 8i | The temporary Windows Update block outlived its build window |
+| 8j | A monitor must separate durable risk from preserved history |
+| 8l | The snapshot fatal-gap repair is suite-proved, not live-timing-proved |
+| 8o | Windows venv launchers need child-PID adoption |
+| 8p | The disk-days alarm measured a one-day burst (superseded by 10b) |
+| 8r | The Windows child-resource sampler leaked ctypes pointer types |
+| 8u | The 2026-08-23 Codex incident was abandoned agent load, not a proven OOM |
+| 8v, 8w, 8x | Guarded integration bootstrap for a behind production master |
+| 9 | Release #1 is not sufficient for promotion |
+| **2026-09-19 measurements** | |
+| 10a | Configured liquidity-reward pool: about 2,800 per day same-day, 4,800 all active; share unmeasured |
+| 10b | Free disk is a daily sawtooth; the daily low binds |
+| 10c | The venue's declared resolution source moved from WU to `weather.gov` timeseries; band agreement measured |
+| 10d | Settlement-chain design facts: single-shot, gated behind a learning-lane audit, non-idempotent finalize |
+| 10e | 13 of about 26 serving post-processing stages are no-ops since live WU inputs were disabled (code-traced) |
+| 10f | The 2026-09-06 attended Stage 0/1 test ran off master; spent; grants nothing |
+| 10g | The memory-guard kill path has been inert since 2026-08-23 |
 
 ---
 
@@ -101,6 +179,12 @@ honesty. **Stepping off that path was correct, and this NO-GO closes it out rath
 
 ## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
 
+> **PARTLY SUPERSEDED — ordering only.** The 2026-08-13 maker-rebate pivot and the 2026-09-04 item-330
+> refocus put maker economics ahead of model work, and the owner has paused new model-alpha work.
+> Current ordering: §0 and [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+> What stays binding from this section: release machinery is off the critical path, and
+> leakage-free evaluation is not negotiable.
+
 **"I think the goal should be a better one. I am happy making small improvements at a time until we
 hit our goal."**
 
@@ -138,6 +222,11 @@ out**: `-09-56a` → §1c, and `-09-57a` → §1d. It is no longer a prerequisit
 ---
 
 ## 0c. THE CENTRAL GOAL — operator, 2026-08-09
+
+> **PARTLY SUPERSEDED — the "MM is downstream" bullet only.** Since 2026-08-13 the approved maker
+> experiment is market-centred and does not wait for a model that beats the market (§0 objective 2,
+> item 330). What stays binding: "better" means a better forecast **from our own information**, and a
+> benchmark-consuming control is a diagnostic, never an improvement.
 
 > **"We should always aim for a better forecast which in time should lead to a tradeable edge
 > somewhere."**
@@ -396,6 +485,11 @@ not a fitted flow model or a P&L claim: `A` and `f` are both unmeasured, so **no
 may be quoted.** It does not rescue a model skew — §1b.2 is negative in every cell.
 
 **`f` is now the single most decisive unmeasured number in the project.**
+
+> **Input scale note, 2026-09-19 (§10a).** The grid's reward levels ($0, $0.20, $1.00 per band per
+> day) were sized from the 2026-06-13 measurement. Configured per-band rates sampled on 2026-09-19 ran
+> from 1 to 246 per day. The grid is not wrong; its reward axis stops far below the configured range,
+> and what a capped quoter's **share** of a band's pool would be is unmeasured.
 
 **A capture gap blocks the rest of it:** `rewardsMinSize` eligibility is **ABSENT** from the sealed
 tape, which has no contemporaneous per-side size. A valid best bid/ask exists on **51.41%** of rows
@@ -1069,6 +1163,190 @@ It must not be re-registered unchanged.
 
 > **This section is therefore evidence about the INSTRUMENT, not about the candidate.** The NO-GO
 > and the zero alpha cost are real; the stated cause is retracted. Do not cite the Denver row.
+
+---
+
+## 1k. Missions `-09-64a` to `-09-78a` — instrument audit, `high_so_far`, replay trust, recovery thread
+
+Added 2026-09-19 from the repository reports; these results previously lived only in the reports,
+three trace documents and a machine-local agent memory. Every entry is the report's own verdict.
+Common support unless stated: the sealed pre-boundary panel, stratum **B** (23 dates, 12 markets, 204
+market-days, 4,636 panel snapshots) and stratum **C** (27 dates, 12 markets, 320 market-days, 7,653
+snapshots), never pooled. **None of these missions spent or allocated α: the ledger stays 7 of 20
+spent, and decision 10 stays closed unused and is never reassigned.** Report paths are under
+`docs/roadmap/`.
+
+**Two thread-level conclusions, so nobody reopens them:**
+
+1. **The instrument audit is closed and the gap is real** (`-09-64a`..`-09-68a`). Post-processing,
+   the replay floor and the outcome labels were each checked as an explanation for trailing the
+   market; none is.
+2. **Historical replay does not reproduce what production served, and cannot be made to**
+   (`-09-74a`..`-09-76a`). Never dispatch another historical-reproduction mission. The observation-
+   recovery candidate that depended on it was then priced in one environment and found **unpowered**
+   (`-09-78a`); that thread is closed with α kept.
+
+### `-09-64a` — the blind-feature repair adds no realized-band zeros (precise null)
+
+Repaired and control surfaces are identical row for row: **28 of 4,636** B snapshots and **1 of 7,653**
+C snapshots put exactly 0.0 on the realized band, in both. No repair-only snapshot or market-day
+exists. The repair inherited the zeros from the replay input; it did not create them. The zeros carry
+2.60% (B) and 0.056% (C) of the reference gap `G = 0.021135322`. Limit: says nothing about whether
+those rows were served as zeros (they were not — see `-09-65a`, `-09-66a`). Source:
+`agent-report-2026-08-19-workstation-repair-zero-audit.md`.
+
+### `-09-65a` — the panel has no floor column; the replay floor is rebuilt, not recorded
+
+The retained paired panel carries no floor or `high_so_far` column, so no cross-host floor verdict
+is possible from it. `feature_row` in replay is rebuilt later from captured sources
+(`pooled_candidate_replay.py`, `_record_feature_row`), not the row serving used. Denver 2026-06-08
+traced: replay rebuilt `high_so_far = 91` from `wu_current.max_since_7am_c` (yesterday's value before
+dawn) against a current temperature of 68; production served 0.5206 on the band replay zeroed.
+Source: `agent-report-2026-08-20-workstation-panel-floor-provenance.md`; trace
+[REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md](REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md)
+(raw floor above settled high on 7.478% of rows against 0.008% for the served floor; divergence is
+81.132% of comparable B rows and 0.000% of C).
+
+### `-09-66a` — re-scoring B on the served floor is cosmetic in the mean
+
+B incumbent Brier moves 0.053379789 → 0.053290041; the gap to market shrinks by **0.5654%**, so 99.43%
+of it remains and the B screens stand as run. Realized-band zeros fall 28 → 3. The floor changes
+probabilities on 560 of 4,636 B snapshots (12.08%). C is byte-identical under the same intervention
+(0 of 7,653 changed). Limit: exact deterministic census, no interval applies. "Cosmetic in the mean"
+is not "safe in the extreme" — one row was enough to fire Gate 3. Source:
+`agent-report-2026-08-21-workstation-b-served-floor-rescore.md`.
+
+### `-09-67a` — the outcome labels are not the story
+
+The incumbent-minus-market gap is flat across label-coverage buckets. C: 0.019948935 on clean
+market-days, 0.023865217 with a gap under 30 minutes, 0.021818110 at 30 minutes or more;
+material-minus-clean contrast **+0.001869 [−0.011748, +0.018514]** (crossed 95%). The market's own
+Brier is flat too (+0.000116). The centre error on gapped days is cool, the opposite of a warm model
+scored against an under-reading label. `snapshot_high` fallback labels occur only on four B dates (37
+market-days); C is all `daily_summary`. Limit: resolution of this panel; bucket intervals are wide.
+The diagnostic share of `G` attributable to the material bucket is 1.5069% **[−11.92%, +12.95%]**:
+cite the interval's upper end (about 13%) as the ceiling on a label effect, never the point. Source:
+`agent-report-2026-08-22-workstation-outcome-label-audit.md`.
+
+### `-09-68a` — Gate 3 is a panel-size limit, not a quality bar
+
+Only **two** B zeros are attributable to a floor actually served: Chicago 2026-06-14 (floor 70,
+settled 69) and San Francisco 2026-06-09 (68, 67). The third (NYC 2026-06-22) has a blank served
+floor. At 2 crossings in 204 market-days a fail-on-any-row gate fires with probability 62.66% at 100
+market-days, **86.60% on the observed panel**, 99.27% at 500, whatever the candidate. **Never
+re-register that gate unchanged**, never weaken the serving floor to pass it, never add epsilon mass.
+Limit: independent-market-day plug-in projection; the crossed 95% interval on the rate is [0%,
+4.04%]. Source: `agent-report-2026-08-23-workstation-gate-3-satisfiability.md`; trace
+[GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md).
+Related: the served realized-band zeros were a serialization defect that ended on 2026-06-15 with
+commit `28d1c146` (8.486% of Fahrenheit rows before, 0.000% after; the pooled 1.017% straddles the
+fix and must not be quoted) —
+[SERVED_BAND_FLOOR_DEFECT_2026-08-10.md](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md).
+
+### `-09-69a` — public execution-tape capture was built (implementation, not a measurement)
+
+`weather.market.execution_tape_capture` and `execution_tape_store`: credential-free public websocket,
+one append-only tape per market-day under `data/snapshots/<event_slug>/execution_tape/`, dedupe on
+`transaction_hash`, explicit dark-gap accounting, status that cannot republish green from a stopped
+counter. Sizing extrapolated to about 7 MB per day fleet-wide. §8c owns the evidence split and the
+production pilot; [item 326](../roadmap/items/item-326-supervised-continuous-public-execution-tape.md)
+owns status. Source: `agent-report-2026-08-24-workstation-execution-tape-capture.md`.
+
+### `-09-70a` — `high_so_far` decreases are common, and in B they sit on the main decision path
+
+`high_so_far` fell between consecutive admitted snapshots **906 times in B** (125 of 204 market-days)
+and **1,284 times in C** (292 of 320). C is the narrow pre-dawn fallback (`M2_empty_history` 99.53%,
+81.70% pre-dawn). B is not: `M5_cutoff_change` is 72.63% and **368 of 906 (40.62%)** fall in the
+peak-heating or settlement window. Train/serve skew on this feature: serve-time value differs from the
+archive-rebuilt training value on 9.74% of comparable B snapshots and 93.72% of C. Unexplained
+residual 24 of 2,190 (1.10%). Limit: exact census of recorded features; measured only, nothing
+changed. Source: `agent-report-2026-08-25-workstation-high-so-far-population.md`.
+
+### `-09-71a` — the WU observation series is not append-only; the narrowing cutoff is a symptom
+
+All **658 of 658** B `M5` events **narrowed** the cutoff (−1 hour in 655) and none widened. The live
+model derives `cutoff_hour` from the latest retained WU observation minute, so when the vendor series
+drops rows the input window slides backward. Raw-series loss lowered the old-cutoff maximum in 636 of
+658 events; narrowing alone in 48. `M5`, `M3_rows_dropped` and the two `M1` rows are one defect. C's
+two `M5` events widen and are station-series regressions; that label is misnamed for C. Limit: no
+serving change was made or authorized. Source:
+`agent-report-2026-08-26-workstation-cutoff-direction.md`.
+
+### `-09-72a` — a point-in-time union envelope recovers the rows but is unsafe to serve
+
+An append-only envelope repairs 748 of 906 B events, all 658 `M5`, all 78 `M3`, and all 368
+decision-window events; it repairs 0 of 1,284 in C (predeclared null, exact). It also creates **55 new
+above-settlement feature rows**, all San Francisco 2026-06-09, by freezing a transient 68 °F print
+into the trusted floor (settled 67). The pre-registration frozen here is safety-blocked and not
+executable. Use the complete workstation evidence root: a partial root yields 7 B dates, not 23.
+Source: `agent-report-2026-08-27-workstation-observation-envelope.md`.
+
+### `-09-73a` — a payload-observable recovery rule is floor-safe; α unallocated
+
+Rule: trust every row in the current WU payload; recover a previously published row **only if the
+current payload has no row at or after that row's local minute**. It repairs **744 of 906** B events
+and **366 of 368** in the decision window, creates **zero** new above-settlement rows on all 28,254
+replay-supported B snapshots, consumes no future snapshot, and reduces train/serve mismatches
+(2,057 → 1,510 of 21,554). Both B `M1_restatement` labels were wrong (timestamp replacement, not
+restatement), so **do not write a rule over the mechanism labels**; the `M5 ∪ M3` filter is post hoc
+and not servable. Pre-registration
+`observation-envelope-preregistration-2026-09-73a.json` is frozen, safety-cleared, **not executable,
+α unallocated**. A repaired input is not evidence of a better forecast. Source:
+`agent-report-2026-08-28-workstation-safe-recovery-rule.md`.
+
+### `-09-74a` — the incumbent replay control failed; stopped before the candidate
+
+On the first exactly bound runtime commit, 7 of 8 unchanged rows reproduced within L1 `1e-12`;
+Toronto `20260617T000830-0400` missed by L1 **0.00702**, with identical captured sources and both
+paths on HGB. Of the 163 control rows only 60.74% carry a runtime commit, across six model versions.
+No candidate number was computed. This retires "the incumbent reproduces recorded output", which
+rested on one Austin market-day at diagnostic grade. Source:
+`agent-report-2026-08-29-workstation-repair-ceiling.md`.
+
+### `-09-75a` — replay diverges on the decision stratum
+
+Of the 368 decision-window events, 358 carry a runtime commit; replayed at that commit, **114 match
+(31.84%) and 244 diverge**, in every market, both windows, and 8 of 10 commits; max L1 0.7728. All
+358 captured model identities differ from their own commit tree, and one version label (`v0.5.10`)
+covered 15 artifact hashes. 158 of the 244 failures have zero feature differences: it is the
+environment binding, not the inputs. Limit: exact finite counts; whole-B commit-bound ceiling
+16,143 of 28,254. Source: `agent-report-2026-08-30-workstation-replay-trust.md`; trace
+[REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md).
+
+### `-09-76a` — identity binding does not restore replay; we served bytes that were never committed
+
+No decision-stratum identity resolves fully from reachable Git: across 178 refs and 17,348 blobs only
+**89 of 413** captured file fingerprints match any blob. Partial identity trees match 105 of 358
+(29.33%), rescuing zero commit-binding failures and losing nine matches. Exactly reconstructable
+population: **0 of 368** decision rows and **111 of 28,254** whole-B rows. The production trace adds
+the cause: files that fail to resolve are the most frequently edited (`model_features.py`, 36
+commits, unresolved in 62 of 63 identities; `model_base.py`, 10 commits, resolves in 63 of 63), so
+production served working-tree bytes that were never committed — a commit-discipline defect, not a
+replay defect. Whether a stale loaded process explains individual rows is unidentifiable. Source:
+`agent-report-2026-08-31-workstation-identity-binding.md`; trace
+[REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) §5.
+
+### `-09-77a` — single-environment ceiling (its screen could not fail; superseded by `-09-78a`)
+
+Both arms run under current `origin/master` on the same captured inputs, 368 B decision rows (11
+dates, 12 markets, 66 market-days): the candidate changes 366 rows, mean L1 displacement 0.5879, 196
+argmax changes; outcome-free "ceiling" mean 0.4720, upper bound 0.6423 against a detectable effect of
+0.2164. **That statistic bounds the candidate's maximum cost, not its benefit, and is non-negative by
+construction, so the NO-GO branch was unreachable.** It answers what the rule does today, not what
+would have been served. Source:
+`agent-report-2026-09-01-workstation-repair-ceiling-single-environment.md`.
+
+### `-09-78a` — the look is not powered; thread closed, α kept
+
+On the actual estimand (paired Brier improvement), under the premise most generous to the candidate
+the crossed SE is **0.0397607**, giving an 80%-power MDE of **0.15711** against a candidate-favourable
+mean of **+0.13852**: NO-GO. Under the incumbent-calibrated premise the sign is negative (harm) and it
+is also NO-GO (SE 0.0454453, MDE 0.17958). The 12-market canonical floor (0.04513) is not what binds
+here. The repair sharpens **254 of 368** rows on a project where global sharpening is retired, and the
+candidate must be the closer arm on at least 57 rows for a positive mean. Both decision branches were
+proved reachable before the data was read. Limit: B decision stratum only, 11 date clusters; no
+outcome, label or market price was read. Source:
+`agent-report-2026-09-02-workstation-estimand-power-and-sign.md`.
 
 ---
 
@@ -2383,6 +2661,11 @@ guarded overnight chain.
 
 ## 8p. The current disk-days alarm measures a one-day burst, not an established steady rate
 
+> **SUPERSEDED by §10b (2026-09-19).** This section's reading ("absolute headroom is currently ample")
+> was true at 157.7 GB free on 2026-08-14 and is not true now. The durable part — one 24-hour slope is
+> not a steady rate — survives; the replacement adds that free space is a daily sawtooth and the daily
+> low is the number that binds.
+
 **Free-space trail audited 2026-08-14 08:50 local.** The status monitor correctly measured a
 **24.4 GB** free-space reduction over its trailing **24-hour** reference, leaving **157.7 GB** and
 therefore printing an approximately **6-day** linear extrapolation. Longer and shorter windows do
@@ -2476,6 +2759,10 @@ wrapper used bare file existence and refused. PID reuse then made PID-only stale
 unsafe. August 17 remains an explicit hole and will not self-heal in the next daily run.
 
 ## 8t. The fixed-scope International Stage 0/1 stack is production-adopted, not live-proven
+
+> **LATER EVENT — read §10f.** This section is accurate for `master` as of 2026-08-23. An attended
+> Stage 0/1 lifecycle test did run on 2026-09-06, from the portable PC on unmerged branch code. It is
+> spent and grants nothing, and the code that ran is not the code this section describes.
 
 **Measured 2026-08-23 from immutable attempt, suite, and merge receipts.** Exact source tip
 `a6327ccf52499ed8d9ab0c34580fcd013ca7f094` passed integration preflight and **19/19 bounded
@@ -2731,8 +3018,168 @@ is not a trace. §7 records the same error made against `-09-01a`.
 
 ---
 
+## 10. 2026-09-19 measurements
+
+From the read-only project audit of 2026-09-18/19 and the owner's 2026-09-19 statements. **Evidence
+status:** the audit's own files are retained in the repository under
+`docs/roadmap/audits/full-audit-2026-09-18/` (`AUDIT_FINDINGS.md`, `D3_REWARD_CEILING.md`,
+`OWNER_DECISIONS.md`, `dimensions/*.md`); where a repository path or code line carries the fact it is cited first.
+The audit executed nothing: every code finding is read and traced, none is reproduced. Caveats are
+the sources' own.
+
+### 10a. The configured liquidity-reward pool is about 2,800 per day same-day, not about 16
+
+| | Configured pool per day |
+| --- | ---: |
+| Same-day events (12 events, 35–46 rewarded bands; 200 per event, 400 for NYC and Los Angeles) | **about 2,800** |
+| T+1 events | about 1,200 |
+| T+2 events (listed since 2026-08-29) | about 800 |
+| **All active** | **about 4,800** (about 4,000 before 2026-08-29) |
+
+Stable on **31 of 31 sampled days** between 2026-08-15 and 2026-09-19 (same-day 2,717–2,830; one
+11-event day at 2,394). On 2026-09-19: 129 of 352 conditions rewarded, maximum distance 4.5 cents
+everywhere, minimum size 100 shares on 26 same-day bands and 20 shares on the other 15 same-day bands
+and every T+1/T+2 band; per-band rates 1 to 246 per day.
+
+- **Evidence:** the project's own `exchange_economics_snapshot.json` — `data/backtest/` and the copy
+  each maker daily roll saves under `data/mm_runs/<date>/<run>/` — field
+  `markets[].liquidity_rewards.current_daily_rate_usdc` (the sum of `active_configs[].rate_per_day`
+  from the venue's current-rewards endpoint), summed across markets. Host-local write-up:
+  `docs/roadmap/audits/full-audit-2026-09-18/D3_REWARD_CEILING.md`.
+- **Caveats, binding on any citation:** this is a **pool shared by all makers, not income**. It is
+  split by Q-score share (size × closeness to the adjusted midpoint, sampled each minute; two-sided
+  required outside 0.10–0.90; single-sided divided by 3 inside). **Our share is unmeasured.** No paid
+  reward has ever been observed by this project (`actual_payout_evidence: false`), and the **unit of
+  `rate_per_day` is unconfirmed by any paid epoch** — do not write it as dollars.
+- **What it replaces:** the 2026-06-13 measurement of about $1 per event and about $16 per day fleet
+  ([MARKET_MAKING_PLAN.md](../research/MARKET_MAKING_PLAN.md) Part 0), which was true for that date.
+  The July `NOT_VIABLE_CURRENT_TRACK` report had only that figure as a scale and recorded the July
+  allocation as `UNKNOWN_NOT_ZERO`; the §1b zero-edge grid's reward axis stops at $1 per band per day.
+  Their inputs are stale, not their logic. The verdict's first leg — the smallest reward-qualifying
+  two-sided size (20 shares, about 19.60 pUSD) does not fit the 10 pUSD per-band cap — is unchanged.
+- **What it changes:** the binding unknown is no longer the size of the pool but **the share a capped
+  quoter can win**, next to what resting quotes lose to informed flow. Item 330 owns both.
+
+### 10b. Free disk is a daily sawtooth; the daily low is what binds
+
+Free space on the production system volume bottoms at about 04:50 local, 10–13 GiB below the evening
+reading, then the 05:00 order-book tiering job returns about 13 GiB. Measured troughs: 29.9 → 25.9 →
+14.2 GiB (2026-09-15, -17, -18); live readings on 2026-09-19 were 11.21 GiB at 02:23 and 9.82 GiB at
+02:57. The status monitor divided the **instantaneous** free space by a same-clock 24-hour slope
+(`scripts/ops/status.ps1:1343-1348` on `master`), which reported about 4 days when the low was about
+1.5–2.5 days from zero. Differing free-space figures quoted on one day (21, 18.5, 14.2, 11.3) are one
+instrument at different sawtooth phases.
+
+- **Consequences traced in code:** projection tiering skips a file unless free space is at least the
+  source size plus 1 GiB although the gzip is about 1/23 of the source; archive and qualification
+  lanes need a 50 GiB reserve; so every reclaim lane refuses exactly when it is needed. At audit time
+  about 62 GiB was duplicate smudged model pickles in linked worktrees (175 of 200 worktrees,
+  371,560 KiB each), every byte already in `.git/lfs/objects`; the durable rule is to create worktrees
+  with `GIT_LFS_SKIP_SMUDGE=1`. What has since been reclaimed is current state, not a finding.
+- **Caveats:** troughs are the auditors' readings of the free-space trail; the 2026-09-20 projection
+  (0–2 GiB) was a forecast, not a measurement. A fix that reports the daily low is authored on
+  `claude/audit-rollfree-fixes-20260919` and is **not adopted**. Current numbers:
+  [STATE_OF_PLAY.md](STATE_OF_PLAY.md) and `status.ps1`, never this section.
+
+### 10c. The venue's declared resolution source moved from WU to `weather.gov` timeseries
+
+Around the **2026-08-23** event (verified in git history for Atlanta and Toronto) the venue's
+`resolutionSource` for the 12 captured markets changed from Weather Underground to
+`weather.gov/wrh/timeseries?site=<icao>`; same ICAO stations. In the working copy of
+`config/location_market_events.json` on 2026-09-19, 103 of 119 active events name the NWS URL, 7 name
+WU, 9 are null. **Measured band-level agreement between the WU-derived label and the venue's winning
+band: 921 of 921 before the switch, 131 of 132 after** (the one divergence: Miami 2026-09-02, WU 89 °F
+against a venue-paid 90–91 band — venue above WU, the floor-safe and label-unsafe direction).
+
+- **Evidence:** `data/backtest/market_day_labels.csv` reconciliation statuses, counted by Grep;
+  promotion countability already requires a venue `match` (`settlement_ledger.py`,
+  `PROMOTION_RECONCILIATION_STATUSES`). Host-local write-up:
+  `docs/roadmap/audits/full-audit-2026-09-18/dimensions/gap-settlement-truth-source.md`.
+- **Caveats:** the post-switch sample is thin — 11 comparable dates; 156 of 288 post-switch
+  market-days had no WU label and could not be compared. **Exact-degree agreement for the 11
+  Fahrenheit markets is unmeasured.** Whether the venue's binding Rules text changed too is
+  unverified; the Rules text is retained nowhere.
+- **Open:** `locations.json`, `MarketSpec` and the ledger hard-code WU; no gate can detect a source
+  change; the string `wrh/timeseries` appears nowhere in `src/`, `tests/` or `scripts/`.
+
+### 10d. Settlement-chain design facts
+
+These are properties of the code on `master`, traced, not run. They explain why a settlement hole
+persists rather than heals.
+
+1. **Single-shot.** One 09:30 trigger; each isolated step checks admission once; a DEFER raises and
+   ends the run (`daily_refresh.py`); the persisted `resume_command` has no consumer; the WU restore
+   fetches only yesterday. Nothing retries and nothing backfills. Every missed date needs an explicit
+   backfill (`scripts/ops/settlement_backfill_one.ps1`, which verifies outcome, not exit code).
+2. **Settlement sits behind a learning-lane audit.** `ingest_quality_gate` precedes
+   `public_wu_settlement_restore` and `market_day_labels_finalize`
+   (`src/weather/operations/daily_refresh_registry.py`, `STEP_REGISTRY`). Admission uses an error
+   threshold of 1 where the capture supervisor's own threshold is 3, so one market's blip defers all 12.
+3. **There is no disk gate on this path.** Proven deferrals were memory-commit admission (72.5% and
+   91.4% against a 70% ceiling) and a degraded-capture reading. The 70–85% commit band is a silent
+   dead zone: above the chain's ceiling, below the memory guard's warning.
+4. **Finalize re-revises every historical market-day on every run.** The label hash includes the
+   wall-clock `finalized_at_utc`, so the idempotent early return can never fire; folders run
+   oldest-first and the labels CSV is written only at the end, so a teardown loses the new day.
+5. **Evaluation consequence.** Unsettled dates silently leave every scorecard, and evaluators fall
+   back to a tape-derived proxy label when the ledger has no row; the promotion path does not.
+
+- **Caveats:** only 2 of the 10 dates unsettled at audit time have a proven cause, because the chain's
+  status file is overwritten daily. The live commit limit had shrunk to about 22 GB; a dynamic pagefile
+  on a nearly full volume is the **likely, unproven** mechanism, which would make low disk an indirect
+  cause (see the matching entry in [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md)).
+  Write-ups: `docs/roadmap/audits/full-audit-2026-09-18/AUDIT_FINDINGS.md` §2.B and §6.2.
+
+### 10e. 13 of about 26 serving post-processing stages are silent no-ops — CODE-TRACED, SERVED OUTPUT NOT READ
+
+`src/weather/model/model_constants.py:19` sets `PAID_WEATHER_PROVIDER_ACCESS_ENABLED = False` (commit
+`5735b573a`, 2026-06-30), with no environment override. `fetch_wu_history`, `fetch_wu_current` and
+`fetch_weather_com_forecast` therefore raise immediately and every live capture since carries empty
+`wu_history`, `wu_current` and `weather_forecast`. §4 records and repaired the **feature** consequence.
+The **post-processing** consequence was never recorded: by code trace, 13 of about 26 serving stages —
+including all five late-day lock-ins and the calibration taper — receive `None` inputs and do nothing.
+
+- **Caveats:** traced through the call paths, **not confirmed from any served output**; the stage
+  count is the auditor's. No alert-path monitor aggregates source, NaN-feature or model-kind
+  degradation. Host-local write-up:
+  `docs/roadmap/audits/full-audit-2026-09-18/dimensions/gap-what-production-serves.md`.
+- **Do not act on this as a forecast finding** until one served stage snapshot has been read; model-
+  alpha work is paused by owner decision.
+
+### 10f. The 2026-09-06 attended Stage 0/1 test ran off master; it is spent
+
+An owner-attended International Stage 0/1 lifecycle test ran on 2026-09-06 from the portable
+execution PC on unmerged branch code (`origin/codex/live-gate-provenance-20260831`, execution tip
+`c6ee36147`; its record is on `origin/codex/stage1-pass-docs-20260906` at `8739902fe`). Nine attempt
+namespaces, three real 0.005 pUSD post-only BUY orders, all cancelled, **zero fills**. It proves
+plumbing on that code only, says nothing about economics, and **grants no authority today**.
+[Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) owns the
+attempt ledger; [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md) records what differed
+from `master`'s documented controls.
+
+### 10g. The memory-guard kill path has been inert since 2026-08-23
+
+`scripts/ops/memory_commit_guard.ps1:200,205` assigns to `$pid`, which PowerShell resolves to the
+read-only automatic `$PID`. The termination loop therefore inspects the guard's own process, logs a
+creation-identity mismatch, and never reaches `Stop-Process`. Every tree kill the guard reports since
+the change has been a no-op; its tests are substring assertions that execute nothing. Runtime
+evidence: `memory_commit_guard.log` 2026-09-10 21:29 logs a three-member tree "terminated" with the
+same pid three times. **Fix authored at `0b6d4f288` on `claude/audit-rollfree-fixes-20260919`, not
+adopted as of 2026-09-19** — until it is, treat the guard as a warning device only, and expect it to
+really terminate out-of-window agent process trees once it lands.
+
+---
+
 ## Related
 
+- [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
+- [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) — the binding α budget for the sealed pre-boundary panel
+- [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) — the recurring defect shapes behind the retractions
+- Production trace documents: [replay does not reproduce what we served](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md),
+  [Gate 3 fired on a floor we never served](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md),
+  [replay floor diverges from served](REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md),
+  [served band floor defect](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md),
+  [finalize lost a settlement day](FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md)
 - [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md) —
   the sequencing finding above, with reproduction
 - [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) — how to tell a
@@ -2748,6 +3195,9 @@ is not a trace. §7 records the same error made against `-09-01a`.
 ## Update this file when
 
 A measurement establishes, revises, or retires a finding above. Add the date, the support (date
-clusters, market clusters, market-days), and the interval treatment. **Move retracted claims to
+clusters, market clusters, market-days), and the interval treatment. **In the same change** add the
+section to the section index, add or correct its one-line conclusion in
+[FINDINGS_DIGEST.md](FINDINGS_DIGEST.md), and put a `SUPERSEDED` banner on any section it overtakes.
+A mission report that lands without a section here has not been distilled. **Move retracted claims to
 `RETRACTED_AND_FALSE_LEADS.md` rather than deleting them** — knowing what was wrong is what stops it
 being re-derived.

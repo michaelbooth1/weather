@@ -1,5 +1,15 @@
 # Data Storage Class Contract
 
+- **Owns:** the three storage classes and what each one requires before a file
+  may be deleted.
+- **Read when:** you add a new file family under `data/`, write a cleanup
+  manifest, or need to know whether a file is evidence, a projection or a cache.
+- **Do not use for:** the procedures that prune, tier or archive
+  ([data-retention-policy.md](data-retention-policy.md)).
+- **Verify with:** the family table in
+  `src/weather/operations/storage_classes.py` (authoritative per-family class,
+  rebuild source and delete gate).
+
 Every durable data or log artifact should be classified as exactly one storage
 class before a writer adds a new file family under `data/`.
 
@@ -46,7 +56,10 @@ references the file.
 
 Taker counterfactual replay detail is the sole current bounded-retention
 canonical family. `counterfactual_orders_long.csv` and its settled detail copy
-default to 14 days. Daily roll requires both the run target date and file mtime
+default to 14 days (`DEFAULT_FINALIZATION_RETENTION_DAYS`,
+`src/weather/market/taker_bot_finalization.py:31`). The taker is **paused**, so
+the daily roll that applies this rule is not running and those files are
+currently retained. Daily roll requires both the run target date and file mtime
 to cross the cutoff, writes a self-hashed exact-path/SHA-256/byte plan before
 apply, rechecks identity immediately before deletion, and writes an apply
 receipt. The rule does not depend on `settled_counterfactual_pnl.json`; real
@@ -59,3 +72,9 @@ orphan. Garbage collection is disabled in every current cleanup and inventory
 workflow; generic operator review cannot override that block. A future,
 separately reviewed deletion contract would have to prove global reachability,
 restore hashes, and market-specific replay before enabling any mutation.
+
+## Update this file when
+
+Update when a storage class, its deletion gate, the bounded-retention family
+list, or the shared-CAS garbage-collection block changes. Per-family rows live
+in `weather.operations.storage_classes`.

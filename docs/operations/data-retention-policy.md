@@ -1,8 +1,45 @@
 # Data Retention Policy
 
+- **Owns:** pruning rules for local `data/`, the two scheduled CLOB tiering
+  tasks, the capture long-CSV switch, and the manual replay-cache and
+  closed-day projection tiering tools.
+- **Read when:** you are about to delete, compress, tier or move anything under
+  `data/`, or you are judging production disk headroom.
+- **Do not use for:** archive upload/restore (see
+  [cold-archive-locations.md](cold-archive-locations.md)), current disk numbers
+  or what is armed tonight ([STATE_OF_PLAY.md](STATE_OF_PLAY.md)), or config
+  classification ([config-inventory.md](config-inventory.md)).
+- **Verify with:** `data\logs\clob_tiering_task_status.json` and
+  `data\backtest\clob_order_book_tiering.json` (last tiering outcome);
+  `Get-Volume -DriveLetter C` (free space now); `config\storage_pressure.json`
+  on `master` (live capture switch).
+
+Status of related machinery: further archive uploads are **disabled** by owner
+decision, the workstation data mirror is **paused** since 2026-08-12
+([record](mirror-paused-2026-08-12.md)), the taker is **paused**, and backups
+are deprioritized by the owner. Nothing in this file re-arms any of them.
+
 Use the data-retention inventory before pruning local `data/` files. The
 report is read-only and exists to classify ownership, TTL policy, cleanup
 requirements, and disk-growth pressure.
+
+## Judging disk headroom: free space is a daily sawtooth
+
+Free space on the production host is not a level, it is a sawtooth. Capture
+appends an uncompressed `order_books_long.csv` for every open event day all day
+long, and that space is only returned when the 05:00 `WeatherClobTiering`
+projection job compresses the days that have since closed. The daily low is
+therefore just before that job, around 04:50 local, and the 2026-09-18 audit
+measured it roughly 10-13 GiB below the same day's evening reading
+(`docs/roadmap/audits/full-audit-2026-09-18/`; re-measure rather than reuse the figure).
+
+- Judge headroom, floors and "days until full" at the **daily low**, never from
+  an evening or post-tiering reading.
+- A heavy job admitted against an evening reading can breach its disk floor
+  before 05:00 without any new fault.
+- A missed or refused 05:00 run does not return the space, so the next low is
+  lower again. Check `data\logs\clob_tiering_task_status.json` before trusting
+  any trend.
 
 ## Daily Report
 
@@ -70,14 +107,19 @@ PT41M task limit, and `-Limit 150`. Both are S4U/Limited, use kill-on-close
 child-tree containment in the runner, and deliberately disable
 `StartWhenAvailable`: a missed occurrence must not drift into Stage A or a
 protected host window. Projection tiering is the load-bearing defence against
-the single largest retention leak in this project. It compresses each settled
-market-day's `order_books_long.csv` to `.csv.gz` (about 23x) and deletes the
-source only after byte-parity verification.
+the single largest retention leak in this project. It compresses the
+`order_books_long.csv` of every event day whose date is before the host's local
+date and whose source has been quiet for `MIN_QUIET_SECONDS`
+(`src/weather/operations/clob_order_book_tiering.py`, `default_settled_before`)
+to `.csv.gz`, and deletes the source only after byte-parity verification.
+"Settled" in its reports means that date test, not a settlement label.
 
 **It exists because the identical work as a daily-refresh chain step is not
-reliable.** `clob_order_book_tiering` is step ~13 of ~45; when the chain defers
-earlier, the step never runs and raw tapes accumulate at roughly 18.7 GB/day
-across the 12 markets. That has happened twice for unrelated reasons — memory
+reliable.** `clob_order_book_tiering` sits well down `STEP_REGISTRY`
+(`src/weather/operations/daily_refresh_registry.py`); when the chain defers
+earlier, the step never runs and uncompressed tapes accumulate across every
+market (read the current daily growth from the retention inventory report, not
+from this file). That has happened twice for unrelated reasons — memory
 admission on 2026-07-18, and a single transient capture error
 (`capture_loop_not_fresh`, `consecutive_errors: 1`) deferring step 7 on
 2026-08-04. Both times free space fell far enough to threaten capture. Disk
@@ -134,12 +176,31 @@ the workstation-heavy wrapper. Every receipt remains
 production-identity-unproved and deletion-ineligible; no real source, key,
 cloud target, restore, or cleanup is part of the build-and-test evidence.
 
-`config/storage_pressure.json` owns the capture switch. The checked-in value
-`capture.write_order_books_long_csv=true` preserves current behavior. Missing,
-malformed, wrong-schema, duplicate-key, or non-boolean policy also fails safe
-to writing the projection. Setting the value to `false` skips only future
-`order_books_long.csv` appends; summary CSV and canonical
-`order_books.jsonl` capture continue, and existing long tables are untouched.
+### Capture long-CSV switch
+
+`config/storage_pressure.json` owns the capture switch
+`capture.write_order_books_long_csv`. It is loaded by
+`load_storage_pressure_policy` (`src/weather/market/storage_pressure_policy.py`;
+the boolean check is at `:78-85`, the code default `True` at `:17`). The
+loader has no cache and runs each time a `MarketMicrostructureStore` is built
+(`src/weather/market/market_microstructure_capture.py:761-766`), which
+`capture_event_books` does on every call (`:1079`). A changed value therefore
+applies from the next capture iteration, without a process restart, but only
+in the checkout whose `config/` the running capture process resolves through
+`weather.paths.config_path`; a merge to another worktree changes nothing.
+`write_books`
+(`:835-838`) then skips only the `order_books_long.csv` append: the summary CSV
+and canonical `order_books.jsonl` capture continue, and existing long tables
+are untouched. Missing, malformed, wrong-schema, duplicate-key, or non-boolean
+policy fails safe to writing the projection.
+
+On this branch the checked-in value is `true`. An owner decision dated
+2026-09-19 sets it to `false` on a separate branch; this file does not claim
+that change is live. Read `config/storage_pressure.json` on `master` for the
+live value and `order_books_long_csv_enabled` in the capture status rows for
+what the running process actually loaded. With the switch off the sawtooth
+above flattens for new days, and any reader that needs depth must go through
+`weather.market.order_book_tape` (canonical JSONL first).
 
 Plan replay-cache retention from explicitly named reachability roots:
 
@@ -223,9 +284,9 @@ mirror credential to satisfy this check.
 
 **Every closed-day action requires a finalized-PASS `event_day_manifest.json` in
 the event folder.** This is the gate that decides the whole run, and it is
-checked per folder. As of 2026-08-02 the manifest exists in 48 of 706 folders,
-all written 2026-07-11, and none of them are finalized-PASS — so the planner
-emits zero actions regardless of family eligibility. If a plan returns
+checked per folder. In the 2026-08-02 dry run almost no folder had a manifest
+and none was finalized-PASS, so the planner emitted zero actions regardless of family
+eligibility; do not assume that has changed without running `plan`. If a plan returns
 `Eligible actions | 0`, check the blocker histogram before assuming a tooling
 problem; `event_day_manifest_missing_or_invalid_json` dominating means the
 manifest pipeline is the thing to fix, not the tiering tool. See
@@ -262,8 +323,8 @@ Current market-making runtime consumes `order_books_summary.csv`, which remains
 untouched. Future full-depth corpus readers must use
 `weather.market.order_book_tape`: canonical JSONL first, then gzip CSV, then
 plain CSV. The long-table column contract has been unchanged since its
-introduction, and gzip fallback is covered by fixture tests. Production
-85-GiB replay remains an operator rehearsal and is not implied by unit tests.
+introduction, and gzip fallback is covered by fixture tests. Full-size
+production replay remains an operator rehearsal and is not implied by unit tests.
 
 For either tool, apply requires an externally reviewed exact manifest,
 `cleanup_preflight`, immediate identity/byte/SHA/key re-verification, and
@@ -307,3 +368,11 @@ only a complete bounded scan returns zero.
 Event-day manifests enumerate referenced shared blobs as external canonical
 dependencies and remain blocked until both backup and restore evidence includes
 their exact digests. Legacy market-local blobs remain canonical evidence.
+
+## Update this file when
+
+Update when a pruning rule, the tiering task names, times, bounds or runner
+scripts, the capture long-CSV switch semantics, a retention tool's CLI, or the
+cause of the daily free-space sawtooth changes. Current sizes, growth rates and
+the live switch value belong to generated reports, `config/` and
+`STATE_OF_PLAY.md`, not here.

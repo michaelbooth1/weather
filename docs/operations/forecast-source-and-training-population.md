@@ -1,5 +1,23 @@
 # Forecast source and training population — canonical decision record
 
+- **Owns:** two decisions — forecast provider/licensing (free-tier Open-Meteo, **no paid API**)
+  and the first-retrain training years (2021–2025).
+- **Read when:** you are about to stop on "may we collect from Open-Meteo?" or "which years?",
+  or someone proposes a paid source or widening `covered_years`.
+- **Do not use for:** corpus mechanics ([PIT_FORECAST_TRAINING_CORPUS.md](PIT_FORECAST_TRAINING_CORPUS.md)),
+  blocker counts (dated below), or whether a retrain is scheduled (`STATE_OF_PLAY.md`: it is not).
+- **Verify with:** `FIRST_RETRAIN_TRAINING_YEARS` and the station-day exclusion registry in
+  `src/weather/operations/base_retrain.py`.
+
+> **Decisions in force; two details dated.** (1) The "policy object" repair requested below has
+> landed: the year set, ±7-day radius and cutoff hours are code-owned constants in
+> `base_retrain.py`, and the plan ignores candidate-supplied `covered_years`, so the sentence
+> "until that repair lands, this file is the authority" is satisfied — the code is the authority
+> and must agree with this decision. (2) The 12,600-cell figure predates the exclusion registry;
+> the live expected count comes from the hash-bound plan (12,586 for the 2026-07-31 target, see
+> the corpus doc). Blocker counts (60 of 97) are as of 2026-08-05. Authorization to collect is not
+> a schedule: no model-alpha work is currently active.
+
 This file is the canonical answer to two questions that have repeatedly stopped agents mid-mission:
 **may we collect the forecast archive from Open-Meteo, and which years does the first retrain train
 on.** Both are answered below. An agent that reaches this file has its answer and must not stop on
@@ -100,3 +118,10 @@ path into serving.
   the report this decision unblocks.
 - `docs/roadmap/agent-report-2026-08-03-workstation-scope-forecast-archive-extension.md` — `-08-28a`,
   the scoping report whose open licensing condition this closes.
+- `tests/operations/test_base_retrain.py::test_candidate_dates_and_covered_years_cannot_shrink_the_pit_gate`
+  — the test the "policy object" section asked for.
+
+## Update this file when
+
+A new dated owner decision changes the provider/paid-source rule or the training year set, or an
+additional free source is adopted. Record the decision here; keep counts in code and reports.

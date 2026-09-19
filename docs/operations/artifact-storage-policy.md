@@ -1,6 +1,18 @@
 # Artifact Storage Policy
 
-Last updated: 2026-08-28
+- **Owns:** where durable model and calibration artifacts live, the size
+  thresholds, and the `weather.artifacts` registry, size-audit,
+  externalization and promotion-preflight commands.
+- **Read when:** you add, replace or promote anything under `artifacts/`, or a
+  promotion preflight reports `WARN`/`FAIL`.
+- **Do not use for:** LFS bandwidth rules
+  ([git-lfs-policy.md](git-lfs-policy.md)) or ignored `data/` retention
+  ([data-retention-policy.md](data-retention-policy.md)).
+- **Verify with:** the `DEFAULT_*_BYTES` constants at
+  `src/weather/artifacts.py:40-43` and the subparsers near `:1309-1344`.
+
+Nightly training is currently **disabled** ([STATE_OF_PLAY.md](STATE_OF_PLAY.md),
+owner decision from the 2026-09-13 Scheduler review) and nothing republishes these manifests automatically.
 
 Durable model and calibration artifacts live under `artifacts/`. Small JSON
 calibration artifacts, manifests, and provenance files remain tracked in Git.
@@ -82,21 +94,25 @@ deliberately leaves LFS objects unsmudged. Pointer-like but noncanonical content
 fails closed. Runtime loading and production qualification still require the
 materialized object; pointer normalization is manifest validation, not restore.
 
-Nightly retrain should publish both
+Any retrain that changes artifacts must publish both
 `artifacts/manifests/model_artifact_registry.json` and
 `artifacts/manifests/model_artifact_size_audit.json`, plus
 `artifacts/manifests/model_artifact_externalization.json` and
 `artifacts/manifests/model_artifact_promotion_preflight.json`, before artifact
 promotion or commit. Model loading still resolves artifacts through
 `weather.artifacts`, so applying this policy does not change runtime lookup
-paths.
+paths. The host nightly-retrain module does not run these commands itself; the
+manual-only GitHub `retrain.yml` workflow (daily schedule disabled 2026-07-29)
+runs `registry` and `size-audit`. Run all four by hand before a promotion.
 
 ## Restore
 
-After checkout, restore LFS-managed HGB models with:
+LFS downloads are metered and the allowance has been exhausted before. Follow
+[git-lfs-policy.md](git-lfs-policy.md): prefer a worktree of a checkout whose
+`.git/lfs` is already warm, and fetch only the models a job needs:
 
 ```powershell
-git lfs pull --include="artifacts/models/hgb/*.pkl"
+git lfs pull --include="artifacts/models/hgb/<name>.pkl"
 ```
 
 Then verify checksums and active registry coverage with:
@@ -107,17 +123,21 @@ python -m weather.artifacts promotion-preflight --fail-on-warn
 
 ## Git Object Maintenance
 
-The 2026-06-20 audit found `.git/objects` at `count: 52531`, `size: 2.11 GiB`,
-with `size-pack: 536.37 MiB`. Do not rewrite history while active branches,
+Read the current object-store size with `git count-objects -vH`. Do not rewrite history while active branches,
 agents, or dirty worktrees depend on the current object graph.
 
-After active branches are settled and the worktree is clean, run:
+`git gc` is heavy I/O: on the capture host it is heavy work under
+[HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md), and with many linked worktrees
+attached it must not prune objects they still need. Only after active branches
+are settled, in an admitted window:
 
 ```powershell
 git count-objects -vH
 git gc --prune=30.days
 git count-objects -vH
 ```
+
+Never delete `.git/lfs` as part of this ([git-lfs-policy.md](git-lfs-policy.md)).
 
 History-rewriting cleanup such as `git lfs migrate import` requires a separate
 coordinated maintenance window and force-push plan.

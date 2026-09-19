@@ -47,6 +47,8 @@ It will read green forever, including on the day the thing it guards is complete
 | Parity known-defects fixture | a hardcoded list of 9 dead features | after 8 were repaired it still demanded 9, so the gate **could never reach exit 0** |
 | Model input surface | nothing watched it at all | 10 of 19 features dead for 5 weeks |
 | **The `-09-50a` rehearsal design** | **the production agent, hours after this file was written** | a test structurally incapable of failing on the condition it was meant to check |
+| The `-09-77a` repair "ceiling" screen | a statistic that is non-negative by construction | the NO-GO branch was unreachable; `-09-78a` re-ran it on the real estimand and returned NO-GO |
+| Memory-guard kill-path tests | substring assertions over the script text | green for 27 days while the kill loop inspected the guard's own process (`ESTABLISHED_FINDINGS.md` §10g) |
 
 **Detection question: *what would make this check fail?*** If the answer is "the thing would have to
 contradict its own declaration," the check is decorative.
@@ -97,6 +99,8 @@ disk, and was asked **after** months of work premised on its answer.
 | "Does the maker ever emit a quote?" | one query over retained CSVs | **months** of MM gate work |
 | "Is there any cell where we beat the market?" (`-09-46a`) | days, pre-registered | months of assuming yes |
 | "Can executions be reconstructed?" (`-09-47a`) | days | a mission commissioned on the assumption |
+| "Does the look have power on its actual estimand?" (`-09-78a`) | one outcome-free simulation over an existing CSV | the rest of the five-mission recovery thread it closed |
+| "How big is the configured reward pool?" (2026-09-19) | summing one field we already saved daily | three months of economics work resting on a June figure |
 | "Does the archive cover the target dates?" | one manifest read | five weeks of `OK 12/12` |
 
 **Detection question: *what is the cheapest observation that would kill this whole track?*** Ask it
@@ -124,6 +128,12 @@ historical-forecast rows are `stitched_continuous_archive`, carrying no true iss
 were available; they were not available *as of an issue time*, and that is the entire contract. The
 fix I proposed would have re-introduced `stitched_forecast_high_without_issue_time`, a defect already
 declared by name in the parity fixture.
+
+**Instances found 2026-09-19** (details in `RETRACTED_AND_FALSE_LEADS.md`): the "$16 a day" reward
+figure was a correct 2026-06-13 measurement cited as a constant for three months while the daily
+economics snapshot held a number about 175–300 times larger; "about 4 days of disk" was an
+instantaneous reading of a sawtooth whose daily low is what binds; and "low disk blocks settlement"
+was briefed as a cause without opening the chain, which has no disk gate.
 
 **Detection question: *have I opened the actual artifact, or only its description?*** And when you
 must pass an unverified belief to someone else, **label it a hypothesis to trace.** That label is

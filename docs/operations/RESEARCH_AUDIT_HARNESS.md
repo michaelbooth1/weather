@@ -1,5 +1,18 @@
 # Research Audit Harness
 
+- **Owns:** the rules for `tools/research/` scripts (`SCRIPT_INVENTORY`, status
+  meanings, naming) and which package reports replace scratch probes.
+- **Read when:** adding, running or retiring an ad-hoc research script.
+- **Do not use for:** research conclusions (`ESTABLISHED_FINDINGS.md`,
+  `RETRACTED_AND_FALSE_LEADS.md`) or mission dispatch
+  ([DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md)).
+- **Verify with:** `SCRIPT_INVENTORY` in `tools/research/research_harness.py`.
+
+> **Host and scope:** new model-alpha research is paused (`STATE_OF_PLAY.md`).
+> The report modules below read large local evidence; on the capture host run
+> them only inside an admitted window ([HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md)),
+> otherwise use the workstation.
+
 The supported entrypoint for ad-hoc research scripts is:
 
 ```powershell
@@ -42,3 +55,8 @@ roadmap item, or fixture-backed test.
 
 Do not add `test_*.py` files under `tools/research`. Retired probes should use
 `retired_*.py` names, and executable checks belong under `tests/`.
+
+## Update this file when
+
+Update when the harness flags, status vocabulary, `tools/research` naming
+rules, or the recommended package report entrypoints change.

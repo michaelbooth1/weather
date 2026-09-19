@@ -1,9 +1,14 @@
 # Development and Verification
 
-Status: canonical development guide. The root [README](../README.md) owns setup
-and the full operator command catalog; this document owns change workflow and
-verification expectations. The [Git workflow SOP](git-workflow.md) owns branch,
-worktree, staging, commit, pull-request, integration, and cleanup procedure.
+Status: canonical development guide.
+
+- **Owns:** the change workflow, which check proves which kind of change, what CI runs, and the definition of done.
+- **Read when:** about to edit code, choosing what to run to verify a change, or deciding whether a change is done.
+- **Do not use for:** setup and the operator command catalog ([README](../README.md)); branch, worktree, commit and
+  pull-request procedure ([Git workflow SOP](git-workflow.md)); when heavy work may run on the capture host
+  ([HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) owns that, this file only routes to it).
+- **Verify with:** `pytest.ini`, `pyproject.toml`, `.github/workflows/ci.yml`, and the `param()` block of
+  `scripts/ops/bounded_worktree_test_suite.ps1`.
 
 ## Before editing
 
@@ -15,35 +20,74 @@ worktree, staging, commit, pull-request, integration, and cleanup procedure.
 
 ## Baseline commands
 
-From the repository root on Windows:
+These four commands are exactly what CI runs, in this order (`.github/workflows/ci.yml`). From the repository
+root on Windows:
 
 ```powershell
-.\venv\Scripts\python.exe -m pytest -q
 .\venv\Scripts\python.exe -m compileall -q app src tests
 .\venv\Scripts\python.exe -m weather.operations.agent_docs_audit
 .\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+.\venv\Scripts\python.exe -m pytest -q
 ```
 
-`pytest.ini` collects only `tests/` and exposes `src/`. The editable install is
-still the primary package contract. CI uses Python 3.11 on Ubuntu, so production
-modules must remain cross-platform even though scheduled operations are Windows
-specific. Tests that actually execute Windows PowerShell, ACL, Scheduler, or
-Job semantics carry precise non-Windows skips; their static and portable Python
-contracts continue to run on Ubuntu, while executable Windows coverage remains
-part of the admitted production-host bounded suite.
+**Do not run them as written on the 16 GB production capture host.** See "Where verification may run" below.
 
-On the 16 GB production capture host, the commands above are not authority to
-run a direct full suite or parallel verification. Focused tests run serially
-only inside 00:30–09:00; the full suite uses
-`scripts/ops/bounded_worktree_test_suite.ps1` with its 25-file chunks and
-workload lease. The user-layer Codex hook rejects direct unbounded pytest at
-every hour and rejects pytest/compileall outside that window.
+`pytest.ini` collects only `tests/` and puts `src/` on the path; `scratch/` scripts named `test_*.py` are not part
+of the suite. The editable install (`pip install -e ".[test]"`; the `test` extra pins pytest) is still the primary
+package contract, and `requires-python` is `>=3.11`.
+
+## What CI does and does not cover
+
+- The `CI` workflow runs on **pull requests and on pushes to `master` only**. A push to any other branch runs
+  nothing. A branch has no CI evidence until a pull request exists for it.
+- One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
+  Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
+- Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
+  **CI never executes them**. Their static and portable contracts run on Ubuntu; executable Windows coverage
+  exists only in the admitted production-host bounded suite below.
+- The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
+  that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
+  installed hook prevents dispatch of its own proposed repair.
+- `retrain.yml` ("Nightly Candidate Build") is manual-dispatch only; its schedule is commented out.
+- The GitHub CLI (`gh`) is not installed on the capture host. Do not plan a step there that opens a pull request
+  or reads CI status with `gh`; use the web UI, the workstation, or the push path in the
+  [Git workflow SOP](git-workflow.md).
+
+## Where verification may run
+
+### Production capture host (16 GB)
+
+The baseline commands are not authority to run a direct full suite or parallel verification here.
+[HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) is the contract. In short: focused tests run serially and only
+inside 00:30-09:00 local; the user-layer Codex hook rejects direct unbounded pytest at every hour and rejects
+pytest/compileall outside that window. A full suite runs only through
+`scripts/ops/bounded_worktree_test_suite.ps1`, against a clean worktree at an exact commit. Its enforced limits
+(read the script, not this list, if they matter to a decision):
+
+| Limit | Value in the script |
+| --- | --- |
+| Mandatory parameters | `-RepoRoot`, `-WorktreeRoot`, `-ExpectedTip` (40-hex), `-BranchRef`, `-LogPath` |
+| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files |
+| Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
+| Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
+| Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
+| Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
+| Modes | `-PreflightOnly`, `-SmokeTest`, `-IntegrationPreflight`, `-RequireLiveSdkContract` |
+
+The only merge-eligible result is the final log line `VERDICT: ALL CHUNKS PASSED`. When free disk is under the
+floor the suite cannot be admitted at all; that is a blocker to report, not a limit to lower.
+
+Test runs write large temporary trees. Give focused pytest an explicit `--basetemp` outside the repository and
+delete it afterwards; judge disk with the volume's free space, not a directory size.
+
+### Separate non-capture workstation
 
 On a separate non-capture workstation, including the 32 GB PC when it also
 holds the portable live-executor assignment, ordinary local development and
-verification are not subject to the capture-host timetable, 25-file wrapper,
+verification are not subject to the capture-host timetable, chunked wrapper,
 or serial-only rule. Route recognized heavy Python work through
-`scripts/ops/workstation_heavy.ps1` with an absolute repository root, absolute
+`scripts/ops/workstation_heavy.ps1` (`-Kind pytest|compileall|weather_heavy`, `-PythonPath`, `-ArgumentsBase64`,
+`-RepoRoot`, all mandatory) with an absolute repository root, absolute
 Python path, and the documented base64 JSON argument contract. Its distinct
 offline profile admits only the assignment's exact non-capture Windows
 installation and attending principal and holds the same host-global mutex as
@@ -136,11 +180,6 @@ unknown capture-host identity, all ambiguous remote forms, and unsupported
 remote destinations. See the official [SSH command manual](https://man.openbsd.org/ssh.1)
 and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 
-The focused [host-load hook workflow](../.github/workflows/host-load-hook.yml)
-runs the policy tests on Windows and Linux when hook code or its tests change.
-It uses no application fixtures or credentials and provides a verification
-path while an installed hook prevents dispatch of its own proposed repair.
-
 ## Focused verification matrix
 
 | Change | Minimum focused verification |
@@ -150,15 +189,19 @@ path while an installed hook prevents dispatch of its own proposed repair.
 | Model/distribution/features | matching `tests/model`; C and F paths; mass/floor/cutoff checks |
 | Training/calibration | matching `tests/calibration`; train/serve schema and artifact compatibility |
 | Snapshot/forecast collection | matching `tests/collection`; atomicity, cadence, and replay persistence |
+| Settlement ledger, tape scoring, replay | matching `tests/backtesting` |
 | Market, maker, or taker logic | matching `tests/market`; keep execution non-live |
 | Daily/nightly/supervisor behavior | matching `tests/operations`; use status/dry-run paths |
+| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block |
+| Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
 | Canonical docs/agent files | `python -m weather.operations.agent_docs_audit` |
 | Roadmap item/index or generated backlog | roadmap lint plus `roadmap_backlog --fail-on-lint --check` after regeneration |
 
 Run the full suite for cross-owner changes, release/evidence contracts, shared
-utilities, or before handing off a broad refactor.
+utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
+through the bounded runner above.
 
 ## Stateful command boundaries
 
@@ -188,7 +231,10 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 ## Definition of done
 
 - The intended behavior is implemented through the correct owner.
-- Focused tests pass; broader checks match the change risk.
+- Focused tests pass on a host allowed to run them; broader checks match the change risk. State where each
+  check ran. A capture-host refusal (window, disk floor, commit charge) is reported as a blocker, not as a pass.
+- CI evidence exists only for a pull request or for `master`; say which, or say there is none.
+- Windows-executing script tests are proven only by the bounded production-host suite, never by CI.
 - New behavior is deterministic and network-free under unit tests.
 - Schemas, fixtures, manifests, and documentation are updated together where
   their source contracts changed.

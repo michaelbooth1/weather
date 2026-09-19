@@ -1,5 +1,23 @@
 # Production cold-archive staging
 
+- **Owns:** the capture-host stage / transfer / upload / download lane
+  (`production_cold_archive_run.ps1`, `production_cold_archive_stage_cli`),
+  its request fields, admission limits and what each PASS proves.
+- **Read when:** the owner has re-authorized archive staging or upload, or you
+  are reading a retained staging/transfer receipt.
+- **Do not use for:** finding or restoring already-archived data, or original
+  reclaim ([cold-archive-locations.md](cold-archive-locations.md)); fixture
+  contracts ([verified-cold-archive.md](verified-cold-archive.md)).
+- **Verify with:** the `param()` block of
+  `scripts/ops/production_cold_archive_run.ps1` and the reserve constants at
+  the top of `src/weather/operations/production_cold_archive_stage_cli.py`.
+
+**Status: DISABLED.** The owner accepted the archive outcome and paused further
+uploads ([STATE_OF_PLAY.md](STATE_OF_PLAY.md), "Current authority" and "Armed
+recurring work"). No registrar schedules this lane. Do not run any operation
+below without a new owner decision; retain all pending originals, staged
+archives and receipts.
+
 This lane stages exact cold snapshot files into bounded local archive objects.
 It is a prerequisite for the off-site workflow in
 [Verified cold archive](verified-cold-archive.md), not restore or deletion proof.
@@ -58,6 +76,9 @@ teardown reserved before the window boundary. Streaming is throttled to
 The core reserves worst-case output plus 50 GiB capture headroom and 16 MiB
 evidence headroom, then checks remaining reserve on every write.
 
+Two plan-pinned reserve exceptions are compiled into the CLI; any other or
+regenerated plan keeps the 50 GiB reserve. Neither is a reusable allowance.
+
 Owner approval on September 9, 2026 permits 20 GiB of capture reserve only
 for the selected July 16-31 archive. The CLI pins the exact plan raw SHA-256
 and its selection digest in `APPROVED_ARCHIVE_PLAN_SHA256` and
@@ -66,9 +87,15 @@ selecting the lower reserve; a different or regenerated plan keeps 50 GiB.
 The same selected reserve reaches both ongoing admission and core output
 reservation. Evidence headroom, worst-case output reservation, time, lease,
 memory, capture health and teardown guards all remain. Final admission evidence
-records `source_disk_reserve_bytes`.
+records `source_disk_reserve_bytes`. This exception has no expiry in code
+(`production_cold_archive_stage_cli.py:140-143`): the pinned plan would still
+select 20 GiB today. Treat it as spent; free space has a daily low well below
+its evening reading ([data-retention-policy.md](data-retention-policy.md)).
 
-For the owner's September 10 overnight recovery using only the existing PCs
+**Expired.** The second exception can no longer select its reserve: the code
+compares the clock to a fixed window
+(`production_cold_archive_stage_cli.py:147-151`). For the owner's September 10
+overnight recovery using only the existing PCs
 and Drive, the exact approved primary plan and selection use an 8 GiB capture
 reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds both
 digests and verifies the actual plan bytes; other plans keep their existing
@@ -113,7 +140,6 @@ full restore. The separate [original reclaim lane](cold-archive-locations.md#ori
 also requires consumer adoption, retained restore metadata, custody and fresh
 exact source identity. This staging CLI exposes no
 upload or source deletion operation.
-
 
 ## Encrypted transfer and independent restore
 
@@ -167,8 +193,8 @@ downloaded to a fresh local path, fully hashed and compared with stable remote
 ID/size/hash metadata. Network copies use one transfer at 8 MiB/s; hashes use
 16 MiB/s. Required remaining time includes two copies, input/download hashes
 and 45 seconds for startup/metadata. A chunk that cannot fit is refused before
-upload, even when it meets the staging size limit. Use the separately bounded upload/download phases below for full-size
-incompressible chunks.
+upload, even when it meets the staging size limit. Use the separately bounded
+upload/download phases below for full-size incompressible chunks.
 
 An attempt-local encrypted config copy is pinned throughout network operations;
 the source configuration stays immutable. Token refresh that needs to replace
@@ -192,7 +218,6 @@ still reference old folders; recent date alone does not clear those consumers.
 Original deletion is owned by the separately gated
 [reclaim executor](cold-archive-locations.md#original-source-reclaim). The
 staging, encryption, transport and restore bridge retains its sources.
-
 
 ### Separate upload and download jobs
 
@@ -240,7 +265,7 @@ complete recovery and custody checks; retaining them indefinitely defeats net
 headroom recovery. These records do not grant deletion
 authority or prove historical consumer closure.
 
-## Update when
+## Update this file when
 
 Update when chunk format, request fields, admission, output evidence or the
 relationship to transport and verified reclaim changes.

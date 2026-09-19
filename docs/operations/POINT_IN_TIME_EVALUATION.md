@@ -1,5 +1,22 @@
 # Point-In-Time Evaluation Runbook
 
+- **Owns:** the `point_in_time_evaluation` CLI (`materialize`, `folds`, `evaluate`,
+  `prelock-production`, `qualify-production`), its row/source schemas, lock and
+  fold rules, and production resource bounds.
+- **Read when:** building or verifying a leakage-free evaluation, a production
+  preselection lock, or candidate qualification.
+- **Do not use for:** orchestration and scheduling
+  ([NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md)); the forecast
+  corpus ([PIT_FORECAST_TRAINING_CORPUS.md](PIT_FORECAST_TRAINING_CORPUS.md));
+  research conclusions (`ESTABLISHED_FINDINGS.md`).
+- **Verify with:** the `build_parser` section and the `PRODUCTION_*` constants in
+  `src/weather/reporting/validation/point_in_time_evaluation.py`.
+
+> **Status:** no run of this evaluator is scheduled. Its production consumers
+> (nightly training, Release #1) are disabled/deferred and new model-alpha work
+> is paused (`STATE_OF_PLAY.md`). It is heavy: on the capture host it needs an
+> admitted window under [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md).
+
 `weather.reporting.validation.point_in_time_evaluation` owns the derived
 point-in-time row contract, candidate-independent production preselection,
 fleet-date rolling validation plans, bounded 14-calendar-day evaluation, and
@@ -45,10 +62,20 @@ evaluation window:
 python -m weather.reporting.validation.point_in_time_evaluation prelock-production `
   --source-corpus <production-preselection-source-v1.parquet> `
   --source-manifest <production-preselection-source-v1-manifest.json> `
-  --source-replay-manifest <promotion-corpus.json> `
+  --source-replay-manifest <staged-root>/replay_manifest.json `
+  --source-receipt <staged-root>/staging-receipt.json `
+  --expected-source-receipt-sha256 <sha256-of-the-receipt> `
+  --ledger-root data/settlements `
   --replay-manifest-out <candidate>/qualification/point_in_time/work/replay_manifest.json `
   --lock-out <candidate>/qualification/point_in_time/work/preselection_lock.json
 ```
+
+A staged source is refused with `invalid_staging_receipt` unless
+`--source-receipt`, `--expected-source-receipt-sha256` and `--ledger-root` are
+all supplied (`_verify_prelock_staging_receipt`). Create and check the receipt
+with `python -m weather.operations.point_in_time_staging_receipt create|verify`
+(`--receipt --corpus --manifest --replay-manifest --ledger-root`); it requires
+exactly 14 contiguous lock days.
 
 To build that narrow source directly from reviewed market-day folders:
 
@@ -68,7 +95,9 @@ inventory and then enumerates every pinned snapshot/band directly from
 `snapshots_long.csv` plus captured `replay_inputs.jsonl`; it does not load or
 score an ambient model. A supplied source replay manifest is hash-verified.
 When it is omitted for a staged source, the exact replay manifest bound in the
-source manifest is copied byte-for-byte into the candidate work area.
+source manifest is copied byte-for-byte into the candidate work area. The
+staging receipt also binds a replay manifest, and the nightly wrapper requires
+it explicitly, so pass `--source-replay-manifest` for a staged source.
 
 The prelock records the complete candidate-independent selection universe, its
 hash, the source/replay hashes, and the 14 locked dates. Its latest target date
@@ -167,7 +196,7 @@ below.
 python -m weather.reporting.validation.point_in_time_evaluation materialize `
   --snapshots-root data/snapshots `
   --archive-root data/archive/closed_market_days/v0.1 `
-  --as-of 2026-07-12 `
+  --as-of <yyyy-mm-dd> `
   --max-market-days 500 `
   --max-rows-per-market-day 250000 `
   --out data/analysis/point_in_time/v0.1/point_in_time_rows.parquet `
@@ -220,7 +249,7 @@ python -m weather.reporting.validation.point_in_time_evaluation evaluate `
   --input data/analysis/point_in_time/v0.1/point_in_time_rows.parquet `
   --manifest data/analysis/point_in_time/v0.1/point_in_time_manifest.json `
   --window-days 14 `
-  --window-end 2026-07-11 `
+  --window-end <yyyy-mm-dd> `
   --bootstrap-iterations 2000 `
   --out data/backtest/point_in_time_streaming_evaluation.json
 ```
