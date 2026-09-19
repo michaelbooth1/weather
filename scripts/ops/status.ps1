@@ -1320,10 +1320,72 @@ catch { $flags.Add("heavy-workload lease state could not be read") }
 # depending on the slope, so keep a cheap sample trail and report the 24h burn. Sampling
 # Get-PSDrive costs nothing -- deliberately NOT a recursive size walk of data\, which has
 # starved capture before (see the codex-scan hazard) and must never run from a monitor.
+#
+# THE INSTANTANEOUS READING IS NOT THE HEADROOM. Free space on this host is a daily SAWTOOTH:
+# capture fills the disk all day and night, it bottoms just before the 05:00 projection tiering,
+# and that job hands ~10-13 GB back. "Current free / same-clock 24h delta" therefore measures
+# headroom from wherever the reading happens to sit on the tooth. On 2026-09-18 this monitor said
+# "about 4 days" at 21 GB free while the daily low had gone 29.9 -> 25.9 -> 14.2 GB and the next
+# low landed near 6: the binding number is the LOW, and the honest slope is low-to-low. Tiering
+# itself refuses below roughly source + 1 GiB, so the low reaching a few GB -- not zero -- is
+# where the host stops being able to heal itself.
+function Get-WeatherDiskTroughHeadroom {
+    param(
+        [AllowNull()][object[]]$Samples,
+        [Parameter(Mandatory = $true)][double]$CurrentFreeGB,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [int]$MinimumPriorSamples = 48
+    )
+
+    $cut24 = $Now.AddHours(-24)
+    $cut48 = $Now.AddHours(-48)
+    $low24 = $CurrentFreeGB
+    $lowPrior = $null
+    $count24 = 0
+    $countPrior = 0
+    foreach ($sample in @($Samples)) {
+        if ($null -eq $sample) { continue }
+        try {
+            $ts = [datetime]$sample.ts
+            $free = [double]$sample.free_gb
+        }
+        catch { continue }
+        if ($ts -gt $Now) { continue }
+        if ($ts -gt $cut24) {
+            $count24++
+            if ($free -lt $low24) { $low24 = $free }
+        }
+        elseif ($ts -gt $cut48) {
+            $countPrior++
+            if ($null -eq $lowPrior -or $free -lt $lowPrior) { $lowPrior = $free }
+        }
+    }
+
+    # A thin prior window cannot have seen its own low, and a low that was never sampled reads as
+    # a comfortable one. Refuse the slope instead of reporting a flattering number.
+    $priorCovered = $countPrior -ge $MinimumPriorSamples
+    $delta = $null
+    $daysLeft = $null
+    if ($priorCovered -and $null -ne $lowPrior) {
+        $delta = [math]::Round($low24 - $lowPrior, 1)
+        if ($delta -lt 0) { $daysLeft = [math]::Round($low24 / [math]::Abs($delta), 1) }
+    }
+    return [pscustomobject]@{
+        low_24h_gb = [math]::Round($low24, 1)
+        low_prior_24h_gb = if ($null -ne $lowPrior) { [math]::Round($lowPrior, 1) } else { $null }
+        low_delta_gb_per_day = $delta
+        days_until_low_reaches_zero = $daysLeft
+        samples_24h = $count24
+        samples_prior_24h = $countPrior
+        prior_window_covered = $priorCovered
+    }
+}
+
 $diskDelta = $null
 $diskDaysLeft = $null
 $diskDelta48 = $null
 $diskDaysLeft48 = $null
+$diskTrough = $null
 try {
     $trail = Join-Path $repo "data\alerts\disk_free_trail.jsonl"
     $old = @()
@@ -1332,14 +1394,18 @@ try {
     $cut48 = (Get-Date).AddHours(-48)
     $ref = $null
     $ref48 = $null
+    $trailSamples = New-Object System.Collections.Generic.List[object]
     foreach ($line in $old) {
         try {
             $s = $line | ConvertFrom-Json
+            $trailSamples.Add($s)
             if ([datetime]$s.ts -le $cut) { $ref = $s }   # newest sample at least 24h old
             if ([datetime]$s.ts -le $cut48) { $ref48 = $s }
         }
         catch {}
     }
+    $diskTrough = Get-WeatherDiskTroughHeadroom `
+        -Samples $trailSamples.ToArray() -CurrentFreeGB $freeDiskGB -Now (Get-Date)
     if ($ref) {
         $hrs = ((Get-Date) - [datetime]$ref.ts).TotalHours
         if ($hrs -gt 0) {
@@ -1377,6 +1443,32 @@ if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) {
 elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
 }
+# The low-to-low alarm is deliberately independent of the burst downgrade above: that branch
+# compares two same-clock slopes, and both are blind to the depth of the daily tooth.
+$diskLowDaysLeft = $null
+if ($null -ne $diskTrough) {
+    $diskLowDaysLeft = $diskTrough.days_until_low_reaches_zero
+    if ($diskTrough.low_24h_gb -lt 25 -and $freeDiskGB -ge 25) {
+        $flags.Add(
+            "LOW DISK at the daily low: $($diskTrough.low_24h_gb) GB in the last 24h " +
+            "(now $freeDiskGB GB) - the current reading overstates headroom"
+        )
+    }
+    if ($null -ne $diskLowDaysLeft -and $diskLowDaysLeft -lt 21) {
+        $flags.Add(
+            "disk DAILY LOW is $($diskTrough.low_24h_gb) GB and falling " +
+            "$([math]::Abs($diskTrough.low_delta_gb_per_day)) GB/day low-to-low - about " +
+            "$diskLowDaysLeft days until the low reaches zero (now $freeDiskGB GB; tiering " +
+            "stops working a few GB above zero)"
+        )
+    }
+    elseif (-not $diskTrough.prior_window_covered -and $diskTrough.low_24h_gb -lt 60) {
+        $warns.Add(
+            "disk low-to-low slope is UNMEASURED: only $($diskTrough.samples_prior_24h) " +
+            "samples cover the prior 24h, so days-left reflects the instantaneous reading only"
+        )
+    }
+}
 
 # Scheduler 0x0 is not proof that either tiering job reclaimed anything. Both wrappers
 # deliberately exit zero when the shared workload lease is busy. Surface their durable
@@ -1402,7 +1494,9 @@ if ($tieringSkippedToday.Count -gt 0) {
         "disk tiering skipped today because the heavy-workload lease was busy: {0}; " +
         "Task Scheduler 0x0 does not prove reclaim" -f ($tieringSkippedToday -join ", ")
     )
-    if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) { $flags.Add($tieringMessage) }
+    $tieringSkipIsUrgent = ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) -or
+        ($null -ne $diskLowDaysLeft -and $diskLowDaysLeft -lt 21)
+    if ($tieringSkipIsUrgent) { $flags.Add($tieringMessage) }
     else { $warns.Add($tieringMessage) }
 }
 
@@ -4432,7 +4526,8 @@ if ($Json) {
         execution_tape = $executionTapeState
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
-            delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48 }
+            delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48
+            daily_low = $diskTrough }
         tiering  = $tieringState
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
             synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
@@ -4515,6 +4610,11 @@ elseif ($diskDelta -lt 0 -and $null -ne $diskDelta48) {
 }
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
+if ($null -ne $diskTrough) {
+    $diskTrend += "  [24h low {0} GB" -f $diskTrough.low_24h_gb
+    if ($null -ne $diskLowDaysLeft) { $diskTrend += ", ~{0}d until the low hits zero" -f $diskLowDaysLeft }
+    $diskTrend += "]"
+}
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
 $clockState = if ($clockSynchronized -eq $false) { "UNSYNCHRONIZED" }
 elseif ($null -eq $clockLastSync) { "UNKNOWN" }
