@@ -1,5 +1,19 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 20 design of the first paid reward epoch (RE-1)
+
+No status change and **no live authority**. The bounded successor that W6 asks for when "useful
+reward exposure needs repeated TTLs or longer attendance" is designed and frozen in
+[the RE-1 pre-registration](../../research/liquidity-reward-epoch-preregistration-2026-09-20.md):
+one band chosen by a mechanical rule, two backed 20-share post-only buys about 2 cents from the
+midpoint, one attended 120-minute session, first fill ends quoting, prediction hashed before the
+payout is known, verdict on `k = paid / predicted`, at most three sessions. It requests two
+ceiling changes (per-order 10 to 16, per-band 10 to 20), a session in place of one 120-second
+TTL, and a dedicated wallet; event, daily-loss and wallet ceilings do not move. It proposes the
+section 7 parameters this item lacks: `H` = 1.00 pUSD net per day per 100 pUSD deployed, and a
+track stop date of 2026-10-31. All of it waits on dated owner decisions recorded in
+`STATE_OF_PLAY.md` and here.
+
 ## September 19 reward-pool measurement, authored studies and open owner decisions
 
 No status change: non-live implementation continues and economic proof is
