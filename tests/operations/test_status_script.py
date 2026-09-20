@@ -1941,3 +1941,67 @@ def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
     assert '$executionAge -le 180' in text
     assert 'public execution-tape evidence integrity is BLOCKED_EVIDENCE_LOSS' in text
     assert 'execution_tape = $executionTapeState' in text
+
+
+def _state_of_play_age(text: str, *, now: str) -> dict[str, object]:
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+$functionAst = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Get-WeatherStateOfPlayAge'
+}, $true)) | Select-Object -First 1
+if ($null -eq $functionAst) { throw 'missing function Get-WeatherStateOfPlayAge' }
+Invoke-Expression $functionAst.Extent.Text
+Get-WeatherStateOfPlayAge -Text $env:WEATHER_STATE_TEXT -Now ([datetime]$env:WEATHER_STATE_NOW) |
+    ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_STATE_TEXT": text,
+            "WEATHER_STATE_NOW": now,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_state_of_play_goes_stale_by_age_not_by_integration():
+    text = "# State of play\n\n**Last updated: 2026-09-13 America/Toronto (overnight review).**\n"
+
+    fresh = _state_of_play_age(text, now="2026-09-16T08:00:00")
+    stale = _state_of_play_age(text, now="2026-09-19T08:00:00")
+
+    assert fresh == {"declared_date": "2026-09-13", "age_days": 3, "max_age_days": 3, "stale": False}
+    assert stale == {"declared_date": "2026-09-13", "age_days": 6, "max_age_days": 3, "stale": True}
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_state_of_play_without_a_declared_date_is_stale_never_silently_fresh():
+    undated = _state_of_play_age("# State of play\n\nno date line\n", now="2026-09-19T08:00:00")
+
+    assert undated["declared_date"] is None
+    assert undated["stale"] is True
+
+
+def test_status_script_raises_a_flag_for_a_stale_state_of_play():
+    source = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "Get-WeatherStateOfPlayAge -Text $stateOfPlayText" in source
+    assert "STATE_OF_PLAY.md is {0} days old" in source

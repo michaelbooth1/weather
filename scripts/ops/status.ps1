@@ -1097,6 +1097,44 @@ function Get-WeatherIntegrationMergeObservation {
     }
 }
 
+# ---- STATE_OF_PLAY freshness ----
+# Every agent is told to read that file first, and its rewrite used to be triggered only by a
+# successful integration, so it froze exactly when integration stalled (2026-09-13..19: six days,
+# through a disk emergency and a settlement hole). Age is a trigger that cannot stall.
+function Get-WeatherStateOfPlayAge {
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [int]$MaxAgeDays = 3
+    )
+    $declared = $null
+    if ($Text -and $Text -match '\*\*Last updated:\s*(\d{4}-\d{2}-\d{2})') {
+        $declared = [datetime]::ParseExact(
+            $Matches[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    }
+    if ($null -eq $declared) {
+        return [pscustomobject]@{ declared_date = $null; age_days = $null; max_age_days = $MaxAgeDays; stale = $true }
+    }
+    $ageDays = [int][math]::Floor(($Now.Date - $declared.Date).TotalDays)
+    return [pscustomobject]@{
+        declared_date = $declared.ToString('yyyy-MM-dd')
+        age_days      = $ageDays
+        max_age_days  = $MaxAgeDays
+        stale         = ($ageDays -gt $MaxAgeDays)
+    }
+}
+$stateOfPlayText = $null
+try {
+    $stateOfPlayText = Get-Content -LiteralPath (Join-Path $repo "docs\operations\STATE_OF_PLAY.md") -Raw -ErrorAction Stop
+} catch {}
+$stateOfPlayAge = Get-WeatherStateOfPlayAge -Text $stateOfPlayText -Now (Get-Date)
+if ($null -eq $stateOfPlayAge.declared_date) {
+    $flags.Add("STATE_OF_PLAY.md has no readable 'Last updated' date - agents read it first; rewrite it")
+} elseif ($stateOfPlayAge.stale) {
+    $flags.Add(("STATE_OF_PLAY.md is {0} days old (declared {1}, limit {2}) - rewrite or re-attest it; every agent reads it first" -f
+        $stateOfPlayAge.age_days, $stateOfPlayAge.declared_date, $stateOfPlayAge.max_age_days))
+}
+
 # ---- streak (delegate to the authoritative ledger-based checker) ----
 $streak = $null
 try { $streak = & $py (Join-Path $repo "scripts\ops\streak_status.py") --json | ConvertFrom-Json } catch {}
