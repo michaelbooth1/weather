@@ -11,12 +11,14 @@ today's code. For every captured band it compares:
   * **market**  -- the contemporaneous yes-price,
 
 all against the realized WU settlement bucket. ``replayed_brier - recorded_brier``
-is the measured effect of every code change since capture: negative is an
-improvement. With ``--save-baseline`` / ``--gate`` it becomes a regression guard
-so no model change ships without being measured on real days.
+is a descriptive score delta, not proof of model improvement. ``--save-baseline``
+and ``--gate`` provide only an aggregate Brier diagnostic.
 
-A fidelity canary guards the corpus itself: replaying a snapshot with the same
-code version that produced it must reproduce its recorded distribution (L1 ~ 0).
+The optional ``--require-incumbent-control --corpus PATH`` check requires every
+pinned snapshot to reproduce its recorded distribution under the same declared
+identity. Changed candidates remain diagnostic by default. This numerical check
+does not restore historical runtime bytes or qualify served band probabilities.
+See docs/operations/replay-incumbent-control.md for the exact claim boundary.
 
 CLI:
   python -m weather.backtesting.replay_backtest [folder ...]
@@ -24,12 +26,15 @@ CLI:
       [--settle YYYY-MM-DD=BUCKET ...]
       [--include-reconstructed]          # also score approximate reconstructed days
       [--out data/backtest/replay_report.md]
+      [--require-incumbent-control --corpus PATH]
       [--save-baseline PATH] | [--gate PATH [--tol 0.003]]
 """
 import argparse
+import csv
 import json
+import math
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -66,6 +71,7 @@ from weather.reporting.formatting import (
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
 from weather.reporting.promotion.promotion_corpus import (
+    corpus_hash,
     entry_for_folder,
     folders_from_manifest,
     load_manifest,
@@ -73,7 +79,6 @@ from weather.reporting.promotion.promotion_corpus import (
 )
 from weather.backtesting.replay import (
     band_model_probability,
-    distribution_l1,
     identity_hash,
     index_records_by_snapshot,
     is_reconstructed,
@@ -82,6 +87,15 @@ from weather.backtesting.replay import (
     replay_model_identity,
     replay_model_version,
     source_freshness_group,
+)
+from weather.backtesting.replay_fidelity import (
+    FIDELITY_FAITHFUL_L1,
+    distribution_fidelity,
+    fidelity_diagnostic,
+    fidelity_summary,
+    fidelity_support,
+    incumbent_control_validation,
+    pinned_settlement_problem,
 )
 from weather.backtesting.settled_days import folder_market_id
 from weather.model.toronto_model import TorontoHighTempModel
@@ -93,7 +107,6 @@ from weather.operations.long_job_guard import (
 
 DEFAULT_OUT = data_path() / "backtest" / "replay_report.md"
 DEFAULT_BASELINE = data_path() / "backtest" / "replay_baseline.json"
-FIDELITY_FAITHFUL_L1 = 0.01  # same-version replay within this L1 is "faithful"
 
 
 def model_view(rows, prob_field):
@@ -160,62 +173,6 @@ def grouped_comparison(rows, group_key):
         if comp:
             output.append({"group": group, **comp})
     return output
-
-
-def fidelity_summary(fidelity_rows):
-    """Split replay fidelity into exact-identity canary and legacy cohorts.
-
-    ``model_version`` alone is not a replay identity: artifacts can be retrained
-    without changing the human label. New records carry ``model_identity`` and
-    only matching identity hashes are admitted to the canary. Older same-label
-    rows are reported separately as legacy/ambiguous instead of failing the
-    canary for a change we cannot fingerprint after the fact.
-    """
-    captured = [f for f in fidelity_rows if not f["reconstructed"]]
-    same_identity = []
-    legacy_same_label = []
-    changed = []
-    for f in captured:
-        if (
-            f.get("recorded_identity_hash")
-            and f.get("recorded_identity_hash") == f.get("replayed_identity_hash")
-        ):
-            same_identity.append(f)
-        elif (
-            not f.get("recorded_identity_hash")
-            and f.get("recorded_version") == f.get("replayed_version")
-        ):
-            legacy_same_label.append(f)
-        else:
-            changed.append(f)
-    reconstructed = [f for f in fidelity_rows if f["reconstructed"]]
-
-    def mean_l1(rows):
-        return sum(r["l1"] for r in rows) / len(rows) if rows else None
-
-    same_mean = mean_l1(same_identity)
-    legacy_mean = mean_l1(legacy_same_label)
-    changed_mean = mean_l1(changed)
-    return {
-        "same_identity_n": len(same_identity),
-        "same_identity_mean_l1": same_mean,
-        "same_identity_max_l1": max((r["l1"] for r in same_identity), default=None),
-        "same_identity_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
-        # Back-compat aliases for older tests/callers; these now mean exact
-        # replay identity, not the human version string.
-        "same_version_n": len(same_identity),
-        "same_version_mean_l1": same_mean,
-        "same_version_max_l1": max((r["l1"] for r in same_identity), default=None),
-        "same_version_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
-        "legacy_same_version_n": len(legacy_same_label),
-        "legacy_same_version_mean_l1": legacy_mean,
-        "legacy_same_version_max_l1": max((r["l1"] for r in legacy_same_label), default=None),
-        "changed_version_n": len(changed),
-        "changed_version_mean_l1": changed_mean,
-        "changed_version_max_l1": max((r["l1"] for r in changed), default=None),
-        "reconstructed_n": len(reconstructed),
-        "reconstructed_mean_l1": mean_l1(reconstructed),
-    }
 
 
 def _manifest_summary(manifest):
@@ -305,6 +262,7 @@ def run_replay_backtest(
     corpus_manifest=None,
     long_job_guard_info=None,
     serving_bundle=None,
+    require_incumbent_control=False,
 ):
     # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
     # climatology) and settles against its own market's daily summary; one
@@ -339,6 +297,12 @@ def run_replay_backtest(
     days = []
     fidelity_rows = []
     corpus_warnings = []
+    duplicate_replay_records = 0
+    if require_incumbent_control and (overrides or daily_summary_path is not None or include_reconstructed):
+        corpus_warnings.append("incumbent control requires pinned labels and captured inputs without overrides")
+    if require_incumbent_control and corpus_manifest:
+        if corpus_manifest.get("corpus_hash") != corpus_hash(corpus_manifest.get("entries") or []):
+            corpus_warnings.append("the supplied manifest corpus hash does not match its entries")
     band_semantics = {
         "rows": 0,
         "explicit_value_hi_rows": 0,
@@ -357,7 +321,8 @@ def run_replay_backtest(
         if market_id is None:
             print(f"  skip {Path(folder).name}: not a registered market slug")
             continue
-        records = index_records_by_snapshot(load_replay_records(folder))
+        replay_records = load_replay_records(folder)
+        records = index_records_by_snapshot(replay_records)
         if not records:
             print(f"  skip {Path(folder).name}: no replay_inputs.jsonl (capture not yet seeded)")
             continue
@@ -369,6 +334,7 @@ def run_replay_backtest(
         target_date = date_from_event_slug(slug)
         date_label = target_date.isoformat() if target_date else slug
         corpus_entry = entry_for_folder(corpus_manifest, folder) if corpus_manifest else None
+        pinned_ids = None
         if corpus_entry:
             pinned_ids = {str(item) for item in corpus_entry.get("snapshot_ids") or []}
             corpus_warnings.extend(verify_entry_inputs(corpus_entry, folder, df, records))
@@ -377,12 +343,24 @@ def run_replay_backtest(
                 snapshot_id: record for snapshot_id, record in records.items()
                 if str(snapshot_id) in pinned_ids
             }
-        pinned_settlement = None if _override_applies(overrides, slug, target_date, market_id) else _pinned_settlement(corpus_entry)
-        if pinned_settlement:
-            bucket, source, note = pinned_settlement
+        raw_counts = Counter(
+            str(record.get("snapshot_id")) for record in replay_records
+            if pinned_ids is None or str(record.get("snapshot_id")) in pinned_ids
+        )
+        duplicate_replay_records += sum(count - 1 for count in raw_counts.values())
+        if require_incumbent_control:
+            label_problem = pinned_settlement_problem(corpus_entry)
+            if label_problem:
+                bucket, source, note = None, "unusable_corpus_pin", label_problem
+            else:
+                bucket, source, note = _pinned_settlement(corpus_entry)
         else:
-            daily_index = daily_index_for_market(market_id)
-            bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
+            pinned_settlement = None if _override_applies(overrides, slug, target_date, market_id) else _pinned_settlement(corpus_entry)
+            if pinned_settlement:
+                bucket, source, note = pinned_settlement
+            else:
+                daily_index = daily_index_for_market(market_id)
+                bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
         feature_index = load_feature_vectors(folder)
 
         day_rows = []
@@ -395,25 +373,26 @@ def run_replay_backtest(
                 continue
             snaps_in_corpus += 1
             distribution = replay_distribution(model, record)
-            if not distribution:
+            l1, distribution_error = distribution_fidelity(
+                distribution, record.get("recorded_distribution")
+            )
+            fidelity_rows.append({
+                "snapshot_id": str(snapshot_id),
+                "event_slug": slug,
+                "date": date_label,
+                "market_id": market_id,
+                "captured_at_local": record.get("captured_at_local"),
+                "recorded_version": record.get("model_version"),
+                "replayed_version": replay_model_version(model),
+                "recorded_identity_hash": identity_hash(record.get("model_identity")),
+                "replayed_identity_hash": identity_hash(replay_model_identity(model)),
+                "l1": l1,
+                "distribution_error": distribution_error,
+                "reconstructed": reconstructed,
+            })
+            if not distribution or (require_incumbent_control and distribution_error):
                 continue
             snaps_scored += 1
-
-            recorded_distribution = record.get("recorded_distribution")
-            if recorded_distribution:
-                replayed_identity = replay_model_identity(model)
-                recorded_identity = record.get("model_identity")
-                fidelity_rows.append({
-                    "snapshot_id": str(snapshot_id),
-                    "date": date_label,
-                    "market_id": market_id,
-                    "recorded_version": record.get("model_version"),
-                    "replayed_version": replay_model_version(model),
-                    "recorded_identity_hash": identity_hash(recorded_identity),
-                    "replayed_identity_hash": identity_hash(replayed_identity),
-                    "l1": distribution_l1(distribution, recorded_distribution),
-                    "reconstructed": reconstructed,
-                })
 
             for _, band_series in group.iterrows():
                 band = band_series.to_dict()
@@ -510,12 +489,17 @@ def run_replay_backtest(
         "by_bin_type": grouped_comparison(all_rows, "bin_type"),
         "fidelity": fidelity_summary(fidelity_rows),
         "fidelity_rows": fidelity_rows,
+        "fidelity_support": fidelity_support(fidelity_rows, corpus_manifest, duplicate_replay_records),
+        "comparison_claim": "diagnostic_current_code_replay",
+        "incumbent_control": {"requested": False, "status": "NOT_REQUESTED"},
         "band_semantics": band_semantics,
         "include_reconstructed": include_reconstructed,
         "promotion_corpus": _manifest_summary(corpus_manifest),
         "corpus_warnings": corpus_warnings,
         "long_job_guard": long_job_guard_info or {},
     }
+    if require_incumbent_control:
+        results["incumbent_control"] = incumbent_control_validation(results)
     if write:
         write_report(results, out_path)
     return results
@@ -574,7 +558,7 @@ def write_report(results, out_path):
     corpus = results.get("promotion_corpus") or {}
     semantics = results.get("band_semantics") or {}
     lines = [
-        "# Replay Backtest (model re-run over captured inputs)",
+        "# Diagnostic Replay Backtest (model re-run over captured inputs)",
         "",
         f"Generated: {generated}",
         "",
@@ -586,10 +570,12 @@ def write_report(results, out_path):
         f"Replayed model version(s): {', '.join(results.get('replayed_versions') or []) or '-'}",
         f"Reconstructed days included: {results.get('include_reconstructed')}",
         "",
-        "> **Code Effect = Replayed Brier - Recorded Brier** (negative = the current",
-        "> code is better than what was deployed when the snapshot was captured).",
-        "> Recorded/market are the frozen tape values; replayed is today's code re-run",
-        "> over the identical stored inputs. Lower Brier is better.",
+        "> **DIAGNOSTIC: Code Effect = Replayed Brier - Recorded Brier.** A negative",
+        "> delta describes lower Brier on these rows; it does not establish model",
+        "> improvement, faithful historical serving, or a qualified comparison.",
+        "> Recorded/market are frozen tape values; replayed uses current code.",
+        "",
+        fidelity_diagnostic(results),
         "",
     ]
     if corpus:
@@ -624,19 +610,23 @@ def write_report(results, out_path):
         "Replaying a snapshot with the *same replay identity* that produced it",
         "must reproduce its recorded distribution (L1 ~ 0). Replay identity is",
         "stricter than the human model version: it includes model kind, market,",
-        "distribution-code fingerprints, and per-market artifact fingerprints.",
+        "selected distribution-code and per-market artifact fingerprints.",
+        "This checks numerical distributions; it does not prove loaded runtime",
+        "restoration, served-band calibration, or release qualification.",
+        f"Every canary row must have finite nonnegative L1 <= {FIDELITY_FAITHFUL_L1}.",
         "Older same-label records without identity are shown as legacy diagnostics",
         "and are excluded from the canary.",
         "",
     ]
     lines += markdown_table(
-        ["Cohort", "Snapshots", "Mean L1", "Max L1", "Verdict"],
+        ["Cohort", "Snapshots", "Mean L1", "Max L1", "Invalid rows", "Verdict"],
         [
             [
                 "Same replay identity (canary)",
                 fid.get("same_identity_n", 0),
                 fmt_num(fid.get("same_identity_mean_l1")),
                 fmt_num(fid.get("same_identity_max_l1")),
+                fid.get("same_identity_invalid_n", 0),
                 "FAITHFUL" if fid.get("same_identity_faithful") else
                 ("-" if fid.get("same_identity_n", 0) == 0 else "CHECK"),
             ],
@@ -645,24 +635,54 @@ def write_report(results, out_path):
                 fid.get("legacy_same_version_n", 0),
                 fmt_num(fid.get("legacy_same_version_mean_l1")),
                 fmt_num(fid.get("legacy_same_version_max_l1")),
+                fid.get("legacy_same_version_invalid_n", 0),
                 "excluded from canary",
             ],
             [
-                "Changed version/identity (effect size)",
+                "Changed version/identity (diagnostic)",
                 fid.get("changed_version_n", 0),
                 fmt_num(fid.get("changed_version_mean_l1")),
                 fmt_num(fid.get("changed_version_max_l1")),
-                "code change moved the distribution",
+                fid.get("changed_version_invalid_n", 0),
+                "candidate identity changes are expected; diagnostic only",
             ],
             [
                 "Reconstructed (approximate)",
                 fid.get("reconstructed_n", 0),
                 fmt_num(fid.get("reconstructed_mean_l1")),
-                "-",
+                fmt_num(fid.get("reconstructed_max_l1")),
+                fid.get("reconstructed_invalid_n", 0),
                 "approximate inputs -- exploratory only",
             ],
         ],
     )
+
+    control = results.get("incumbent_control") or {}
+    support = results.get("fidelity_support") or {}
+    lines += [
+        "", "## Requested Incumbent Distribution Control", "",
+        f"Status: **{control.get('status', 'NOT_REQUESTED')}**",
+        "Candidate replays do not request this identity-equality check by default.",
+        "A numerical control PASS does not qualify candidate scores or restore runtime bytes.",
+        "",
+    ]
+    lines += markdown_table(
+        ["Support metric", "Count"],
+        [[key, support.get(key, 0)] for key in (
+            "expected_snapshot_count", "observed_snapshot_count", "missing_snapshot_count",
+            "unexpected_snapshot_count", "duplicate_expected_snapshot_count",
+            "duplicate_observed_snapshot_count", "duplicate_replay_record_count",
+            "manifest_pin_problem_count",
+        )],
+    )
+    lines += [f"- {reason}" for reason in control.get("reasons") or []]
+    for key in ("manifest_pin_problems", "missing_snapshots", "unexpected_snapshots"):
+        if support.get(key):
+            lines.append(f"- {key} (bounded examples): {support[key]}")
+    lines += [
+        "", "Per-snapshot L1, identities and invalid-distribution reasons are retained in",
+        f"`{Path(out_path).with_suffix('.fidelity.csv').name}`.", "",
+    ]
 
     lines += ["", "## Band Semantics Audit", ""]
     lines += markdown_table(
@@ -722,6 +742,15 @@ def write_report(results, out_path):
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fields = [
+        "event_slug", "snapshot_id", "date", "market_id", "captured_at_local",
+        "recorded_version", "replayed_version", "recorded_identity_hash",
+        "replayed_identity_hash", "l1", "distribution_error", "reconstructed",
+    ]
+    with Path(out_path).with_suffix(".fidelity.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows({key: row.get(key) for key in fields} for row in results.get("fidelity_rows") or [])
 
 
 # --- Baseline / regression gate ---------------------------------------------
@@ -732,6 +761,9 @@ def baseline_payload(results):
     corpus = results.get("promotion_corpus") or {}
     return {
         "generated": datetime.now().isoformat(),
+        "comparison_claim": "diagnostic_aggregate_brier",
+        "fidelity": results.get("fidelity") or {},
+        "incumbent_control": results.get("incumbent_control") or {"requested": False, "status": "NOT_REQUESTED"},
         "replayed_versions": results.get("replayed_versions"),
         "snaps_scored": results.get("snaps_scored"),
         "aggregate_replayed_brier": aggregate.get("replayed_brier"),
@@ -745,41 +777,52 @@ def baseline_payload(results):
 
 
 def save_baseline(path, results):
+    if (results.get("incumbent_control") or {}).get("requested"):
+        control = incumbent_control_validation(results)
+        if control["status"] != "PASS":
+            raise ValueError("incumbent control failed; refusing baseline publication: " + "; ".join(control["reasons"]))
+        if (results.get("aggregate") or {}).get("replayed_brier") is None:
+            raise ValueError("incumbent control has no aggregate score; refusing baseline publication")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(baseline_payload(results), indent=2, sort_keys=True), encoding="utf-8")
 
 
 def gate(baseline_path, results, tol):
-    """Compare the current replayed aggregate Brier to a saved baseline.
+    """Return only a diagnostic aggregate Brier comparison, never qualification."""
+    fidelity_message = fidelity_diagnostic(results)
 
-    Returns (passed, message). A change that *worsens* the replayed Brier on the
-    corpus by more than ``tol`` fails the gate.
-    """
+    def fail(message):
+        return False, f"DIAGNOSTIC FAIL: {message}; {fidelity_message}"
+
     try:
         baseline = json.loads(Path(baseline_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return False, f"could not read baseline {baseline_path}: {exc}"
+        return fail(f"could not read baseline {baseline_path}: {exc}")
+    if not isinstance(baseline, dict):
+        return fail("baseline must be a JSON object")
     aggregate = results.get("aggregate") or {}
     current = aggregate.get("replayed_brier")
     base = baseline.get("aggregate_replayed_brier")
     base_corpus = baseline.get("corpus_hash")
     current_corpus = (results.get("promotion_corpus") or {}).get("corpus_hash")
     if current_corpus and not base_corpus:
-        return False, (
-            f"baseline missing corpus hash for current corpus {current_corpus}"
-        )
+        return fail(f"baseline missing corpus hash for current corpus {current_corpus}")
     if base_corpus and current_corpus != base_corpus:
-        return False, (
-            f"corpus mismatch: baseline {base_corpus} vs current {current_corpus or '-'}"
-        )
+        return fail(f"corpus mismatch: baseline {base_corpus} vs current {current_corpus or '-'}")
     if current is None or base is None:
-        return False, "missing aggregate Brier in baseline or current run"
+        return fail("missing aggregate Brier in baseline or current run")
+    try:
+        current, base, tol = float(current), float(base), float(tol)
+    except (TypeError, ValueError, OverflowError):
+        return fail("Brier values and tolerance must be finite nonnegative numbers")
+    if any(not math.isfinite(value) or value < 0 for value in (current, base, tol)):
+        return fail("Brier values and tolerance must be finite nonnegative numbers")
     delta = current - base
     passed = delta <= tol
     verdict = "PASS" if passed else "FAIL"
     return passed, (
-        f"{verdict}: replayed Brier {current:.4f} vs baseline {base:.4f} "
-        f"(delta {delta:+.4f}, tol {tol:.4f})"
+        f"DIAGNOSTIC {verdict}: replayed Brier {current:.4f} vs baseline {base:.4f} "
+        f"(delta {delta:+.4f}, tol {tol:.4f}); {fidelity_message}"
     )
 
 
@@ -801,10 +844,15 @@ def main():
     parser.add_argument("--include-reconstructed", action="store_true",
                         help="Also score approximate reconstructed days (excluded by default).")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
-    parser.add_argument("--save-baseline", nargs="?", const=str(DEFAULT_BASELINE), default=None,
-                        help="Save this run's replayed scores as the regression baseline.")
-    parser.add_argument("--gate", nargs="?", const=str(DEFAULT_BASELINE), default=None,
-                        help="Fail (exit 1) if replayed Brier regressed vs the saved baseline.")
+    baseline_action = parser.add_mutually_exclusive_group()
+    baseline_action.add_argument("--save-baseline", nargs="?", const=str(DEFAULT_BASELINE), default=None,
+                                 help="Save diagnostic replayed scores; a requested incumbent control must pass first.")
+    baseline_action.add_argument("--gate", nargs="?", const=str(DEFAULT_BASELINE), default=None,
+                                 help="Diagnostic aggregate Brier check only; exit 1 on regression.")
+    parser.add_argument("--require-incumbent-control", action="store_true",
+                        help="Require numerical reproduction of every pinned incumbent distribution; "
+                             "needs --corpus and exits 1 before saving a baseline on failure. "
+                             "Do not use for an intentionally changed candidate.")
     parser.add_argument("--tol", type=float, default=0.003, help="Gate tolerance on aggregate Brier.")
     parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
     parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
@@ -812,6 +860,10 @@ def main():
     parser.add_argument("--disable-long-job-guard", action="store_true")
     parser.add_argument("--force-long-job-lock", action="store_true")
     args = parser.parse_args()
+    if args.require_incumbent_control and not args.corpus:
+        parser.error("--require-incumbent-control requires --corpus")
+    if args.require_incumbent_control and (args.settle or args.daily_summary or args.include_reconstructed):
+        parser.error("incumbent controls use pinned labels and captured inputs; overrides/reconstruction are diagnostic only")
 
     overrides = {}
     for item in args.settle:
@@ -831,11 +883,15 @@ def main():
                 + ", ".join(outside)
             )
     if not folders:
+        if args.require_incumbent_control:
+            raise SystemExit("Incumbent control FAIL: no pinned snapshot tapes selected")
         root = Path(args.snapshots_root)
         folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
     if args.market:
         folders = [f for f in folders if folder_market_id(f) == args.market]
     if not folders:
+        if args.require_incumbent_control:
+            raise SystemExit("Incumbent control FAIL: no pinned snapshot tapes selected")
         print("No snapshot tapes found.")
         return
 
@@ -853,7 +909,17 @@ def main():
             include_reconstructed=args.include_reconstructed,
             corpus_manifest=corpus_manifest,
             long_job_guard_info=guard,
+            require_incumbent_control=args.require_incumbent_control,
         )
+
+    if args.require_incumbent_control:
+        control = results["incumbent_control"]
+        print(f"Incumbent distribution control: {control['status']}")
+        if control["status"] != "PASS":
+            for reason in control["reasons"]:
+                print(f"  {reason}")
+            print(f"Diagnostic report written to {args.out}")
+            sys.exit(1)
 
     if results["snaps_scored"] == 0:
         print("\nNo snapshots had replay inputs yet. Seed the corpus by running the")
@@ -868,14 +934,11 @@ def main():
             f"recorded {aggregate['recorded_brier']:.4f} vs market {aggregate['market_brier']:.4f} "
             f"(code effect {aggregate['code_effect']:+.4f})"
         )
+    print(fidelity_diagnostic(results))
     if fid.get("same_identity_n"):
-        verdict = "faithful" if fid.get("same_identity_faithful") else "CHECK CORPUS"
-        print(f"Fidelity canary: {fid['same_identity_n']} same-identity snapshots, "
-              f"mean L1 {fid['same_identity_mean_l1']:.5f} ({verdict})")
-    elif fid.get("legacy_same_version_n"):
-        print("Fidelity canary: no exact-identity snapshots yet; "
-              f"{fid['legacy_same_version_n']} legacy same-label snapshot(s) excluded "
-              f"(mean L1 {fid['legacy_same_version_mean_l1']:.5f})")
+        print(f"Fidelity canary: {fid['same_identity_n']} exact-identity snapshots; "
+              f"mean L1 {fmt_num(fid.get('same_identity_mean_l1'))}, "
+              f"max L1 {fmt_num(fid.get('same_identity_max_l1'))}")
     print(f"Report written to {args.out}")
 
     if args.save_baseline:
@@ -883,7 +946,7 @@ def main():
         print(f"Baseline saved to {args.save_baseline}")
     if args.gate:
         passed, message = gate(args.gate, results, args.tol)
-        print(f"Regression gate: {message}")
+        print(f"Aggregate Brier diagnostic: {message}")
         if not passed:
             sys.exit(1)
 

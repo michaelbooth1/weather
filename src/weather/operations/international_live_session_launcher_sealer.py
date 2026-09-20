@@ -13,9 +13,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from weather.market.mm_live_candidate_cli import (
-    load_candidate_discovery_gate,
-    validate_bound_economics_acceptance_files,
+from weather.market.mm_live_stage0_scope import (
+    load_stage0_scope_discovery_gate,
+    validate_bound_stage0_event_metadata,
+)
+from weather.market.mm_live_stage1_lifecycle_plan import (
+    load_stage1_lifecycle_discovery_gate,
 )
 from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.execution_host import (
@@ -77,12 +80,7 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage0-credential-reference-manifest.json"
         ),
-        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS["stage0"][
-            "accepted_economics_snapshot"
-        ],
-        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS["stage0"][
-            "economics_drift_report"
-        ],
+        "event_metadata": fixed_sealer.INPUT_LAYOUTS["stage0"]["event_metadata"],
         "discovery_plan": "inputs/stage0-discovery-plan.json",
         "reviewed_status_flags": "inputs/stage0-reviewed-status-flags.json",
         "build_receipt": "inputs/stage0-session-manifest-build-receipt.json",
@@ -95,12 +93,9 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage1-cancel-all-credential-reference-manifest.json"
         ),
-        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS[
+        "event_metadata": fixed_sealer.INPUT_LAYOUTS[
             "stage1_cancel_all"
-        ]["accepted_economics_snapshot"],
-        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS[
-            "stage1_cancel_all"
-        ]["economics_drift_report"],
+        ]["event_metadata"],
         "discovery_plan": "inputs/stage1-cancel-all-discovery-plan.json",
         "reviewed_status_flags": (
             "inputs/stage1-cancel-all-reviewed-status-flags.json"
@@ -117,12 +112,9 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage1-dead-man-credential-reference-manifest.json"
         ),
-        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS[
+        "event_metadata": fixed_sealer.INPUT_LAYOUTS[
             "stage1_dead_man"
-        ]["accepted_economics_snapshot"],
-        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS[
-            "stage1_dead_man"
-        ]["economics_drift_report"],
+        ]["event_metadata"],
         "discovery_plan": "inputs/stage1-dead-man-discovery-plan.json",
         "reviewed_status_flags": (
             "inputs/stage1-dead-man-reviewed-status-flags.json"
@@ -136,6 +128,12 @@ STAGED_INPUT_LAYOUTS = {
 
 class SessionLauncherSealError(RuntimeError):
     """Raised when a reviewed fixed-session launcher cannot be prepared."""
+
+
+def _load_stage_discovery_gate(stage: str, path: Path, *, now: datetime):
+    if stage == "stage0":
+        return load_stage0_scope_discovery_gate(path, now=now)
+    return load_stage1_lifecycle_discovery_gate(path, now=now)
 
 
 def _sha(path: Path) -> str:
@@ -597,11 +595,10 @@ def prepare_fixed_session_manifest(
     identity_source_path: str | Path,
     credential_import_receipt_source_path: str | Path,
     credential_reference_manifest_source_path: str | Path,
-    accepted_economics_snapshot_source_path: str | Path,
-    economics_drift_report_source_path: str | Path,
     attempt_root: str | Path,
     lease_workload: str,
     execution_host_profile: str,
+    event_metadata_source_path: str | Path | None = None,
     reviewed_status_flags_path: str | Path | None = None,
     production_root: str | Path = REPO_ROOT,
     now: datetime | None = None,
@@ -686,14 +683,20 @@ def prepare_fixed_session_manifest(
         git_state_validator=git_state_validator,
     )
     layout = STAGED_INPUT_LAYOUTS[stage]
-    source_arguments = {
+    source_arguments: dict[str, str | Path | None] = {
         "identity": identity_source_path,
         "credential_import_receipt": credential_import_receipt_source_path,
         "credential_reference_manifest": credential_reference_manifest_source_path,
-        "accepted_economics_snapshot": accepted_economics_snapshot_source_path,
-        "economics_drift_report": economics_drift_report_source_path,
         "discovery_plan": discovery_plan_path,
     }
+    source_arguments["event_metadata"] = event_metadata_source_path
+    missing_arguments = sorted(
+        role for role, value in source_arguments.items() if value is None
+    )
+    if missing_arguments:
+        raise SessionLauncherSealError(
+            "stage-specific public input is absent: " + ", ".join(missing_arguments)
+        )
     staged: dict[str, dict[str, Any]] = {}
     pending_writes: list[tuple[Path, bytes]] = []
     destinations: set[str] = set()
@@ -727,13 +730,14 @@ def prepare_fixed_session_manifest(
         pending_writes.append((destination, raw))
 
     try:
-        discovery = load_candidate_discovery_gate(
+        discovery = _load_stage_discovery_gate(
+            stage,
             Path(staged["discovery_plan"]["source_path"]),
             now=current,
         )
     except RuntimeError as exc:
         raise SessionLauncherSealError(
-            f"discovery plan failed complete candidate gate: {exc}"
+            f"discovery plan failed the stage-specific complete gate: {exc}"
         ) from exc
     if discovery["plan_sha256"] != staged["discovery_plan"]["sha256"]:
         raise SessionLauncherSealError("discovery plan changed during validation")
@@ -741,21 +745,16 @@ def prepare_fixed_session_manifest(
     if market is None:
         raise SessionLauncherSealError("discovery plan market is not built in")
     try:
-        validate_bound_economics_acceptance_files(
-            Path(staged["accepted_economics_snapshot"]["source_path"]),
-            Path(staged["economics_drift_report"]["source_path"]),
-            discovery["economics_acceptance"],
+        validate_bound_stage0_event_metadata(
+            Path(staged["event_metadata"]["source_path"]),
+            discovery["event_metadata"],
             target_date=discovery["target_date"],
-            current_snapshot_id=discovery["economics_acceptance"][
-                "accepted_snapshot_id"
-            ],
-            current_snapshot_sha256=discovery["economics_acceptance"][
-                "accepted_snapshot_sha256"
-            ],
+            current_gamma=discovery["current_gamma"],
+            now=current,
         )
     except RuntimeError as exc:
         raise SessionLauncherSealError(
-            "discovery plan economics acceptance does not match its source evidence"
+            "discovery plan does not match its stage-specific source evidence"
         ) from exc
     reference_payload = fixed_sealer._validate_credential_reference_manifest(
         Path(staged["credential_reference_manifest"]["source_path"])
@@ -763,12 +762,12 @@ def prepare_fixed_session_manifest(
     try:
         fixed_sealer._validate_credential_import_receipt(
             Path(staged["credential_import_receipt"]["source_path"]),
-            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=current,
         )
     except fixed_sealer.SealError as exc:
         raise SessionLauncherSealError(
-            "first-session manifest requires compare-only credential evidence"
+            "session manifest requires exact host/principal-bound credential provenance"
         ) from exc
     fixed_sealer._validate_identity(
         Path(staged["identity"]["source_path"]),
@@ -827,6 +826,12 @@ def prepare_fixed_session_manifest(
         raise SessionLauncherSealError(
             "session manifest build namespace is already spent"
         )
+    manifest_input_roles = (
+        "identity",
+        "credential_import_receipt",
+        "credential_reference_manifest",
+        "event_metadata",
+    )
     manifest: dict[str, Any] = {
         "schema_version": SESSION_SCHEMA_VERSION,
         "stage": stage,
@@ -849,15 +854,8 @@ def prepare_fixed_session_manifest(
                 "path": staged[role]["path"],
                 "sha256": staged[role]["sha256"],
             }
-            for role in (
-                "identity",
-                "credential_import_receipt",
-                "credential_reference_manifest",
-                "accepted_economics_snapshot",
-                "economics_drift_report",
-            )
+            for role in manifest_input_roles
         },
-        "economics_acceptance": discovery["economics_acceptance"],
         "reviewed_status_flags": reviewed_status_flags,
         "template_sha256": reviewed_inventory["template_sha256"],
         "source_sha256": reviewed_inventory["source_sha256"],
@@ -1002,14 +1000,14 @@ def _validate_manifest_build_receipt(
         {"sha256", "semantic_sha256", "expires_at_utc", "unconstrained_discovery_only"},
         label="session manifest build receipt discovery",
     )
+    expected_manifest_keys = {
+        "schema_version", "manifest_sha256", "stage", "production", "scope",
+        "inputs", "reviewed_status_flags", "template_sha256", "source_sha256",
+        "production_python_sha256", "session_bootstrap_sha256",
+    }
     _require_exact_object(
         manifest,
-        {
-            "schema_version", "manifest_sha256", "stage", "production", "scope",
-            "inputs", "economics_acceptance", "reviewed_status_flags",
-            "template_sha256", "source_sha256",
-            "production_python_sha256", "session_bootstrap_sha256",
-        },
+        expected_manifest_keys,
         label="session manifest",
     )
     production = _require_exact_object(
@@ -1030,13 +1028,13 @@ def _validate_manifest_build_receipt(
         },
         label="session manifest scope",
     )
+    expected_input_roles = {
+        "identity", "credential_import_receipt",
+        "credential_reference_manifest", "event_metadata",
+    }
     inputs = _require_exact_object(
         manifest["inputs"],
-        {
-            "identity", "credential_import_receipt",
-            "credential_reference_manifest", "accepted_economics_snapshot",
-            "economics_drift_report",
-        },
+        expected_input_roles,
         label="session manifest inputs",
     )
     expected_session_seconds = FIXED_SESSION_SECONDS_BY_PROFILE.get(
@@ -1111,11 +1109,7 @@ def _validate_manifest_build_receipt(
     staged_value = receipt["staged_public_inputs"]
     if not isinstance(staged_value, dict):
         raise SessionLauncherSealError("staged public inputs are not an object")
-    required_roles = {
-        "identity", "credential_import_receipt",
-        "credential_reference_manifest", "accepted_economics_snapshot",
-        "economics_drift_report", "discovery_plan",
-    }
+    required_roles = set(expected_input_roles) | {"discovery_plan"}
     if not required_roles.issubset(staged_value) or not set(staged_value).issubset(
         required_roles | {"reviewed_status_flags"}
     ):
@@ -1147,10 +1141,7 @@ def _validate_manifest_build_receipt(
             raise SessionLauncherSealError(f"staged public input {role} changed")
         staged[role] = record
 
-    for role in (
-        "identity", "credential_import_receipt", "credential_reference_manifest",
-        "accepted_economics_snapshot", "economics_drift_report",
-    ):
+    for role in sorted(expected_input_roles):
         manifest_input = _require_exact_object(
             inputs[role],
             {"path", "sha256"},
@@ -1167,17 +1158,21 @@ def _validate_manifest_build_receipt(
     try:
         fixed_sealer._validate_credential_import_receipt(
             Path(str(staged["credential_import_receipt"]["path"])),
-            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=now,
         )
     except fixed_sealer.SealError as exc:
         raise SessionLauncherSealError(
-            "staged first-session credential evidence is not compare-only"
+            "staged credential provenance is not an exact host/principal-bound result"
         ) from exc
 
     discovery_path = Path(str(staged["discovery_plan"]["path"]))
     try:
-        discovery = load_candidate_discovery_gate(discovery_path, now=prepared)
+        discovery = _load_stage_discovery_gate(
+            stage,
+            discovery_path,
+            now=prepared,
+        )
     except RuntimeError as exc:
         raise SessionLauncherSealError(
             "staged discovery does not satisfy the canonical builder receipt"
@@ -1194,29 +1189,22 @@ def _validate_manifest_build_receipt(
             scope["market_id"] == discovery["market_id"],
             scope["condition_id"] == discovery["condition_id"],
             scope["token_id"] == discovery["token_id"],
-            manifest["economics_acceptance"]
-            == discovery["economics_acceptance"],
         )
     ):
         raise SessionLauncherSealError(
             "session manifest scope differs from its staged discovery"
         )
     try:
-        validate_bound_economics_acceptance_files(
-            Path(str(staged["accepted_economics_snapshot"]["path"])),
-            Path(str(staged["economics_drift_report"]["path"])),
-            manifest["economics_acceptance"],
+        validate_bound_stage0_event_metadata(
+            Path(str(staged["event_metadata"]["path"])),
+            discovery["event_metadata"],
             target_date=scope["target_date"],
-            current_snapshot_id=discovery["economics_acceptance"][
-                "accepted_snapshot_id"
-            ],
-            current_snapshot_sha256=discovery["economics_acceptance"][
-                "accepted_snapshot_sha256"
-            ],
+            current_gamma=discovery["current_gamma"],
+            now=prepared,
         )
     except RuntimeError as exc:
         raise SessionLauncherSealError(
-            "staged economics acceptance evidence differs from the manifest"
+            "staged stage-specific scope evidence differs from the manifest"
         ) from exc
 
     status_flags = manifest["reviewed_status_flags"]
@@ -1449,13 +1437,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--credential-import-receipt-source",
         required=True,
         help=(
-            "fresh host-and-principal-bound v0.4 compare-only receipt proving all four "
-            "existing fixed entries with zero credential-store mutation"
+            "retained v0.4 creation or exact-comparison receipt for this host/principal; "
+            "installation provenance has no age expiry, and live authentication is repeated"
         ),
     )
     manifest.add_argument("--credential-reference-manifest-source", required=True)
-    manifest.add_argument("--accepted-economics-snapshot-source", required=True)
-    manifest.add_argument("--economics-drift-report-source", required=True)
+    manifest.add_argument(
+        "--event-metadata-source",
+        required=True,
+        help="fresh generated location_market_events input bound by the plan",
+    )
     manifest.add_argument("--attempt-root", required=True)
     manifest.add_argument("--lease-workload", required=True)
     manifest.add_argument(
@@ -1501,12 +1492,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 credential_reference_manifest_source_path=(
                     args.credential_reference_manifest_source
                 ),
-                accepted_economics_snapshot_source_path=(
-                    args.accepted_economics_snapshot_source
-                ),
-                economics_drift_report_source_path=(
-                    args.economics_drift_report_source
-                ),
+                event_metadata_source_path=args.event_metadata_source,
                 attempt_root=args.attempt_root,
                 lease_workload=args.lease_workload,
                 execution_host_profile=args.execution_host_profile,

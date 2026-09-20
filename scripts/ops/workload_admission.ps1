@@ -619,6 +619,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.calibration.residual_preflight",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",

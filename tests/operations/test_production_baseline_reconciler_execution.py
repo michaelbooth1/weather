@@ -61,7 +61,7 @@ class Harness:
     scheduler_wrapper: Path
     wrapper: Path
     published_target: str
-    conflict_target: str
+    conflict_target: str | None
     source_tip: str
     source_tree: str
     source_sha256: str
@@ -1156,6 +1156,7 @@ def _build_harness(
     *,
     unrelated_target: bool = False,
     changed_target_config: bool = False,
+    with_conflict_target: bool = False,
     source_base: str = REVIEWED_PARENT,
 ) -> Harness:
     assert REAL_GIT is not None
@@ -1181,11 +1182,17 @@ def _build_harness(
         "refs/heads/master",
         published_target,
     )
-    conflict_target = _make_conflict_target(root, origin)
+    # Only the genuine merge-conflict case needs this additional full checkout.
+    conflict_target = (
+        _make_conflict_target(root, origin) if with_conflict_target else None
+    )
 
     production = root / "production"
     _git(root, "clone", "--no-checkout", str(origin), str(production))
     _configure_repo(production)
+    # Clone may normalize Windows path case; bind both synthetic checkouts to
+    # the exact fixture URL expected by the unchanged case-sensitive guard.
+    _git(production, "remote", "set-url", "origin", str(origin.resolve()))
     _git(production, "checkout", "--force", "-B", "master", LOCAL_BASELINE)
     for relative, raw_bytes in RAW_CONFIG_BYTES.items():
         destination = production / relative
@@ -1334,6 +1341,8 @@ def _invoke(
 ) -> subprocess.CompletedProcess[str]:
     assert WINDOWS_POWERSHELL is not None
     assert REAL_GIT is not None
+    if git_mode == "merge_conflict":
+        assert harness.conflict_target is not None
     environment = os.environ.copy()
     environment.update(
         {
@@ -1344,7 +1353,7 @@ def _invoke(
             "RECON_TEST_GIT_LOG": str(harness.git_log),
             "RECON_TEST_GIT_MODE": git_mode,
             "RECON_TEST_PUBLISHED_TARGET": harness.published_target,
-            "RECON_TEST_CONFLICT_TARGET": harness.conflict_target,
+            "RECON_TEST_CONFLICT_TARGET": harness.conflict_target or "",
             "RECON_TEST_EXPECTED_TIP": expected_tip or harness.source_tip,
             "RECON_TEST_EXPECTED_BASELINE": expected_baseline,
             "RECON_TEST_EXPECTED_LOCAL": expected_local,
@@ -1587,6 +1596,8 @@ def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
     tmp_path: Path,
 ) -> None:
     harness = _build_harness(tmp_path)
+    assert harness.conflict_target is None
+    assert not (harness.root / "merge-conflict-target").exists()
     before = _production_state(harness)
 
     result = _invoke(harness, dry_run=True)
@@ -2318,9 +2329,12 @@ def test_reconciliation_failure_injections_preserve_safe_state(
     phase: str | None,
     push_attempted: bool | None,
 ) -> None:
-    harness = _build_harness(tmp_path)
+    harness = _build_harness(
+        tmp_path, with_conflict_target=failure == "merge_conflict"
+    )
     invoke: dict[str, Any] = {}
     if failure == "merge_conflict":
+        assert (harness.root / "merge-conflict-target").is_dir()
         invoke["git_mode"] = "merge_conflict"
     elif failure == "capture":
         invoke["capture_fail_at"] = 2

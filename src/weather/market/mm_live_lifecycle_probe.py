@@ -1,7 +1,7 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
 This module accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.4`` gate. The bounded operator CLI wires that narrow
+``mm_platform_bootstrap_v0.6`` gate. The bounded operator CLI wires that narrow
 surface to credential references; the ordinary maker runner never calls it.
 """
 
@@ -16,6 +16,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.mm_pilot_capital import (
+    collateral_within_capital_scope, pilot_capital_limit,
+)
 from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )
@@ -30,7 +33,7 @@ from weather.market.mm_official_adapter import (
 SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.3"
 JOURNAL_SCHEMA_VERSION = "mm_live_lifecycle_probe_journal_v0.2"
 LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.3"
-BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
+BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.6"
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
 CANCELLATION_MODES = {"cancel_all", "dead_man"}
 OFFICIAL_HEARTBEAT_INTERVAL_SECONDS = 5.0
@@ -287,13 +290,13 @@ def _validate_candidate_fee_and_neg_risk(
         raise RuntimeError("Stage 1 candidate/current fee binding is invalid") from exc
     if (
         not candidate_fee_rate.is_finite()
-        or candidate_fee_rate <= 0
+        or candidate_fee_rate < 0
         or not current_fee_rate_bps.is_finite()
-        or current_fee_rate_bps <= 0
+        or current_fee_rate_bps < 0
         or not isinstance(expected_candidate_neg_risk, bool)
         or not isinstance(market_rules.get("neg_risk"), bool)
     ):
-        raise RuntimeError("Stage 1 current market is not exactly fee eligible")
+        raise RuntimeError("Stage 1 current market fee/neg-risk rules are invalid")
     if (
         candidate_fee_rate != current_fee_rate_bps / Decimal("10000")
         or market_rules.get("neg_risk") is not expected_candidate_neg_risk
@@ -348,9 +351,7 @@ def _action_time_collateral_snapshot(adapter, bootstrap_gate):
     allowance_usdc = allowance_atomic / scale
     try:
         requested_budget = Decimal(str(bootstrap_gate.get("requested_budget_usdc")))
-        wallet_cap = Decimal(
-            str(bootstrap_gate.get("pilot_wallet_max_funding_usdc"))
-        )
+        wallet_cap = pilot_capital_limit(bootstrap_gate)
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise RuntimeError("Stage 1 collateral budget binding is invalid") from exc
     if requested_budget != MAX_STAGE1_ORDER_NOTIONAL:
@@ -360,7 +361,7 @@ def _action_time_collateral_snapshot(adapter, bootstrap_gate):
         or wallet_cap <= 0
         or wallet_cap > Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
         or balance_usdc < requested_budget
-        or balance_usdc > wallet_cap
+        or not collateral_within_capital_scope(bootstrap_gate, balance_usdc)
         or allowance_usdc < requested_budget
     ):
         raise RuntimeError("Stage 1 action-time collateral is outside the sealed budget/cap")
@@ -379,7 +380,7 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
     checks = bootstrap_gate.get("checks")
     try:
         requested_budget = Decimal(str(bootstrap_gate.get("requested_budget_usdc")))
-        wallet_cap = Decimal(str(bootstrap_gate.get("pilot_wallet_max_funding_usdc")))
+        wallet_cap = pilot_capital_limit(bootstrap_gate)
     except (ArithmeticError, TypeError, ValueError):
         requested_budget = wallet_cap = None
     operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
@@ -663,9 +664,8 @@ def execute_stage1_lifecycle_probe(
             allowance_usdc=float(submit_collateral["allowance_usdc"]),
             snapshot_sha256=submit_collateral["sha256"],
             requested_budget_usdc=float(requested_budget),
-            wallet_cap_usdc=float(
-                Decimal(str(bootstrap_gate["pilot_wallet_max_funding_usdc"]))
-            ),
+            pilot_capital_limit_pusd=float(pilot_capital_limit(bootstrap_gate)),
+            pilot_capital_mode=bootstrap_gate.get("pilot_capital_mode", "isolated_wallet"),
         )
         if submit_deadline is None or wall_clock().astimezone(timezone.utc) >= submit_deadline:
             raise RuntimeError("Stage 1 submit deadline has expired")
@@ -1395,7 +1395,7 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
     journal_evidence = {}
     stream_journal_evidence = {}
     requested_budget = Decimal(str(bootstrap_gate.get("requested_budget_usdc")))
-    wallet_cap = Decimal(str(bootstrap_gate.get("pilot_wallet_max_funding_usdc")))
+    wallet_cap = pilot_capital_limit(bootstrap_gate)
     operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
     if not all((
         requested_budget.is_finite(),
@@ -1447,9 +1447,9 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             is True,
             "action_time_market_rules": (
                 candidate_fee_rate.is_finite()
-                and candidate_fee_rate > 0
+                and candidate_fee_rate >= 0
                 and current_fee_rate_bps.is_finite()
-                and current_fee_rate_bps > 0
+                and current_fee_rate_bps >= 0
                 and candidate_fee_rate == current_fee_rate_bps / Decimal("10000")
                 and isinstance(result.get("candidate_neg_risk"), bool)
                 and result.get("candidate_neg_risk")
@@ -1468,7 +1468,8 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             "user_observation": result.get("authoritative_user_event_observed") is True,
             "action_time_collateral": (
                 collateral_balance.is_finite()
-                and requested_budget <= collateral_balance <= wallet_cap
+                and requested_budget <= collateral_balance
+                and collateral_within_capital_scope(bootstrap_gate, collateral_balance)
                 and collateral_allowance.is_finite()
                 and collateral_allowance >= requested_budget
             ),

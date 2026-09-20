@@ -22,6 +22,14 @@ from weather.market.market_making_preflight import (
     recent_utc_timestamp,
 )
 from weather.market.mm_policy import maybe_float, parse_time, utc_now
+from weather.market.exchange_economics_sources import (
+    check_response_budget,
+    current_reward_page,
+    json_response_payload,
+    response_evidence,
+    response_evidence_valid,
+    response_payload_matches,
+)
 from weather.paths import config_path, data_path, docs_path
 from weather.schema_registry import schema_version
 
@@ -127,43 +135,40 @@ def _default_fetch_json(url, *, timeout_seconds=20.0):
         },
     )
     with urlopen(request, timeout=float(timeout_seconds)) as response:
-        body = response.read()
+        body = response.read(MAX_SOURCE_RESPONSE_BYTES + 1)
         status = getattr(response, "status", None) or response.getcode()
         content_type = response.headers.get("Content-Type", "")
     if int(status) != 200:
         raise ValueError(f"exchange economics source returned HTTP {status}: {url}")
-    try:
-        payload = json.loads(body.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"exchange economics source returned invalid JSON: {url}") from exc
-    return payload, {
-        "url": url,
-        "http_status": int(status),
-        "content_type": content_type,
-        "response_bytes": len(body),
-        "response_sha256": _sha256_bytes(body),
-    }
+    if len(body) > MAX_SOURCE_RESPONSE_BYTES:
+        raise ValueError(f"exchange economics source exceeded size limit: {url}")
+    payload = json_response_payload(body)
+    return payload, response_evidence(
+        body, url=url, http_status=int(status), content_type=content_type,
+        origin="http_response_bytes",
+    )
 
 
 def _call_fetch_json(fetch_json, url, *, timeout_seconds):
     result = fetch_json(url, timeout_seconds=timeout_seconds)
     if isinstance(result, tuple) and len(result) == 2:
         payload, evidence = result
+        if not response_evidence_valid(evidence, require_body=True):
+            raise ValueError("exchange economics response requires complete captured evidence")
     else:
         payload = result
         body = _canonical_json_bytes(payload)
-        evidence = {
-            "url": url,
-            "http_status": 200,
-            "content_type": "application/json",
-            "response_bytes": len(body),
-            "response_sha256": _sha256_bytes(body),
-        }
-    evidence = dict(evidence or {})
-    evidence.setdefault("url", url)
-    evidence.setdefault("http_status", 200)
-    if not non_empty_text(str(evidence.get("response_sha256") or "")):
-        evidence["response_sha256"] = _sha256_bytes(_canonical_json_bytes(payload))
+        # Injectable parsed fixtures remain explicitly distinct from HTTP bytes.
+        json_response_payload(body)
+        evidence = response_evidence(
+            body, url=url, http_status=200, content_type="application/json",
+            origin="caller_supplied_canonical_json",
+        )
+    evidence = dict(evidence)
+    if evidence["url"] != url or evidence["http_status"] != 200:
+        raise ValueError("exchange economics response request/status mismatch")
+    if not response_payload_matches(evidence, payload):
+        raise ValueError("exchange economics parsed response differs from captured bytes")
     return payload, evidence
 
 
@@ -187,33 +192,34 @@ def _default_fetch_text(url, *, timeout_seconds=20.0):
         text = body.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError(f"exchange economics rule source was not UTF-8: {url}") from exc
-    return text, {
-        "url": url,
-        "http_status": int(status),
-        "content_type": content_type,
-        "response_bytes": len(body),
-        "response_sha256": _sha256_bytes(body),
-    }
+    return text, response_evidence(
+        body, url=url, http_status=int(status), content_type=content_type,
+        origin="http_response_bytes",
+    )
 
 
 def _call_fetch_text(fetch_text, url, *, timeout_seconds):
     result = fetch_text(url, timeout_seconds=timeout_seconds)
     if isinstance(result, tuple) and len(result) == 2:
         source_text, evidence = result
+        if not response_evidence_valid(evidence, require_body=True):
+            raise ValueError("exchange economics rule response requires complete captured evidence")
     else:
         source_text = result
-        evidence = {}
+        evidence = None
     if not isinstance(source_text, str) or not source_text.strip():
         raise ValueError(f"exchange economics rule source returned empty text: {url}")
     body = source_text.encode("utf-8")
     if len(body) > MAX_SOURCE_RESPONSE_BYTES:
         raise ValueError(f"exchange economics rule source exceeded size limit: {url}")
-    evidence = dict(evidence or {})
-    evidence.setdefault("url", url)
-    evidence.setdefault("http_status", 200)
-    evidence.setdefault("content_type", "text/markdown")
-    evidence.setdefault("response_bytes", len(body))
-    evidence.setdefault("response_sha256", _sha256_bytes(body))
+    evidence = dict(evidence) if evidence is not None else response_evidence(
+        body, url=url, http_status=200, content_type="text/markdown",
+        origin="caller_supplied_text",
+    )
+    if evidence["url"] != url or evidence["http_status"] != 200:
+        raise ValueError("exchange economics rule response request/status mismatch")
+    if not response_payload_matches(evidence, source_text, text=True):
+        raise ValueError("exchange economics rule text differs from captured bytes")
     return source_text, evidence
 
 
@@ -373,16 +379,24 @@ def _fetch_current_rewards(fetch_json, *, timeout_seconds, page_limit=500, max_p
     evidence = []
     cursor = None
     seen_cursors = set()
-    for _page in range(int(max_pages)):
+    seen_conditions = set()
+    if type(page_limit) is not int or not 1 <= page_limit <= 500:
+        raise ValueError("current rewards page limit must be between 1 and 500")
+    if type(max_pages) is not int or not 1 <= max_pages <= 50:
+        raise ValueError("current rewards page count must be between 1 and 50")
+    for _page in range(max_pages):
         query = {"limit": int(page_limit)}
         if cursor:
             query["next_cursor"] = cursor
         url = f"{CLOB_CURRENT_REWARDS_URL}?{urlencode(query)}"
         payload, proof = _call_fetch_json(fetch_json, url, timeout_seconds=timeout_seconds)
         evidence.append(proof)
-        rows.extend((payload or {}).get("data") or [])
-        next_cursor = str((payload or {}).get("next_cursor") or "").strip()
-        if not next_cursor or next_cursor in {"LTE=", "-1"}:
+        check_response_budget(evidence)
+        page_rows, next_cursor = current_reward_page(
+            payload, page_limit=page_limit, seen_conditions=seen_conditions,
+        )
+        rows.extend(page_rows)
+        if next_cursor == "LTE=":
             break
         if next_cursor in seen_cursors:
             raise ValueError(f"current rewards pagination repeated cursor {next_cursor!r}")
@@ -423,7 +437,12 @@ def collect_global_snapshot_payload(
     now_dt = utc_now(now)
     target_text = _target_text(target_date or now_dt.date())
     event_metadata_path = Path(event_metadata_path)
-    event_metadata = _load_json(event_metadata_path)
+    # Keep the parsed input and its hash bound across concurrent metadata refreshes.
+    try:
+        registry_bytes = event_metadata_path.read_bytes()
+        event_metadata = json.loads(registry_bytes.decode("utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        event_metadata = None
     if event_metadata is None:
         raise ValueError(f"invalid or missing event metadata: {event_metadata_path}")
     event_rows, missing_locations = _event_rows_for_global_snapshot(event_metadata, target_text)
@@ -447,6 +466,7 @@ def collect_global_snapshot_payload(
         url = GAMMA_EVENT_BY_SLUG_URL.format(slug=quote(selected["event_slug"], safe=""))
         event_payload, proof = _call_fetch_json(fetch_json, url, timeout_seconds=timeout_seconds)
         response_evidence.append(proof)
+        check_response_budget(response_evidence + rule_documents)
         if str((event_payload or {}).get("slug") or "") != selected["event_slug"]:
             raise ValueError(f"Gamma event identity mismatch for {selected['event_slug']}")
         gamma_events.append((selected, event_payload))
@@ -456,6 +476,7 @@ def collect_global_snapshot_payload(
         timeout_seconds=timeout_seconds,
     )
     response_evidence.extend(reward_evidence)
+    check_response_budget(response_evidence + rule_documents)
     rewards_by_condition = {
         str(row.get("condition_id") or "").lower(): row
         for row in reward_rows
@@ -540,7 +561,6 @@ def collect_global_snapshot_payload(
         raise ValueError("Gamma events contained no selected weather conditions")
     markets.sort(key=lambda row: (row["event_date"] or "", row["location_id"], row["condition_id"]))
 
-    registry_bytes = event_metadata_path.read_bytes()
     fetched_at = now_dt.isoformat()
     fee_rate = _uniform_value(markets, ("fee_schedule", "rate"))
     rebate_rate = _uniform_value(markets, ("fee_schedule", "rebate_rate"))
@@ -897,6 +917,7 @@ def _global_market_economics_checks(payload):
         int(row.get("http_status") or 0) == 200
         and non_empty_text(str(row.get("url") or ""))
         and len(str(row.get("response_sha256") or "")) == 64
+        and response_evidence_valid(row)
         for row in responses
     )
     expected_rule_urls = set(GLOBAL_SOURCE_URLS)
@@ -912,6 +933,7 @@ def _global_market_economics_checks(payload):
             and row.get("url") == GLOBAL_SOURCE_MARKDOWN_URLS.get(row.get("canonical_url"))
             and len(str(row.get("response_sha256") or "")) == 64
             and int(row.get("response_bytes") or 0) > 0
+            and response_evidence_valid(row)
             for row in rule_documents
         )
     )
@@ -1094,6 +1116,56 @@ def _check_snapshot_payload(payload, *, path=None, target_date=None, platform=DE
     }
 
 
+def check_snapshot_payload(payload, *, path=None, target_date=None,
+                           platform=DEFAULT_PLATFORM, now=None, max_age_hours=None):
+    """Apply the canonical economics gate to an already bounded JSON object."""
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("snapshot must be an object")
+        return _check_snapshot_payload(payload, path=path, target_date=target_date,
+                                       platform=platform, now=now, max_age_hours=max_age_hours)
+    except (AttributeError, TypeError, ValueError, KeyError, OverflowError):
+        return {"required": True, "ok": False, "status": "BLOCK",
+                "missing": ["snapshot_invalid_shape"],
+                "reason": "exchange-economics snapshot has invalid structured evidence"}
+
+
+def economics_drift_receipt_checks(current, accepted, drift):
+    """Content bindings shared by candidate admission and read-only displays."""
+    invalid = {"drift_pass": False, "drift_identity": False, "drift_current_gate": False}
+    try:
+        if not all(isinstance(value, dict) for value in (current, accepted, drift)):
+            return invalid
+        current_hash, accepted_hash = snapshot_hash(current), snapshot_hash(accepted)
+        current_identifier, accepted_identifier = snapshot_id(current), snapshot_id(accepted)
+        gate = drift.get("current_gate")
+        return {
+            "drift_pass": (
+                drift.get("status") == "PASS"
+                and drift.get("rescore_required") is False
+                and drift.get("accepted_snapshot_present") is True
+                and type(drift.get("material_change_count")) is int
+                and drift.get("material_change_count") == 0
+                and drift.get("material_changes") == [] and drift.get("blockers") == []
+            ),
+            "drift_identity": (
+                drift.get("current_snapshot_id") == current_identifier
+                and drift.get("current_snapshot_hash") == current_hash
+                and drift.get("accepted_snapshot_id") == accepted_identifier
+                and drift.get("accepted_snapshot_hash") == accepted_hash
+                and current_identifier == accepted_identifier and current_hash == accepted_hash
+            ),
+            "drift_current_gate": (
+                isinstance(gate, dict) and gate.get("ok") is True
+                and gate.get("status") == "PASS" and gate.get("missing") == []
+                and gate.get("snapshot_id") == current_identifier
+                and gate.get("snapshot_hash") == current_hash
+            ),
+        }
+    except (AttributeError, TypeError, ValueError, KeyError, OverflowError):
+        return invalid
+
+
 def load_exchange_economics_gate(
     path=DEFAULT_SNAPSHOT,
     target_date=None,
@@ -1142,7 +1214,7 @@ def load_exchange_economics_gate(
             "reason": "invalid exchange-economics snapshot JSON",
             "missing": ["snapshot_invalid_json"],
         }
-    return _check_snapshot_payload(
+    return check_snapshot_payload(
         payload,
         path=path,
         target_date=target_date,

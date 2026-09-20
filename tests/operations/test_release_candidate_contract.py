@@ -1730,3 +1730,97 @@ def test_production_candidate_rejects_fresh_evaluation_over_stale_targets(
             candidate_mode="production",
             point_in_time_artifacts=evidence,
         )
+
+
+
+def _bound_location_fixture(paths):
+    from weather.operations.location_config_refresh import prepare_refresh, publish_refresh
+
+    config = paths["repo"] / "config"
+    locations = config / "locations.json"
+    raw = b"\xef\xbb\xbf" + locations.read_bytes().replace(b", ", b",\r\n ")
+    locations.write_bytes(raw)
+    prepared = prepare_refresh(
+        locations_path=locations, event_metadata_path=config / "location_market_events.json",
+        events=[], generated_at_utc="2026-01-01T00:00:00+00:00", metadata_only=True,
+    )
+    return publish_refresh(prepared)
+
+
+def _semantic_inventory(candidate):
+    contract_path = candidate / SEMANTIC_PATHS["semantic_serving_contract"]
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    inventory = [
+        {"role": role, "declared": True, **row}
+        for role, row in contract["artifacts"].items()
+    ]
+    inventory.append({
+        "role": "semantic_serving_contract", "declared": True, "kind": "contract",
+        "path": SEMANTIC_PATHS["semantic_serving_contract"],
+        "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+        "bytes": contract_path.stat().st_size,
+    })
+    return inventory
+
+
+def test_candidate_freezes_exact_generation_buffers_despite_projection_drift(tmp_path):
+    from weather.release_artifacts import _verify_semantic_contract_after_inventory
+
+    paths = _fixture(tmp_path)
+    pair = _bound_location_fixture(paths)
+    (paths["repo"] / "config" / "locations.json").write_bytes(b'{"locations":[]}')
+    frozen = _freeze(paths)
+    assert frozen["location_config_pair"] == pair.identity()
+    assert (paths["candidate"] / SEMANTIC_PATHS["locations_config"]).read_bytes() == pair.registry_bytes
+    assert (paths["candidate"] / SEMANTIC_PATHS["location_market_events_config"]).read_bytes() == pair.metadata_bytes
+    verified = _verify_semantic_contract_after_inventory(
+        paths["candidate"], _semantic_inventory(paths["candidate"]),
+    )
+    assert verified["location_config_pair"] == pair.identity()
+
+
+@pytest.mark.parametrize("verifier", ["candidate", "release"])
+def test_both_semantic_verifiers_reject_a_rehashed_mixed_config_pair(tmp_path, verifier):
+    from weather.release_artifacts import (
+        ReleaseArtifactVerificationError, _verify_semantic_contract_after_inventory,
+    )
+
+    paths = _fixture(tmp_path)
+    _bound_location_fixture(paths)
+    _freeze(paths)
+    candidate = paths["candidate"]
+    locations = candidate / SEMANTIC_PATHS["locations_config"]
+    changed = b'{"locations":[{"id":"different-generation"}]}'
+    locations.write_bytes(changed)
+    contract_path = candidate / SEMANTIC_PATHS["semantic_serving_contract"]
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["artifacts"]["locations_config"].update(
+        sha256=hashlib.sha256(changed).hexdigest(), bytes=len(changed),
+    )
+    _write_json(contract_path, _finalize_contract_hash(contract, "payload_sha256"))
+    with pytest.raises(ReleaseArtifactVerificationError, match="differs from embedded"):
+        if verifier == "candidate":
+            verify_candidate_semantic_contract(candidate)
+        else:
+            _verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))
+
+
+@pytest.mark.parametrize("verifier", ["candidate", "release"])
+def test_both_semantic_verifiers_reject_changed_declared_generation_identity(tmp_path, verifier):
+    from weather.release_artifacts import (
+        ReleaseArtifactVerificationError, _verify_semantic_contract_after_inventory,
+    )
+
+    paths = _fixture(tmp_path)
+    _bound_location_fixture(paths)
+    _freeze(paths)
+    candidate = paths["candidate"]
+    contract_path = candidate / SEMANTIC_PATHS["semantic_serving_contract"]
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["location_config_pair"]["generation_id"] = "0" * 64
+    _write_json(contract_path, _finalize_contract_hash(contract, "payload_sha256"))
+    with pytest.raises(ReleaseArtifactVerificationError, match="config identity mismatch"):
+        if verifier == "candidate":
+            verify_candidate_semantic_contract(candidate)
+        else:
+            _verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))

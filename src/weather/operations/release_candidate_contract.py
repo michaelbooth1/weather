@@ -14,6 +14,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from weather.market.location_config import (
+    LocationConfigError, read_location_config_pair, verify_frozen_config_pair,
+)
 from weather.model.feature_safety import audit_recursive_model_inputs
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
@@ -157,6 +160,34 @@ def _copy_canonical_json(source: Path, destination: Path, *, label: str) -> dict
     payload = _read_json(source, label=label)
     _write_json_exclusive(destination, payload)
     return payload
+
+
+def _freeze_location_config_pair(config_root: Path, candidate_root: Path):
+    """Freeze exactly the two buffers chosen by one generation-aware read."""
+    locations_path = config_root / "locations.json"
+    metadata_path = config_root / "location_market_events.json"
+    if locations_path.is_symlink() or metadata_path.is_symlink():
+        raise CandidateContractError("location config source must not be a symlink")
+    try:
+        pair = read_location_config_pair(locations_path, metadata_path)
+    except (OSError, LocationConfigError) as exc:
+        raise CandidateContractError(f"location config pair cannot be frozen: {exc}") from exc
+    for role, raw in (
+        ("locations_config", pair.registry_bytes),
+        ("location_market_events_config", pair.metadata_bytes),
+    ):
+        destination = candidate_root / SEMANTIC_PATHS[role]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with destination.open("xb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except FileExistsError as exc:
+            raise CandidateContractError(
+                f"candidate semantic artifact already exists: {destination}"
+            ) from exc
+    return pair
 
 
 def _freeze_model_variant_registry(
@@ -1249,6 +1280,14 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
             sidecar = _read_json(path, label=role)
             _verify_payload_hash(sidecar, label=role)
             sidecars[role] = sidecar
+    try:
+        config_pair = verify_frozen_config_pair(root, artifacts)
+    except (OSError, LocationConfigError) as exc:
+        raise CandidateContractError(f"frozen location config pair is invalid: {exc}") from exc
+    declared_pair = contract.get("location_config_pair")
+    if ((declared_pair is not None or config_pair.generation_id is not None)
+            and declared_pair != config_pair.identity()):
+        raise CandidateContractError("semantic contract location config identity mismatch")
     _verify_component_sidecars(sidecars)
     _verify_base_model_graph(
         graph=sidecars["base_model_serving_graph"],
@@ -1413,6 +1452,7 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
         "candidate_mode": candidate_mode,
         "production_capable": production_capable,
         "point_in_time_qualification": qualification,
+        "location_config_pair": config_pair.identity(),
     }
 
 
@@ -1487,6 +1527,7 @@ def freeze_candidate_semantic_contract(
             ) from exc
     sidecars = _bundle_sidecars(bundle, bundle_sha)
     model_relative_path = model_path.relative_to(root).as_posix()
+    config_pair = _freeze_location_config_pair(config_root, root)
     source_documents = {
         "model_variant_registry": _freeze_model_variant_registry(
             config_root / "model_variant_registry.json",
@@ -1496,16 +1537,8 @@ def freeze_candidate_semantic_contract(
             bundle_sha256=bundle_sha,
             model_relative_path=model_relative_path,
         ),
-        "locations_config": _copy_canonical_json(
-            config_root / "locations.json",
-            root / SEMANTIC_PATHS["locations_config"],
-            label="locations config",
-        ),
-        "location_market_events_config": _copy_canonical_json(
-            config_root / "location_market_events.json",
-            root / SEMANTIC_PATHS["location_market_events_config"],
-            label="location market-events config",
-        ),
+        "locations_config": config_pair.locations_payload,
+        "location_market_events_config": config_pair.event_metadata_payload,
         "markets_config": _copy_canonical_json(
             config_root / "markets.json",
             root / SEMANTIC_PATHS["markets_config"],
@@ -1756,6 +1789,7 @@ def freeze_candidate_semantic_contract(
             "leakage_audit_status": audit["status"],
             "required_role_kinds": required_role_kinds,
             "artifacts": artifact_rows,
+            "location_config_pair": config_pair.identity(),
             **(
                 {
                     "point_in_time_qualification": (

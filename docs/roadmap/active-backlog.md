@@ -11,14 +11,14 @@ Status: `OK`
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 326 |
-| Active items | 37 |
+| Items | 329 |
+| Active items | 40 |
 | OPEN | 3 |
-| PARTIAL | 34 |
+| PARTIAL | 37 |
 | COMPLETE | 289 |
-| ROADMAP rows | 326 |
-| ROADMAP primary rows | 326 |
-| Metadata manifest rows | 326 |
+| ROADMAP rows | 329 |
+| ROADMAP primary rows | 329 |
+| Metadata manifest rows | 329 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -27,7 +27,7 @@ Status: `OK`
 | :--- | :--- | :--- | :--- | :--- |
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
-| 67 | PARTIAL | 2026-08-30 | PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-09-06 | ATTENDED STAGE 0/1 PASSED; ECONOMIC PILOT OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
@@ -59,9 +59,12 @@ Status: `OK`
 | 325 | PARTIAL | 2026-09-13 | QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | PARTIAL | 2026-09-07 | STAGE 0/1 PROVED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 | 331 | PARTIAL | 2026-09-12 | LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
 | 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
+| 333 | PARTIAL | 2026-09-07 | INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN | [Reproducible Runtime And Paired Model Comparison](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
+| 334 | PARTIAL | 2026-09-07 | SELECTED SOURCE NATIVE VERIFIED; ADOPTION/EVIDENCE OPEN | [Post-Reclaim Model Economics And Research Plan](items/item-334-post-reclaim-model-economics-and-research-plan.md) |
+| 335 | PARTIAL | 2026-09-07 | NATIVE VERIFIED; IMPACT AND ADOPTION OPEN | [Signed Native Temperature Band Correctness](items/item-335-signed-native-temperature-band-correctness.md) |
 
 ## Lint Issues
 

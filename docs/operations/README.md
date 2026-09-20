@@ -54,6 +54,7 @@ right now is the generated `data/alerts/MORNING_BRIEFING.md` and `scripts\ops\st
 | [package-boundaries.md](package-boundaries.md) | Adding an import across packages. |
 | [PYTHON_RUNTIME_AUDIT_GATE.md](PYTHON_RUNTIME_AUDIT_GATE.md) | Running or changing the focused runtime lint, daily-refresh smoke, Streamlit-route smoke or log-signature checks. Its tracked baseline is [python-runtime-audit-baseline.json](python-runtime-audit-baseline.json). |
 | [RESEARCH_AUDIT_HARNESS.md](RESEARCH_AUDIT_HARNESS.md) | Running a research audit script; distinguishes fixture-only from networked entrypoints. |
+| [replay-incumbent-control.md](replay-incumbent-control.md) | Running or citing the opt-in replay incumbent distribution check; its diagnostic Brier delta is descriptive and proves no model improvement or historical serving reproduction. |
 
 The root `README.md`, `pyproject.toml`, `pytest.ini` and `.github/workflows/ci.yml` are the
 authoritative setup and baseline-test surfaces; [`../development.md`](../development.md) owns
@@ -84,6 +85,12 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md) | Any work toward the bounded International Polymarket maker pilot. Never authorizes Polymarket US and never makes a blocked gate pass. |
 | [PORTABLE_LIVE_EXECUTION_HOST.md](PORTABLE_LIVE_EXECUTION_HOST.md) | Provisioning, binding or relocating the second-PC attended Stage 0/1 executor. |
 | [maker-incentive-feasibility.md](maker-incentive-feasibility.md) | Evaluating an explicit maker BUY plan against incentives; a pure calculation contract. |
+| [exchange-economics-source-evidence.md](exchange-economics-source-evidence.md) | Parsing or validating the public exchange-economics and current-reward sources that feed the feasibility calculator. Establishes no opportunity and no earnings. |
+| [maker-opportunity-report.md](maker-opportunity-report.md) | Running the bounded public maker opportunity capture or its offline order/capital report. No order, account or paid-profit authority. |
+| [liquidity-reward-simulator.md](liquidity-reward-simulator.md) | Using or changing the offline Streamlit reward simulator page (`?market=simulator`); explicit hypothetical inputs only. |
+| [maker-account-evidence-capture.md](maker-account-evidence-capture.md) | Scoping account earnings capture or cash attribution for paid maker incentives; defines the missing collection boundary and authorizes nothing live. |
+| [paid-credit-activity-evidence.md](paid-credit-activity-evidence.md) | Joining a supplied activity row to a pUSD transfer receipt with the pure `bridge_activity_credits` transform. |
+| [OPERATOR_MONITOR.md](OPERATOR_MONITOR.md) | Launching or changing the read-only Streamlit Control Room / Roadmap monitor; it exposes no order, cancel, credential, promotion or risk control. |
 
 ## Configuration, paths and artifacts
 
