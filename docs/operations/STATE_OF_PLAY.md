@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-19 America/Toronto (after the 2026-09-18 full audit; adoption night pending).**
+**Last updated: 2026-09-20 America/Toronto (after the first adoption night since 09-13).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the current decision and
@@ -25,10 +25,10 @@ and never moves; the tunnel must be down during any live session) — see
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | `master` = `3bdba3d15` (2026-09-13). Nothing has merged since. About 400 commits sit off master; 41 enabled scheduled tasks execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
-| Disk | 2026-09-19: duplicate Git LFS model pickles in 152 linked worktrees were replaced by pointers under a dated owner waiver; free space went 36.9 -> 89.2 GiB. Free space is a daily **sawtooth** whose low is ~04:50; judge headroom at the low, never at the evening reading. `write_order_books_long_csv=false` is approved and on a branch, not live. |
-| Landing path | The 50 GiB suite floor is no longer the blocker. Pushed and awaiting tonight's window: three audit-fix branches (`claude/audit-rollfree-fixes-20260919`, `claude/audit-python-fixes-20260919`, `claude/activate-long-csv-off-20260919`, all roll-free by `roll_verdict.ps1` or by file type) and `codex/reliability-host-qual-20260919` = PR 61 + those fixes + the fifth host-id fixture. No complete host-suite PASS exists for any PR 61 tip yet. The merge tool refuses outside 00:30-09:00 regardless of verdict. |
-| Memory guard | The kill path of `memory_commit_guard.ps1` has been inert since 2026-08-23 (`$pid` assigned to the constant `$PID`). Fix is on the roll-free branch; once merged the guard really terminates out-of-window pytest/scan trees. |
+| Production source | `master` = `dde26c664` (2026-09-20 00:49): the first adoptions since 2026-09-13 - the memory-guard fix, trough-based disk headroom in `status.ps1`, projection-tiering headroom sizing, and the long-CSV switch. About 400 commits still sit off master; 41 enabled scheduled tasks execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
+| Disk | 2026-09-19: duplicate Git LFS model pickles in 152 linked worktrees were replaced by pointers under a dated owner waiver (36.9 -> 89.2 GiB free). `write_order_books_long_csv=false` has been LIVE since 2026-09-20 00:49:06 local; long CSVs for event days open at that moment stop there. Free space is a daily **sawtooth** whose low is ~04:50; judge headroom at the low. |
+| Landing path | **Blocked by the pagefile, not by code.** `AutomaticManagedPagefile=True` and the pagefile shrank to 5.9 GB while the disk was full, so the commit limit is ~22 GB (15.7 GB RAM + pagefile; July recorded 63.7 GB). Every commit-percent gate divides by it: the host suite aborted in chunk 5 of 21 at 66.28% vs its 66% ceiling with ~8 GB RAM free (2026-09-20 00:56), exactly as on 09-13/14. **Owner action: set a fixed pagefile (16-32 GB); agents are not permitted to.** Also: master's `bounded_worktree_test_suite.ps1` cannot run on this host (PowerShell 5.1 `.Rows` bug); the fix is inside `codex/reliability-host-qual-20260919` (= PR 61 + audit fixes + fifth host-id fixture), whose chunks 1-4 passed. The merge tool and the lease refuse outside 00:30-09:00 regardless of verdict; pass `-RepoRoot` explicitly to ops scripts launched with `powershell -File`. |
+| Memory guard | The kill path of `memory_commit_guard.ps1` was inert 2026-08-23 -> 2026-09-20 00:38 (`$pid` assigned to the constant `$PID`). Fixed on master: the guard now really terminates out-of-window pytest/scan trees. |
 | Settlement | 15 dates unsettled: 08-17, 08-28..09-01, 09-04..09-10, 09-13, 09-17. 09-16 and 09-18 are settled. The alarm looks back only 14 days, so older holes vanish from the briefing unsettled. Repair is per date: `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, 35-40 min each, never `chain_recovery_run.ps1` directly. The chain is single-shot and its 70% commit gate is measured against a live limit of about 22 GB. |
 | Capture | Healthy: three workers, no capture gap on 2026-09-19. Worker health does not prove settled, countable dates. |
 | Armed recurring work | Capture/safety supervisors, 05:00 projection and 06:00 raw-tape tiering, configuration/economics refreshes, the maker paper roll, staleness/countability reports and the 09:30 Stage-A chain. **Nightly training and further archive uploads are DISABLED**; the data mirror is PAUSED since 2026-08-12; the taker track is PAUSED. A scheduled time is not completion. The deployed watchdog is newer than `master` (hash-pinned parameters master lacks): never re-register it from master. |
@@ -40,8 +40,8 @@ and never moves; the tunnel must be down during any live session) — see
 
 ## Ordered non-live critical path
 
-1. Adopt the three audit-fix branches, then qualify and adopt `codex/reliability-host-qual-20260919`
-   (suite from master's `bounded_worktree_test_suite.ps1`; merge inside 01:00-04:00).
+1. **Owner: fix the pagefile** (Landing path row). Then qualify `codex/reliability-host-qual-20260919`
+   with its own runner and adopt it inside 01:00-04:00.
 2. Backfill settlement newest-first, one admitted date at a time; keep 04:45-06:45 lease-free.
 3. Run the two maker studies on bounded samples; record results in item 330 and the digest,
    whatever their sign. Verify the taker-fee question before quoting any rebate figure.
