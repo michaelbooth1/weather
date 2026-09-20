@@ -135,7 +135,9 @@ def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         [GIT, *args],
         cwd=repo,
-        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
+        # SKIP_PUSH matters as much as SKIP_SMUDGE: the LFS pre-push hook otherwise copies every
+        # model pickle (~363 MiB) into each fixture clone's own LFS store on its first push.
+        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1", "GIT_LFS_SKIP_PUSH": "1"},
         check=False,
         capture_output=True,
         text=True,
@@ -204,8 +206,27 @@ def _build_reconciliation_status_fixture(
 
     bare_origin = tmp_path / "origin.git"
     _git(tmp_path, "init", "--bare", str(bare_origin))
+    # Borrow the source repository's objects instead of receiving them. Without this the push
+    # below copied the project's whole history (a ~1 GB pack) into every test directory: about
+    # 0.9 GiB per test, tens of GiB per run of this module, and pytest keeps three runs. On a
+    # capture host that was 20 GiB from full, that is a disk incident, not test hygiene.
+    source_objects = Path(
+        subprocess.run(
+            [GIT, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    ) / "objects"
+    alternates = bare_origin / "objects" / "info" / "alternates"
+    alternates.parent.mkdir(parents=True, exist_ok=True)
+    # Bytes, not text: Windows text mode writes CRLF and git then looks for ".../objects\r".
+    alternates.write_bytes((source_objects.as_posix() + "\n").encode("utf-8"))
     _git(repo, "remote", "set-url", "origin", str(bare_origin))
-    _git(repo, "push", "origin", f"{published_target}:refs/heads/master")
+    # Seed the published ref directly: every object is already reachable through the alternate,
+    # so there is nothing to transfer. A push here re-sent ~494 MiB regardless.
+    _git(bare_origin, "update-ref", "refs/heads/master", published_target)
     _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
 
     _git(repo, "checkout", "--detach", safety_base)
@@ -1803,6 +1824,110 @@ def test_disk_alarm_distinguishes_a_short_burst_from_multi_day_burn() -> None:
     assert "disk 24h burst is" in text
     assert "keep tiering armed and treat the short window as a burst" in text
     assert "delta_48h_gb_per_day" in text
+
+
+def _disk_trough_headroom(
+    samples: list[dict[str, object]], *, current_free_gb: float, now: str
+) -> dict[str, object]:
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+$functionAst = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Get-WeatherDiskTroughHeadroom'
+}, $true)) | Select-Object -First 1
+if ($null -eq $functionAst) { throw 'missing function Get-WeatherDiskTroughHeadroom' }
+Invoke-Expression $functionAst.Extent.Text
+# Windows PowerShell 5.1 emits a parsed JSON array as ONE object; enumerate it explicitly.
+$parsed = ConvertFrom-Json -InputObject $env:WEATHER_DISK_SAMPLES
+$samples = @($parsed | ForEach-Object { $_ })
+Get-WeatherDiskTroughHeadroom `
+    -Samples $samples `
+    -CurrentFreeGB ([double]$env:WEATHER_DISK_CURRENT) `
+    -Now ([datetime]$env:WEATHER_DISK_NOW) | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_DISK_SAMPLES": json.dumps(samples),
+            "WEATHER_DISK_CURRENT": str(current_free_gb),
+            "WEATHER_DISK_NOW": now,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _sawtooth(day: int, *, low: float, high: float) -> list[dict[str, object]]:
+    # 96 quarter-hour samples: fill all day, bottom at 04:45, tiering returns it at 05:00.
+    samples = []
+    for quarter in range(96):
+        hour, minute = divmod(quarter * 15, 60)
+        since_reclaim = (quarter - 20) % 96
+        free = high - (high - low) * since_reclaim / 95
+        samples.append(
+            {"ts": f"2026-09-{day:02d}T{hour:02d}:{minute:02d}:00", "free_gb": round(free, 1)}
+        )
+    return samples
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_disk_headroom_is_measured_at_the_daily_low_not_the_current_reading() -> None:
+    # The 2026-09-17/18 shape: lows 25.9 then 14.2 GB while the evening reading said 21 GB and
+    # the same-clock slope said "about 4 days".
+    samples = _sawtooth(17, low=25.9, high=41.9) + _sawtooth(18, low=14.2, high=29.4)
+
+    outcome = _disk_trough_headroom(
+        samples, current_free_gb=21.0, now="2026-09-18T23:59:00"
+    )
+
+    assert outcome["low_24h_gb"] == 14.2
+    assert outcome["low_prior_24h_gb"] == 25.9
+    assert outcome["low_delta_gb_per_day"] == -11.7
+    assert outcome["days_until_low_reaches_zero"] == 1.2
+    assert outcome["prior_window_covered"] is True
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_disk_low_slope_is_refused_when_the_prior_day_was_barely_sampled() -> None:
+    # A prior window that never sampled its own low must not produce a comfortable slope.
+    thin_prior = _sawtooth(17, low=25.9, high=41.9)[60:70]
+    samples = thin_prior + _sawtooth(18, low=14.2, high=29.4)
+
+    outcome = _disk_trough_headroom(
+        samples, current_free_gb=21.0, now="2026-09-18T23:59:00"
+    )
+
+    assert outcome["low_24h_gb"] == 14.2
+    assert outcome["samples_prior_24h"] == 10
+    assert outcome["prior_window_covered"] is False
+    assert outcome["low_delta_gb_per_day"] is None
+    assert outcome["days_until_low_reaches_zero"] is None
+
+
+def test_disk_low_alarm_cannot_be_downgraded_by_the_burst_branch() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    burst = text.index("keep tiering armed and treat the short window as a burst")
+    low_alarm = text.index("disk DAILY LOW is")
+    assert burst < low_alarm
+    assert "deliberately independent of the burst downgrade" in text[burst:low_alarm]
+    assert "daily_low = $diskTrough" in text
+    assert "$tieringSkipIsUrgent" in text
 
 
 def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
