@@ -30,14 +30,14 @@ assumed small one. The July `NOT_VIABLE_CURRENT_TRACK` report and the
 zero-edge sensitivity grid used the June scale as input; their inputs are
 stale, their logic is not reopened here.
 
-**Two studies authored, both UNEXECUTED as of 2026-09-19.** Neither has been
-run on any data, neither is on `master`, and neither produces a trading
+**Two studies authored 2026-09-19 and first executed 2026-09-20 (results below).** Neither
+is on `master` until its branch is adopted, and neither produces a trading
 authorization, a promotion input, or a statement about our own fills.
 
 | Branch | What it is | State |
 | --- | --- | --- |
-| `codex/execution-tape-markout-20260919` | Maker markout from the public execution tape ([item 326](item-326-supervised-continuous-public-execution-tape.md)), the tape's first analytical consumer. **Pre-registered before any result** (`docs/research/execution-tape-markout-preregistration-2026-09-19.md` on that branch). Primary metric, fixed: **share-weighted net maker P&L per share at the 5-minute horizon**, all markets pooled, two-sided midpoints only, **date-clustered** 90% interval. Fewer than 10 date clusters prints `UNDERPOWERED` and forces `INCONCLUSIVE`. The break-even reward per filled share `R` is deliberately unfilled and must be frozen before the analysis is read. | authored and tested; not executed |
-| `codex/reward-share-estimate-20260919` | Bounded estimator of our Q-score share from captured books: competing qualifying depth within the maximum distance of the adjusted midpoint, per rewarded band, for a 20-share and a 100-share two-sided quote. Per-maker depth is not observable, so it reports two bounding assumptions side by side (`single` competitor, `many` two-sided makers) and states that the truth may be worse than both. | authored and tested; not executed |
+| `codex/execution-tape-markout-20260919` | Maker markout from the public execution tape ([item 326](item-326-supervised-continuous-public-execution-tape.md)), the tape's first analytical consumer. **Pre-registered before any result** (`docs/research/execution-tape-markout-preregistration-2026-09-19.md` on that branch). Primary metric, fixed: **share-weighted net maker P&L per share at the 5-minute horizon**, all markets pooled, two-sided midpoints only, **date-clustered** 90% interval. Fewer than 10 date clusters prints `UNDERPOWERED` and forces `INCONCLUSIVE`. The break-even reward per filled share `R` is deliberately unfilled and must be frozen before the analysis is read. | executed 2026-09-20, 49 tests passed |
+| `codex/reward-share-estimate-20260919` | Bounded estimator of our Q-score share from captured books: competing qualifying depth within the maximum distance of the adjusted midpoint, per rewarded band, for a 20-share and a 100-share two-sided quote. Per-maker depth is not observable, so it reports two bounding assumptions side by side (`single` competitor, `many` two-sided makers) and states that the truth may be worse than both. | executed 2026-09-20, 24 tests passed |
 
 Their stated caveats bind any citation: the tape shows other makers' fills,
 queue position is unknown, cancelled quotes are invisible, midpoints come from
@@ -45,6 +45,42 @@ REST captures tens of seconds apart, and the rebate term is nominal because
 sampled tape rows on 2026-09-19 carried `fee_rate_bps: "0"` (unverified at
 scale; if it holds, the maker-rebate component of section 3 is zero on these
 markets).
+
+**First executions, 2026-09-20 (capture host, 06:47-06:55 local; tests 49 and 24
+passed against the branch source).** Outputs are host-local under `C:\tmp\markout-20260919\`,
+`C:\tmp\markout-30d-20260920\` and `C:\tmp\reward-share-20260919\`; rerun the branch
+CLIs to reproduce. **Pre-registration deviation, stated plainly:** `R` was not frozen
+before the markout result was read (verdict printed `R_NOT_SUPPLIED`), so the
+pre-registered KILL / SUPPORTIVE rule can no longer be applied cleanly to these
+dates. The numbers below are descriptive estimates, not a decision.
+
+- **Markout, 30 most recent closed dates: 377,104 public trades, 30 date clusters.**
+  The aggressor side is recorded on every trade (quote-rule agreement 93.3%).
+  **`fee_rate_bps` is 0 on 377,104 of 377,104 trades: treat the maker rebate on these
+  markets as zero until a paid rebate is observed.** Share-weighted maker markout
+  per filled share, rebate excluded: **+0.375 c at 1 minute, +0.192 c at 5 minutes,
+  +0.096 c at 30 minutes, -0.432 c to settlement** (23 clusters with settlement).
+  The pre-registered primary (5 minutes, share-weighted, *including* the nominal
+  rebate) is +0.308 c, date-clustered 90% interval [+0.224, +0.390]; to settlement
+  it is -0.349 c [-0.906, +0.129]. Reading: passive fills on the public tape were
+  not adversely selected over minutes, and cost roughly 0.4 c per share if the
+  inventory is carried to settlement. These are other makers' fills; our queue
+  position, cancelled quotes and quotes that never filled are invisible.
+- **Reward share, event dates 2026-09-16 and 09-17, 82 rewarded bands, 1.98M book
+  rows, 100% minute coverage.** In the conservative column (unsampled or one-sided
+  minutes count as zero) a two-sided 20-share quote 2 c from the midpoint on the
+  5-6 same-day 20-share bands models to about 71-158 per day on about 100 pUSD of
+  capital; a 100-share quote on the 29-42 same-day 100-share bands to about
+  915-1,278 per day on 2.8-4.0k. Median per-band mean share for the 20-share quote
+  is 0.39 (range 0.11-0.60): displayed qualifying competition is thin and bursty.
+  **Too good to take at face value.** Unproven: the unit of `rate_per_day`; that a
+  lone qualifying maker is paid the whole minute; the venue's adjusted midpoint;
+  per-maker decomposition of displayed depth (truth may be worse than both bounds).
+- **What this changes.** Both desk measurements now point the same way, and both
+  stop at the same wall: nothing here can be confirmed without one paid reward
+  epoch at minimum size. That is a live action and needs the owner's instruction
+  and a band cap of about 25 pUSD (a two-sided 20-share quote costs about 19.60).
+  `R` should be frozen from the first paid epoch before any further markout read.
 
 **Cap-versus-minimum conflict (W3, open).** The 10 pUSD per-band ceiling cannot
 hold a reward-eligible quote: a two-sided 20-share quote reserves about 19.60
