@@ -1,5 +1,17 @@
 # Wunderground CYYZ History Data Layer
 
+- **Owns:** the local Weather Underground history layer for one station: collection CLI, failure classes and
+  recovery, on-disk layout, and daily-summary fields.
+- **Read when:** a WU history day is missing, `backfill_errors.jsonl` has poisoned a date, or you need the layout
+  under `data/wunderground/<station>/`.
+- **Do not use for:** settlement and unit invariants ([Agent Context](AGENT_CONTEXT.md)), the multi-market
+  architecture ([architecture](../architecture.md)), settling a market day (the daily chain and
+  `settlement_backfill_one.ps1`, see [Operations Design](OPERATIONS_DESIGN.md)), or which source the venue currently
+  resolves on ([STATE_OF_PLAY](STATE_OF_PLAY.md) records a venue source change that this file predates).
+- **Verify with:** the subparsers in `src/weather/sources/wu_history.py` (`public-backfill`, `rebuild`, `audit`,
+  `coverage`, `recover-unavailable`, `analyze`; `--market` is a top-level option). Network and Python commands here
+  follow [HOST_LOAD_POLICY](HOST_LOAD_POLICY.md) on the capture host.
+
 Classification: historical Toronto foundation plus a current CYYZ recovery
 runbook. It is not the canonical multi-market architecture description; use
 [Agent Context](AGENT_CONTEXT.md) for current settlement/unit invariants.
@@ -103,3 +115,11 @@ this becomes the historical prior for the live model.
    at each hour, estimate final bucket and score calibration.
 5. Feed the calibrated historical prior into `TorontoHighTempModel` as a
    low-latency local feature instead of relying only on live forecasts.
+
+The plan above is the original Toronto design note, kept for context. It is not a work queue: no new model-alpha
+work is scheduled, and roadmap items own any live status.
+
+## Update this file when
+
+Update when the `wu_history` CLI subcommands or flags, failure classification, recovery procedure, or on-disk
+layout change.

@@ -2,6 +2,16 @@
 
 Status: canonical durable guide.
 
+- **Owns:** which package owns which responsibility, the end-to-end data flow, the authoritative store for each
+  kind of fact, and invariants that cross owners.
+- **Read when:** deciding where new code belongs, or tracing a value from capture to settlement to release.
+- **Do not use for:** allowed import edges ([package boundaries](operations/package-boundaries.md)), facade split
+  status ([module ownership map](operations/module-ownership-map.md)), scheduled tasks
+  ([operations design](operations/OPERATIONS_DESIGN.md)), or anything about today
+  ([STATE_OF_PLAY](operations/STATE_OF_PLAY.md)).
+- **Verify with:** `ls src/weather/` for the owner packages; `PACKAGE_ROOTS`, `SHARED_PACKAGE_ROOTS` and
+  `ALLOWED_PACKAGE_EDGES` in `tests/operations/test_import_architecture.py` for the enforced layering.
+
 The platform collects weather and market evidence for daily high-temperature
 markets, produces native-unit probability distributions, compares them with
 market prices and settlement outcomes, and promotes only artifacts that pass
@@ -21,6 +31,16 @@ the evidence and release gates.
 | `weather.reporting` | Audits, reports, scorecards, promotion and serving gates |
 | `weather.operations` | Supervisors, scheduled pipelines, releases, and operational audits |
 | Shared `weather.*` modules | Paths, units, IO, schemas, artifacts, scoring, identity, and release contracts |
+
+The shared row covers two different things. Ten roots are declared importable by every owner
+(`SHARED_PACKAGE_ROOTS`; `weather.scoring` is a package, the rest are flat modules). The remaining flat modules
+directly under `src/weather/` (release, point-in-time, experiment, execution-host and payload contracts) are not
+classified by the import ratchet at all: neither imports of them nor imports made by them are checked. Some already
+import owner packages (`weather.residual_distribution_release` imports calibration, model, operations and
+reporting; the shared `weather.variant_registry` re-exports `weather.reporting.candidate_lifecycle.variant_registry`),
+so an import of a root module can carry an owner-package dependency the ratchet does not see. Check with
+`git grep -nE "^\s*(from|import) weather\.(backtesting|calibration|collection|market|model|operations|reporting|sources)" -- ":(glob)src/weather/*.py"`
+and do not add new ones.
 
 [Package boundaries](operations/package-boundaries.md) are the detailed
 dependency contract. [The module ownership map](operations/module-ownership-map.md)
@@ -56,7 +76,9 @@ risk-setting actions. The frontend intentionally contains only this Control
 Room and the active Roadmap; retired market, history, overview, and operations
 views are not hidden routes or retained application code.
 
-The paper taker writes `orders_long.csv` and its counterfactual tape by append.
+The taker track is paused by owner decision (maker focus); read
+[STATE_OF_PLAY](operations/STATE_OF_PLAY.md) for whether it is running. Its storage contract still binds the code
+and the evidence already on disk. The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific
 date-bounded policy: daily-roll startup removes only hash-bound allowlisted raw
 and settled detail CSVs after both their target date and mtime exceed the

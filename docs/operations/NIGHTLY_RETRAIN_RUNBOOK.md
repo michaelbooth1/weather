@@ -1,5 +1,33 @@
 # Nightly Retrain, Validate, And Build Candidate Release Runbook
 
+- **Owns:** the `weather.operations.nightly_retrain` CLI contract, the two
+  training registrars (`scripts/ops/register_training_window.ps1`,
+  `scripts/ops/register_nightly_retrain.ps1`), base-retrain bindings,
+  candidate/inactive-release outputs, reviewed promotion/rollback commands, and
+  the missed-run SLA.
+- **Read when:** you change or re-arm nightly training, build a candidate
+  release, or debug `nightly_retrain_status.json`.
+- **Do not use for:** whether training is armed today
+  ([STATE_OF_PLAY.md](STATE_OF_PLAY.md) and `Get-ScheduledTask`), host load
+  windows ([HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md)), or the Release #1
+  sequence ([RELEASE_ONE_BUILD_RUNBOOK.md](RELEASE_ONE_BUILD_RUNBOOK.md)).
+- **Verify with:** `Get-ScheduledTask -TaskName WeatherTrainingWindow*,WeatherNightlyRetrainValidatePromote`
+  (registered/enabled state) and `data\backtest\nightly_retrain_status.json`
+  (last run). Flags: the `build_run_parser` function in
+  `src/weather/operations/nightly_retrain.py`; registrar inputs: each script's
+  `param(...)` block.
+
+> **STATUS: DISABLED, and not on the critical path.** Nightly training is not
+> armed (owner decision in the 2026-09-13 Scheduler review: "Training and further
+> archive upload remain disabled"), and the standing decision is no new
+> model-alpha work. Nothing here runs on a schedule. The one-shot window task is
+> run-specific, so re-arming always means a new reviewed registration with a
+> new `RunAtLocal` and candidate directory, under an explicit owner decision
+> recorded in `STATE_OF_PLAY.md`. The daily 04:15 `WeatherTrainingWindowRestore`
+> dead-man restore is a capture-safety task, not training; check its state with
+> the command above rather than assuming. The procedure below is kept accurate
+> for when training is re-armed.
+
 This runbook covers the overnight self-improvement job that refreshes daily
 learning, retrains candidate artifacts, validates promotion evidence, and
 writes one operator-readable status report. It never activates a model: the
@@ -154,10 +182,9 @@ release builder creates a research-only inactive child. The active pointer is
 never changed. A production parent is rejected because its candidate-scoring
 qualification cannot be reused after changing the base distributions.
 
-Adding the code step does not register or edit a Windows scheduled task. Until
-the seven bindings and both external repairs are ready, merging this change
-would make the existing argument-free nightly action stop at the new fail-closed
-step; coordinate registration/adoption separately.
+The code step does not register or edit a Windows scheduled task. An
+argument-free `nightly_retrain run` stops at this fail-closed step because the
+eight bindings are absent; that is the intended behavior, not a defect.
 
 ## Research And Production Candidate Modes
 
@@ -171,17 +198,22 @@ either repeated `--point-in-time-folder` arguments, or the paired
 `--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. The
 generic candidate-scoring materialization schema is rejected. Folder mode
 builds a quality-grade-only replay manifest, then projects every manifest-
-pinned captured snapshot/band without loading a model. A reviewed
-`--point-in-time-source-replay-manifest` may pin the replay inventory; when it
-is omitted for a staged source, the prelock copies the exact replay manifest
-already hash-bound by that source. For example:
+pinned captured snapshot/band without loading a model. A staged source
+requires all four paths: the nightly preflight blocks when either
+`--point-in-time-source-replay-manifest` or `--point-in-time-source-receipt` is
+absent (`nightly_retrain.py`, search `point_in_time_source_receipt`), and it
+verifies the receipt before work. Pass the replay manifest that was built with
+the staged corpus, never an older `data/backtest/promotion_corpus.json`. Create
+the receipt with `python -m weather.operations.point_in_time_staging_receipt create`
+(see [RELEASE_ONE_BUILD_RUNBOOK.md](RELEASE_ONE_BUILD_RUNBOOK.md) §3). For example:
 
 ```powershell
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
-  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
-  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
-  --point-in-time-source-replay-manifest <promotion-corpus.json>
+  --point-in-time-source-corpus <staged-root>\preselection-source.parquet `
+  --point-in-time-source-manifest <staged-root>\preselection-source-manifest.json `
+  --point-in-time-source-replay-manifest <staged-root>\replay_manifest.json `
+  --point-in-time-source-receipt <staged-root>\staging-receipt.json
 ```
 
 Folder mode accepts repeated, reviewed settled folders and writes the same
@@ -271,10 +303,17 @@ As of 2026-07-31, the pooled direct-band trainer, family-secondary trainer,
 and promotion-refresh CLI accept `--family-unit C`. This is control-plane
 admission for Toronto only. It does not schedule a Celsius fit, create a
 preselection lock, run replay, change serving, or grant promotion permission.
-The existing Fahrenheit default remains unchanged.
+The existing Fahrenheit default remains unchanged, and the nightly orchestrator
+itself still accepts only `--family-unit F` (`choices=["F"]` in
+`nightly_retrain.py`); Celsius admission exists only on the three child CLIs
+(`weather.calibration.pooled_feature_cli`,
+`weather.calibration.family_secondary_artifacts`,
+`weather.reporting.promotion.cli`).
 
-Do not run the Celsius candidate workflow until the current production
-point-in-time lock is secured. After that lock, use a distinct candidate root
+Do not run the Celsius candidate workflow until a production point-in-time
+lock is secured. The Release #1 lock is deferred
+([release-one-deferred-until-a-retrained-candidate.md](release-one-deferred-until-a-retrained-candidate.md)),
+so this lane is dormant. After a lock, use a distinct candidate root
 for every Celsius output and follow the same preselection-before-fit ordering
 documented above. `--family-unit C` on the pooled trainer is intentionally
 limited to `--objective band`; the legacy bucket and density lanes are not
@@ -293,9 +332,10 @@ The one fail-closed bootstrap is explicit:
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
   --bootstrap-first-inactive-release `
-  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
-  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
-  --point-in-time-source-replay-manifest <promotion-corpus.json>
+  --point-in-time-source-corpus <staged-root>\preselection-source.parquet `
+  --point-in-time-source-manifest <staged-root>\preselection-source-manifest.json `
+  --point-in-time-source-replay-manifest <staged-root>\replay_manifest.json `
+  --point-in-time-source-receipt <staged-root>\staging-receipt.json
 ```
 
 The contract passes only when all of these conditions hold:

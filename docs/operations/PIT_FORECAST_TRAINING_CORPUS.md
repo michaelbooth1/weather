@@ -1,5 +1,24 @@
 # Point-In-Time Forecast Training Corpus
 
+- **Owns:** the immutable training-only forecast corpus contract:
+  `weather.sources.forecast_training_corpus` (`plan`, `resume-status`,
+  `materialize`), staging/publication rules, and how retraining consumes the
+  manifest.
+- **Read when:** planning, staging, verifying or consuming a PIT forecast corpus,
+  or debugging a base-retrain PIT-manifest preflight refusal.
+- **Do not use for:** which forecast source/population was chosen
+  ([forecast-source-and-training-population.md](forecast-source-and-training-population.md));
+  the retrain procedure ([NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md)).
+- **Verify with:** the subparsers at the end of
+  `src/weather/sources/forecast_training_corpus.py` and
+  `FIRST_RETRAIN_*` / the station-day exclusion registry in
+  `src/weather/operations/base_retrain.py`.
+
+> **Status:** dormant. No collection, fit or retrain is authorized or scheduled
+> (training disabled, new model-alpha work paused — `STATE_OF_PLAY.md`). The
+> module cannot fetch; any collector is a separate reviewed action and must use
+> a free source only (no paid weather APIs).
+
 This contract owns the training-only forecast input used to repair historical
 forecast blindness without changing the active serving archive. The corpus is
 immutable, cutoff-safe, content-addressed, and supplied explicitly to pooled
@@ -130,3 +149,9 @@ preflight receipts, and failure ledgers are evidence for the same run. Keep
 task execution under its declared run root until a separate operating decision
 assigns a durable repository-owned location. Never publish into or below
 `data/forecast_history`.
+
+## Update this file when
+
+Update when the corpus CLI, plan/staging/publication contract, excluded
+forecast fields, the first-retrain selection or exclusion registry, the
+research A/B/C variants, or the corpus storage class changes.

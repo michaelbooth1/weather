@@ -12,8 +12,11 @@ These instructions apply under `tools/`.
 - Write scratch/generated outputs under ignored `data/` or `scratch/`. Promote
   only reviewed historical reports to `docs/`, deterministic fixtures to
   `tests/fixtures/`, and qualified model state to `artifacts/`.
-- Bound large local analyses and follow the host-load policy. Unit-test reusable
-  parsing/analysis logic after moving it to its owner package.
+- Bound large local analyses and follow
+  [the host load policy](../docs/operations/HOST_LOAD_POLICY.md). A read-only
+  scan of `data/` is still heavy work on the capture host: it competes with
+  capture for memory and file handles, and an abandoned tool call keeps running.
+  Unit-test reusable parsing/analysis logic after moving it to its owner package.
 
 ## Update this file when
 

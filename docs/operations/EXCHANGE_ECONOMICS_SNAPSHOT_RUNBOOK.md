@@ -1,5 +1,20 @@
 # Exchange Economics Snapshot Runbook
 
+- **Owns:** collect / accept / drift for the exchange-economics snapshot
+  (`weather.market.exchange_economics`), its daily refresh task, and the
+  rebate/reward claim boundary.
+- **Read when:** the economics gate blocks paper evidence, the snapshot is
+  stale, or fees/rebates/rewards enter a P&L claim.
+- **Do not use for:** maker strategy or economic scope
+  ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)),
+  live order authority (none is authorized — `STATE_OF_PLAY.md`).
+- **Verify with:** `Get-ScheduledTask -TaskName WeatherExchangeEconomicsSnapshotRefresh | Get-ScheduledTaskInfo`
+  and the `verified_at_utc`/gate fields of
+  `data\backtest\exchange_economics_snapshot.json`.
+
+> **Status:** armed. The 2026-09-13 owner-reviewed Scheduler inventory retained the
+> economics refresh; confirm with `Get-ScheduledTask -TaskName WeatherExchangeEconomicsSnapshotRefresh`. Acceptance is always manual.
+
 This runbook owns the production lifecycle for
 `data/backtest/exchange_economics_snapshot.json` and
 `data/backtest/exchange_economics_accepted_snapshot.json`.
@@ -38,7 +53,7 @@ Official sources:
 Run outside the 12:00-18:00 graded capture window:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global --target-date 2026-08-13
+.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global --target-date <yyyy-mm-dd>
 ```
 
 The collector reads `config/location_market_events.json` to choose exact active
@@ -60,13 +75,19 @@ instead of replacing production state. Collection is not baseline acceptance:
 Audit the resulting gate and source hashes. Do not run `accept` merely because
 collection passed.
 
-The daily helper uses today's local date and the same collector:
+The daily helper `scripts\ops\refresh_exchange_economics_snapshot.ps1`
+(`-TargetDate` defaults to today's local date; `-EventMetadata`, `-Snapshot`,
+`-Platform`) runs the same collector. The scheduled task
+`WeatherExchangeEconomicsSnapshotRefresh` runs it daily; its registrar
+(`-At`, default `09:00`) replaces the task when re-run, so do not run the
+registrar just to refresh a snapshot:
 
 ```powershell
-.\scripts\ops\register_exchange_economics_refresh.ps1
+.\scripts\ops\refresh_exchange_economics_snapshot.ps1          # refresh now
+.\scripts\ops\register_exchange_economics_refresh.ps1          # (re)register the daily task
 ```
 
-It accepts only `polymarket_global`. A missing, stale, partially matched, or
+The helper accepts only `polymarket_global` and never accepts a baseline. A missing, stale, partially matched, or
 content-tampered snapshot blocks paper/trading evidence.
 
 This is a **current-day** proof. Do not apply today's per-condition rates to a
@@ -129,7 +150,7 @@ from the official contracts page. Never schedule automatic acceptance.
 ## Drift check
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-08-13
+.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date <yyyy-mm-dd>
 ```
 
 Healthy state requires a passing current gate, a present reviewed baseline, and
@@ -140,7 +161,7 @@ Location-level fee, rebate, fee-curve, tick, or minimum-order profile changes
 are material. Reward configuration is retained but cannot trigger a primary-P&L
 rescore while the enforced reward assumption remains zero.
 
-## Update when
+## Update this file when
 
 Update when the venue, official endpoints, snapshot schema, per-condition
 binding, reward claim boundary, refresh command, or acceptance procedure

@@ -1,6 +1,14 @@
 # Schema Registry Storage/Log Reconciliation
 
-Date: 2026-06-23
+Date: 2026-06-23. HISTORICAL reconciliation record for roadmap item 291, not the current registry. The table is
+the disposition of literals found on that date; owners and versions have moved since.
+
+- **Owns:** why each schema-like literal found in the item-291 audit was registered or excluded, and the ongoing rule.
+- **Read when:** deciding whether a new versioned literal must be registered or may be excluded.
+- **Do not use for:** the current set of schemas or their owners. Read `weather.schema_registry` (`list`, `audit`)
+  and the data shards named in the [module ownership map](module-ownership-map.md).
+- **Verify with:** the validation command below (heavy-work window on the capture host), or
+  `EXCLUDED_SCHEMA_LITERALS` in the registry data shards for the live exclusion list.
 
 The original roadmap audit found 47 unregistered schema-like literals. The
 authoritative pre-fix source audit for Item 291 found 50. The reconciliation
@@ -74,3 +82,8 @@ repair output, sidecar, or log, register it in `weather.schema_registry` and use
 `schema_version(...)` in producers. Only non-serialized policy/model identifiers
 belong in `EXCLUDED_SCHEMA_LITERALS`, and each exclusion must include owner,
 classification, and reason.
+
+## Update this file when
+
+Do not update the table; it is a dated record. Update only the ongoing rule above if the registration or
+exclusion policy of `weather.schema_registry` changes.

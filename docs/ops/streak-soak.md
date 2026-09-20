@@ -1,14 +1,30 @@
-# Code-soak streak — the #1 operational objective
+# Capture-day grading, host status and guarded merges — runbook (the streak is a diagnostic)
+
+| | |
+| --- | --- |
+| **Owns** | How a capture day is graded, the one-command status reads, overnight alerting, boot recovery, the guarded quiet-window merge procedure, and why the host is tuned the way it is. |
+| **Read when** | You need to check capture-day health, run or debug `status.ps1` / `streak.ps1`, land a branch with `quiet_window_merge.ps1`, or understand a `partial` grade. |
+| **Not here** | Objectives and today's priorities ([`STATE_OF_PLAY.md`](../operations/STATE_OF_PLAY.md)); heavy-work windows ([`HOST_LOAD_POLICY.md`](../operations/HOST_LOAD_POLICY.md)); who may merge and push ([`git-workflow.md`](../git-workflow.md#git-authority-one-rule-two-scopes)); the immutable integration-attempt procedure ([`INTEGRATION_ATTEMPT_RUNBOOK.md`](../operations/INTEGRATION_ATTEMPT_RUNBOOK.md)). |
+
+**The streak is not an objective.** Until 2026-09-19 this file's title ranked it first among
+operational objectives. The owner upheld the opposite on 2026-08-10
+([`ESTABLISHED_FINDINGS.md` §0d](../operations/ESTABLISHED_FINDINGS.md)): contiguity gates nothing
+on the critical path, both of its consumers are deferred, and its seven-day shelf life means it
+could never be banked. The objectives are capture and settlement evidence, reliable unattended
+execution, then the maker-economics refocus. **What counts is the volume of settled,
+promotion-countable dates.** Do not treat a broken streak as an emergency or a long one as an
+achievement. A capture gap still matters because the evidence is unrecoverable — that is why the
+procedures below stay in force.
 
 The **streak** is the number of *contiguous* operationally complete Toronto
 capture days. Fourteen in a row is the calendar/capture prerequisite for the
-point-in-time lock; it does **not** by itself prove that the fourteen folders
+(deferred) point-in-time lock; it does **not** by itself prove that the fourteen folders
 are admissible. The release window additionally needs exact current
 `complete` ledger revisions, strictly readable captured inputs and snapshot
 tapes, complete captured-input self-hashes, no reconstructed inputs, matching
 snapshot/settlement identity, and a passing production prelock/staging
-receipt. **Protecting capture cleanliness outranks all other routine work on
-this host**, but the release clock must report both properties.
+receipt. Protecting capture cleanliness still outranks routine ad-hoc work on
+this host, and the release clock must report both properties.
 
 ## Check it in one command
 
@@ -244,6 +260,12 @@ Windows Update active hours are 08:00–01:00, so its automatic restarts cannot 
 graded window.
 
 ## Is the off-host copy actually restorable? (WeatherMirrorRestoreVerify)
+
+> **PAUSED since 2026-08-12.** `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are Disabled by
+> operator decision and the off-host copy is frozen
+> ([record and restart steps](../operations/mirror-paused-2026-08-12.md)). The live answer is the
+> task state (`Get-ScheduledTask -TaskName WeatherDataMirror`). The text below describes the
+> mechanism as built; its times and first-run numbers are history.
 
 `WeatherDataMirror` reports robocopy's exit code, which says a copy **ran** — not that what
 landed is readable, complete or correct. With the tape backup's restore drill disabled since
@@ -623,8 +645,9 @@ From `src/weather/collection/collection_health.py`:
   the grade, but an in-window snapshot gap is the usual cause of a `partial`.
 
 The grade is **permanent** once the day's capture is done — it cannot be backfilled.
-Backfilling settlement recovers *scoring* evidence and calendar continuity, not streak
-days (see `memory/missed-chain-day-leaves-settlement-hole.md`).
+Backfilling settlement recovers *scoring* evidence and calendar continuity, not the
+capture grade (see
+[the lost-settlement-day trace](../operations/FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md)).
 
 ## Host protection (why this PC is tuned the way it is)
 
@@ -649,8 +672,9 @@ contention** on this 16 GB host. Defenses in place:
    enough RAM is free (`daily_refresh_resources.py`).
 4. **Commit discipline:** commits touching loop-loaded modules *roll* the capture loops
    (a brief worker restart). Do them **only in the 01:00–04:00 quiet window**, or batch
-   to a single conscious roll. `.ps1`/docs/config commits are roll-free. See
-   `memory/commit-triggered-fleet-rolls.md`.
+   to a single conscious roll. `.ps1`/docs/config commits are roll-free. The method is
+   `scripts\ops\roll_verdict.ps1`; see
+   [DELEGATION_CONTRACT.md §3](../operations/DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it).
 
 ### If today shows `AT_RISK`
 
@@ -663,8 +687,17 @@ contention** on this 16 GB host. Defenses in place:
 
 ## The structural fix
 
-At the current ~50%-per-day complete rate we have never held more than 3 clean days in
-a row, so 14 contiguous is not reachable by luck. The lever that actually moves the odds
+Fourteen contiguous clean days was never reachable by luck at the complete rates this host has
+produced (`streak.ps1` prints the current rate). The lever that actually moves the odds
 is the **two-host split**: move VS Code, the interactive agent, and all research load
 onto the 32 GB workstation so this box runs lean (capture loops + scheduled chain only).
-See `memory/two-host-split-2026-07-21.md` and `memory/streak-clock-2026-07-16.md`.
+The host roles are in
+[DELEGATION_CONTRACT.md §1](../operations/DELEGATION_CONTRACT.md#1-host-roles).
+
+## Update this file when
+
+The grading rule, a status/streak command or its exit codes, the watchdog or boot-recovery
+behaviour, the guarded-merge procedure or its parameters, or a host-protection defence changes.
+Change the script first. Do not add current streak counts, dates or disk figures, and do not
+restore the streak as an objective without a new owner decision recorded in
+`ESTABLISHED_FINDINGS.md`.

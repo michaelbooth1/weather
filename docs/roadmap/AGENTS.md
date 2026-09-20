@@ -24,16 +24,26 @@ research agent. They preserve direction and results for their specific missions.
 | --- | --- | --- |
 | `workstation-handoff-<date><letter>-<slug>.md` | production host → workstation | the mission: what to do, constraints, guardrails, required handback |
 | `agent-report-<date>-workstation-<slug>.md` | workstation → production host | the result: findings, evidence hashes, verdict |
+| `agent-work-order-<date><letter>.md` | operations agent → coding agent | an older single-host work order; historical |
+
+Do not read this log to learn the current state. Its distilled conclusions are in
+[the findings digest](../operations/FINDINGS_DIGEST.md); open a dated file only
+when the digest, a numbered item, or the user's task names it. Adjacent
+`.json`/`.csv`/`.sha256` files are the evidence artifacts a report cites.
 
 Reading rules:
 
+- **The `<date>` in a filename is a mission label, not a calendar date.** Handoff
+  and report names run as a sequence and can be weeks ahead of, or collide with,
+  the real date. Never sort, filter, or infer recency from filenames; use
+  `git log --diff-filter=A --format=%ad -- <path>` for when a file was written.
 - **Bind a handoff to the user's task, assigned host/role, and scope.** Read the
   handoff named by that task and any explicit corrections or successors for the
   same mission. A newer unrelated handoff does not replace or expand the task.
   Current user instructions and canonical safety contracts remain authoritative.
 - Check supersession within that mission by commit order, not filename date or
-  the `<letter>` suffix. A filename may use the mission's nominal future date.
-  Use `git log --diff-filter=A -- <relevant-handoff-paths>` for bounded history;
+  the `<letter>` suffix. Use
+  `git log --diff-filter=A -- <relevant-handoff-paths>` for bounded history;
   recency alone does not grant authority.
 - A handoff and its answering report form a pair; read both before concluding
   what was decided. A report is evidence, not self-acceptance; look for the

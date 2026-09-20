@@ -1,5 +1,23 @@
 # Immutable Integration Attempts
 
+- **Owns:** how a reviewed branch tip reaches production `master` overnight: attempt manifest, the two one-shot
+  tasks, suite and merge receipts, closure, recovery dispatch, reconciliation, and the downstream gate.
+- **Read when:** integrating a branch on the production host, or `status.ps1` shows `FAILED_NEEDS_CLOSE`,
+  `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`, `SUCCESSOR_CLAIMED`, `MERGED_UNVERIFIED` or `MERGED_RECONCILED`.
+- **Do not use for:** ordinary branch, commit and pull-request work ([Git workflow SOP](../git-workflow.md)), when
+  heavy work may run ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)), the post-merge documentation transaction
+  ([documentation maintenance](../documentation-maintenance.md)), or whether an attempt is armed tonight
+  ([STATE_OF_PLAY](STATE_OF_PLAY.md)).
+- **Verify with:** the `param()` block of each `scripts/ops/*integration_attempt*.ps1` entry point; the attempt's own
+  `manifest.json`, receipts and logs under `data/integration_attempts/<date>/<id>`; and
+  `Get-ScheduledTask | Where-Object TaskName -like '*<attempt-id>*'` for what is actually registered.
+
+Two host facts decide whether an attempt can pass before any code is judged. The bounded suite refuses below
+50 GiB free on every involved volume, so judge free space at the daily low
+([data retention policy](data-retention-policy.md)), not at an evening reading. And attempt tasks execute the
+orchestration scripts of the checkout that registered them, which may be a linked worktree rather than the
+production checkout; see "What actually executes" in [Operations Design](OPERATIONS_DESIGN.md#what-actually-executes).
+
 This runbook owns overnight branch integration. Its core rule is:
 
 > Freeze an attempt, not the night.
@@ -581,7 +599,7 @@ because production cannot freeze hashes for attempt scripts that do not exist
 there yet. Adopt the registrar only afterwards and under separate explicit
 scheduler authorization.
 
-## Update when
+## Update this file when
 
 Update this runbook when attempt schemas, repair classes, task identity,
 evidence filenames, time windows, suite ordering, merge proof, or downstream

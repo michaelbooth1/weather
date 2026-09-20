@@ -1,5 +1,28 @@
 # Release #1 build runbook
 
+- **Owns:** the ordered procedure for the first immutable release: clean-tree gate, staged PIT
+  source + receipt, first-inactive-release bootstrap, verification, reviewed promotion, cutover proof.
+- **Read when:** the owner has re-opened Release #1 and you are about to stage, build, verify or
+  promote it; or a release-build gate message in §7 appears.
+- **Do not use for:** current priorities or dates (`STATE_OF_PLAY.md`); generic nightly flags
+  ([NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md)); why the release is deferred
+  ([release-one-deferred-until-a-retrained-candidate.md](release-one-deferred-until-a-retrained-candidate.md),
+  [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md)).
+- **Verify with:** `Test-Path artifacts\releases` (does a release exist),
+  `python -m weather.operations.release_lifecycle active` (pointer state),
+  `.\scripts\ops\streak.ps1` (clocks).
+
+> **STATUS: OFF THE CRITICAL PATH — NOT SCHEDULED.** Release #1 was deferred by the 2026-08-06
+> decision until a retrained candidate exists; nightly training is disabled and no new model-alpha
+> work is authorized (`STATE_OF_PLAY.md`). Re-opening it is an owner decision recorded there. The
+> 2026-08-03/04 lock window this runbook was written for passed unused; a future build needs its own
+> contiguous 14-day window and a source no more than seven days old (§3a).
+> **Commands, flags, gate code and thresholds below were re-verified against the code on 2026-09-19
+> and are current.** Everything dated — the "State as of" column in §0, §2's boundary date, §5, §6,
+> §7a-bis, §7b and the measured numbers in §7a — is a **historical snapshot from 2026-07-31..08-04**:
+> re-measure it, never quote it. §5's title ("the whole critical path") reflects the pre-08-04 plan
+> and is superseded by the two deferral records linked above.
+
 Written 2026-07-31, before the lock, so the 7-day build window is **execution, not discovery**.
 
 Everything here was verified against the live repository and the consolidated release branch
@@ -76,12 +99,12 @@ rewrites `config/locations.json` and `config/location_market_events.json` every 
 Immediately before the build:
 
 ```powershell
-cd C:\Users\micha\Desktop\github\weather
+# run from the production checkout root
 git add config/locations.json config/location_market_events.json
 git commit -m "config: scheduled location refresh drift (pre-release-build, automated)"
 # then PROVE the gate is satisfied before spending window time:
 $env:PYTHONPATH="$PWD\src"
-.\venv\Scripts\python.exe -c "from weather.operations.release_manifest import capture_code_identity as c; d=c(repo_root=r'C:\Users\micha\Desktop\github\weather'); print('GATE PASSES:', d.get('git_dirty') is False)"
+.\venv\Scripts\python.exe -c "import os; from weather.operations.release_manifest import capture_code_identity as c; d=c(repo_root=os.getcwd()); print('GATE PASSES:', d.get('git_dirty') is False)"
 ```
 
 Do not proceed until that prints `GATE PASSES: True`. Note this commit changes no loop-loaded module,
@@ -111,7 +134,7 @@ make both commits.
 
 > ### READ FIRST — there is an automated path, and it is the better one
 >
-> **Discovered 2026-08-01.** `scripts/ops/training_window.ps1` (lines ~229-275) already contains a
+> **Discovered 2026-08-01.** `scripts/ops/training_window.ps1` (search `pitSourceRoot`) contains a
 > **self-disarming first-inactive-release bootstrap**. The 01:00 training window arms it only while
 > *all three* hold: a **receipted staged PIT source** exists, the release store is absent/empty, and no
 > active pointer exists. Once release #1 exists the same window falls back to the ordinary research
@@ -275,7 +298,10 @@ not bind a model release but is normally stopped/restored with capture.
    retain its JSON. Require `status=PASS`, the intended `release_id` and `manifest_sha256`,
    `release_kind=serving_identity_bootstrap`, `sequence=1`, and the `pointer_sha256` returned by
    promotion.
-2. **Restart the actual binders.** Restart the snapshot loop with
+2. **Restart the actual binders.** (The taker track is PAUSED —
+   [taker-paused-and-pruned-2026-08-07.md](taker-paused-and-pruned-2026-08-07.md). While it stays
+   paused, skip the taker sub-steps here and the taker rows in step 3; do not re-enable the taker
+   supervisor as a side effect of a cutover.) Restart the snapshot loop with
    `python -m weather.collection.snapshot_tracker --restart`. Restart the market-making daily roll
    with `python -m weather.operations.market_making_daily_roll stop` followed by `... ensure`.
    `market_making_run` and `taker_bot_cli` are the only direct consumers of
@@ -455,7 +481,9 @@ workstation declared the roll footprint itself — `calibration/residual_distrib
 `RollingOriginFold` and the fold builders from this module, putting it on the calibration path — and
 taking a fleet roll for a cosmetic message, for a defect that cannot fire on a real non-empty lock, is
 pure downside this close to a lock. The line above already captures its full operational value. Merge
-it after the lock, in a quiet window.
+it after the lock, in a quiet window. Re-checked 2026-09-19: the shared message is still in
+`point_in_time_evaluation.py` (search `market-day bound exceeded`) and `b28efa54` is still not an
+ancestor of `origin/master` (`git merge-base --is-ancestor b28efa54 origin/master`).
 
 ## 8. Still unrehearsed
 
@@ -464,3 +492,10 @@ complete and its fail-closed findings were accepted, but it does not substitute 
 candidate. Read its ordered failure list—classified real-defect / missing-prerequisite / synthetic-
 artifact—before starting the real build. Work that genuinely requires a promoted release remains
 deferred until release #1 exists.
+
+## Update this file when
+
+Update when the release-build gate code, `training_window.ps1` bootstrap arming conditions or staged
+source path, staging-receipt or `release_lifecycle` CLI, promotion proof schema/freshness bounds, or
+cutover binders change; and rewrite the status banner when the owner re-opens or retires Release #1.
+Do not refresh the dated snapshot sections — replace them with a new dated pre-build check instead.

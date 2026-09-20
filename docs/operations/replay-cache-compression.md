@@ -1,10 +1,21 @@
 # Bounded replay-cache compression
 
-This runbook owns lossless NTFS compression of explicitly named cold replay
-cache files. It retains every file, path and logical byte. It is not cache
-eviction, archive acceptance, or authority to delete any evidence.
+- **Owns:** lossless NTFS compression of explicitly named cold replay-cache
+  files: request schema, limits, admission, receipts and failure handling.
+- **Read when:** the owner asks for replay-cache capacity, or you reconcile a
+  `scratchstorage_reclaim` attempt.
+- **Do not use for:** cache eviction or reachability planning
+  ([data-retention-policy.md](data-retention-policy.md)), snapshot files
+  ([cold-snapshot-compression.md](cold-snapshot-compression.md)), or any delete.
+- **Verify with:** the `param()` block of
+  `scripts/ops/replay_cache_compression_run.ps1` and the `MAX_*` constants in
+  `src/weather/operations/replay_cache_compression.py`.
 
-The owner approved implementation of the September 7 storage-reclaim review.
+It retains every file, path and logical byte. It is not cache eviction, archive
+acceptance, or authority to delete any evidence. The lane is attended and
+unscheduled; nothing runs it automatically.
+
+The owner approved implementation of the 2026-09-07 storage-reclaim review.
 The scope is a one-file pilot followed by measured small batches, using the
 existing capture-host window, shared lease, capture-health checks and resource
 limits. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md)
@@ -53,8 +64,8 @@ Git integration follows the separate canonical roll verdict and merge rules.
 - Hash reads use 1 MiB buffers at 8 MiB/s. Native compression itself is a
   synchronous call over at most 64 MiB and is not claimed to be rate-limited.
   The actual Python worker sets and verifies its own BelowNormal priority;
-  lowering only the venv redirector is insufficient. Parent and child check a 384 MiB working/private
-  memory ceiling. The native incompressible-file qualification owns measured
+  lowering only the venv redirector is insufficient. Parent and child check a
+  384 MiB working/private memory ceiling. The native incompressible-file qualification owns measured
   allocation and timing evidence, not a claim that kernel work is zero-cost.
 
 Windows documents this representation as transparent to ordinary readers:
@@ -133,7 +144,7 @@ preimage receipts and independently verify their hashes under fresh admission
 before any further action. Automatic resume and automatic decompression are
 intentionally absent; decompression needs its own space and resource review.
 
-## Update when
+## Update this file when
 
 Update with changes to admission, path/byte limits, approval bindings, native
 file semantics, the command surface, receipt schemas or failure handling.

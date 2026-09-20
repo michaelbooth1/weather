@@ -1,5 +1,20 @@
 # DECISION 2026-08-06 — release #1 is deferred until a retrained candidate exists
 
+- **Owns:** the decision that Release #1 waits for a retrained candidate, its evidence, and its
+  reversal conditions.
+- **Read when:** someone proposes building, scheduling or prioritizing Release #1, or freezing the
+  June artifacts.
+- **Do not use for:** the build procedure ([RELEASE_ONE_BUILD_RUNBOOK.md](RELEASE_ONE_BUILD_RUNBOOK.md))
+  or today's critical path (`STATE_OF_PLAY.md`).
+- **Verify with:** `Test-Path artifacts\releases` (no release built) and `STATE_OF_PLAY.md`
+  "Standing decisions".
+
+> **Still in force; the "Consequences" ordering is dated.** The deferral stands. But §"Consequences
+> to act on" describes the 2026-08-06 plan (archive extension → retrain → release). Since then the
+> owner paused new model-alpha work and nightly training is disabled (`STATE_OF_PLAY.md`), so that
+> chain is **not** the current critical path; it is the order that applies if model work resumes.
+> Measurements below are as of 2026-08-06 — cite `ESTABLISHED_FINDINGS.md`, not this file, for numbers.
+
 Status: **canonical decision.** Taken by the production agent under explicit operator authority
 granted 2026-08-06 ("full authority to change any parts of the project, including what we
 freeze"). Supersedes release #1's standing position as priority 1.

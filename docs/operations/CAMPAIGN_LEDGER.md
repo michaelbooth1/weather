@@ -114,8 +114,8 @@ spent, 13 available**. See `ESTABLISHED_FINDINGS.md` section 1i and
 B-only screen — see the row above). A1 is retained as the standing quantile rule for **any future**
 decision on this panel, not as a dead letter: the coverage defect it corrects is a property of the
 panel's component mix, not of decision 10. **Recorded 2026-08-11 from the `-09-63a` result while
-that branch is still queued and unmerged** — its report is not yet in-repo, so cite the branch, not
-a repo path, until it lands.
+that branch was still queued and unmerged**. The report has since landed: cite
+`docs/roadmap/agent-report-2026-08-19-workstation-b-only-screen.md`.
 
 
 | # | Decision | Mission | State |

@@ -2,11 +2,15 @@
 
 Status: canonical. Written for LLM agents.
 
-**Everything in this file looks true, or was once believed true, and is not.** Each entry cost real
-agent hours at least once. Read this before acting on a surprising result, and before "discovering"
-something in the list below.
+| | |
+| --- | --- |
+| **Owns** | Claims that look true, or were once believed, and are not: what it looked like, what is true, why it fooled us. |
+| **Read when** | You have a surprising result, are about to "discover" something, or are about to cite a number you did not measure today. The one-line list of retired numbers is in [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md); come here for the mechanism. |
+| **Do not use for** | What survived ([ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md)); the recurring shapes behind these entries ([HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md)). |
 
-Companion to [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), which holds what survived.
+**Everything in this file looks true, or was once believed true, and is not.** Each entry cost real
+agent hours at least once. Sections: §1 model claims · §2 statistical traps · §3 operational false
+alarms · §4 backlog and branch traps · §4a maker-economics traps · §5 how to add an entry.
 
 ---
 
@@ -55,6 +59,84 @@ On the clean regime it is **1.24x**. The larger figure came from windows mixing 
 
 98.88% resolution / 1.12% reliability. There is almost no calibration error left to harvest. The gap
 is information. Calibration work is not a path to edge.
+
+### "Production served 0.0 on the realized band" (Denver 2026-06-08) — REPLAY ARTIFACT
+
+- **What it looked like:** `-09-63a` failed closed at Gate 3 on a row where the incumbent put exactly
+  zero on the winning band; the panel showed 28 such rows in B.
+- **What is true:** production served **0.5206** on that row. Replay rebuilt a floor of 91 from
+  yesterday's `max_since_7am_c` before dawn; the served floor was 68. Only **two** B zeros come from
+  a floor actually served (Chicago 2026-06-14, San Francisco 2026-06-09); a third is a blank-floor
+  fallback row. `ESTABLISHED_FINDINGS.md` §1j, §1k (`-09-65a`, `-09-66a`, `-09-68a`).
+- **Why it fooled us:** the panel's feature row and floor are reconstructed by replay code, not the
+  values serving recorded, and nobody had joined the two. A fail-on-any-row gate then turned one
+  artifact row into a retired decision.
+
+### "Realized-band zeros are a live serving defect at 1.017%" — WRONG REGIME, WRONG TENSE
+
+- **What it looked like:** 1,017 of 100,040 served snapshots carried a zero on the realized band.
+- **What is true:** the rate was **8.486%** of Fahrenheit rows before commit `28d1c146` (2026-06-15)
+  and **0.000%** after. There is nothing to patch in serving.
+  [SERVED_BAND_FLOOR_DEFECT_2026-08-10.md](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md).
+- **Why it fooled us:** a pooled rate averaged across a fix. The first version of the trace document
+  was cited in a handoff before it was corrected.
+
+### "`high_so_far` is a running maximum" — FALSE
+
+- **What it looked like:** a day's high so far can only rise, so a fall must be a rare pre-dawn
+  fallback.
+- **What is true:** it fell 906 times in B and 1,284 times in C. In B, 40.62% of falls sit in the
+  peak-heating or settlement window, because the vendor observation series drops rows and the cutoff
+  follows the latest retained row backward (658 of 658 cutoff changes narrowed).
+  `ESTABLISHED_FINDINGS.md` §1k (`-09-70a`, `-09-71a`).
+- **Why it fooled us:** the name describes the intent. The input it is computed from is not
+  append-only, and the expectation was checked on C, where it happens to hold.
+
+### "Union every observation ever published and the floor is safe" — UNSAFE
+
+- **What it looked like:** an append-only envelope repairs all 658 cutoff events and every
+  decision-window event.
+- **What is true:** it also freezes a transient print into the trusted floor: **55 new
+  above-settlement rows**, all San Francisco 2026-06-09 (68 °F published, 67 settled). The safe rule
+  recovers a row only when the current payload has nothing at or after its minute: 744 of 906 events,
+  zero new above-settlement rows on 28,254 snapshots. `ESTABLISHED_FINDINGS.md` §1k (`-09-72a`,
+  `-09-73a`).
+- **Why it fooled us:** "cosmetic in the mean" is not "safe in the extreme". A floor error is a hard
+  zero on the winner.
+
+### "`M1_restatement` rows are restatements, so filter on `M5 ∪ M3`" — THE LABELS WERE WRONG
+
+- **What it looked like:** excluding the two `M1` rows gave a tidy 736-event repair with no unsafe
+  row.
+- **What is true:** both B `M1` rows are timestamp **replacements** (one row vanished, a later one
+  appeared), not same-timestamp restatements. The filter was fitted to a label error and is post hoc:
+  it defines no value for non-event snapshots and cannot be served. `-09-73a`.
+- **Why it fooled us:** the rule was written over our own mechanism labels instead of over what the
+  payload shows at capture time.
+
+### "Check out the recorded runtime commit and replay reproduces what we served" — FALSE
+
+- **What it looked like:** each replay record carries a runtime commit and a model identity; one
+  Austin market-day had matched to `2.23e-16`.
+- **What is true:** 114 of 358 commit-bound decision rows match (31.84%); identity binding gets 105
+  (29.33%) and rescues none. **0 of 368** decision rows and 111 of 28,254 B rows are exactly
+  reconstructable, because production served working-tree bytes that were never committed.
+  `ESTABLISHED_FINDINGS.md` §1k (`-09-74a`..`-09-76a`);
+  [REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md).
+- **Why it fooled us:** the identity fingerprint reads files from disk at capture time while
+  `git_commit` records `HEAD`; roll-free commits move `HEAD` without restarting the process. One
+  passing market at diagnostic grade was generalised to "reproduces".
+
+### "The 0.4720 repair ceiling clears the detectable effect, so the look is worth its α" — A BOUND WITH NO SIGN
+
+- **What it looked like:** `-09-77a`'s outcome-free ceiling (mean 0.4720, upper 0.6423) exceeded the
+  detectable effect 0.2164.
+- **What is true:** that statistic bounds the candidate's maximum **cost**, is non-negative by
+  construction, and made the NO-GO branch unreachable. On the real estimand the look is unpowered
+  (MDE 0.1571 against a most-favourable effect of 0.1385) and the repair mostly sharpens (254 of 368
+  rows). Thread closed, α kept. `ESTABLISHED_FINDINGS.md` §1k (`-09-78a`).
+- **Why it fooled us:** the commissioning handoff specified a screen that could not fail. Prove both
+  decision branches reachable before reading data.
 
 ---
 
@@ -292,6 +374,31 @@ Both 2026-08-19 tiering tasks returned Scheduler zero while their durable task s
 status artifact and measured free-space trail; Scheduler zero proves only that the wrapper handled
 the collision as designed.
 
+### "Disk headroom is about 4 days" — THE DAILY LOW IS WHAT BINDS (2026-09-19)
+
+- **What it looked like:** the status monitor printed roughly four days of headroom.
+- **What is true:** it divided the **instantaneous** free space by a same-clock 24-hour slope
+  (`scripts/ops/status.ps1`, `$diskDaysLeft`). Free space is a daily sawtooth: it bottoms near 04:50,
+  10–13 GiB under the evening reading, before the 05:00 tiering job hands about 13 GiB back. Measured
+  at the low, headroom was about 1.5–2.5 days. `ESTABLISHED_FINDINGS.md` §10b.
+- **Why it fooled us:** a slope between two readings at the same phase of a sawtooth is correct about
+  the trend and blind to the trough. Different free-space numbers quoted the same day were one
+  instrument read at different phases. Ask of any level reading: *when in its cycle was it taken?*
+
+### "Low disk directly blocks the settlement chain" — REFUTED; AN INDIRECT ROUTE IS PLAUSIBLE, UNPROVEN (2026-09-19)
+
+- **What it looked like:** the disk was nearly full and 10 of the last 14 dates were unsettled, so
+  the one caused the other.
+- **What is true:** the Stage-A chain has **no disk gate**. The proven deferrals were memory-commit
+  admission (72.5% and 91.4% against a 70% ceiling) at `ingest_quality_gate`, which sits ahead of the
+  WU restore and finalize, in a single-shot chain with no retry. `ESTABLISHED_FINDINGS.md` §10d.
+- **What is NOT settled:** the live commit limit had shrunk to about 22 GB, so the 70% gate trips with
+  little real load. A dynamic pagefile on a nearly full system volume is the likely mechanism, which
+  would make low disk an **indirect** cause. The pagefile setting was not read. Treat it as a
+  hypothesis to trace, not a finding.
+- **Why it fooled us:** two alarms that co-occur invite a causal arrow. Only 2 of the 10 dates have a
+  provable cause at all, because the chain's status file is overwritten daily.
+
 ---
 
 ## 4. Backlog and branch traps
@@ -368,6 +475,31 @@ the outcome, not the vocabulary of the modules near it.**
 
 ---
 
+## 4a. Maker-economics traps
+
+### "Liquidity rewards are about $16 a day — a subsidy, not a business" — TRUE FOR 2026-06-13, STALE SINCE (2026-09-19)
+
+- **What it looked like:** `MARKET_MAKING_PLAN.md` Part 0 measured about $1 per event per day and
+  about $16 per day fleet-wide, and concluded rewards are a cost offset. The July
+  `NOT_VIABLE_CURRENT_TRACK` report had only that figure as a scale (it recorded the July allocation
+  as `UNKNOWN_NOT_ZERO`), and the zero-edge sensitivity grid's reward axis stops at $1 per band per
+  day.
+- **What is true:** the June measurement was correct for its date. The **configured** pool for our
+  12 markets has been about **2,800 per day same-day and about 4,800 per day across all active
+  events** on 31 of 31 sampled days from 2026-08-15 to 2026-09-19 — roughly 175 to 300 times the June
+  figure. The project's own `exchange_economics_snapshot.json` held the per-market field
+  (`current_daily_rate_usdc`) every day; item 330 recorded the allocation count without a total.
+  `ESTABLISHED_FINDINGS.md` §10a.
+- **What this does NOT say:** that the July verdict was wrong — its input is stale, and its first leg
+  (a reward-qualifying two-sided quote does not fit the 10 pUSD band cap) is unchanged. Nor that the
+  pool is income: it is shared by Q-score, **our share is unmeasured**, no paid reward has ever been
+  observed, and the unit is unconfirmed by any paid epoch.
+- **Why it fooled us:** a dated measurement hardened into a constant. Every later document cited the
+  conclusion, nobody re-opened the input, and nobody summed a column we collected daily. Pattern 4 in
+  `HOW_WE_GET_THINGS_WRONG.md`.
+
+---
+
 ## 5. How to add to this file
 
 When a claim is retracted or a false lead is closed, record:
@@ -378,3 +510,9 @@ When a claim is retracted or a false lead is closed, record:
 
 Do not delete retracted claims from the record. A deleted mistake gets re-derived; a documented one
 does not.
+
+## Update this file when
+
+A claim is retracted, a false lead is closed, or an alarm is shown to be misread. In the same change
+add the number to the "Retracted numbers" table in [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md), and ask
+which pattern in [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) the entry belongs to.

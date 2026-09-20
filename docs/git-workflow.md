@@ -9,6 +9,14 @@ scoped `AGENTS.md` files own subsystem rules; the
 [Project Operating SOP](operations/PROJECT_OPERATING_SOP.md) owns runtime
 adoption after merge.
 
+**Read when:** you are about to create a worktree, commit, push, open a PR,
+merge, or delete a branch or worktree. **It is the single owner of git
+authority, push path and branch-deletion rules** — if another file seems to
+disagree, this one wins and the other is a defect to fix. **Not here:** when a
+merge may land on the production host (that is
+[DELEGATION_CONTRACT.md §3](operations/DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it)
+and the [integration runbook](operations/INTEGRATION_ATTEMPT_RUNBOOK.md)).
+
 ## New Policy Defaults
 
 These rules apply to new work after this SOP is adopted. Existing branches,
@@ -25,10 +33,8 @@ commit.
 - Branch from a fetched, explicitly recorded `origin/master` commit. If work
   depends on an unmerged branch, declare a stacked dependency instead of
   silently copying or cherry-picking work.
-- Push a topic branch and open a draft pull request by default. A repository
-  owner approves the merge; a coding agent does not self-authorize it.
-- Publishing a branch or pull request still requires authority from the task;
-  this SOP does not itself grant external-write permission.
+- Who may commit, push and merge is one rule with scopes; see
+  [Git authority](#git-authority-one-rule-two-scopes) below.
 - Preserve topic history with a merge commit. Do not squash, rebase, cherry-
   pick, amend published commits, force-push, or rewrite history by default.
 - A Git merge does not deploy code, restart workers, promote a release, or
@@ -36,6 +42,56 @@ commit.
 
 An explicit repository-owner instruction may create an exception. Record the
 reason, scope, approver, and verification; never infer an exception from urgency.
+
+## Git authority: one rule, two scopes
+
+This section is the single owner of who may commit, push, merge and delete.
+[OPERATIONS_AGENT_ROLE.md](operations/OPERATIONS_AGENT_ROLE.md) and
+[DELEGATION_CONTRACT.md](operations/DELEGATION_CONTRACT.md) link here and do
+not restate it. Authority follows the **role**, not the machine that holds the
+checkout (owner decision 2026-08-28).
+
+| Scope | May | Must not |
+| --- | --- | --- |
+| **Task / coding agent** — any delegated, workstation, sub-agent or implementation session, on any host | Work on a `codex/<topic>` branch in its own worktree; commit there; **push that branch to `origin` freely, at any hour**; open or update a draft PR. | Commit on, merge into, or push `master`. Adopt code at runtime. Merge a PR without an explicit repository-owner instruction. |
+| **Production operations agent** — the role in `OPERATIONS_AGENT_ROLE.md`, on the 16 GB capture host | Owns **adoption**: takes the roll verdict from `scripts\ops\roll_verdict.ps1 -Branch <ref>`; merges to `master` **only** through `scripts\ops\quiet_window_merge.ps1` or `scripts\ops\suite_gated_quiet_merge.ps1` (procedure: [Immutable Integration Attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md)); publishes `master` **only** through the `WeatherOneShotPush` scheduled task, then verifies `git rev-parse origin/master`. | Hand-merge code into `master`, push `master` interactively, merge inside 12:00–18:00 or 18:00–00:30, or schedule a roll-sensitive merge outside 01:00–04:00. |
+
+Why a branch push is always safe: capture supervisors fingerprint the source
+files in the production working tree, and a ref on `origin` changes no file
+there. The measurement is in
+[DELEGATION_CONTRACT.md §3](operations/DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it).
+The roll happens at **merge on production**, which is why that step alone is
+reserved.
+
+The one established direct-to-`master` path is the operations agent's
+roll-free documentation commit (a handoff, a canon correction). It is still
+published through `WeatherOneShotPush`, never rewrites history, and never
+carries code that a capture loop imports.
+
+**Push mechanics on the production host (verified 2026-09-19).** Interactive
+`git push -u origin <branch>` of topic **branches** works from this host; it
+succeeded repeatedly that day with `GIT_LFS_SKIP_PUSH=1` set in the environment
+so the push does not try to upload LFS objects. Earlier canon said interactive
+push "has no credentials"; that was observed in SSH/S4U sessions, which cannot
+reach the Windows credential vault. If a branch push fails for credentials in
+such a session, run it from a logged-on session or a guarded one-shot task —
+never embed a credential. None of this changes `master` publication, which
+stays with `WeatherOneShotPush` because the guarded merge proves that task's
+exact definition before and after the roll.
+
+**Branch and worktree deletion.** Never delete an **unmerged** branch — agent
+reports and unique code have existed only there — and never remove, clean or
+edit **another task's worktree**. A branch that is fully merged (an ancestor of
+`origin/master`) may be retired, but only through a **recorded retirement**: a
+committed manifest listing every branch with its tip SHA and ancestry proof, so
+each can be restored with `git branch <name> <sha>`. Precedent and format:
+[`roadmap/branch-retirement-2026-08-11.md`](roadmap/branch-retirement-2026-08-11.md);
+the earlier unrecorded cleanup and its recovery are in
+[`operations/deleted-branch-recovery-manifest-2026-08-05.md`](operations/deleted-branch-recovery-manifest-2026-08-05.md).
+Never use forced deletion (`git branch -D`). Your own clean, fully merged topic
+worktree may be removed with the guarded procedure in
+[§7](#7-post-merge-adoption-and-cleanup); its branch is then retired with the
+next recorded batch, not ad hoc.
 
 ## Workflow
 
@@ -130,8 +186,16 @@ if ($LASTEXITCODE -ne 0 -or -not $baseOutput) {
     throw "Cannot resolve origin/master; do not create the worktree."
 }
 $base = ([string]$baseOutput).Trim()
-git worktree add "..\weather-$topic" -b "codex/$topic" $base
-if ($LASTEXITCODE -ne 0) {
+$priorSmudge = $env:GIT_LFS_SKIP_SMUDGE
+$env:GIT_LFS_SKIP_SMUDGE = "1"      # process environment only; see below
+try {
+    git worktree add "..\weather-$topic" -b "codex/$topic" $base
+    $addExit = $LASTEXITCODE
+}
+finally {
+    $env:GIT_LFS_SKIP_SMUDGE = $priorSmudge
+}
+if ($addExit -ne 0) {
     throw "Worktree creation failed; inspect existing names and paths."
 }
 git -C "..\weather-$topic" status --short --branch
@@ -139,6 +203,23 @@ if ($LASTEXITCODE -ne 0) {
     throw "Cannot verify the new topic worktree."
 }
 ```
+
+**Create every worktree with `GIT_LFS_SKIP_SMUDGE=1` in the process
+environment.** A smudged worktree materializes about 363 MiB of model pickles
+under `artifacts/models/hgb`; most tasks never load them. Measured 2026-09-19:
+152 existing worktrees were converted back to LFS pointers and freed 52 GiB on
+the capture host. When a test needs real models, restore them in that one
+worktree:
+
+```powershell
+git -C "..\weather-$topic" lfs checkout artifacts/models/hgb
+```
+
+Never set skip-smudge at repository or global level (`git config`,
+`git lfs install --skip-smudge`): the production checkout must keep real model
+bytes, and [the LFS policy](operations/git-lfs-policy.md) owns that contract.
+A pointer file loaded as a pickle fails loudly, so a test that errors on
+unpickling in a fresh worktree needs the restore above, not a code fix.
 
 Record the worktree path, branch, base SHA, file ownership, and explicit
 exclusions in the task or PR. One integration owner coordinates branches that
@@ -235,8 +316,15 @@ if ($LASTEXITCODE -ne 0 -or ([string]$branch).Trim() -notlike "codex/*") {
     throw "Refusing to push: current branch is not an agent topic branch."
 }
 $branch = ([string]$branch).Trim()
+$env:GIT_LFS_SKIP_PUSH = "1"   # a topic push must not upload LFS objects
 git push -u origin $branch
 ```
+
+Pushing a topic branch needs no further authority and never rolls production;
+see [Git authority](#git-authority-one-rule-two-scopes) for the verified push
+mechanics on the production host. If the branch intentionally adds or changes
+an LFS object, do not skip the LFS push: follow
+[the LFS policy](operations/git-lfs-policy.md) instead.
 
 Complete `.github/pull_request_template.md`: summarize the outcome and reason,
 list commands and results, disclose generated/network/stateful actions, link
@@ -268,9 +356,13 @@ serving, follow the Project Operating SOP; Git success alone is not deployment
 success. If post-merge validation fails, open a focused repair or revert branch.
 Do not reset or rewrite `master`.
 
-From the main or another clean worktree, remove a topic worktree or branch only
-after its status is clean, every unique commit is merged and reachable
-remotely, required post-merge checks pass, and no operator still needs it:
+The deletion rule is in
+[Git authority](#git-authority-one-rule-two-scopes): never an unmerged branch,
+never another task's worktree, merged branches only through a recorded
+retirement. From the main or another clean worktree, remove **your own** topic
+worktree only after its status is clean, every unique commit is merged and
+reachable remotely, required post-merge checks pass, and no operator still
+needs it:
 
 ```powershell
 $topic = "short-topic"
@@ -299,14 +391,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 git worktree remove $worktree
 if ($LASTEXITCODE -ne 0) {
-    throw "Worktree removal failed; do not delete the branch."
+    throw "Worktree removal failed; leave the branch and report it."
 }
-git branch -d $branch
+$tip = git rev-parse $branch
+"Retire with the next recorded batch: $branch $tip - ancestor of origin/master"
 ```
 
-Remote-branch deletion follows the repository owner's GitHub preference. Never
-delete a dirty worktree, use forced branch deletion, or treat cleanup as proof
-that runtime adoption succeeded.
+The script stops at the worktree. It deliberately does not run
+`git branch -d`: add the branch name and tip SHA to a retirement manifest
+(format: [`roadmap/branch-retirement-2026-08-11.md`](roadmap/branch-retirement-2026-08-11.md)),
+commit the manifest, and only then delete the listed local and remote refs.
+On the production host a remote-ref delete may need a logged-on session or a
+guarded one-shot task for credentials. Never delete a dirty worktree, use
+forced branch deletion, or treat cleanup as proof that runtime adoption
+succeeded.
 
 ## Escalate Immediately When
 
@@ -333,7 +431,8 @@ adoption is explicitly complete or routed to its owner.
 
 ## Update this file when
 
-Update when the integration branch, branch/worktree isolation, naming, base
+Update when git authority by role, the push path, the branch/worktree deletion
+rule, the worktree LFS rule, the integration branch, branch/worktree isolation, naming, base
 selection, staging, commit/PR ownership, CI handoff, merge strategy, history-
 rewrite policy, or cleanup contract changes. Update verification commands in
 `development.md`, repository-host settings in their owner, and operational

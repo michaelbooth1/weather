@@ -16,12 +16,22 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths
   and verify training/serving parity where applicable.
 
+- Tests that write large temporary layouts must stay under `tmp_path`. On a
+  shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
+  default temp root is not cleaned promptly and has filled the capture disk.
+
 Run the narrow directory or file first, then the full suite:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests\<owner> -q
+# Workstation and CI only. On the 16 GB capture host a direct full run is
+# forbidden at every hour; focused tests run serially inside 00:30-09:00 and the
+# full suite only through scripts\ops\bounded_worktree_test_suite.ps1.
 .\venv\Scripts\python.exe -m pytest -q
 ```
+
+Host rules are owned by [the host load policy](../docs/operations/HOST_LOAD_POLICY.md)
+and [development.md](../docs/development.md).
 
 ## Update this file when
 

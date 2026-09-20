@@ -1,5 +1,14 @@
 # Repository Path Policy
 
+- **Owns:** how code resolves repository roots (`weather.paths`), what may
+  graduate out of ignored `data/`, the import bootstrap, and the canonical
+  `python -m weather...` command convention for docs.
+- **Read when:** you add a default path, a CLI, a scheduled-task helper, or run
+  code from a linked worktree and need to know which `data/` it will touch.
+- **Do not use for:** what may be deleted from `data/`
+  ([data-retention-policy.md](data-retention-policy.md)).
+- **Verify with:** `src/weather/paths.py:8-15` (root derivation).
+
 Runtime code must not depend on the process current working directory for
 repo-owned default paths.
 
@@ -22,6 +31,18 @@ current working directory.
 
 Avoid discovering the repository by walking parents from `__file__` in app
 views, tools, or production modules. Import `weather.paths` instead.
+
+## Which checkout a process uses
+
+`REPO_ROOT` is derived from the location of the imported `weather` package
+(`src/weather/paths.py:8-10`), not from the working directory or from Git. A
+process that imports `weather` from a linked worktree resolves `data/`,
+`config/` and `artifacts/` inside that worktree; one that imports the
+production checkout (for example through its editable install) reads and writes
+production `data/` even when started elsewhere. Before trusting a result or
+writing anything, confirm which package was imported (the module's `__file__`).
+Merging a config or script change to one checkout does not change what a
+process running from another checkout loads.
 
 ## Runtime Output Promotion
 

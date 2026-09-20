@@ -1,5 +1,9 @@
 # Ops Fix Todo - 2026-07-03 Audit
 
+> HISTORICAL — not current authority. Checklist from the 2026-07-03 ops audit; boxes reflect that period and are
+> not maintained. Current work lives in numbered roadmap items and the generated
+> [active backlog](../roadmap/active-backlog.md); current host state in [STATE_OF_PLAY](STATE_OF_PLAY.md).
+
 Source audit: `data/backtest/ops_audit_2026_07_03.md`
 
 Status legend:

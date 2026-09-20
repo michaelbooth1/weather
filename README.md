@@ -1,7 +1,11 @@
 # Weather Market Platform
 
-Coding agents should start with [AGENTS.md](AGENTS.md) and load task-specific
-context through the [documentation map](docs/README.md).
+Coding agents should start with [AGENTS.md](AGENTS.md) (Claude Code loads it
+through `CLAUDE.md`), then [the state of play](docs/operations/STATE_OF_PLAY.md)
+for what is true today, and load task-specific context through the
+[documentation map](docs/README.md). This README owns product purpose, setup,
+the dashboard description, and the operator command catalog; it carries no
+current status.
 
 Research, collection, model validation, and operations tooling for Polymarket
 daily high-temperature markets. The platform ingests local Weather Underground
@@ -105,9 +109,17 @@ code.
 ## Tests And Local Checks
 
 ```powershell
+# Workstation and CI only - never run these directly on the 16 GB capture host.
 .\venv\Scripts\python.exe -m pytest -q
 .\venv\Scripts\python.exe -m compileall -q app src tests
 ```
+
+**On the dedicated 16 GB capture host a direct full `pytest` run is forbidden at
+every hour.** Focused tests and `compileall` run serially inside 00:30–09:00
+local only, and the full suite runs only through
+`scripts/ops/bounded_worktree_test_suite.ps1` (25-file chunks under the shared
+workload lease). See [development.md](docs/development.md) and the
+[host load policy](docs/operations/HOST_LOAD_POLICY.md).
 
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
@@ -124,6 +136,11 @@ Checked-in configuration lives under `config/`.
 | `config/model_variant_registry.json` | Model-variant lifecycle, artifact, and promotion registry. |
 | `config/supplemental_stations.json` | Supplemental station provenance and validation registry. |
 | `config/no_market_extra_locations.json` | Shadow-lane registry for non-market training candidates; active entries require backfilled evidence. |
+| `config/storage_pressure.json` | Operator storage-pressure activation policy. The checked-in default preserves capture; activation is a separately reviewed production operation. |
+| `config/international_live_execution_host.json` | Single-active portable live-executor host assignment (public host/principal IDs only). |
+
+Ownership, generation method, and freshness rules for each file are in
+[the config inventory](docs/operations/config-inventory.md).
 
 Refresh generated market-event metadata and audit config freshness:
 
@@ -456,8 +473,12 @@ are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
 direct nightly-retrain task for the same workload.
 
-The Operations dashboard can inspect and control the supervised loops. CLI
-status commands are still the fastest sanity checks:
+The dashboard is read-only: the Control Room displays loop health but has no
+start, stop, restart, or recovery controls. Control the supervised loops only
+through their CLIs (`--ensure`/`ensure`, `--restart`/`restart`, `--stop`/`stop`
+above) and the scheduled supervisors, following the
+[operations topology](docs/operations/OPERATIONS_DESIGN.md). The CLI status
+commands are the fastest sanity checks and keep working when Streamlit is down:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --status
@@ -546,6 +567,7 @@ docs/                 # operations, research, roadmap, and audit docs
 tests/                # unit, reporting, operations, market, model, source tests
 tests/fixtures/       # small deterministic fixture data
 weather/__init__.py   # repo-root import compatibility shim
+AGENTS.md, CLAUDE.md  # agent entry point (CLAUDE.md only imports AGENTS.md)
 ```
 
 Canonical commands run through packaged `weather.*` modules. Retired flat
@@ -555,6 +577,7 @@ for their non-package command surfaces.
 
 ## Documentation
 
+- [State of play](docs/operations/STATE_OF_PLAY.md) - what is happening now and what is already decided.
 - [Documentation map](docs/README.md) - canonical router and classification.
 - [Architecture](docs/architecture.md) - owner boundaries and end-to-end flow.
 - [Development and verification](docs/development.md) - change workflow and test matrix.

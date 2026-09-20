@@ -6,25 +6,22 @@ Work in this project uses distinct host roles. This file is the standing contrac
 **Every mission inherits §2 whether or not the handoff restates it.** A handoff may add constraints
 and may not remove them.
 
-**Operator decision 2026-08-28:** the former host-based prohibition on opening
-pull requests or performing an authorized Git merge from the workstation or
-portable PC was written in error and is removed. Source-control authority is
-now governed by the explicit operator instruction plus `docs/git-workflow.md`,
-not by the machine that holds the checkout. This does not turn a remote Git
-merge into runtime adoption or bypass a production-host guarded integration,
-capture-recovery, Scheduler, release, or live-exchange gate.
+**Read when:** you are writing a handoff, executing a delegated mission, or verifying a handback.
+§2 binds every mission. **Not here:** git authority, push path and branch deletion —
+[`docs/git-workflow.md`](../git-workflow.md#git-authority-one-rule-two-scopes) owns them; heavy-work
+windows and the workstation heavy-wrapper contract —
+[`HOST_LOAD_POLICY.md`](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) owns them.
 
-**Operator decision 2026-08-28:** the dedicated capture-host load timetable
-does not follow the portable assignment onto the separate 32 GB workstation.
-That PC may perform ordinary implementation, testing, training, replay, and
-measurement at any local time. Recognized heavy commands use the repository
-workstation wrapper; its admission-only profile shares the portable launcher's
-host-global mutex and admits only the assignment's exact non-capture Windows
-installation and attending principal. Both launch paths own their complete
-child tree in a kill-on-close Windows Job, so wrapped work and a launched stage
-cannot overlap through cleanup. Heavy work still ends before sealing as an operational attempt-
-preservation rule. Its separate live-executor role
-remains fixed-scope and grants no additional production or live authority.
+**Operator decision 2026-08-28 (git):** source-control authority follows the role and the explicit
+operator instruction, not the machine that holds the checkout. A remote Git merge is never runtime
+adoption and bypasses no production-host guarded integration, capture-recovery, Scheduler, release,
+or live-exchange gate. The rule itself is in `git-workflow.md`.
+
+**Operator decision 2026-08-28 (load):** the capture-host timetable does not follow the portable
+assignment onto the separate 32 GB workstation, which may do ordinary implementation, testing,
+training, replay and measurement at any local time. Its recognized heavy commands run under the
+workstation wrapper contract in `HOST_LOAD_POLICY.md`; that allowance grants no production or live
+authority.
 
 **Operator decision 2026-08-30:** the exact reviewed remote branch
 `codex/portable-execution-host-clean-20260827` may be live code authority before
@@ -49,7 +46,7 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Exact tracked non-capture host/principal; outside the capture-host timetable/resource admission; heavy commands use the admission-only shared-mutex wrapper and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable; heavy commands run under the [workstation wrapper contract](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **paused and frozen** ([record](mirror-paused-2026-08-12.md)) and is not authoritative |
 | **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | Exact adopted master or the single operator-authorized topic ref under its full equality/ancestry contract; no capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same
@@ -97,11 +94,13 @@ role file and host runbooks.
 - **Read-only with respect to production.** Register nothing, start no loop, mutate no scheduled task,
   write nothing under `data/` on the production host.
 - **Never write to the workstation mirror or `D:\weather-mirror`.**
-- **Never read or expose `C:\Users\micha\.weathersync.cred`.**
-- PR creation and merge require explicit repository-owner authority and the Git
-  workflow's review, CI, and merge-method gates. When an owning runbook requires
-  guarded production-host integration, use that path; a remote ref change is
-  not production adoption. The narrow portable topic-ref exception above is
+- **Never read or expose the WU sync credential file** (`.weathersync.cred` in the user profile).
+- **Git: work on your branch in your worktree, push that branch freely, never merge to `master`
+  yourself.** Pushing never rolls production (§3). Adoption belongs to the production operations
+  agent through the guarded merge tools; a remote ref change is not production adoption. The one
+  rule, with both scopes, is in
+  [`git-workflow.md`](../git-workflow.md#git-authority-one-rule-two-scopes); merging a PR needs an
+  explicit repository-owner instruction. The narrow portable topic-ref exception above is
   live authority only for its exact portable role and branch; it does not claim
   a production merge, capture adoption/recovery, Scheduler state, or broader
   exchange authority.
@@ -116,8 +115,10 @@ role file and host runbooks.
   a code change and is explicitly not delegated.
 - **Do not relax a gate to make it pass.** Gates in this project are frequently correct when they
   refuse. If a gate is right, the deliverable is the sentence explaining why, not a patch.
-- Never rewrite published git history. **Never delete a branch** — agent reports exist only on
-  unmerged branches.
+- Never rewrite published git history. **Never delete an unmerged branch or another task's
+  worktree** — agent reports and unique code have existed only on unmerged branches. A fully merged
+  branch is retired only through a recorded retirement
+  ([rule and precedent](../git-workflow.md#git-authority-one-rule-two-scopes)).
 
 **Providers**
 
@@ -136,7 +137,7 @@ role file and host runbooks.
 
 ## 3. Roll sensitivity — how to decide it
 
-Landing code on the production host can restart live capture and cost a streak day. Getting this
+Landing code on the production host can restart live capture and cost a capture day. Getting this
 verdict right is the difference between a safe merge and a lost day.
 
 ### The roll happens at MERGE on production, never at commit on the workstation
@@ -158,7 +159,7 @@ Over the same afternoon `git_commit` advanced through six commits on master with
 unchanged: **runtime identity tracks source file content, not commit ids or refs.**
 
 So the roll verdict below governs **when the production agent merges**, not when the workstation
-commits. A mission that withholds a push to protect the streak has misread this section and has
+commits. A mission that withholds a push to protect capture has misread this section and has
 blocked its own handback for nothing.
 
 - **The test is the loaded-module import closure**, recorded in the capture status files as
@@ -279,4 +280,5 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 ## Update this file when
 
 Delegation boundaries, host roles, roll-verdict method, or the required handoff/report structure
-change. Do not put mission-specific content here.
+change. Do not put mission-specific content here. Git authority and the workstation heavy-wrapper
+contract are linked, not copied: change them in `git-workflow.md` and `HOST_LOAD_POLICY.md`.

@@ -1,11 +1,34 @@
 # Package Dependency Boundaries
 
-Status: live ratchet as of 2026-06-16.
+Status: canonical contract, enforced by a test ratchet.
+
+- **Owns:** which `weather.*` owner package may import which, the shared utility roots, the transitional edges and
+  their removal routes.
+- **Read when:** adding an import that crosses an owner package, splitting a facade, or a
+  `test_package_dependency_edges_follow_documented_ratchet` failure.
+- **Do not use for:** owner responsibilities and data flow ([architecture](../architecture.md)) or per-module split
+  status ([module ownership map](module-ownership-map.md)).
+- **Verify with:** `PACKAGE_ROOTS`, `SHARED_PACKAGE_ROOTS`, `ALLOWED_PACKAGE_EDGES` and `TRANSITIONAL_PACKAGE_EDGES`
+  in `tests/operations/test_import_architecture.py`. Those tables are the authority; this file explains them.
 
 The `weather` package is moving from historical flat modules toward explicit
 ownership boundaries. The current rule is a ratchet: every cross-package import
 must either use a shared utility package, match a stable package edge, or be
 listed as a transitional edge in `tests/operations/test_import_architecture.py`.
+
+## What the ratchet checks, and what it does not
+
+- It parses every `.py` under the eight owner packages (`PACKAGE_ROOTS`) and records `weather.<package>` imports,
+  including imports inside functions. An observed edge must be in `ALLOWED_PACKAGE_EDGES` or
+  `TRANSITIONAL_PACKAGE_EDGES`; a transitional edge that is no longer observed fails the test until it is removed.
+- Stable edges are not copied here. Read `ALLOWED_PACKAGE_EDGES`. `sources` may import only `market`; `model` may
+  import only `market` and `sources`; nothing may import `reporting` or `operations` except through the
+  transitional edges below and the stable `collection -> operations` and `market -> operations` edges.
+- Not checked: flat modules directly under `src/weather/` that are not shared roots (release, point-in-time,
+  experiment, execution-host and payload contracts). Imports of them and by them are invisible to the ratchet, and
+  some import owner packages. See [architecture](../architecture.md#owner-boundaries) for the check command.
+- Not checked: relative imports, and the content of this document. The test only asserts that this file exists,
+  so keeping the lists below aligned with the tables is a manual duty.
 
 ## Shared Utilities
 
