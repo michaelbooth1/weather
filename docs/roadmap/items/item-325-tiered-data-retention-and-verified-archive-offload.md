@@ -1389,3 +1389,43 @@ Production consumer adoption, concrete headroom, durable key custody, fresh
 per-chunk protection evidence and production full-restore/reclaim remain open. The original exact July plan's
 reserve exception and queued-PR-44 adoption boundary remain unchanged.
 Production archive upload, deletion and reclaim remain zero.
+
+## 2026-09-19 owner decisions: long-CSV switch activated; duplicate worktree pickles pointerized
+
+Both decisions were given by the repository owner in an attended session on
+2026-09-19 (~09:35 America/Toronto), after the 2026-09-18 full audit
+(`scratch/audit-2026-09-18/AUDIT_FINDINGS.md`, local, gitignored).
+
+**1. `capture.write_order_books_long_csv=false` is activated by this commit.** It is a
+standalone operator activation, not bundled with any code change. It takes effect when
+this commit reaches the production worktree (the merge-commit time is the flip time);
+the policy is re-read on every capture call, so no loop restart is involved.
+
+This corrects the 2026-07 note above that the flag "is **not** a disk fix". That note
+is right about the *retained slope* (~0.7 GB/day after 25x tiering) and wrong about the
+metric that binds. Free space is a daily sawtooth: the uncompressed long CSV for open
+event days **is** the ~13 GiB that the 05:00 tiering job hands back each morning, so it
+sets the daily low (29.9 -> 25.9 -> 14.2 -> ~6 GiB over 09-15..09-19), and the daily low
+is what reaches zero first.
+
+Caveat for every later reader: event days open at the flip keep an
+`order_books_long.csv` that **stops at the flip time**, and tiering will gzip it as if
+complete. Canonical `order_books.jsonl` and the summary CSV are unaffected and remain
+the rebuild source. Never treat a long CSV dated 2026-09-19 or later as complete.
+Revert by setting the value back to `true`; missing or invalid policy still fails safe
+to writing.
+
+**2. Duplicate model pickles in linked worktrees were replaced by their Git LFS
+pointers.** 175 of ~200 linked worktrees each held a smudged copy of
+`artifacts/models/hgb/*.pkl` (~62 GiB in total); every byte also exists once in
+`.git/lfs/objects`. For this one operation the owner waived
+`docs/git-workflow.md` (other tasks' worktrees), `HOST_LOAD_POLICY.md` rule 2 (bulk
+file operation with >= 50 GB free; the precondition could not be met and the work only
+frees space) and the bulk-deletion confirmation in `OPERATIONS_AGENT_ROLE.md`.
+Never touched: the production worktree, locked worktrees, any worktree an enabled
+scheduled task executes from, and `.git/lfs`. Restore any worktree offline with
+`git -C <worktree> lfs checkout artifacts/models/hgb`. The per-file manifest is
+`scratch/audit-2026-09-18/ready-to-run/manifest.jsonl`. To stop regrowth, create
+worktrees with `GIT_LFS_SKIP_SMUDGE=1` in the environment; never set skip-smudge at
+repository level, because a production merge of new pickles would then leave pointers
+where serving expects models.
