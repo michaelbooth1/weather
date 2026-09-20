@@ -144,6 +144,107 @@ class ClobOrderBookTieringTests(unittest.TestCase):
         self.assertFalse(gzip_exists)
         self.assertEqual(payload["apply"]["summary"]["insufficient_headroom"], 1)
 
+    def test_headroom_is_sized_to_the_gzip_written_not_the_source_replaced(self):
+        # 2026-09-18: the only recurring reclaim refused at ~2.5 GiB free because it reserved the
+        # whole source on top of the floor, to write ~1/25 of it and then free the source.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            source = write_long_book(folder, "capture_id,side\n" + "b1,bid\n" * 4000)
+            source_bytes = source.stat().st_size
+            floor = 1000
+            free = floor + source_bytes // 2
+
+            with patch(
+                "weather.operations.clob_order_book_tiering.shutil.disk_usage",
+                return_value=DiskUsage(total=10 * free, used=9 * free, free=free),
+            ):
+                payload = run(
+                    snapshots_root=root,
+                    settled_before="2026-06-19",
+                    min_free_bytes=floor,
+                    apply=True,
+                    delete_source=True,
+                )
+            action = payload["apply"]["actions"][0]
+            source_exists = source.exists()
+
+        self.assertLess(free, source_bytes + floor)
+        self.assertEqual(action["required_free_bytes"], -(-source_bytes // 4) + floor)
+        self.assertEqual(payload["status"], "PASS")
+        self.assertFalse(source_exists)
+
+    def test_writer_aborts_when_the_floor_is_breached_mid_write_and_keeps_the_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            source = write_long_book(folder, "capture_id,side\n" + "b1,bid\n" * 4000)
+            readings = iter([DiskUsage(total=10**9, used=0, free=10**9)])
+
+            def shrinking_disk(_path):
+                return next(readings, DiskUsage(total=10**9, used=10**9 - 1, free=1))
+
+            with patch(
+                "weather.operations.clob_order_book_tiering.shutil.disk_usage",
+                side_effect=shrinking_disk,
+            ), patch("weather.operations.clob_order_book_tiering.HEADROOM_RECHECK_BYTES", 1):
+                payload = run(
+                    snapshots_root=root,
+                    settled_before="2026-06-19",
+                    min_free_bytes=1000,
+                    apply=True,
+                    delete_source=True,
+                )
+            action = payload["apply"]["actions"][0]
+            leftovers = sorted(path.name for path in folder.iterdir() if ".gz" in path.name)
+            source_exists = source.exists()
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(action["status"], "skipped_insufficient_headroom")
+        self.assertTrue(action["floor_breached_during_write"])
+        self.assertTrue(source_exists)
+        self.assertEqual(leftovers, [])
+
+    def test_a_candidate_blocked_at_its_turn_is_retried_after_later_deletes_free_space(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            big_folder = root / "highest-temperature-in-atlanta-on-june-16-2026"
+            small_folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            big = write_long_book(big_folder, "capture_id,side\n" + "b1,bid\n" * 8000)
+            small = write_long_book(small_folder, "capture_id,side\n" + "b1,bid\n" * 40)
+            floor = 1000
+            tight = floor + small.stat().st_size
+            big_required = -(-big.stat().st_size // 4) + floor
+
+            def disk(_path):
+                # Roomy only once the small source has been verified and deleted.
+                free = tight if small.exists() else 10**9
+                return DiskUsage(total=10**10, used=0, free=free)
+
+            with patch(
+                "weather.operations.clob_order_book_tiering.shutil.disk_usage",
+                side_effect=disk,
+            ):
+                payload = run(
+                    snapshots_root=root,
+                    settled_before="2026-06-19",
+                    min_free_bytes=floor,
+                    apply=True,
+                    delete_source=True,
+                )
+            by_source = {
+                Path(action["source_path"]).parent.name: action
+                for action in payload["apply"]["actions"]
+            }
+            big_exists = big.exists()
+
+        self.assertLess(tight, big_required)
+        self.assertEqual(payload["status"], "PASS")
+        self.assertFalse(big_exists)
+        self.assertTrue(by_source[big_folder.name]["retried_after_reclaim"])
+        self.assertEqual(by_source[big_folder.name]["status"], "compressed")
+        self.assertNotIn("retried_after_reclaim", by_source[small_folder.name])
+
     def test_apply_records_compression_failures_without_deleting_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
