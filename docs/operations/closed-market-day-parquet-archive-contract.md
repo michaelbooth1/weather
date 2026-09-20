@@ -1,12 +1,22 @@
 ﻿# Closed Market-Day Parquet Archive Contract
 
-Last updated: 2026-06-23
+- **Owns:** the Parquet analysis-copy layout, manifest schema, eligibility,
+  validation and the historical reader fallback order for closed market-days.
+- **Read when:** you add or change a historical reader, an artifact family, or
+  the `closed_day_parquet_incremental` daily-refresh step.
+- **Do not use for:** deleting or tiering text tapes
+  ([data-retention-policy.md](data-retention-policy.md)), or off-site archives
+  ([cold-archive-locations.md](cold-archive-locations.md)). This contract
+  authorizes no deletion.
+- **Verify with:** constants and the `ARTIFACT_FAMILIES` tuple near the
+  top of `src/weather/operations/closed_market_day_archive.py`; last converter
+  outcome in `dataacktestosed_market_day_parquet_incremental.json`.
 
 This contract defines the historical Parquet surface for closed market-days.
 It does not change live collectors, current serving code, or active
-`data/snapshots/<event_slug>/` text tapes. Conversion and reader migration are
-owned by later roadmap items; this document defines the layout, manifest, and
-fallback rules they must use.
+`data/snapshots/<event_slug>/` text tapes. The converter and the shared reader
+below are implemented; the converter runs as the `closed_day_parquet_incremental`
+daily-refresh step (`src/weather/operations/daily_refresh_registry.py`).
 
 The code-backed contract constants live in
 `weather.operations.closed_market_day_archive`.
@@ -104,6 +114,8 @@ and `schema_fingerprint`. The default Parquet codec is `zstd`.
 The archive maps existing snapshot files to artifact families. Parquet datasets
 are the default closed-day analysis representation when the source is present
 and schema-safe. Raw evidence references remain permanent.
+The code table `ARTIFACT_FAMILIES` is authoritative; this table must list the
+same names.
 
 | Artifact family | Source patterns | Raw evidence references |
 | :--- | :--- | :--- |
@@ -112,9 +124,11 @@ and schema-safe. Raw evidence references remain permanent.
 | `components_long` | `components_long.csv`, `components_long.csv.gz` | `components.jsonl` |
 | `forecasts_long` | `forecasts_long.csv`, `forecasts_long.csv.gz` | `forecasts.jsonl` |
 | `forecast_payloads_long` | `forecast_payloads_long.csv`, `forecast_payloads_long.csv.gz` | `forecast_payloads.jsonl`, reconstructed forecast payload JSON |
+| `observation_payloads_long` | `observation_payloads_long.csv`, `observation_payloads_long.csv.gz` | `observation_payloads.jsonl`, `observation_payloads/*.json` |
 | `source_status_long` | `source_status_long.csv`, `source_status_long.csv.gz` | `source_status.jsonl`, replay-input JSONL |
 | `replay_inputs` | `replay_inputs.jsonl`, `replay_inputs_reconstructed.jsonl` | replay-input JSONL and `replay_input_status.json` |
 | `replay_input_status` | `replay_input_status_long.csv`, `replay_input_status_long.csv.gz` | `replay_input_status.json` |
+| `clob_capture_status` | `clob_capture_status.jsonl` | `clob_capture_status.jsonl` |
 | `clob_tokens` | `clob_tokens.csv`, `clob_tokens.csv.gz` | `clob_tokens.jsonl` |
 | `order_books_summary` | `order_books_summary.csv`, `order_books_summary.csv.gz` | `order_books.jsonl` |
 | `order_books_long` | `order_books_long.csv`, `order_books_long.csv.gz` | `order_books.jsonl` |
@@ -151,7 +165,6 @@ Validation must prove:
   compression codec, schema fingerprint, and artifact-family name.
 - Parquet row counts match the source row counts after documented filtering or
   normalization.
-  durable restore manifest.
 - The manifest hash verifies after excluding the `manifest_hash` field.
 
 Validation `WARN` or `BLOCK` partitions are retained only as diagnostics.
@@ -264,8 +277,19 @@ and must stay protected by reviewed cleanup manifests:
   `price_history_raw/*.json`, `market_ws.jsonl`, and capture status rows.
 - Settlement labels, per-market ledgers, resolution specs, and reconciliation
   evidence.
-- Archive manifests and Parquet partitions after Item 244 writes them.
+- Archive manifests and written Parquet partitions.
 
 CSV long tables are source material for v0.1 conversion and remain local text
 fallbacks until a later cleanup item proves validated Parquet, durable raw
-restore, and an explicit cleanup manifest. Item 243 authorizes no deletion.
+restore, and an explicit cleanup manifest. This contract authorizes no deletion.
+
+When a folder's raw sources have been moved to the off-site archive, the
+converter plans `preserve_archived_sources` and leaves the existing valid
+partition alone rather than rebuilding a partial one; see
+[cold-archive-locations.md](cold-archive-locations.md).
+
+## Update this file when
+
+Update when the archive root or partition keys, manifest fields, finalization
+states, artifact-family table, validation rules, reader fallback order or
+reasons, the converter CLI modes, or its daily-refresh step name change.

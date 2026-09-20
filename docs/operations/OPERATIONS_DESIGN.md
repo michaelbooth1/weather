@@ -1,5 +1,24 @@
 # Operations Design
 
+- **Owns:** the scheduled-task and loop topology of the production capture host: which task runs which command,
+  what each loop writes, how the daily chain is staged and contained, and the two retraining topologies.
+- **Read when:** changing or diagnosing a supervisor, a scheduled task, a loop status file, the daily refresh
+  stages, or deciding which loops a code change must restart.
+- **Do not use for:** what is armed, disabled or broken today ([STATE_OF_PLAY](STATE_OF_PLAY.md)); heavy-work
+  windows and thresholds ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md), [OPERATING_REFERENCE](OPERATING_REFERENCE.md));
+  the integration procedure ([INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md)); retention and disk
+  ([data retention policy](data-retention-policy.md)).
+- **Verify with:** `Get-ScheduledTask -TaskName 'Weather*'` (state and action path, see "What actually executes"),
+  the `param()` block of the matching `scripts/ops/register_*.ps1`, and `scripts\ops\status.ps1` output in
+  `data/alerts/MORNING_BRIEFING.md`. This file describes design; it never proves a task is enabled.
+
+Status of machinery described here (owner decisions; [STATE_OF_PLAY](STATE_OF_PLAY.md) is
+the current authority): nightly training is disabled, Stage B evidence refresh is registered disabled by default,
+the taker track is paused, the workstation data mirror is paused
+([mirror-paused-2026-08-12](mirror-paused-2026-08-12.md)), and streak contiguity is not an objective
+([ESTABLISHED_FINDINGS](ESTABLISHED_FINDINGS.md) section 0d). "Streak-critical" below names the three loops whose
+gaps are graded; it does not rank the streak above settlement evidence.
+
 ## Target Shape
 
 The operating setup has three layers:
@@ -52,6 +71,42 @@ an unattended task back into an interactive-logon dependency.
 
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
+
+## What actually executes
+
+A scheduled task runs the files at the path frozen into its action when it was registered. Every
+`register_*.ps1` defaults `-RepoRoot` to the checkout that contains the registrar
+(`Split-Path -Parent (Split-Path -Parent $PSScriptRoot)`), so a task registered from a linked worktree keeps
+executing that worktree. **Merging a `.ps1` to `master` does not change what such a task runs until the task is
+re-registered (redeployed) from the intended checkout.** The script path and the data root are separate: a
+deployed action can run a worktree's script with `-RepoRoot` and working directory set to the production
+checkout, so it executes old script text against live production `data/` and the production venv.
+
+Do not assume the production checkout. On the production host many enabled `Weather*` tasks execute from linked
+worktrees. Known cases (2026-09-18 audit; the first three actions were re-read with the command below on 2026-09-19.
+Re-verify rather than trusting this list):
+
+| Task | Executes | Consequence |
+| :--- | :--- | :--- |
+| `WeatherBootRecovery` | `boot_recovery.ps1` in the linked worktree `weather-integration-attempt-recovery`, optionally pinned by `-ExpectedSelfSha256` (`register_boot_recovery.ps1 -ExpectedScriptSha256`) | A merged boot-recovery fix is inert until the task is re-registered. |
+| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The deployed watchdog is **newer than `master`**: `health_watchdog.ps1` on `master` has no `-ExpectedSelfSha256`, `-StatusScriptPath` or `-ExpectedStatusScriptSha256` parameter and `register_health_watchdog.ps1` cannot express the pins, so re-registering from `master` would replace the deployed watchdog with an older, unpinned one. Compare `git -C <deployed worktree> show HEAD:scripts/ops/health_watchdog.ps1` with `master` before touching this task. |
+| `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
+| Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
+
+Check before reasoning about any task's behavior (read-only, light):
+
+```powershell
+Get-ScheduledTask -TaskName 'Weather*' | Where-Object State -ne 'Disabled' |
+  ForEach-Object { [pscustomobject]@{ Task = $_.TaskName; State = $_.State
+    Execute = $_.Actions[0].Execute; Arguments = $_.Actions[0].Arguments
+    WorkingDirectory = $_.Actions[0].WorkingDirectory } } | Format-List
+git worktree list
+```
+
+Read the path inside `Arguments` (`-File <path>` or an encoded wrapper contract) and `WorkingDirectory`, then match
+it against `git worktree list`. If it is not the production checkout, the code to read is
+`git -C <that worktree> show HEAD:<script>`, not `master`. When a fix must reach such a task, the work item is
+"merge **and** redeploy", and the redeploy is a Scheduler mutation that needs its own authorization.
 
 ## Startup After Reboot
 
@@ -346,6 +401,42 @@ JSON and nightly retrain status
 publish by atomic replacement, so containment teardown cannot expose a
 partially written status document.
 
+### Settlement in the chain: what it does and does not do
+
+The step order is `STEP_REGISTRY` in `src/weather/operations/daily_refresh_registry.py`; Stage A is every step
+through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that decide settlement evidence:
+
+- **Single shot.** Stage A has one daily 09:30 trigger with `StartWhenAvailable` and no restart or retry setting
+  (`register_daily_refresh.ps1`). A run that is refused, deferred or killed is not retried inside its window. The
+  next run is tomorrow's, and it does not look back.
+- **Each run settles only yesterday.** A missed or failed day leaves a permanent hole until that date is
+  backfilled explicitly.
+- **Settlement is not first.** `public_wu_settlement_restore` and `market_day_labels_finalize` are steps four and
+  five, behind three learning-lane steps (`reanalysis_recent_refresh`, `ingest_quality_gate`,
+  `event_metadata_validation`) that have nothing to do with settlement. A global hard stop in one of those
+  (physical-resource deferral, isolated-child failure) ends the run before settlement is attempted.
+- **The commit gate is relative to the live commit limit.** Stage A refuses above
+  `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
+  host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
+  live values from `data\logs\memory_commit_guard_status.json` (`commit_total_mb`, `commit_used_mb`,
+  `commit_percent`), refreshed each minute by `WeatherMemoryCommitGuard`.
+- **Backfill one date with the wrapper, never the runner.** Use
+  `scripts\ops\settlement_backfill_one.ps1 -TargetDate <yyyy-MM-dd> -Refetch`. It drives
+  `chain_recovery_run.ps1` for the bounded restore-to-finalize range ("One-date settlement recovery" below) and then verifies
+  real settlement values in every market ledger, reporting `SILENT_NOOP` when the chain exited zero but nothing
+  settled. Calling `chain_recovery_run.ps1` directly skips that check and reports OK on a run that settled nothing.
+  Do not declare a date unrecoverable from a count of failed tries; the source has recovered on a later attempt.
+- **The alarm has a horizon.** The `SETTLEMENT HOLE` flag in `status.ps1` scans `$windowDays = 14`
+  (`weather.operations.settlement_hole_check --window-days`). An older hole drops out of the briefing while still
+  unsettled. For an older range run the checker with larger `--window-days` and `--tail-lines` inside the heavy-work window, or
+  read the per-market ledgers under `data/settlements/`.
+
+## Bounded Suite And Integration Attempts
+
+This section explains design intent only. [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md) owns the
+procedure and [development](../development.md#production-capture-host-16-gb) lists the runner limits; skip to
+"Daily-Chain Recovery, Locks And Lanes" unless you are changing the attempt machinery.
+
 The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
 That runner admits tests only from 00:30-09:00, against a registered clean
 worktree whose branch and `HEAD` equal an explicit commit, while all three
@@ -479,6 +570,13 @@ merge task action cannot make an active attempt disappear from health reporting.
 A fresh `merged_unpushed` commit is a FLAG requiring reviewed publication or
 recovery, not a passive warning.
 
+### One-time production baseline reconciliation (incident mode)
+
+Built for a single incident (see the two `production-baseline` agent reports dated 2026-09-08 and 2026-09-09 under
+`docs/roadmap/`). The code and its tests remain, so the contract below still binds any change to
+`quiet_window_merge.ps1`, `reconcile_integration_attempt.ps1`, `production_baseline_scheduler_rpc.ps1` or the
+`status.ps1` incident classifier. It is not a procedure to run again.
+
 The one-time `production_baseline_reconciliation_v0.1` topology is deliberately
 outside that generic attempt state machine. It starts from the exact accepted
 local baseline while the published target is already ahead, creates a
@@ -556,6 +654,8 @@ clean worktree, immutable canonical-origin configuration, cached master, and a
   artifact. Relabeling populated reconciliation evidence as ordinary is invalid
   and cannot restore generic push guidance.
 
+## Daily-Chain Recovery, Locks And Lanes
+
 One-date settlement recovery uses the same containment and lock contracts but
 adds an inclusive execution boundary:
 `daily_refresh run --resume-from-step public_wu_settlement_restore
@@ -603,7 +703,15 @@ Python child trees through `KILL_ON_JOB_CLOSE`, enforce bounded runtimes, write
 their latest status atomically, and append every outcome to JSONL history.
 `SKIPPED_WORKLOAD_LEASE_BUSY` remains a safe non-run, not successful reclaim;
 `status.ps1` reads the durable status and surfaces the skip beside disk slope
-even when Task Scheduler reports zero.
+even when Task Scheduler reports zero. Registered times are fixed by `ValidateSet`: `WeatherClobTiering` at 05:00
+(`register_clob_tiering.ps1`) and `WeatherClobRawTapeTiering` at 06:00 (`register_clob_raw_tape_tiering.ps1`).
+
+Free space on the production volume is therefore a daily sawtooth, not a level: capture writes uncompressed
+long order-book CSV for open event days all day, and the 05:00 job returns that space. The daily low is just
+before it runs and sits well under an evening reading. Judge every disk floor (the 50 GiB suite floor, training
+preflight, capture safety) against the daily low. The
+[data retention policy](data-retention-policy.md) owns the numbers, the `capture.write_order_books_long_csv`
+switch in `config/storage_pressure.json`, and how to read the live value.
 
 Before the settled-day analysis barrier, the read-only
 `observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
@@ -613,14 +721,13 @@ floor above settlement is `ALERT`. The monitor records the exact market, target
 date, snapshot, floor, settlement, rescue source, and overshoot in buckets. It
 never reconstructs or replays a model.
 
-**Temporary posture, 2026-07-31:** until the Toronto release-admissible capture
-lock is secured, `ALERT` and `BLOCK` are alert-only by default. They remain
+**Default posture (introduced as temporary on 2026-07-31 and still the code default; the release lock it waited
+for is off the critical path):** `ALERT` and `BLOCK` are alert-only unless the flag below is passed. They remain
 prominent in status, rollup, and the daily report, but do not block the
-settled-day barrier: losing a paper-analysis day during the four-day pre-lock
-window is the larger operational risk. This does not make the monitor optional
-or weaken detection. After the lock, explicitly pass
-`--fail-on-observed-floor-safety` to `daily_refresh` to restore fail-closed
-barrier enforcement; the standalone monitor uses `--fail-closed`.
+settled-day barrier; the original reason was that losing a paper-analysis day outweighed the block. This does
+not make the monitor optional or weaken detection. Pass `--fail-on-observed-floor-safety` to `daily_refresh`
+(`daily_refresh_cli.py`) to restore fail-closed barrier enforcement; the standalone monitor uses `--fail-closed`.
+Whether to flip the default is an open owner decision, not something a registration change should do silently.
 
 The default `Full` registration parameter set keeps captured-input parity,
 served-artifact, and served-route inputs mandatory. Before reviewed release #1
@@ -637,6 +744,11 @@ FULL production-evidence gate. Re-registration is a stateful adoption action
 and is not performed by repository tests or code changes.
 
 ## Retraining Topologies: Choose One
+
+**Status: disabled by owner decision.** No retraining task should be enabled on the production host; confirm with
+`Get-ScheduledTask -TaskName 'WeatherTrainingWindow*','WeatherNightlyRetrainValidatePromote'` and
+[STATE_OF_PLAY](STATE_OF_PLAY.md). This section describes the design for when the owner re-arms it. The procedure
+is owned by the [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md).
 
 Nightly retraining is heavy and candidate-only. It may build an immutable,
 inactive release after validation; it must not activate
@@ -712,5 +824,6 @@ the owners of evidence capture.
 ## Update this file when
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
-contracts, dashboard controls, deployment/restart behavior, or retraining
+contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
+order or settlement recovery, or retraining
 topology changes.

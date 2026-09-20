@@ -1,5 +1,14 @@
 # From Model To Market Maker: The Weather MM Plan
 
+> **Agent routing.** Owns: the venue mechanics (reward scoring formula, rebate
+> and fee formulas, two-sided quoting via YES and NO bids) and the original
+> 2026-06 staging rationale. Read when: you need how rewards, rebates or fees
+> are computed. Do not use for: the current maker plan, gates or status
+> ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)),
+> live authority ([STATE_OF_PLAY.md](../operations/STATE_OF_PLAY.md)), or any
+> dollar figure - every economic number here is dated 2026-06 unless marked
+> otherwise, and the reward budget was re-measured on 2026-09-19 (Part 0).
+
 Research date: 2026-06-12. Audited and revised same day (v2) - every economic
 assumption was re-tested against live APIs; see the audit changelog below.
 Live numbers were pulled from the Gamma and CLOB APIs for the June 11-13
@@ -97,15 +106,52 @@ Two-sided quoting is enforced through `Q_min`:
   4-cent band costs ~$0.96/share. Tail campaign rates are small anyway -
   harvest the central bands, skip the tails.
 
-**Measured reward budgets (June 13, 2026 events):** ~$1.00/day per event
-(Dallas was $5.00 that day), attached to the central 3-5 bands only
-(verified: 53 of 132 bands carried campaigns). Fleet total: **~$16/day**.
+**Measured reward budgets, 2026-06-13 (dated history - true for that date,
+not current):** ~$1.00/day per event (Dallas was $5.00 that day), attached to
+the central 3-5 bands only (verified: 53 of 132 bands carried campaigns).
+Fleet total that day: **~$16/day**.
 
-**Conclusion: liquidity rewards are a subsidy, not a business.** They pay for
-infrastructure and force good quoting discipline (two-sided, tight,
-persistent, sampled every minute including overnight). The measured
-thin books mean a min-size quoter can plausibly capture most of this in
-off-hours - but $16/day is still $16/day. Treat as cost offset.
+**Measured configured reward pool, 2026-09-19:** about **2,800 per day** for
+the 12 same-day events (200 per event; 400 for NYC and Los Angeles; 35-46
+rewarded bands), about 1,200 for T+1 events and about 800 for T+2 events
+(listed since 2026-08-29): **about 4,800 per day across all active events**.
+Stable on 31 of 31 sampled days between 2026-08-15 and 2026-09-19 (same-day
+2,717-2,830). That day 129 of 352 conditions were rewarded, maximum distance
+was 4.5 cents everywhere, minimum size was 100 shares on 26 same-day bands and
+20 shares on the other 15 same-day bands and on every T+1/T+2 band, and
+per-band rates ran from 1 to 246 per day. Source: the project's own
+`exchange_economics_snapshot.json`, field
+`markets[].liquidity_rewards.current_daily_rate_usdc`, summed across markets.
+Owner of the measurement and its caveats:
+[ESTABLISHED_FINDINGS.md section 10a](../operations/ESTABLISHED_FINDINGS.md).
+
+**Conclusion (revised 2026-09-19).** The June conclusion - "liquidity rewards
+are a subsidy, not a business ... treat as cost offset" - rested on the June
+budget and is withdrawn as a statement about today; see
+[RETRACTED_AND_FALSE_LEADS.md section 4a](../operations/RETRACTED_AND_FALSE_LEADS.md).
+The configured pool is roughly 175-300 times the June figure. **A pool is not
+income**: it is shared among all makers by Q-score, this project has never
+observed a paid reward, and the unit of `rate_per_day` has not been confirmed
+against a paid epoch. What rewards still do is force good quoting discipline
+(two-sided, tight, persistent, sampled every minute including overnight).
+Whether they are a business is **open**, and turns on these unknowns:
+
+- **Q-score share for a capped quoter.** Reward share is size-weighted against
+  whoever else qualifies. The share a 20-share or 100-share two-sided quote
+  would win, per rewarded band per minute, has not been measured.
+- **Maker markout / adverse selection.** What resting quotes in these markets
+  lose to informed flow per filled share is unmeasured. Rewards pay for
+  resting time; losses accrue per fill.
+- **Whether taker fees - and therefore maker rebates - are non-zero here.**
+  Sampled public execution-tape rows on 2026-09-19 carried
+  `fee_rate_bps: "0"`. UNVERIFIED at scale; if it holds, income stream 2
+  below is zero on these markets and the rebate sizing in this document does
+  not apply.
+- **The cap-versus-minimum conflict.** The pilot's 10 pUSD per-band cap cannot
+  hold a reward-eligible quote: a two-sided 20-share quote reserves about
+  19.60 pUSD, and the 100-share bands need about 98. Under the current cap no
+  quote is reward-eligible. Changing a cap is an owner decision
+  ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)).
 
 **2. Maker rebates (paid daily in pUSD, min $1).**
 Weather is a fee-charging category: takers pay
@@ -417,6 +463,9 @@ Honest return arithmetic (to be replaced by MM-1 measurements):
 - Harvest mode, fleet-wide, min size: capital ~$3k; income = some fraction
   of $16/day rewards + rebate share on min-size fills - small absolute
   dollars. Its value is validation and measurement, not profit.
+  *(2026-06 arithmetic. The $16/day input is stale: see the 2026-09-19
+  measurement in Part 0. The share of the larger pool is unmeasured, so no
+  replacement income figure exists.)*
 - The scalable prize: a fleet rebate pool estimated at $3-7k/day plus
   spread/skew P&L on $780-850k/day of fleet volume. Capturing even a
   single-digit percent of daily volume as the maker, with positive markout

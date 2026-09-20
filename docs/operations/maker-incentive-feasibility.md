@@ -2,6 +2,14 @@
 
 Status: canonical diagnostic contract.
 
+- **Owns:** the input and result contract of `weather.market.maker_incentive_feasibility.assess_buy_plan`.
+- **Read when:** estimating whether one explicit BUY plan can earn a liquidity reward, or changing that calculator.
+- **Do not use for:** any order, promotion or live authority (it grants none), reward-pool facts or maker economics
+  status ([STATE_OF_PLAY](STATE_OF_PLAY.md), roadmap item 330), or the live pilot
+  ([INTERNATIONAL_MM_LIVE_PILOT](INTERNATIONAL_MM_LIVE_PILOT.md)).
+- **Verify with:** the dataclasses and `assess_buy_plan` signature in
+  `src/weather/market/maker_incentive_feasibility.py`; `tests/market/test_maker_incentive_feasibility.py`.
+
 `weather.market.maker_incentive_feasibility.assess_buy_plan` evaluates one
 explicit YES BUY, NO BUY, or simultaneous pair of BUY orders. It is a pure
 calculation with no file loader, network client, executor integration, or CLI.
@@ -132,7 +140,7 @@ distance, cutoff endpoints, size/tick/post-only limits, simultaneous capital,
 campaign absence, competitor dilution, participation and partial-size loss,
 and explicit epoch binding. No venue access is required.
 
-## Update when
+## Update this file when
 
 Update alongside input or result contracts, supported order plans, scoring or
 capital semantics, or any consumer that attempts to persist or promote these

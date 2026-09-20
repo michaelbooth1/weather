@@ -1,5 +1,10 @@
 # Off-host mirror paused — 2026-08-12
 
+> **Status: PAUSED — a dated decision record.** The figures below are the 2026-08-12 sample, not
+> current state. **The live answer is the task state**:
+> `Get-ScheduledTask -TaskName WeatherDataMirror` — `Disabled` means still paused.
+> **Read when:** touching the mirror, workstation `data\`, or the off-host flags in `status.ps1`.
+
 **Operator decision: focus on the production host and get it stable first.** The nightly
 `data\` mirror to the workstation is stopped. This records what stopped, what it costs, what it
 frees, and exactly how to restart it.

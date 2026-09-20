@@ -25,19 +25,22 @@ Scope: scheduled jobs, supervisors, and lifecycle orchestration under
 - Prefer `status`, `--dry-run`, temporary output paths, and focused unit tests
   during verification. Do not start, stop, register, or mutate live scheduled
   jobs unless the task explicitly requires it.
-
-- Two independent clocks gate a release and must agree before one is built: the
+- Two independent clocks exist and must not be collapsed into one signal: the
   operational capture streak (`scripts/ops/streak.ps1`) and release
   admissibility (`release_admissibility_clock`, which grades a market-day from
-  the settlement ledger plus source checks). Neither consults the other; do not
-  collapse them into one signal.
+  the settlement ledger plus source checks). Neither consults the other, and a
+  release build requires both to agree. They are release diagnostics, not
+  operating objectives: streak contiguity is not an objective (established
+  findings §0d). What matters operationally is settled, countable market-days;
+  current objectives are in
+  [the state of play](../../../docs/operations/STATE_OF_PLAY.md).
 
 Run focused tests in `tests/operations/`, including import architecture for new
 module edges. Canonical references are
 [Operations Design](../../../docs/operations/OPERATIONS_DESIGN.md),
 [Nightly Retrain Runbook](../../../docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md),
 [Release #1 Build Runbook](../../../docs/operations/RELEASE_ONE_BUILD_RUNBOOK.md),
-[Code-soak streak runbook](../../../docs/ops/streak-soak.md),
+[Capture-day grading and guarded merges](../../../docs/ops/streak-soak.md),
 and [Large Module Ownership Map](../../../docs/operations/module-ownership-map.md).
 
 ## Update this file when

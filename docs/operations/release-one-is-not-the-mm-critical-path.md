@@ -1,5 +1,19 @@
 # Release #1 and the MM clock — what is and is not established
 
+- **Owns:** what is and is not established about Release #1's role in MM promotion/countability
+  (the filename's claim was **retracted**; read the body, not the name).
+- **Read when:** sequencing Release #1 against maker work, or tempted to infer a dependency from a
+  grep of gate modules.
+- **Do not use for:** current MM status or blockers (`STATE_OF_PLAY.md`, item 330); the build
+  procedure ([RELEASE_ONE_BUILD_RUNBOOK.md](RELEASE_ONE_BUILD_RUNBOOK.md)).
+- **Verify with:** the two commands under "Reproduction" (the second reads one dated run folder;
+  substitute a current `data\mm_runs\<date>\<run>\quote_intents_long.csv`).
+
+> Measurements and the `WeatherChainRecovery20260807` one-shot named below are **as of 2026-08-06**
+> and that task was a dated one-shot (do not assume it still exists). The open question in "What is NOT established" has not been recorded as
+> settled anywhere in this file since; treat it as still open. Release #1 itself remains deferred
+> ([decision](release-one-deferred-until-a-retrained-candidate.md)).
+
 Status: **corrected 2026-08-06, same day, before anyone acted on it.** The first version of
 this file claimed release #1 was *not* on the critical path to a countable MM day. That claim
 was under-evidenced and is retracted. What replaces it is narrower and, for sequencing,

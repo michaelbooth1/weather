@@ -10,7 +10,13 @@ their owning runbooks.
 The default posture is research, read-only, shadow, or paper. Live capital is
 unauthorized unless explicitly requested and every current readiness, release,
 risk, credential, and confirmation gate passes. For code-change workflow, use
-the [development guide](../development.md).
+the [development guide](../development.md); for branches, pushes and merges, the
+[Git workflow SOP](../git-workflow.md).
+
+**Read when:** you are running or reviewing an operating cycle and need to know
+which runbook owns the next step. **Not here:** today's priorities
+([STATE_OF_PLAY.md](STATE_OF_PLAY.md)), commands, schedules or thresholds (their
+owning runbooks, linked below).
 
 ## Establish Current Truth
 
@@ -19,6 +25,7 @@ the start of every operating cycle:
 
 | Question | Source of truth |
 | --- | --- |
+| What is decided, and what is the critical path today? | [STATE_OF_PLAY.md](STATE_OF_PLAY.md) |
 | What work or proof remains open? | [Generated active backlog](../roadmap/active-backlog.md) and linked numbered items |
 | What tasks are installed? | Windows Task Scheduler; compare actions, arguments, triggers, and settings with `scripts/ops/` |
 | Are capture and pipelines healthy now? | Canonical status commands and ignored local status/report files under `data/` |

@@ -1,7 +1,21 @@
 # Workstation disk: it is a mirror problem, not a workstation problem
 
-Status: canonical plan, 2026-08-06. Written because the workstation is nearly full and the
-instinct — delete on the workstation — does not work on its own.
+- **Owns:** how the production-to-workstation `data` mirror interacts with workstation disk:
+  the `/MIR` restore hazard, the exclude-then-delete pattern, and the guards for cleaning the
+  workstation checkout's `scratch`.
+- **Read when:** the workstation is short of disk, someone proposes deleting mirrored data
+  there, or the mirror is about to be restarted or re-scoped.
+- **Do not use for:** production disk headroom or pruning
+  ([data-retention-policy.md](data-retention-policy.md)), current sizes (every number below is a
+  dated snapshot), or whether the mirror is running
+  ([mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md)).
+- **Verify with:** on the workstation, `Get-Volume` and a fresh measurement of the directory in
+  question; on production, `Get-ScheduledTask` for the mirror task state. The mirror script is
+  outside Git, so read it on the host before relying on its exclusions.
+
+Status: plan written 2026-08-06 because the workstation was nearly full and the instinct (delete
+on the workstation) does not work on its own. The mechanics are durable; the numbers and the
+"path forward" are a **2026-08-06 snapshot, not current authority**.
 
 > **THE MIRROR IS PAUSED as of 2026-08-12** ([record](mirror-paused-2026-08-12.md)). Two things
 > below invert while it is off. **The `/MIR` restore hazard is suspended**, so deletion on the
@@ -19,7 +33,10 @@ instinct — delete on the workstation — does not work on its own.
 `/MIR` means **anything deleted on the workstation is re-copied the next night** unless it is also
 excluded at the source. Every reclaim below has to happen in the mirror scope, not on the target.
 
-## Current numbers
+## Numbers on 2026-08-06 (HISTORICAL)
+
+Do not plan against these. The mirrored workstation copy has been frozen since the pause, and
+production has since been through archive offload and NTFS compression (item 325).
 
 | | |
 | --- | ---: |
@@ -97,7 +114,15 @@ a much easier one:
 Mission-local `venv\` directories under scratch are rebuildable; deleting them costs a reinstall,
 not evidence.
 
-## Why the designed fix is stuck, and what actually unblocks it
+## Why the designed fix was stuck on 2026-08-06 (SUPERSEDED)
+
+> Superseded. The `-09-29a` lane split merged (`3b531b1c9`): `closed_day_parquet_incremental`
+> and `data_retention_inventory` are now learning-lane steps in `STEP_REGISTRY`
+> (`src/weather/operations/daily_refresh_registry.py`) and no longer die with the promotion
+> barrier. Off-site offload then went through the encrypted chunk lane
+> ([production-cold-archive-staging.md](production-cold-archive-staging.md)), not sealed Parquet
+> days; the owner has since paused further uploads. The text below records the reasoning at the
+> time.
 
 There is already a tiering design — closed market-days sealed into the parquet archive and moved
 to the 2 TB cold Drive (tier 4), per
@@ -117,7 +142,11 @@ cold **have not run in 27 days.**
 **So the disk problem and the dead-learning-loop problem are one blocker.** `-09-29a` (chain
 promotion/learning lane split, awaiting merge) is what reopens both.
 
-## The path forward, in order
+## The path forward as planned on 2026-08-06
+
+Status today: step 1 is done; step 2 is a standing rule (re-measure first); step 3 is moot while
+the mirror is paused and is the first decision at any restart; step 4 was replaced by the
+encrypted chunk archive, now paused by owner decision; step 5 stands.
 
 **1. Land `-09-29a`.** Nothing else unblocks the sealing and tiering path. Until the chain gets
 past the barrier, every tiering decision is being made on 27-day-old inventory data.
@@ -151,7 +180,9 @@ should not be deferred indefinitely.
 
 ## What NOT to do
 
-- **Do not delete on the workstation without excluding at source first.** `/MIR` restores it.
+- **Do not delete on the workstation without excluding at source first** once the mirror is
+  running again. `/MIR` restores it. While the mirror is paused the deletion sticks, but only
+  until restart.
 - **Do not delete `data\backtest\replay_cache` on production.** It is excluded from the mirror
   because it is rebuildable, which is not the same as disposable; `storage_classes.py` gates its
   local deletion on a reachability manifest.
@@ -161,5 +192,6 @@ should not be deferred indefinitely.
 
 ## Update this file when
 
-The mirror scope changes, the cold tier starts accepting sealed market-days, or the retention
-inventory is refreshed after the chain reaches it.
+Update when the mirror is restarted, re-scoped or retired, when its exclusions change, or when the
+workstation scratch layout changes. Do not refresh the 2026-08-06 numbers in place; point to a
+new measurement instead.

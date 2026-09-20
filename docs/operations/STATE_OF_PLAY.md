@@ -1,73 +1,65 @@
 # State of play
 
-**Last updated: 2026-09-13 America/Toronto (overnight qualification under review).**
-Read this first, then the established findings and retractions before research.
+**Last updated: 2026-09-20 America/Toronto (after the first adoption night since 09-13).**
+Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
-> current decision; numbered items and retained receipts own detailed evidence.
+> **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the current decision and
+> current truth. Numbered items and retained receipts own evidence. `status.ps1` flags this file
+> when its declared date is more than 3 days old; rewrite or re-attest it then, whatever else stalled.
 
-**Objectives:** protect capture and settlement evidence, restore reliable
-unattended execution, and execute the non-live maker-economics refocus in
-[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
-**No market edge or profitable maker opportunity is proved.**
+**Objectives, in order:** (1) protect capture and settlement evidence; (2) reliable unattended
+execution, which today means *landing code on master again*; (3) the maker-economics decision in
+[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), on the way back to an
+owner-attended live test. **No market edge or profitable maker opportunity is proved.**
 
 ## Current authority
 
-The September 12 owner instruction requires review of all armed overnight work
-and useful unattended progress. Existing implementation, source publication,
-Scheduler and guarded integration authority remains in effect. **No live trading
-is authorized.** Source publication and host qualification are not adoption.
-
-The owner accepted the September 11 archive headroom and paused further uploads.
-Retain pending originals, staged archives and recovery evidence. The subsequent
-lossless compression work retains original files and does not reopen uploads or
-archive-source reclaim. Ordinary qualification retains its 50 GiB disk floor.
+Owner, 2026-09-19: full implementation authority for getting the project back on track to live
+testing; **no live trading is authorized**. Heavy work stays inside 00:30-09:00 under the shared lease.
+Geographic eligibility is recorded as resolved by owner statement (the 2026-09-06 Ontario geoblock
+readings were a file-access tunnel to the owner's home PC; the execution PC is physically eligible
+and never moves; the tunnel must be down during any live session) — see
+[the live pilot runbook](INTERNATIONAL_MM_LIVE_PILOT.md) and item 67.
 
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | The archive-aware runtime is the stack adopted at `e0a00eedf9ad41ee5580913af22d552e05663b96`. Later guarded documentation integrations reached `f3814173775335adb546b7201a2e73ecec7703bf`. The reliability and maker candidates remain unadopted; this documentation follow-up introduces no runtime code. |
-| Archive outcome | The owner accepted 79,105,806,336 allocated original-source bytes reclaimed from 1,679 distinct files in 85 completed batches. The original 100 GB target was not reached and further uploads are paused. Full recovery and exact-removal receipts support the counter. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) owns the outcome and remaining retention-service work. |
-| Retained-file capacity | September 13 lossless NTFS compression verified 12,808,867,840 allocated bytes saved across 1,335 distinct retained files. August 6-11 selections completed; August 12 remains partial. This is separate from archive reclaim and free-volume measurements. Both interrupted attempts remain failed with separate reconciliation proofs; item 325 binds them. |
-| Recovery | Private archive copies, member identities, restore proofs and exact locations remain retained. Earlier encrypted archives still require their preserved recovery keys. Follow the [location and restore runbook](cold-archive-locations.md); pending originals and failed attempts remain evidence. |
-| Reliability candidate | [PR 61](https://github.com/michaelbooth1/weather/pull/61), `384514ba47a7dcc89d1dbcb98b17ea9e18ee73c8`, preserves the launch/audit/prerequisite histories and fixes actual-host test fixtures. Three workflows passed, including 210 native Windows launch checks, 265 Windows audit checks and full Linux regressions. CI does not replace exact capture-host qualification. |
-| Host qualification | The predecessor passed its S4U preflight but its complete host suite has native fixture failures. The 03:15 follow-through refused at its 03:25 receipt deadline, before any current-data audit or merge. The repaired candidate still requires a complete exact-source host PASS and uncached current labels/12-ledger audit. Immutable receipts own terminal outcomes; no successful adoption is claimed. |
-| Armed recurring work | The reviewed Scheduler inventory retained existing capture/safety supervisors, 05:00 projection and 06:00 raw-tape tiering, configuration/economics refreshes, paper roll, staleness/countability reports and the 09:30 Stage-A chain. Training and further archive upload remain disabled. Exact actions, identities, windows and later receipts live in the retained overnight review. A scheduled time is not completion. |
-| Capture | Qualification admission proved three healthy capture workers and adequate resources. Every later phase must recheck fresh identities, clean iterations, memory, disk and lease ownership. Worker health does not prove a graded streak, complete price paths or economic countability. |
-| Maker work | The cumulative [PR 55 candidate](https://github.com/michaelbooth1/weather/pull/55) remains behind reliability acceptance and guarded production qualification. W2/W4 source increments and later offline evidence do not establish current opportunity, paid rewards, complete account P&L or live readiness. Item 330 owns the economic scope. |
-| Settlement gaps | Historical fleet/ledger reconciliation and admitted per-date repair remain open. Earlier flags are investigation leads, not omitted-row proof. The next daily chain does not repair historical omissions automatically; existing truth-label BLOCKs remain BLOCK. |
-| Documentation transaction | The runtime pending record binds ten actual guarded integrations through `f3814173775335adb546b7201a2e73ecec7703bf`, plus any subsequent guarded documentation adoption. Completion requires its exact published documentation tip, canonical checks and matching immutable PASS receipt. This rewrite alone does not clear it. |
+| Production source | `master` = `dde26c664` (2026-09-20 00:49): the first adoptions since 2026-09-13 - the memory-guard fix, trough-based disk headroom in `status.ps1`, projection-tiering headroom sizing, and the long-CSV switch. About 400 commits still sit off master; 41 enabled scheduled tasks execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
+| Disk | 2026-09-19: duplicate Git LFS model pickles in 152 linked worktrees were replaced by pointers under a dated owner waiver (36.9 -> 89.2 GiB free). `write_order_books_long_csv=false` has been LIVE since 2026-09-20 00:49:06 local; long CSVs for event days open at that moment stop there. Free space is a daily **sawtooth** whose low is ~04:50; judge headroom at the low. |
+| Landing path | **Blocked by the pagefile, not by code.** `AutomaticManagedPagefile=True` and the pagefile shrank to 5.9 GB while the disk was full, so the commit limit is ~22 GB (15.7 GB RAM + pagefile; July recorded 63.7 GB). Every commit-percent gate divides by it: the host suite aborted in chunk 5 of 21 at 66.28% vs its 66% ceiling with ~8 GB RAM free (2026-09-20 00:56), exactly as on 09-13/14. **Owner action: set a fixed pagefile (16-32 GB); agents are not permitted to.** Also: master's `bounded_worktree_test_suite.ps1` cannot run on this host (PowerShell 5.1 `.Rows` bug); the fix is inside `codex/reliability-host-qual-20260919` (= PR 61 + audit fixes + fifth host-id fixture), whose chunks 1-4 passed. The merge tool and the lease refuse outside 00:30-09:00 regardless of verdict; pass `-RepoRoot` explicitly to ops scripts launched with `powershell -File`. |
+| Memory guard | The kill path of `memory_commit_guard.ps1` was inert 2026-08-23 -> 2026-09-20 00:38 (`$pid` assigned to the constant `$PID`). Fixed on master: the guard now really terminates out-of-window pytest/scan trees. |
+| Settlement | 15 dates unsettled: 08-17, 08-28..09-01, 09-04..09-10, 09-13, 09-17. 09-16 and 09-18 are settled. The alarm looks back only 14 days, so older holes vanish from the briefing unsettled. Repair is per date: `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, 35-40 min each, never `chain_recovery_run.ps1` directly. The chain is single-shot and its 70% commit gate is measured against a live limit of about 22 GB. |
+| Capture | Healthy: three workers, no capture gap on 2026-09-19. Worker health does not prove settled, countable dates. |
+| Armed recurring work | Capture/safety supervisors, 05:00 projection and 06:00 raw-tape tiering, configuration/economics refreshes, the maker paper roll, staleness/countability reports and the 09:30 Stage-A chain. **Nightly training and further archive uploads are DISABLED**; the data mirror is PAUSED since 2026-08-12; the taker track is PAUSED. A scheduled time is not completion. The deployed watchdog is newer than `master` (hash-pinned parameters master lacks): never re-register it from master. |
+| Maker economics | The configured liquidity-reward pool is ~2,800/day same-day and ~4,800/day including T+1/T+2 (31 of 31 sampled days since 2026-08-15), against the ~$16/day the July verdict used. Pool is not income: our Q-score share, maker markout and whether taker fees (hence rebates) are non-zero are unmeasured. The 10 pUSD band cap makes every two-sided 20-share quote reward-ineligible. Two studies are authored and unexecuted: `codex/execution-tape-markout-20260919` (pre-registered) and `codex/reward-share-estimate-20260919`. |
+| Live record | An owner-attended International Stage 0/1 test ran 2026-09-06 from the portable PC on unmerged branch code: three 0.005 pUSD post-only orders, cancelled, zero fills. It is spent and grants nothing. The code that ran is not on master. |
+| Maker candidate | [PR 55](https://github.com/michaelbooth1/weather/pull/55) (`codex/48h-maker-integration-20260912`) is roll-sensitive, conflicts with PR 61 and master, and still carries the five bad host fixtures. It needs a reconciled tip after the reliability stack lands, then its own suite. |
+| Settlement source | The venue's declared resolution source moved from Weather Underground to weather.gov timeseries around 2026-08-23 (same stations; measured band agreement 921/921 before, 131/132 after). Master still hard-codes WU and no gate detects a source change. |
+| Documentation | Restructured 2026-09-19 for agent use: conditional routing in `AGENTS.md`, `CLAUDE.md` entry point, findings digest, complete operations index, and audit checks for line budgets, index reachability, retired claims and this file's age. |
 
 ## Ordered non-live critical path
 
-1. Preserve the failed qualification/follow-through receipts. Finish diagnosis;
-   qualify the reviewed repair with the admitted complete Windows host suite,
-   then the bounded current-input audit. Do not reuse spent attempt namespaces.
-2. Keep 04:45-06:45 available for scheduled tiering. Any later heavy qualification
-   must stop before 09:00, hold the shared lease and retain complete child teardown.
-   A roll-sensitive merge still requires the 01:00-04:00 quiet window.
-3. Publish this factual documentation reconciliation and complete the pending
-   transaction against only the integrations that actually entered production.
-4. After reliability acceptance, reconcile the cumulative maker candidate and
-   qualify its exact source. Reconcile the remaining independent PRs by ancestry
-   and scope; a passing ancestor does not qualify a changed descendant.
-5. Prove historical settlement omissions from authoritative complete ledgers,
-   then use individually admitted repair ending at `market_day_labels_finalize`.
-6. Complete W3/G1 campaign/book/midpoint provenance and W4 payment semantics.
-   Keep competitor scenarios conditional and distinguish allocation from profit.
+1. **Owner: fix the pagefile** (Landing path row). Then qualify `codex/reliability-host-qual-20260919`
+   with its own runner and adopt it inside 01:00-04:00.
+2. Backfill settlement newest-first, one admitted date at a time; keep 04:45-06:45 lease-free.
+3. Run the two maker studies on bounded samples; record results in item 330 and the digest,
+   whatever their sign. Verify the taker-fee question before quoting any rebate figure.
+4. Reconcile PR 55 onto the new master and qualify it.
+5. Owner decisions in item 330: hurdle H and stop rule, band cap versus reward minimums, dedicated
+   wallet. Then, and only on explicit owner instruction, a fresh Stage 0/1 followed by Stage 2.
+6. Redeploy the hash-pinned watchdog so the briefing uses the trough-based disk arithmetic.
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources or new model-alpha work.
-- Capture-host heavy work is serial, admitted and time-gated. The separate
-  workstation uses its exact host/principal wrapper and shared live/heavy mutex.
-- Roll-free documentation may be guardedly adopted outside the quiet window.
-  A pushed branch changes no production working-tree source.
-- Native settlement units, WU cutoffs, probability mass, train/serve parity,
-  captured-input replay, release binding and evidence retention remain mandatory.
+- International Polymarket only; no paid weather sources; no new model-alpha work for now.
+- Streak contiguity is a diagnostic, not an objective. Backups are deprioritized by the owner.
+- Capture-host heavy work is serial, admitted and time-gated. Pushing a branch never rolls capture.
+- Create worktrees with `GIT_LFS_SKIP_SMUDGE=1`; pass `--basetemp` to every pytest run and delete it.
+- Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay,
+  release binding and evidence retention remain mandatory.
 
 ## Update this file when
 
-Rewrite after an owner decision, actual source adoption, measured storage
-outcome, validated settlement/job disposition, or economic-feasibility result.
+Rewrite after an owner decision, an actual source adoption, a measured storage or settlement outcome,
+an economic-feasibility result, or when `status.ps1` flags its age.

@@ -1,5 +1,16 @@
 # Large Module Ownership Map
 
+- **Owns:** the reviewed allowance of modules over the size warning threshold, and for each large facade its owner,
+  boundary and next split target.
+- **Read when:** moving code behind a compatibility facade, a module crosses the warning threshold, or
+  `tests/operations/test_module_size_audit.py` fails.
+- **Do not use for:** import-edge rules ([package boundaries](package-boundaries.md)) or current line counts and
+  warning sets, which only the audit command below yields. Audit dates in the Status column say when a warning was
+  first reviewed, not that it is current.
+- **Verify with:** `OWNERSHIP_NOTES` and `DEFAULT_WARNING_LINES` in `src/weather/operations/module_size_audit.py`.
+  The test parses the "Allowed warning modules" bullet below, so keep its exact shape. A module named as a split
+  *target* in a Status cell may not exist yet (`weather.reporting.validation.captured_input_replay_parity` does not).
+
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
 
@@ -59,7 +70,7 @@ Reviewed module-size warning allowance:
 | `weather.operations.daily_refresh_cli` | Operations | CLI parser and command handlers with facade-injected dependencies. | Owner module for item 205; must not import the facade. |
 | `weather.operations.nightly_retrain` | Operations | Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI. | WARN in the 2026-07-15 audit. Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module. |
 | `weather.operations.experiment_executor` | Operations | Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication. | WARN in the 2026-07-15 audit. Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed. |
-| `weather.operations.international_live_wrapper_sealer` | Operations | Fixed-scope International Stage 0/1 prerequisite validation, deterministic Python and PowerShell wrapper rendering, atomic sealing, receipt and public-inventory construction, and CLI dispatch. | WARN at 2,770 lines in the 2026-08-27 portable execution-host audit. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts. |
+| `weather.operations.international_live_wrapper_sealer` | Operations | Fixed-scope International Stage 0/1 prerequisite validation, deterministic Python and PowerShell wrapper rendering, atomic sealing, receipt and public-inventory construction, and CLI dispatch. | WARN in the 2026-08-27 portable execution-host audit. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts. |
 | `weather.operations.event_day_manifest` | Operations | Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI. | WARN in the 2026-07-12 audit. Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged. |
 | `weather.collection.snapshot_tracker` | Collection | Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch. | WARN in the 2026-07-15 audit. Extract managed-loop status rendering and fleet-health aggregation behind the stable CLI while preserving worker isolation, writer-lock, and supervisor contracts. |
 | `weather.reporting.daily.daily_learning` | Reporting | Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers. Input readers, input gates, experiment queue builders, and scorecard assembly live in `weather.reporting.daily.daily_learning_scorecard`; report rendering lives in `weather.reporting.daily.daily_learning_render`. | Below the 2,000-line warning threshold in the 2026-07-12 audit; retain the documented next split if growth resumes. |

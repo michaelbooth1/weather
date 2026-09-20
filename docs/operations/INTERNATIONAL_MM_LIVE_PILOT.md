@@ -1,8 +1,32 @@
 # International Market-Making Live Pilot
 
+| | |
+| --- | --- |
+| **Current authority** | **NO live trading is authorized.** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
+| **Owns** | The staged protocol for a bounded International Polymarket live test: envelope and caps, prerequisites, Stage 0–3 procedure, SDK decision, stop conditions. |
+| **Read when** | You are changing live-path code or its tests, preparing or reviewing an attended session, or checking what a live claim must prove. Load one section (table below), not the file. |
+| **Do not use for** | Whether trading is allowed today (`STATE_OF_PLAY.md`); attempt history (item 67); the maker economics plan and gates ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)); provisioning or moving the second PC ([`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md)); the economics claim rule ([preregistration](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md)). |
+
 Status: canonical runbook. This runbook records the operator's 2026-08-13
 authorization to work toward a bounded International Polymarket live test. It
 does not make a blocked gate pass and it never authorizes Polymarket US.
+
+## Contents — load the section you need
+
+| Section | Read when |
+| --- | --- |
+| Purpose and claim boundary | You need what a lifecycle probe can and cannot claim. |
+| Current production disposition | Always, first: who owns authority and history, what ran on 2026-09-06, why it is spent, the geography record. |
+| Immutable pilot envelope | Any change touching caps, order type, TTL, wallet or session shape. These ceilings may be lowered, never raised, without a new dated owner decision. |
+| Prerequisites (1–9) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line. |
+| Staged protocol → Stage 0: no-order account proof | Working on bootstrap, account reads, heartbeat or cancel-all evidence. |
+| Staged protocol → Stage 1: dead-man and cancel proof | Working on the lifecycle probe, the no-fill proof, the bundle builder or the one-submit capability. |
+| Staged protocol → Execution-host preparation | Only when executing or editing the attended command sequence. It is about two thirds of the file. Landmarks, in order: review-only candidate plan ("informed acceptance"); wallet topology ("declares the first topology"); credential import ("Choose the provisioning branch"); discovery and manifest build ("Only now start the expiring discovery"); three manifests and outer launchers ("Prepare all three manifests"); fresh candidate before Stage 0 ("The discovery plan is not the candidate"); Stage 1 helper ("Run this exact helper once for each Stage 1 mode"); offline bundle ("Only after both Stage 1 calls pass"). Search for the quoted phrase. |
+| Staged protocol → Stage 2: one-band maker quote | Never run. Read before proposing any economic order. |
+| Staged protocol → Stage 3: evidence and settlement | Working on fills, fees, rebates, rewards, positions or P&L reconciliation. |
+| SDK decision record | Touching the pinned client, heartbeat transport or wallet topology. |
+| Stop conditions | Any live-path change; these may be added to, never weakened. |
+| Decision after the pilot | Interpreting a pass or a fail. |
 
 ## Purpose and claim boundary
 
@@ -16,28 +40,77 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 ## Current production disposition
 
+**Where each fact lives.** This runbook owns the protocol. It does not own
+authority or history:
+
+| Fact | Owner | Rule |
+| --- | --- | --- |
+| Whether any live stage is authorized **now** | the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) | That file is rewritten and capped, so read only the current line from it. If it does not explicitly authorize a named stage for a named date, the answer is **HOLD**. Absence is never permission. |
+| Every attempt ever made, passed or failed, and its disposition | [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) (dated sections) | Durable. Record a new attempt there in the same change that reports it; never rely on `STATE_OF_PLAY.md` to keep it. |
+| Exact branch tip, exact-head CI and review status, production master baseline | Git and the live remote | Prove them fresh at action time; never copy a hash from a document. |
+
 The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
-overlay, and interrupt-cleanup path are integrated production software. The
-portable execution-host extension remains an unmerged candidate, but an
-operator-authorized portable-only exception permits the exact reviewed branch
-`codex/portable-execution-host-clean-20260827` to supply live code for
-`portable_execution_v1` before master adoption. Read the current exact branch
-tip, exact-head CI/review status, operator authorization, and production master
-baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
-hash copied here.
-Their integration receipts grant no credential or live-exchange authority, and
-no Stage 0 or Stage 1 protocol has passed. Failed precredential launcher
-attempts and their exact disposition are recorded in
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
+overlay, and interrupt-cleanup path are integrated production software on
+`master`. Their integration receipts grant no credential or live-exchange
+authority. The portable execution-host extension remains an unmerged
+candidate. An operator-authorized portable-only exception named the exact
+reviewed branch `codex/portable-execution-host-clean-20260827` to supply live
+code for `portable_execution_v1` before master adoption, for one portable
+Stage 0/1 session.
+
+**What has actually run (corrected 2026-09-19).** Earlier text here said no
+Stage 0 or Stage 1 protocol had passed. That is false.
+
+- An owner-attended International Stage 0/1 lifecycle test ran on
+  **2026-09-06** from the portable execution PC, on **unmerged branch code**:
+  `origin/codex/live-gate-provenance-20260831`, execution tip `c6ee36147`. The
+  branch record says the portable exception was re-pointed to that branch on
+  2026-08-31; that re-pointing is recorded only off `master`. The test's own
+  documentation is on `origin/codex/stage1-pass-docs-20260906` at `8739902fe`.
+- It used nine attempt namespaces and placed **three real 0.005 pUSD post-only
+  BUY orders, all cancelled, with zero fills**. The final attempt passed Stage
+  0, both Stage 1 cancellation modes and the lifecycle bundle. The full
+  attempt ledger is in item 67.
+- **It is SPENT and grants nothing today.** The one-session exception it ran
+  under is used up, its bootstrap artifact has expired, and it authorized no
+  Stage 2 and no unattended loop. A future session needs a new dated owner
+  authorization and a fresh Stage 0/1.
+- **The code that ran is not on `master`, so the controls this runbook
+  documents are not the controls that were exercised.** On the test day the
+  branch changed these between failed attempts, each justified there by an
+  agent-written paraphrase of an owner request: the dedicated isolated wallet
+  capped at 100 pUSD became a declared 100 pUSD allocation inside the owner's
+  existing wallet (commits `0baa30d7a`/`0cb942ee8`); the two-hour
+  credential-comparison receipt expiry and re-comparison were removed
+  (`115e28398`); and the typed stage, mutation and
+  physical-location/no-circumvention literals were replaced by "invocation of
+  the reviewed command affirms those conditions" (`ef75f358f`). The 10 pUSD
+  order cap, post-only, one-submit, stop-on-fill, dead-man and cleanup
+  controls were not touched. **`master` and this runbook
+  still require the original controls, and they remain the contract** until a
+  reviewed change lands here. Do not read the 2026-09-06 PASS as evidence that
+  the `master` controls work, and do not read this paragraph as having relaxed
+  them.
+- **Geography on the test day.** Two attempts were refused by the geoblock
+  gate with `OFFICIAL_LOCATION_BLOCKED` (endpoint `blocked=true`, `CA/ON`, at
+  13:18Z and 18:21Z); minutes later the same host read `blocked=false`.
+  **Owner statement, 2026-09-19:** the execution PC is physically in a
+  trade-eligible location and never moves; the Ontario readings were a tunnel
+  used to reach files on the owner's home PC; the gate refused correctly while
+  that tunnel was up and passed on the PC's own connection. This is recorded
+  as the owner's attestation. The repository cannot verify physical location
+  and, by the rule below, never stores it. The operating consequence is
+  prerequisite 9's tunnel-down check.
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
 truthful Stage 0 authenticated-write confirmation contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
 described here. `capture_colocated_v1` still requires exact production-adopted
-canonical `master`. For `portable_execution_v1`, use
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) and fresh Git proof to require the exact
-owner-authorized, reviewed, CI-green remote branch named above; local `HEAD`,
+canonical `master`. For `portable_execution_v1`, use the current authority
+line in [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) and fresh Git proof to require
+the exact owner-authorized, reviewed, CI-green remote branch that authorization
+names; local `HEAD`,
 its local branch tip, cached origin branch, and live canonical branch tip must
 be identical, while local/cached/live canonical master are synchronized and
 that master is an ancestor of the topic tip. The fixed-session manifest
@@ -144,8 +217,10 @@ All must be current for the target date and selected market:
    exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
-6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; exact Git
-   authority must be proved from `STATE_OF_PLAY.md` and the live remote.** The general readiness
+6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; current
+   authorization must be read from the "Current authority" lines of
+   `STATE_OF_PLAY.md` (absent means HOLD) and exact Git authority proved from
+   the live remote.** The general readiness
    prerequisite is circular for the evidence-generating probes because
    `mm_platform_verification_v0.6` embeds
    both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
@@ -227,6 +302,16 @@ All must be current for the target date and selected market:
    attended attestation is a hard stop. See the official
    [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
    and [current geographic-restrictions policy](https://help.polymarket.com/en/articles/13364163-geographic-restrictions).
+
+   **Preflight line, added 2026-09-19 — confirm beside the geoblock check:
+   the home file-access tunnel is DOWN for the whole session; if it comes up
+   mid-session the endpoint reads Ontario and the cancel-all rule applies**
+   (the geoblock stop condition under "Stop conditions"). This is an operating
+   check on the execution PC's own egress. It adds to the rules above and
+   changes none of them: the endpoint result, the attended attestation and the
+   disagreement hard stop are exactly as written. Origin: the two
+   `OFFICIAL_LOCATION_BLOCKED` refusals on 2026-09-06 (see "Current production
+   disposition").
 
    The sealed implementation is
    `weather.market.mm_geographic_eligibility`. Each check sends an uncached,
@@ -1964,7 +2049,10 @@ Cancel all and do not resume on any of the following:
 ## Decision after the pilot
 
 - **Plumbing pass:** all lifecycle and shutdown proofs complete, even with no
-  fill. Proceed to repeated bounded maker sessions.
+  fill. Proceed to repeated bounded maker sessions **only under a new dated
+  owner authorization** read from `STATE_OF_PLAY.md`; a plumbing pass is
+  evidence, not standing direction. The 2026-09-06 pass ran code that is not on
+  `master` and is spent (see "Current production disposition").
 - **Economics pass:** repeated maker fills show spread plus paid rebates exceeds
   adverse-selection markouts, inventory/settlement loss, and all costs under the
   simultaneous counterfactual. Only then consider more time or markets; capital
@@ -1976,4 +2064,7 @@ Cancel all and do not resume on any of the following:
 ## Update when
 
 Update when the approved capital envelope, platform, official SDK integration,
-live gates, risk ceilings, probe sequence, or stop conditions change.
+live gates, risk ceilings, probe sequence, or stop conditions change. When any
+live attempt runs, passes or fails: add its row to item 67 in the same change
+and correct "What has actually run" above. Never record an attempt or an
+authorization only in `STATE_OF_PLAY.md`; it is rewritten and will lose it.

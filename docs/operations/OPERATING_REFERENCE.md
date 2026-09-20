@@ -24,7 +24,7 @@ so they cannot drift. A renamed or deleted constant fails this generator loudly.
 | --- | --- | --- | --- |
 | **12:00-18:00 local** | Graded capture window | The streak verdict is computed here (see AFTERNOON_START/END_HOUR). Never merge a roll-sensitive branch, run the chain, backfill, or reboot inside it. | `weather.collection.collection_health` |
 | **01:00-04:00 local** | Quiet merge window | The only window a ROLL-SENSITIVE branch may be merged, because landing one makes the capture supervisors readopt code. Roll-free branches do not need it. | `scripts/ops/quiet_window_merge.ps1` |
-| **18:00-00:05 local** | Near-close capture | Near-close fast CLOB capture, MM quoting, and settlement watch. Policy says nothing heavy, ever. Weigh any exception against what is actually live at the time. | `docs/operations/HOST_LOAD_POLICY.md` |
+| **18:00-00:30 local** | Near-close capture and daily roll-over | Near-close fast CLOB capture, MM quoting, settlement watch, then the 00:05-00:30 taker/MM daily roll-over. Policy says nothing heavy, ever; the workload lease refuses every hour outside 00:30-09:00. | `docs/operations/HOST_LOAD_POLICY.md` |
 
 ## Derived rules — the relationships that bite
 

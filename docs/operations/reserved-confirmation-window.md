@@ -1,7 +1,12 @@
 # Reserved confirmation window
 
+**Status: NONE RESERVED.** No target date is held out. Research, diagnostics and MM scoring may use
+any settled date. **Read further only if this line says a window is reserved** — or if you are
+about to freeze a retrain candidate, which is the event that must declare one here first.
+
 **Single source of truth for which dates are held out and what they are held out *for*.** Every
-research handoff must carry this range. If this file and a handoff disagree, this file wins.
+research handoff must carry this status line. If this file and a handoff disagree, this file wins.
+When a window is declared, replace the status line with the dated range and its endpoints.
 
 ## The reservation
 
@@ -129,4 +134,6 @@ previously called an underpowered Toronto result a win.
 
 Extending the reservation is cheap; shortening it after the fact is not, and reading a reserved date
 destroys it permanently. Any change needs an explicit operator decision recorded here with its date
-and reason.
+and reason. **The `Status:` line at the top and the reservation table must change in the same
+edit** — agents are told to stop reading at that line, so a stale status line is a destroyed
+holdout.

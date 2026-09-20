@@ -5,6 +5,15 @@ Owner: operations. This host is dedicated to the weather platform; the policy
 spreads load across the 24-hour day so capture — the one workload that cannot
 be rescheduled — is never starved.
 
+| | |
+| --- | --- |
+| **Owns** | When heavy work may run on the 16 GB capture host, the resource limits, and the full workstation heavy-wrapper contract. Other files link here instead of copying it. |
+| **Read when** | You are about to run tests, compile, train, replay, backfill, scan `data\`, or do any bulk file operation on the capture host; or you are changing an admission wrapper. |
+| **Skip to** | [Rules](#rules) for the binding list; [the 24-hour map](#the-24-hour-map-americatoronto) for windows. The child-ceiling paragraphs in between matter only when you change that lane. |
+| **Not here** | Current numbers and the live timetable: [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md) (generated), `data/alerts/OPERATING_SCHEDULE.md`, `scripts\ops\status.ps1`. Expired one-date exceptions: [history](history/host-load-policy-expired-exceptions.md). |
+
+## Workstation and portable-executor scope
+
 This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
@@ -76,13 +85,15 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 | Resource | Value at sample | Note |
 | --- | --- | --- |
 | Physical RAM | 15.7 GB | smallest resource on the box, and still true |
-| Pagefile | 48 GB allocated | commit limit ~63.7 GB |
+| Pagefile | 48 GB allocated | commit limit ~63.7 GB **at sample — stale and it matters: the live limit was ~22 GB on 2026-09-19**, so the chain's 70% commit gate trips near 15 GB used. Every commit-percent guard divides by the LIVE limit; read `commit_total_mb` and `commit_percent` in `data\logs\memory_commit_guard_status.json` |
 | Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
 | data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 
 ## Approved July archive disk reserve
 
-Owner decision, September 9, 2026: the selected July 16-31 cold-snapshot archive
+Standing, plan-pinned and not date-bound (owner decision 2026-09-09;
+`APPROVED_ARCHIVE_RESERVE_BYTES` in
+`src/weather/operations/production_cold_archive_stage_cli.py`): the selected July 16-31 cold-snapshot archive
 may retain 20 GiB of capture disk reserve plus 16 MiB of evidence headroom and
 its bounded worst-case output reservation. This exception belongs only to the
 exact plan and selection digests pinned by
@@ -93,20 +104,18 @@ the general floor. See [the staging runbook](production-cold-archive-staging.md)
 This approval keeps serial chunks of at most 1 GiB, 300-second jobs, 16 MiB/s
 throttling, the ordinary overnight window excluding scheduled tiering, the
 shared lease, healthy capture, commit below 70%, at least 4 GiB available
-physical memory and complete child-tree teardown. It does not extend the
-separate dated daytime inventory/compression exception to this archive lane
-or weaken any general heavy-work threshold.
+physical memory and complete child-tree teardown. It grants no daytime
+admission and does not weaken any general heavy-work threshold.
 
-## September 10 bounded archive recovery
+<a id="owner-storage-exception-september-8-2026"></a>
 
-The owner's September 10 full overnight authorization includes saving recovery
-keys and using only existing PC storage plus private Google Drive. The exact
-primary plan and selection pinned by the archive CLI may use an 8 GiB reserve
-through 13:00 UTC that day. All chunk, evidence/output, memory, capture, lease,
-time-window and teardown checks remain required. The controller must account
-for every temporary local copy before admitting ingress.
-See [the staging runbook](production-cold-archive-staging.md) for the bounded
-unattended archive credential and workstation launch path.
+## Expired dated exceptions
+
+The one-date owner exceptions of 2026-08-23 (protected-window merge), 2026-09-08 and 2026-09-09
+(daytime storage inventory/compression) and 2026-09-10 (8 GiB overnight archive reserve) have
+expired and grant nothing. Their text, and the date-bound code literals that still exist, are in
+[history/host-load-policy-expired-exceptions.md](history/host-load-policy-expired-exceptions.md).
+A new exception needs a new dated owner decision; never reuse or re-date an old token.
 
 ## The 24-hour map (America/Toronto)
 
@@ -124,11 +133,21 @@ a committed timetable.
 
 | Window | Load class |
 | --- | --- |
-| 00:05–00:30 | taker/MM daily roll-over — brief spike |
+| 00:00–00:30 | **PROTECTED for ad-hoc work — tail of the near-close window.** 00:05–00:30 is the taker/MM daily roll-over spike (scheduled, brief). The lease does not open until 00:30 |
 | 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
-| 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
+| 18:00–00:00 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch. Continues through 00:30 (first row) |
+
+**The protected near-close window ends at 00:30, not at 00:05** (earlier text in this map
+ended it at the start of the roll-over spike). Enforcement is the lease:
+`Get-WeatherHeavyWorkloadPolicyWindow` in `scripts/ops/workload_admission.ps1` admits `agent_heavy`
+only from minute 30 to 09:00, and the acquisition path throws "outside the 00:30-09:00 window"
+otherwise. An un-leased ad-hoc read started at 00:06 is inside the protected window. The protected
+windows printed by the generated [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md) are typed
+literals in `src/weather/operations/operating_reference.py` (`PROTECTED_WINDOWS`), not imported
+constants; if that page ever disagrees with the lease code, **the lease code wins** — fix the
+literal.
 
 When Stage B is explicitly enabled, its exact 00:35 trigger composes an
 eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
@@ -253,7 +272,7 @@ runnable training inputs and no higher-value capture, integration, or evidence
 reservation:
 
 - **`WeatherTrainingWindow` (01:00 when explicitly enabled)**: preflight (skip unless commit
-  < 70% and disk free > 60 GB) → disable the three capture supervisors and
+  < 70% and disk free ≥ 60 GiB) → disable the three capture supervisors and
   stop the loops → run `nightly_retrain` with a 3-hour hard cap → restore
   capture in a `finally` block. The window must confirm all three workers are
   inactive through the canonical capture-resource gate before starting the
@@ -323,23 +342,28 @@ Stage-A, workstation or live authority is added.
 
 ## Rules
 
-1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,
+1. **Protected windows 12:00–18:00 (graded capture) and 18:00–00:30
+   (near-close, including the 00:05–00:30 roll-over spike)**: no ad-hoc analysis jobs, corpus builds,
    replays, conversions, backfills, or bulk file operations. Near-close tape
    is the highest-value data this platform collects; the 15-second fast-mode
    contract has no slack for IO contention.
 2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
    `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
-   ≥ 50 GB disk free. The lease itself rejects acquisition outside that
-   window. Only the settlement Stage-A wrapper can request the explicit
+   ≥ 50 GiB disk free. The lease itself rejects acquisition outside that
+   window but does **not** check disk; the disk floor is enforced per lane.
+   Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
-   One repository-owner exception on 2026-08-23 permits only the exact
-   `codex/live-readiness-closure-20260823` lineage rooted at
-   `71f7e46690e822a498f80412c11d550bcee949d2`, against production baseline
-   `9d54f94760855a5f91ac603f3f14b02ba06ae239`, to acquire the merge lease in
-   the protected window under the literal dated token. The code path expires
-   with that local date and grants no reusable authority.
+   **Disk thresholds are binary units (GiB), whatever a log line prints.** The
+   bounded suite requires 53,687,091,200 bytes = 50 GiB
+   (`scripts/ops/bounded_worktree_test_suite.ps1`, `Assert-SuiteDiskHeadroom`);
+   the training window's `60GB` is a PowerShell literal = 60 × 2^30 bytes =
+   60 GiB (`scripts/ops/training_window.ps1`, `$MinFreeDiskBytes`), and its
+   log divides by `1GB` and labels the result "GB". The archive lanes use
+   `GIB` constants. `status.ps1` also divides by `1GB`, so its "GB" figures
+   are GiB and compare directly. 50 GiB is about 53.7 decimal GB, so a
+   "51 GB free" reading from a decimal tool (Explorer, `df -H`) does not pass.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available
    physical RAM is below 1.5 GiB and records the top working-set processes. It
@@ -375,6 +399,15 @@ Stage-A, workstation or live authority is added.
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
    exact definition on the next session.
+7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
+   point it at a directory you own outside `data\`, and delete that directory
+   when the run ends — pass or fail. Measure free space on the volume before
+   and after (`(Get-PSDrive C).Free`, or `df`), not `du` of the directory you
+   expect. Measured 2026-09-19: one test module wrote about 550 MiB **per
+   test** into the default pytest temp root, and a short session took the
+   volume from roughly 20 GiB to 7 GiB free. pytest keeps its last three
+   base-temp roots by default, so an undeleted run is a standing cost. This
+   applies on every host; on the capture host it is also a capture risk.
 
 Incident-bearing watchdog samples append to
 `data/logs/memory_commit_guard_history.jsonl` without raw command lines. The
@@ -428,6 +461,16 @@ Contributing factors worth fixing structurally:
   upgrade (32-64 GB) is the single best hardware improvement; a second
   physical disk for `data\` (separating tape writes from OS/pagefile) is the
   second.
-- Disk headroom is ~6-7 days at current burn. The parquet/archive conversion
-  backlog (item-321 Phase 3) is the sanctioned drain; deletion of canonical
-  tape is prohibited before off-machine copy proof.
+- Disk headroom was about a week at the July burn rate (a dated sample — read
+  `scripts\ops\status.ps1` for the live figure and trend). The parquet/archive
+  conversion backlog (item-321 Phase 3) and the tiered retention/archive offload
+  (item 325) are the sanctioned drains; deletion of
+  canonical tape is prohibited before off-machine copy proof.
+
+## Update this file when
+
+A protected window, lease rule, memory or disk threshold, child ceiling, or the workstation
+heavy-wrapper contract changes — change the enforcing script or constant first, then this file.
+When a dated exception expires, move it to
+[history/host-load-policy-expired-exceptions.md](history/host-load-policy-expired-exceptions.md)
+in the same change. Do not add current disk, RAM or schedule readings here.

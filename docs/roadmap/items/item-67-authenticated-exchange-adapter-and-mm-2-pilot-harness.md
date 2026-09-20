@@ -1,5 +1,12 @@
 # 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]
 
+> **Read the last section first.** The heading above is this item's disposition
+> for code on `master`. An owner-attended Stage 0/1 test ran on 2026-09-06 from
+> unmerged branch code (three 0.005 pUSD orders, cancelled, zero fills; spent).
+> Its attempt ledger is the final dated section of this file. No live trading
+> is authorized; current authority is in
+> [STATE_OF_PLAY.md](../../operations/STATE_OF_PLAY.md).
+
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
 
@@ -701,3 +708,80 @@ findings. Any later status-only tip still requires its own exact-head CI,
 review, and synchronized refs. Remaining work is clean re-inventory and a
 wholly new attempt with a fresh credential-comparison receipt and candidate
 evidence. The two live-evidence checklist bullets remain open.
+
+## 2026-09-06 attended Stage 0/1 test — attempt ledger (recorded on master 2026-09-19)
+
+**This item owns the durable attempt history.** `STATE_OF_PLAY.md` is rewritten
+and capped and carries only the current authorization line; the pilot runbook
+points here for every attempt and its disposition.
+
+**Why this section is late, and what it does not change.** The test ran from
+unmerged branch code and was documented only on unmerged branches, so `master`
+said nothing for 13 days. This section records the facts. It does not change
+this item's heading or checklist: the code that ran is not on `master`
+(`origin/codex/live-gate-provenance-20260831`, execution tip `c6ee36147`), the
+branch version of this item at `8739902fe`
+(`origin/codex/stage1-pass-docs-20260906`) carries the detailed same-day
+repair narrative and a `PARTIAL 2026-09-06 - ATTENDED STAGE 0/1 PASSED`
+heading, and that heading lands when that code is reviewed onto `master`. When
+it does, keep this ledger: the branch narrative omits the two geography rows.
+
+**Result.** Owner-attended, portable execution PC (`portable_execution_v1`),
+International Polymarket only. Nine attempt namespaces. **Three real post-only
+BUY orders of 5 shares at 0.001 pUSD (0.005 pUSD notional each), all
+cancelled, zero fills.** At least five authentications and at least four
+account-wide cancel-alls, against the owner's existing wallet under a declared
+100 pUSD allocation. The final attempt passed Stage 0, both Stage 1
+cancellation modes and the lifecycle bundle (dead-man cancel observed after
+10.359 s). **It is spent. It authorized no Stage 2 and no unattended loop, and
+it grants nothing today.** The MM-2 day-one probes beyond heartbeat-lapse and
+cancel-all (tiny two-sided quote, balance-reserve reconciliation) and all
+paid-versus-predicted evidence remain open, so both open checklist bullets
+stay open.
+
+Times are UTC. "Exchange contact" is what the receipts show.
+
+| # | Attempt id | Outcome | Exchange contact |
+| --- | --- | --- | --- |
+| - | diagnostic 13:18:31Z | geoblock endpoint `blocked=true`, `CA/ON`; preparation recorded as blocked at geographic eligibility | none |
+| - | diagnostic 13:23:16Z | geoblock endpoint `blocked=false`, `MX/QUE` | none |
+| 1 | `pilot-20260906T132919010Z` | Stage 0 FAIL `balance_cap` at 14:07:03Z (wallet cash 275.48 above the 100 isolated-wallet cap) | credentials read in memory; authenticated user-stream subscription; 0 heartbeats, 0 cancel-all |
+| 2 | `pilot-20260906T151133217Z` | Stage 0 PASS 15:23:37Z; Stage 1 stopped in sealing | 2 heartbeats, 1 account-wide cancel-all; no order |
+| 3 | `pilot-20260906T165758983Z` | FAIL `supervised_confirmation` 17:33:46Z (a pasted command was read as the typed literal) | none (pre-credential) |
+| 4 | `pilot-20260906T181355730Z` | FAIL `stage0_geography_gate` 18:21:49Z, `OFFICIAL_LOCATION_BLOCKED`, `CA/ON` | none (pre-credential) |
+| - | recheck 18:24:25Z | geoblock endpoint `blocked=false`, `MX/QUE`, same host and principal ids | none |
+| 5 | `pilot-20260906T183459081Z` | geography retry prepared 18:39Z; **outcome not recorded in any receipt read**; the next note implies it stopped on non-empty wallet state | unknown |
+| 6 | `pilot-20260906T185946784Z` | Stage 0 PASS 19:04:31Z; Stage 1 cancel-all FAIL at `preflight` | 2 heartbeats, 1 cancel-all; no order |
+| 7 | `pilot-20260906T194643245Z` | Stage 0 PASS; Stage 1 cancel-all PASS 19:52–19:53Z; parent result `UNKNOWN`; dead-man mode not run | **1 real order**, 0.005 pUSD, cancelled, no fill |
+| 8 | `pilot-20260907T001459491Z` | public preparation stopped (ask equalled the minimum tick) | none |
+| 9 | `pilot-20260907T001707063Z` | Stage 0, both Stage 1 modes and the bundle PASS at 01:07:50Z | **2 real orders**, 0.005 pUSD each, cancelled, no fill |
+
+**The two geography rows, with the owner's explanation.** The geoblock gate
+refused twice with Ontario readings (the 13:18Z diagnostic and attempt 4) and
+the same host read unblocked minutes later both times. **Owner statement,
+2026-09-19: the execution PC is physically in a trade-eligible location and
+never moves; the Ontario readings were a tunnel used to reach files on the
+owner's home PC; the gate refused correctly while that tunnel was up and
+passed on the PC's own connection.** Recorded as the owner's attestation; the
+repository cannot verify physical location and never stores it. Eligibility
+is recorded as resolved on that basis. The operating rule that follows is in
+the pilot runbook, prerequisite 9: the home file-access tunnel is down for the
+whole of any live session.
+
+**Controls exercised were not `master`'s.** Between failed attempts that day
+the branch replaced the isolated 100 pUSD wallet with an allocation inside the
+existing wallet, removed the two-hour credential-receipt expiry, and replaced
+the typed stage and physical-location literals with "running the reviewed
+command affirms those conditions". `master` still documents the original
+controls, and they remain the contract until a reviewed change lands. See the
+pilot runbook, "Current production disposition".
+
+**Evidence custody — action needed.** This ledger was compiled on 2026-09-19
+from the receipts, by the read-only audit. The originals are host-local files
+on the portable PC. Controller copies are in the ignored directory
+`scratch/handoffs/live-test-preparation-20260906/` on the production host,
+which is not tracked, not mirrored and not backed up. **Copy the non-secret
+receipts somewhere durable** (they are small JSON and Markdown files with no
+credential values) before either host is rebuilt or cleaned. Not on file
+anywhere: a closing balance or post-test account record for the wallet, and
+the outcome of attempt 5.

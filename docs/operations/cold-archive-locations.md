@@ -1,5 +1,25 @@
 # Cold archive locations and restore cache
 
+- **Owns:** where archived production data lives, the catalog/marker layout,
+  the restore-cache and recovery-publication procedure, and the exact-file
+  original-reclaim contract.
+- **Read when:** a historical input is missing locally, a reader raises
+  `ArchivedInputRequired`, or you touch `weather.cold_archive_locations`,
+  `cold_archive_catalog`, `cold_archive_reclaim` or the cache cleanup.
+- **Do not use for:** staging or uploading new archives (see
+  [production-cold-archive-staging.md](production-cold-archive-staging.md)), or
+  routine pruning ([data-retention-policy.md](data-retention-policy.md)).
+- **Verify with:** `datald_archiveWHERE_DATA_IS.md` (what is archived),
+  and `python -m weather.operations.cold_archive_catalog locate --source-path <file>`
+  (read-only, local metadata only).
+
+**Status:** the owner accepted the archive outcome and **paused further uploads
+and archive-source reclaim** ([STATE_OF_PLAY.md](STATE_OF_PLAY.md), "Current
+authority"). Locate, inventory, restore and cache use remain current; the
+upload and reclaim sections below describe retained machinery that needs a new
+owner decision before it runs again. No `scripts/ops/register_*.ps1` registers a
+recurring task for it; use `Get-ScheduledTask` to find leftover one-shots.
+
 Original snapshot paths remain the identities of historical inputs. Archiving
 changes their storage location; it must not remove them from discovery or turn
 an unavailable tape into an empty research population. The implementation lives
@@ -40,8 +60,8 @@ Cloud objects are private Drive files: `<archive-id>.rclone.bin`, `.manifest.jso
 `.stage.json` and `.crypt.json`. Their stable object IDs, rather than a folder
 name alone, bind recovery. The manifest sidecar lists every original member.
 `inventory` prints Markdown from local metadata only; a cached file is not
-claimed verified without a content check. Call `write_inventory` after a batch or reclaim operation. It retains an immutable
-Markdown snapshot, updates `WHERE_DATA_IS.md` atomically and returns both paths
+claimed verified without a content check. Call `write_inventory` after a batch
+or reclaim operation. It retains an immutable Markdown snapshot, updates `WHERE_DATA_IS.md` atomically and returns both paths
 and their SHA-256. Do not imply that a
 historical Markdown snapshot is a fresh presence check.
 
@@ -135,7 +155,6 @@ A failure preserves the claim and all partial metadata; it is not an
 automatic retry instruction. Copy the returned restore/custody records back
 by their exact hashes. Original reclaim retains both in the production catalog
 before any source removal; the workstation copies remain independent.
-
 
 ## Readers, housekeeping and cleanup
 
@@ -263,7 +282,7 @@ retained. Temporary bytes are reported separately and never added to the
 approved original-data target. Check the actual volume free space to establish
 the net result before proceeding to another batch.
 
-## Update when
+## Update this file when
 
 Update when catalog paths or schemas, location states, chunk grouping, proof
 requirements, consumer behavior, cache bounds or cleanup authority change.
