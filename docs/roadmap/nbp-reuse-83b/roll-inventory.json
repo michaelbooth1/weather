@@ -10,12 +10,22 @@
     "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
   },
   {
+    "path": "docs/roadmap/nbp-reuse-83b/hosted-ci.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
     "path": "docs/roadmap/nbp-reuse-83b/roll-inventory.json",
     "closures": null,
     "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
   },
   {
     "path": "docs/roadmap/nbp-reuse-83b/roll-verdict.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbp-reuse-83b/verification.json",
     "closures": null,
     "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
   },

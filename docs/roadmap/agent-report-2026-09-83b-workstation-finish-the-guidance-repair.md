@@ -1,6 +1,6 @@
 # Mission 2026-09-83b — Part B: national bulletin reuse
 
-**PARTIAL — capture reuse is implemented; verification pending. The new derived
+**PARTIAL — capture reuse, 200 focused tests and full hosted CI pass. The new derived
 index needs a storage-family registry entry outside this mission's owned files
 before production adoption.**
 
@@ -50,8 +50,18 @@ again does not relax the writer's existing CAS-integrity gate.
 
 ## Verification and handback
 
-Implementation commits: `0b0c5bd3`, final code `57b69142`. Fixture probe and unchanged
-replay/migration/parity checks are pending. No forecast candidate, fit, retirement,
+Implementation commits: `0b0c5bd3`, final code `57b69142`. Full hosted CI at
+`fc4967c5`: **5,340 passed, 496 skipped, 921 passed subtests**, one warning, in
+418.29 seconds. Compilation, documentation audit, roadmap check and hosted
+Windows qualification also passed. [CI receipt](nbp-reuse-83b/hosted-ci.json)
+links both runs. Replay/migration/parity tests were unchanged and passed in that
+suite. The final local fixture/memory probe plus unchanged replay/migration/parity
+checks returned **200 passed, 1 skipped in 10.43 seconds**, after admission through
+the workstation wrapper. Compilation, documentation audit and generated-roadmap
+check passed locally too. Hosted checks do not replace production qualification.
+The existing symlink-rejection test skipped locally because this Windows
+principal lacks symlink creation privilege; it was not edited or disabled.
+No forecast candidate, fit, retirement,
 re-score, outcome read, floor change, paid provider, credential, exchange call,
 production write, Scheduler registration, capture restart or master merge.
 
@@ -60,6 +70,33 @@ payload. It is deliberately separate from the retained parser/wrapper's
 original-capture `cycle_age_hours`, so composing with Part A does not rewrite
 archive provenance or change recorded-parser replay. For current-use admission,
 derive age from the manifest capture time minus issue time, as section 3 directs.
+
+## B3 — deterministic fixture measurements
+
+[Exact arguments and measured values](nbp-reuse-83b/verification.json). Three
+serial passes, 11 configured US markets, separate process-equivalent fan-out
+instances and supervisor scopes, one complete 39,269-byte station-block fixture:
+
+| Path | Passes | Markets | Network downloads |
+| --- | ---: | ---: | ---: |
+| Existing per-scope fan-out | 3 | 11 | 33 |
+| Complete-cycle reuse | 3 | 11 | 1 |
+
+The memory probe pads those same retained blocks to 1,048,570 bytes and measures
+one subsequent pass after warming each path, using `tracemalloc` and the held
+string's `sys.getsizeof`:
+
+| Path | Retained text bytes | Traced current bytes | Traced peak bytes |
+| --- | ---: | ---: | ---: |
+| Existing per-scope fan-out | 1,048,619 | 1,058,266 | 4,216,092 |
+| Complete-cycle reuse | 1,048,619 | 1,057,477 | 3,173,933 |
+
+Each measured coordinator retains one completed entry; the existing cap stays
+two. There is no additional retained national text copy. These are deterministic
+coordinator fixtures, not production RSS or full-snapshot measurements; no
+forecast-skill estimate, confidence interval or production traffic extrapolation
+is claimed. Concurrent cold misses and broken storage can still download more
+than once, as the design explains. No extra long-held lock was added.
 
 ## Exact remaining ownership requirement
 
@@ -109,9 +146,9 @@ function Invoke-83b([string]$kind, [string[]]$tokens) {
     & "$repo/scripts/ops/workstation_heavy.ps1" -Kind $kind -PythonPath $python `
         -ArgumentsBase64 $encoded -RepoRoot $repo
 }
-Invoke-83b pytest @('-m','pytest','-q','-s','tests/collection/test_nbp_cycle_reuse.py',
-    'tests/collection/test_forecast_payload_cross_process_fanout.py',
-    'tests/sources/test_forecast_payload_fanout.py','--basetemp','C:/tmp/83b-b-check')
+$receipt = Get-Content docs/roadmap/nbp-reuse-83b/verification.json -Raw | ConvertFrom-Json
+$testFiles = @($receipt.arguments | Where-Object { $_ -like 'tests/*.py' })
+Invoke-83b pytest (@('-m','pytest','-q','-s') + $testFiles + @('--basetemp','C:/tmp/83b-b-check'))
 Invoke-83b pytest @('-m','pytest','-q','--basetemp','C:/tmp/83b-b-full')
 Invoke-83b compileall @('-m','compileall','-q','app','src','tests')
 & $python -m weather.operations.agent_docs_audit
