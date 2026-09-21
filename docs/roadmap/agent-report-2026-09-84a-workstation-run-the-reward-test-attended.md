@@ -448,7 +448,7 @@ lane edit, promotion or merge to master. No live prediction or payout exists.
 
 ## September 21, 2026 — mission 84c handback
 
-**IMPLEMENTED; qualification in progress. Live remains NO-GO until the owner runs a clean preflight on the final tip. No authenticated preflight or live session has run.**
+**READY FOR OWNER PREFLIGHT: implementation and offline qualification passed. Live remains NO-GO until the owner runs a clean preflight on the published final tip. No authenticated preflight or live session has run.**
 
 This appendix supersedes 84b's readiness and campaign-retry instructions while
 preserving its historical evidence. The owner directly confirmed implementation
@@ -586,6 +586,12 @@ agent must not run it. A clean final-tip, same-UTC-date PASS is required by
 `live`; a newer failed or incomplete preflight invalidates an earlier PASS.
 Any code-tip change requires another owner preflight.
 
+Keep this execution worktree clean between preflight and live. The binding
+is to the exact Git commit, including documentation commits. Review the
+receipt without editing this worktree; append the actual latency table and
+FAIL lines after the attended session, or in a separate correspondence
+worktree, so reporting alone does not invalidate the execution receipt.
+
 ```powershell
 & $re1Python -m weather.market.re1_attended_cli live
 ```
@@ -649,6 +655,33 @@ credential-owner redaction regression above. That aborted run likewise does
 not count as full qualification; verified child-only termination allowed
 the wrapper to finish cleanup. Final qualification below supersedes both.
 
+The credential-owner repair at
+`ee5a02bd38ef51ddc485dfd250d98103b9dd6bd9` passed **71 focused tests in
+62.81 seconds**; final compileall passed. This is the source commit used by
+the completed full-suite qualification recorded below. The only later
+commit closes this report; it changes no source, test, or configuration.
+
+| Additional focused receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-84c-bootstrap.xml` | `4bbdf81fae633ff1e9dcd524b2decccd3b44226dcdb4b377433a9761b6976ddc` |
+| `scratch/re1-84c-owner-redaction.xml` | `ae965726243470e62ff589545c6f0e0005936e9622c00cf239a6349b5928a4e7` |
+
+The completed full suite on that final source passed **7,162 tests, 34
+skipped, 991 subtests passed, 13 warnings, zero failures/errors**, in
+**3,623.46 seconds (1:00:23)** through `workstation_heavy.ps1`. The JUnit
+receipt is `scratch/re1-84c-full-verified.xml`, SHA-256
+`31f60a1d30d1b0caecf57b7b254a454161a14e66656260a14997b2fd72fcdb9c`.
+Its 8,187 cases include the subtests and skips. Warnings were from missing
+fixture features in sklearn and a NumPy/netCDF binary-size warning.
+The admitted wrapper exited successfully before temporary-tree cleanup.
+This is the one completed full-suite qualification of 84c's final source;
+the two earlier aborted launches remain disclosed above.
+
+Final compilation, six-mode CLI help, the agent documentation audit and
+generated-backlog check passed. The closing documentation receives its own
+audit/backlog checks and cumulative diff check before publication. No source,
+test or configuration changes follow the qualified source commit.
+
 Retained seeded rehearsal: `scratch/re1-84c-seeded-1`, seed **84003**, fixed
 360-minute end reached, **351** successful/visible minute samples, nine
 missed minutes, two simulated POSTs, zero re-quotes/fills, acknowledged
@@ -663,6 +696,14 @@ on each read. Missing evidence correctly leaves `evidence_complete=false`.
 | `scratch/re1-84c-seeded-1/journal.jsonl` | `bb4ddec19bc5a1283949b2c3cc00c385260b93726d29b2cfc8cbf18be4248f24` |
 | `scratch/re1-84c-seeded-1/prediction.json` | `905393a8c826ba5f7dff420a55ea6f6234f221801adb164794294c8098f7cfd2` |
 
+The full suite on `ee5a02bd` repeated this seeded test and produced the
+**same journal and prediction hashes byte for byte**. That exact-source
+case, including its selection and both submit intent/acknowledgment pairs,
+was copied before temporary-tree cleanup to
+`scratch/re1-84c-seeded-ee5a02bd`. Both retained proof directories remain;
+the final-source receipt also ends at the fixed time with 351 credited
+minutes, clean cleanup, proven inventory and no unknown submit.
+
 Reproduction, from this worktree: use `scripts/ops/workstation_heavy.ps1`
 with `-Kind pytest`, the main checkout's `venv/Scripts/python.exe`, explicit
 `-RepoRoot`, and `-ArgumentsBase64` holding UTF-8 JSON. The durable offline
@@ -673,6 +714,35 @@ another retained run. Full-suite arguments are `-m pytest -q` with explicit
 `--basetemp=C:/tmp/weather-re1-84c-full-verified` and
 `--junitxml=scratch/re1-84c-full-verified.xml`. Completed pytest temporary trees are
 removed only after the admitted process exits; receipts and journals remain.
+
+### Roll disposition and publication boundary
+
+The required repository verdict was obtained with
+`scripts/ops/roll_verdict.ps1 -Branch codex/reward-test-attended-20260921 -Base origin/codex/stage2-hold-build-20260921`:
+**UNDECIDABLE**, exit 1. The workstation has no live snapshot, CLOB,
+observation-trigger or CLOB-enrichment closure evidence. The retained output
+is `scratch/re1-84c-roll-verdict.txt`, SHA-256
+`9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0`.
+The script exits before producing JSON when no live closure exists.
+
+| 84c path (`src/weather/market/` unless stated) | Disposition |
+| --- | --- |
+| `re1_attended.py` | Live closure membership unavailable; no roll-free claim |
+| `re1_attended_cli.py` | Live closure membership unavailable; no roll-free claim |
+| `re1_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `re1_owner_checks.py` | New module; live closure membership unavailable |
+| `re1_rehearsal.py` | Live closure membership unavailable; no roll-free claim |
+| `re1_resilience.py` | New module; live closure membership unavailable |
+| `re1_transport.py` | Live closure membership unavailable; no roll-free claim |
+| Five changed/new `tests/market/test_re1_*.py` files | Offline regression evidence; no live closure measurement |
+| This report | Documentation; no runtime adoption |
+
+The complete stacked diff was reviewed against the declared base. The
+inherited handoff/reference files and generated location configuration are
+preserved; 84c changes only the seven RE-1 modules, five test files and this
+report. Branch publication and draft PR 78 are the handback boundary.
+Integration/adoption remains with the operations owner after a fresh verdict;
+no production evidence was accessed to manufacture one here.
 
 **Owner preflight latency table: NOT RUN. Authenticated FAIL lines: none
 available.** Fake timings are not presented as account-path evidence. The
