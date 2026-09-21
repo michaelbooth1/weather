@@ -323,7 +323,15 @@ class Session:
                 if number(row['size_matched']) > 0 or row.get('associate_trades'):
                     self.fill_seen = True
             retain('terminal_trades', rows=self.venue.trades())
+            positions = self.venue.positions()
+            retain('terminal_positions', rows=positions)
+            if positions:
+                self.fill_seen = True
         except BaseException:
+            self.evidence_failed = True
+        # A lost submit acknowledgement may hide an order/fill identity even
+        # after cancel-all succeeds. Never qualify or silently retry it.
+        if self.submits != len(self.known):
             self.evidence_failed = True
         self.cleanup_ok = empty and acknowledged
         self.closed = True

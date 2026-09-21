@@ -47,6 +47,18 @@ def test_unfinished_attempt_blocks_next_and_expiry(tmp_path):
         reserve_attempt(tmp_path / 'expired', now=now + timedelta(days=10), selection_sha256='a' * 64)
 
 
+def test_incomplete_acknowledgement_blocks_next_attempt(tmp_path):
+    from tests.market.stage2_fakes import Clock
+    directory, _ = reserve_attempt(tmp_path, now=Clock().now(), selection_sha256='a' * 64)
+    session, venue, clock = setup(directory)
+    def lost(*args, **kwargs): raise ConnectionError('unknown submit outcome')
+    venue.submit = lost
+    result = session.run()
+    assert result['cleanup_ok'] and not result['fill_seen'] and not result['evidence_complete']
+    with pytest.raises(RuntimeError, match='reconciliation'):
+        reserve_attempt(tmp_path, now=clock.now(), selection_sha256='a' * 64)
+
+
 @pytest.mark.parametrize('value,expected', [('1', 'PAID_AS_MODELLED'), ('0.2', 'PAID_DILUTED'), ('0', 'NOT_PAID'), ('0.1', 'INCONCLUSIVE')])
 def test_exact_frozen_payout_thresholds(value, expected):
     prediction = {'P_many': 2, 'mode': 'live', 'evidence_complete': True, 'cleanup_ok': True, 'scoring_seen': True,

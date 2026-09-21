@@ -72,7 +72,7 @@ def reserve_attempt(root, *, now, selection_sha256):
             raise RuntimeError('campaign_count_corrupt')
         result_path = root / f'session-{i}' / 'prediction.json'
         result = load_prediction(result_path, now=now, require_later_day=False)
-        if not result['cleanup_ok'] or result['fill_seen']:
+        if not result['cleanup_ok'] or result['fill_seen'] or not result['evidence_complete']:
             raise RuntimeError('prior_attempt_needs_owner_reconciliation')
     number_ = len(markers) + 1
     row = {'number': number_, 'created_at_utc': utc(now).isoformat(), 'selection_sha256': selection_sha256}

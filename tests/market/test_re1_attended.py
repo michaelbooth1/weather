@@ -235,3 +235,16 @@ def test_deadline_cleanup_fill_is_recorded(tmp_path):
     result = session.run(rehearsal_seconds=1)
     assert result['fill_seen'] and result['reason'] == 'fill'
     assert result['cleanup_ok'] and len(venue.calls) == 2
+
+
+def test_lost_submit_ack_checks_inventory_and_marks_incomplete(tmp_path):
+    session, venue, _ = setup(tmp_path)
+    original = venue.submit
+    def lost(request, **kwargs):
+        original(request, **kwargs)
+        venue.positions = lambda: [{'asset': TOKENS[0], 'size': '.2'}]
+        raise ConnectionError('acknowledgement lost')
+    venue.submit = lost
+    result = session.run()
+    assert result['fill_seen'] and not result['evidence_complete']
+    assert result['cleanup_ok'] and not venue.open_orders() and len(venue.calls) == 1
