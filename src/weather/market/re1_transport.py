@@ -143,12 +143,13 @@ def build_client(fields, *, readonly=False, timeout=10):
         raise RuntimeError('existing_wallet_required_no_deployment')
     logger = logging.Logger('re1-sdk-disabled')
     logger.disabled = True
-    # Pinned 0.6.0 bootstrap validates supplied credentials and constructs the
-    # client. Public create() additionally calls _ensure_wallet_ready(), which
-    # may deploy; that mutation is outside every RE-1M mode's authority.
+    # SDK validation silently falls back to POST /auth/api-key on invalid
+    # supplied credentials. Disable that fallback, then perform the same
+    # mandatory authenticated GET ourselves behind the transport guard.
+    # Public create() may additionally deploy a wallet and is never used.
     client = SecureClient._create(private_key=fields['PRIVATE_KEY'], wallet=maker,
         credentials=ApiKeyCreds(key=fields['API_KEY'], secret=fields['API_SECRET'], passphrase=fields['API_PASSPHRASE']),
-        validate_credentials=True, logger=logger)
+        validate_credentials=False, logger=logger)
     try:
         if (client.wallet.lower() != maker.lower() or client.signer.lower() != signer.lower() or
                 client.wallet_type != {2: 'GNOSIS_SAFE', 3: 'DEPOSIT_WALLET'}[kind]):
@@ -167,6 +168,8 @@ def build_client(fields, *, readonly=False, timeout=10):
             transport = getattr(client._ctx, name)
             transport._client.timeout = httpx.Timeout(max(2, timeout))
             transport._client.event_hooks['request'].append(constrain)
+        if fields['API_KEY'] not in client.fetch_api_keys():
+            raise RuntimeError('supplied_credentials_not_active')
         return client
     except BaseException:
         client.close()

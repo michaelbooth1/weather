@@ -128,12 +128,13 @@ def test_collection_sdk_transport_refuses_every_non_get(monkeypatch):
     from weather.market import re1_transport as transport
     # Public test key, used only to derive its address locally. No real client.
     key = '1' * 64
-    client = SimpleNamespace(wallet=MAKER, signer=Account.from_key(key).address, wallet_type='GNOSIS_SAFE')
+    client = SimpleNamespace(wallet=MAKER, signer=Account.from_key(key).address, wallet_type='GNOSIS_SAFE',
+                             fetch_api_keys=lambda: ('synthetic',), close=lambda: None)
     names = ('gamma', 'data', 'clob', 'secure_clob', 'relayer', 'rfq', 'combos', 'builder_gateway')
     client._ctx = SimpleNamespace(**{n: SimpleNamespace(_client=SimpleNamespace(event_hooks={'request': []})) for n in names})
     monkeypatch.setattr('polymarket.SecureClient.create', lambda **kwargs: pytest.fail('deployment-capable factory'))
     def bootstrap(**kwargs):
-        assert kwargs['validate_credentials'] is True and kwargs['credentials'] is not None
+        assert kwargs['validate_credentials'] is False and kwargs['credentials'] is not None
         return client
     monkeypatch.setattr('polymarket.SecureClient._create', bootstrap)
     monkeypatch.setattr(transport, 'fetch_wallet_deployed', lambda *args, **kwargs: True)
@@ -146,6 +147,21 @@ def test_collection_sdk_transport_refuses_every_non_get(monkeypatch):
         for method, path in [('POST', '/order'), ('DELETE', '/cancel-all'), ('POST', '/orders-scoring')]:
             with pytest.raises(RuntimeError, match='collection_is_read_only'):
                 hook(httpx.Request(method, transport.HOST + path))
+    client.fetch_api_keys = lambda: ()
+    with pytest.raises(RuntimeError, match='supplied_credentials_not_active'):
+        transport.build_client(fields, readonly=True)
+
+
+def test_pinned_bootstrap_cannot_create_or_derive_credentials(monkeypatch):
+    from polymarket import ApiKeyCreds
+    from polymarket.clients import secure
+    credentials = ApiKeyCreds(key='fixture', secret='fixture', passphrase='fixture')
+    def forbidden(*args, **kwargs): pytest.fail('credential mutation or SDK fallback validation')
+    monkeypatch.setattr(secure, '_credentials_are_active_sync', forbidden)
+    monkeypatch.setattr(secure, 'sign_api_key_auth', forbidden)
+    monkeypatch.setattr(secure._auth_actions, 'create_or_derive_api_key_sync', forbidden)
+    assert secure._bootstrap_credentials_sync(config=None, signer=None, clob=None,
+        provided=credentials, nonce=0, validate=False, logger=None) is credentials
 
 
 def test_sdk_request_and_response_times_are_journaled_without_auth():

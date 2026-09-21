@@ -519,6 +519,19 @@ controller while preserving the raw POST outcome. Journal records share a
 lock with the heartbeat thread. A documented HTTP 400 rotating-ID challenge
 updates the next heartbeat ID but **does not** reset the ack deadline.
 
+**Correction to 84b's bootstrap claim:** tracing installed SDK
+`clients/secure.py:2826` showed that `_create(validate_credentials=True)`
+can fall back to `POST /auth/api-key` when supplied credentials are inactive
+or rejected with 401. It was not a validation-only path. RE-1M now supplies
+the existing credentials with that fallback disabled, installs its transport
+guards, then mandatorily calls authenticated `fetch_api_keys()` and requires
+the supplied key to be present. Failure closes the client; it never creates,
+derives or replaces credentials. That private response is not journaled.
+`test_pinned_bootstrap_cannot_create_or_derive_credentials` executes the
+SDK's own bootstrap helper with mutation paths trapped, while the transport
+guard test proves inactive credentials are refused. This preserves credential
+validation and adds no order authority.
+
 Preflight measures min, median, nearest-rank p95 and max for twenty reads per
 step (six heartbeats, at five-second cadence). It records every exception by
 step/type, every heartbeat acknowledgment, stream readiness, both asset
@@ -608,6 +621,16 @@ accelerated rehearsal. JUnit `scratch/re1-84c-focused4.xml` SHA-256:
 The final main-thread checkpoint adjustment receives an additional focused
 run before the full suite. Checkpoints between bounded reads count as main
 progress; a blocked read cannot refresh that watchdog.
+
+That last focused run passed **26 tests in 78.46 seconds** (JUnit
+`scratch/re1-84c-final-focus.xml`, SHA-256
+`a9ac7297d16c1f3421313b83a6acdd6d43745d27540797fb520bff99e26ca8f1`).
+The first full-suite launch on `3a449362e35a8c143947a20581e7176a5dc00cae`
+was deliberately stopped at 31%, with no observed failures, after the SDK
+bootstrap fallback above was discovered. Only its verified interpreter child
+was stopped; the wrapper exited and completed teardown. That aborted launch
+is not counted as a full-suite qualification. The corrected final tip receives
+its own focused checks and one completed full-suite run.
 
 Retained seeded rehearsal: `scratch/re1-84c-seeded-1`, seed **84003**, fixed
 360-minute end reached, **351** successful/visible minute samples, nine
