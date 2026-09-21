@@ -1,9 +1,9 @@
 # What information does the market have that we do not? — review, 2026-09-21
 
-Status: hypothesis ranking from the canonical record. **Nothing here was measured tonight.** Model-alpha work is
-paused by owner decision; the five diagnostics in the last section are descriptive, spend no α, and are the owner's
-call to start. Linked from the findings digest as an
-open question, not a finding.
+Status: hypothesis ranking from the canonical record. **Nothing here is measured.** The owner unpaused model work on
+2026-09-21; the five checks are specified in `missing-information-test-plan-2026-09-21.md` and delegated by workstation
+handoff `2026-09-79a`. **Correction made after this was written:** station guidance (NBM percentiles, NWS grid high, HRRR
+delta) is already captured in `features_long.csv`, so candidate B reads "we hold it and do not use it", not "we lack it".
 
 ## What the record already says about the shape of the gap (EF = ESTABLISHED_FINDINGS)
 
