@@ -184,7 +184,8 @@ def window(output: Path) -> None:
                 cycles = nbp_target_cycle_candidates(now.astimezone(timezone.utc), day)
                 row = {'season': 'standard' if day.month == 1 else 'daylight',
                        'zone': zone, 'local_hour': hour, 'captured_at': now.isoformat()}
-                for label, cycle in zip(('healthy', 'if_404'), [cycles[0], cycles[1] if len(cycles) > 1 else None]):
+                for index, label in enumerate(('healthy', 'if_404')):
+                    cycle = cycles[index] if len(cycles) > index else None
                     row[label + '_cycle'] = cycle.isoformat() if cycle else 'unavailable'
                     row[label + '_age_hours'] = (now - cycle).total_seconds() / 3600 if cycle else None
                 rows.append(row)
@@ -192,7 +193,9 @@ def window(output: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    print(json.dumps({'rows': len(rows), 'healthy_unavailable': 0, 'output': str(output / 'window.csv')}))
+    unavailable = sum(row['healthy_cycle'] == 'unavailable' for row in rows)
+    print(json.dumps({'rows': len(rows), 'healthy_unavailable': unavailable,
+                      'output': str(output / 'window.csv')}))
 
 
 def main():

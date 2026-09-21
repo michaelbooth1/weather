@@ -18,6 +18,21 @@ from weather.sources.nbm_probabilistic_tmax import (
 FIXTURES = Path(__file__).parents[1] / 'fixtures' / 'nbm_target_fix'
 
 
+def test_window_reports_empty_candidate_lists_as_unavailable(tmp_path, capsys):
+    import csv
+    from tools.research.nbm_target_fix import window
+
+    output = tmp_path / 'window'
+    with patch('weather.sources.nbm_probabilistic_tmax.nbp_target_cycle_candidates', return_value=[]):
+        window(output)
+    summary = json.loads(capsys.readouterr().out)
+    with (output / 'window.csv').open(newline='', encoding='utf-8') as handle:
+        rows = list(csv.DictReader(handle))
+    assert summary['rows'] == summary['healthy_unavailable'] == len(rows) == 192
+    assert all(row['healthy_cycle'] == row['if_404_cycle'] == 'unavailable' for row in rows)
+    assert all(row['healthy_age_hours'] == row['if_404_age_hours'] == '' for row in rows)
+
+
 @pytest.mark.parametrize('path', sorted(FIXTURES.glob('20260917T*.txt')), ids=lambda p: p.stem)
 def test_real_blocks_reject_minima_and_preserve_maxima(path):
     text = path.read_text()
