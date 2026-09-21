@@ -1738,7 +1738,8 @@ class SourceFetchMixin:
                         "response_received_at": response_received_at,
                     }
 
-                fanout_result = fanout.fetch(
+                fetch_bulletin = getattr(fanout, "fetch_reusable_nbp", fanout.fetch)
+                fanout_result = fetch_bulletin(
                     source="nbm_probabilistic_tmax",
                     request_key=nbp_request_key(url),
                     cycle_key=nbp_cycle_key(run_time),
@@ -1763,6 +1764,11 @@ class SourceFetchMixin:
                 source_url=url,
                 fetched_at=fetched_at,
             )
+            # Keep network time in fetched_at; cycle age describes this use.
+            captured_at = datetime.now(timezone.utc)
+            if payload.get("issued_at"):
+                issued_at = datetime.fromisoformat(payload["issued_at"].replace("Z", "+00:00"))
+                payload["cycle_age_at_use_hours"] = (captured_at - issued_at).total_seconds() / 3600.
             payload["tried_urls"] = list(tried_urls)
             fanout_metadata = {
                 "request_key": fanout_result.request_key,
