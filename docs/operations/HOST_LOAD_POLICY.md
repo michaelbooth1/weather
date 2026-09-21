@@ -85,7 +85,7 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 | Resource | Value at sample | Note |
 | --- | --- | --- |
 | Physical RAM | 15.7 GB | smallest resource on the box, and still true |
-| Pagefile | 48 GB allocated | commit limit ~63.7 GB **at sample — stale and it matters: the live limit was ~22 GB on 2026-09-19**, so the chain's 70% commit gate trips near 15 GB used. Every commit-percent guard divides by the LIVE limit; read `commit_total_mb` and `commit_percent` in `data\logs\memory_commit_guard_status.json` |
+| Pagefile | 48 GB allocated | commit limit ~63.7 GB **at sample — stale and it matters: the live limit was ~22 GB on 2026-09-19 (system-managed pagefile had shrunk to 5.9 GB); the owner set a fixed 16-32 GB pagefile on 2026-09-20 and the limit is ~32.5 GB since. Never leave the pagefile system-managed on this host; `commit_total_mb` near 22,000 means it reverted. Measured 2026-09-21: the full bounded suite peaks at ~41% of 32.5 GB**, so the chain's 70% commit gate trips near 15 GB used. Every commit-percent guard divides by the LIVE limit; read `commit_total_mb` and `commit_percent` in `data\logs\memory_commit_guard_status.json` |
 | Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
 | data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 

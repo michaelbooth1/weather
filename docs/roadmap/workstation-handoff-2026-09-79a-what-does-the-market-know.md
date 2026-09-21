@@ -3,7 +3,7 @@
 Host: the 32 GB workstation (non-capture). Issued by the production operations agent, 2026-09-21.
 Owner decision 2026-09-21: **model work is unpaused.** `2026-09-79a` is a mission label, not a calendar date.
 
-**Owner: fill this in before pasting →** `ARCHIVE_DIR = <folder on the workstation holding mi-core.tgz, mi-tape.tgz, mi-books-sample.tgz, MANIFEST.json>`
+`ARCHIVE_DIR` = the workstation folder holding `mi-core.tgz`, `mi-tape.tgz`, `mi-books-sample.tgz` and `MANIFEST.json`. They were staged on the production host 2026-09-21 02:37 (433 MB, SHA-256 in the manifest). The copy the owner pastes says how the mission obtains them; where the two copies differ, the pasted copy wins.
 
 ## 1. Goal
 

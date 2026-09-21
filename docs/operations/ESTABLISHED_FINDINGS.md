@@ -180,7 +180,7 @@ honesty. **Stepping off that path was correct, and this NO-GO closes it out rath
 ## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
 
 > **PARTLY SUPERSEDED — ordering only.** The 2026-08-13 maker-rebate pivot and the 2026-09-04 item-330
-> refocus put maker economics ahead of model work, and the owner has paused new model-alpha work.
+> refocus put maker economics ahead of model work; the owner paused new model-alpha work then and unpaused it on 2026-09-21.
 > Current ordering: §0 and [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
 > What stays binding from this section: release machinery is off the critical path, and
 > leakage-free evaluation is not negotiable.
@@ -3143,8 +3143,8 @@ including all five late-day lock-ins and the calibration taper — receive `None
   count is the auditor's. No alert-path monitor aggregates source, NaN-feature or model-kind
   degradation. Host-local write-up:
   `docs/roadmap/audits/full-audit-2026-09-18/dimensions/gap-what-production-serves.md`.
-- **Do not act on this as a forecast finding** until one served stage snapshot has been read; model-
-  alpha work is paused by owner decision.
+- **Do not act on this as a forecast finding** until one served stage snapshot has been read. (Model work was
+  unpaused by the owner on 2026-09-21; the read-before-acting condition still stands.)
 
 ### 10f. The 2026-09-06 attended Stage 0/1 test ran off master; it is spent
 

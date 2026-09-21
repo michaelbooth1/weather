@@ -26,7 +26,7 @@ never pooled across the 2026-07-31 provenance boundary.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.
 11. Historical replay cannot reproduce what production served; do not commission reproduction work. EF §1k.
-12. Owner decisions in force: no live trading, International only, no paid weather APIs, no new model-alpha work for now, backups deprioritized. Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
+12. Owner decisions in force: no live trading, International only, no paid weather APIs, backups deprioritized; **model work unpaused 2026-09-21** (measurement first; a candidate needs a pre-registration before it is scored). Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
 
 ## Model and forecast: what is established
 
@@ -80,6 +80,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - The configured reward pool is about **2,800 per day same-day and 4,800 all active**, stable on 31 of 31 sampled days 2026-08-15..09-19; it is a shared pool, not income, the share is unmeasured, and the unit is unconfirmed by any paid epoch. EF §10a.
 - The 10 pUSD per-band cap makes a two-sided 20-share quote (about 19.60 pUSD) reward-ineligible; the July `NOT_VIABLE_CURRENT_TRACK` leg that rests on this is unchanged. EF §10a, `docs/roadmap/agent-report-2026-07-27-workstation-mm-viability.md`.
 - Whether taker fees — and therefore maker rebates — are non-zero on these markets is open: sampled tape rows on 2026-09-19 carried `fee_rate_bps: "0"`, unverified at scale. [MARKET_MAKING_PLAN.md](../research/MARKET_MAKING_PLAN.md) Part 0.
+- Public reward reads, 2026-09-20: the venue publishes a per-condition reward record with a `market_competitiveness` field never captured here (0 on five of eight same-day bands; not our competing Q-score); same-day bands flip from a 20- to a 100-share minimum during the morning, so same-day 20-share estimates are too high; next-day 20-share bands are contested - modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles. All modelled, none paid. [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), [RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md).
 - A current economics snapshot cannot score historical maker runs; each dated condition has its own identities. EF §8k.
 - International Stage 0/1 software is adopted on master; the 2026-09-06 attended test ran different, unmerged code; Stage 2 has never run. EF §8t, §10f, [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md).
 - Geographic eligibility is recorded as resolved by owner statement (2026-09-19); the operating rule is that the home file-access tunnel is down for a whole live session. [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md).
@@ -93,7 +94,9 @@ never pooled across the 2026-07-31 provenance boundary.
 - The settlement chain is single-shot, sits behind a learning-lane audit, has no retry and no backfill; each missed date needs an explicit backfill. EF §10d.
 - Finalize re-revises every historical market-day on each run because its hash includes wall-clock time; a teardown loses the new day. EF §10d, [FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md](FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md).
 - The venue's declared resolution source moved from WU to `weather.gov` timeseries around 2026-08-23; band agreement 921/921 before, 131/132 after; exact-degree agreement unmeasured; the code still hard-codes WU. EF §10c.
-- The memory-guard kill path has been inert since 2026-08-23; the fix is authored and not adopted. EF §10g.
+- The capture host's `data/metar` history store stops at 2026-06-30 (found 2026-09-21; cause not traced); August-September METAR/SPECI must come from the free IEM archive.
+- Station guidance is captured, not missing: `features_long.csv` carries NBM percentiles, NWS grid high and the HRRR delta, and item 190 records that the active artifact selects zero NBM columns. Whether that explains the gap is unmeasured (mission `2026-09-79a`). [Review](../research/missing-information-review-2026-09-21.md).
+- The memory-guard kill path was inert 2026-08-23 -> 2026-09-20 00:38; the fix is on master since. EF §10g.
 - Read-only is not the same as safe on the capture host: abandoned agent tool calls keep running, and that load caused the 2026-08-23 incident. EF §8u, [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md).
 - Reopening a large live log took capture down for 5 h 54 m; rotation is bounded and non-deleting. EF §8e.
 - A terminated scheduled wrapper can leave its governed child alive; a DEAD status with a source closure is a tombstone; PID alone does not prove lock ownership. EF §8d, §8g, RF "A live PID proves it still owns an old lock".
