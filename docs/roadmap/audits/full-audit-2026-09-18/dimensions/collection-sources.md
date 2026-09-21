@@ -183,7 +183,7 @@ Basis: verified_in_code. Confidence: high on the mechanism; occurrence to date u
 
 **Claim.** Settlement data is obtained by requesting the public WU history page with a hard-coded Chrome
 User-Agent, parsing the page's `const data = {...}` runtime config to lift WU's own `API_KEY`, then
-calling `api.weather.com`-style `/v1/location/<id>/observations/historical.json` with `Referer` and
+calling the provider's data-API host with `/v1/location/<id>/observations/historical.json`, `Referer` and
 `Origin` set to wunderground.com. No key is stored in the repo (good), but the method is exposed to
 any page redesign, bot mitigation, or terms enforcement, and there is no second settlement source.
 Two code defects sit on top: a page-layout change raises `RuntimeError`, which
