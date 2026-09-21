@@ -10,7 +10,8 @@ for the verdict and the active-artifact stop condition.
 1. `run t0`: cache 12 national NOAA NBP files once (three dates, four cycles),
    extract the 11 US settlement-station blocks, preserve every FHR token and its
    UTC validity, and join free IEM daily observations.
-2. `run t1`: call the unchanged repository parser for local issue date -1/0/+1.
+2. `run t1`: explicitly call version 1, the parser rule in production when 82a
+   ran, for local issue date -1/0/+1.
 3. `run t2`: verify the frozen 79a snapshot hash, retain its admission/exclusions,
    join explicit rejection reasons and compare temperatures only.
 4. `run artifact_audit`: inspect tracked JSON and trusted repository pickles via
