@@ -5,7 +5,6 @@ import hashlib
 import json
 from types import SimpleNamespace
 
-import httpx
 import pytest
 
 from tests.market.test_mm_stage2_hold import run
@@ -33,6 +32,13 @@ def test_prediction_replays_and_tampered_sum_is_refused(tmp_path):
 
 
 def sdk_fixture():
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        sdk_version = version('polymarket-client')
+    except PackageNotFoundError:
+        pytest.skip('recorded SDK parser qualification requires the optional pinned live extra')
+    assert sdk_version == '0.6.0'
+    import httpx
     from polymarket.clients.secure import SecureClient, _CREATE_TOKEN
     calls = []
     row = {'date': '2026-09-21T00:00:00Z', 'maker_address': MAKER, 'asset_address': '0x' + 'c' * 40,

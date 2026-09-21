@@ -105,6 +105,21 @@ def test_primary_cancel_failure_is_no_go_even_when_deadman_clears(tmp_path):
     assert backstop[0]['heartbeat_age_seconds'] == 12
 
 
+@pytest.mark.parametrize('acknowledgments', [[], ['unrelated-order'], ['fixture-order-1']])
+def test_terminal_canceled_state_cannot_replace_both_explicit_acknowledgments(tmp_path, acknowledgments):
+    def change(venue):
+        original = venue.cancel_all
+        def cancel():
+            response = original()
+            response['canceled'] = acknowledgments
+            return response
+        venue.cancel_all = cancel
+    result, venue, rows = run(tmp_path, change=change, stop_at=8)
+    assert not result['cleanup_ok'] and not result['cancel_acknowledged']
+    assert not list(venue.list_open_orders().iter_items())
+    assert not any(r['event'] == 'cancel_all_acknowledged' for r in rows)
+
+
 def test_midpoint_drift_cancels_original_prices_without_requote(tmp_path):
     def change(venue):
         def shift(values):

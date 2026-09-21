@@ -476,7 +476,8 @@ def run_hold_session(
             if remaining or not isinstance(response, dict) or response.get("not_canceled"):
                 raise RuntimeError("explicit cancellation did not reconcile")
             canceled = response.get("canceled")
-            if not isinstance(canceled, list):
+            if (not isinstance(canceled, list) or any(not isinstance(oid, str) or not oid for oid in canceled)
+                    or len(set(canceled)) != len(canceled)):
                 raise RuntimeError("explicit cancellation has no acknowledgment list")
             terminal = []
             for oid, (token, _, _) in expected.items():
@@ -487,8 +488,9 @@ def run_hold_session(
                     raise RuntimeError("terminal order identity differs")
                 if matched > 0:
                     fill_seen = True
-                elif str(order.get("status", "")).lower() not in {"canceled", "cancelled", "expired"}:
-                    raise RuntimeError("terminal zero-fill order is not canceled")
+                elif (oid not in canceled
+                        or str(order.get("status", "")).lower() not in {"canceled", "cancelled", "expired"}):
+                    raise RuntimeError("terminal zero-fill order lacks explicit cancellation acknowledgment")
                 terminal.append(order)
             cancel_ack = True
             record("cancel_all_acknowledged", response=response, terminal_orders=terminal)

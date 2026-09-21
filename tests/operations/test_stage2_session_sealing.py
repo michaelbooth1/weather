@@ -1,6 +1,7 @@
 """Stage 2 manifest and grants use actual validators over inert public fixtures."""
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -99,6 +100,7 @@ def test_unsealed_stage2_entrypoint_cannot_reach_credential_resolver(monkeypatch
     assert calls == []
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='executes the Windows-only template imports; AST rendering is tested separately')
 def test_unsealed_stage2_template_refuses_before_runtime_import(monkeypatch):
     source = (sealer.REPO_ROOT / sealer.PYTHON_TEMPLATE_PATHS['stage2_hold']).read_text()
     namespace = {'__name__': 'unsealed_fixture', '__file__': str(sealer.REPO_ROOT / 'unsealed-stage2.py')}

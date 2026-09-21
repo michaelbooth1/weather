@@ -1,5 +1,6 @@
 """Identical optional-grant shape in Python and PowerShell; never an actual grant."""
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -35,6 +36,8 @@ def test_assignment_readers_agree_on_optional_stage2_shape(tmp_path, fault):
     else:
         with pytest.raises(ExecutionHostAssignmentError):
             load_execution_host_assignment(path)
+    if os.name != 'nt':
+        pytest.skip('Python schema assertions ran; the native PowerShell comparison requires Windows')
     script = Path(__file__).resolve().parents[2] / 'scripts/ops/workload_admission.ps1'
     command = ". '" + str(script).replace("'", "''") + "'; try { Get-WeatherExecutionHostAssignment -RepoRoot '" + str(tmp_path).replace("'", "''") + "' | Out-Null; exit 0 } catch { exit 2 }"
     result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
