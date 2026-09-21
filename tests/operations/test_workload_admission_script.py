@@ -24,7 +24,40 @@ POWERSHELL = (
     "-ExecutionPolicy",
     "Bypass",
 )
-OUTER_WORKSTATION_LEASE = os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1"
+HOST_GLOBAL_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
+
+
+def _outer_job_owns_host_mutex() -> bool:
+    # The capture-host bounded suite holds the host-global mutex for its whole run, exactly as
+    # the workstation wrapper does, so the acquisition tests below cannot pass inside it.
+    # Probed once at import, before any test here runs, so a leak by this file is never masked.
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenMutexW.restype = ctypes.c_void_p
+    kernel32.OpenMutexW.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_wchar_p]
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel32.OpenMutexW(0x00100000, False, HOST_GLOBAL_MUTEX)  # SYNCHRONIZE
+    if not handle:
+        return False
+    try:
+        result = kernel32.WaitForSingleObject(handle, 0)
+        if result in (0x00000000, 0x00000080):  # WAIT_OBJECT_0, WAIT_ABANDONED
+            kernel32.ReleaseMutex(handle)
+            return False
+        return True
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+OUTER_WORKSTATION_LEASE = (
+    os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1" or _outer_job_owns_host_mutex()
+)
 WRAPPERS = (
     "training_window.ps1",
     "quiet_window_merge.ps1",
