@@ -98,6 +98,7 @@ sequence numbers, not calendar dates.
 | 10i | `-09-80a`: place-and-hold constraints — 10-15 s cancel-on-disconnect, the wallet falsifier, the evidence-minute budget |
 | 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
 | 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
+| 10l | `-09-83a`: the versioned parser repair is built (PARTIAL); production downloads the same national NBM bulletin ~49 times an hour |
 
 ---
 
@@ -3285,6 +3286,32 @@ as evidence). No score, no comparison with served or market, no candidate.
   which wrote predicted rows on production on 2026-09-21. The agent therefore stopped before any fix, as its handoff
   required. Mission `2026-09-83a` builds the repair in place with a parser version and token provenance, replay of old
   bytes under the old rule, and the rule that a row counts as guidance only when its provenance says "maximum".
+
+### 10l. The parser repair is built; production re-downloads the national bulletin on almost every pass — `-09-83a`, 2026-09-21
+
+Branch `codex/nbm-target-fix-20260921` @ `e1b663938` (roll-sensitive; the workstation's roll verdict was UNDECIDABLE
+for lack of live closure evidence, so production must run its own). Handback **PARTIAL**, stopped correctly.
+
+- **Built and reviewed:** parser version 2 selects the single `TXN` token valid at 00Z whose 12Z window start and 00Z
+  label fall on the target's station-local date (unambiguous for all 11 US stations, standard and daylight time),
+  requires all seven rows, and otherwise returns unavailable (`target_max_not_in_cycle`); version 1 stays callable and
+  replay dispatches on the recorded version. NOAA publishes complete `TXN` rows at 00/01/07/12/13/19Z (02Z and 18Z
+  returned 404); 00/01/07Z carry the issue date's maximum, 12/13/19Z do not. **From 12Z onward the newest bulletin
+  holding today's maximum is 07Z, so afternoon and evening guidance is 5 to 24 hours old by construction.** Version 1
+  also marked a station available when its block had no `TXN` rows at all (PGUM); version 2 rejects it.
+- **Two of the three blockers were errors in the production agent's handoff.** The manifest already records parser
+  version, issue time and valid time, and the bytes are retained, so the other token fields are derivable by replay.
+  The fetch budget assumed a two-hour bulletin cache that does not exist. The parity CLI's BLOCK is the expected result
+  of its known-defect fixture (4 of 4 rediscovered, 0 unexpected).
+- **Measured on production, 2026-09-21 00:00-15:00Z:** the fan-out scope is one supervisor iteration and markets fall
+  due in different iterations, so 729 of 783 NBM manifest rows were distinct network downloads of the ~35 MB national
+  bulletin (24.9 GB in 15 hours, about 49 downloads an hour) for six distinct files a day; every download found its
+  bytes already in the shared payload store. Production captures NBM for the current local date only, so the repair
+  itself adds no download. This waste predates the repair.
+- **Open from review:** the four provenance columns were appended to the NBM feature list and so became selectable
+  model inputs and source-gate features; they must be stored but not selectable. Version 2 can raise in the live path
+  on a bad clock. Mission `2026-09-83b` fixes both (Part A) and adds truthful, fail-open reuse of an already-held
+  cycle file (Part B, its own branch).
 
 ## Related
 
