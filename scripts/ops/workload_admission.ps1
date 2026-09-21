@@ -614,6 +614,7 @@ function Get-WeatherWorkstationOfflineModule {
 
     @(
         "tools.research.missing_information.run",
+        "tools.research.morning_guidance.run",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",

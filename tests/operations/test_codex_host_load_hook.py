@@ -666,6 +666,7 @@ def test_every_offline_weather_module_is_classified_and_wrapper_allowlisted():
 
 
 def test_hook_and_workstation_wrapper_share_the_same_offline_module_set():
+    assert "tools.research.morning_guidance.run" in HOOK._OFFLINE_WEATHER_MODULES
     admission = ADMISSION_PATH.read_text(encoding="utf-8-sig")
     allowlist_body = admission.split(
         "function Get-WeatherWorkstationOfflineModule {", 1
