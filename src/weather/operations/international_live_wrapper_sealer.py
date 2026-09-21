@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from weather.paths import REPO_ROOT
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.market.mm_geographic_eligibility import (
     GeographicEligibilityError,
     validate_geographic_eligibility_receipt,
@@ -71,9 +72,9 @@ INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_invent
 EXECUTION_SCHEMA_VERSION = schema_version("international_live_fixed_scope_execution")
 REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
 MAX_RUN_WINDOW_SECONDS = 30 * 60
-MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
-FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
-FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
+MAX_OPERATOR_BUDGET_PUSD = Decimal(STAGE1_V1.wallet_pusd)
+FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal(STAGE1_V1.per_order_pusd)
+FIRST_TEST_WALLET_CAP_PUSD = Decimal(STAGE1_V1.wallet_pusd)
 REMOTE_MASTER_REF = "refs/heads/master"
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
     "codex/live-gate-provenance-20260831"

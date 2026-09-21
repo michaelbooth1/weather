@@ -2915,6 +2915,20 @@ EXCLUDED_SCHEMA_LITERALS = (
         "Windows-token-principal identity hash domain separator, not a serialized artifact schema.",
     ),
 )
+EXCLUDED_SCHEMA_LITERALS += (
+    SchemaLiteralExclusion(
+        "stage1_v1",
+        "weather.market.mm_live_envelope",
+        "live_envelope_profile",
+        "Pilot risk-envelope policy identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "stage2_hold_v1",
+        "weather.market.mm_live_envelope",
+        "live_envelope_profile",
+        "Pilot risk-envelope policy identifier, not a serialized artifact schema.",
+    ),
+)
 EXCLUDED_SCHEMA_LITERAL_BY_VERSION = {
     item.version: item for item in EXCLUDED_SCHEMA_LITERALS
 }

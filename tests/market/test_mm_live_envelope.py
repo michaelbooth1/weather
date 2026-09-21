@@ -16,7 +16,8 @@ NOW = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
 
 @pytest.mark.parametrize("profile, expected", [
     (STAGE1_V1, ("stage1_v1", 10, 10, 25, 25, 100, 1, True, True, True)),
-    (STAGE2_HOLD_V1, ("stage2_hold_v1", 16, 20, 25, 25, 100, 2, True, True, True)),
+    (STAGE2_HOLD_V1, ("stage2_hold_v1", 16, 20, 25, 25, 100, 2, True, True, True,
+                     7200, 4, 3, 5, 45, 60, 20)),
 ])
 def test_every_envelope_value_is_pinned_and_immutable(profile, expected):
     assert tuple(asdict(profile).values()) == expected
@@ -30,6 +31,14 @@ def test_every_envelope_value_is_pinned_and_immutable(profile, expected):
 
 def test_stage1_default_requires_no_new_document_or_authorization(tmp_path):
     assert select_envelope(state_of_play_path=tmp_path / "missing", assignment_path=tmp_path / "missing") is STAGE1_V1
+
+
+def test_stage1_canonical_bytes_are_the_exact_80a_bytes():
+    assert STAGE1_V1.canonical_bytes() == (
+        b'{"daily_loss_pusd":25,"max_submits":1,"no_naked_sell":true,'
+        b'"per_band_pusd":10,"per_event_pusd":25,"per_order_pusd":10,'
+        b'"post_only":true,"profile_id":"stage1_v1","stop_on_fill":true,"wallet_pusd":100}'
+    )
 
 
 def test_existing_stage1_and_policy_caps_match_the_inert_definition():
@@ -66,6 +75,44 @@ def sources(tmp_path, *, mutation=None, assignment_mutation=None):
 
 def test_matching_fixture_grants_select_only_numeric_profile(tmp_path):
     assert select_envelope("stage2_hold_v1", **sources(tmp_path)) is STAGE2_HOLD_V1
+
+
+def test_adapter_profile_clamp_and_revocation_without_any_client_calls(tmp_path):
+    from weather.market.mm_official_adapter import OfficialPolymarketGlobalAdapter
+
+    fixture = sources(tmp_path)
+    authority = tmp_path / "numeric-only-fixture"
+    (authority / "docs/operations").mkdir(parents=True)
+    (authority / "config").mkdir()
+    state = authority / "docs/operations/STATE_OF_PLAY.md"
+    state.write_bytes(fixture["state_of_play_path"].read_bytes())
+    (authority / "config/international_live_execution_host.json").write_bytes(
+        fixture["assignment_path"].read_bytes()
+    )
+    # object() cannot authenticate, sign, read an account or submit anything.
+    adapter = OfficialPolymarketGlobalAdapter(
+        object(), sdk_version="0.6.0", envelope_profile_id="stage2_hold_v1",
+        envelope_authority_root=authority, utc_clock=lambda: NOW,
+        max_order_notional=100,
+    )
+    assert adapter.max_order_notional == 16
+    assert adapter.diagnostics()["max_order_notional_ceiling"] == "16"
+    assert adapter.supports_trading is False
+    with pytest.raises(RuntimeError, match="isolated-wallet"):
+        adapter.authorize_stage1_lifecycle({"isolated_pilot_wallet": False})
+    state.write_text("## Current authority\nNo grant.\n", encoding="utf-8")
+    with pytest.raises(EnvelopeNotAuthorized):
+        adapter.place_order({})
+
+
+def test_stage2_adapter_default_sources_refuse_before_client_use():
+    from weather.market.mm_official_adapter import OfficialPolymarketGlobalAdapter
+
+    with pytest.raises(EnvelopeNotAuthorized):
+        OfficialPolymarketGlobalAdapter(
+            object(), sdk_version="0.6.0", envelope_profile_id="stage2_hold_v1",
+            utc_clock=lambda: NOW,
+        )
 
 
 @pytest.mark.parametrize("mutation", [

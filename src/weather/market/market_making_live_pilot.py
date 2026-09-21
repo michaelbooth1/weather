@@ -9,6 +9,7 @@ from weather.market.market_making_run_constants import (
     MAX_OPERATOR_PILOT_BUDGET_USDC,
 )
 from weather.market.mm_policy import DEFAULT_POLICY_CONFIG
+from weather.market.mm_live_envelope import STAGE1_V1
 
 
 MARKET_HARVEST_QUOTE_TTL_SECONDS = 600.0
@@ -77,7 +78,7 @@ def build_market_harvest_policy_config(budget_usdc, config):
     ceilings = {
         "quote_size": float(DEFAULT_POLICY_CONFIG["quote_size"]),
         "max_event_notional": float(DEFAULT_POLICY_CONFIG["max_event_notional"]),
-        "max_band_notional": 10.0,
+        "max_band_notional": float(STAGE1_V1.per_band_pusd),
         "max_daily_loss": min(budget, float(DEFAULT_POLICY_CONFIG["max_daily_loss"])),
         "quote_ttl_seconds": MARKET_HARVEST_QUOTE_TTL_SECONDS,
     }

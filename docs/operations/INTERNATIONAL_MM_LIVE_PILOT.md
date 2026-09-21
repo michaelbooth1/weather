@@ -1795,9 +1795,12 @@ midpoint, reward terms and capital ceilings. Its share estimates are displayed
 competition scenarios, never observed earnings or order authority.
 `weather.market.mm_live_envelope` defines hash-bound proposed limits and refuses
 Stage 2 selection without matching dated owner grants in current authority and
-the host assignment. These definitions are not yet connected to live caps,
-the host-assignment schema, a sealer, or an exchange capability; Stage 1 source
-and behavior remain unchanged.
+the host assignment. The adapter and Stage 1 cap consumers now use those
+definitions. Stage 1 numeric values and canonical profile bytes are unchanged;
+Stage 2 binds a 120-minute ceiling, four sessions per UTC day and three reward
+days. The adapter repeats the owner-grant check at authorization, signing and
+posting and requires the isolated-wallet branch for Stage 2. The host schema,
+two-leg runner and sealer still require integration before a session can run.
 
 The [owner decision draft](stage2-hold-owner-authorization-draft.md) records the
 wallet and cancellation falsifiers, the incompatible evidence-duration budget,

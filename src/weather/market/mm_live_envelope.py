@@ -1,7 +1,7 @@
 """Immutable pilot-envelope definitions and fail-closed profile selection.
 
-These definitions do not grant exchange capability. Legacy Stage 1 callers
-remain unchanged while mission 09-80a's control/timing falsifiers are open.
+These definitions do not grant exchange capability. Stage 1 retains its
+original numeric envelope and canonical profile bytes.
 Stage 2 selection additionally needs matching, dated grants in the two owning
 documents; host, source, attendance and action-time gates remain independent.
 """
@@ -39,8 +39,19 @@ class LiveEnvelope:
         return hashlib.sha256(self.canonical_bytes()).hexdigest()
 
 
+@dataclass(frozen=True)
+class HoldEnvelope(LiveEnvelope):
+    session_seconds: int = 120 * 60
+    max_sessions_per_utc_day: int = 4
+    max_reward_days: int = 3
+    heartbeat_seconds: int = 5
+    geoblock_refresh_seconds: int = 45
+    public_refresh_seconds: int = 60
+    cleanup_seconds: int = 20
+
+
 STAGE1_V1 = LiveEnvelope("stage1_v1", 10, 10, 25, 25, 100, 1)
-STAGE2_HOLD_V1 = LiveEnvelope("stage2_hold_v1", 16, 20, 25, 25, 100, 2)
+STAGE2_HOLD_V1 = HoldEnvelope("stage2_hold_v1", 16, 20, 25, 25, 100, 2)
 GRANT_KEY = "stage2_hold_owner_authorization"
 GRANT_PREFIX = "Stage 2 owner authorization: "
 
@@ -80,8 +91,8 @@ def select_envelope(
 Stage 2's draft grant format has four exact keys: profile_id, profile_sha256,
 authorized_on (ISO date), expires_at_utc. The assignment's GRANT_KEY object
 must equal the single GRANT_PREFIX JSON line in the Current authority section.
-Both documents must be adapted under review before an actual grant is usable;
-the existing host-assignment schema is deliberately not widened here.
+The two sources must be changed only under a dated owner decision. Selecting
+this envelope supplies neither an exchange client nor a submit capability.
 """
     if profile_id == STAGE1_V1.profile_id:
         return STAGE1_V1

@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.io import write_json_atomic
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.market.mm_credentials import (
     FUNDER_ENV,
     REFERENCE_ENV,
@@ -549,7 +550,7 @@ def build_live_pilot_context(
             maker_address=maker_address,
             condition_id=condition,
             authoritative_readers_verified=True,
-            max_order_notional=10.0,
+            max_order_notional=float(STAGE1_V1.per_order_pusd),
         )
         if not adapter.diagnostics().get("supports_trading"):
             raise RuntimeError("official adapter did not verify the authoritative reader boundary")
@@ -746,7 +747,7 @@ def run_prepare_identity(
     if existing_wallet and wallet_funding is not None:
         raise RuntimeError("test allocation cannot be combined with a wallet funding cap")
     capital_limit = _validate_budget(allocation if existing_wallet else wallet_funding)
-    if budget != 10.0 or capital_limit != 100.0 or budget > capital_limit:
+    if budget != float(STAGE1_V1.per_order_pusd) or capital_limit != float(STAGE1_V1.wallet_pusd) or budget > capital_limit:
         raise RuntimeError("first identity requires a 10 pUSD request and 100 pUSD capital limit")
     if existing_wallet != bool(getattr(args, "confirm_existing_wallet_allocation", False)):
         raise RuntimeError("existing-wallet allocation requires its explicit declaration")
@@ -928,7 +929,7 @@ def run_stage0(
     if not callable(pre_mutation_attestor):
         raise RuntimeError("Stage 0 requires the sealed pre-mutation attestor")
     stage0_budget = _validate_budget(args.budget)
-    if stage0_budget != 10.0:
+    if stage0_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
     candidate_neg_risk = getattr(args, "expected_candidate_neg_risk", None)
     if not isinstance(candidate_neg_risk, bool):
@@ -1101,7 +1102,7 @@ def run_stage1(
     if not callable(pre_submit_attestor):
         raise RuntimeError("Stage 1 requires the sealed pre-submit attestor")
     stage1_budget = _validate_budget(args.budget)
-    if stage1_budget != 10.0:
+    if stage1_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 1 probe requires exactly 10 pUSD")
     submit_deadline_utc = getattr(args, "submit_deadline_utc", None)
     if not submit_deadline_utc:
@@ -1272,7 +1273,7 @@ def run_bundle(
     if args.confirmation != BUNDLE_CONFIRMATION:
         raise RuntimeError("Stage 1 bundle requires the exact offline confirmation token")
     bundle_budget = _validate_budget(args.budget)
-    if bundle_budget != 10.0:
+    if bundle_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 1 bundle requires exactly 10 pUSD")
     paths = _require_new_distinct_paths(
         {
@@ -1295,7 +1296,7 @@ def run_bundle(
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 bundle bootstrap gate is not passing")
         if (
-            float(gate.get("requested_budget_usdc")) != 10.0
+            float(gate.get("requested_budget_usdc")) != float(STAGE1_V1.per_order_pusd)
             or pilot_capital_limit(gate) != 100
         ):
             raise RuntimeError(
