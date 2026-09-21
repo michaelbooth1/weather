@@ -148,6 +148,11 @@ def summary(frame, numerator, denominator=None, *, null=0., alternative=None,
     lo, hi = np.quantile(boot, [.025, .975])
     error = boot - estimate
     critical = float(np.quantile(np.abs(error), .95))
+    if critical == 0:
+        return {**support, "status": "DEGENERATE_EMPIRICAL_BOOTSTRAP", "estimate": float(estimate),
+                "ci95": [float(lo), float(hi)], "mde80": None, "power": None,
+                "null": null, "alternative_effect": alternative, "valid_draws": len(boot),
+                "note": "No empirical variation; zero-width interval cannot bound unseen rare events."}
     def power(effect):
         return float(np.mean(np.abs(error + effect) > critical))
     low, high = 0., max(critical * 10, 1e-10)

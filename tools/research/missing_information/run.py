@@ -45,6 +45,8 @@ def write_json(path, data):
             return {str(k): clean(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
             return [clean(v) for v in value]
+        if isinstance(value, np.ndarray):
+            return clean(value.tolist())
         if isinstance(value, (float, np.floating)):
             return float(value) if math.isfinite(value) else None
         if isinstance(value, np.integer):
@@ -52,9 +54,9 @@ def write_json(path, data):
         if isinstance(value, np.bool_):
             return bool(value)
         return value
+    encoded = json.dumps(clean(data), indent=2, allow_nan=False)+"\n"
     with path.open("x", encoding="utf-8") as stream:
-        json.dump(clean(data), stream, indent=2, allow_nan=False)
-        stream.write("\n")
+        stream.write(encoded)
 
 
 def manifest_entries(manifest):
@@ -128,10 +130,12 @@ def prepare(downloads, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["preflight", "prepare", "extract", "analyze"])
+    parser.add_argument("stage", choices=["preflight", "prepare", "extract", "analyze", "supplement", "clock", "fetch-guidance", "fetch-guidance-csv"])
     parser.add_argument("--input", type=scratch_path)
     parser.add_argument("--output", type=scratch_path)
     parser.add_argument("--iem", type=scratch_path)
+    parser.add_argument("--raw", type=scratch_path)
+    parser.add_argument("--baseline", type=scratch_path)
     args = parser.parse_args(argv)
     if os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") != "1":
         parser.error("launch through scripts/ops/workstation_heavy.ps1")
@@ -144,6 +148,7 @@ def main(argv=None):
     header = {"plan_sha256": sha256(PLAN), "settings_sha256": sha256(SETTINGS),
               "started_at_utc": datetime.now(timezone.utc).isoformat(), "settings": settings,
               "python": sys.version, "stage": args.stage, "module": str(Path(__file__).resolve())}
+    header["source_sha256"] = {p.name: sha256(p) for p in sorted(Path(__file__).parent.glob("*.py"))}
     if args.stage == "preflight":
         print(json.dumps(header, indent=2))
         return 0
@@ -155,6 +160,14 @@ def main(argv=None):
     args.output.mkdir(parents=True, exist_ok=True)
     # Header is durable before the first data read or score in this stage.
     write_json(args.output / "run_header.json", header)
+    if args.stage == "fetch-guidance":
+        from tools.research.missing_information.guidance_archive import fetch
+        fetch(args.output)
+        return 0
+    if args.stage == "fetch-guidance-csv":
+        from tools.research.missing_information.guidance_archive import fetch_structured
+        fetch_structured(args.output)
+        return 0
     if args.stage == "extract":
         verification = json.loads((args.input / "verification.json").read_text())
         info = extract(args.input, args.output)
@@ -165,12 +178,31 @@ def main(argv=None):
     table = args.input / "snapshots.jsonl"
     if sha256(table) != receipt["output_sha256"]:
         raise ValueError("extracted snapshot table changed")
+    if args.raw is not None:
+        verified_raw = json.loads((args.raw / "verification.json").read_text())
+        if verified_raw != receipt["verification"]:
+            raise ValueError("raw export does not match extraction receipt")
     from tools.research.missing_information.checks import load_frame, check1, check2, check4
     from tools.research.missing_information.regimes import check5, load_observations
     frame = load_frame(table)
     if frame.empty:
         raise ValueError("no admissible snapshots; no inference performed")
     print(f"loaded {len(frame)} snapshots", flush=True)
+    if args.stage == "supplement":
+        from tools.research.missing_information.supplement import supplement
+        if args.raw is None:
+            parser.error("--raw required")
+        write_json(args.output / "supplement.json", supplement(frame, args.raw, args.input, args.output, args.baseline))
+        return 0
+    if args.stage == "clock":
+        from tools.research.missing_information.clocks import check3
+        if args.raw is None or args.iem is None:
+            parser.error("--raw and --iem required")
+        for row in json.loads((args.iem / "manifest.json").read_text()):
+            if Path(row["file"]).name != row["file"] or sha256(args.iem / row["file"]) != row["sha256"]:
+                raise ValueError("IEM evidence hash mismatch")
+        write_json(args.output / "check3.json", check3(frame, args.raw, load_observations(args.iem), args.output))
+        return 0
     one = check1(frame)
     write_json(args.output / "check1.json", one)
     print("check 1 complete", flush=True)

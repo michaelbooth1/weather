@@ -82,6 +82,9 @@ def odds_summary(frame, tag):
     support = {"market_days": n, "date_clusters": d, "market_clusters": m, "missing_days": len(frame)-n}
     if not n:
         return {**support, "status": "NO_DATA"}
+    if f[tag].nunique() < 2:
+        return {**support, "status": "NO_TAG_VARIATION", "observed_tag_value": float(f[tag].iloc[0]),
+                "odds_ratio": None, "ci95": None, "power_at_or2": None, "mde80_odds_ratio": None}
     def log_or(w):
         tail = f["tail"].to_numpy(bool)
         tagged = f[tag].to_numpy(bool)
@@ -138,7 +141,7 @@ def check5(frame, observations, output):
             values = day[field].dropna() if field in day else pd.Series(dtype=float)
             row[tag] = float((values > 0).any()) if len(values) else None
         for tag, fields in (("disagreement_over_2C", ["f_forecast_disagreement", "forecast_disagreement"]),
-                            ("ensemble_spread_over_2C", ["f_ensemble_std", "f_ensemble_spread", "f_global_ensemble_std"])):
+                            ("ensemble_spread_over_2C", ["f_forecast_global_ensemble_spread", "f_ensemble_std", "f_ensemble_spread", "f_global_ensemble_std"])):
             present = next((field for field in fields if field in day and day[field].notna().any()), None)
             row[tag] = float((day[present] > (3.6 if first.unit == "F" else 2)).any()) if present else None
         daily.append(row)

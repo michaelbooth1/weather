@@ -194,6 +194,7 @@ def check4(frame, output):
                 except ValueError:
                     continue
                 losses.append({"date": row.date, "market": row.market, "stratum": row.stratum,
+                               "snapshot_id": row.snapshot_id,
                                "bucket": row.bucket, "hour": row.hour, "variant": name,
                                "candidate_loss": float(np.mean((p-y)**2)), "model_loss": row.model_loss,
                                "market_loss": row.market_loss, "market_normalized_loss": row.market_normalized_loss,
@@ -212,6 +213,7 @@ def check4(frame, output):
                         p = empirical_probabilities(bands, point, errors)
                         y = np.eye(len(bands))[row.winner]
                         losses.append({"date": date, "market": market, "stratum": stratum,
+                                       "snapshot_id": row.snapshot_id,
                                        "bucket": time_bucket, "hour": row.hour, "variant": variant,
                                        "candidate_loss": float(np.mean((p-y)**2)), "model_loss": row.model_loss,
                                        "market_loss": row.market_loss, "market_normalized_loss": row.market_normalized_loss,
