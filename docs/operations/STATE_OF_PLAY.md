@@ -15,7 +15,11 @@ owner-attended live test. **No market edge or profitable maker opportunity is pr
 ## Current authority
 
 Owner, 2026-09-19: full implementation authority for getting the project back on track to live
-testing; **no live trading is authorized**. Heavy work stays inside 00:30-09:00 under the shared lease.
+testing; **no live trading is authorized except the one item below**. Heavy work stays inside 00:30-09:00 under the shared lease.
+Owner, 2026-09-21: the first paid reward test (RE-1, pre-registered) is approved and moved up; it runs from the
+workstation as an **attended script the owner starts personally**, worst case 20-30 dollars accepted, at most three
+sessions, none after 2026-09-30 (mission `2026-09-84a`; the script must be confirmed by the owner in the workstation
+session before it can sign). This is a one-off exception outside the sealed lane and changes nothing in it.
 Geographic eligibility is recorded as resolved by owner statement (the 2026-09-06 Ontario geoblock
 readings were a file-access tunnel to the owner's home PC; the execution PC is physically eligible
 and never moves; the tunnel must be down during any live session) — see
@@ -52,8 +56,9 @@ None grants live authority.
 
 1. **Owner today:** restart the host before 17:00 (Landing path row). Next quiet window: reconcile
    the merge marker (Production source row), then land the waiting roll-free branches.
-2. **Owner decisions for RE-1M** (item 330, RE-1 pre-registration): authorize or not, date, wallet,
-   hurdle `H` and the stop date. It is the fastest live evidence and needs no code. Freeze `R` from
+2. **RE-1 is approved by the owner (2026-09-21)** and runs as an attended script on the workstation,
+   mission `2026-09-84a`; target first session 2026-09-22 13:00-19:00 Eastern. Still the owner's: the
+   account, hurdle `H` and the stop date (before earnings are read). Freeze `R` from
    it before any further markout read.
 3. Merge the new master into `codex/stage2-hold-build-20260921` (it contains the maker-reconcile branch)
    and qualify it on the host; adopt only after the owner disposes of the four control relaxations.
