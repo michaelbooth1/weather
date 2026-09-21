@@ -207,10 +207,14 @@ is no live-session outcome to append.
 
 ## September 21, 2026 — mission 84b handback
 
-**QUALIFICATION IN PROGRESS: parity is resolved and four modes are implemented. No live session has run.**
+**READY FOR THE OWNER TO RUN: corrected parity, four modes, both rehearsals and qualification are complete. No live session has run.**
 
 This appendix preserves the original 84a text. Corrected handoff `b39b43b6`
 was merged into the same branch as `a6f247fa429b1f5753c8b0c2118cb990016846a1`.
+Implementation commits are `a53176838e8dac8e7eaeca24b2cf17a69a405b61`,
+`46dafd3dffb7cb47ddea6d0d872ce8a893441942`,
+`16699b8ff6423dc0c1f3171b758ab2f097409d6d` and final source
+`74d337bc77b0fcdace278a46b33a5080b64fcae1`. Qualification scope is recorded below.
 The worktree and stacked 80b base remain those recorded above. Inherited
 fleet configuration was left as merged. The main checkout is untouched.
 
@@ -252,8 +256,21 @@ Tests named below live in `tests/market/test_re1_attended.py`,
 | Minimum/rate, one-sided book, blocked/unreadable geography | Fresh terms and 30-second geography checks; parameterized end-condition and cadence tests |
 | Exception, Ctrl-C, normal end, broken journal | Independent ID cancels, cancel-all and zero-open-order read; between-submit, end-condition and journal-failure tests |
 | Cancellation unproved | Loud PANIC and `cleanup_ok=false`; cleanup-failure test |
+| Submit acknowledgement lost | Terminal inventory read, incomplete evidence, and blocked subsequent attempt; lost-ack and incomplete-attempt regression tests |
 | Secrets and confirmation | In-memory owner-only loading, recursive redaction and loaded-secret output guard; secret-guard, rehearsal credential refusal, redirected-prompt and CLI-override tests |
 | Frozen payout interpretation | Prior-day chain replay before credentials, read-only transport/method guards, unchanged thresholds; tamper, collect-before-credentials, read-only and verdict-table tests |
+
+The persistent campaign path comes from the Windows token profile, ignoring
+`HOME`/`USERPROFILE` overrides; its regression exercises the native getter.
+An externally cancelled or otherwise non-resting active order stops minute
+credit. Raw minute observations and changed reward terms are journalled
+before a stop; unexpected exceptions mark evidence incomplete and cannot
+produce a passing payout verdict. Fresh pre-submit books, post-signing ask
+reads, and SDK send timestamps are retained. The final guard regressions
+cover these cases. SDK 0.6.0 initialization uses its credential-validation
+factory with supplied credentials and an existing-wallet check; a test
+refuses use of its deployment-capable public factory. Collection also blocks
+every non-GET SDK request and every order/heartbeat mutation method.
 
 Every GTD expires at fixed end plus 60 seconds; no replacement with under
 180 seconds left. The pinned SDK additionally enforces its signing horizon.
@@ -270,22 +287,109 @@ controlled account balance supplies that ceiling.
 
 ### Qualification receipts
 
-Pending final admitted checks. Evidence is retained outside the checkout at
+The full suite on `46dafd3d` passed: **7,116 passed, 34 skipped, 13 warnings,
+991 subtests passed, 3,035.21 seconds**. Warnings were existing feature
+imputation and netCDF/NumPy ABI warnings. Final guard changes on `16699b8f`
+passed **158 tests, zero skips, 97.58 seconds**, including the four RE-1M
+files, unchanged 80b hold/reward/selection tests, SDK overlay and architecture
+checks, and a fresh accelerated rehearsal. The last SDK initialization
+change passed **32 transport/evidence tests, zero skips, 1.39 seconds**.
+The full suite preceded those scoped fixes; it was not rerun on the final
+source tip. Final `compileall -q app src tests` passed, as did CLI help.
+The public rehearsal plus evidence/transport/architecture checks passed
+**54 tests, zero skips, 954.52 seconds**.
+
+| Retained JUnit receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-84b-full2.xml` | `55301efe7ca011900c47f192b5ea3f7bd6326cadf6d7846e159ebeebe1ed578f` |
+| `scratch/re1-84b-final-guards.xml` | `565ee5a975b693d919262ad1c650f942a916ea9cf1920c693b02897140a83169` |
+| `scratch/re1-84b-sdk-bootstrap.xml` | `68297a64c7b3cc197b3c4940b1c9081797eb5d4355847c19d3d6bdc8f5bbf6e2` |
+
+All heavy runs used the repository's workstation wrapper and shared lease,
+serially; no mission 83c process was interrupted. The last regression launch
+first recovered a stale ACTIVE marker after proving zero residual heavy
+processes, then passed on the wrapper-directed identical retry. All completed
+pytest temporary directories were removed after their processes ended;
+JUnit receipts and rehearsal evidence remain.
+
+Evidence is retained outside the checkout at
 `C:/tmp/weather-re1-84b-rehearsals`. `realtime-1` found no qualifying band
 at 18:34Z and placed no simulated orders. Its selection is retained unchanged;
 later attempts use fresh directories. Rehearsal account, orders, geography
 and heartbeat are simulated; real-time books and rewards are public reads.
 No rehearsal establishes account readiness or geographic eligibility.
 
+| Attempt | Result | Journal SHA-256 | Frozen prediction SHA-256 |
+| --- | --- | --- | --- |
+| `accelerated-4` | Final controller, 360 samples and visible two-sided minutes, two simulated submits, no re-quotes/fills, clean fixed end | `400b46920e70f4873e5c1920536b932013acddb3762f2fd1b5eb3203db4f4912` | `d2c135d205613f135ad505a802661846c923ec206d2de015571a922c8798a7be` |
+| `realtime-2` | September 21 18:41:31–18:56:31Z; 15 samples and visible minutes; two simulated submits, no re-quotes/fills, clean fixed end | `5356583ed9e6048eeea153fcee686216420ac6300307607d3a6ccd2248203be6` | `b0450f921c7818daafc0b5a544b17834c6cc2f4abc0db1672a8311034019d44a` |
+
+The real-time condition was
+`0x1238f985b95f1ac281ccb0b893ed5cc45534ef5edf33a16e244e8f9bb109aaf5`;
+`P_many=0.07717601745886175`, `P_single=0.09416177285745216`.
+Reward settings changed during that window, correctly setting
+`reward_terms_changed=true`; this is rehearsal success, not an economically
+conclusive session. Final accelerated `P_many=6.644751876527154` and
+`P_single=8.012888455505117`, with plain-mid sensitivity
+`P_many_plain_mid=5.833884311296041`. The real-time proof preceded final
+re-quote ordering, ambiguous-ack, terminal-order, profile, logging and SDK
+startup safeguards. Its session had no re-quote, fill or failure path;
+final regressions and the fresh accelerated rehearsal cover the changes.
+`accelerated-1`, `accelerated-2` and `accelerated-3` are also retained;
+the first no-survivor selection SHA-256 is
+`5cec33953d867a1ea3fb7b0103e0cc009da2c0c653c83ffdb3a4887322df5217`.
+
+Earlier receipts remain in `scratch/`: parity 5 passed; initial controller
+38 passed; focused2 145 passed/2 failed (test clock and strict-decimal
+fixtures corrected); focused3 185 passed/2 failed (immutable SDK test model
+and Git-tracked architecture inventory corrected); first combined rehearsal
+1 passed/1 failed (no qualifying public band); focused final 142 passed;
+ambiguous-ack focused final 144 passed in 92.68 seconds.
+The first full-suite attempt on `a5317683` was deliberately stopped at 35%
+to add the ambiguous-submit fix, with no observed failure; it is not counted
+as a completed suite. Only its identified interpreter child was stopped;
+the wrapper completed cleanup before the next admitted run.
+
+Reproduction uses the worktree's `scripts/ops/workstation_heavy.ps1`,
+`-RepoRoot` set to this worktree, the main project's `venv/Scripts/python.exe`,
+and `-ArgumentsBase64` containing UTF-8 JSON arguments. Full-suite arguments:
+`["-m","pytest","-q","--basetemp=C:/tmp/weather-re1-84b-full2",
+"--junitxml=scratch/re1-84b-full2.xml"]`. Focused arguments additionally
+select the four `test_re1_*` files, the three `test_mm_stage2_*` files named
+above, import/module-size architecture checks and the explicit ignored
+`scratch/re1_84b_rehearsal_proof.py::test_accelerated` harness. That harness
+calls `rehearse --selection tests/fixtures/stage2_hold/20260921/selection.json`
+for accelerated mode and `rehearse --realtime` for public mode, each with a
+fresh external output directory. It is outside the offline test suite.
+
+Documentation audit passed (18 agent files, 912 Markdown files); the generated
+backlog check passed. The required `roll_verdict.ps1` returns
+**UNDECIDABLE: no live closure evidence**, naming the four absent production
+supervisor status files. No closure mirror or hand-derived roll verdict was
+substituted. The five new runtime modules have no measured production closure
+intersection available here; all other authored paths are tests or dated
+documentation. [Draft PR 78](https://github.com/michaelbooth1/weather/pull/78)
+remains stacked on `codex/stage2-hold-build-20260921` at
+`88aa7e43a71d5870575261280b45c9deae667668`. Production adoption remains the
+operations owner's job.
+
 Accrued earnings are separate from paid cash. Without independently
 reconciled distribution/wallet evidence via `--payment-evidence`, `paid`
 and `k` are null and the verdict is `INCONCLUSIVE`. Both candidate asset
 balances, condition/day earnings, total earnings and percentages are retained.
+Per-asset earnings and the venue's `asset_rate` are preserved; `k_accrued`
+uses their rate-weighted sum, with duplicate/unknown assets refused. The
+[official CLOB schema](https://docs.polymarket.com/api-spec/clob-openapi.yaml)
+describes this field as the asset's exchange rate. The existing independent
+payment reconciler supports pUSD receipts; USDC.e cash evidence is not silently
+relabelled as pUSD. A pUSD-only zero observation does not establish no payment
+in both candidate assets; cash provenance must cover the actual reward asset
+before interpreting a supplied reconciliation as an epoch verdict.
 Raw orders/trades retain fill facts; later 1/5/30-minute and settlement
 markout reconciliation uses public capture/account history. There is no
 automatic inventory sale or paid/profitable claim from accrual alone.
 
-### Owner run card — use only after the final READY verdict
+### Owner run card
 
 1. Use the assigned workstation and owner Windows account; finish heavy
    work first (the same host-global mutex excludes live). Keep the home
@@ -321,7 +425,9 @@ automatic inventory sale or paid/profitable claim from accrual alone.
    remaining orders. If zero cannot be proved, cancel in the browser. An
    incomplete or filled previous attempt blocks a fresh live session.
 4. Save the printed prediction path/hash. Permanent attempts and journals
-   live under `%USERPROFILE%\.weather-re1m-20260921`; never reset the count.
+   live under the Windows token profile's `.weather-re1m-20260921` directory
+   (normally `%USERPROFILE%`); environment overrides cannot relocate it.
+   Never reset the count.
    On a later UTC date, substituting the actual printed session path:
 
    ```powershell
