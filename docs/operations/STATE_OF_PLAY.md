@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-21 America/Toronto (the reliability stack qualified on the host and merged; master published; workstation missions 79a, 80a and 81a handed back).**
+**Last updated: 2026-09-21 America/Toronto (the reliability stack qualified on the host and merged; master published; workstation missions 79a, 80a, 81a and 82a handed back).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the current decision and
@@ -22,11 +22,11 @@ and never moves; the tunnel must be down during any live session) — see
 [the live pilot runbook](INTERNATIONAL_MM_LIVE_PILOT.md) and item 67.
 
 Owner, 2026-09-21: **model work is unpaused**, and shortening the path to a live test is a priority.
-Three workstation missions were handed back and verified on 2026-09-21: `2026-09-79a` (what the
+Four workstation missions were handed back and verified on 2026-09-21: `2026-09-79a` (what the
 market knows that we do not — complete, descriptive; EF §10h), `2026-09-80a` (place-and-hold Stage 2
-build — PARTIAL / NO-GO, stopped correctly on two errors in its handoff; EF §10i) and `2026-09-81a` (NO-GO, EF §10j). Open
-missions: `2026-09-80b` (finish the inert Stage 2 build with the corrected rules) and `2026-09-82a` (is the
-NBM guidance read for the right period). None grants live authority.
+build — PARTIAL / NO-GO, stopped correctly on two errors in its handoff; EF §10i) `2026-09-81a` (NO-GO, EF §10j) and `2026-09-82a` (the NBM parser reads the wrong period after 13Z; EF §10k). Open
+missions: `2026-09-80b` (finish the inert Stage 2 build with the corrected rules) and `2026-09-83a` (the
+versioned NBM parser repair). None grants live authority.
 
 ## Current truth
 
@@ -42,7 +42,7 @@ NBM guidance read for the right period). None grants live authority.
 | Maker economics | Configured liquidity-reward pool ~2,800/day same-day, ~4,800/day with T+1/T+2 (31 of 31 sampled days), against the ~$16/day the July verdict used. First desk measurements, 2026-09-20 (item 330): **taker fee is 0 on 377,104 of 377,104 public trades, so treat maker rebates as zero - rewards are the whole thesis**; share-weighted maker markout +0.19 c/share at 5 minutes, -0.43 c to settlement (30 date clusters); modelled reward share from captured books is large because displayed qualifying competition is thin - too good to take at face value. Nothing here is confirmable without one paid reward epoch at minimum size (live; needs the owner, and a band cap of ~25 pUSD instead of 10). Public reads on 2026-09-20 cut the estimate: same-day bands flip from a 20- to a 100-share minimum during the morning, and next-day 20-share bands are contested (modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles = roughly 0.5-6 per band per day). **The first paid reward epoch is designed and frozen ([RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md)); RE-1M - the owner places two orders by hand - comes first and needs only owner decisions** (target 2026-09-24, next-day Los Angeles band). Both study tools are on master. |
 | Live record | An owner-attended International Stage 0/1 test ran 2026-09-06 from the portable PC on unmerged branch code: three 0.005 pUSD post-only orders, cancelled, zero fills. It is spent and grants nothing. The code that ran is not on master. |
 | Maker candidate | PR 55 is reconciled onto the reliability lineage as `codex/maker-reconcile-20260920` @ `0fc25f40b` (roll-sensitive, not yet host-qualified; now carries the two host-suite test fixes). Next: merge the new master into it and run its own suite. Mission 80a delivered a pure reward-aware pricer and an inert hash-bound Stage 2 envelope on `codex/stage2-hold-build-20260921`, and no execution path (EF §10i). Mission `2026-09-80b` finishes it under corrected rules: explicit cancel primary with the 10-15 s dead-man as backstop; a PROPOSED RE-1A addendum counting cumulative two-sided minutes per UTC reward day (120-minute sessions, four a day, three reward days); and default dispositions for the four 09-06 relaxations - fresh dedicated wallet, one typed confirmation per sealed session, receipt age stays unlimited, fee check unchanged. **All of these await the owner's ratification**; the build stays inert until two dated grants exist. |
-| Forecast lead | `-09-79a` (EF §10h): the gap to the market is already 1.44-1.48x in the morning, and unfitted NBM-percentile band probabilities beat the served model there by ~0.012-0.015 Brier in both strata while still trailing the market at 1.15-1.22x. It is a lead on the guidance-present rows only (24.6-38.3% fill, none after 10:00). Mission `2026-09-81a` (EF §10j, pre-registration frozen before scoring): on every morning row the gain halves to about -0.0067 Brier and fails the frozen minimum-effect rule; **NO-GO for a confirmation this season**, and none is possible at this effect size because 11 market clusters cap power near 40%. Most guidance is discarded as below the observed floor (fill 73% at 06:00, ~7% at 09:00). Mission `2026-09-82a` checks against real NOAA bulletins whether those discarded values are for the right period at all; no new candidate is scored meanwhile. Branches `codex/missing-information-checks-20260921` and `codex/morning-guidance-candidate-20260921` are ROLL-FREE and unmerged. Nothing is served or trained. |
+| Forecast lead | `-09-79a` (EF §10h): the gap to the market is already 1.44-1.48x in the morning, and unfitted NBM-percentile band probabilities beat the served model there by ~0.012-0.015 Brier in both strata while still trailing the market at 1.15-1.22x. It is a lead on the guidance-present rows only (24.6-38.3% fill, none after 10:00). Mission `2026-09-81a` (EF §10j, pre-registration frozen before scoring): on every morning row the gain halves to about -0.0067 Brier and fails the frozen minimum-effect rule; **NO-GO for a confirmation this season**, and none is possible at this effect size because 11 market clusters cap power near 40%. Most guidance is discarded as below the observed floor (fill 73% at 06:00, ~7% at 09:00). **`-09-82a` (EF §10k) found why: 13Z and 19Z NBM bulletins hold no maximum for the current local date, and the parser took their first value - tomorrow morning's minimum - so the floor rightly discarded it; confirmed live on production.** A live, promotion-blocked shadow variant consumes those columns (the served model does not), so mission `2026-09-83a` builds a versioned repair with replay parity; it is roll-sensitive and will need a quiet window. No candidate is scored until dates exist that were captured after the fix. Branches `codex/missing-information-checks-20260921`, `codex/morning-guidance-candidate-20260921` and `codex/nbm-target-trace-20260921` are ROLL-FREE and unmerged. Nothing is served or trained. |
 | Settlement source | The venue's declared resolution source moved from Weather Underground to weather.gov timeseries around 2026-08-23 (same stations; measured band agreement 921/921 before, 131/132 after). Master still hard-codes WU and no gate detects a source change. |
 | Documentation | Restructured 2026-09-19 for agent use: conditional routing in `AGENTS.md`, `CLAUDE.md` entry point, findings digest, complete operations index, and audit checks for line budgets, index reachability, retired claims and this file's age. |
 
@@ -59,8 +59,9 @@ NBM guidance read for the right period). None grants live authority.
    qualification nights, an owner-attended Stage 0/1 re-run on landed code, and a dated owner Stage 2
    authorization. **Owner: ratify or change the 80b defaults** (Maker candidate row). Earliest
    repository-run live session is still about 2026-10-01 (estimate; 80a used one night, not five days).
-5. Workstation: mission `2026-09-82a` (Forecast lead row). Verify handbacks per the delegation
-   contract; land the two roll-free research branches once the merge marker is reconciled.
+5. Workstation: mission `2026-09-83a` (Forecast lead row). Production, in a heavy window: the exact
+   census of chosen NBM period by cycle and local hour from the event-day payload manifests. Land the
+   three roll-free research branches once the merge marker is reconciled.
 6. Redeploy the hash-pinned watchdog so the briefing uses the trough-based disk arithmetic; give the
    merge tool's execution-tape pre-check a bounded retry.
 

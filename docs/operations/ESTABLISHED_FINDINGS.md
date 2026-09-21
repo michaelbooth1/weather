@@ -97,6 +97,7 @@ sequence numbers, not calendar dates.
 | 10h | `-09-79a`: the gap starts in the morning; unused NBM guidance beats the served forecast there, and still trails the market |
 | 10i | `-09-80a`: place-and-hold constraints — 10-15 s cancel-on-disconnect, the wallet falsifier, the evidence-minute budget |
 | 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
+| 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
 
 ---
 
@@ -3249,6 +3250,41 @@ read on the 79a export, never a confirmation; no α spent; reservation file unto
   hard to square with a correct forecast of today's maximum, and the parser's slot rule takes the first token of each
   bulletin group. Mission `2026-09-82a` tests against real bulletins whether some cycles return a night minimum or
   another day's value. No new candidate is scored until that is answered.
+
+### 10k. After 13Z the NBM parser reads tomorrow morning's minimum as today's maximum — `-09-82a`, 2026-09-21
+
+Branch `codex/nbm-target-trace-20260921` @ `2e8406366` (ROLL-FREE by the production tool). A trace against 12 public
+NOAA NBP bulletins (2026-09-17..19, cycles 01Z/07Z/13Z/19Z, the 11 US settlement stations, 132 station blocks committed
+as evidence). No score, no comparison with served or market, no candidate.
+
+- **Convention (NOAA's NBP product key):** `TXN` values valid at 12Z are minima, values valid at 00Z are maxima; for
+  mainland US stations the 00Z maximum belongs to the preceding local date. The pipe-separated groups are UTC dates:
+  01Z and 07Z bulletins begin with a 00Z maximum, **13Z and 19Z bulletins begin with a lone 12Z minimum.** Magnitudes
+  agree: maximum-token p50 sits a median +2 F from the observed maximum, minimum-token p50 +1 F from the observed minimum.
+- **What the unchanged parser picks** (`_slot_index_for_target` takes the first token of a group and subtracts a day
+  whatever its valid hour): for target = the local date, 33 of 33 right at 07Z and **33 of 33 wrong at 13Z and at 19Z**
+  (66 wrong picks, 3 dates, 11 markets), each the next morning's minimum, median 15 F below the day's observed maximum.
+  Target = tomorrow is right at every cycle. **A 13Z or 19Z bulletin contains no maximum for the current local date at
+  all**, so the repair is to reject and use an older cycle, never to take the next token.
+- **Confirmed live on production, 2026-09-21:** the 10:08 local Los Angeles snapshot recorded cycle `20260921T13Z` with
+  `provider_update_time` 2026-09-22 12:00Z - a minimum. The event-day `forecast_payloads` manifests carry `cycle_key` and
+  `provider_update_time` for every snapshot and the national bulletins are retained, so an exact census is possible on
+  the production host; it has not been run yet.
+- **It explains the export:** on all 55,565 floor-dropped US rows the recorded representative value is a median 14 F
+  below the settled maximum and 2.7 F above the next day's observed minimum; the loss of guidance moves west to east with
+  the local hour at which 13Z becomes the newest cycle (06:00 Pacific ... 09:00 Eastern). Hours 00-05 differ: there a
+  correct forecast loses only a low quantile to the floor. The handoff was wrong that the median is recoverable
+  (p75-IQR gives p25, p90-spread gives p10; p50 was deleted on 54,863 rows).
+- **Consequences for earlier reads:** the NBM rows that 79a and 81a scored were those that passed the floor, mostly 01Z
+  and 07Z picks, i.e. genuine same-day maxima; those results stand as stated. "No guidance after 10:00" was a parser
+  defect, not an absence of information. How many wrong-period values slipped past the floor into the scored rows is
+  **not yet counted**.
+- **Parity:** the served headline model selects no NBM column (§10h), but one tracked artifact does -
+  `feature_model_hgb_f_pooled_v0_3.pkl` selects all 15 `nbm_prob_tmax_*` columns and is bound to the shadow variant
+  `pooled_f_candidate_miami_current_fallback_v0_1` (not headline, promotion blocked, legacy-validation-quarantined),
+  which wrote predicted rows on production on 2026-09-21. The agent therefore stopped before any fix, as its handoff
+  required. Mission `2026-09-83a` builds the repair in place with a parser version and token provenance, replay of old
+  bytes under the old rule, and the rule that a row counts as guidance only when its provenance says "maximum".
 
 ## Related
 
