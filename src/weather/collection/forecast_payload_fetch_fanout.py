@@ -14,10 +14,12 @@ import errno
 import hashlib
 import json
 import os
+import re
 import stat
 import time
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -39,6 +41,7 @@ from weather.sources.forecast_payload_fanout import (
     FanoutFetchResult,
     MarketInvariantFetchFanout,
 )
+from weather.market.market_registry import all_specs
 
 
 RECEIPT_SCHEMA_VERSION = "forecast_payload_cross_process_fanout_receipt_v0.1"
@@ -49,6 +52,48 @@ DEFAULT_POLL_SECONDS = 0.05
 MAX_RECEIPT_BYTES = 16 * 1024
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 _RECEIPT_CONTENT_SHA256_KEY = "_verified_receipt_content_sha256"
+_NBP_COMPLETENESS_POLICY = "configured-stations-txn-terminal-v1"
+_NBP_REQUIRED_ROWS = frozenset((
+    "TXNP1", "TXNP2", "TXNP5", "TXNP7", "TXNP9", "TXNMN", "TXNSD",
+    "SLPP1", "SLPP2", "SLPP5", "SLPP7", "SLPP9",
+))
+
+
+def _nbp_reuse_stations() -> tuple[str, ...]:
+    return tuple(sorted({spec.icao for spec in all_specs() if ":US" in spec.wu_history_id}))
+
+
+def _complete_nbp(text: str, cycle_key: str, stations: tuple[str, ...]) -> bool:
+    """Check configured blocks through their terminal rows without copying all lines."""
+    completed: set[str] = set()
+    station = None
+    rows: dict[str, int] = {}
+    groups = 0
+    for match in re.finditer(r"[^\n]+", text):
+        line = match.group().rstrip("\r")
+        if "NBP GUIDANCE" in line:
+            station = line.split()[0]
+            if station in completed:
+                return False
+            rows, groups = {}, 0
+            if station in stations and nbm_nbp_cycle_key_from_bulletin(line) != cycle_key:
+                return False
+        if station not in stations:
+            continue
+        code = line[:6].strip()
+        if code == "FHR":
+            groups = len(line[6:].split("|"))
+        elif code in _NBP_REQUIRED_ROWS:
+            cells = line[6:].split("|")
+            # Terminal pairs must be present too: a truncated last line is incomplete.
+            if groups and len(cells) == groups and all(
+                len(cell) >= 7 and re.fullmatch(r"\s*-?\d+\s+-?\d+\s*", cell)
+                for cell in cells
+            ):
+                rows[code] = groups
+            if code == "SLPP9" and _NBP_REQUIRED_ROWS <= rows.keys():
+                completed.add(station)
+    return bool(stations) and completed == set(stations)
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -835,6 +880,92 @@ class CrossProcessMarketInvariantFetchFanout:
             )
         return result
 
+    def _cycle_index_path(self, source: str, request_key: str, cycle_key: str) -> Path:
+        key = _canonical_json_bytes({
+            "source": source, "request_key": request_key, "cycle_key": cycle_key,
+            "policy": _NBP_COMPLETENESS_POLICY, "stations": _nbp_reuse_stations(),
+        })
+        digest = hashlib.sha256(key).hexdigest()
+        return self.cas.root / "nbp_cycle_index" / digest[:2] / f"{digest}.json"
+
+    def _fetch_with_cycle_reuse(self, *, source, request_key, cycle_key, scope_key, fetch_fn):
+        """Optional, fail-open discovery of an earlier complete national fetch."""
+        key = dict(source=source, request_key=request_key, cycle_key=cycle_key,
+                   scope_key=scope_key)
+        index_path = None
+        try:
+            index_path = self._cycle_index_path(source, request_key, cycle_key)
+            receipt = self._read_receipt(self.cas.root, index_path)
+            if receipt is not None:
+                if (receipt.get("reuse_completeness_policy") != _NBP_COMPLETENESS_POLICY
+                        or receipt.get("reuse_stations") != list(_nbp_reuse_stations())
+                        or receipt.get("status") != "success"):
+                    raise ForecastPayloadCASIntegrityError("NBP reuse index completeness mismatch")
+                # Read through the original verified receipt: its hash still binds
+                # the original network event, never a newly invented coordinator.
+                original_path, claim_path = self._paths(
+                    source, request_key, cycle_key, str(receipt.get("scope_key") or ""))
+                original = self._read_receipt(self.cas.root, original_path, publication_claim=claim_path)
+                if original is None or any(original.get(k) != v for k, v in receipt.items()
+                        if k not in {_RECEIPT_CONTENT_SHA256_KEY, "reuse_completeness_policy", "reuse_stations"}):
+                    raise ForecastPayloadCASIntegrityError("NBP reuse index original receipt mismatch")
+                fetched = datetime.fromisoformat(str(original.get("fetched_at") or "").replace("Z", "+00:00"))
+                issued = datetime.strptime(cycle_key, "nbm-nbp:%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
+                if fetched.tzinfo is None or not issued <= fetched <= datetime.now(timezone.utc):
+                    raise ForecastPayloadCASIntegrityError("NBP reuse index fetch time invalid")
+                result = self._result_from_receipt(original, source=source, request_key=request_key,
+                    cycle_key=cycle_key, scope_key=original["scope_key"], waited_seconds=0.)
+                if not _complete_nbp(result.value["text"], cycle_key, _nbp_reuse_stations()):
+                    raise ForecastPayloadCASIntegrityError("NBP indexed bulletin is incomplete")
+                # Reuse is not a coordinator network event in this capture pass.
+                return replace(result, coordination_status="cross_pass_complete_cycle_reused",
+                    coordinator_evidence_id=None, coordinator_receipt_ref=None,
+                    coordinator_receipt_sha256=None, coordinator_attribution_status="not_applicable",
+                    coordinator_network_fetch_count=0, coordinator_payload_blob_created=False,
+                    coordinator_payload_blob_reused=False, coordinator_physical_bytes_written=0)
+        except Exception:
+            # An optional index can never prevent the ordinary download path.
+            pass
+
+        downloaded = []
+        download_errors = []
+
+        def fetch_once():
+            if not downloaded:
+                try:
+                    downloaded.append(fetch_fn())
+                except Exception as exc:
+                    download_errors.append(exc)
+                    raise
+            return downloaded[0]
+
+        try:
+            result = self._cross_process_fetch(**key, fetch_fn=fetch_once)
+        except requests.RequestException:
+            raise  # Preserve per-pass HTTP failures; never index 403/404.
+        except Exception:
+            if download_errors:
+                raise download_errors[0]
+            result = FanoutFetchResult(fetch_once(), source, request_key, cycle_key,
+                fetched=True, reused=False, coordination_status="cycle_reuse_coordination_fail_open")
+        try:
+            if index_path is not None and _complete_nbp(result.value["text"], cycle_key, _nbp_reuse_stations()):
+                receipt_path, _ = self._paths(**key)
+                receipt = self._read_receipt(self.cas.root, receipt_path)
+                if receipt and receipt.get("status") == "success" and receipt.get("payload_hash") == result.prepublished_payload_hash:
+                    receipt = {k: v for k, v in receipt.items() if k != _RECEIPT_CONTENT_SHA256_KEY}
+                    _write_immutable_json(self.cas.root, index_path, {
+                        **receipt, "reuse_completeness_policy": _NBP_COMPLETENESS_POLICY,
+                        "reuse_stations": list(_nbp_reuse_stations()),
+                    })
+        except Exception:
+            pass  # A successful fetch remains usable even if indexing fails.
+        return result
+
+    def fetch_reusable_nbp(self, **kwargs) -> FanoutFetchResult:
+        """Opt in only the live NBP call site; ordinary fan-out remains unchanged."""
+        return self.fetch(**kwargs, reuse_complete_nbp=True)
+
     def fetch(
         self,
         *,
@@ -843,6 +974,7 @@ class CrossProcessMarketInvariantFetchFanout:
         cycle_key: str,
         fetch_fn: Callable[[], Any],
         scope_key: str | None = None,
+        reuse_complete_nbp: bool = False,
     ) -> FanoutFetchResult:
         if not str(scope_key or "").strip():
             return self._validate_result_cycle(
@@ -858,7 +990,7 @@ class CrossProcessMarketInvariantFetchFanout:
             source=source,
             request_key=request_key,
             cycle_key=cycle_key,
-            fetch_fn=lambda: self._cross_process_fetch(
+            fetch_fn=lambda: (self._fetch_with_cycle_reuse if reuse_complete_nbp else self._cross_process_fetch)(
                 source=source,
                 request_key=request_key,
                 cycle_key=cycle_key,
