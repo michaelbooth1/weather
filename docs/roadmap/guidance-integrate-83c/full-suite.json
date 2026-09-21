@@ -1,0 +1,53 @@
+[
+  {
+    "layer": 1,
+    "tested_tip": "c04200081e87b4607c149cb502ce34b4ad7410cf",
+    "passed": 5835,
+    "subtests_passed": 923,
+    "junit_tests": 6792,
+    "skipped": 34,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 2772.187,
+    "xml_sha256": "5673eeed4aa1d30db4d4ee3aff1ce760c1c444b6d12fef3561023bb7f0ff4f0c",
+    "error": []
+  },
+  {
+    "layer": 2,
+    "tested_tip": "c6c58155faf6f78c6ba714eff1abebc8ee28ef18",
+    "passed": 0,
+    "subtests_passed": 0,
+    "junit_tests": 1,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 1,
+    "seconds": 9.878,
+    "xml_sha256": "31dfac1b680d3bf7e2f2b5030bd9cd4b77ff8d01e63afd78a7886536739a4132",
+    "error": [
+      {
+        "test": "tests.reporting.test_nbm_target_trace",
+        "message": "collection failure",
+        "detail": "ImportError while importing test module 'C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\integrate-2-parser-20260921\\tests\\reporting\\test_nbm_target_trace.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\importlib\\__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests\\reporting\\test_nbm_target_trace.py:9: in <module>\n    from tools.research.nbm_target_trace.run import fetch, recover_quantiles, token_grid\ntools\\research\\nbm_target_trace\\run.py:24: in <module>\n    from weather.sources.nbm_probabilistic_tmax import (\nE   ImportError: cannot import name '_slot_index_for_target' from 'weather.sources.nbm_probabilistic_tmax' (C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\integrate-2-parser-20260921\\src\\weather\\sources\\nbm_probabilistic_tmax.py)"
+      }
+    ]
+  },
+  {
+    "layer": 3,
+    "tested_tip": "f1e7350ad77bfaf1cd860821c31aa4b56634f405",
+    "passed": 0,
+    "subtests_passed": 0,
+    "junit_tests": 1,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 1,
+    "seconds": 8.762,
+    "xml_sha256": "84c2fd7567b3b64cc9d74f58ff5ffc0ee0f67a765247d87c10618c8b05f04e77",
+    "error": [
+      {
+        "test": "tests.reporting.test_nbm_target_trace",
+        "message": "collection failure",
+        "detail": "ImportError while importing test module 'C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\integrate-3-reuse-20260921\\tests\\reporting\\test_nbm_target_trace.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\importlib\\__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests\\reporting\\test_nbm_target_trace.py:9: in <module>\n    from tools.research.nbm_target_trace.run import fetch, recover_quantiles, token_grid\ntools\\research\\nbm_target_trace\\run.py:24: in <module>\n    from weather.sources.nbm_probabilistic_tmax import (\nE   ImportError: cannot import name '_slot_index_for_target' from 'weather.sources.nbm_probabilistic_tmax' (C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\integrate-3-reuse-20260921\\src\\weather\\sources\\nbm_probabilistic_tmax.py)"
+      }
+    ]
+  }
+]

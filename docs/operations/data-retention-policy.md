@@ -337,6 +337,43 @@ the operator has reviewed the dry run and scheduled the quiet window.
 
 ## Shared Forecast Payload CAS
 
+The NBP live call opts into cross-pass reuse by exact request and cycle. An
+atomic, create-only index at `forecast_payload_cas/nbp_cycle_index/` copies a
+successful fan-out receipt only after checking every configured US station's
+FHR, all seven TXN rows and terminal SLPP rows. The completeness policy and
+configured station set are part of the index key. This index is an
+`analysis_projection` of the original fan-out receipt and retained bytes;
+rebuilding it requires repeating that completeness check. It is not new
+canonical evidence or authority to remove any original receipt or blob.
+No index cleanup is enabled by this change; deletion still requires a reviewed
+exact-path manifest with that rebuild source. The code-backed family registry
+in `weather.operations.storage_classes` records this projection contract.
+
+Before reuse, the reader verifies the original receipt and CAS hash/length and
+the bulletin cycle. A new cycle is a new key. Incomplete bulletins and failed
+requests never enter the index; 403/404 receipts remain confined to one capture
+pass. Any index or coordination error falls back to ordinary downloading,
+without a second download after a successful response. No additional lock or
+wait is introduced. The local decoded-response cache retains its two-entry
+bound, and completeness scanning does not materialize the national line list.
+
+The offline `tools.research.nbm_target_fix reuse-cost` diagnostic accepts
+`--cache <retained-national-file>` with its original `.json` hash/byte receipt
+and `--output <new-directory>`. Through `workstation_heavy.ps1`, it reports wall
+time and traced peak memory for verified blob reads, completeness scans, whole
+reuse, and ordinary per-scope fetch with the same bytes supplied by a stub.
+It makes no network requests. Station eligibility comes from the in-memory
+market registry and is evaluated once for each cross-process reuse attempt.
+
+Reused manifests keep the original `fetched_at`, request/response times and
+separate current `captured_at_utc`. They report `single_fetch_reused=true`,
+`single_fetch_fetched=false` and zero new coordinator network events; the
+original receipt owns its original download. `cycle_age_at_use_hours` on the
+live payload is measured at use time; manifest consumers derive it from capture
+minus issue. This use-time diagnostic never overwrites frozen parser/wrapper
+provenance such as Part A's original-capture `cycle_age_hours`.
+The forecast writer, replay, migration and stored evidence schemas are unchanged.
+
 New explicitly market-invariant forecast responses use the shared immutable
 CAS under `data/forecast_payload_cas/`; their per-market append-only manifests
 retain capture and extraction lineage. Inventory a possible legacy migration
