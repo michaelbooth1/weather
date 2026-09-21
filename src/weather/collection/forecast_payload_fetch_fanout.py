@@ -344,7 +344,9 @@ class CrossProcessMarketInvariantFetchFanout:
         )
 
     @staticmethod
-    def _read_receipt(cas_root: Path, path: Path) -> dict[str, Any] | None:
+    def _read_receipt(
+        cas_root: Path, path: Path, *, publication_claim: Path | None = None,
+    ) -> dict[str, Any] | None:
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
@@ -364,6 +366,12 @@ class CrossProcessMarketInvariantFetchFanout:
                 f"cross-process fan-out receipt is unreadable: {path}: {exc}"
             ) from exc
         _validate_receipt_stat(path, before)
+        # Check after observing the receipt: its publisher acquired the claim
+        # before linking these bytes and releases it after staging-link cleanup.
+        # Unlinking that temporary alias changes ctime on POSIX, so followers
+        # must wait for publication to finish before taking a stable snapshot.
+        if publication_claim is not None and os.path.lexists(publication_claim):
+            return None
         flags = os.O_RDONLY | int(getattr(os, "O_BINARY", 0))
         flags |= int(getattr(os, "O_NOFOLLOW", 0))
         try:
@@ -765,7 +773,9 @@ class CrossProcessMarketInvariantFetchFanout:
             "scope_key": scope_key,
         }
         while True:
-            receipt = self._read_receipt(self.cas.root, receipt_path)
+            receipt = self._read_receipt(
+                self.cas.root, receipt_path, publication_claim=claim_path,
+            )
             if receipt is not None:
                 return self._result_from_receipt(
                     receipt,

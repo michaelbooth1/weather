@@ -438,6 +438,23 @@ def _write_json_streaming_value(handle, value: Any, *, level: int) -> None:
         handle.write(chunk)
 
 
+class _SizeLimitedJsonWriter:
+    def __init__(self, handle, max_bytes: int, newline: str | None):
+        self.handle = handle
+        self.max_bytes = max_bytes
+        self.written_bytes = 0
+        self.newline = os.linesep if newline is None else (newline or "\n")
+
+    def write(self, text: str):
+        physical = text if self.newline == "\n" else text.replace("\n", self.newline)
+        size = len(physical.encode("utf-8"))
+        if self.written_bytes + size > self.max_bytes:
+            raise ValueError(f"JSON output exceeds max_bytes={self.max_bytes}")
+        result = self.handle.write(text)
+        self.written_bytes += size
+        return result
+
+
 def write_json_streaming_atomic(
     path: str | Path,
     payload: Any,
@@ -447,17 +464,22 @@ def write_json_streaming_atomic(
     sleep_fn: SleepFn = time.sleep,
     trailing_newline: bool = False,
     newline: str | None = "\n",
+    max_bytes: int | None = None,
 ) -> Path:
-    """Atomically stream JSON, including SQLite-backed row-array views."""
+    """Atomically stream JSON, optionally bounding its encoded output size."""
+
+    if max_bytes is not None and (isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0):
+        raise ValueError("max_bytes must be a positive integer or None")
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     try:
         with tmp.open("w", encoding="utf-8", newline=newline) as handle:
-            _write_json_streaming_value(handle, payload, level=0)
+            writer = handle if max_bytes is None else _SizeLimitedJsonWriter(handle, max_bytes, newline)
+            _write_json_streaming_value(writer, payload, level=0)
             if trailing_newline:
-                handle.write("\n")
+                writer.write("\n")
         for attempt in range(retries):
             try:
                 tmp.replace(path)

@@ -48,6 +48,11 @@ package contract, and `requires-python` is `>=3.11`.
 - The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
+- The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
+  launch/integration regressions under Windows PowerShell 5.1. Hosted Windows evidence records its actual scope,
+  candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
+  suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
+  substitution is qualified.
 - `retrain.yml` ("Nightly Candidate Build") is manual-dispatch only; its schedule is commented out.
 - The GitHub CLI (`gh`) is not installed on the capture host. Do not plan a step there that opens a pull request
   or reads CI status with `gh`; use the web UI, the workstation, or the push path in the

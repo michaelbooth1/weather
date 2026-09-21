@@ -495,3 +495,26 @@ the cumulative live-test parent passes its immutable exact-tip suite, merges
 through the guarded quiet-window path, and a fresh snapshot parent proves a
 bounded post-adoption memory slope. The one-time operational restart is a
 headroom mitigation, not evidence that the leak is fixed.
+
+## 2026-09-13 receipt-publication ordering repair
+
+The documentation integration's Linux CI exposed a concurrent receipt-read
+failure in the unchanged fan-out implementation. The publisher links a fully
+flushed staging file to the immutable receipt path, then removes the staging
+alias. That unlink changes the receipt inode's ctime on POSIX, so a follower
+that reads between publication and cleanup can fail the existing mutation check
+even though the receipt bytes are complete.
+
+The isolated repair makes a follower check the publisher claim after observing
+the receipt and wait while that claim remains. The holder releases its claim
+only after publication cleanup; the holder's own read and a new claim owner's
+recheck retain their existing ordering. All receipt identity, size, ancestor,
+content-hash and mutation checks remain in place. The existing bounded wait and
+provider fallback still apply if a holder never finishes.
+
+A deterministic concurrency regression pauses the holder immediately after
+linking the receipt, proves that its follower defers, then releases cleanup and
+requires one provider fetch and identical receipt hashes. The existing
+mutation-during-read regression continues to require refusal. This is a source
+repair pending qualification and guarded runtime adoption; it grants no replay,
+economic, migration or deletion authority.

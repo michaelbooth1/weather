@@ -8,8 +8,12 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
+import venv
 
 import pytest
+
+from weather.operations.international_live_wrapper_sealer import _render_launcher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -213,11 +217,8 @@ def test_launcher_job_contains_the_complete_live_child_tree():
 
 
 @WINDOWS_POWERSHELL_REQUIRED
-@pytest.mark.skipif(
-    os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1",
-    reason="outer workstation lease owns the shared mutex",
-)
 def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_path):
+    mutex_name = f"Local\\WeatherLauncherFixture-{uuid.uuid4().hex}"
     repo = tmp_path / "production"
     ops = repo / "scripts/ops"
     ops.mkdir(parents=True)
@@ -230,7 +231,7 @@ def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_p
     lease_script.write_text(
         "function Enter-WeatherHeavyWorkloadLease {\n"
         "  param($RepoRoot,$Workload,$ExecutionHostProfile,$ExpectedExecutionHostId)\n"
-        "  $mutex=[Threading.Mutex]::new($false,'Global\\WeatherProjectHeavyWorkloadV1')\n"
+        f"  $mutex=[Threading.Mutex]::new($false,'{mutex_name}')\n"
         "  if(-not $mutex.WaitOne(0,$false)){$mutex.Dispose();return $null}\n"
         "  [pscustomobject]@{Mutex=$mutex;MutexOwned=$true}\n"
         "}\n"
@@ -241,10 +242,11 @@ def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_p
         "}\n",
         encoding="utf-8",
     )
-    python = Path(sys.executable).resolve()
-    site_packages = python.parent.parent / "Lib/site-packages"
-    if not site_packages.is_dir():
-        pytest.skip("test interpreter does not use the required Windows venv layout")
+    fixture_venv = tmp_path / "venv"
+    venv.EnvBuilder(with_pip=False).create(fixture_venv)
+    python = (fixture_venv / "Scripts/python.exe").resolve()
+    pyvenv_config = (fixture_venv / "pyvenv.cfg").resolve()
+    runtime_python = Path(sys._base_executable).resolve()
     ready = tmp_path / "live-child-ready.txt"
     survived = tmp_path / "live-grandchild-survived.txt"
     wrapper = tmp_path / "stage0.py"
@@ -258,28 +260,25 @@ def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_p
         encoding="utf-8",
     )
     references = manifest(tmp_path / "references.json")
-    replacements = {
-        "__SEAL_PRODUCTION_ROOT__": str(repo.resolve()),
-        "__SEAL_PRODUCTION_PYTHON__": str(python),
-        "__SEAL_WRAPPER_PATH__": str(wrapper.resolve()),
-        "__SEAL_WRAPPER_SHA256__": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
-        "__SEAL_WORKLOAD__": "InternationalLive-stage0-job-test",
-        "__SEAL_EXECUTION_HOST_PROFILE__": "portable_execution_v1",
-        "__SEAL_EXECUTION_HOST_ID__": "a" * 64,
-        "__SEAL_WORKLOAD_ADMISSION_SHA256__": hashlib.sha256(
-            lease_script.read_bytes()
-        ).hexdigest(),
-        "__SEAL_WINDOWS_JOB_HELPER_SHA256__": hashlib.sha256(
-            job_script.read_bytes()
-        ).hexdigest(),
-        "__SEAL_CREDENTIAL_MANIFEST_PATH__": str(references.resolve()),
-        "__SEAL_CREDENTIAL_MANIFEST_SHA256__": hashlib.sha256(
-            references.read_bytes()
-        ).hexdigest(),
-    }
-    source = TEMPLATE.read_text(encoding="utf-8")
-    for marker, value in replacements.items():
-        source = source.replace(marker, value)
+    source = _render_launcher(
+        TEMPLATE.read_text(encoding="utf-8"),
+        production_root=repo.resolve(),
+        production_python=python,
+        production_python_sha256=hashlib.sha256(python.read_bytes()).hexdigest(),
+        production_pyvenv_config=pyvenv_config,
+        production_pyvenv_config_sha256=hashlib.sha256(pyvenv_config.read_bytes()).hexdigest(),
+        production_runtime_python=runtime_python,
+        production_runtime_python_sha256=hashlib.sha256(runtime_python.read_bytes()).hexdigest(),
+        wrapper_path=wrapper.resolve(),
+        wrapper_sha256=hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+        workload="InternationalLive-stage0-job-test",
+        execution_host_profile="portable_execution_v1",
+        execution_host_id="a" * 64,
+        workload_sha256=hashlib.sha256(lease_script.read_bytes()).hexdigest(),
+        job_helper_sha256=hashlib.sha256(job_script.read_bytes()).hexdigest(),
+        credential_manifest_path=references.resolve(),
+        credential_manifest_sha256=hashlib.sha256(references.read_bytes()).hexdigest(),
+    )
     assert "__SEAL_" not in source
     launcher_path = tmp_path / "fixed-scope-launcher.ps1"
     launcher_path.write_text(source, encoding="utf-8-sig")
@@ -327,7 +326,7 @@ def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_p
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "$m=[Threading.Mutex]::new($false,'Global\\WeatherProjectHeavyWorkloadV1');"
+            f"$m=[Threading.Mutex]::new($false,'{mutex_name}');"
             "$owned=$false;try{try{$owned=$m.WaitOne(0,$false)}"
             "catch [Threading.AbandonedMutexException]{$owned=$true};"
             "if(-not $owned){exit 2};$m.ReleaseMutex()}finally{$m.Dispose()}",
