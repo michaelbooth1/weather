@@ -888,8 +888,18 @@ class CrossProcessMarketInvariantFetchFanout:
         digest = hashlib.sha256(key).hexdigest()
         return self.cas.root / "nbp_cycle_index" / digest[:2] / f"{digest}.json"
 
+    @staticmethod
+    def _validate_reuse_time(receipt: Mapping[str, Any], cycle_key: str) -> None:
+        fetched = datetime.fromisoformat(str(receipt.get("fetched_at") or "").replace("Z", "+00:00"))
+        issued = datetime.strptime(cycle_key, "nbm-nbp:%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
+        if fetched.tzinfo is None or not issued <= fetched <= datetime.now(timezone.utc):
+            raise ForecastPayloadCASIntegrityError("NBP reuse index fetch time invalid")
+
     def _fetch_with_cycle_reuse(self, *, source, request_key, cycle_key, scope_key, fetch_fn):
         """Optional, fail-open discovery of an earlier complete national fetch."""
+        source, request_key, cycle_key, scope_key = self._validated_key(
+            source, request_key, cycle_key, scope_key,
+        )
         key = dict(source=source, request_key=request_key, cycle_key=cycle_key,
                    scope_key=scope_key)
         index_path = None
@@ -909,10 +919,7 @@ class CrossProcessMarketInvariantFetchFanout:
                 if original is None or any(original.get(k) != v for k, v in receipt.items()
                         if k not in {_RECEIPT_CONTENT_SHA256_KEY, "reuse_completeness_policy", "reuse_stations"}):
                     raise ForecastPayloadCASIntegrityError("NBP reuse index original receipt mismatch")
-                fetched = datetime.fromisoformat(str(original.get("fetched_at") or "").replace("Z", "+00:00"))
-                issued = datetime.strptime(cycle_key, "nbm-nbp:%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
-                if fetched.tzinfo is None or not issued <= fetched <= datetime.now(timezone.utc):
-                    raise ForecastPayloadCASIntegrityError("NBP reuse index fetch time invalid")
+                self._validate_reuse_time(original, cycle_key)
                 result = self._result_from_receipt(original, source=source, request_key=request_key,
                     cycle_key=cycle_key, scope_key=original["scope_key"], waited_seconds=0.)
                 if not _complete_nbp(result.value["text"], cycle_key, _nbp_reuse_stations()):
@@ -953,6 +960,7 @@ class CrossProcessMarketInvariantFetchFanout:
                 receipt_path, _ = self._paths(**key)
                 receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt and receipt.get("status") == "success" and receipt.get("payload_hash") == result.prepublished_payload_hash:
+                    self._validate_reuse_time(receipt, cycle_key)
                     receipt = {k: v for k, v in receipt.items() if k != _RECEIPT_CONTENT_SHA256_KEY}
                     _write_immutable_json(self.cas.root, index_path, {
                         **receipt, "reuse_completeness_policy": _NBP_COMPLETENESS_POLICY,

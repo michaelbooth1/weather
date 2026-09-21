@@ -30,6 +30,7 @@ def fetch(root, callback, scope, *, reuse=True):
 
 
 def test_fixture_probe_independent_passes_and_markets(tmp_path):
+    measurements = []
     for reuse, expected in [(False, 33), (True, 1)]:
         calls = []
         for pass_number in range(3):
@@ -42,6 +43,9 @@ def test_fixture_probe_independent_passes_and_markets(tmp_path):
                     assert result.reused and not result.fetched
                     assert result.coordinator_network_fetch_count == 0
         assert len(calls) == expected
+        measurements.append({'reuse': reuse, 'passes': 3, 'markets': len(_nbp_reuse_stations()),
+                             'downloads': len(calls), 'bulletin_bytes': len(TEXT.encode())})
+    print('NBP_FETCH_PROBE=' + json.dumps(measurements))
 
 
 @pytest.mark.parametrize('defect', ['station', 'txn', 'terminal', 'truncated', 'cycle', 'duplicate'])
@@ -72,7 +76,8 @@ def test_incomplete_first_fetch_is_not_indexed_and_next_pass_downloads(tmp_path,
     assert list(tmp_path.glob('nbp_cycle_index/*/*.json'))
 
 
-@pytest.mark.parametrize('defect', ['json', 'missing_blob', 'hash', 'identity', 'missing_receipt', 'naive_clock'])
+@pytest.mark.parametrize('defect', ['json', 'missing_blob', 'hash', 'identity', 'missing_receipt',
+                                   'naive_clock', 'future_clock', 'pre_issue_clock'])
 def test_bad_index_or_blob_falls_back_to_download(tmp_path, defect):
     first = fetch(tmp_path, lambda: dict(VALUE), 'first')
     index = next(tmp_path.glob('nbp_cycle_index/*/*.json'))
@@ -86,8 +91,17 @@ def test_bad_index_or_blob_falls_back_to_download(tmp_path, defect):
         blob.write_bytes(b'corrupt')
     elif defect == 'missing_receipt':
         (tmp_path / first.coordinator_receipt_ref).unlink()
+    elif defect == 'identity':
+        receipt['request_key'] = 'invalid'
+        index.write_text(json.dumps(receipt))
     else:
-        receipt['request_key' if defect == 'identity' else 'fetched_at'] = 'invalid'
+        bad_time = {'naive_clock': '2026-09-17T07:30:00',
+                    'future_clock': '9999-09-17T07:30:00+00:00',
+                    'pre_issue_clock': '2026-09-17T06:30:00+00:00'}[defect]
+        original_path = tmp_path / first.coordinator_receipt_ref
+        original = json.loads(original_path.read_text())
+        original['fetched_at'] = receipt['fetched_at'] = bad_time
+        original_path.write_text(json.dumps(original))
         index.write_text(json.dumps(receipt))
     calls = []
     result = fetch(tmp_path, lambda: calls.append(1) or dict(VALUE), 'second')
@@ -106,6 +120,14 @@ def test_index_write_error_does_not_repeat_successful_download(tmp_path):
     with patch.object(module, '_write_immutable_json', side_effect=write):
         result = fetch(tmp_path, lambda: calls.append(1) or dict(VALUE), 'first')
     assert result.fetched and calls == [1]
+
+
+def test_bad_first_clock_does_not_poison_index_for_later_valid_capture(tmp_path):
+    fetch(tmp_path, lambda: {**VALUE, 'fetched_at': '2026-09-17T07:30:00'}, 'bad-clock')
+    assert not list(tmp_path.glob('nbp_cycle_index/*/*.json'))
+    calls = []
+    fetch(tmp_path, lambda: calls.append(1) or dict(VALUE), 'good-clock')
+    assert calls == [1] and list(tmp_path.glob('nbp_cycle_index/*/*.json'))
 
 
 @pytest.mark.parametrize('status', [403, 404])
@@ -144,6 +166,13 @@ def test_new_cycle_is_a_new_download(tmp_path):
         scope_key='second', fetch_fn=lambda: calls.append(1) or {**VALUE,
             'text': TEXT.replace('0700 UTC', '1900 UTC'), 'fetched_at': '2026-09-17T20:00:00+00:00'})
     assert result.fetched and calls == [1]
+
+
+def test_reuse_is_registered_only_for_nbp(tmp_path):
+    with pytest.raises(ValueError, match='only for NBM'):
+        CrossProcessMarketInvariantFetchFanout(tmp_path).fetch_reusable_nbp(
+            **{**KEY, 'source': 'other'}, scope_key='pass',
+            fetch_fn=lambda: pytest.fail('unregistered source must not fetch'))
 
 
 def test_real_live_writer_truthful_attribution_and_age_at_use(tmp_path):

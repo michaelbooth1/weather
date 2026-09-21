@@ -346,9 +346,9 @@ configured station set are part of the index key. This index is an
 rebuilding it requires repeating that completeness check. It is not new
 canonical evidence or authority to remove any original receipt or blob.
 No index cleanup is enabled by this change; deletion still requires a reviewed
-manifest with that rebuild source. Code-registry classification of this optional
-index is a follow-up for `weather.operations.storage_classes` (outside the
-bounded capture-reuse mission); absent classification grants no deletion.
+manifest with that rebuild source. The code-backed family registry in
+`weather.operations.storage_classes` must carry this classification before
+adoption; absent classification grants no deletion authority.
 
 Before reuse, the reader verifies the original receipt and CAS hash/length and
 the bulletin cycle. A new cycle is a new key. Incomplete bulletins and failed
