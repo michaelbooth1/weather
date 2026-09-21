@@ -3312,6 +3312,19 @@ for lack of live closure evidence, so production must run its own). Handback **P
   model inputs and source-gate features; they must be stored but not selectable. Version 2 can raise in the live path
   on a bad clock. Mission `2026-09-83b` fixes both (Part A) and adds truthful, fail-open reuse of an already-held
   cycle file (Part B, its own branch).
+- **`-09-83b` handback (same day, PARTIAL on both parts, stopped correctly; code reviewed and accepted).** Part A
+  (`codex/nbm-target-fix-20260921` @ `2e17ce0eb`): the four provenance columns are stored as diagnostics and the
+  selectable NBM list is back to its 15 names; a bad capture clock yields an unavailable payload with a specific
+  reason in the live path and still raises in replay; one manifest row plus the retained bytes reproduces the chosen
+  token. On a healthy day every local hour in all four US timezones has a reachable bulletin (07Z from early morning
+  on, up to 24 hours old late in the Pacific evening); if that one file is missing, evenings are unavailable rather
+  than wrong. Part B (`codex/nbp-bulletin-reuse-20260921` @ `62e8ff044`): a create-only index of complete, verified
+  cycle files; fixture probe 33 downloads to 1 over three passes of 11 markets, no extra retained text; fail-open on
+  every index or storage error; 403/404 never indexed; reused rows record no network fetch and keep the original
+  fetch time. Cost on a full-size bulletin is not yet measured. **Every remaining blocker was a file outside the
+  mission's ownership** (tool inventory entry, the admission test's exact-name set, the storage-class registration),
+  and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
+  ownership and asks for three stacked, individually green integration branches.
 
 ## Related
 
