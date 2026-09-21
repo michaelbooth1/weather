@@ -20,6 +20,27 @@ PLAN79_HASH = "024dbac70c636e42c4f514d66d79fb955c75362c6534892954c05d0bc9e33a81"
 FIELDS = [f"nbm_prob_tmax_p{p}" for p in (10, 25, 50, 75, 90)] + [
     "nbm_prob_tmax_mean", "nbm_prob_tmax_stddev"]
 PREREG = "docs/research/morning-guidance-candidate-preregistration-2026-09-21.md"
+PREREG_HASH = "d9211fc79d2555bf90f87a42b8d02635cf0c5aeac23390bd1441e398777edc79"
+FREEZE_COMMIT = "e404f7fdc56fa4e780fd2a829054751ac15b1df6"
+
+
+def freeze_gate(receipt_path):
+    if sha256(repo_path(PREREG)) != PREREG_HASH:
+        raise ValueError("frozen pre-registration bytes changed")
+    receipt = json.loads(receipt_path.read_text())
+    if (receipt["remote_sha"] != FREEZE_COMMIT or receipt["preregistration_sha256"] != PREREG_HASH
+            or receipt["ref"] != "refs/heads/codex/morning-guidance-candidate-20260921"):
+        raise ValueError("pre-score push receipt mismatch")
+    published = subprocess.run(["git", "show", f"{FREEZE_COMMIT}:{PREREG}"],
+                               check=True, capture_output=True).stdout
+    import hashlib
+    if hashlib.sha256(published).hexdigest() != PREREG_HASH:
+        raise ValueError("freeze commit does not bind preregistration")
+    subprocess.run(["git", "merge-base", "--is-ancestor", FREEZE_COMMIT, "HEAD"], check=True)
+    pushed = datetime.fromisoformat(receipt["verified_at_utc"])
+    if pushed >= datetime.now(timezone.utc):
+        raise ValueError("push must precede scoring")
+    return receipt
 
 
 def coverage(snapshots, raw):
@@ -74,6 +95,7 @@ def coverage(snapshots, raw):
                            "date_clusters": g.date.nunique(), "market_clusters": g.market.nunique(),
                            "market_days": len(g[["date", "market"]].drop_duplicates()),
                            "complete": int(g.complete.sum()), "valid": int(g.valid.sum()),
+                           "valid_with_guidance_floor": int(((g.valid == 1) & (g.floor_present == 1)).sum()),
                            "fill": float(g.valid.mean()), "status_counts": g.status.value_counts().to_dict()})
         return result
     result = {"inventory": dict(inventory), "secondary_complete_inputs": secondary_inputs,
@@ -91,16 +113,18 @@ def coverage(snapshots, raw):
                 "date_clusters": g.date.nunique(), "market_clusters": g.market.nunique(),
                 "market_days": len(g[["date", "market"]].drop_duplicates()),
                 "valid_market_days": len(g[g.valid == 1][["date", "market"]].drop_duplicates()),
+                "valid_with_guidance_floor": int(((g.valid == 1) & (g.floor_present == 1)).sum()),
                 "complete_p50_minus_floor_range": [g[g.valid == 1].p50_minus_floor.min(), g[g.valid == 1].p50_minus_floor.max()]}
     return result
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["coverage"])
+    parser.add_argument("stage", choices=["coverage", "score", "publish"])
     parser.add_argument("--input", type=scratch_path, required=True)
-    parser.add_argument("--raw", type=scratch_path, required=True)
+    parser.add_argument("--raw", type=scratch_path)
     parser.add_argument("--output", type=scratch_path, required=True)
+    parser.add_argument("--push-receipt", type=scratch_path)
     args = parser.parse_args(argv)
     if os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") != "1":
         parser.error("use scripts/ops/workstation_heavy.ps1")
@@ -109,7 +133,24 @@ def main(argv=None):
               "started_at_utc": datetime.now(timezone.utc).isoformat(),
               "source_sha256": {p.name: sha256(p) for p in Path(__file__).parent.glob("*.py")},
               "preregistration_sha256": None, "preregistration_status": "P0 precedes preregistration; no score"}
+    header["dependency_sha256"] = {name: sha256(repo_path(name)) for name in (
+        "tools/research/missing_information/methods.py", "tools/research/missing_information/extract.py",
+        "tools/research/missing_information/run.py")}
+    if args.stage == "score":
+        if args.push_receipt is None:
+            parser.error("--push-receipt required before scoring")
+        receipt = freeze_gate(args.push_receipt)
+        header.update(preregistration_sha256=PREREG_HASH, freeze_commit=FREEZE_COMMIT,
+                      preregistration_status="FROZEN_AND_PUSHED_DEVELOPMENT_ONLY", push_receipt=receipt)
+    elif repo_path(PREREG).exists():
+        header.update(preregistration_sha256=sha256(repo_path(PREREG)), freeze_commit=FREEZE_COMMIT)
     write_json(args.output / "run_header.json", header)
+    if args.stage == "publish":
+        from tools.research.morning_guidance.publish import publish
+        publish(args.input, args.output, header)
+        return
+    if args.raw is None:
+        parser.error("--raw required for coverage/score")
     receipt = json.loads((args.input / "extraction_receipt.json").read_text())
     if receipt["plan_sha256"] != PLAN79_HASH or receipt["output_sha256"] != SNAPSHOT_HASH:
         raise ValueError("unexpected 79a extraction provenance")
@@ -117,9 +158,15 @@ def main(argv=None):
         raise ValueError("79a snapshot bytes changed")
     if json.loads((args.raw / "verification.json").read_text()) != receipt["verification"]:
         raise ValueError("raw export receipt mismatch")
-    result = coverage(args.input / "snapshots.jsonl", args.raw)
-    write_json(args.output / "coverage.json", {"header": header, **result})
-    print(json.dumps({k: result[k] for k in ("morning", "secondary", "all_hours")}), flush=True)
+    if args.stage == "coverage":
+        result = coverage(args.input / "snapshots.jsonl", args.raw)
+        write_json(args.output / "coverage.json", {"header": header, **result})
+        print(json.dumps({k: result[k] for k in ("morning", "secondary", "all_hours")}), flush=True)
+    else:
+        from tools.research.morning_guidance.score import score
+        result, frame = score(args.input / "snapshots.jsonl", "2026-09-21")
+        write_json(args.output / "development.json", {"header": header, **result})
+        write_json(args.output / "row_deltas.json", {"header": header, "rows": frame.to_dict(orient="records")})
 
 
 if __name__ == "__main__":
