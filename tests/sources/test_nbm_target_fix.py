@@ -168,6 +168,18 @@ def test_provenance_and_raw_values_survive_unchanged_floor():
     assert json.dumps(payload, sort_keys=True) == before
 
 
+def test_feature_diagnostic_uses_current_age_without_rewriting_parser_provenance():
+    model = TorontoHighTempModel(target_date='2026-09-17', market_id='nyc')
+    text = (FIXTURES / '20260917T07Z-KLGA.txt').read_text()
+    payload = parse_nbp_station_tmax(text, 'KLGA', '2026-09-17', fetched_at='2026-09-17T08:00:00Z')
+    payload['cycle_age_at_use_hours'] = 13.
+    before = json.dumps(payload, sort_keys=True)
+    features = model.us_guidance_features(nbm_probabilistic_tmax=payload, forecast_high=85.)
+    assert features['nbm_prob_tmax_cycle_age_hours'] == 13.
+    assert payload['raw_payload']['cycle_age_hours'] == 1.
+    assert json.dumps(payload, sort_keys=True) == before
+
+
 @pytest.mark.parametrize('fetched_at,reason', [
     ('2026-09-17T14:00:00', 'nbp_capture_time_naive'),
     ('2026-09-17T06:59:59Z', 'nbp_capture_time_before_issue'),

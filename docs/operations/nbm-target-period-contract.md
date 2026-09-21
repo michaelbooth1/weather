@@ -53,6 +53,9 @@ the NBM source-gate predictor lists. They are filter/provenance fields, not
 selectable predictors. The centrally versioned feature-row schema changes
 because its persisted diagnostic columns change; the trained NBM input list
 remains the original 15 names. Feature extraction must not mutate captured inputs.
+When capture supplies `cycle_age_at_use_hours`, the feature-row age diagnostic
+uses it; otherwise it retains the parser's original-capture age. This permits
+cross-pass reuse to record current age without rewriting frozen raw provenance.
 
 A malformed, naive or pre-issue capture timestamp raises `NBPClockError` during
 replay. The live fetch catches that specific error, returns unavailable with
