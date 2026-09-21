@@ -1,8 +1,7 @@
 # Mission 2026-09-83b — Part A: finish the parser repair
 
-**PARTIAL — parser requirements are implemented; the full suite has two
-unresolved inventory/admission-contract failures. Final focused receipts follow
-below. No failing gate was relaxed.**
+**PARTIAL — parser requirements and 550 focused checks pass; the full suite
+retains two inventory/admission-contract failures. No failing gate was relaxed.**
 
 Branch `codex/nbm-target-fix-20260921`, continued exactly from
 `e1b6639384d9f6a82608b3dee83b79dcc628eb0d`; its original master base is
@@ -57,14 +56,17 @@ Pacific standard time; that is unavailable, not permission to use a wrong period
 
 ## Checks and exclusions
 
-Required combined 83a checks: **549 passed in 13.76 seconds**. The first focused
+Final combined 83a checks: **550 passed in 25.80 seconds** at final code
+`3bb23a0c`; the earlier run before the optional use-age addition had 549 passes.
+The [final command receipt](nbm-finish-83b/verification.json) includes exact
+arguments and counts. The first focused
 test run had three new-test failures because the manifest stores extraction
 identity as JSON text; decoding it fixed the test caller. No replay, parity or
 migration implementation/gate was relaxed. Wrapper launches refused a busy
 shared lease and were retried through admission without disturbing its holder.
 
 The full suite at implementation commit `d4f82289` returned **6,100 passed,
-34 skipped, 2 failed, 923 subtests passed**, one existing NumPy/netCDF4 binary-ABI
+34 skipped, 2 failed, 923 subtests passed**, one NumPy/netCDF4 binary-ABI
 warning, in **2,748.32 seconds**. The final optional use-age preference and its
 one additional test were added afterward; the final focused receipt identifies
 that later coverage. The full suite was not silently described as an all-green
@@ -79,6 +81,20 @@ The unchanged replay, migration and parity regression tests passed in the
 combined required run. These full-suite failures keep this handback PARTIAL;
 neither the withdrawn download budget nor the accepted known-defect parity
 BLOCK is reinstated as a blocker.
+
+The full hosted CI suite at `9b56c861` includes final code `3bb23a0c`: **5,639
+passed, 496 skipped, the same two failures, 921 passed subtests**, one warning,
+in 442.21 seconds. Hosted Windows qualification and the host-load hook job both
+passed. [CI receipt](nbm-finish-83b/hosted-ci.json) links all three runs. This
+final-code full-suite result confirms the same retained blockers; it does not
+replace production-host qualification.
+
+The final admitted parity CLI returned the accepted **BLOCK**, exit 1, with
+**4/4 known defects rediscovered, 100 known blocking findings, zero unexpected
+blocking findings, zero coverage blockers, and 221 compared features**. Its
+summary and report hash are in the final command receipt; the full generated
+JSON is retained locally at `scratch/83b-parity/train-serve-feature-parity.json`.
+Compilation, agent-doc audit and generated-roadmap check all passed.
 
 No candidate, fit, retirement, re-score, forecast-skill claim, outcome read,
 floor change, gate relaxation, artifact write, paid-provider request, credential
@@ -95,8 +111,9 @@ failures. [Roll tool output](nbm-finish-83b/roll-verdict.txt) is
 absent. The [per-file inventory](nbm-finish-83b/roll-inventory.json) leaves
 closure memberships null. Treat this branch as roll-sensitive and obtain the
 production host's own verdict and bounded suite before quiet-window adoption.
-The three completed mission pytest basetemp directories were removed after
-retaining receipts; source fixtures and archived weather bytes remain intact.
+The completed mission pytest basetemp directories (`C:/tmp/83ba1`, `83ba2`,
+`83ba3` and `83baf`) were removed after retaining receipts; source fixtures and
+archived weather bytes remain intact.
 
 From this branch's worktree in PowerShell, use the project interpreter and the
 repository-owned wrapper. Supply fresh, short `--basetemp` paths and remove only
