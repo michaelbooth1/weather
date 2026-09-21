@@ -1,0 +1,134 @@
+{
+  "mission": "2026-09-83d",
+  "interpreter": "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+  "heavy_wrapper": "scripts/ops/workstation_heavy.ps1",
+  "admission_profile": "workstation_offline_v1",
+  "layers": [
+    {
+      "layer": 2,
+      "tested_tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+      "compileall": {
+        "exit_code": 0,
+        "arguments": [
+          "-m",
+          "compileall",
+          "-q",
+          "app",
+          "src",
+          "tests",
+          "tools/research"
+        ]
+      },
+      "docs_audit": {
+        "exit_code": 0,
+        "agent_files": 18,
+        "markdown_files": 907
+      },
+      "roadmap_check": {
+        "exit_code": 0
+      },
+      "roll": {
+        "exit_code": 1,
+        "verdict": "UNDECIDABLE: no live closure evidence",
+        "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+        "retained_output": "roll-layer-2.txt",
+        "original_local_output_sha256": "9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0",
+        "line_endings_note": "Hash covers the original local CRLF output; Git normalizes the retained text to LF."
+      }
+    },
+    {
+      "layer": 3,
+      "tested_tip": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69",
+      "compileall": {
+        "exit_code": 0,
+        "arguments": [
+          "-m",
+          "compileall",
+          "-q",
+          "app",
+          "src",
+          "tests",
+          "tools/research"
+        ]
+      },
+      "docs_audit": {
+        "exit_code": 0,
+        "agent_files": 18,
+        "markdown_files": 909
+      },
+      "roadmap_check": {
+        "exit_code": 0
+      },
+      "roll": {
+        "exit_code": 1,
+        "verdict": "UNDECIDABLE: no live closure evidence",
+        "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+        "retained_output": "roll-layer-3.txt",
+        "original_local_output_sha256": "9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0",
+        "line_endings_note": "Hash covers the original local CRLF output; Git normalizes the retained text to LF."
+      }
+    }
+  ],
+  "docs_command": [
+    "-m",
+    "weather.operations.agent_docs_audit"
+  ],
+  "roadmap_command": [
+    "-m",
+    "weather.reporting.roadmap.roadmap_backlog",
+    "--fail-on-lint",
+    "--check"
+  ],
+  "roll_command": "scripts/ops/roll_verdict.ps1 -Branch <layer-branch> -Base origin/master",
+  "parity_arguments": [
+    "-m",
+    "weather.reporting.scorecards.train_serve_feature_parity",
+    "--input",
+    "tests/fixtures/train_serve_feature_parity_known_defects_v0.1.json",
+    "--run-root",
+    "scratch/83d-parity"
+  ],
+  "administrative_attempts": [
+    "The first two lightweight documentation commands could not start the project interpreter in the sandbox. They did not execute; approved host reruns passed.",
+    "A missing optional local stdout file caused the first hash collection attempt to error. Native wrapper child output bypasses Tee-Object. No local stdout log is claimed; completed suite receipts use the console transcript and JUnit files.",
+    "Layer-3 receipt JSON parsing initially encountered sandbox Git warnings prepended to the JSON. Reading JUnit separately succeeded; its data and the test result did not change."
+  ],
+  "source_refs_after_fetch": [
+    {
+      "ref": "origin/codex/integrate-1-research-20260921",
+      "sha": "c04200081e87b4607c149cb502ce34b4ad7410cf"
+    },
+    {
+      "ref": "origin/codex/integrate-2-parser-20260921",
+      "sha": "abd648c7c2de55289e88dc7d023136b981e2cb74"
+    },
+    {
+      "ref": "origin/codex/integrate-3-reuse-20260921",
+      "sha": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69"
+    },
+    {
+      "ref": "origin/codex/missing-information-checks-20260921",
+      "sha": "7a78ff1b56c11c0ad90800ce0433b2ad44901488"
+    },
+    {
+      "ref": "origin/codex/morning-guidance-candidate-20260921",
+      "sha": "7edd82ebb37bdc423fd7978a4b64344a833f07c1"
+    },
+    {
+      "ref": "origin/codex/nbm-target-fix-20260921",
+      "sha": "2e17ce0eba891b028a968ac45895d3c203ea7dda"
+    },
+    {
+      "ref": "origin/codex/nbm-target-trace-20260921",
+      "sha": "2e84063668f71bb54d4c4a07a1cced8091a450bd"
+    },
+    {
+      "ref": "origin/codex/nbp-bulletin-reuse-20260921",
+      "sha": "62e8ff04442a9ae81a47d008fcb86c5a59d56b34"
+    },
+    {
+      "ref": "origin/master",
+      "sha": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9"
+    }
+  ]
+}

@@ -210,3 +210,157 @@ Invoke-83c weather_heavy @('-m','tools.research.nbm_target_fix','reuse-cost','--
 $temp = 'C:/tmp/83c-' + [guid]::NewGuid().ToString('N').Substring(0,6)
 Invoke-83c pytest @('-m','pytest','-q','tests/collection/test_nbp_cycle_reuse.py','tests/operations/test_storage_classes.py','tests/sources/test_nbm_target_fix.py','tests/operations/test_codex_host_load_hook.py','tests/operations/test_workload_admission_script.py','tests/operations/test_research_harness.py','--basetemp',$temp)
 ```
+
+## 2026-09-21 — mission 83d: historical parser binding
+
+**Layer 1: READY FOR HOST QUALIFICATION, unchanged from the accepted 83c
+handback and frozen at `c04200081e87b4607c149cb502ce34b4ad7410cf`.**
+
+**Layer 2: READY FOR HOST QUALIFICATION.**
+
+**Layer 3: READY FOR HOST QUALIFICATION.**
+
+Executed the 83d handoff at `74e407e9e926928bb3c709729e759f81b9238cd2`.
+The full workstation runs were deferred for mission 84b's explicit priority.
+This appendix supersedes the layer-2/3 collection-blocker verdict above;
+the original 83c text and receipts remain intact.
+
+### Commits and qualification
+
+| Layer | Implementation tip and exact full-suite commit | Workstation full suite |
+| --- | --- | --- |
+| 2, `codex/integrate-2-parser-20260921` | `abd648c7c2de55289e88dc7d023136b981e2cb74` | 6,163 passed, 34 skipped, 923 subtests passed; 1 warning; 2,787.00 seconds |
+| 3, `codex/integrate-3-reuse-20260921` | `f66dc1c5de96a603f0e508a0a55d3b24dee7cf69` | 6,191 passed, 34 skipped, 923 subtests passed; 1 warning; 2,846.19 seconds |
+
+Layer 3's subsequent report commit adds only this appendix and its retained
+receipts; PR 81 and the final handback identify that published documentation
+tip separately. Neither full-suite claim is attributed to an untested commit.
+The earlier pushed tips `c6c58155f` and `19e99a683` remain ancestors. Layer 2
+was merged into layer 3 twice with merge commits; no history was rewritten.
+
+Both full suites exited 0, with zero failures and errors. JUnit reports
+7,120 cases for layer 2 and 7,148 for layer 3, including subtests and skips.
+Both fresh full-suite temporary directories were deleted. Compileall,
+documentation audit and roadmap check passed at both implementation tips.
+Both parity runs retained the accepted **BLOCK: 4/4 known defects, zero
+unexpected blockers, zero coverage blockers**.
+
+Retained receipts bind the results to their exact commits:
+[full suites](guidance-integrate-83d/full-suite.json),
+[trace reproduction](guidance-integrate-83d/trace-reproduction.json),
+[parity](guidance-integrate-83d/parity.json),
+[other workstation checks](guidance-integrate-83d/checks.json),
+[hosted CI](guidance-integrate-83d/ci.json), and
+[the interrupted attempt](guidance-integrate-83d/interrupted-layer-2.json).
+The full-suite receipts include the SHA-256 of each local JUnit file;
+the CI receipt includes the source run URLs and retained local log hashes.
+
+Correction to the 83c reproduction note above: the parity CLI returns **2**
+for `BLOCK`, not 1. The 83d wrapper commands explicitly propagate that code.
+The accepted contract remains four of four known defects, zero unexpected
+blockers and zero coverage blockers; no `--proof-mode` flag or gate change
+was used to turn the diagnostic green.
+
+Hosted CI at the implementation tips is also green: layer 2 **5,701 passed,
+496 skipped, 921 subtests passed** in 465.86 seconds; layer 3 **5,729 passed,
+496 skipped, 921 subtests passed** in 404.91 seconds. Each emitted one existing
+NumPy/netCDF binary-size warning. Windows native-launch qualification passed
+on both tips; the layer-2 hook jobs passed on Ubuntu and Windows.
+
+### The 396-row result
+
+**396 of 396 rows reproduce exactly: 132 retained blocks, each at offsets
+-1/0/+1, with zero differences across all eight parser-derived columns.**
+The focused trace file passed all **9 tests in 0.68 seconds** before the
+admission-test-only follow-up. The full suites include those same tests.
+
+`t1_parser_pick` is the parser-only part of T1. It visibly calls both
+`parse_nbp_station_tmax_v1` and `_slot_index_for_target_v1`; T1 uses that
+helper without changing the observation join or output-column order. The
+README identifies v1 as the rule in production when 82a ran. The live parser
+default remains v2, and neither v1 function was edited.
+
+The test compares `chosen_group`, `chosen_token`, `valid_time_utc`,
+`period_kind`, `period_date`, `p50`, `reason` and `classification` with the
+retained `picks.csv`. Classification uses availability and the selected
+token's period kind/date, exactly as T1 does; observed temperatures are not
+used. Calls to `observations`, `fetch`, the study stage and HTTP requests are
+trapped. No study stage was rerun and no retained evidence was regenerated.
+
+The separate retained 13Z KLGA control, for local issue date 2026-09-17,
+returns group 0, token 0, valid time `2026-09-18T12:00:00+00:00`, minimum
+period dated 2026-09-18, p50 72.0 and classification `wrong`. Calls to the v2
+default are trapped. Existing trace tests were left unchanged.
+
+### Every newly observed failure and its disposition
+
+After collection was repaired, both first hosted full suites exposed
+`tests/operations/test_missing_information_admission.py::test_only_exact_research_module_added_to_admission`.
+Its expected list retained three research module names; the approved merged
+allowlist contains four, including `tools.research.nbm_target_fix`.
+
+| Initial hosted tip | Result |
+| --- | --- |
+| Layer 2 `b18250dc56af87d9b7f245a08ee42034cec82dd8` | 1 failed, 5,700 passed, 496 skipped, 921 subtests passed; 452.66 seconds |
+| Layer 3 `bc2e15c689e6b808699956666dcca538fa4230a6` | 1 failed, 5,728 passed, 496 skipped, 921 subtests passed; 325.76 seconds |
+
+83a section 5 owns the exact-module allowlist in the hook and PowerShell
+admission script **and their tests**. This test directly asserts that list,
+so the repair adds only the already-approved fourth exact name. The assertion
+still rejects every additional entry; no wildcard, prefix or production
+allowlist change was introduced. The green hosted reruns above verify the
+repair. Both first hosted runs also emitted the same one NumPy/netCDF warning.
+
+Neither completed workstation full suite reported a failing test or an
+error. Both emitted one existing warning in
+`TestReanalysisSynoptic::test_load_pressure_level_daily_metrics_reads_cached_netcdf4`:
+NumPy reported an ndarray binary-size mismatch (expected 16 bytes from the
+C header, got 96 from the Python object). The same warning appeared in hosted
+CI; no new warning repair or dependency change was made.
+
+The first local layer-2 full-suite attempt was deliberately interrupted at
+37% when priority mission 84b announced another change requiring verification
+after its previously completed compile check. No failing test was reported
+before interruption. The executor returned 1, and no JUnit file was written;
+this is an incomplete run, not a full-suite result. Console output remains
+in the task transcript. Hashing the intended local stdout log exposed that
+the wrapper's child output bypassed `Tee-Object`; that file was not created.
+Completed-suite counts are instead retained from the console and JUnit receipts.
+A later receipt-parsing attempt also needed a retry because sandbox Git
+warnings prefixed the JSON output; reading JUnit separately resolved it.
+The owned pytest process was confirmed gone and `C:/tmp/83d2f` was removed.
+The complete retry uses a different fresh temporary root and separate receipts.
+
+The first sandboxed attempts to start the two lightweight documentation
+commands could not launch the project interpreter. Approved host execution
+then ran both successfully; those attempts did not execute the checks.
+
+### Roll and exclusions
+
+At both implementation tips, the repository roll tool returned
+**UNDECIDABLE: no live closure evidence** (exit 1). It reports the same four
+missing supervisor status files as 83c. Its exact output is retained for
+[layer 2](guidance-integrate-83d/roll-layer-2.txt) and
+[layer 3](guidance-integrate-83d/roll-layer-3.txt). No roll-free or production
+adoption verdict is inferred; the production host must obtain its own verdict.
+
+Layer 1 and all five source branches retain the hashes recorded above. No
+candidate was proposed or scored; no model was fitted, retired, promoted or
+re-scored. No outcome read occurred. No observed-high floor or parity/replay/migration
+gate was weakened.
+Nothing under `artifacts/` or the retained trace evidence changed. No weather
+request, production or mirror write, Scheduler operation, credential access,
+exchange call, or master merge/push occurred. Missions 80b and 84a/84b were
+not merged into either integration branch. Both integration branches were
+pushed and the existing draft PRs 80 and 81 updated.
+
+### Reproduction of this follow-up
+
+Use the workstation interpreter and `Invoke-83c` wrapper helper defined in
+the reproduction section above, from each integration worktree. This mission
+ran the full suite with a fresh `--basetemp` and `--junitxml`; the focused
+check is `pytest -q tests/reporting/test_nbm_target_trace.py` through the same
+wrapper. Compileall covered `app src tests tools/research`. Documentation
+audit, roadmap `--fail-on-lint --check`, the same known-defect parity input,
+and `roll_verdict.ps1 -Branch <layer-branch> -Base origin/master` completed
+the checks. Do not rerun the historical 82a stages to verify this repair.
