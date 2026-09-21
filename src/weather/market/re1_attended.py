@@ -78,7 +78,10 @@ True touch remains a separate submit safety check. Plain mid is sensitivity.
         raise HoldEnd('reward_minimum')
     if minimum <= 0 or maximum <= 0 or rate < 40:
         raise HoldEnd('reward_rate_or_terms')
-    yb, ya, nb, na = [_levels(values[k]) for k in ('yes_bids', 'yes_asks', 'no_bids', 'no_asks')]
+    sides = ('yes_bids', 'yes_asks', 'no_bids', 'no_asks')
+    if any(not values[k] for k in sides):
+        raise HoldEnd('one_sided_book')
+    yb, ya, nb, na = [_levels(values[k]) for k in sides]
     for bids, asks in ((yb, ya), (nb, na)):
         if max(p for p, _ in bids) >= min(p for p, _ in asks):
             raise HoldEnd('crossed_book')
@@ -188,7 +191,7 @@ class Session:
             raise HoldEnd('heartbeat_stale')
         self.check_fills()
 
-    def check_fills(self):
+    def check_fills(self, *, canceling=None):
         events = self.venue.events()
         if events:
             self.journal.record('user_events', rows=events)
@@ -200,12 +203,16 @@ class Session:
                     number(event.get('size_matched', 0)) > 0):
                 self.fill_seen = True
                 raise HoldEnd('fill')
+
         for oid in self.active:
             row = self.venue.order(oid)
             if number(row['size_matched']) > 0 or row.get('associate_trades'):
                 self.journal.record('fill', order=row, trades=self.venue.trades())
                 self.fill_seen = True
                 raise HoldEnd('fill')
+            if oid != canceling and str(row.get('status', '')).upper() != 'LIVE':
+                self.evidence_failed = True
+                raise HoldEnd('order_no_longer_resting')
 
     def submit(self, leg, price, *, side='BUY', size=SIZE, post_only=True, order_type='GTD'):
         """The sole sign/submit boundary. No CLI/config can widen these limits."""
@@ -239,6 +246,7 @@ class Session:
         if (snapshot['condition_id'] != self.condition or tuple(snapshot['token_ids']) != self.tokens or
                 not 0 <= (utc(self.clock.now()) - utc(snapshot['observed_at_utc'])).total_seconds() <= 10):
             raise HoldEnd('fresh_book_scope')
+        self.journal.record('submit_market_snapshot', snapshot=snapshot)
         values = snapshot['quote_inputs']
         if number(values['reward_min_size']) != SIZE or number(values['reward_rate_per_day']) < 40:
             raise HoldEnd('reward_terms')
@@ -270,7 +278,7 @@ class Session:
         response = self.call('cancel', lambda: self.venue.cancel(oid), order_id=oid)
         if oid not in _cancel_ack_ids(response):
             raise HoldEnd('cancel_acknowledgment')
-        self.check_fills()  # includes fills racing cancellation
+        self.check_fills(canceling=oid)  # includes fills racing cancellation
         remaining = self.call('open_orders', self.venue.open_orders)
         if any(_order_id(row) == oid for row in remaining):
             raise HoldEnd('cancel_not_terminal')
@@ -368,9 +376,10 @@ class Session:
                 self.control()
                 if self.clock.monotonic() >= next_minute:
                     snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
-                    observation = observe(snapshot, self.prices)
+                    self.journal.record('market_snapshot', snapshot=snapshot)
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
+                    observation = observe(snapshot, self.prices)
                     if self.clock.monotonic() >= next_accrual:
                         scoring = self.call('scoring', lambda: self.venue.scoring(list(self.active)))
                         self.scoring_seen |= len(scoring) == 2 and all(v is True for v in scoring.values())
@@ -404,6 +413,7 @@ class Session:
             reason = exc.reason
         except BaseException as exc:
             reason, failure = 'interrupted' if isinstance(exc, KeyboardInterrupt) else 'exception', type(exc).__name__
+            self.evidence_failed = True
         finally:
             self.cleanup()
             atexit.unregister(self.cleanup)

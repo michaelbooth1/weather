@@ -119,3 +119,27 @@ def test_collection_sdk_transport_refuses_every_non_get(monkeypatch):
         for method, path in [('POST', '/order'), ('DELETE', '/cancel-all'), ('POST', '/orders-scoring')]:
             with pytest.raises(RuntimeError, match='collection_is_read_only'):
                 hook(httpx.Request(method, transport.HOST + path))
+
+
+def test_sdk_request_and_response_times_are_journaled_without_auth():
+    client, http, _ = sdk_fixture()
+    venue = object.__new__(OwnerVenue)
+    venue.client = client
+    records = []
+    venue.set_journal(SimpleNamespace(record=lambda event, **fields: records.append((event, fields))))
+    try:
+        venue.accrual('2026-09-21')
+        assert records[0][0] == 'sdk_request' and records[1][0] == 'sdk_response'
+        assert records[0][1] == {'method': 'GET', 'path': '/rewards/user'}
+        assert all('headers' not in row for _, row in records)
+    finally:
+        http.close()
+
+
+def test_post_signing_book_is_retained_before_post():
+    venue, request, _, _, _ = fixture()
+    records = []
+    venue.journal = SimpleNamespace(record=lambda event, **fields: records.append((event, fields)))
+    assert venue.submit(request, checkpoint=lambda: None)['ok']
+    assert records[0][0] == 'signed_order_book'
+    assert records[0][1]['book']['token_id'] == request['token_id']

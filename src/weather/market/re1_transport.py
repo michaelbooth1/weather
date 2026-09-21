@@ -207,6 +207,10 @@ class OwnerVenue:
 
     def set_journal(self, journal):
         self.journal = journal
+        def sent(request):
+            # Exact send time, with no inspection of auth headers or signed
+            # request bodies. The controller records the unsigned order.
+            journal.record('sdk_request', method=request.method, path=request.url.path)
         def retain(response):
             raw = response.read()
             if len(raw) > 2_000_000:
@@ -214,6 +218,7 @@ class OwnerVenue:
             journal.record('sdk_response', method=response.request.method,
                            path=response.url.path, status=response.status_code,
                            response=json.loads(raw))
+        self.client._ctx.secure_clob._client.event_hooks['request'].append(sent)
         self.client._ctx.secure_clob._client.event_hooks['response'].append(retain)
 
     def start(self):
@@ -285,6 +290,8 @@ class OwnerVenue:
         # Signing can fetch SDK metadata. Re-read the actual token ask after
         # signing so those reads cannot make the submit-time touch stale.
         book = _plain_sdk_value(self.client.get_order_book(token_id=request['token_id']))
+        if hasattr(self, 'journal'):
+            self.journal.record('signed_order_book', book=book)
         if (book['token_id'] != request['token_id'] or book['market'] != self.condition or
                 not book['asks'] or number(request['price']) >= min(number(r['price']) for r in book['asks'])):
             raise RuntimeError('signed_order_fresh_ask')

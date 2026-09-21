@@ -75,6 +75,11 @@ def test_end_conditions_cancel_every_order(tmp_path, cause):
     assert result['minute_samples'] <= 1
     assert all(row['side'] == 'BUY' for row in venue.calls)
     if cause == 'fill': assert result['fill_seen']
+    if cause in {'minimum', 'rate'}:
+        assert result['reward_terms_changed']
+        records = [json.loads(line) for line in session.journal.path.read_text().splitlines()]
+        assert any(row['event'] == 'market_snapshot' for row in records)
+    if cause == 'one_sided': assert result['reason'] == 'one_sided_book'
 
 
 @pytest.mark.parametrize('exception', [RuntimeError, KeyboardInterrupt])
@@ -101,7 +106,12 @@ def test_single_submit_boundary_refuses_hard_limit(tmp_path, monkeypatch, change
     if change == 'type': kwargs['order_type'] = 'GTC'
     if change == 'host': venue.host = 'https://example.invalid'
     if change == 'price': session.prices[0] = Decimal('.16')
-    if change == 'ask': session.prices[0] = Decimal('.35')
+    if change == 'ask':
+        price = session.prices[0]
+        inputs = venue.memory.public_input['quote_inputs']
+        for name, level in [('yes_bids', price - Decimal('.02')), ('yes_asks', price),
+                            ('no_bids', 1 - price), ('no_asks', 1 - price + Decimal('.02'))]:
+            inputs[name] = [{'price': str(level), 'size': '100'}]
     if change == 'eleventh': session.submits = 10
     if change == 'third':
         session.submit(0, session.prices[0]); session.submit(1, session.prices[1])
@@ -114,8 +124,9 @@ def test_single_submit_boundary_refuses_hard_limit(tmp_path, monkeypatch, change
     if change == 'proxy': monkeypatch.setenv('HTTPS_PROXY', 'http://example.invalid')
     if change == 'minimum_not_twenty': venue.memory.public_input['quote_inputs']['reward_min_size'] = '19'
     count = len(venue.calls)
-    with pytest.raises((HoldEnd, RuntimeError)):
+    with pytest.raises((HoldEnd, RuntimeError)) as refused:
         session.submit(0, session.prices[0], **kwargs)
+    if change == 'ask': assert refused.value.reason == 'fresh_ask'
     assert len(venue.calls) == count
     session.cleanup(); session.journal.close()
     assert not venue.open_orders()
@@ -248,3 +259,15 @@ def test_lost_submit_ack_checks_inventory_and_marks_incomplete(tmp_path):
     result = session.run()
     assert result['fill_seen'] and not result['evidence_complete']
     assert result['cleanup_ok'] and not venue.open_orders() and len(venue.calls) == 1
+
+
+def test_external_cancellation_stops_resting_minute_credit(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    def events():
+        if clock.seconds >= 30: venue.cancel_all()
+        return []
+    venue.events = events
+    result = session.run(rehearsal_seconds=120)
+    assert result['reason'] == 'order_no_longer_resting'
+    assert result['minute_samples'] == 1 and not result['evidence_complete']
+    assert result['cleanup_ok'] and not venue.open_orders()

@@ -17,7 +17,9 @@ from weather.paths import REPO_ROOT
 
 def campaign_root():
     # Fixed across worktrees, tips and CLI invocations. No override for live.
-    return Path.home() / '.weather-re1m-20260921'
+    if os.name != 'nt': raise RuntimeError('campaign_requires_windows_token')
+    from weather.market.live_sdk_overlay import _windows_token_profile_root
+    return _windows_token_profile_root() / '.weather-re1m-20260921'
 
 
 @contextmanager
@@ -155,6 +157,7 @@ def payout_verdict(prediction, accrual, payment_evidence=None):
             paid = number(payment['actual_liquidity_reward_usdc'])
     k = paid / p if paid is not None and p > 0 else None
     adequate = (prediction['mode'] == 'live' and prediction['evidence_complete'] and prediction['cleanup_ok'] and
+                prediction.get('failure_type') is None and
                 prediction['scoring_seen'] and not prediction['reward_terms_changed'] and
                 prediction['visible_two_sided_minutes'] >= 180)
     decision = 'INCONCLUSIVE'

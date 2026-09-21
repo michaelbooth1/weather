@@ -1,6 +1,7 @@
 """Persistent attempt limits and frozen evidence are independent of CLI flags."""
 from datetime import timedelta
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +10,7 @@ from tests.market.test_re1_attended import setup
 from tests.market.test_mm_paid_incentive_reconciliation import evidence_fixture, add_payment, MAKER, CONDITION
 from weather.market.mm_stage2_hold import write_new
 from weather.market.re1_attended import SecretGuard
-from weather.market.re1_evidence import load_prediction, reserve_attempt, payout_verdict
+from weather.market.re1_evidence import campaign_root, load_prediction, reserve_attempt, payout_verdict
 from weather.market.re1_attended_cli import parser, run_collect, confirmation
 from weather.market.re1_transport import load_owner_credentials, OwnerVenue
 
@@ -116,3 +117,23 @@ def test_accrual_keeps_candidate_assets_and_uses_reported_rate():
     assert len(result['earnings_by_asset']) == 2 and result['paid'] is None
     with pytest.raises(ValueError, match='duplicate'):
         payout_verdict(prediction, {'rows': rows + rows[:1]})
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='actual Windows token profile contract')
+def test_campaign_root_cannot_be_redirected_by_environment(monkeypatch, tmp_path):
+    actual = campaign_root()
+    monkeypatch.setenv('USERPROFILE', str(tmp_path / 'other-profile'))
+    monkeypatch.setenv('HOME', str(tmp_path / 'other-home'))
+    monkeypatch.setenv('HOMEDRIVE', 'Z:')
+    monkeypatch.setenv('HOMEPATH', '\\other-profile')
+    assert campaign_root() == actual
+    assert actual.name == '.weather-re1m-20260921'
+
+
+def test_unexpected_failure_cannot_qualify_paid_result():
+    prediction = {'P_many': 2, 'mode': 'live', 'evidence_complete': True, 'cleanup_ok': True, 'scoring_seen': True,
+        'failure_type': 'ConnectionError', 'reward_terms_changed': False, 'visible_two_sided_minutes': 200,
+        'condition_id': CONDITION, 'scope': {'maker_address': MAKER}, 'reward_day': '2026-09-01'}
+    evidence = evidence_fixture()
+    add_payment(evidence, programme='liquidity_reward', amount='1')
+    assert payout_verdict(prediction, {'rows': []}, evidence)['verdict'] == 'INCONCLUSIVE'
