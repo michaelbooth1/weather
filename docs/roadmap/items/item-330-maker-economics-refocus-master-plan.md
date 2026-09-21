@@ -2,6 +2,18 @@
 
 ## September 19 reward-pool measurement, authored studies and open owner decisions
 
+**Mission 09-80b implementation (2026-09-21): inert, workstation suite qualified.**
+The two-token controller, profile-bound sealing path and offline paid-versus-
+predicted evidence readers are implemented. No paid-reward evidence or live
+authority is created. The [decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
+owns the dedicated-wallet default, acknowledged cancel-all plus unchanged
+10–15-second backstop, and proposed cumulative RE-1A treatment. The frozen
+selection, prediction formula and verdict table are unchanged.
+The [80b handback](../agent-report-2026-09-80b-workstation-finish-the-resting-quote-session.md)
+owns the zero-failure full-suite counts, retained public-book rehearsals and
+production roll-verdict limitation. Production adoption and live authorization
+remain separate, unperformed steps.
+
 No status change: non-live implementation continues and economic proof is
 open. **No live trading is authorized.** Nothing below is a result about our
 own account.

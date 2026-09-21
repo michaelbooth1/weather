@@ -523,6 +523,36 @@ function Get-WeatherExecutionHostAssignment {
         "schema_version"
     ) | Sort-Object
     $observedNames = @($assignment.PSObject.Properties.Name | Sort-Object)
+    $grantName = "stage2_hold_owner_authorization"
+    if ($observedNames -ccontains $grantName) {
+        $expectedNames = @($expectedNames + $grantName | Sort-Object)
+        $grant = $assignment.$grantName
+        $grantNames = @("authorized_on", "expires_at_utc", "profile_id", "profile_sha256")
+        $grantDate = [datetime]::MinValue
+        $grantExpiry = [DateTimeOffset]::MinValue
+        if (
+            $assignment.assignment_status -cne "ASSIGNED" -or
+            $null -eq $grant -or
+            @($grant.PSObject.Properties.Name).Count -ne 4 -or
+            @(Compare-Object $grantNames @($grant.PSObject.Properties.Name) -CaseSensitive).Count -ne 0 -or
+            $grant.profile_id -cne "stage2_hold_v1" -or
+            $grant.profile_sha256 -isnot [string] -or
+            $grant.profile_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+            $grant.authorized_on -isnot [string] -or
+            -not [datetime]::TryParseExact($grant.authorized_on, "yyyy-MM-dd",
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::None, [ref]$grantDate) -or
+            $grant.expires_at_utc -isnot [string] -or
+            $grant.expires_at_utc -cnotmatch '(?:Z|[+-][0-9]{2}:[0-9]{2})\z' -or
+            -not [DateTimeOffset]::TryParse($grant.expires_at_utc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind, [ref]$grantExpiry)
+        ) {
+            throw "Stage 2 grant schema is invalid"
+        }
+        # Shape only. Python sealing and every submit validate both dated grants
+        # against the immutable profile; this reader grants no trading authority.
+    }
     $schemaVersion = $assignment.schema_version
     $assignmentStatus = $assignment.assignment_status
     $dedicatedHostId = $assignment.dedicated_capture_execution_host_id
@@ -1376,7 +1406,7 @@ function Enter-WeatherHeavyWorkloadLease {
         if (
             $Workload.Length -gt 96 -or
             $Workload -cnotmatch (
-                '\AInternationalLive-(?:stage0|stage1_cancel_all|stage1_dead_man)-' +
+                '\AInternationalLive-(?:stage0|stage1_cancel_all|stage1_dead_man|stage2_hold)-' +
                 '[A-Za-z0-9._-]+-[0-9a-f]{12}\z'
             )
         ) {

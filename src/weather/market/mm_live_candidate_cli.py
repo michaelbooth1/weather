@@ -34,6 +34,7 @@ from weather.market.market_config import ensure_date
 from weather.market.market_microstructure_capture import ClobClient
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.mm_policy import utc_now
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.operations.live_path_security import (
     assert_no_ambient_market_registry_override,
     validate_nonreparse_directory,
@@ -47,7 +48,7 @@ RUN_SCHEMA_VERSION = schema_version("mm_run")
 QUOTE_SCHEMA_VERSION = schema_version("mm_quote_intent")
 PLATFORM = "polymarket_global"
 SETTLEMENT_UNIT = "pUSD"
-MAX_SINGLE_ORDER_NOTIONAL = Decimal("10")
+MAX_SINGLE_ORDER_NOTIONAL = Decimal(STAGE1_V1.per_order_pusd)
 MIN_MIDPOINT = Decimal("0.20")
 MAX_MIDPOINT = Decimal("0.80")
 MAX_BOOK_SPREAD = Decimal("0.05")
@@ -55,10 +56,10 @@ MAX_ALTERNATES = 5
 MAX_PLAN_AGE_SECONDS = 300
 MAX_PAPER_QUOTE_TTL_SECONDS = 600
 MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS = 600
-MAX_OPERATOR_PILOT_BUDGET_PUSD = Decimal("100")
-MAX_DAILY_LOSS_PUSD = Decimal("25")
-MAX_EVENT_NOTIONAL_PUSD = Decimal("25")
-MAX_BAND_NOTIONAL_PUSD = Decimal("10")
+MAX_OPERATOR_PILOT_BUDGET_PUSD = Decimal(STAGE1_V1.wallet_pusd)
+MAX_DAILY_LOSS_PUSD = Decimal(STAGE1_V1.daily_loss_pusd)
+MAX_EVENT_NOTIONAL_PUSD = Decimal(STAGE1_V1.per_event_pusd)
+MAX_BAND_NOTIONAL_PUSD = Decimal(STAGE1_V1.per_band_pusd)
 MAX_PAPER_QUOTE_SIZE = Decimal("5")
 PAPER_PROFILE = "market_harvest"
 SUBSTRATE_PREFLIGHT_SCHEMA_VERSION = schema_version(

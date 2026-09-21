@@ -18,6 +18,7 @@ from pathlib import Path
 
 from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.schema_registry import schema_version
 from weather.time import evidence_age_seconds
 
@@ -73,12 +74,12 @@ DEFAULT_POLICY_CONFIG = {
     "edge_min_advantage": 0.03,
     "edge_fee_buffer": 0.005,
     "adverse_selection_buffer": 0.01,
-    "max_event_notional": 25.0,
-    "max_band_notional": 10.0,
+    "max_event_notional": float(STAGE1_V1.per_event_pusd),
+    "max_band_notional": float(STAGE1_V1.per_band_pusd),
     "max_correlated_regime_notional_usdc": 0.0,
     "max_correlated_regime_joint_loss_usdc": 0.0,
     "correlated_regime_market_groups": "",
-    "max_daily_loss": 25.0,
+    "max_daily_loss": float(STAGE1_V1.daily_loss_pusd),
     "information_event_calendar_enabled": True,
     "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
     "event_gate_widen_buffer": 0.01,

@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from weather.paths import REPO_ROOT
+from weather.market.mm_live_envelope import STAGE1_V1, STAGE2_HOLD_V1, select_envelope
 from weather.market.mm_geographic_eligibility import (
     GeographicEligibilityError,
     validate_geographic_eligibility_receipt,
@@ -71,9 +72,9 @@ INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_invent
 EXECUTION_SCHEMA_VERSION = schema_version("international_live_fixed_scope_execution")
 REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
 MAX_RUN_WINDOW_SECONDS = 30 * 60
-MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
-FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
-FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
+MAX_OPERATOR_BUDGET_PUSD = Decimal(STAGE1_V1.wallet_pusd)
+FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal(STAGE1_V1.per_order_pusd)
+FIRST_TEST_WALLET_CAP_PUSD = Decimal(STAGE1_V1.wallet_pusd)
 REMOTE_MASTER_REF = "refs/heads/master"
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
     "codex/live-gate-provenance-20260831"
@@ -95,11 +96,12 @@ GIT_OID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 TOKEN_RE = re.compile(r"^[1-9][0-9]*$")
 WORKLOAD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
-STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
+STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man", "stage2_hold")
 PYTHON_TEMPLATE_PATHS = {
     "stage0": "scripts/ops/international_live_templates/stage0.py.tmpl",
     "stage1_cancel_all": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
     "stage1_dead_man": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
+    "stage2_hold": "scripts/ops/international_live_templates/stage2_hold.py.tmpl",
 }
 LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
@@ -153,6 +155,7 @@ LIVE_SOURCE_PATHS = {
         *STATUS_ATTESTATION_SOURCE_PATHS,
     ),
 }
+LIVE_SOURCE_PATHS['stage2_hold'] = (*LIVE_SOURCE_PATHS['stage1_dead_man'], 'docs/operations/STATE_OF_PLAY.md')
 LIVE_SOURCE_PATHS = {
     stage: tuple(
         sorted(
@@ -165,6 +168,13 @@ LIVE_SOURCE_PATHS = {
 }
 
 INPUT_LAYOUTS = {
+    "stage2_hold": {
+        "identity": "inputs/stage2-hold-identity.json",
+        "selection": "inputs/stage2-hold-selection.json",
+        "predecessors": "inputs/stage2-hold-predecessors.json",
+        "credential_import_receipt": None,
+        "credential_reference_manifest": None,
+    },
     "stage0": {
         "identity": "inputs/stage0-identity.json",
         "scope_plan": "inputs/stage0-scope-plan.json",
@@ -212,6 +222,15 @@ INPUT_LAYOUTS = {
 }
 
 OUTPUT_LAYOUTS = {
+    "stage2_hold": {
+        "python_wrapper": "wrappers/stage2-hold.py", "launcher": "wrappers/stage2-hold.ps1",
+        "doctor_receipt": "stage2-hold/doctor-yes.json", "doctor_no_receipt": "stage2-hold/doctor-no.json",
+        "geography_precredential_receipt": "stage2-hold/geography-precredential.json",
+        "result": "stage2-hold/prediction.json", "command_receipt": "stage2-hold/command-receipt.json",
+        "user_stream_journal": "stage2-hold/user-stream.jsonl", "lifecycle_journal": "stage2-hold/lifecycle.jsonl",
+        "wrapper_execution_receipt": "stage2-hold/wrapper-execution-receipt.json",
+        "seal_receipt": "seal/stage2-hold-seal-receipt.json", "seal_receipt_sidecar": "seal/stage2-hold-seal-receipt.json.sha256",
+    },
     "stage0": {
         "python_wrapper": "wrappers/stage0.py",
         "launcher": "wrappers/stage0.ps1",
@@ -1224,6 +1243,7 @@ def _validate_identity(
     *,
     requested_budget: Decimal,
     expected_reference: Mapping[str, Any],
+    envelope=STAGE1_V1,
 ) -> None:
     payload, _raw = _read_json_object(path, label="Stage 0 identity")
     from weather.market.mm_pilot_capital import pilot_capital_limit
@@ -1245,7 +1265,9 @@ def _validate_identity(
         payload.get("schema_version") != STAGE0_IDENTITY_SCHEMA_VERSION
         or payload.get("platform") != "polymarket_global"
         or wallet_cap != FIRST_TEST_WALLET_CAP_PUSD
-        or requested_budget != FIRST_TEST_REQUESTED_BUDGET_PUSD
+        or envelope not in (STAGE1_V1, STAGE2_HOLD_V1)
+        or requested_budget != (FIRST_TEST_REQUESTED_BUDGET_PUSD if envelope is STAGE1_V1 else Decimal(envelope.per_band_pusd))
+        or (envelope is STAGE2_HOLD_V1 and (payload.get('isolated_pilot_wallet') is not True or 'pilot_capital_mode' in payload))
         or requested_budget > wallet_cap
         or gate.get("ok") is not True
         or gate.get("missing") != []
@@ -1941,7 +1963,7 @@ def _render_python_wrapper(
     cancellation_mode = None
     if stage != "stage0":
         cancellation_mode = (
-            "cancel_all" if stage == "stage1_cancel_all" else "dead_man"
+            "cancel_all" if stage in ("stage1_cancel_all", "stage2_hold") else "dead_man"
         )
         rendered = _replace_once(
             rendered,
@@ -1971,12 +1993,27 @@ def _render_python_wrapper(
     if stage == "stage0":
         if "live_cli.run_stage0(" not in rendered or "live_cli.run_stage1(" in rendered:
             raise SealError("generated Stage 0 wrapper crossed its stage boundary")
+    elif stage == 'stage2_hold':
+        if ('stage2_entry.run_sealed_hold(' not in rendered or 'live_cli.run_stage1(' in rendered
+                or 'live_cli.run_stage0(' in rendered or "CANCELLATION_MODE = 'cancel_all'" not in rendered):
+            raise SealError('generated Stage 2 wrapper crossed its stage boundary')
     else:
+        # Every repository Python file is hash-bound, including inert Stage 2
+        # modules. Their names in this literal inventory are not an executable
+        # Stage 2 surface. Keep the refusal on every other rendered byte.
+        inventory_nodes = [node for node in tree.body if isinstance(node, ast.Assign)
+                           and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                           and node.targets[0].id == "SOURCE_SHA256"]
+        if len(inventory_nodes) != 1 or ast.literal_eval(inventory_nodes[0].value) != dict(source_sha256):
+            raise SealError("generated source inventory is not an exact literal")
+        inventory = inventory_nodes[0]
+        executable_text = "\n".join(line for number, line in enumerate(rendered.splitlines(), 1)
+                                    if not inventory.lineno <= number <= inventory.end_lineno)
         if (
             "live_cli.run_stage1(" not in rendered
             or f"CANCELLATION_MODE = {cancellation_mode!r}" not in rendered
             or "live_cli.run_stage0(" in rendered
-            or "stage2" in rendered.lower()
+            or "stage2" in executable_text.lower()
         ):
             raise SealError("generated Stage 1 wrapper crossed its stage boundary")
     return rendered
@@ -2052,6 +2089,146 @@ def _write_new(path: Path, content: bytes) -> None:
         raise
 
 
+def require_stage2_scope(scope, *, root, now):
+    treatment = _require_exact_keys(scope.get('stage2'), {'profile_id', 'profile_sha256', 'selection_sha256', 'token_ids'}, label='Stage 2 scope')
+    profile = select_envelope(treatment['profile_id'], state_of_play_path=Path(root) / 'docs/operations/STATE_OF_PLAY.md',
+                              assignment_path=Path(root) / EXECUTION_HOST_ASSIGNMENT_PATH, now=now)
+    tokens = treatment['token_ids']
+    stop = _parse_aware(scope['run_not_after_local'], label='Stage 2 cutoff').astimezone(timezone.utc)
+    start = _parse_aware(scope['run_not_before_local'], label='Stage 2 start').astimezone(timezone.utc)
+    contained = stop + timedelta(seconds=STAGE2_HOLD_V1.cleanup_seconds)
+    if (profile is not STAGE2_HOLD_V1 or treatment['profile_sha256'] != profile.sha256
+            or SHA256_RE.fullmatch(str(treatment['selection_sha256'])) is None
+            or not isinstance(tokens, list) or len(tokens) != 2 or len(set(tokens)) != 2
+            or any(TOKEN_RE.fullmatch(str(t)) is None or not isinstance(t, str) for t in tokens)
+            or tokens[0] != scope['token_id'] or scope['execution_host_profile'] != PORTABLE_EXECUTION_HOST_PROFILE
+            or start.date() != contained.date() or not 0 < (stop - start).total_seconds() <= profile.session_seconds
+            or not live_time_window.portable_execution_window_is_supported(start, stop, target_date=scope['target_date'], market_timezone=scope['market_timezone'])):
+        raise SealError('Stage 2 profile, token pair, host or contained reward-day scope is invalid')
+    # Both grants must outlive the complete execution and cleanup envelope.
+    select_envelope(profile.profile_id, state_of_play_path=Path(root) / 'docs/operations/STATE_OF_PLAY.md',
+                    assignment_path=Path(root) / EXECUTION_HOST_ASSIGNMENT_PATH, now=contained)
+    return profile
+
+
+def validate_stage2_predecessors(inputs, *, scope, production, interpreter_binding, now,
+                                 attempt_root_validator=validate_private_attempt_root):
+    """Reconsume the original Stage 0/1 receipts through their canonical checker.
+
+    The YES leg requires both Stage 1 cancellation modes; the NO leg requires
+    its own Stage 0 bootstrap. Never copy a YES gate and replace its token.
+    """
+    from weather.market.mm_live_bootstrap import load_platform_bootstrap_gate
+    from weather.market.mm_live_lifecycle_probe import build_stage1_lifecycle_bundle
+    from weather.operations.international_live_session_runner import _child_execution_facts
+    payload, _ = _read_json_object(Path(inputs['predecessors']['path']), label='Stage 2 predecessors')
+    _require_exact_keys(payload, {'yes', 'no'}, label='Stage 2 predecessors')
+    gates, results, protected = [], {}, {}
+    for leg, token in zip(('yes', 'no'), scope['stage2']['token_ids']):
+        required = {'stage0', 'stage1_cancel_all', 'stage1_dead_man'} if leg == 'yes' else {'stage0'}
+        records = _require_exact_keys(payload[leg], required, label=leg + ' predecessor stages')
+        gate = None
+        for stage in sorted(required):
+            record = _require_exact_keys(records[stage], {'path', 'sha256'}, label='predecessor run')
+            run_path = validate_regular_nonreparse_file(record['path'])
+            if _sha256_file(run_path) != record['sha256']:
+                raise SealError('predecessor run changed')
+            prior_root = run_path.parent.parent
+            if (run_path != prior_root / 'session' / f'{stage}-run-receipt.json'
+                    or attempt_root_validator(prior_root).get('status') != 'PASS'):
+                raise SealError('predecessor attempt path/security differs')
+            run, _ = _read_json_object(run_path, label='predecessor run')
+            finished = _parse_aware(run.get('finished_at_local'), label='predecessor finish')
+            if (run.get('status') != 'PASS' or run.get('exit_code') != 0
+                    or not 0 <= (now - finished).total_seconds() <= 1800):
+                raise SealError('predecessor is not a fresh complete passing run')
+            seal_path = prior_root / OUTPUT_LAYOUTS[stage]['seal_receipt']
+            seal, _ = _read_json_object(seal_path, label='predecessor seal')
+            if not exact_run_lineage(run, attempt_root=prior_root, stage=stage, seal=seal,
+                                     seal_path=seal_path, sha256_file=_sha256_file):
+                raise SealError('predecessor run lineage differs')
+            manifest_path = prior_root / 'inputs' / f'{stage}-session-manifest.json'
+            manifest, _ = _read_json_object(manifest_path, label='predecessor manifest')
+            prior_inputs = {r['role']: {'path': r['path'], 'sha256': r['sha256']} for r in seal['inputs']}
+            for role in ('credential_import_receipt', 'credential_reference_manifest', 'identity'):
+                if not _same_public_evidence(prior_inputs[role], inputs[role]):
+                    raise SealError('predecessor identity/credential provenance differs')
+            for relative in set(repository_python_source_paths(Path(production['root']))) | {EXECUTION_HOST_ASSIGNMENT_PATH}:
+                expected = manifest['source_sha256'].get(relative)
+                if expected != _sha256_file(Path(production['root']) / relative):
+                    raise SealError('predecessor did not run the current reviewed source')
+            stage_scope = {**scope, 'token_id': token, 'requested_budget_pusd': float(STAGE1_V1.per_order_pusd)}
+            candidate_role = 'scope_plan' if stage == 'stage0' else 'candidate_plan'
+            loader = load_stage0_scope_gate if stage == 'stage0' else load_stage1_lifecycle_plan_gate
+            candidate = loader(prior_inputs[candidate_role]['path'], scope['target_date'], expected_token_id=token,
+                               expected_condition_id=scope['condition_id'], now=_parse_aware(seal['prepared_at_local'], label='prior seal time'))
+            expected_candidate = {'neg_risk': candidate['neg_risk'], 'semantic_plan_sha256': candidate['semantic_plan_sha256']}
+            if stage != 'stage0':
+                expected_candidate.update(intent=candidate['stage1_intent'], tick_size=candidate['tick_size'],
+                                          order_min_size=candidate['order_min_size'], fee_rate=candidate['fee_rate'])
+            lineage = {'identity': prior_inputs['identity'], 'seal_spec': seal['seal_spec'],
+                       'session_manifest': {'path': str(manifest_path), 'sha256': _sha256_file(manifest_path)},
+                       'session_manifest_sidecar': {'path': str(manifest_path) + '.sha256', 'sha256': _sha256_file(Path(str(manifest_path) + '.sha256'))}}
+            if stage != 'stage0':
+                lineage['bootstrap'] = prior_inputs['bootstrap']
+            child = _child_execution_facts(stage, prior_root, run, expected_scope=stage_scope,
+                                          expected_production=production, expected_interpreter_binding=interpreter_binding,
+                                          expected_lineage=lineage, expected_candidate_sha256=prior_inputs[candidate_role]['sha256'],
+                                          expected_candidate=expected_candidate, exit_code=run['exit_code'])
+            if child['validation'] != 'PASS' or child['status'] != 'PASS':
+                raise SealError('predecessor child evidence failed canonical validation')
+            if stage == 'stage0':
+                gate = load_platform_bootstrap_gate(prior_root / 'stage0/bootstrap.json', scope['target_date'],
+                                                    requested_budget_usdc=10, expected_token_id=token,
+                                                    expected_condition_id=scope['condition_id'], now=now)
+            else:
+                results[stage] = _read_json_object(prior_root / OUTPUT_LAYOUTS[stage]['result'], label=stage)[0]
+            execution, _ = _read_json_object(prior_root / OUTPUT_LAYOUTS[stage]['wrapper_execution_receipt'], label='prior execution')
+            retained = [run_path, seal_path, prior_root / OUTPUT_LAYOUTS[stage]['wrapper_execution_receipt']]
+            retained += [Path(r['path']) for r in (*prior_inputs.values(), *lineage.values(), *execution['artifacts'].values())]
+            retained += [Path(run[k]['path']) for k in ('wrapper', 'launcher', 'composition_receipt', 'run_intent')]
+            retained += [run_path.with_suffix(run_path.suffix + '.sha256')]
+            for path in retained:
+                validate_regular_nonreparse_file(path)
+                protected[str(path)] = _sha256_file(path)
+        if gate is None or gate.get('isolated_pilot_wallet') is not True or 'pilot_capital_mode' in gate:
+            raise SealError('each leg requires its own isolated bootstrap')
+        gates.append(gate)
+    build_stage1_lifecycle_bundle(gates[0], results['stage1_cancel_all'], results['stage1_dead_man'])
+    return {'gates': gates, 'protected_files': protected}
+
+
+def revalidate_stage2_runtime(runtime_scope, *, now=None, doctor_complete=False, stream_started=False):
+    """Re-run sealing predicates before credentials and before the two submits."""
+    current = now or datetime.now().astimezone()
+    spec_path = validate_regular_nonreparse_file(runtime_scope['seal_spec_path'])
+    if _sha256_file(spec_path) != runtime_scope['seal_spec_sha256']:
+        raise SealError('Stage 2 seal spec changed')
+    existing = {'python_wrapper', 'launcher', 'seal_receipt', 'seal_receipt_sidecar'}
+    if doctor_complete:
+        existing |= {'doctor_receipt', 'doctor_no_receipt', 'geography_precredential_receipt'}
+    if stream_started:
+        existing.add('user_stream_journal')
+    root = spec_path.parent.parent
+    seal_path = root / OUTPUT_LAYOUTS['stage2_hold']['seal_receipt']
+    receipt, _ = _read_json_object(seal_path, label='Stage 2 seal receipt')
+    sidecar = root / OUTPUT_LAYOUTS['stage2_hold']['seal_receipt_sidecar']
+    if (receipt.get('status') != 'PASS' or receipt.get('stage') != 'stage2_hold'
+            or receipt.get('seal_spec') != {'path': str(spec_path), 'sha256': _sha256_file(spec_path)}
+            or sidecar.read_text(encoding='ascii') != f'{_sha256_file(seal_path)}  {seal_path.name}\n'):
+        raise SealError('Stage 2 seal receipt or sidecar changed')
+    for role in ('wrapper', 'launcher'):
+        record = receipt[role]
+        path = validate_regular_nonreparse_file(record['path'])
+        if _sha256_file(path) != record['sha256']:
+            raise SealError('Stage 2 sealed executable changed')
+    validated = _validate_spec(spec_path, now=current, template_root=Path(receipt['templates']['python']['path']).parents[3], existing_outputs=existing)
+    if validated['stage'] != 'stage2_hold' or _runtime_scope(validated) != runtime_scope:
+        raise SealError('Stage 2 runtime scope differs from its seal')
+    _verify_git_state(validated['production'], execution_host_profile=PORTABLE_EXECUTION_HOST_PROFILE, git_runner=_default_git_runner)
+    return validated
+
+
 def _validate_spec(
     spec_path: Path,
     *,
@@ -2060,11 +2237,14 @@ def _validate_spec(
     attempt_root_validator=validate_private_attempt_root,
     capture_assignment_validator=require_current_capture_execution_assignment,
     portable_assignment_validator=require_current_portable_execution_assignment,
+    existing_outputs=(),
 ) -> dict[str, Any]:
     spec, spec_raw = _read_json_object(spec_path, label="seal spec")
     stage = str(spec.get("stage"))
     if stage not in STAGES:
         raise SealError("seal spec stage is unsupported")
+    if existing_outputs and stage != 'stage2_hold':
+        raise SealError('only Stage 2 runtime revalidation may retain sealed outputs')
     expected_spec_keys = {
         "schema_version",
         "stage",
@@ -2150,7 +2330,7 @@ def _validate_spec(
             "execution_host_id",
             "market_id",
             "market_timezone",
-        },
+        } | ({'stage2'} if stage == 'stage2_hold' else set()),
         label="scope",
     )
     try:
@@ -2162,7 +2342,10 @@ def _validate_spec(
     if CONDITION_RE.fullmatch(condition) is None or TOKEN_RE.fullmatch(token) is None:
         raise SealError("condition or token scope is invalid")
     budget = _parse_decimal(scope["requested_budget_pusd"], label="requested budget")
-    if budget != FIRST_TEST_REQUESTED_BUDGET_PUSD:
+    envelope = STAGE1_V1
+    if stage == 'stage2_hold':
+        envelope = require_stage2_scope(scope, root=root, now=now)
+    if budget != (Decimal(envelope.per_band_pusd) if stage == 'stage2_hold' else FIRST_TEST_REQUESTED_BUDGET_PUSD):
         raise SealError("first live test budget must be exactly 10 pUSD")
     prepared = _parse_aware(spec["prepared_at_local"], label="prepared_at_local")
     start = _parse_aware(scope["run_not_before_local"], label="run_not_before_local")
@@ -2173,7 +2356,7 @@ def _validate_spec(
         minutes=5
     ):
         raise SealError("prepared_at_local is not current")
-    if not start < stop or (stop - start).total_seconds() > MAX_RUN_WINDOW_SECONDS:
+    if not start < stop or (stop - start).total_seconds() > (envelope.session_seconds if stage == 'stage2_hold' else MAX_RUN_WINDOW_SECONDS):
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
     contained_end = stop + timedelta(
         seconds=live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
@@ -2311,6 +2494,7 @@ def _validate_spec(
         Path(normalized_inputs["identity"]["path"]),
         requested_budget=budget,
         expected_reference=credential_reference_payload,
+        envelope=envelope,
     )
 
     outputs = {
@@ -2324,7 +2508,7 @@ def _validate_spec(
         raise SealError("reviewed input and output paths are not distinct")
     if any(not _is_within(attempt_root, path) for path in outputs.values()):
         raise SealError("a planned output escapes the attempt root")
-    if any(path.exists() for path in outputs.values()):
+    if any(path.exists() for role, path in outputs.items() if role not in existing_outputs):
         raise SealError("every planned wrapper, receipt, sidecar, and runtime output must be new")
 
     template_hashes = _require_exact_keys(
@@ -2359,6 +2543,46 @@ def _validate_spec(
             raise SealError(f"reviewed source hash changed: {relative}")
         normalized_sources[relative] = expected
 
+    if stage == 'stage2_hold':
+        from weather.market.mm_stage2_selection import validate_selection
+        selection, _raw = _read_json_object(Path(normalized_inputs['selection']['path']), label='Stage 2 selection')
+        selected = validate_selection(selection, expected_sha256=scope['stage2']['selection_sha256'],
+                                      condition_id=condition, token_ids=scope['stage2']['token_ids'], now=now)
+        validate_stage2_predecessors(normalized_inputs, scope=scope, production=production,
+                                    interpreter_binding=interpreter_binding, now=now,
+                                    attempt_root_validator=attempt_root_validator)
+        candidate = {**selected, 'sha256': normalized_inputs['selection']['sha256']}
+    else:
+        candidate = _validate_legacy_candidate_and_lineage(
+            stage=stage, normalized_inputs=normalized_inputs, target=target, condition=condition, token=token,
+            execution_host_profile=execution_host_profile, now=now, start=start, stop=stop, scope=scope, prepared=prepared,
+            attempt_root=attempt_root, production=production, budget=budget,
+            execution_host_id=execution_host_id, interpreter_binding=interpreter_binding,
+        )
+    if (candidate['market_id'] != scope['market_id'] or candidate['market_timezone'] != scope['market_timezone']):
+        raise SealError('candidate calendar differs from reviewed scope')
+    return {
+        'spec': spec, 'spec_raw': spec_raw, 'spec_path': spec_path.resolve(), 'stage': stage,
+        'production': {**production, 'root': str(root), 'python': str(python), 'python_sha256': python_sha256,
+                       'git_executable': str(git_executable), 'git_executable_sha256': git_sha256,
+                       'pyvenv_config': str(pyvenv_config), 'pyvenv_config_sha256': pyvenv_config_sha256,
+                       'runtime_process_image': str(runtime_process_image), 'runtime_process_image_sha256': runtime_process_image_sha256,
+                       'commit': _require_git_oid(production['commit'], label='production.commit'),
+                       'tree': _require_git_oid(production['tree'], label='production.tree')},
+        'scope': {**scope, 'target_date': target.isoformat(), 'condition_id': condition, 'token_id': token,
+                  'requested_budget_pusd': float(budget), 'attempt_root': str(attempt_root),
+                  'run_not_before_local': start.isoformat(), 'run_not_after_local': stop.isoformat()},
+        'prepared_at_local': prepared.isoformat(), 'reviewed_status_flags': normalized_reviews,
+        'inputs': normalized_inputs, 'outputs': outputs,
+        'templates': {'python': {'path': str(python_template), 'sha256': _sha256_file(python_template)},
+                      'launcher': {'path': str(launcher_template), 'sha256': _sha256_file(launcher_template)}},
+        'source_sha256': normalized_sources, 'candidate': candidate, 'attempt_root_security': attempt_root_security,
+    }
+
+
+def _validate_legacy_candidate_and_lineage(*, stage, normalized_inputs, target, condition, token,
+                                          execution_host_profile, now, start, stop, scope, prepared, attempt_root,
+                                          production, budget, execution_host_id, interpreter_binding):
     candidate_role = "scope_plan" if stage == "stage0" else "candidate_plan"
     candidate_validator = (
         _validate_stage0_scope if stage == "stage0" else _validate_candidate
@@ -2452,58 +2676,7 @@ def _validate_spec(
                 interpreter_binding=interpreter_binding,
             )
 
-    return {
-        "spec": spec,
-        "spec_raw": spec_raw,
-        "spec_path": spec_path.resolve(),
-        "stage": stage,
-        "production": {
-            "root": str(root),
-            "branch": production_branch,
-            "commit": _require_git_oid(production["commit"], label="production.commit"),
-            "tree": _require_git_oid(production["tree"], label="production.tree"),
-            "python": str(python),
-            "python_sha256": python_sha256,
-            "pyvenv_config": str(pyvenv_config),
-            "pyvenv_config_sha256": pyvenv_config_sha256,
-            "runtime_process_image": str(runtime_process_image),
-            "runtime_process_image_sha256": runtime_process_image_sha256,
-            "git_executable": str(git_executable),
-            "git_executable_sha256": git_sha256,
-            "canonical_origin_url": CANONICAL_ORIGIN_URL,
-        },
-        "scope": {
-            "target_date": target.isoformat(),
-            "condition_id": condition,
-            "token_id": token,
-            "requested_budget_pusd": float(budget),
-            "run_not_before_local": start.isoformat(),
-            "run_not_after_local": stop.isoformat(),
-            "attempt_root": str(attempt_root),
-            "lease_workload": workload,
-            "execution_host_profile": execution_host_profile,
-            "execution_host_id": execution_host_id,
-            "market_id": candidate["market_id"],
-            "market_timezone": candidate["market_timezone"],
-        },
-        "prepared_at_local": prepared.isoformat(),
-        "reviewed_status_flags": normalized_reviews,
-        "inputs": normalized_inputs,
-        "outputs": outputs,
-        "templates": {
-            "python": {
-                "path": str(python_template),
-                "sha256": _sha256_file(python_template),
-            },
-            "launcher": {
-                "path": str(launcher_template),
-                "sha256": _sha256_file(launcher_template),
-            },
-        },
-        "source_sha256": normalized_sources,
-        "candidate": candidate,
-        "attempt_root_security": attempt_root_security,
-    }
+    return candidate
 
 
 def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
@@ -2566,6 +2739,16 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         "user_stream_journal_out": str(outputs["user_stream_journal"]),
         "wrapper_execution_receipt_out": str(outputs["wrapper_execution_receipt"]),
     }
+    if validated['stage'] == 'stage2_hold':
+        common.update(stage2=dict(scope['stage2']), seal_spec_path=str(validated['spec_path']),
+                      seal_spec_sha256=_sha256_bytes(validated['spec_raw']),
+                      profile_values=json.loads(STAGE2_HOLD_V1.canonical_bytes()))
+        for role, record in inputs.items():
+            common[role + '_path'] = record['path']
+            common[role + '_sha256'] = record['sha256']
+        for role, path in outputs.items():
+            common[role + '_out'] = str(path)
+        return common
     if validated["stage"] == "stage0":
         common.update(
             {
@@ -2857,7 +3040,7 @@ def seal_fixed_scope(
                 if validated["stage"] == "stage0"
                 else (
                     "cancel_all"
-                    if validated["stage"] == "stage1_cancel_all"
+                    if validated["stage"] in ("stage1_cancel_all", "stage2_hold")
                     else "dead_man"
                 )
             ),

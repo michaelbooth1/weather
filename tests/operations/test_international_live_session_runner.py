@@ -759,7 +759,7 @@ def write_execution(
     )
 
 
-@pytest.mark.parametrize("stage", sealer.STAGES)
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all", "stage1_dead_man"])
 def test_composer_accepts_only_manifest_and_fresh_candidate_for_each_stage(
     tmp_path, stage
 ):
@@ -1302,7 +1302,7 @@ def test_composer_reserves_full_cleanup_grace_before_nine(
     assert result["cooperative_cleanup_grace_seconds"] == 20
 
 
-@pytest.mark.parametrize("stage", sealer.STAGES)
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all", "stage1_dead_man"])
 @pytest.mark.parametrize(
     "current",
     [

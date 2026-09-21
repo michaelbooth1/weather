@@ -12,6 +12,13 @@ from weather.schema_registry_types import (
 
 REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "mm_stage2_hold",
+        "mm_stage2_hold_v0.1",
+        "weather.market.mm_stage2_hold",
+        "active",
+        "Kind-tagged Stage 2 selection, session, journal, frozen prediction and reward verdict; rehearsal is never live evidence.",
+    ),
+    SchemaSpec(
         "schema_registry",
         SCHEMA_REGISTRY_SCHEMA_VERSION,
         "weather.schema_registry",
@@ -2913,6 +2920,20 @@ EXCLUDED_SCHEMA_LITERALS = (
         "weather.execution_host",
         "execution_principal_id_domain",
         "Windows-token-principal identity hash domain separator, not a serialized artifact schema.",
+    ),
+)
+EXCLUDED_SCHEMA_LITERALS += (
+    SchemaLiteralExclusion(
+        "stage1_v1",
+        "weather.market.mm_live_envelope",
+        "live_envelope_profile",
+        "Pilot risk-envelope policy identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "stage2_hold_v1",
+        "weather.market.mm_live_envelope",
+        "live_envelope_profile",
+        "Pilot risk-envelope policy identifier, not a serialized artifact schema.",
     ),
 )
 EXCLUDED_SCHEMA_LITERAL_BY_VERSION = {

@@ -84,6 +84,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | --- | --- |
 | [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md) | Any work toward the bounded International Polymarket maker pilot. Never authorizes Polymarket US and never makes a blocked gate pass. |
 | [PORTABLE_LIVE_EXECUTION_HOST.md](PORTABLE_LIVE_EXECUTION_HOST.md) | Provisioning, binding or relocating the second-PC attended Stage 0/1 executor. |
+| [Stage 2 owner decision draft](stage2-hold-owner-authorization-draft.md) | Resolve the place-and-hold control and evidence-budget blockers; proposal only, never live authority. |
 | [maker-incentive-feasibility.md](maker-incentive-feasibility.md) | Evaluating an explicit maker BUY plan against incentives; a pure calculation contract. |
 | [exchange-economics-source-evidence.md](exchange-economics-source-evidence.md) | Parsing or validating the public exchange-economics and current-reward sources that feed the feasibility calculator. Establishes no opportunity and no earnings. |
 | [maker-opportunity-report.md](maker-opportunity-report.md) | Running the bounded public maker opportunity capture or its offline order/capital report. No order, account or paid-profit authority. |

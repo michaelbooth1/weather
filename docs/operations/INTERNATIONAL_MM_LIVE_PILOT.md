@@ -232,16 +232,16 @@ geoblock response.
 
 ### Reviewed command authorization
 
-Running the reviewed command from the assigned signed-in Windows desktop
-authorizes its complete bounded Stage 0, Stage 1 cancel-all and Stage 1 dead-man
-sequence. The operator must remain present and physically eligible, with no
-VPN, proxy, remote-location service or other circumvention. Invocation affirms
-those conditions for the sequence. Do not ask the operator to repeat stage or
-physical-location confirmations. If the conditions change, stop the sequence.
-Each stage still displays and hashes its exact scope, including
-`authorization_method=reviewed_command_invocation` and the two attestation
-booleans. Retained fields named `confirmation` are internal contract markers;
-they do not claim that a keyboard prompt was answered.
+Each sealed session requires one exact typed confirmation from the assigned
+signed-in Windows desktop. It binds the displayed scope hash, stage and physical
+eligibility/no-circumvention attestation. The templates collect it once, before
+credentials, and reuse it for the session's automatic checks. A wrong or missing
+answer refuses the session. The operator must remain present and physically
+eligible throughout, with no VPN, proxy or location circumvention; changed
+conditions end the session. The execution receipt retains the confirmation's
+scope and literal hashes under `session_confirmation`, with
+`authorization_method=typed_session_confirmation`. Preparation and invocation
+alone do not supply this attestation.
 
 The command must state the 100 pUSD allocation/funding limit, 10 pUSD order
 limit, Stage 0 authenticated heartbeats and account-wide cancel-all, and one
@@ -1787,15 +1787,91 @@ the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
+The place-and-hold lane is **inert without two dated owner grants**. Offline
+qualification and a rehearsal do not authorize an order.
+`weather.market.reward_quote.price_reward_quote` is a pure calculator for
+twenty-share YES and NO BUYs, snapped outward from the size-adjusted midpoint.
+It checks both token books, post-only availability, the treatment's spread,
+midpoint, reward terms and capital ceilings. Its share estimates are displayed
+competition scenarios, never observed earnings or order authority.
+`weather.market.mm_live_envelope` defines hash-bound proposed limits and refuses
+Stage 2 selection without matching dated owner grants in current authority and
+the host assignment. The adapter and Stage 1 cap consumers now use those
+definitions. Stage 1 numeric values and canonical profile bytes are unchanged;
+Stage 2 binds a 120-minute ceiling, four sessions per UTC day and three reward
+days. The adapter repeats the owner-grant check at authorization, signing and
+posting and requires the isolated-wallet branch for Stage 2. The inert
+`mm_stage2_hold` controller composes two single-use token capabilities with one
+account heartbeat. It cancels on timeout, operator stop, fill, public-book or
+reward-term invalidation, heartbeat loss, and geography failure. The primary
+cancel-all acknowledgment and terminal REST evidence are journaled; a dead-man
+disappearance is only a backstop and never substitutes for that acknowledgment.
+If a rejected submit already caused the adapter to cancel, retain that
+session-bound emergency acknowledgement alongside the controller's final
+cancel response and reconsume both when validating terminal evidence.
+Stage 2 bounds each SDK connect/read/write/pool phase to half a second and
+the separate positions read to two seconds, with controller checkpoints
+between reads. These are socket inactivity limits, not a replacement for
+the launcher deadline or the venue dead-man backstop.
+The host schema, manifest builder, no-argument template, sealer and contained
+session runner recognize `stage2_hold` only under the portable profile. The
+grants must match the canonical profile hash and UTC execution date and outlive
+the complete session and cleanup window. Every existing source, interpreter,
+host/principal, private-attempt, attendance and lease check remains mandatory.
+
+The [owner decision draft](stage2-hold-owner-authorization-draft.md) owns the
+exact proposed grant shape and abort card. The
+[RE-1A addendum](../research/re1a-hold-treatment-addendum-2026-09-21.md) is
+**PROPOSED — owner ratifies before the first order**. It changes the evidence
+unit to cumulative visible minutes on one band in one UTC reward day; all
+attempts and all permitted reward days must be reported.
+
+The public-only rehearsal command is:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage2-hold rehearse --condition <exact-condition-id>
+```
+
+It enumerates configured tomorrow events and their per-condition reward
+responses, freezes the complete ranked selection table, then replays the chosen
+eligible row against a closed in-memory exchange. No SDK client, credentials,
+wallet lookup, signature or grant is involved. `--out` selects a new evidence
+directory; `--scenario fill_first` or `--scenario reject_second` exercises the
+fake exchange failures. `--public-capture <selection.json>` reproduces a
+retained complete public capture at its original time. The bundle labels simulated time, visibility and
+scoring explicitly; none is live evidence. Ineligible bands retain a refusal.
+
+The live manifest builder uses `--stage stage2_hold`, the frozen selection as
+`--discovery-source`, and `--predecessors-source` for a JSON object with `yes`
+and `no` keys. `yes` binds the original `stage0`, `stage1_cancel_all` and
+`stage1_dead_man` run-receipt path/SHA pairs; `no` binds its own `stage0` pair.
+Their exact identity and credential provenance, current source inventory and
+canonical child/lifecycle evidence are revalidated. A YES bootstrap copied
+with a different token is not NO evidence. The selection must be at most thirty
+minutes old, and only its first-ranked condition may be sealed. The existing
+manifest/build-receipt and fixed-launcher hash review procedure applies; the
+Stage 2 budget and 7,200-second ceiling are profile-bound, without CLI overrides.
+Preserve the owner decision sequence: initial attended Stage 0/1 qualification
+precedes the grant decision. Committing grants changes the exact Git tip and
+host-assignment bytes, so repeat all four predecessors used by Stage 2 after
+that commit. Their old receipts cannot be reused across that binding change.
+
+Before any earnings read, each session freezes its prediction and journal SHA.
+The explicit `stage2-hold collect --predictions <records.json> --payment-evidence
+<payment.json> --out <new-verdict.json>` command validates retained next-day
+prediction/journal records and reconciles payment evidence offline. Each
+prediction record has `prediction`, `journal` and `prediction_sha256` fields.
+The SDK earnings/scoring facade is constructed only for an explicitly attended
+session or post-session collection; SDK accrual alone never counts as payment.
+
 - Require a current passing `mm_platform_verification_v0.6`, including the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are
   not carried forward as financial proof.
-- Select one band under a separately preregistered Stage 2 decision rule whose
-  thresholds are measured or bound to current venue requirements. Until that
-  evidence exists, spread, midpoint/centrality, and depth may rank or warn but
-  cannot independently claim quote safety or profitability.
+- Select the first eligible band under the frozen RE-1 rule, descending by the
+  360-minute prediction, with its fixed location/condition tie order. Owner
+  veto cancels the entire session; it does not authorize a substitute band.
 - Place one or two smallest-valid backed post-only orders for one TTL only.
 - A post-only cross rejection is a stop-and-refresh event, never permission to
   chase price.
