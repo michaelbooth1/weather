@@ -357,6 +357,14 @@ without a second download after a successful response. No additional lock or
 wait is introduced. The local decoded-response cache retains its two-entry
 bound, and completeness scanning does not materialize the national line list.
 
+The offline `tools.research.nbm_target_fix reuse-cost` diagnostic accepts
+`--cache <retained-national-file>` with its original `.json` hash/byte receipt
+and `--output <new-directory>`. Through `workstation_heavy.ps1`, it reports wall
+time and traced peak memory for verified blob reads, completeness scans, whole
+reuse, and ordinary per-scope fetch with the same bytes supplied by a stub.
+It makes no network requests. Station eligibility comes from the in-memory
+market registry and is evaluated once for each cross-process reuse attempt.
+
 Reused manifests keep the original `fetched_at`, request/response times and
 separate current `captured_at_utc`. They report `single_fetch_reused=true`,
 `single_fetch_fetched=false` and zero new coordinator network events; the
