@@ -10,8 +10,8 @@ Branch: `codex/nbm-target-fix-20260921`. Base: fetched `origin/master`
 `e28530af67c7371fc7b2c08bbd0e26cfe72a28f9`. Handoff/82a input:
 `f80924693ba26f5f6ba7d6ba15a840e7dc74a768` on
 `codex/nbm-target-fix-handoff-20260921`. Only the needed station fixtures were
-copied; the research branch was not merged. The implementation commit is
-recorded in the publication receipt below after final verification.
+copied; the research branch was not merged. The tested implementation commit is
+`d7cc92b7c79574a3c75d057b2135e11f9a8600aa`.
 
 ## Exact remaining scope
 
@@ -243,8 +243,8 @@ the tables describe parser inputs only.
 
 ## Publication receipt
 
-Implementation commit: recorded by the following publication-only commit on
-this branch; the source base and handoff hashes above are immutable.
+Implementation commit: `d7cc92b7c79574a3c75d057b2135e11f9a8600aa`.
+This report-only follow-up records its identity without changing tested code.
 
 - Combined final regression command: **350 passed in 14.00 seconds**, no skips
   or expected failures. This includes all 91 mandatory parity/replay/migration
@@ -287,6 +287,8 @@ Invoke-83a compileall @('-m','compileall','-q','app','src','tests',
 ```
 
 These are workstation reproduction commands, as this handoff requests, not
-production heavy-work authority. Keep the source worktree, cached national
-files, original failure receipts, and retained diagnostics. Only this mission's
-explicit pytest basetemp directories are removed after retaining the results.
+production heavy-work authority. The source worktree, cached national files,
+original failure receipts, and retained diagnostics remain in place. The five
+verified pytest basetemp directories were removed after retaining results:
+`scratch/pytest-focused-1`, `scratch/pytest-gates-1`, `C:/tmp/83g2`,
+`C:/tmp/83q1`, and `C:/tmp/83q2`. `C:/tmp/83probe1` retains the contract probe.
