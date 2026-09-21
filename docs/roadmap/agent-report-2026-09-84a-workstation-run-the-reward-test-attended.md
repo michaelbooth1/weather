@@ -204,3 +204,138 @@ production access/write, Scheduler registration, capture change, restart,
 promotion, lane-gate edit, or merge to master. The topic merge above is the
 explicitly requested handoff merge only. No live session occurred, so there
 is no live-session outcome to append.
+
+## September 21, 2026 — mission 84b handback
+
+**QUALIFICATION IN PROGRESS: parity is resolved and four modes are implemented. No live session has run.**
+
+This appendix preserves the original 84a text. Corrected handoff `b39b43b6`
+was merged into the same branch as `a6f247fa429b1f5753c8b0c2118cb990016846a1`.
+The worktree and stacked 80b base remain those recorded above. Inherited
+fleet configuration was left as merged. The main checkout is untouched.
+
+### Parity, implementation and boundaries
+
+All five corrected-reference parity tests pass: selection share 1/6 and
+prediction 1.875; held adjusted midpoint 0.345, share 0.20 and reward
+0.006250/minute; full retained 80b books; historical-table arithmetic; and
+the old-defect regression pin at 2.25. The minute sensitivity test also
+pins plain midpoint 0.350 and share 25/173. The 17:20Z file lacks raw depth
+and cannot prove raw-book parity or qualify a current selection.
+
+The `re1_attended_cli` modes are `rehearse`, `live`, `cancel-only` and
+`collect-payout`. They reuse unchanged 80b selection/validation, estimator
+formulas, `HoldJournal`, immutable writers, scoring readers, official
+adapter read/cancel normalization, user-stream transport and fake exchange.
+RE-1M owns its re-quote controller and exact-pair stream validation. No
+sealed-lane module imports it; no lane module, gate, grant, sealer, template
+or test changed. The [deviation note](../research/re1m-attended-script-deviation-2026-09-21.md)
+records the two outcome-blind corrections and the owner's direct permission
+for read-only credential loading by the payout collector.
+
+### Hard limits and proof
+
+Tests named below live in `tests/market/test_re1_attended.py`,
+`test_re1_transport.py` and `test_re1_evidence.py`.
+
+| Requirement | Enforcement and executable evidence |
+| --- | --- |
+| Exact International host; no proxies | Fixed host and repeated proxy checks; submit-boundary `host/proxy` cases |
+| BUY, post-only GTD, size exactly 20 and reward minimum 20 | Single submit boundary plus signed-payload binding; `side/size/post_only/type/minimum_not_twenty` cases and `test_corrupt_signed_order_never_posts` |
+| Computed tick price 0.17–0.80, below actual ask | Fresh exact-token reads before and after signing; `price/ask` cases and `test_ask_moves_after_signing_refuses_raw_post` |
+| One leg <=15.8, pair <=19.6 | Decimal assertions; `one_leg_cost/both_cost` cases |
+| Initially empty account; only known orders; at most two | Exact account-wide order reconciliation; `third` case and foreign-order preservation test |
+| Ten submits and four re-quotes | Budget consumed before signing; `eleventh` case and re-quote test |
+| One session/process; three persisted attempts; September 30 cutoff | Process guard, fixed campaign root, exclusive attempt markers, prior-result checks; full-flow re-entry, persistent-cap and unfinished/expired-attempt tests |
+| Fixed 360-minute same-UTC-day session | Wall and monotonic deadlines; `utc_day/duration/too_late/session_four` cases and full-flow test; only inert rehearsal permits 15 minutes |
+| Any partial fill ends; never sell or re-enter | User stream, matched-size polling, cancel-race and terminal-order reads; fill end-condition, racing-cancel and deadline-fill tests |
+| Minimum/rate, one-sided book, blocked/unreadable geography | Fresh terms and 30-second geography checks; parameterized end-condition and cadence tests |
+| Exception, Ctrl-C, normal end, broken journal | Independent ID cancels, cancel-all and zero-open-order read; between-submit, end-condition and journal-failure tests |
+| Cancellation unproved | Loud PANIC and `cleanup_ok=false`; cleanup-failure test |
+| Secrets and confirmation | In-memory owner-only loading, recursive redaction and loaded-secret output guard; secret-guard, rehearsal credential refusal, redirected-prompt and CLI-override tests |
+| Frozen payout interpretation | Prior-day chain replay before credentials, read-only transport/method guards, unchanged thresholds; tamper, collect-before-credentials, read-only and verdict-table tests |
+
+Every GTD expires at fixed end plus 60 seconds; no replacement with under
+180 seconds left. The pinned SDK additionally enforces its signing horizon.
+The heartbeat uses documented `/v1/heartbeats`, rotating `heartbeat_id`,
+five-second cadence and fail-closed acknowledgement. Its synthetic HMAC
+test binds the exact body and rotation. Stage 1's heartbeat is unchanged.
+Sources: [official order placement](https://docs.polymarket.com/trading/place-orders)
+and [heartbeat contract](https://docs.polymarket.com/trading/manage-orders#order-heartbeats).
+These prove requests/control behavior, not actual venue cancellation after
+a killed process or lost network. No authenticated heartbeat or expiry was
+exercised. The listed tests do not establish an unconditional 15.8-dollar
+ceiling against arbitrary bugs, racing fills or exchange faults; only the
+controlled account balance supplies that ceiling.
+
+### Qualification receipts
+
+Pending final admitted checks. Evidence is retained outside the checkout at
+`C:/tmp/weather-re1-84b-rehearsals`. `realtime-1` found no qualifying band
+at 18:34Z and placed no simulated orders. Its selection is retained unchanged;
+later attempts use fresh directories. Rehearsal account, orders, geography
+and heartbeat are simulated; real-time books and rewards are public reads.
+No rehearsal establishes account readiness or geographic eligibility.
+
+Accrued earnings are separate from paid cash. Without independently
+reconciled distribution/wallet evidence via `--payment-evidence`, `paid`
+and `k` are null and the verdict is `INCONCLUSIVE`. Both candidate asset
+balances, condition/day earnings, total earnings and percentages are retained.
+Raw orders/trades retain fill facts; later 1/5/30-minute and settlement
+markout reconciliation uses public capture/account history. There is no
+automatic inventory sale or paid/profitable claim from accrual alone.
+
+### Owner run card — use only after the final READY verdict
+
+1. Use the assigned workstation and owner Windows account; finish heavy
+   work first (the same host-global mutex excludes live). Keep the home
+   file-access tunnel down. Check the official geoblock page in the browser
+   says not blocked. Have zero account-wide open orders, no earlier rewarded
+   activity today, zero selected-token positions, at least $25 available,
+   and remain within reach for six hours. A dedicated account holding about
+   **$50** is recommended. Only its balance is an unconditional loss ceiling;
+   the account choice is the owner's.
+2. In the owner's terminal:
+
+   ```powershell
+   Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\reward-test-attended-20260921'
+   $re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+   & $re1Python -m weather.market.re1_attended_cli live
+   ```
+
+   Target September 22 at 17:00Z; the six-hour end must be before 00:00Z.
+   No qualifying band means no orders; the owner may retry after 15 minutes
+   while time remains. Inspect the selected band/prices/hash and personally
+   type the displayed confirmation. There is no skip flag. The agent never
+   runs live or types this phrase.
+3. `fill` ends quoting: retain inventory to settlement. Reward, geography,
+   heartbeat or read failure, a fifth re-quote, limits or deadline cancel.
+   `REFUSED` means execution stopped: inspect its journal. If orders may
+   remain, or PANIC appears, run from this worktree in a second terminal:
+
+   ```powershell
+   & 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe' -m weather.market.re1_attended_cli cancel-only
+   ```
+
+   Panic needs no phrase or mutex; it cancels the whole account and prints
+   remaining orders. If zero cannot be proved, cancel in the browser. An
+   incomplete or filled previous attempt blocks a fresh live session.
+4. Save the printed prediction path/hash. Permanent attempts and journals
+   live under `%USERPROFILE%\.weather-re1m-20260921`; never reset the count.
+   On a later UTC date, substituting the actual printed session path:
+
+   ```powershell
+   & $re1Python -m weather.market.re1_attended_cli collect-payout "$env:USERPROFILE\.weather-re1m-20260921\session-1\prediction.json"
+   ```
+
+   This reads credentials in memory under the owner's explicit permission,
+   makes read-only queries and writes a new receipt. Independent payment
+   evidence is needed for `k`; accrual alone remains inconclusive. Report
+   every actual session, including aborted ones and later payouts.
+
+### What was not done
+
+No `.env` read, credential copy/export/vault write, live launch, typed live
+phrase, authenticated account query, signing, order, cancellation, payment
+collection, production access, Scheduler/capture change, host reassignment,
+lane edit, promotion or merge to master. No live prediction or payout exists.

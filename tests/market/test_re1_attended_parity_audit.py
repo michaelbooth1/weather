@@ -1,8 +1,4 @@
-"""Mission 84a's stop-on-divergence audit, without credentials or network calls.
-
-These tests retain counterexamples against the unmodified 80b implementation;
-passing them proves the NO-GO, not readiness of an attended trading script.
-"""
+"""Mission 84b parity against the outcome-blind corrected JavaScript reference."""
 
 from decimal import Decimal
 import hashlib
@@ -62,7 +58,7 @@ def snapshot(bid=".40", ask=".43", no_bid=".57", no_ask=".60"):
     return result
 
 
-def test_selection_counterexample_crosses_the_frozen_eligibility_threshold():
+def test_selection_counterexample_matches_corrected_reference():
     inputs = snapshot()
     reference = reference_evaluate(inputs)
     table = select_table([{
@@ -76,30 +72,30 @@ def test_selection_counterexample_crosses_the_frozen_eligibility_threshold():
     assert reference["quote"]["noBuyPrice"] == pytest.approx(.57)
     assert float(row["quote"]["yes_buy"]) == pytest.approx(.40)
     assert float(row["quote"]["no_buy"]) == pytest.approx(.57)
-    assert reference["share_many"] == pytest.approx(.20)
+    assert reference["share_many"] == pytest.approx(1 / 6)
     assert row["quote"]["share_many"] == pytest.approx(1 / 6)
-    assert js_prediction == pytest.approx(2.25)
+    assert js_prediction == pytest.approx(1.875)
     assert row["predicted_360_minutes"] == pytest.approx(1.875)
-    assert js_prediction >= 2
+    assert js_prediction < 2
     assert row["refusal"] == "predicted_below_two"
     assert table["selected_condition_id"] is None
-    print(json.dumps({"case": "selection_counterexample", "verdict": "BLOCKED",
+    print(json.dumps({"case": "selection_counterexample", "verdict": "PARITY",
                       "reference_share_many": reference["share_many"],
                       "python_share_many": row["quote"]["share_many"],
                       "reference_prediction": js_prediction,
                       "python_prediction": row["predicted_360_minutes"]}))
 
 
-def test_minute_counterexample_uses_different_midpoints_on_identical_books():
+def test_minute_counterexample_matches_size_adjusted_reference():
     inputs = snapshot(".33", ".36", ".64", ".67")
     quote = public_quote(inputs, now=Clock().now(), condition_id=CONDITION, token_ids=TOKENS)
-    own = {"yesBid": float(quote.yes_buy), "yesAsk": float(1 - quote.no_buy), "size": 20}
+    own = {"yesBid": float(quote.yes_buy), "yesAsk": float(1 - quote.no_buy), "size": 20, "resting": True}
     # Positive control: the same midpoint and same resting prices agree.
     js_control = reference_evaluate(inputs, own)
     py_control = observe_held_quote(inputs, quote)
     assert py_control["visible_two_sided"] is True
     assert py_control["per_minute_many"] == pytest.approx(45 / 1440 * js_control["share_many"])
-    # A valid sub-minimum touch changes JS midpoint but is ignored by Python.
+    # A one-share touch changes only the sensitivity midpoint in both implementations.
     inputs["quote_inputs"]["yes_bids"].append({"price": ".34", "size": "1"})
     reference = reference_evaluate(inputs, own)
     observed = observe_held_quote(inputs, quote)
@@ -107,10 +103,12 @@ def test_minute_counterexample_uses_different_midpoints_on_identical_books():
     assert reference["displayed_at_our_bid"] >= 20
     assert reference["displayed_at_our_ask"] >= 20
     assert Decimal(observed["adjusted_mid"]) == Decimal(".345")
-    assert reference["mid"] == pytest.approx(.35)
+    assert reference["mid"] == pytest.approx(.345)
+    assert reference["plain_mid"] == pytest.approx(.35)
     js_minute = 45 / 1440 * reference["share_many"]
-    assert observed["per_minute_many"] != pytest.approx(js_minute)
-    print(json.dumps({"case": "minute_counterexample", "verdict": "BLOCKED",
+    assert observed["per_minute_many"] == pytest.approx(js_minute)
+    assert js_minute == pytest.approx(.00625)
+    print(json.dumps({"case": "minute_counterexample", "verdict": "PARITY",
                       "reference_mid": reference["mid"], "python_mid": observed["adjusted_mid"],
                       "reference_share_many": reference["share_many"],
                       "python_share_many": observed["per_minute_many"] / (45 / 1440),
@@ -147,7 +145,7 @@ def test_recorded_table_reproduces_only_what_its_retained_inputs_allow():
                       "raw_book_share_parity": "UNVERIFIABLE_INPUTS_NOT_RETAINED"}))
 
 
-def test_retained_80b_books_also_have_selection_share_differences():
+def test_retained_80b_books_have_selection_share_parity():
     """Supplement the 17:20 summary with 80b's earlier, complete book capture."""
     source = ROOT / "tests/fixtures/stage2_hold/20260921/selection.json"
     retained = json.loads(source.read_text(encoding="utf-8"))
@@ -163,7 +161,17 @@ def test_retained_80b_books_also_have_selection_share_differences():
                                 "python_share_many": quote["share_many"],
                                 "reference_yes_buy": reference["quote"]["yesBuyPrice"],
                                 "python_yes_buy": quote["yes_buy"]})
-    assert divergences, "If parity is repaired, replace this historical NO-GO audit"
-    print(json.dumps({"case": "retained_80b_books", "verdict": "BLOCKED",
+    assert not divergences
+    print(json.dumps({"case": "retained_80b_books", "verdict": "PARITY",
                       "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                       "source_time": retained["created_at_utc"], "divergences": divergences}))
+
+
+def test_old_selection_subtraction_defect_overstates_prediction():
+    # Historical defect: pretending our hypothetical order already rests removes
+    # someone else's 20 shares. Keep its 2.25 result as an explicit regression.
+    old = reference_evaluate(snapshot(), {"yesBid": .40, "yesAsk": .43,
+                                          "size": 20, "resting": True})
+    corrected = reference_evaluate(snapshot())
+    assert 45 / 1440 * 360 * old["share_many"] == pytest.approx(2.25)
+    assert 45 / 1440 * 360 * corrected["share_many"] == pytest.approx(1.875)
