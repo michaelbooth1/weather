@@ -232,16 +232,16 @@ geoblock response.
 
 ### Reviewed command authorization
 
-Running the reviewed command from the assigned signed-in Windows desktop
-authorizes its complete bounded Stage 0, Stage 1 cancel-all and Stage 1 dead-man
-sequence. The operator must remain present and physically eligible, with no
-VPN, proxy, remote-location service or other circumvention. Invocation affirms
-those conditions for the sequence. Do not ask the operator to repeat stage or
-physical-location confirmations. If the conditions change, stop the sequence.
-Each stage still displays and hashes its exact scope, including
-`authorization_method=reviewed_command_invocation` and the two attestation
-booleans. Retained fields named `confirmation` are internal contract markers;
-they do not claim that a keyboard prompt was answered.
+Each sealed session requires one exact typed confirmation from the assigned
+signed-in Windows desktop. It binds the displayed scope hash, stage and physical
+eligibility/no-circumvention attestation. The templates collect it once, before
+credentials, and reuse it for the session's automatic checks. A wrong or missing
+answer refuses the session. The operator must remain present and physically
+eligible throughout, with no VPN, proxy or location circumvention; changed
+conditions end the session. The execution receipt retains the confirmation's
+scope and literal hashes under `session_confirmation`, with
+`authorization_method=typed_session_confirmation`. Preparation and invocation
+alone do not supply this attestation.
 
 The command must state the 100 pUSD allocation/funding limit, 10 pUSD order
 limit, Stage 0 authenticated heartbeats and account-wide cancel-all, and one
@@ -1799,8 +1799,13 @@ the host assignment. The adapter and Stage 1 cap consumers now use those
 definitions. Stage 1 numeric values and canonical profile bytes are unchanged;
 Stage 2 binds a 120-minute ceiling, four sessions per UTC day and three reward
 days. The adapter repeats the owner-grant check at authorization, signing and
-posting and requires the isolated-wallet branch for Stage 2. The host schema,
-two-leg runner and sealer still require integration before a session can run.
+posting and requires the isolated-wallet branch for Stage 2. The inert
+`mm_stage2_hold` controller composes two single-use token capabilities with one
+account heartbeat. It cancels on timeout, operator stop, fill, public-book or
+reward-term invalidation, heartbeat loss, and geography failure. The primary
+cancel-all acknowledgment and terminal REST evidence are journaled; a dead-man
+disappearance is only a backstop and never substitutes for that acknowledgment.
+The host schema and sealer still require integration before a session can run.
 
 The [owner decision draft](stage2-hold-owner-authorization-draft.md) records the
 wallet and cancellation falsifiers, the incompatible evidence-duration budget,

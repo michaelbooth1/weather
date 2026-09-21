@@ -32,6 +32,7 @@ SCOPE = "__SEAL_SCOPE__"
 SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
 EXECUTION_PHASE = "preflight"
 CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
+SESSION_CONFIRMATION = None
 HOST_ATTESTATIONS = []
 LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
 LIVE_WINDOW_START = (0, 30, 0, 0)
@@ -328,7 +329,7 @@ def _display_confirmation_scope() -> str:
         str(SCOPE["run_not_after_local"])
     ) + timedelta(seconds=SCOPE["cleanup_reserve_seconds"])
     payload = {
-        "authorization_method": "reviewed_command_invocation",
+        "authorization_method": "typed_session_confirmation",
         "physical_location_eligible": True,
         "no_circumvention": True,
         "stage": "stage0",
@@ -748,15 +749,16 @@ def _run_geography_check(output_name: str) -> dict:
     if reserve_seconds is None:
         raise RuntimeError("unsupported Stage 0 geography boundary")
     confirmation = geography.PHYSICAL_LOCATION_CONFIRMATION
-    # The reviewed local command supplies the operator attestation once.
+    if not SESSION_CONFIRMATION:
+        raise RuntimeError("sealed session has no typed confirmation")
     # Repeat the official geographic check at each action boundary, without input.
     _assert_reserve(reserve_seconds, label="geography")
     assert_no_ambient_proxy_configuration()
     receipt = geography.check_geographic_eligibility(
         SCOPE[output_name],
         confirmation=confirmation,
-        physical_location_eligible=True,
-        no_circumvention=True,
+        physical_location_eligible=SESSION_CONFIRMATION["physical_location_eligible"],
+        no_circumvention=SESSION_CONFIRMATION["no_circumvention"],
     )
     assert_no_ambient_proxy_configuration()
     if receipt.get("status") != "PASS" or receipt.get("eligible") is not True:
@@ -821,6 +823,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
             },
             "phase": EXECUTION_PHASE,
             "confirmation_scope_display_sha256": CONFIRMATION_SCOPE_DISPLAY_SHA256,
+            "session_confirmation": SESSION_CONFIRMATION,
             "host_attestations": list(HOST_ATTESTATIONS),
             "credential_values_read_in_memory": (
                 command.get("credential_values_read_in_memory", "UNKNOWN")
@@ -873,7 +876,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
 
 
 def main() -> int:
-    global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE
+    global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE, SESSION_CONFIRMATION
     if len(sys.argv) != 1:
         raise RuntimeError("fixed-scope Stage 0 wrapper accepts no arguments")
     _assert_sealed()
@@ -927,6 +930,10 @@ def main() -> int:
     EXECUTION_PHASE = "command_authorization"
     CONFIRMATION_SCOPE_DISPLAY_SHA256 = _display_confirmation_scope()
     expected_confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
+    from weather.market.mm_live_attendance import confirm_attended_session
+    SESSION_CONFIRMATION = confirm_attended_session(
+        expected_confirmation, CONFIRMATION_SCOPE_DISPLAY_SHA256,
+    )
     _assert_precredential_reserve()
     _assert_window_current()
     _assert_git_and_sources()

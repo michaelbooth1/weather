@@ -1973,11 +1973,22 @@ def _render_python_wrapper(
         if "live_cli.run_stage0(" not in rendered or "live_cli.run_stage1(" in rendered:
             raise SealError("generated Stage 0 wrapper crossed its stage boundary")
     else:
+        # Every repository Python file is hash-bound, including inert Stage 2
+        # modules. Their names in this literal inventory are not an executable
+        # Stage 2 surface. Keep the refusal on every other rendered byte.
+        inventory_nodes = [node for node in tree.body if isinstance(node, ast.Assign)
+                           and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                           and node.targets[0].id == "SOURCE_SHA256"]
+        if len(inventory_nodes) != 1 or ast.literal_eval(inventory_nodes[0].value) != dict(source_sha256):
+            raise SealError("generated source inventory is not an exact literal")
+        inventory = inventory_nodes[0]
+        executable_text = "\n".join(line for number, line in enumerate(rendered.splitlines(), 1)
+                                    if not inventory.lineno <= number <= inventory.end_lineno)
         if (
             "live_cli.run_stage1(" not in rendered
             or f"CANCELLATION_MODE = {cancellation_mode!r}" not in rendered
             or "live_cli.run_stage0(" in rendered
-            or "stage2" in rendered.lower()
+            or "stage2" in executable_text.lower()
         ):
             raise SealError("generated Stage 1 wrapper crossed its stage boundary")
     return rendered

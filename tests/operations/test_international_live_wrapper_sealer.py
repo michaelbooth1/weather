@@ -1843,7 +1843,13 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert "CANCELLATION_MODE = 'cancel_all'" in text
     assert "STAGE_NAME = 'stage1_cancel_all'" in text
     assert "live_cli.run_stage0(" not in text
-    assert "stage2" not in text.lower()
+    tree = ast.parse(text)
+    inventory = next(node for node in tree.body if isinstance(node, ast.Assign)
+                     and any(isinstance(t, ast.Name) and t.id == 'SOURCE_SHA256' for t in node.targets))
+    assert any('mm_stage2_hold.py' in name for name in ast.literal_eval(inventory.value))
+    outside_inventory = '\n'.join(line for number, line in enumerate(text.splitlines(), 1)
+                                   if not inventory.lineno <= number <= inventory.end_lineno)
+    assert 'stage2' not in outside_inventory.lower()
     assert "_prompt_until" not in text
     assert "_assert_window_current()" in text
     assert '"cleanup_reserve_seconds": 20' in text
@@ -2906,7 +2912,7 @@ def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocat
 
 @pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all", "stage1_dead_man"])
 @pytest.mark.parametrize("session_id, blocked_check", [(1, None), (0, None), (1, 1), (1, 2)])
-def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
+def test_reviewed_command_requires_one_input_and_retains_runtime_gates(
     tmp_path, monkeypatch, capsys, stage, session_id, blocked_check
 ):
     from weather import execution_host
@@ -2930,8 +2936,9 @@ def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
     events = []
     geography_calls = []
 
-    def no_input(*args, **kwargs):
-        raise AssertionError("reviewed command must not request confirmation input")
+    def typed_input(prompt):
+        events.append('typed_confirmation')
+        return prompt.splitlines()[-2]
 
     def official_check(path, **kwargs):
         geography_calls.append((path, kwargs))
@@ -2955,7 +2962,7 @@ def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
         # This mock boundary must stop before any real SDK, vault or exchange call.
         raise ReachedWriteBoundary
 
-    monkeypatch.setattr("builtins.input", no_input)
+    monkeypatch.setattr("builtins.input", typed_input)
     monkeypatch.setattr(execution_host, "current_execution_session_id", lambda: session_id, raising=False)
     monkeypatch.setattr(live_sdk_overlay, "activate_live_sdk_overlay",
                         lambda *args: events.append("sdk") or {})
@@ -2978,7 +2985,7 @@ def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
         "SCOPE": scope, "PRODUCTION": Path(sealer.REPO_ROOT), "STAGE_NAME": stage,
         "CANCELLATION_MODE": "cancel_all" if stage == "stage1_cancel_all" else "dead_man",
         "PRE_CREDENTIAL_RESERVE_SECONDS": 120, "PRE_MUTATION_RESERVE_SECONDS": 60,
-        "_prompt_until": no_input,
+        "_prompt_until": typed_input,
         "_assert_sealed": lambda: None, "_assert_git_and_sources": lambda: None,
         "_assert_paths": lambda **kwargs: None, "_assert_paths_and_stage0": lambda **kwargs: None,
         "_assert_host_state": lambda: events.append("host"),
@@ -3012,7 +3019,9 @@ def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
         assert kwargs == {"confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
                           "physical_location_eligible": True, "no_circumvention": True}
     displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
-    assert displayed["authorization_method"] == "reviewed_command_invocation"
+    assert displayed["authorization_method"] == "typed_session_confirmation"
+    assert events.count('typed_confirmation') == 1
+    assert events.index('typed_confirmation') < events.index('geography')
     assert displayed["physical_location_eligible"] is True
     assert displayed["no_circumvention"] is True
     assert displayed["requested_budget_pusd"] == 10

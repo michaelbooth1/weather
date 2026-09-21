@@ -1270,6 +1270,30 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("heartbeat response did not acknowledge status ok")
         return response
 
+    def accept_shared_stage2_heartbeat(self, source):
+        """Adopt one account acknowledgment without extending its original lease."""
+        if not all((
+            self.envelope is STAGE2_HOLD_V1,
+            isinstance(source, OfficialPolymarketGlobalAdapter),
+            source is not self,
+            source.envelope is STAGE2_HOLD_V1,
+            self.client is source.client,
+            self.heartbeat_sender is source.heartbeat_sender,
+            self.monotonic_clock == source.monotonic_clock,
+            self.maker_address == source.maker_address,
+            self.condition_id == source.condition_id,
+            self.token_id != source.token_id,
+        )):
+            raise RuntimeError("shared heartbeat account/session binding differs")
+        self._require_current_envelope()
+        source._require_order_placement()
+        self._last_heartbeat_monotonic = source._last_heartbeat_monotonic
+        self._heartbeat_acknowledgment_count = source._heartbeat_acknowledgment_count
+        self._probe["heartbeat_acknowledged"] = True
+        self._probe["heartbeat_stale"] = False
+        self._probe["heartbeat_acknowledgment_count"] = self._heartbeat_acknowledgment_count
+        self._require_order_placement()
+
     def place_order(
         self,
         intent,
