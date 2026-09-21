@@ -1,0 +1,1006 @@
+{
+ "schema": "re1_selection.v1",
+ "generated_at_utc": "2026-09-21T17:20:47.757Z",
+ "event_date": "2026-09-22",
+ "rule": {
+  "max_min_size": 20,
+  "min_rate": 40,
+  "min_max_spread_cents": 3,
+  "max_book_spread": 0.06,
+  "mid_low": 0.2,
+  "mid_high": 0.8,
+  "distance_cents": 1.5,
+  "window_low_cents": 1,
+  "window_high_cents": 3,
+  "size": 20,
+  "minutes": 360,
+  "min_predicted_pusd": 2
+ },
+ "location_order": [
+  "los-angeles",
+  "seattle",
+  "san-francisco",
+  "denver"
+ ],
+ "selected": {
+  "condition_id": "0xd461d5df262d1247450b11b4be29426a9996d384ae0b5d0a4be0fd3655484666",
+  "location_id": "los-angeles",
+  "event_date": "2026-09-22",
+  "tick": 0.01,
+  "reasons": [],
+  "question": "Will the highest temperature in Los Angeles be between 74-75°F on September 22?",
+  "rate": 43,
+  "min_size": 20,
+  "max_spread_cents": 4.5,
+  "competitiveness": 0.350095,
+  "yes_token": "67038749017611181697138843852646596174918884510648362571132805897804441201506",
+  "no_token": "111911210849348540061625993509694256117954047828845677374001870178045393913735",
+  "assets": [
+   "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+  ],
+  "book_status": "ok",
+  "mid": 0.385,
+  "best_bid": 0.36,
+  "best_ask": 0.41,
+  "spread": 0.04999999999999999,
+  "yes_buy_price": 0.37,
+  "no_buy_price": 0.6,
+  "capital_pusd": 19.4,
+  "worst_case_loss_pusd": 12,
+  "share_single": 0.33547040405546485,
+  "share_many": 0.3068164385429624,
+  "predicted_pusd_many": 3.298276714336846,
+  "predicted_pusd_single": 3.606306843596247
+ },
+ "eligible": [
+  {
+   "condition_id": "0xd461d5df262d1247450b11b4be29426a9996d384ae0b5d0a4be0fd3655484666",
+   "location_id": "los-angeles",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [],
+   "question": "Will the highest temperature in Los Angeles be between 74-75°F on September 22?",
+   "rate": 43,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.350095,
+   "yes_token": "67038749017611181697138843852646596174918884510648362571132805897804441201506",
+   "no_token": "111911210849348540061625993509694256117954047828845677374001870178045393913735",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.385,
+   "best_bid": 0.36,
+   "best_ask": 0.41,
+   "spread": 0.04999999999999999,
+   "yes_buy_price": 0.37,
+   "no_buy_price": 0.6,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 12,
+   "share_single": 0.33547040405546485,
+   "share_many": 0.3068164385429624,
+   "predicted_pusd_many": 3.298276714336846,
+   "predicted_pusd_single": 3.606306843596247
+  },
+  {
+   "condition_id": "0x1238f985b95f1ac281ccb0b893ed5cc45534ef5edf33a16e244e8f9bb109aaf5",
+   "location_id": "houston",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [],
+   "question": "Will the highest temperature in Houston be between 94-95°F on September 22?",
+   "rate": 45,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.388785,
+   "yes_token": "92994062798315206733063867608590766130199691872339934590131142045921150168101",
+   "no_token": "45257093403468869661399324935982158464173797204951710891728019657999806304777",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.44,
+   "best_bid": 0.43,
+   "best_ask": 0.45,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.42,
+   "no_buy_price": 0.54,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 10.8,
+   "share_single": 0.24991128149506855,
+   "share_many": 0.22071595842594194,
+   "predicted_pusd_many": 2.4830545322918467,
+   "predicted_pusd_single": 2.8115019168195214
+  },
+  {
+   "condition_id": "0x15ed16f5d58af7848906269e3727688667c90aa033edd2cb0dc4bc16286dbb18",
+   "location_id": "dallas",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [],
+   "question": "Will the highest temperature in Dallas be between 92-93°F on September 22?",
+   "rate": 48,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.120742,
+   "yes_token": "66240472071476055522958575501622793625764163559024051713894373933901067273858",
+   "no_token": "38886234641311826353941627379817353425374021239336422045539602969615565354470",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.41500000000000004,
+   "best_bid": 0.4,
+   "best_ask": 0.43,
+   "spread": 0.02999999999999997,
+   "yes_buy_price": 0.4,
+   "no_buy_price": 0.57,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 11.399999999999999,
+   "share_single": 0.2805209377711058,
+   "share_many": 0.2020837075624218,
+   "predicted_pusd_many": 2.4250044907490618,
+   "predicted_pusd_single": 3.36625125325327
+  },
+  {
+   "condition_id": "0xa2fa8ba78e1578bc01419d3975a0dbd0f94e8412858b2f4ba384d70b7f80778a",
+   "location_id": "houston",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [],
+   "question": "Will the highest temperature in Houston be between 96-97°F on September 22?",
+   "rate": 54,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.577971,
+   "yes_token": "43926654989870278065222162047160583890430050613551320115589621129182801421013",
+   "no_token": "45196759907664912910211247245925075649537047554383640922230639257204817397682",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.48,
+   "best_bid": 0.46,
+   "best_ask": 0.5,
+   "spread": 0.03999999999999998,
+   "yes_buy_price": 0.46,
+   "no_buy_price": 0.5,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 10,
+   "share_single": 0.1702469602405252,
+   "share_many": 0.16834138285712344,
+   "predicted_pusd_many": 2.2726086685711664,
+   "predicted_pusd_single": 2.2983339632470905
+  }
+ ],
+ "rejected": [
+  {
+   "condition_id": "0x25cdb8af36ea6fb16ecf2f8751e03c05d2be44d5d054dabd31b8cab2b68d1313",
+   "location_id": "atlanta",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Atlanta be between 84-85°F on September 22?",
+   "rate": 11,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 6.701303,
+   "yes_token": "14820734088819827935014262454630221291515144482421660978748583478948889611015",
+   "no_token": "45479334841135426031363120633125921535126437996543330165494862019276875311526",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x80f52fb70d38d9c9c377fbb9f89dcad17b30d116f45bed88447ce6adc26b2d95",
+   "location_id": "atlanta",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Atlanta be between 86-87°F on September 22?",
+   "rate": 27,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.261335,
+   "yes_token": "20628582144409786262485651895257226171291838640176525134566279638651233280517",
+   "no_token": "76260845242361088681771225186394117703101752970949330273220125560495780125560",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xd0a69e5b4478a0484f3bd867bbdbc7c4e752ead0f89083b58853ac5436974a34",
+   "location_id": "atlanta",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Atlanta be between 90-91°F on September 22?",
+   "rate": 21,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.213222,
+   "yes_token": "12700504952258068251482137309461386725851133240039626823597490547078804514209",
+   "no_token": "42940861083956275140703078426304006187721612210656309458556125212038150816830",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xf38671bb1bf913565aed85686115f1e2a7962454d388ceb3489fadf274431237",
+   "location_id": "atlanta",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Atlanta be between 88-89°F on September 22?",
+   "rate": 41,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.816001,
+   "yes_token": "79437771313177299251268666943483502634057193041180663987870623232987393850550",
+   "no_token": "112673213012349670753536823502781488257697134864484120177343075744541939023522",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.39,
+   "best_bid": 0.37,
+   "best_ask": 0.41,
+   "spread": 0.03999999999999998,
+   "yes_buy_price": 0.37,
+   "no_buy_price": 0.59,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 11.799999999999999,
+   "share_single": 0.2309703526455336,
+   "share_many": 0.18734941790535833,
+   "predicted_pusd_many": 1.920331533529923,
+   "predicted_pusd_single": 2.3674461146167194
+  },
+  {
+   "condition_id": "0x5f904eebfe62cf795ac4f4beee6d58ecf0e7ac9c5e6f6bea50daede31897d78a",
+   "location_id": "austin",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Austin be between 96-97°F on September 22?",
+   "rate": 36,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.032497,
+   "yes_token": "68028239220040105677734235353865755645627487120901090422249258705547638857126",
+   "no_token": "64471562954737931281624711100498081229129778187462671319867410495854513277991",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x8e80b607fb1a7f114dda8c4a82b06cf9855ed5159c81e01819e7ae667e004b87",
+   "location_id": "austin",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Austin be between 98-99°F on September 22?",
+   "rate": 46,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.971018,
+   "yes_token": "5023536573227947457822260798363620370658620578488008136917641669079954409651",
+   "no_token": "96923804171121368233332132847931004028286623468585141115630588898980252212522",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.395,
+   "best_bid": 0.39,
+   "best_ask": 0.4,
+   "spread": 0.010000000000000009,
+   "yes_buy_price": 0.38,
+   "no_buy_price": 0.59,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 11.799999999999999,
+   "share_single": 0.19841269841269785,
+   "share_many": 0.13395697748406452,
+   "predicted_pusd_many": 1.540505241066742,
+   "predicted_pusd_single": 2.2817460317460254
+  },
+  {
+   "condition_id": "0xab0aea3e2df3894dc5cd5af82de67dd41cd25121a4a15fed11c2bb1760fbc2c1",
+   "location_id": "austin",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Austin be between 100-101°F on September 22?",
+   "rate": 10,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 5.859819,
+   "yes_token": "22350984340852392541615056834240815426926027001007262920806378702992252298079",
+   "no_token": "30714548176035571951740129891990444970044752020619925121180869148858834719211",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xf38d5305106f60a9a82b04c850be121c6b9a93ba97d7e91b21a06810b06bd245",
+   "location_id": "austin",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Austin be between 94-95°F on September 22?",
+   "rate": 8,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 2.500442,
+   "yes_token": "114283693256379490789499702928257434478578988384476128346078383604014413102664",
+   "no_token": "3933251712567937249075315903942374813546007386315810301936705531395107402957",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x9c68d9c585b614fd4f01a7a5cf655c7f664e2b42e5d122261de54656244a6aac",
+   "location_id": "chicago",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Chicago be between 60-61°F on September 22?",
+   "rate": 44,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.563845,
+   "yes_token": "81664269965151172389789081756849619647047993907631578333009264533371442957499",
+   "no_token": "89875087692922960134113328412416455270311893141724923539311829259116823620071",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.4,
+   "best_bid": 0.39,
+   "best_ask": 0.41,
+   "spread": 0.019999999999999962,
+   "yes_buy_price": 0.38,
+   "no_buy_price": 0.58,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 11.6,
+   "share_single": 0.0469526185475365,
+   "share_many": 0.028388468944576382,
+   "predicted_pusd_many": 0.3122731583903402,
+   "predicted_pusd_single": 0.5164788040229015
+  },
+  {
+   "condition_id": "0xac268e8455a788743bb00204e106fed9687c59250a5c1788c3c78263a1b4451c",
+   "location_id": "chicago",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Chicago be between 62-63°F on September 22?",
+   "rate": 50,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.158629,
+   "yes_token": "12146381897223042326147527974624989665494905757853473070820864319164585939708",
+   "no_token": "58370209975507033775155788779039461096848424363625605862292467535631198443315",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.48,
+   "best_bid": 0.47,
+   "best_ask": 0.49,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.46,
+   "no_buy_price": 0.5,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 10,
+   "share_single": 0.13188505953291596,
+   "share_many": 0.09046875480615264,
+   "predicted_pusd_many": 1.1308594350769081,
+   "predicted_pusd_single": 1.6485632441614495
+  },
+  {
+   "condition_id": "0x36406d4b0bc1ca80a5753f745e2f6d7671cacd3220173829d6d8b66d25642be4",
+   "location_id": "dallas",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Dallas be between 96-97°F on September 22?",
+   "rate": 14,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 4.622073,
+   "yes_token": "13758583428897914557727441904561159585162634883828445112965332324340855668214",
+   "no_token": "41668347596530732246366927573556018753160829988520987146118057645607361488214",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xb47671a00aa339aaa30e8d63f7e7ccd0af79654072350def74e019e086de3e1e",
+   "location_id": "dallas",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Dallas be between 94-95°F on September 22?",
+   "rate": 31,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.245797,
+   "yes_token": "67503002238147617247320737224868457325200991620645513825698938671807635559343",
+   "no_token": "45265476226269181400616987151053736056168204975318421586560103415530323739695",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xc3de189fc239438e83a3225f2351655b2d8cb816c8bc35ffb6ac1f11ece9b328",
+   "location_id": "dallas",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Dallas be between 90-91°F on September 22?",
+   "rate": 7,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 2.787571,
+   "yes_token": "65177903229471403261334687498378680190785088807810114403800485549513129141914",
+   "no_token": "72530234689002705608835564735836222858024582391043958857266271543493364202090",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x36e8c139eaeff30c333afb1911fedecb92a2b4f5d4042dcaa7949c4733853995",
+   "location_id": "denver",
+   "event_date": "2026-09-22",
+   "tick": 0.001,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Denver be between 84-85°F on September 22?",
+   "rate": 15,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 10.643945,
+   "yes_token": "79431014114053114827116086609279039058278368222748952973561525302443929579547",
+   "no_token": "76075167276683977214257458784334882767097914074204909833121922390923756523335",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xa39a66524f95bf055e12960a4b7717a83047b1c7ce20f6bef48b555b4f25af49",
+   "location_id": "denver",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Denver be between 80-81°F on September 22?",
+   "rate": 30,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.230774,
+   "yes_token": "96499647703089056203624445407308646067486835624120523893046949197744180157900",
+   "no_token": "86698063292680044967665825145892554614437896988706801784971961598937272184357",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xb73b9df2a874ce9d0361f7f4f28f8fb9fb0254592f88a60e4051c044196929ae",
+   "location_id": "denver",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Denver be between 82-83°F on September 22?",
+   "rate": 48,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.53873,
+   "yes_token": "46522412372332928114629017841044116579280951578704653284785771708729482789376",
+   "no_token": "18941521557414827548781000772783620210295939942211642958319290158234275307655",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.445,
+   "best_bid": 0.44,
+   "best_ask": 0.45,
+   "spread": 0.010000000000000009,
+   "yes_buy_price": 0.43,
+   "no_buy_price": 0.54,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 10.8,
+   "share_single": 0.10933475873463223,
+   "share_many": 0.08242815012913753,
+   "predicted_pusd_many": 0.9891378015496504,
+   "predicted_pusd_single": 1.3120171048155869
+  },
+  {
+   "condition_id": "0xc25645561be6c9242c1279669cafabde69f6b80655a85f61378e3cc8cae1c6d8",
+   "location_id": "houston",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Houston be between 92-93°F on September 22?",
+   "rate": 1,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0,
+   "yes_token": "110779606029049991285653477353135708335918433616301850622198181785081269483808",
+   "no_token": "17400698136387610115690407795133060426801498047067857196575849270655623858905",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x44113cd85515c032d6ec8e176a4ab3d769131173a156371513f3663f9f7b4e70",
+   "location_id": "los-angeles",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Los Angeles be between 76-77°F on September 22?",
+   "rate": 56,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.49808,
+   "yes_token": "85025018569170418592381935402198998561942128119062955607632438978985701580249",
+   "no_token": "87883317468339168904821004173428647265338500010158341557500934739365836317414",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.51,
+   "best_bid": 0.5,
+   "best_ask": 0.52,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.49,
+   "no_buy_price": 0.47,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 9.8,
+   "share_single": 0.0693836373955603,
+   "share_many": 0.044393934012856524,
+   "predicted_pusd_many": 0.6215150761799914,
+   "predicted_pusd_single": 0.9713709235378443
+  },
+  {
+   "condition_id": "0x5e0efc3ebbf93111ed44ccca7aa815a058cacd59fbcfe648fd787ad7ef4dca90",
+   "location_id": "miami",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Miami be between 88-89°F on September 22?",
+   "rate": 36,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.102315,
+   "yes_token": "13165928535584791592380388424668140590399306617938440299260750611077662354705",
+   "no_token": "109919168335834771025388357044711556989759660386501443211964444414447614147255",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x93e046c63b76dfb99c62353a202ae0bb0b8ffbe822fa7c4452ffffaf7876cd97",
+   "location_id": "miami",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Miami be between 90-91°F on September 22?",
+   "rate": 3,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 13.166505,
+   "yes_token": "69736945249814538452967273694221347432637940821490189744123685759643341647426",
+   "no_token": "2039191682560306692443241384572428585008155464803984075004086004009029549986",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x9f42c72153e6e0b78ba7cc620a169dae743834ce5fdfe8428c4b68e94b610518",
+   "location_id": "miami",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Miami be between 84-85°F on September 22?",
+   "rate": 16,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.502864,
+   "yes_token": "92443920535604535746011650490514767433311188996606719373070916731620728113631",
+   "no_token": "80266643560305154566180671861225369982784112702875130240454231723728643729306",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xdca0d8c8cfbaf6474d9ccd38d9edd0dd0ff1fa68e3efa5473d0c5ea31496be5e",
+   "location_id": "miami",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Miami be between 86-87°F on September 22?",
+   "rate": 45,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.546579,
+   "yes_token": "85821537161909043492856773891183592221186776857950224505040229368384664356980",
+   "no_token": "84322999044597714817992612175049926743738067180800469367162376898743308390556",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.39,
+   "best_bid": 0.38,
+   "best_ask": 0.4,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.37,
+   "no_buy_price": 0.59,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 11.799999999999999,
+   "share_single": 0.1276083139368695,
+   "share_many": 0.08215947976617413,
+   "predicted_pusd_many": 0.924294147369459,
+   "predicted_pusd_single": 1.4355935317897819
+  },
+  {
+   "condition_id": "0x5508f9c87bc2a0d26695ea10ad157178fe5ddd9c647a8c0b7552de341081bd40",
+   "location_id": "nyc",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in New York City be between 64-65°F on September 22?",
+   "rate": 55,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 3.253532,
+   "yes_token": "13207143712744111159015372487886603173300520471790442243655650071743781570678",
+   "no_token": "97319427578792605613137023993769488364774178668361009262706242998227544917289",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.49,
+   "best_bid": 0.48,
+   "best_ask": 0.5,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.47,
+   "no_buy_price": 0.49,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 9.8,
+   "share_single": 0.035622633766552045,
+   "share_many": 0.025761397421850865,
+   "predicted_pusd_many": 0.35421921455044947,
+   "predicted_pusd_single": 0.48981121429009067
+  },
+  {
+   "condition_id": "0x6552fda62c0fbb9aa24a9e0236974f47beaa93b9d4a090f1543bef24309857bd",
+   "location_id": "nyc",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in New York City be between 62-63°F on September 22?",
+   "rate": 21,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.967168,
+   "yes_token": "16336702906759742037451829966277440334634008851886984719836210839595084621327",
+   "no_token": "81143234731480973813423321512805836697551434781635522411006290028145213449609",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xfcf405c218a717e6040b5962a879e5c295ca65e7d6920f3e0cafc8d3bfe1142d",
+   "location_id": "nyc",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in New York City be between 66-67°F on September 22?",
+   "rate": 24,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.851667,
+   "yes_token": "72761326218441709243629905879074526751749753910944321781341528051900039743397",
+   "no_token": "20526137625834850567841367127646584243472077351542812320456988871984254127172",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x5387840a63511ae6a1464c21018795f3fcee51d13b142512504916e9728e9930",
+   "location_id": "san-francisco",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in San Francisco be between 66-67°F on September 22?",
+   "rate": 36,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 5.401319,
+   "yes_token": "23365148588484492479218591889306485323840001106162996412690768669072391206136",
+   "no_token": "106404821307141998290865533151136168225240998298817372421504231355837021102889",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x6fda322672ce37f2bc9defb373c488ab98097b1ab740d6328c4e6562e37d16f4",
+   "location_id": "san-francisco",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in San Francisco be between 70-71°F on September 22?",
+   "rate": 12,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 6.577383,
+   "yes_token": "88216001954064778272588179920176355286173205858552502208730546464161645415030",
+   "no_token": "110885627083405925566543731995547946834208045790299190636630164140290690664203",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xa7fe9ea3cab751bc771fc97e487a2c976b39030d7dbce20310168a9c6b0242e2",
+   "location_id": "san-francisco",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in San Francisco be between 68-69°F on September 22?",
+   "rate": 35,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.654552,
+   "yes_token": "67380363372374604472242655735707016884803163088317014444271113774072534997926",
+   "no_token": "13046234249065931310630117262494088327109625504554996588343591315178116586599",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xf2ce5bb4f1fffa033226b3f653c0893c3ba45c4b83d741dd414ea64df3b1a78e",
+   "location_id": "san-francisco",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in San Francisco be between 64-65°F on September 22?",
+   "rate": 17,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 2.558314,
+   "yes_token": "94128672838562297711534509211517175490702987746272029483962163642199939697835",
+   "no_token": "79872968196089522608373768862157681516101378130040884186303403443851765412600",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x10d6968d6da8405c44f09184f4953fb6ea9d78e2b84adedb15c913784c49aef0",
+   "location_id": "seattle",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Seattle be between 70-71°F on September 22?",
+   "rate": 8,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 1.214873,
+   "yes_token": "41385644990549058704464743662363115573126963385463456999702976870213109160635",
+   "no_token": "51086872382649760064323555448436261512629717447948299991206507612696588095958",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x2c73d9710b6612028052b3182e0291e297e8ab5a21e85521e8bd850ad1e5a54b",
+   "location_id": "seattle",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Seattle be between 68-69°F on September 22?",
+   "rate": 43,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 0.400695,
+   "yes_token": "103961435298860625655286007583422788468083335623124588452691790953289387783920",
+   "no_token": "44088792556083367713983536155577902594177893086390855200775868213267865351320",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.415,
+   "best_bid": 0.41,
+   "best_ask": 0.42,
+   "spread": 0.010000000000000009,
+   "yes_buy_price": 0.4,
+   "no_buy_price": 0.57,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 11.399999999999999,
+   "share_single": 0.11255275910583107,
+   "share_many": 0.07921280078860729,
+   "predicted_pusd_many": 0.8515376084775284,
+   "predicted_pusd_single": 1.2099421603876839
+  },
+  {
+   "condition_id": "0x331a9f19e3d1b8e0542e9f0dd3984f5b237e4767ac8c9f95f4aace8f9817a043",
+   "location_id": "seattle",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Seattle be between 64-65°F on September 22?",
+   "rate": 15,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 2.728302,
+   "yes_token": "40553565827675722633052509729644994558802655725216893196109698589291981085487",
+   "no_token": "106920351790801465150195419984012871789969814571103690453200345904303117073851",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0xd9528e7268635969d15705f32336fa74ce1d8d7dc61449b8a9572f17a81d307e",
+   "location_id": "seattle",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Seattle be between 66-67°F on September 22?",
+   "rate": 34,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 3.222514,
+   "yes_token": "71769994858402346240344342514262692991244304698838709900062874672674518241234",
+   "no_token": "31580984671511268499887070892149991061405871668390691854070630528125754038713",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x060325a351e2ec73aa782d203a304551af231728248966facddacf18c2646c7f",
+   "location_id": "toronto",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Toronto be 17°C on September 22?",
+   "rate": 54,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 3.962771,
+   "yes_token": "37390697103779658833567462736329116570453752217655949184421545011542904666313",
+   "no_token": "14805011488517289719786922026814928082742239217881872647183948875971364176562",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.595,
+   "best_bid": 0.59,
+   "best_ask": 0.6,
+   "spread": 0.010000000000000009,
+   "yes_buy_price": 0.58,
+   "no_buy_price": 0.39,
+   "capital_pusd": 19.4,
+   "worst_case_loss_pusd": 11.6,
+   "share_single": 0.018114775215767178,
+   "share_many": 0.017365365357639728,
+   "predicted_pusd_many": 0.23443243232813632,
+   "predicted_pusd_single": 0.2445494654128569
+  },
+  {
+   "condition_id": "0x3b6a7e0bc189843104d368a8c416397d977651318a62c1bb994ce4b5d97d66a5",
+   "location_id": "toronto",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "rate<40"
+   ],
+   "question": "Will the highest temperature in Toronto be 16°C on September 22?",
+   "rate": 5,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 23.63176,
+   "yes_token": "106251887883451439741350684660933534773664157664575544615516516682261720161295",
+   "no_token": "70857816367111225772575709013383801059823661661935750864527500144376755946514",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ]
+  },
+  {
+   "condition_id": "0x5ace57f89bd2762a06f3137dcefa3dacb5744fb4accecb995cefb64bbefb2f78",
+   "location_id": "toronto",
+   "event_date": "2026-09-22",
+   "tick": 0.01,
+   "reasons": [
+    "predicted<2"
+   ],
+   "question": "Will the highest temperature in Toronto be 18°C on September 22?",
+   "rate": 40,
+   "min_size": 20,
+   "max_spread_cents": 4.5,
+   "competitiveness": 25.248741,
+   "yes_token": "98478463603594611263839762459189832616478035564545249557584124833922538803264",
+   "no_token": "69567867299832313200821638486461627678127831700486275719284837620054191597585",
+   "assets": [
+    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+   ],
+   "book_status": "ok",
+   "mid": 0.31,
+   "best_bid": 0.3,
+   "best_ask": 0.32,
+   "spread": 0.020000000000000018,
+   "yes_buy_price": 0.29,
+   "no_buy_price": 0.67,
+   "capital_pusd": 19.2,
+   "worst_case_loss_pusd": 13.4,
+   "share_single": 0.008588164204325462,
+   "share_many": 0.0051645065773606325,
+   "predicted_pusd_many": 0.05164506577360632,
+   "predicted_pusd_single": 0.08588164204325462
+  }
+ ]
+}
