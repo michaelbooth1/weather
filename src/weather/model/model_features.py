@@ -540,6 +540,21 @@ class FeatureModelMixin:
             features["nws_grid_run_age_hours"] = run_age
 
         nbm_prob = nbm_probabilistic_tmax or {}
+        # Missing provenance stays missing: legacy rows are replayable but may
+        # not be admitted as corrected maximum guidance in a future study.
+        if nbm_prob.get("parser_version"):
+            from datetime import datetime
+            from weather.sources.nbm_probabilistic_tmax import nbp_parser_version_number
+            features["nbm_prob_tmax_parser_version"] = float(nbp_parser_version_number(nbm_prob["parser_version"]))
+            valid_time = nbm_prob.get("valid_time_utc")
+            if valid_time:
+                features["nbm_prob_tmax_valid_hour_utc"] = float(datetime.fromisoformat(valid_time.replace("Z", "+00:00")).hour)
+            features["nbm_prob_tmax_cycle_age_hours"] = row_value(
+                nbm_prob, "cycle_age_at_use_hours", "cycle_age_hours"
+            )
+            features["nbm_prob_tmax_maximum_period_flag"] = float(
+                nbm_prob.get("available") is True and nbm_prob.get("period_kind") == "maximum"
+            )
         percentiles = nbm_prob.get("percentiles") or {}
         nbm_feature_values = {
             f"nbm_prob_tmax_p{percentile}": row_value(percentiles, str(percentile), percentile)
