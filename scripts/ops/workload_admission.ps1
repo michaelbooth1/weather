@@ -613,6 +613,7 @@ function Get-WeatherWorkstationOfflineModule {
     param()
 
     @(
+        "tools.research.missing_information.run",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",

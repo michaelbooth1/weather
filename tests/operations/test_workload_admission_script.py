@@ -294,7 +294,11 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     assert "weather.operations.verified_cold_archive" not in modules
     assert "weather.operations" not in modules
     assert "rclone" not in modules
-    assert all(module.startswith("weather.") for module in modules)
+    assert all(
+        module.startswith("weather.")
+        or module == "tools.research.missing_information.run"
+        for module in modules
+    )
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows filesystem ACLs")

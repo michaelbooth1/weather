@@ -48,6 +48,7 @@ _COMMAND_BOUNDARY = r"(?:\A|[;&|\r\n{}()])"
 _COMMAND_TOKEN_END = r"(?=\s|[;&|{}()]|\Z)"
 _OFFLINE_WEATHER_MODULES = frozenset(
     {
+        "tools.research.missing_information.run",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",

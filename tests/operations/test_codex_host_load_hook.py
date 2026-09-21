@@ -671,7 +671,7 @@ def test_hook_and_workstation_wrapper_share_the_same_offline_module_set():
         "function Get-WeatherWorkstationOfflineModule {", 1
     )[1].split("function Test-WeatherWorkstationOfflineModuleCommandLine {", 1)[0]
     powershell_modules = frozenset(
-        re.findall(r'"(weather\.[A-Za-z0-9_.-]+)"', allowlist_body)
+        re.findall(r'"((?:weather|tools)\.[A-Za-z0-9_.-]+)"', allowlist_body)
     )
     assert powershell_modules == HOOK._OFFLINE_WEATHER_MODULES
 
