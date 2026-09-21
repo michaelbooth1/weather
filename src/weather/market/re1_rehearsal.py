@@ -9,6 +9,7 @@ from weather.market.re1_attended import HOST
 
 
 class WallClock:
+    realtime = True
     def now(self): return datetime.now(timezone.utc)
     def monotonic(self): return time.monotonic()
     def sleep(self, seconds): time.sleep(seconds)
@@ -64,6 +65,8 @@ class RehearsalVenue:
 
     def submit(self, request, *, checkpoint=lambda: None):
         checkpoint()
+        if hasattr(self, 'before_post'):
+            self.before_post(request)
         self.calls.append(deepcopy(request))
         oid = f'rehearsal-order-{len(self.memory.orders) + 1}'
         self.memory.orders[oid] = {'id': oid, 'asset_id': request['token_id'], 'market': self.memory.condition,

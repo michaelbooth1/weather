@@ -1,4 +1,4 @@
-"""Four explicit RE-1M modes; live commands require the owner's real terminal."""
+"""Owner-attended RE-1M rehearsal, preflight, live, panic, reconcile and collection."""
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
@@ -24,6 +24,9 @@ def parser():
     rehearsal.add_argument('--realtime', action='store_true', help='900 seconds using live public books and an inert exchange')
     modes.add_parser('live')
     modes.add_parser('cancel-only')
+    modes.add_parser('preflight')
+    reconcile = modes.add_parser('reconcile')
+    reconcile.add_argument('attempt', type=int, choices=range(1, 7))
     collect = modes.add_parser('collect-payout')
     collect.add_argument('prediction', type=Path)
     collect.add_argument('--payment-evidence', type=Path, help='independently reconciled distribution/wallet evidence; absent means payment unverified')
@@ -65,24 +68,31 @@ def run_live():
     if _LIVE_STARTED: raise RuntimeError('one_session_per_process')
     _LIVE_STARTED = True
     from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue, geography
+    from weather.market.re1_owner_checks import clean_preflight, code_identity
     with live_mutex():
         now = datetime.now(timezone.utc)
         if now.date().isoformat() > LAST_DAY or (now + timedelta(hours=6)).date() != now.date():
             raise RuntimeError('session_duration_or_utc_day')
+        preflight = clean_preflight(campaign_root(), now=now, commit=code_identity())
         public = Re1PublicBooks()
         table = public.selection()
         if not table['selected_condition_id']: raise RuntimeError('no_qualifying_band')
         if geography().get('blocked') is not False: raise RuntimeError('geoblock')
         receipt = confirmation(table, SecretGuard())
-        directory, attempt = reserve_attempt(campaign_root(), now=datetime.now(timezone.utc), selection_sha256=digest(table))
         fields, guard = load_owner_credentials('live')
-        client = build_client(fields)
+        if fields['FUNDER_ADDRESS'] != preflight['maker_address']:
+            raise RuntimeError('preflight_account_changed')
+        timeouts = preflight['timeouts_seconds']
+        client = build_client(fields, timeout=max(timeouts.values()))
         selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
-        venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'], directory=directory)
+        venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'], timeouts=timeouts)
         session = None
         handlers = {}
         try:
-            venue.start()
+            directory, attempt = reserve_attempt(campaign_root(), now=datetime.now(timezone.utc), selection_sha256=digest(table),
+                                                 open_orders=venue.open_orders, maker=venue.maker)
+            venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
+                               directory=directory, timeouts=timeouts)
             session = Session(venue=venue, public=public, table=table, clock=WallClock(), directory=directory,
                               guard=guard, mode='live', confirmation=receipt, attempt=attempt)
             def interrupted(_signal, _frame): raise KeyboardInterrupt()
@@ -90,6 +100,7 @@ def run_live():
                 if hasattr(signal, name):
                     value = getattr(signal, name)
                     handlers[value] = signal.signal(value, interrupted)
+            venue.start()
             result = session.run()
             return 0 if result['cleanup_ok'] and result['failure_type'] is None else 1
         finally:
@@ -153,6 +164,12 @@ def main(argv=None):
         if args.mode == 'rehearse': return run_rehearsal(args)
         if args.mode == 'live': return run_live()
         if args.mode == 'cancel-only': return run_cancel()
+        if args.mode == 'preflight':
+            from weather.market.re1_owner_checks import run_preflight
+            return run_preflight()
+        if args.mode == 'reconcile':
+            from weather.market.re1_owner_checks import run_reconcile
+            return run_reconcile(args.attempt)
         return run_collect(args)
     except BaseException as exc:
         # Do not echo exception messages: SDK/parser errors can carry secrets.

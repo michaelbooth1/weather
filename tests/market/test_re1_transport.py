@@ -99,6 +99,29 @@ def test_v1_heartbeat_binds_exact_body_and_rotates_id():
         assert request.full_url == 'https://clob.polymarket.com/v1/heartbeats'
 
 
+def test_rotating_heartbeat_resynchronizes_without_claiming_ack():
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from weather.market.re1_transport import Re1Heartbeat
+    calls = []
+    def opener(request, **kwargs):
+        calls.append(json.loads(request.data))
+        if len(calls) == 1:
+            raise HTTPError(request.full_url, 400, 'fixture', {},
+                            BytesIO(b'{"error_msg":"Invalid Heartbeat ID","heartbeat_id":"expected-id"}'))
+        class Reply:
+            status = 200
+            def read(self, *args): return b'{"heartbeat_id":"new-id"}'
+            def close(self): pass
+        return Reply()
+    sender = Re1Heartbeat(signer_address=MAKER, api_key='fixture', api_secret='Zml4dHVyZQ==',
+                          api_passphrase='fixture', opener=opener)
+    with pytest.raises(ConnectionError, match='resynchronized'): sender.send()
+    assert sender.last_response['error_msg'] == 'Invalid Heartbeat ID'
+    assert sender.send() == {'status': 'ok'}
+    assert calls == [{'heartbeat_id': ''}, {'heartbeat_id': 'expected-id'}]
+
+
 def test_collection_sdk_transport_refuses_every_non_get(monkeypatch):
     import httpx
     from eth_account import Account

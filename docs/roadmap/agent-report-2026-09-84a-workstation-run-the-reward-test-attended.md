@@ -445,3 +445,203 @@ No `.env` read, credential copy/export/vault write, live launch, typed live
 phrase, authenticated account query, signing, order, cancellation, payment
 collection, production access, Scheduler/capture change, host reassignment,
 lane edit, promotion or merge to master. No live prediction or payout exists.
+
+## September 21, 2026 — mission 84c handback
+
+**IMPLEMENTED; qualification in progress. Live remains NO-GO until the owner runs a clean preflight on the final tip. No authenticated preflight or live session has run.**
+
+This appendix supersedes 84b's readiness and campaign-retry instructions while
+preserving its historical evidence. The owner directly confirmed implementation
+authority in this task: "Authorize implementation; I run the owner commands."
+The unchanged three submitted sessions, September 30 end, International-only
+venue, BUY/post-only/GTD, twenty shares, ten submit attempts, four re-quotes,
+15.8 per-leg and 19.6 pair caps still apply. No sealed-lane source changed.
+Work continues on `codex/reward-test-attended-20260921`, in the existing
+`scratch/w/reward-test-attended-20260921` worktree, from reviewed `54b56d21b`;
+the declared stacked base remains `codex/stage2-hold-build-20260921` at
+`88aa7e43a71d5870575261280b45c9deae667668`. PR 78 remains a draft.
+
+### SDK reply-shape audit
+
+Paths below are relative to the installed `polymarket` directory in
+`venv/Lib/site-packages`, distribution `polymarket-client==0.6.0`.
+`_plain_sdk_value` is the existing official adapter function; submit success
+and identity alternatives now use that adapter's existing `_value` helper.
+The tests construct the SDK's own models, rather than asserting only against
+invented controller dictionaries. These are offline contract tests, not proof
+of an authenticated exchange response.
+
+| Call / controller fields | Installed SDK model, source and field | Executable test |
+| --- | --- | --- |
+| `post_order`: success, ID, status, immediate fills | `clients/secure.py:1885`; `models/clob/order_response.py:60` `AcceptedOrder.ok`, `order_id`, `status`, `trade_ids`; raw `RawOrderResponse` at line 44 supplies `success`, `order_id` (`orderID` validation alias), `status`, `trade_ids` (`tradeIDs`) | `test_sdk_accepted_and_raw_post_models_pass_controller` constructs raw and normalized models, passes each through `_plain_sdk_value` and the controller |
+| `cancel_order`: canceled IDs and failures | `clients/secure.py:1929`; `models/clob/cancel.py:9` `CancelOrdersResponse.canceled`, `not_canceled` | `test_sdk_cancel_models_and_open_order_model_normalization` |
+| `cancel_all`: canceled IDs and failures | `clients/secure.py:1943`; same `CancelOrdersResponse` | Same test, both cancellation boundaries |
+| `get_order`: ID, token, condition, maker, side, price, size, matched size, trades, status | `clients/secure.py:1615`; `models/clob/account.py:44` `OpenOrder.id`, `token_id`, `market`/`condition_id`, `maker_address`, `side`, `price`, `original_size`, `size_matched` (61), `associate_trades` (65), `status` (64) | Same test uses official adapter `get_order`; `test_nonresting_sdk_status_ends_and_cancels` |
+| `list_open_orders`: exact same identity/size/status fields | `clients/secure.py:1593`; paginated `OpenOrder` objects | Same test passes model instances through `bounded_rows` and `_exact_open_orders` |
+| `list_account_trades`: retained fill facts | `clients/secure.py:1622`; `models/clob/account.py:118` `ClobTrade`, including `status`, `token_id`, `maker_orders`, nested `MakerOrder.order_id`/`matched_amount` | `test_sdk_trade_model_retains_fill_facts` |
+| Scoring: known ID → boolean | **No model class exists.** `clients/secure.py:2032` returns `dict[str,bool]`; `_internal/actions/rewards.py:145` parses it. Empty lists are refused at line 135 before network access. | `test_sdk_scoring_parser_has_no_model_and_empty_list_is_rejected` uses the actual SDK client/parser through a closed mock transport; preflight records SKIP for empty scoring |
+| Heartbeat: rotating `heartbeat_id`, optional `error_msg` | **No CLOB heartbeat reply model or method exists in SDK 0.6.0.** The existing separate sender uses the [official v1 contract](https://docs.polymarket.com/trading/manage-orders#order-heartbeats). | `test_v1_heartbeat_binds_exact_body_and_rotates_id`; `test_rotating_heartbeat_resynchronizes_without_claiming_ack` |
+
+Resting REST orders are `LIVE`; a successful resting submit is `live`.
+Cancellation is `CANCELED`, with stream transition `CANCELLATION` normalized
+to `canceled`; fills are `MATCHED` / submit `matched`, nonzero matched size,
+associated trades, or authenticated trade events. All terminate quoting;
+fills also set the campaign's fill flag. The pinned REST model declares
+`status: str`, not an expiry enum. The [official REST reference](https://docs.polymarket.com/api-reference/trade/get-single-order-by-id)
+lists `LIVE`, `INVALID`, `CANCELED_MARKET_RESOLVED`, `CANCELED`, `MATCHED`;
+it supplies **no separate expired status**. Thus no exact expiry wire string
+is claimed here. An `EXPIRED` response, either cancellation spelling, and
+every other non-`LIVE` status stop safely in `check_fills`; tests pin that
+behavior. GTD expiry remains fixed end plus 60 seconds. Real expiry behavior
+has not been exercised by this mission.
+
+### Freshness budgets and recovery
+
+`re1_resilience` owns transport-error classification and monotonic freshness;
+`re1_attended` owns the safety decisions. Successful reads alone refresh a
+fact. A late response cannot revive an exhausted budget. Retrying a read
+never retries a submit or substitutes a stale public book for the fresh ask.
+
+| Fact | Implemented cadence / deadline | Test |
+| --- | --- | --- |
+| Geography | 30-second cadence; retry after 1 second; stop on any successful non-false blocked value or 45 seconds without success | `test_persistent_outage_exhausts_own_budget[geography]`, existing geography end-condition and cadence tests |
+| Heartbeat | Independent daemon, 5-second cadence, 1-second retry; 8-second ack deadline; no sends after 20 seconds without a main-loop tick | Heartbeat outage case; `test_heartbeat_daemon_and_main_stall_stop`; rotating-ID recovery test |
+| Each active order | Independent 10-second REST cadence and 30-second success deadline; fills/non-resting facts terminate immediately | Order outage case; `test_nonresting_sdk_status_ends_and_cancels`; existing cancellation-race and deadline-fill tests |
+| User stream | Continuous reader; reconnect into a new retained journal; 30 seconds from last inbound proof; REST polling remains active while down | Stream outage case; `test_stream_down_uses_rest_fill_detector`; owner-stream configuration test |
+| Minute market observation | 60-second cadence, 300-second success deadline; a failed observation writes `minute_missed`, gets no credit and cannot extend the fixed end | Snapshot outage case; seeded six-hour rehearsal |
+| Scoring / accrual | 30-minute cadence; exceptions record `missing_sample`, mark evidence incomplete and never terminate quoting | `test_noncritical_samples_can_fail_forever`; safe-next-session test |
+| Initial/account/submit-adjacent reads | Bounded 30-second retry; all original empty-account, balance and fresh-book assertions still run | `test_initial_read_budget_is_named_and_sends_no_orders`; `test_one_timeout_per_read_at_each_phase_survives`; existing money-boundary tests |
+| Cleanup | Three bounded attempts for idempotent cancels and terminal reads; no submit retry; PANIC if acknowledged cancel-all plus empty account cannot be proven | Phase timeout matrix and existing cleanup-failure test |
+
+The response hook never raises. Non-JSON and oversized bodies retain length
+and SHA-256; a journal/secret-guard failure sets a flag that stops the main
+controller while preserving the raw POST outcome. Journal records share a
+lock with the heartbeat thread. A documented HTTP 400 rotating-ID challenge
+updates the next heartbeat ID but **does not** reset the ack deadline.
+
+Preflight measures min, median, nearest-rank p95 and max for twenty reads per
+step (six heartbeats, at five-second cadence). It records every exception by
+step/type, every heartbeat acknowledgment, stream readiness, both asset
+balances and allowance. Only the separate heartbeat sender may mutate; the
+SDK client retains its GET-only guard, and heartbeat mode rechecks the empty
+account before every send. Scoring's empty-list SKIP is an installed-SDK
+limitation, not an authenticated scoring proof. The fixed SDK bootstrap has
+no caller timeout parameter; after bootstrap every SDK transport uses
+`max(2 seconds, 3 × measured p95)` from the preflight table, conservatively
+using its largest measured timeout. Geography, positions, asset-balance and
+heartbeat reads use their own entries. A heartbeat timeout reaching the
+8-second safety budget makes preflight FAIL. These are network inactivity
+timeouts; the separate freshness clocks and main-loop watchdog still apply.
+
+### Campaign and owner run card
+
+There are at most six immutable attempt markers and at most three attempts
+that reached the raw POST boundary. A durable intent is flushed immediately
+before that POST; signing/pre-submit failures still consume the ten-attempt
+in-process budget, but zero POSTs do not consume a campaign session. A crash
+after an intent conservatively counts as submitted. Marker, journal, intent,
+acknowledgment and prediction files are retained. Incomplete measurement
+evidence remains INCONCLUSIVE and by itself no longer blocks the campaign.
+Unknown submit IDs, a fill, unproven cleanup or unproven terminal inventory
+require owner reconciliation. That receipt never resets the session count
+or authorizes selling inventory; a later reservation also reads the account
+again and requires zero open orders.
+
+From the assigned workstation and Windows principal, keep the tunnel down,
+complete heavy work, maintain zero open orders and the required selected-token
+positions/balance, and use the same terminal setup as 84b:
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\reward-test-attended-20260921'
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+& $re1Python -m weather.market.re1_attended_cli preflight
+```
+
+The owner alone runs this credential-loading command. Target the morning of
+September 22. Send back its printed receipt path for review and repairs. The
+agent must not run it. A clean final-tip, same-UTC-date PASS is required by
+`live`; a newer failed or incomplete preflight invalidates an earlier PASS.
+Any code-tip change requires another owner preflight.
+
+```powershell
+& $re1Python -m weather.market.re1_attended_cli live
+```
+
+Target 13:00 Eastern September 22 only after clean preflight; last possible
+start is 13:59 Eastern so the fixed six hours finish before 00:00Z. Otherwise
+move to September 23. Personally inspect the selected treatment and type the
+unchanged attendance/eligibility/tunnel-down phrase. No check is shortened.
+For PANIC or uncertain open orders, run in a second terminal:
+
+```powershell
+& $re1Python -m weather.market.re1_attended_cli cancel-only
+```
+
+For a blocked attempt, substitute its actual marker number (1 through 6):
+
+```powershell
+& $re1Python -m weather.market.re1_attended_cli reconcile 1
+```
+
+This owner-terminal command prints current account-wide open orders, positions
+in the attempt condition and known order IDs, then requires the displayed
+attempt-bound phrase. It reads the empty account again after the phrase and
+writes `reconciliation.json` beside the attempt, exclusively. It never cancels
+or sells; use panic first if needed, and hold filled inventory to settlement.
+Collection remains the prior-day `collect-payout <printed-prediction-path>`
+command; independently reconciled payment evidence remains required for `k`.
+
+### Qualification and remaining evidence
+
+Initial focused run: 71 passed, one obsolete zero-submit expectation failed.
+After updating the regression and adding fault injection/SDK models: 100
+passed, including the seeded 360-minute run. The next owner-command and
+architecture run passed 137 tests; two architecture failures identified
+unstaged new files and an optional-import pattern, both repaired. Final
+qualification receipts and retained rehearsal hashes are recorded below
+after completion; none of these runs used credentials or authenticated APIs.
+
+Final broad focus: **144 passed, zero skips, 222.33 seconds** including all
+RE-1 tests, architecture/module-size checks and an explicitly retained
+accelerated rehearsal. JUnit `scratch/re1-84c-focused4.xml` SHA-256:
+`088232551ef6cff8decb5d04235fec4018f6b7069c5387b9ffd5d4c8c796794b`.
+The final main-thread checkpoint adjustment receives an additional focused
+run before the full suite. Checkpoints between bounded reads count as main
+progress; a blocked read cannot refresh that watchdog.
+
+Retained seeded rehearsal: `scratch/re1-84c-seeded-1`, seed **84003**, fixed
+360-minute end reached, **351** successful/visible minute samples, nine
+missed minutes, two simulated POSTs, zero re-quotes/fills, acknowledged
+cleanup and zero remaining simulated orders. It injected **644 failures**:
+452 user-stream reads, 98 heartbeats, 75 order reads, nine geography reads,
+nine snapshots and one scoring read, from an independent 2% Bernoulli draw
+on each read. Missing evidence correctly leaves `evidence_complete=false`.
+`P_many=P_single=2.46488764044945`; this is synthetic prediction, not income.
+
+| Retained evidence | SHA-256 |
+| --- | --- |
+| `scratch/re1-84c-seeded-1/journal.jsonl` | `bb4ddec19bc5a1283949b2c3cc00c385260b93726d29b2cfc8cbf18be4248f24` |
+| `scratch/re1-84c-seeded-1/prediction.json` | `905393a8c826ba5f7dff420a55ea6f6234f221801adb164794294c8098f7cfd2` |
+
+Reproduction, from this worktree: use `scripts/ops/workstation_heavy.ps1`
+with `-Kind pytest`, the main checkout's `venv/Scripts/python.exe`, explicit
+`-RepoRoot`, and `-ArgumentsBase64` holding UTF-8 JSON. The durable offline
+test is `tests/market/test_re1_resilience.py::test_seeded_two_percent_six_hour_rehearsal`.
+The ignored retention harness `scratch/re1_84c_retained_proof.py` invokes
+that same test with the retained directory above; use a new directory for
+another retained run. Full-suite arguments are `-m pytest -q` with explicit
+`--basetemp=C:/tmp/weather-re1-84c-full` and
+`--junitxml=scratch/re1-84c-full.xml`. Completed pytest temporary trees are
+removed only after the admitted process exits; receipts and journals remain.
+
+**Owner preflight latency table: NOT RUN. Authenticated FAIL lines: none
+available.** Fake timings are not presented as account-path evidence. The
+owner's actual table and every FAIL line must be appended after that run;
+until then the authenticated path remains unproven and `live` refuses.
+
+What was not done: no `.env` read, credential export/copy/vault access, real
+signing, authenticated account query, heartbeat, order, cancellation,
+reconciliation, payout collection or live session; no production access,
+capture/Scheduler change, restart, host reassignment, promotion, sealed-lane
+edit or merge to master. The simulated six-hour outcome proves the tested
+fault model only; it proves neither profit nor future venue/network behavior.

@@ -38,12 +38,12 @@ def test_three_persistent_sessions_and_fourth_refused(tmp_path):
         reserve_attempt(tmp_path, now=clock.now(), selection_sha256='a' * 64)
 
 
-def test_unfinished_attempt_blocks_next_and_expiry(tmp_path):
+def test_unfinished_no_post_attempt_allows_next_and_expiry(tmp_path):
     from tests.market.stage2_fakes import Clock
     now = Clock().now()
     reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)
-    with pytest.raises((ValueError, OSError, RuntimeError)):
-        reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)
+    _, marker = reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)
+    assert marker['number'] == 2 and marker['session_number'] == 1
     with pytest.raises(RuntimeError, match='campaign_expired'):
         reserve_attempt(tmp_path / 'expired', now=now + timedelta(days=10), selection_sha256='a' * 64)
 
@@ -52,7 +52,9 @@ def test_incomplete_acknowledgement_blocks_next_attempt(tmp_path):
     from tests.market.stage2_fakes import Clock
     directory, _ = reserve_attempt(tmp_path, now=Clock().now(), selection_sha256='a' * 64)
     session, venue, clock = setup(directory)
-    def lost(*args, **kwargs): raise ConnectionError('unknown submit outcome')
+    def lost(request, **kwargs):
+        venue.before_post(request)
+        raise ConnectionError('unknown submit outcome')
     venue.submit = lost
     result = session.run()
     assert result['cleanup_ok'] and not result['fill_seen'] and not result['evidence_complete']

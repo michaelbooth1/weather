@@ -11,12 +11,15 @@ import atexit
 import hashlib
 import json
 from pathlib import Path
+from threading import RLock
 
 from weather.market.mm_stage2_hold import (
     HoldEnd, HoldJournal, canonical_bytes, digest, utc, write_new,
     _exact_open_orders, _cancel_ack_ids, _order_id,
 )
 from weather.market.mm_stage2_selection import validate_selection
+from weather.market.mm_official_adapter import _value
+from weather.market.re1_resilience import Freshness, HeartbeatLoop, retry_read, transient
 from weather.market.reward_quote import _decimal as number, _levels
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
@@ -59,10 +62,12 @@ class SecretGuard:
 class GuardedJournal(HoldJournal):
     def __init__(self, *args, guard, **kwargs):
         self.guard = guard
+        self.lock = RLock()
         super().__init__(*args, **kwargs)
 
     def record(self, event, **fields):
-        super().record(event, **self.guard.clean(fields))
+        with self.lock:
+            super().record(event, **self.guard.clean(fields))
 
 
 def observe(snapshot, prices):
@@ -124,6 +129,11 @@ def replacement_price(mid, leg):
     return ((value - Decimal('.015')) / Decimal('.01')).to_integral_value(rounding=ROUND_FLOOR) * Decimal('.01')
 
 
+def filled(row):
+    return (number(row.get('size_matched', 0)) > 0 or bool(row.get('associate_trades')) or
+            str(_value(row, 'status', 'official_order_status') or '').upper() == 'MATCHED')
+
+
 class Session:
     def __init__(self, *, venue, public, table, clock, directory, guard=None, mode='rehearse',
                  confirmation=None, attempt=None, realtime_rehearsal=False):
@@ -146,16 +156,20 @@ class Session:
         self.initial_terms = selected['snapshot']['quote_inputs']
         self.known, self.active = {}, {}
         self.submits = self.requotes = 0
+        self.posts = 0
+        self.venue.before_post = self.before_post
         self.fill_seen = self.terms_changed = self.evidence_failed = False
         self.scoring_seen = False
         self.started = self.closed = False
         self.empty_account_proven = False
-        self.geo_time = self.beat_time = float('-inf')
+        self.heartbeat_loop = None
+        self.order_created = {}
+        self.market_time = clock.monotonic()
         self.totals = dict(P_many=0.0, P_single=0.0, P_many_plain_mid=0.0, visible_two_sided_minutes=0)
         self.attempt = attempt
         self.scope = {'condition_id': self.condition, 'token_ids': list(self.tokens),
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
-                      'protocol': 'RE-1M-attended-84b'}
+                      'protocol': 'RE-1M-attended-84c'}
         self.journal = GuardedJournal(self.directory / 'journal.jsonl', clock=clock.now,
                                      scope=self.scope, mode=mode, guard=self.guard)
         if hasattr(venue, 'set_journal'):
@@ -163,6 +177,7 @@ class Session:
         write_new(self.directory / 'selection.json', self.guard.clean(table))
         self.journal.record('selection', selection_sha256=digest(table), confirmation=confirmation,
                             fixed_end_at_utc=self.end.isoformat(), attempt=attempt)
+        self.freshness = Freshness(clock, self.journal)
 
     def call(self, name, fn, **request):
         self.journal.record(name + '_request', request=request)
@@ -170,45 +185,81 @@ class Session:
         self.journal.record(name + '_response', response=result)
         return result
 
+    def required(self, name, fn, *, checkpoint=True, **request):
+        return retry_read(name, lambda: self.call(name, fn, **request), clock=self.clock,
+                          journal=self.journal, checkpoint=self.control if checkpoint else lambda: None)
+
+    def sample(self, name, fn):
+        try:
+            return self.call(name, fn)
+        except Exception as exc:
+            self.evidence_failed = True
+            self.journal.record('missing_sample', sample=name, exception_type=type(exc).__name__)
+            return None
+
+    def before_post(self, request):
+        # Persist before the raw network POST, after signing and all checks.
+        write_new(self.directory / f'submit-{self.posts + 1}.intent.json',
+                  {'number': self.posts + 1, 'request': request, 'scope': self.scope})
+        self.posts += 1
+
     def control(self, *, force=False):
+        # Checkpoints between reads are main-thread progress too. A blocked
+        # read cannot call this, so the independent 20-second watchdog holds.
+        if self.heartbeat_loop is not None:
+            self.heartbeat_loop.tick()
         assert_no_ambient_proxy_configuration()
         now = self.clock.monotonic()
         if utc(self.clock.now()) >= self.end or now >= self.deadline:
             raise HoldEnd('fixed_end')
-        if now - self.geo_time >= 30 or force:
-            geo = self.call('geoblock', self.venue.geography)
+        geo = self.freshness.read('geoblock', lambda: self.call('geoblock', self.venue.geography),
+                                  cadence=30, budget=45, force=force)
+        if geo is not None:
             if geo.get('blocked') is not False:
                 raise HoldEnd('geoblock')
-            self.geo_time = now
-        if now - self.beat_time >= 5 or force:
-            beat = self.call('heartbeat', self.venue.heartbeat)
-            if beat != {'status': 'ok'}:
-                raise HoldEnd('heartbeat')
-            self.beat_time = now
-        if self.clock.monotonic() - self.geo_time >= 45:
-            raise HoldEnd('geoblock_stale')
-        if self.clock.monotonic() - self.beat_time > 7.5:
-            raise HoldEnd('heartbeat_stale')
-        self.check_fills()
+        if self.heartbeat_loop is None:
+            self.heartbeat_loop = HeartbeatLoop(self.clock, self.venue.heartbeat, self.journal,
+                                                threaded=getattr(self.clock, 'realtime', False))
+            self.heartbeat_loop.start()
+        self.heartbeat_loop.check()
+        self.check_fills(force=force)
+        self.freshness.check('geoblock', 45)
+        if self.clock.monotonic() - self.market_time >= 300:
+            raise HoldEnd('market_snapshot_stale')
+        if getattr(self.venue, 'journal_failed', False):
+            raise HoldEnd('response_journal_failed')
+        if force and ('geoblock' not in self.freshness.success or self.heartbeat_loop.last_ack is None):
+            self.clock.sleep(.25)
+            self.control(force=True)
 
-    def check_fills(self, *, canceling=None):
-        events = self.venue.events()
+    def check_fills(self, *, canceling=None, force=False):
+        events = self.freshness.read('user_stream', self.venue.events, cadence=0, budget=30)
+        if hasattr(self.venue, 'stream_last_alive'):
+            self.freshness.success['user_stream'] = self.venue.stream_last_alive
+            self.freshness.check('user_stream', 30)
         if events:
             self.journal.record('user_events', rows=events)
-        for event in events:
+        for event in events or []:
             if _order_id(event) not in self.known:
                 raise HoldEnd('unknown_user_event')
             if (event.get('official_event_type') == 'trade' or
                     event.get('event_type') in {'trade', 'trade_pending'} or
-                    number(event.get('size_matched', 0)) > 0):
+                    filled(event)):
                 self.fill_seen = True
                 raise HoldEnd('fill')
+            status = _value(event, 'status', 'official_order_status')
+            if _order_id(event) in self.active and _order_id(event) != canceling and status and str(status).upper() != 'LIVE':
+                raise HoldEnd('order_no_longer_resting')
 
         for oid in self.active:
-            row = self.venue.order(oid)
-            if number(row['size_matched']) > 0 or row.get('associate_trades'):
-                self.journal.record('fill', order=row, trades=self.venue.trades())
+            row = self.freshness.read('order_' + oid, lambda: self.call('order', lambda: self.venue.order(oid), order_id=oid),
+                                      cadence=10, budget=30, force=force or canceling is not None,
+                                      initial=self.order_created.get(oid, self.freshness.started))
+            if row is None:
+                continue
+            if filled(row):
                 self.fill_seen = True
+                self.journal.record('fill', order=row)
                 raise HoldEnd('fill')
             if oid != canceling and str(row.get('status', '')).upper() != 'LIVE':
                 self.evidence_failed = True
@@ -217,7 +268,7 @@ class Session:
     def submit(self, leg, price, *, side='BUY', size=SIZE, post_only=True, order_type='GTD'):
         """The sole sign/submit boundary. No CLI/config can widen these limits."""
         self.control(force=True)
-        if (self.mode == 'live' and (not self.attempt or not 1 <= self.attempt['number'] <= MAX_SESSIONS)):
+        if (self.mode == 'live' and (not self.attempt or not 1 <= self.attempt.get('session_number', self.attempt['number']) <= MAX_SESSIONS)):
             raise HoldEnd('session_cap')
         now = utc(self.clock.now())
         if (self.venue.host != HOST or side != 'BUY' or number(size) != SIZE or
@@ -236,17 +287,18 @@ class Session:
         if price * SIZE > ORDER_CAP or sum(self.prices) * SIZE > BAND_CAP:
             raise HoldEnd('capital_cap')
         expected = {oid: (self.tokens[i], p, SIZE) for oid, (i, p) in self.active.items()}
-        rows = self.call('open_orders', self.venue.open_orders)
+        rows = self.required('open_orders', self.venue.open_orders)
         _exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
         if len(rows) >= 2 or any(i == leg for i, _ in self.active.values()):
             raise HoldEnd('open_order_cap')
         # Fresh public reads are immediately adjacent to signing, never a
         # complementary inferred ask. Every token must retain a two-sided book.
-        snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+        snapshot = self.required('submit_snapshot', lambda: self.public.snapshot(self.condition, self.tokens, checkpoint=self.control))
         if (snapshot['condition_id'] != self.condition or tuple(snapshot['token_ids']) != self.tokens or
                 not 0 <= (utc(self.clock.now()) - utc(snapshot['observed_at_utc'])).total_seconds() <= 10):
             raise HoldEnd('fresh_book_scope')
         self.journal.record('submit_market_snapshot', snapshot=snapshot)
+        self.market_time = self.clock.monotonic()
         values = snapshot['quote_inputs']
         if number(values['reward_min_size']) != SIZE or number(values['reward_rate_per_day']) < 40:
             raise HoldEnd('reward_terms')
@@ -261,25 +313,36 @@ class Session:
         request = dict(token_id=self.tokens[leg], side=side, size=str(size), price=str(price),
                        post_only=post_only, expiration=int(self.end.timestamp()) + 60)
         self.submits += 1  # consume before signing, including ambiguous failures
-        response = self.call('submit', lambda: self.venue.submit(request, checkpoint=self.control), **request)
-        oid = _order_id(response)
+        try:
+            response = self.call('submit', lambda: self.venue.submit(request, checkpoint=self.control), **request)
+        except Exception as exc:
+            if transient(exc):
+                raise HoldEnd('submit_transport_ambiguous') from None
+            raise
+        oid = str(_value(response, 'id', 'order_id', 'orderID') or '')
         if oid:
             self.known[oid] = leg
             self.active[oid] = (leg, price)
-        if response.get('trade_ids') or response.get('status') == 'matched':
+            self.order_created[oid] = self.clock.monotonic()
+            write_new(self.directory / f'submit-{self.posts}.ack.json', {'order_id': oid})
+        if _value(response, 'trade_ids', 'tradeIDs') or response.get('status') == 'matched':
             self.fill_seen = True
             raise HoldEnd('fill')
-        if not oid or response.get('ok') is not True or response.get('status') != 'live':
+        if not oid or _value(response, 'ok', 'success') is not True or response.get('status') != 'live':
             raise HoldEnd('submit_acknowledgment')
-        self.call('scoring', lambda: self.venue.scoring(list(self.active)))
+        self.sample('scoring', lambda: self.venue.scoring(list(self.active)))
         return oid
 
     def cancel_leg(self, oid):
-        response = self.call('cancel', lambda: self.venue.cancel(oid), order_id=oid)
+        response = self.required('cancel', lambda: self.venue.cancel(oid), checkpoint=False, order_id=oid)
         if oid not in _cancel_ack_ids(response):
             raise HoldEnd('cancel_acknowledgment')
+        row = self.required('cancel_order_read', lambda: self.venue.order(oid), checkpoint=False)
+        if filled(row):
+            self.fill_seen = True
+            raise HoldEnd('fill')
         self.check_fills(canceling=oid)  # includes fills racing cancellation
-        remaining = self.call('open_orders', self.venue.open_orders)
+        remaining = self.required('open_orders', self.venue.open_orders)
         if any(_order_id(row) == oid for row in remaining):
             raise HoldEnd('cancel_not_terminal')
         del self.active[oid]
@@ -294,22 +357,38 @@ class Session:
                 self.journal.record(event, **fields)
             except BaseException:
                 self.evidence_failed = True
+        def recover(name, fn):
+            for attempt in range(3):
+                try:
+                    return fn()
+                except Exception as exc:
+                    retain(name + '_unavailable', exception_type=type(exc).__name__)
+                    if not transient(exc) or attempt == 2:
+                        raise
+                    self.clock.sleep(.5)
+        if self.heartbeat_loop is not None:
+            try:
+                self.heartbeat_loop.stop()
+            except BaseException:
+                self.evidence_failed = True
+        self.inventory_proven = False
         # Before the empty-account preflight succeeds, there is no authority to
         # cancel unrelated pre-existing orders. No submit can have occurred.
         if not self.empty_account_proven and self.submits == 0:
             self.cleanup_ok = True
+            self.inventory_proven = True
             self.closed = True
             return True
         for oid in self.active:
             try:
                 retain('cleanup_cancel_request', order_id=oid)
-                response = self.venue.cancel(oid)
+                response = recover('cleanup_cancel', lambda: self.venue.cancel(oid))
                 retain('cleanup_cancel_response', order_id=oid, response=response)
             except BaseException:
                 retain('cleanup_cancel_unavailable', order_id=oid)
         try:
             retain('cleanup_cancel_all_request')
-            response = self.venue.cancel_all()
+            response = recover('cleanup_cancel_all', self.venue.cancel_all)
             _cancel_ack_ids(response)
             acknowledged = True
             retain('cleanup_cancel_all_response', response=response)
@@ -317,7 +396,7 @@ class Session:
             acknowledged = False
         empty = False
         try:
-            rows = self.venue.open_orders()
+            rows = recover('cleanup_open_orders', self.venue.open_orders)
             retain('cleanup_open_orders', rows=rows)
             empty = rows == []
         except BaseException:
@@ -326,20 +405,24 @@ class Session:
         # A zero-open-order read alone says nothing about that inventory.
         try:
             for oid in self.known:
-                row = self.venue.order(oid)
+                row = recover('terminal_order', lambda: self.venue.order(oid))
                 retain('terminal_order', order=row)
-                if number(row['size_matched']) > 0 or row.get('associate_trades'):
+                if filled(row):
                     self.fill_seen = True
-            retain('terminal_trades', rows=self.venue.trades())
-            positions = self.venue.positions()
+            positions = recover('terminal_positions', self.venue.positions)
             retain('terminal_positions', rows=positions)
             if positions:
                 self.fill_seen = True
+            self.inventory_proven = True
+        except BaseException:
+            self.evidence_failed = True
+        try:
+            retain('terminal_trades', rows=recover('terminal_trades', self.venue.trades))
         except BaseException:
             self.evidence_failed = True
         # A lost submit acknowledgement may hide an order/fill identity even
         # after cancel-all succeeds. Never qualify or silently retry it.
-        if self.submits != len(self.known):
+        if self.posts != len(self.known):
             self.evidence_failed = True
         self.cleanup_ok = empty and acknowledged
         self.closed = True
@@ -359,32 +442,47 @@ class Session:
         try:
             if self.end.date() != self.start.date() or self.start.date().isoformat() > LAST_DAY:
                 raise HoldEnd('session_duration_or_utc_day')
-            if self.call('initial_open_orders', self.venue.open_orders) != []:
+            if self.required('initial_open_orders', self.venue.open_orders, checkpoint=False) != []:
                 raise HoldEnd('initial_open_orders')
             self.empty_account_proven = True
-            if self.call('initial_positions', self.venue.positions) != []:
+            if self.required('initial_positions', self.venue.positions, checkpoint=False) != []:
                 raise HoldEnd('initial_positions')
-            balances = self.call('initial_balances', self.venue.balances)
+            balances = self.required('initial_balances', self.venue.balances, checkpoint=False)
             if number(balances['available_collateral']) < 25:
                 raise HoldEnd('available_collateral')
+            self.freshness.started = self.market_time = self.clock.monotonic()
             self.submit(0, self.prices[0])
             self.submit(1, self.prices[1])
             next_minute = self.clock.monotonic()
             next_accrual = next_minute
             stop_at = self.deadline if rehearsal_seconds is None else min(self.deadline, self.clock.monotonic() + rehearsal_seconds)
             while self.clock.monotonic() < stop_at:
+                self.heartbeat_loop.tick()
                 self.control()
                 if self.clock.monotonic() >= next_minute:
-                    snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+                    next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
+                    try:
+                        snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+                    except Exception as exc:
+                        if not transient(exc):
+                            raise
+                        self.evidence_failed = True
+                        self.journal.record('minute_missed', exception_type=type(exc).__name__)
+                        continue
                     self.journal.record('market_snapshot', snapshot=snapshot)
+                    if self.clock.monotonic() - self.market_time >= 300:
+                        raise HoldEnd('market_snapshot_stale')
+                    self.market_time = self.clock.monotonic()
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
                     observation = observe(snapshot, self.prices)
+                    self.control()
                     if self.clock.monotonic() >= next_accrual:
-                        scoring = self.call('scoring', lambda: self.venue.scoring(list(self.active)))
-                        self.scoring_seen |= len(scoring) == 2 and all(v is True for v in scoring.values())
-                        self.call('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+                        scoring = self.sample('scoring', lambda: self.venue.scoring(list(self.active)))
+                        self.scoring_seen |= scoring is not None and len(scoring) == 2 and all(v is True for v in scoring.values())
+                        self.sample('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
                         next_accrual = self.clock.monotonic() + 1800
+                        self.control()
                     # Match the reference's one-minute sampled sums exactly.
                     if observation['visible_two_sided']:
                         self.totals['visible_two_sided_minutes'] += 1
@@ -407,12 +505,12 @@ class Session:
                         self.prices[leg] = replacement_price(observation['adjusted_mid'], leg)
                     for leg in observation['requote_legs']:
                         self.submit(leg, self.prices[leg])
-                    next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
                 self.clock.sleep(min(1, max(0, stop_at - self.clock.monotonic())))
         except HoldEnd as exc:
             reason = exc.reason
         except BaseException as exc:
-            reason, failure = 'interrupted' if isinstance(exc, KeyboardInterrupt) else 'exception', type(exc).__name__
+            reason = 'transport_unavailable' if transient(exc) else 'interrupted' if isinstance(exc, KeyboardInterrupt) else 'exception'
+            failure = type(exc).__name__
             self.evidence_failed = True
         finally:
             self.cleanup()
@@ -420,12 +518,14 @@ class Session:
         if self.fill_seen:
             reason = 'fill'
         try:
-            self.call('final_balances', self.venue.balances)
-            self.call('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+            self.sample('final_balances', self.venue.balances)
+            self.sample('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
             self.journal.record('terminal', reason=reason, failure_type=failure, cleanup_ok=self.cleanup_ok,
                                 fill_seen=self.fill_seen, submits=self.submits, requotes=self.requotes,
                                 evidence_complete=not self.evidence_failed, reward_terms_changed=self.terms_changed,
-                                scoring_seen=self.scoring_seen)
+                                scoring_seen=self.scoring_seen, order_ids=list(self.known),
+                                unknown_submit=self.posts != len(self.known), post_count=self.posts,
+                                inventory_proven=self.inventory_proven)
         except BaseException:
             self.evidence_failed = True
         self.journal.close()
@@ -435,6 +535,8 @@ class Session:
                   'cleanup_ok': self.cleanup_ok, 'fill_seen': self.fill_seen, 'reward_terms_changed': self.terms_changed,
                   'scoring_seen': self.scoring_seen, 'evidence_complete': not self.evidence_failed,
                   'reason': reason, 'failure_type': failure, 'submits': self.submits,
+                  'order_ids': list(self.known), 'unknown_submit': self.posts != len(self.known), 'post_count': self.posts,
+                  'inventory_proven': self.inventory_proven,
                   'requotes': self.requotes, 'minute_samples': observed_minutes, 'payout_read': False}
         write_new(self.directory / 'prediction.json', self.guard.clean(result))
         self.guard.print({'prediction': str(self.directory / 'prediction.json'), 'sha256': digest(result),

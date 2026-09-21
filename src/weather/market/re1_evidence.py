@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
+from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new, _order_id
 from weather.market.mm_exchange_reports import reconcile_incentive_payments
 from weather.market.re1_attended import MAX_SESSIONS, LAST_DAY, observe, number
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
@@ -59,25 +59,67 @@ def live_mutex():
         kernel.CloseHandle(handle)
 
 
-def reserve_attempt(root, *, now, selection_sha256):
+def attempt_state(marker, *, now):
+    """Keep crashes/ambiguous posts conservative without charging proven no-post work."""
+    marker = validate_regular_nonreparse_file(marker)
+    attempt = json.loads(marker.read_bytes())
+    directory = marker.parent / f"session-{attempt['number']}"
+    intents = sorted(directory.glob('submit-*.intent.json'))
+    known = [json.loads(validate_regular_nonreparse_file(p).read_bytes())['order_id']
+             for p in sorted(directory.glob('submit-*.ack.json'))]
+    result = None
+    try:
+        result = load_prediction(directory / 'prediction.json', now=now, require_later_day=False)
+    except (OSError, ValueError, RuntimeError, KeyError):
+        pass
+    if result:
+        known = result.get('order_ids', known)
+        if result['scope'].get('protocol') != 'RE-1M-attended-84c':
+            rows = [json.loads(line) for line in (directory / 'journal.jsonl').read_bytes().splitlines()]
+            known = [_order_id(row['response']) for row in rows if row['event'] == 'submit_response' and _order_id(row['response'])]
+    submitted = bool(intents) or bool(result and result.get('post_count', result['submits']))
+    legacy_unknown = attempt.get('protocol') != 'RE-1M-attended-84c' and result is None
+    blocked = legacy_unknown or submitted and (result is None or not result['cleanup_ok'] or result['fill_seen'] or
+        result.get('unknown_submit', result['submits'] != len(known)) or not result.get('inventory_proven', True))
+    return {'submitted': submitted or legacy_unknown, 'blocked': bool(blocked), 'order_ids': known,
+            'attempt_sha256': digest(attempt), 'number': attempt['number'],
+            'prediction_sha256': digest(result) if result else None,
+            'intent_sha256': [hashlib.sha256(validate_regular_nonreparse_file(p).read_bytes()).hexdigest() for p in intents]}
+
+
+def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     validate_nonreparse_directory(root)
     if utc(now).date().isoformat() > LAST_DAY:
         raise RuntimeError('campaign_expired')
     markers = sorted(root.glob('session-*.attempt.json'))
-    if len(markers) >= MAX_SESSIONS:
-        raise RuntimeError('three_session_cap')
+    if len(markers) >= 6:
+        raise RuntimeError('six_attempt_cap')
+    sessions = 0
     for i, marker in enumerate(markers, 1):
         validate_regular_nonreparse_file(marker)
         if marker.name != f'session-{i}.attempt.json' or json.loads(marker.read_bytes())['number'] != i:
             raise RuntimeError('campaign_count_corrupt')
-        result_path = root / f'session-{i}' / 'prediction.json'
-        result = load_prediction(result_path, now=now, require_later_day=False)
-        if not result['cleanup_ok'] or result['fill_seen'] or not result['evidence_complete']:
-            raise RuntimeError('prior_attempt_needs_owner_reconciliation')
+        state = attempt_state(marker, now=now)
+        sessions += int(state['submitted'])
+        if state['blocked']:
+            path = root / f'session-{i}' / 'reconciliation.json'
+            try:
+                receipt = json.loads(validate_regular_nonreparse_file(path).read_bytes())
+                valid = (receipt['state'] == state and receipt['open_orders'] == [] and
+                         receipt['maker_address'] == maker and bool(receipt['owner_confirmation']) and
+                         receipt['owner_confirmation'] == 'RE1M RECONCILE ' + digest(state)[:12] and
+                         utc(receipt['at_utc']) <= utc(now))
+            except (OSError, ValueError, RuntimeError, KeyError):
+                valid = False
+            if not valid or open_orders is None or open_orders() != []:
+                raise RuntimeError('prior_attempt_needs_owner_reconciliation')
+    if sessions >= MAX_SESSIONS:
+        raise RuntimeError('three_session_cap')
     number_ = len(markers) + 1
-    row = {'number': number_, 'created_at_utc': utc(now).isoformat(), 'selection_sha256': selection_sha256}
+    row = {'number': number_, 'session_number': sessions + 1, 'protocol': 'RE-1M-attended-84c',
+           'created_at_utc': utc(now).isoformat(), 'selection_sha256': selection_sha256}
     write_new(root / f'session-{number_}.attempt.json', row)
     directory = root / f'session-{number_}'
     directory.mkdir(exist_ok=False)
@@ -123,6 +165,9 @@ def load_prediction(path, *, now, require_later_day=True):
     for key in ('cleanup_ok', 'fill_seen', 'submits', 'requotes', 'reason', 'failure_type',
                 'evidence_complete', 'reward_terms_changed', 'scoring_seen'):
         if prediction[key] != rows[-1][key]: raise ValueError('prediction_terminal')
+    if prediction['scope'].get('protocol') == 'RE-1M-attended-84c':
+        for key in ('order_ids', 'unknown_submit', 'post_count', 'inventory_proven'):
+            if prediction[key] != rows[-1][key]: raise ValueError('prediction_terminal')
     if any(not math.isclose(float(prediction[k]), v, abs_tol=1e-8) for k, v in totals.items()):
         raise ValueError('prediction_totals')
     return prediction

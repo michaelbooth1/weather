@@ -10,12 +10,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import hashlib
 import logging
 from pathlib import Path
 import re
 import subprocess
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from weather.market.mm_official_adapter import (
     OfficialPolymarketGlobalAdapter, _plain_sdk_value, fetch_current_positions,
@@ -43,6 +45,7 @@ class Re1Heartbeat(OfficialHeartbeatSender):
 
     def send(self):
         assert_no_ambient_proxy_configuration()
+        self.last_response = None
         timestamp = int(self._clock())
         path = '/v1/heartbeats'
         body = json.dumps({'heartbeat_id': self.heartbeat_id}, separators=(',', ':'))
@@ -53,8 +56,25 @@ class Re1Heartbeat(OfficialHeartbeatSender):
             'POLY_ADDRESS': self._signer_address, 'POLY_API_KEY': self._api_key,
             'POLY_PASSPHRASE': self._api_passphrase, 'POLY_SIGNATURE': signature,
             'POLY_TIMESTAMP': str(timestamp)})
-        response = _open_json(request, opener=self._opener, timeout_seconds=self._timeout_seconds,
-                              label='RE-1M v1 heartbeat')
+        try:
+            response = _open_json(request, opener=self._opener, timeout_seconds=self._timeout_seconds,
+                                  label='RE-1M v1 heartbeat')
+        except HTTPError as exc:
+            if exc.code != 400:
+                raise
+            try:
+                raw = exc.read(65537)
+                challenge = json.loads(raw) if len(raw) <= 65536 else {}
+            finally:
+                exc.close()
+            value = challenge.get('heartbeat_id')
+            if (challenge.get('error_msg') != 'Invalid Heartbeat ID' or
+                    not isinstance(value, str) or not 1 <= len(value) <= 256):
+                raise RuntimeError('heartbeat_acknowledgment') from None
+            # Documented resynchronization after a lost rotating-ID response.
+            # This is NOT an acknowledgment; the 8-second clock is unchanged.
+            self.heartbeat_id, self.last_response = value, challenge
+            raise ConnectionError('heartbeat_id_resynchronized') from None
         value = response.get('heartbeat_id')
         if not isinstance(value, str) or not 1 <= len(value) <= 256 or response.get('error_msg'):
             raise RuntimeError('heartbeat_acknowledgment')
@@ -69,7 +89,7 @@ def common_repository_root():
 
 
 def load_owner_credentials(mode):
-    if mode not in {'live', 'cancel-only', 'collect-payout'}:
+    if mode not in {'live', 'cancel-only', 'collect-payout', 'preflight', 'reconcile'}:
         raise RuntimeError('credentials_forbidden_in_rehearsal')
     # Owner-authorized exception: read this one file in memory; never copy it,
     # export values to os.environ, echo parser errors, or touch WinCred.
@@ -87,25 +107,25 @@ def load_owner_credentials(mode):
     return fields, guard
 
 
-def json_read(url, *, body=None):
+def json_read(url, *, body=None, timeout=2):
     assert_no_ambient_proxy_configuration()
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
                       headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
-    with urlopen(request, timeout=2) as response:
+    with urlopen(request, timeout=timeout) as response:
         raw = response.read(2_000_001)
         if response.status != 200 or response.geturl() != url or len(raw) > 2_000_000:
             raise RuntimeError('public_read_refused')
         return json.loads(raw)
 
 
-def geography():
-    value = json_read('https://polymarket.com/api/geoblock')
+def geography(*, timeout=2):
+    value = json_read('https://polymarket.com/api/geoblock', timeout=timeout)
     if type(value.get('blocked')) is not bool:
         raise RuntimeError('geoblock_unreadable')
     return value
 
 
-def build_client(fields, *, readonly=False):
+def build_client(fields, *, readonly=False, timeout=10):
     assert_no_ambient_proxy_configuration()
     require_official_clob_version()
     from eth_account import Account
@@ -145,7 +165,7 @@ def build_client(fields, *, readonly=False):
                 raise RuntimeError('non_clob_mutation_forbidden')
         for name in ('gamma', 'data', 'clob', 'secure_clob', 'relayer', 'rfq', 'combos', 'builder_gateway'):
             transport = getattr(client._ctx, name)
-            transport._client.timeout = httpx.Timeout(.5)
+            transport._client.timeout = httpx.Timeout(max(2, timeout))
             transport._client.event_hooks['request'].append(constrain)
         return client
     except BaseException:
@@ -193,19 +213,27 @@ def bounded_rows(paginator):
 
 class OwnerVenue:
     host = HOST
-    def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False):
+    def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False,
+                 preflight=False, timeouts=None):
         self.client, self.fields, self.guard = client, fields, guard
         self.maker, self.condition, self.tokens = fields['FUNDER_ADDRESS'], condition, tuple(tokens)
         self.readonly, self.stream = readonly, None
+        self.preflight, self.timeouts = preflight, timeouts or {}
+        self.journal_failed = False
         self.adapter = OfficialPolymarketGlobalAdapter(client, maker_address=self.maker, condition_id=condition,
                                                        sdk_version='0.6.0')
         self.readers = RewardsReaders(client, purpose='explicit_post_session_collect' if readonly else 'sealed_stage2_scoring')
         self.sender = Re1Heartbeat(signer_address=client.signer, api_key=fields['API_KEY'],
-            api_secret=fields['API_SECRET'], api_passphrase=fields['API_PASSPHRASE'], timeout_seconds=2)
+            api_secret=fields['API_SECRET'], api_passphrase=fields['API_PASSPHRASE'],
+            timeout_seconds=self.timeouts.get('heartbeat', 2))
+        self.stream_args = None
+        self.stream_number = 0
+        self.directory = directory
         if directory is not None:
-            self.stream = PairStream(tokens=tokens, guard=guard, api_key=fields['API_KEY'], secret=fields['API_SECRET'],
+            self.stream_args = dict(tokens=tokens, guard=guard, api_key=fields['API_KEY'], secret=fields['API_SECRET'],
                 passphrase=fields['API_PASSPHRASE'], maker_address=self.maker, condition_id=condition,
-                journal_path=Path(directory) / 'user-stream.jsonl', connect_timeout_seconds=2)
+                connect_timeout_seconds=self.timeouts.get('user_stream', 2), heartbeat_seconds=5, inbound_silence_seconds=10)
+            self.stream = PairStream(**self.stream_args, journal_path=Path(directory) / 'user-stream.jsonl')
         self.event_count = 0
 
     def set_journal(self, journal):
@@ -215,14 +243,24 @@ class OwnerVenue:
             # request bodies. The controller records the unsigned order.
             journal.record('sdk_request', method=request.method, path=request.url.path)
         def retain(response):
-            raw = response.read()
-            if len(raw) > 2_000_000:
-                raise RuntimeError('sdk_response_budget')
-            journal.record('sdk_response', method=response.request.method,
-                           path=response.url.path, status=response.status_code,
-                           response=json.loads(raw))
-        self.client._ctx.secure_clob._client.event_hooks['request'].append(sent)
-        self.client._ctx.secure_clob._client.event_hooks['response'].append(retain)
+            # This observational hook must never turn a completed POST into
+            # an exception. Non-JSON/oversized bodies retain metadata only.
+            try:
+                raw = response.read()
+                metadata = dict(method=response.request.method, path=response.url.path,
+                                status=response.status_code, length=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+                try:
+                    payload = json.loads(raw) if len(raw) <= 2_000_000 else None
+                except (ValueError, UnicodeError):
+                    payload = None
+                journal.record('sdk_response', **metadata, response=payload)
+            except BaseException:
+                self.journal_failed = True
+        for name in ('secure_clob', 'clob', 'data', 'gamma'):
+            transport = getattr(self.client._ctx, name, None)
+            if transport is not None:
+                transport._client.event_hooks['request'].append(sent)
+                transport._client.event_hooks['response'].append(retain)
 
     def start(self):
         self.stream.start()
@@ -236,12 +274,31 @@ class OwnerVenue:
         raise RuntimeError('user_stream_readiness')
 
     def events(self):
-        evidence = self.stream.bootstrap_evidence()
-        if not evidence['transport_active'] or not evidence['server_pong_observed']:
-            raise RuntimeError('user_stream_failed')
+        health = self.stream.health()
+        proof = health['last_pong_at_utc'] or health['last_event_at_utc']
+        if proof is not None:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(proof.replace('Z', '+00:00'))).total_seconds()
+            self.stream_last_alive = time.monotonic() - max(0, age)
         events = self.stream.events()
         new = events[self.event_count:]
         self.event_count = len(events)
+        if new:
+            return new  # Drain fills before attempting a reconnect.
+        # Avoid rehashing a growing journal once a second for six hours.
+        if health['state'] == 'FAILED':
+            if health['failure_type'] not in {'ConnectionError', 'TimeoutError', 'OSError',
+                    'WebSocketConnectionClosedException', 'WebSocketTimeoutException'}:
+                raise RuntimeError('user_stream_invalid_event')
+            self.stream.stop(timeout_seconds=2)
+            self.stream_number += 1
+            self.stream = PairStream(**self.stream_args,
+                journal_path=Path(self.directory) / f'user-stream-{self.stream_number}.jsonl')
+            self.event_count = 0
+            self.stream.start()
+            raise ConnectionError('user_stream_reconnecting')
+        if (health['state'] not in {'TRANSPORT_CONNECTED_UNPROVEN', 'SUBSCRIPTION_PROVEN'} or
+                health['last_pong_at_utc'] is None):
+            raise ConnectionError('user_stream_unavailable')
         return new
 
     def open_orders(self): return self.adapter.open_orders()
@@ -249,16 +306,19 @@ class OwnerVenue:
     def trades(self):
         return bounded_rows(self.client.list_account_trades(market=self.condition))
     def positions(self):
-        evidence = fetch_current_positions(self.maker, self.condition, timeout_seconds=2)
+        evidence = fetch_current_positions(self.maker, self.condition, timeout_seconds=self.timeouts.get('positions', 2))
         if evidence.get('status') != 'OBSERVED': raise RuntimeError('positions_unreadable')
         return evidence['rows']
-    def geography(self): return geography()
+    def geography(self): return geography(timeout=self.timeouts.get('geoblock', 2))
     def heartbeat(self):
-        if self.readonly: raise RuntimeError('read_only')
-        response = self.sender.send()
-        if hasattr(self, 'journal'):
-            self.journal.record('heartbeat_v1_acknowledgment', response=self.sender.last_response)
-        return response
+        if self.readonly and not getattr(self, 'preflight', False): raise RuntimeError('read_only')
+        if self.readonly and self.open_orders() != []:
+            raise RuntimeError('preflight_heartbeat_requires_empty_account')
+        try:
+            return self.sender.send()
+        finally:
+            if hasattr(self, 'journal') and self.sender.last_response is not None:
+                self.journal.record('heartbeat_v1_acknowledgment', response=self.sender.last_response)
     def scoring(self, ids): return self.readers.scoring(ids)
     def accrual(self, day):
         return {'day': day, 'rows': bounded_rows(self.client.list_user_earnings_for_day(date=day)),
@@ -269,7 +329,8 @@ class OwnerVenue:
         assets = {}
         for i, asset in enumerate(ASSETS):
             result = json_read(RPC, body={'jsonrpc': '2.0', 'id': i + 1, 'method': 'eth_call',
-                'params': [{'to': asset, 'data': '0x70a08231' + self.maker[2:].lower().rjust(64, '0')}, 'latest']})
+                'params': [{'to': asset, 'data': '0x70a08231' + self.maker[2:].lower().rjust(64, '0')}, 'latest']},
+                timeout=self.timeouts.get('balances', 2))
             if result.get('id') != i + 1 or 'error' in result or re.fullmatch(r'0x[0-9a-fA-F]{64}', result.get('result', '')) is None:
                 raise RuntimeError('asset_balance_unreadable')
             assets[asset] = str(Decimal(int(result['result'], 16)) / 1_000_000)
@@ -299,6 +360,8 @@ class OwnerVenue:
                 not book['asks'] or number(request['price']) >= min(number(r['price']) for r in book['asks'])):
             raise RuntimeError('signed_order_fresh_ask')
         # No place_limit_order/allowance recovery or retry: one raw post only.
+        if hasattr(self, 'before_post'):
+            self.before_post(request)
         return _plain_sdk_value(self.client.post_order(signed))
     def cancel(self, oid):
         if self.readonly: raise RuntimeError('read_only')
