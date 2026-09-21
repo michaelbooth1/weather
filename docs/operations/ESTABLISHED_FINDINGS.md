@@ -96,6 +96,7 @@ sequence numbers, not calendar dates.
 | 10g | The memory-guard kill path has been inert since 2026-08-23 |
 | 10h | `-09-79a`: the gap starts in the morning; unused NBM guidance beats the served forecast there, and still trails the market |
 | 10i | `-09-80a`: place-and-hold constraints — 10-15 s cancel-on-disconnect, the wallet falsifier, the evidence-minute budget |
+| 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
 
 ---
 
@@ -3219,6 +3220,35 @@ date clusters, 12 markets). Crossed date x market bootstrap, 2,000 draws. Values
   envelope delivered, no execution path). Successor: mission `2026-09-80b`.
 
 ---
+
+### 10j. Scored on every morning row the guidance lead halves; a confirmation is not affordable — `-09-81a`, 2026-09-21
+
+Branch `codex/morning-guidance-candidate-20260921` @ `7edd82ebb`; pre-registration frozen at `e404f7fdc` and pushed
+before the first score, unchanged afterwards (verified by the production agent from the commit history). Development
+read on the 79a export, never a confirmation; no α spent; reservation file untouched.
+
+- Two zero-parameter candidates, fallback to served where no complete valid NBM set with a floor exists. US, 06:00-09:59,
+  458 market-days, 42 dates, 11 markets, pooled: C1 (NBM with floor) minus served **-0.006672 [-0.011525, -0.002373]**;
+  C2 (fixed 50/50 pool) **-0.006326 [-0.009902, -0.003145]**; ratios to market 1.356 / 1.362, intervals above one. Both
+  strata agree in sign. C1's gain is below the frozen half-of-79a threshold (0.00735 / 0.00738) in both strata: **the
+  minimum-effect falsifier fired.** C2 minus C1 is indistinguishable from zero. The candidate changes 46.1% of US morning
+  rows and one row in 10:00-12:59.
+- The size is what dilution predicts (about 0.46 x the 79a matched gain): the per-row benefit held where guidance was
+  usable, and the rest of the rows simply fell back to served.
+- **Why guidance is missing (traced through the code and the retained rejection field):** the feature builder drops each
+  NBM value that sits below the observed floor. US morning: 6,293 complete valid sets, 7,290 rows with an explicit
+  floor-dropped field, 1 unexplained. All-market fill by local hour 72.7% / 60.2% / ~33% / ~6-7% at 06 / 07 / 08 / 09 and
+  about zero afterwards; 16 of the 17 complete sets after 10:00 exist only because no floor was captured. 79a's matched
+  result was therefore selected on physical validity. Never-fetched and wrong-target counts are **unavailable, not zero**:
+  the export carries no payloads, issue times or chosen slots.
+- **Confirmation planning:** at half the pooled development effect, 45 new dates give 22.4% (C1) / 36.2% (C2) power, and
+  even unlimited dates give 37.0% / 43.1%, because the 11 market clusters keep their uncertainty however many dates are
+  added. **Under the crossed date x market rule no improvement of this size can be confirmed at any length of season**;
+  the plan would need an effect roughly twice as large. No reservation was proposed.
+- Open question raised by the production review, not a finding: a rejection rate of about nine in ten at 09:00 local is
+  hard to square with a correct forecast of today's maximum, and the parser's slot rule takes the first token of each
+  bulletin group. Mission `2026-09-82a` tests against real bulletins whether some cycles return a night minimum or
+  another day's value. No new candidate is scored until that is answered.
 
 ## Related
 
