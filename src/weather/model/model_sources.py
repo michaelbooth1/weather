@@ -35,6 +35,7 @@ from weather.sources.nbm_probabilistic_tmax import (
     nbp_cycle_candidates,
     nbp_target_cycle_candidates,
     NBM_NBP_PARSER_V2,
+    NBPClockError,
     nbp_request_key,
     nbp_text_url,
     parse_nbp_station_tmax,
@@ -1761,14 +1762,17 @@ class SourceFetchMixin:
                 if self.http_status(exc) in {403, 404}:
                     continue
                 raise
-            payload = parse_nbp_station_tmax(
-                text,
-                self.spec.icao,
-                self.target_date,
-                source_url=url,
-                fetched_at=fetched_at,
-                parser_version=NBM_NBP_PARSER_V2,
-            )
+            try:
+                payload = parse_nbp_station_tmax(
+                    text,
+                    self.spec.icao,
+                    self.target_date,
+                    source_url=url,
+                    fetched_at=fetched_at,
+                    parser_version=NBM_NBP_PARSER_V2,
+                )
+            except NBPClockError as exc:
+                payload = exc.payload
             payload["tried_urls"] = list(tried_urls)
             fanout_metadata = {
                 "request_key": fanout_result.request_key,
@@ -1859,7 +1863,7 @@ class SourceFetchMixin:
                         "response_received_at"
                     ),
                 }
-            if payload.get("available"):
+            if payload.get("available") or str(payload.get("reason", "")).startswith("nbp_capture_time_"):
                 return payload
             last_payload = payload
         if last_payload is not None:

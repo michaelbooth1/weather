@@ -6,7 +6,10 @@ from weather.schema_registry import schema_version
 from weather.sources.eccc_gridded import ECCC_GRIDDED_FEATURE_COLUMNS
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS, derive_marine_context_features
 from weather.sources.mrms_precip import MRMS_PRECIP_FEATURE_COLUMNS
-from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
+from weather.sources.nbm_probabilistic_tmax import (
+    NBM_PROB_TMAX_FEATURE_COLUMNS,
+    NBM_PROB_TMAX_PROVENANCE_COLUMNS,
+)
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
@@ -299,6 +302,7 @@ FEATURE_COLUMNS = [
 ]
 
 FEATURE_DIAGNOSTIC_COLUMNS = [
+    *NBM_PROB_TMAX_PROVENANCE_COLUMNS,
     "latest_wu_history_time",
     "latest_wu_history_minute",
     "latest_wu_history_temp",
@@ -517,7 +521,9 @@ def empty_microclimate_features():
 
 
 def empty_us_guidance_features():
-    return {column: None for column in US_GUIDANCE_FEATURE_COLUMNS}
+    return {column: None for column in (
+        *US_GUIDANCE_FEATURE_COLUMNS, *NBM_PROB_TMAX_PROVENANCE_COLUMNS,
+    )}
 
 
 def empty_marine_context_features():

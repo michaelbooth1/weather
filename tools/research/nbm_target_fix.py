@@ -170,9 +170,34 @@ def p0(cache: Path, output: Path) -> None:
     print(json.dumps(results, indent=2))
 
 
+def window(output: Path) -> None:
+    """83b: table the existing candidate search, without forecasts or outcomes."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
+    from weather.sources.nbm_probabilistic_tmax import nbp_target_cycle_candidates
+    output.mkdir(parents=True, exist_ok=False)
+    rows = []
+    for day in (date(2026, 1, 17), date(2026, 9, 17)):
+        for zone in ('America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'):
+            for hour in range(24):
+                now = datetime.combine(day, datetime.min.time(), ZoneInfo(zone)).replace(hour=hour)
+                cycles = nbp_target_cycle_candidates(now.astimezone(timezone.utc), day)
+                row = {'season': 'standard' if day.month == 1 else 'daylight',
+                       'zone': zone, 'local_hour': hour, 'captured_at': now.isoformat()}
+                for label, cycle in zip(('healthy', 'if_404'), [cycles[0], cycles[1] if len(cycles) > 1 else None]):
+                    row[label + '_cycle'] = cycle.isoformat() if cycle else 'unavailable'
+                    row[label + '_age_hours'] = (now - cycle).total_seconds() / 3600 if cycle else None
+                rows.append(row)
+    with (output / 'window.csv').open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    print(json.dumps({'rows': len(rows), 'healthy_unavailable': 0, 'output': str(output / 'window.csv')}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage', choices=['p0', 'p5', 'contracts'])
+    parser.add_argument('stage', choices=['p0', 'p5', 'contracts', 'window'])
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--artifact', type=Path)
     parser.add_argument('--output', type=Path, required=True)
@@ -185,6 +210,8 @@ def main():
         if args.artifact is None:
             parser.error('p5 requires --artifact')
         p5(args.artifact, args.output)
+    elif args.stage == 'window':
+        window(args.output)
     else:
         contracts(args.output)
 

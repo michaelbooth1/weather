@@ -70,7 +70,6 @@ NBM_PROB_TMAX_FEATURE_COLUMNS = [
     "nbm_prob_tmax_physical_valid_flag",
     "nbm_prob_tmax_impossible_flag",
     "nbm_prob_tmax_floor_gap",
-    *NBM_PROB_TMAX_PROVENANCE_COLUMNS,
 ]
 NBM_STATION_ARCHIVE_COLUMNS = [
     "schema_version",
@@ -658,6 +657,14 @@ def _slot_for_target_v2(rows: dict, issue: datetime, target: date, station_id: s
     return matches[0], None
 
 
+class NBPClockError(ValueError):
+    """Replay rejects a bad clock; live capture can retain the rejected payload."""
+
+    def __init__(self, reason: str, payload: dict):
+        self.payload = {**payload, "available": False, "reason": reason}
+        super().__init__(reason)
+
+
 def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str,
                            source_url: str | None = None, fetched_at: str | None = None,
                            *, parser_version: str | int = NBM_NBP_PARSER_V2) -> dict:
@@ -700,13 +707,6 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str,
                             "provider_missing_sentinel" if value == -99 else
                             "negative_spread" if code == "TXNSD" and value < 0 else None)
     age = None
-    if fetched_at:
-        fetched = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
-        if fetched.tzinfo is None:
-            raise ValueError("NBP fetched_at must be timezone aware")
-        age = (fetched - issue).total_seconds() / 3600
-        if age < 0:
-            raise ValueError("NBP issue time is after capture")
     provenance = {
         "issued_at": issue.isoformat(), "valid_time_utc": valid.isoformat(),
         "period_kind": "maximum", "group_index": group, "token_index": token,
@@ -716,6 +716,17 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str,
     }
     payload.update(provenance)
     raw.update(provenance)
+    if fetched_at:
+        try:
+            fetched = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+        except (ValueError, AttributeError) as exc:
+            raise NBPClockError("nbp_capture_time_invalid", payload) from exc
+        if fetched.tzinfo is None or fetched.utcoffset() is None:
+            raise NBPClockError("nbp_capture_time_naive", payload)
+        age = (fetched - issue).total_seconds() / 3600
+        if age < 0:
+            raise NBPClockError("nbp_capture_time_before_issue", payload)
+        payload["cycle_age_hours"] = raw["cycle_age_hours"] = age
     if any(rejections.values()):
         payload["reason"] = "target_max_incomplete_rows"
         return payload

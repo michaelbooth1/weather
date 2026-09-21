@@ -43,12 +43,23 @@ existing names, Fahrenheit units and numeric types. The observation-floor
 filter remains a subsequent, unchanged feature step; its existing
 `guidance_impossible_features` records which values it removed.
 
-The numeric feature additions are `nbm_prob_tmax_parser_version`,
+The stored numeric diagnostics are `nbm_prob_tmax_parser_version`,
 `nbm_prob_tmax_valid_hour_utc`, `nbm_prob_tmax_cycle_age_hours`, and
 `nbm_prob_tmax_maximum_period_flag`. An unavailable/incomplete maximum has
 flag zero; absent provenance stays null, never inferred from a capture date.
-The feature schema is versioned centrally; estimators continue to select their
-trained feature names. Feature extraction must not mutate captured inputs.
+They belong to `FEATURE_DIAGNOSTIC_COLUMNS`, carried into live feature records,
+audit rows and captured-input feature replay, never to `FEATURE_COLUMNS` or
+the NBM source-gate predictor lists. They are filter/provenance fields, not
+selectable predictors. The centrally versioned feature-row schema changes
+because its persisted diagnostic columns change; the trained NBM input list
+remains the original 15 names. Feature extraction must not mutate captured inputs.
+
+A malformed, naive or pre-issue capture timestamp raises `NBPClockError` during
+replay. The live fetch catches that specific error, returns unavailable with
+`nbp_capture_time_invalid`, `nbp_capture_time_naive` or
+`nbp_capture_time_before_issue`, and retains the full raw payload and selected
+token provenance. A bad clock must not escape the live source call or supply
+temperature values.
 
 Future training or evaluation may count a row as corrected NBP guidance only
 when all these provenance fields are present, parser version is 2, UTC valid
@@ -70,10 +81,12 @@ Archive identities include the parser version. Repeated captures preserve the
 first retained wrapper and capture time; neither a repeated fetch nor parsing
 the same bulletin under another version may overwrite its original bytes.
 
-Persistence must retain token provenance and raw versus floor-filtered values
-and rejection reasons in the forecast manifest as well as in the payload.
-The source wrapper alone is insufficient: national-body CAS strips wrapper
-metadata. Do not treat a parser-only change as completion of that contract.
+The real forecast manifest's parser version, issue cycle, provider valid time,
+station/target identity and retained national bytes suffice to derive period,
+group/token and all seven raw TXN values by versioned replay. No redundant
+token columns are required in that manifest. Capture minus issue determines
+cycle age; existing feature diagnostics retain floor rejection details. This
+derivation does not change the writer, archived bytes, floor or admission gates.
 
 ## Shadow input regime
 
