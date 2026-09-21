@@ -209,3 +209,41 @@ def run_sealed_hold(scope, *, confirmation_receipt, pre_submit_attestor, geograp
               {'schema_version': SCHEMA_VERSION, 'kind': 'session', 'attempt_sha256': digest(campaign),
                'prediction_sha256': digest(result), 'cleanup_ok': complete, 'fill_seen': result['fill_seen']})
     return {**result, 'cleanup_ok': complete, 'context_cleanup': cleanup}
+
+
+def validate_hold_terminal_artifacts(execution, artifacts, records, *, scope, stage, seal_result, exit_code):
+    """Reconsume the market-owned terminal journal, stream and attendance contract."""
+    from weather.market.mm_live_attendance import session_confirmation_literal
+    from weather.market.mm_stage2_hold import verify_prediction_journal
+    prediction = artifacts['result']
+    journal = verify_prediction_journal(prediction, records['lifecycle_journal']['path'])
+    tokens = scope['stage2']['token_ids']
+    orders = {r['order_id']: tokens[r['leg'] - 1] for r in journal if r['event'] == 'order_acknowledged'}
+    stream_evidence = verify_stage2_user_stream_journal(records['user_stream_journal']['path'],
+        maker=prediction['scope']['maker_address'], condition=scope['condition_id'], tokens=tokens, orders=orders)
+    display = {key: scope[key] for key in ('stage2', 'profile_values', 'condition_id', 'requested_budget_pusd',
+               'run_not_before_local', 'run_not_after_local', 'cleanup_reserve_seconds')}
+    display_hash = hashlib.sha256(json.dumps(display, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    expected_confirmation = {'authorization_method': 'typed_session_confirmation', 'scope_sha256': display_hash,
+        'literal_sha256': hashlib.sha256(session_confirmation_literal(CONFIRMATION, display_hash).encode('ascii')).hexdigest(),
+        'physical_location_eligible': True, 'no_circumvention': True}
+    command = artifacts['command_receipt']
+    if (execution.get('schema_version') != SCHEMA_VERSION or execution.get('kind') != 'session'
+            or execution.get('stage') != stage or execution.get('phase') != 'complete'
+            or execution.get('status') != 'PASS' or execution.get('exception_type') is not None
+            or execution['session_confirmation'] != expected_confirmation
+            or command['session_confirmation'] != expected_confirmation
+            or execution['wrapper']['path'] != seal_result['wrapper']['path']
+            or execution['wrapper']['sha256'] != seal_result['wrapper']['sha256']
+            or command['prediction_sha256'] != digest(prediction)
+            or command['status'] != 'PASS' or command['cleanup_ok'] is not True
+            or command['context_cleanup']['ok'] is not True
+            or command['context_cleanup']['user_stream_journal_sha256'] != records['user_stream_journal']['sha256']
+            or command['final_stream_evidence'] != stream_evidence
+            or prediction['mode'] != 'live' or prediction['cleanup_ok'] is not True
+            or prediction['cancel_acknowledged'] is not True or prediction['fill_seen'] is not False
+            or prediction['scope']['token_ids'] != scope['stage2']['token_ids']
+            or prediction['condition_id'] != scope['condition_id']
+            or exit_code != 0):
+        raise ValueError('Stage 2 complete execution facts do not agree')
+    return journal

@@ -24,7 +24,8 @@ These instructions apply under `weather.market`. Inherit
   prediction journal; `mm_stage2_selection` owns frozen public ranking;
   `mm_stage2_rewards` separates accrual from paid evidence. The closed
   `mm_stage2_rehearsal` exchange never grants live authority. Sealed live wiring
-  belongs to `mm_stage2_entrypoint`, with exact two-token stream evidence.
+  and terminal market-evidence validation belong to `mm_stage2_entrypoint`,
+  with exact two-token stream evidence.
 - Do not add direct secrets to config, logs, docs, or process arguments. Live
   actions require explicit user authorization plus existing readiness, release,
   credential-reference, risk, and confirmation gates.

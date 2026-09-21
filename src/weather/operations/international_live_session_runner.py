@@ -1106,9 +1106,7 @@ def _stage2_child_execution_facts(stage, attempt_root, seal_result, *, expected_
                                   expected_lineage, expected_candidate_sha256,
                                   expected_candidate, exit_code):
     """Validate retained Stage 2 evidence without resolving a client or credentials."""
-    from weather.market.mm_live_attendance import session_confirmation_literal
-    from weather.market.mm_stage2_hold import CONFIRMATION, SCHEMA_VERSION, digest, verify_prediction_journal, utc
-    from weather.market.mm_stage2_user_stream import verify_stage2_user_stream_journal
+    from weather.market.mm_stage2_hold import utc
     result = {'validation': 'FAIL', 'status': 'UNKNOWN', 'phase': 'UNKNOWN',
               'live_mutation_attempted': 'UNKNOWN', 'order_submit_attempted': 'UNKNOWN',
               'authenticated_exchange_write_attempted': 'UNKNOWN', 'credential_topology': {},
@@ -1164,37 +1162,9 @@ def _stage2_child_execution_facts(stage, attempt_root, seal_result, *, expected_
                 raise ValueError('Stage 2 terminal artifact changed')
             if role not in {'user_stream_journal', 'lifecycle_journal'}:
                 artifacts[role] = _read_object(artifact, role)[0]
-        prediction = artifacts['result']
-        journal = verify_prediction_journal(prediction, records['lifecycle_journal']['path'])
-        tokens = scope['stage2']['token_ids']
-        orders = {r['order_id']: tokens[r['leg'] - 1] for r in journal if r['event'] == 'order_acknowledged'}
-        stream_evidence = verify_stage2_user_stream_journal(records['user_stream_journal']['path'],
-            maker=prediction['scope']['maker_address'], condition=scope['condition_id'], tokens=tokens, orders=orders)
-        display = {key: scope[key] for key in ('stage2', 'profile_values', 'condition_id', 'requested_budget_pusd',
-                   'run_not_before_local', 'run_not_after_local', 'cleanup_reserve_seconds')}
-        display_hash = hashlib.sha256(json.dumps(display, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        expected_confirmation = {'authorization_method': 'typed_session_confirmation', 'scope_sha256': display_hash,
-            'literal_sha256': hashlib.sha256(session_confirmation_literal(CONFIRMATION, display_hash).encode('ascii')).hexdigest(),
-            'physical_location_eligible': True, 'no_circumvention': True}
-        command = artifacts['command_receipt']
-        if (execution.get('schema_version') != SCHEMA_VERSION or execution.get('kind') != 'session'
-                or execution.get('stage') != stage or execution.get('phase') != 'complete'
-                or execution.get('status') != 'PASS' or execution.get('exception_type') is not None
-                or execution['session_confirmation'] != expected_confirmation
-                or command['session_confirmation'] != expected_confirmation
-                or execution['wrapper']['path'] != seal_result['wrapper']['path']
-                or execution['wrapper']['sha256'] != seal_result['wrapper']['sha256']
-                or command['prediction_sha256'] != digest(prediction)
-                or command['status'] != 'PASS' or command['cleanup_ok'] is not True
-                or command['context_cleanup']['ok'] is not True
-                or command['context_cleanup']['user_stream_journal_sha256'] != records['user_stream_journal']['sha256']
-                or command['final_stream_evidence'] != stream_evidence
-                or prediction['mode'] != 'live' or prediction['cleanup_ok'] is not True
-                or prediction['cancel_acknowledged'] is not True or prediction['fill_seen'] is not False
-                or prediction['scope']['token_ids'] != scope['stage2']['token_ids']
-                or prediction['condition_id'] != scope['condition_id']
-                or exit_code != 0):
-            raise ValueError('Stage 2 complete execution facts do not agree')
+        from weather.market.mm_stage2_entrypoint import validate_hold_terminal_artifacts
+        journal = validate_hold_terminal_artifacts(execution, artifacts, records, scope=scope,
+            stage=stage, seal_result=seal_result, exit_code=exit_code)
         if not launcher_host_attestations_are_valid(execution['host_attestations'],
                 expected_execution_host_profile=scope['execution_host_profile'],
                 expected_execution_host_id=scope['execution_host_id'], expected_status_flag_sha256=[]):

@@ -73,6 +73,11 @@ def test_end_conditions_cancel_both_legs(tmp_path, attribute, value, reason):
     assert_clean(result, venue, rows)
     assert result['end_condition'] == reason, result
     assert result['fill_seen'] is (attribute == 'fill_at')
+    if attribute == 'reject_second':
+        ack = next(r for r in rows if r['event'] == 'cancel_all_acknowledged')
+        assert ack['response']['canceled'] == []
+        assert ack['prior_acknowledgments'][0]['response']['canceled'] == ['fixture-order-1']
+        verify_prediction_journal(result, tmp_path / 'journal.jsonl')
 
 
 def test_operator_stop_cancels_both(tmp_path):
@@ -115,6 +120,22 @@ def test_terminal_canceled_state_cannot_replace_both_explicit_acknowledgments(tm
             return response
         venue.cancel_all = cancel
     result, venue, rows = run(tmp_path, change=change, stop_at=8)
+    assert not result['cleanup_ok'] and not result['cancel_acknowledged']
+    assert not list(venue.list_open_orders().iter_items())
+    assert not any(r['event'] == 'cancel_all_acknowledged' for r in rows)
+
+
+@pytest.mark.parametrize('acknowledgments', [[], ['unrelated-order']])
+def test_rejected_second_submit_still_requires_first_order_emergency_ack(tmp_path, acknowledgments):
+    def change(venue):
+        venue.reject_second = True
+        original = venue.cancel_all
+        def cancel():
+            response = original()
+            response['canceled'] = acknowledgments
+            return response
+        venue.cancel_all = cancel
+    result, venue, rows = run(tmp_path, change=change)
     assert not result['cleanup_ok'] and not result['cancel_acknowledged']
     assert not list(venue.list_open_orders().iter_items())
     assert not any(r['event'] == 'cancel_all_acknowledged' for r in rows)

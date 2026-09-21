@@ -136,6 +136,20 @@ def verify_prediction_journal(prediction, journal_path):
             or prediction['cleanup_ok'] and (len(zeroes) != 1 or not zeroes[0]['cleanup_in_budget']
                 or zeroes[0]['cleanup_elapsed_seconds'] > PROFILE.cleanup_seconds)):
         raise ValueError('terminal cleanup lacks acknowledged evidence')
+    for cancel in cancellation:
+        canceled = _cancel_ack_ids(cancel['response'])
+        for proof in cancel.get('prior_acknowledgments', []):
+            if (proof['profile_sha256'] != PROFILE.sha256
+                    or proof['maker_address'] != prediction['scope']['maker_address']
+                    or proof['condition_id'] != prediction['condition_id']
+                    or not utc(rows[0]['recorded_at_utc']) <= utc(proof['checked_at_utc']) <= utc(cancel['recorded_at_utc'])):
+                raise ValueError('emergency cancel acknowledgment scope differs')
+            canceled.update(_cancel_ack_ids(proof['response']))
+        terminal = cancel['terminal_orders']
+        if (len(terminal) != len(acknowledgments)
+                or {_order_id(r) for r in terminal} != {r['order_id'] for r in acknowledgments}
+                or any(_decimal(r['size_matched']) == 0 and _order_id(r) not in canceled for r in terminal)):
+            raise ValueError('terminal orders lack explicit cancellation acknowledgments')
     for row in rows:
         if row['event'] == 'public_observation':
             changed = changed or any(row['snapshot']['quote_inputs'][k] != initial_terms[k] for k in (
@@ -220,6 +234,15 @@ def observe_held_quote(snapshot, quote):
 
 def _order_id(row):
     return str(row.get("id") or row.get("order_id") or row.get("orderID") or row.get("lifecycle_key") or "")
+
+
+def _cancel_ack_ids(response):
+    canceled = response.get('canceled') if isinstance(response, dict) else None
+    if (not isinstance(canceled, list) or response.get('not_canceled')
+            or any(not isinstance(oid, str) or not oid for oid in canceled)
+            or len(set(canceled)) != len(canceled)):
+        raise RuntimeError('explicit cancellation has no complete acknowledgment list')
+    return set(canceled)
 
 
 def _exact_open_orders(rows, expected, *, maker, condition):
@@ -471,14 +494,26 @@ def run_hold_session(
             failure = "JournalWriteError"
         # Cancellation is attempted even when recording the trigger failed.
         try:
+            prior_acks = []
+            try:
+                for adapter in adapters:
+                    proof = getattr(adapter, 'probe_evidence', lambda: {})().get('stage2_cancel_acknowledgment')
+                    if proof is not None:
+                        prior_acks.append(proof)
+            except Exception:
+                # An audit-reader failure cannot prevent the primary cancel.
+                prior_acks = []
             response = adapters[0].cancel_all()
             remaining = adapters[0].open_orders()
             if remaining or not isinstance(response, dict) or response.get("not_canceled"):
                 raise RuntimeError("explicit cancellation did not reconcile")
-            canceled = response.get("canceled")
-            if (not isinstance(canceled, list) or any(not isinstance(oid, str) or not oid for oid in canceled)
-                    or len(set(canceled)) != len(canceled)):
-                raise RuntimeError("explicit cancellation has no acknowledgment list")
+            canceled = _cancel_ack_ids(response)
+            for proof in prior_acks:
+                if (proof['profile_sha256'] != PROFILE.sha256 or proof['maker_address'] != scope['maker_address']
+                        or proof['condition_id'] != scope['condition_id']
+                        or not start <= utc(proof['checked_at_utc']) <= utc(wall())):
+                    raise RuntimeError('emergency cancellation belongs to another session')
+                canceled.update(_cancel_ack_ids(proof['response']))
             terminal = []
             for oid, (token, _, _) in expected.items():
                 adapter = adapters[tokens.index(token)]
@@ -493,7 +528,8 @@ def run_hold_session(
                     raise RuntimeError("terminal zero-fill order lacks explicit cancellation acknowledgment")
                 terminal.append(order)
             cancel_ack = True
-            record("cancel_all_acknowledged", response=response, terminal_orders=terminal)
+            record("cancel_all_acknowledged", response=response, terminal_orders=terminal,
+                   **({'prior_acknowledgments': prior_acks} if prior_acks else {}))
             sleep(2)
             if adapters[0].open_orders():
                 raise RuntimeError("order remains after cancellation quiescence")

@@ -1506,4 +1506,13 @@ class OfficialPolymarketGlobalAdapter:
         self._last_heartbeat_monotonic = None
         if remaining:
             raise RuntimeError("cancel-all did not converge to zero open orders")
+        if self.envelope is STAGE2_HOLD_V1:
+            # A rejected second submit can trigger this emergency cancellation
+            # before the hold controller enters its own final cancel/reconcile.
+            self._probe["stage2_cancel_acknowledgment"] = {
+                "response": _plain_sdk_value(response),
+                "checked_at_utc": self.utc_clock().astimezone(timezone.utc).isoformat(),
+                "profile_sha256": self.envelope.sha256,
+                "maker_address": self.maker_address, "condition_id": self.condition_id,
+            }
         return _plain_sdk_value(response)

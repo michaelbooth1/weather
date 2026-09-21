@@ -1806,6 +1806,9 @@ account heartbeat. It cancels on timeout, operator stop, fill, public-book or
 reward-term invalidation, heartbeat loss, and geography failure. The primary
 cancel-all acknowledgment and terminal REST evidence are journaled; a dead-man
 disappearance is only a backstop and never substitutes for that acknowledgment.
+If a rejected submit already caused the adapter to cancel, retain that
+session-bound emergency acknowledgement alongside the controller's final
+cancel response and reconsume both when validating terminal evidence.
 Stage 2 bounds each SDK connect/read/write/pool phase to half a second and
 the separate positions read to two seconds, with controller checkpoints
 between reads. These are socket inactivity limits, not a replacement for
