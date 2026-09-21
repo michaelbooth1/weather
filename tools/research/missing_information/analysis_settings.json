@@ -17,7 +17,7 @@
   "reading_rules_unchanged": true,
   "implementation_notes": [
     "Python implementation replaces the plan's illustrative JavaScript extraction, on the workstation under the required wrapper.",
-    "Captured fields ending _c are native units as traced in snapshot_store.source_context; never convert based on suffix.",
+    "Captured fields ending _c are native units as traced in snapshot_store.source_values; never convert based on suffix.",
     "Peak primary is first reach of final printed station maximum; also report monotone-envelope sensitivity and censoring.",
     "No clock test identifies paid/private information uniquely; report the frozen interpretation alongside identification limits.",
     "Guidance-bust association alone cannot establish that nobody knew pre-day.",

@@ -41,7 +41,7 @@ never treats retrospective IEM observations as values our model had captured.
 
 - Captured temperatures and guidance are already in native settlement units;
   `_c` is a legacy suffix. The code trace is
-  `snapshot_store.source_context` through `row_*_native` and `MarketSpec.unit`.
+  `SnapshotRecorder.source_values` through `row_*_native` and `MarketSpec.unit`.
   The plan's wording to convert these from Celsius is inapplicable. IEM `tmpf`
   and `dwpf` are Fahrenheit and need conversion when used for Celsius deltas.
 - Capture rows must fall on their local target date. Missing probabilities,
