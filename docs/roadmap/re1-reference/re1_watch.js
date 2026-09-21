@@ -12,7 +12,7 @@ const L = require('./re1_lib.js');
   const sel = JSON.parse(fs.readFileSync(selFile, 'utf8')).selected;
   if (!sel) { console.error('selection file has no selected band'); process.exit(2); }
   const minutes = Number(minutesArg || L.RULE.minutes), outDir = outArg || path.dirname(selFile);
-  const own = { yesBid: Number(yesArg), yesAsk: Math.round((1 - Number(noArg)) * 1e9) / 1e9, size: L.RULE.size };
+  const own = { yesBid: Number(yesArg), yesAsk: Math.round((1 - Number(noArg)) * 1e9) / 1e9, size: L.RULE.size, resting: true };
   fs.mkdirSync(outDir, { recursive: true });
   const started = new Date(), tag = started.toISOString().replace(/[:.]/g, '');
   const journal = path.join(outDir, 're1_watch_' + tag + '.jsonl');

@@ -56,11 +56,20 @@ function evaluate(book, terms, own) {
   if (!bids.length || !asks.length) return { status: 'one_sided_book' };
   const bestBid = Math.max(...bids.map((l) => l[0])), bestAsk = Math.min(...asks.map((l) => l[0]));
   if (bestBid >= bestAsk) return { status: 'crossed_book' };
-  const mid = (bestBid + bestAsk) / 2;
+  // 2026-09-21 correction (mission 84a parity stop): the midpoint is the size-adjusted one, from levels
+  // holding at least the reward minimum, as src/weather/market/reward_quote.py does and the venue documents.
+  // The plain touch midpoint is kept as plain_mid for comparison only.
+  const qb = bids.filter((l) => l[1] >= terms.minSize), qa = asks.filter((l) => l[1] >= terms.minSize);
+  if (!qb.length || !qa.length) return { status: 'no_size_adjusted_midpoint' };
+  const mid = (Math.max(...qb.map((l) => l[0])) + Math.min(...qa.map((l) => l[0]))) / 2;
+  const plainMid = (bestBid + bestAsk) / 2;
   const yesBid = own ? own.yesBid : null, yesAsk = own ? own.yesAsk : null, size = own ? own.size : 0;
-  const c1 = sideScore(bids, mid, terms.maxSpread, terms.minSize, yesBid, size);
-  const c2 = sideScore(asks, mid, terms.maxSpread, terms.minSize, yesAsk, size);
-  const out = { status: 'ok', mid, bestBid, bestAsk, spread: bestAsk - bestBid,
+  // Our size is removed from a level only when our order really rests there (own.resting). At selection
+  // time nothing of ours is in the book, so the full displayed depth competes with us.
+  const rest = !!(own && own.resting);
+  const c1 = sideScore(bids, mid, terms.maxSpread, terms.minSize, rest ? yesBid : null, size);
+  const c2 = sideScore(asks, mid, terms.maxSpread, terms.minSize, rest ? yesAsk : null, size);
+  const out = { status: 'ok', mid, plain_mid: plainMid, bestBid, bestAsk, spread: bestAsk - bestBid,
     competing_single: qMin(c1, c2, mid), competing_many: (c1 + c2) / 2 };
   if (own) {
     const d1 = (mid - yesBid) * 100, d2 = (yesAsk - mid) * 100;
