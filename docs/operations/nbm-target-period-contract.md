@@ -91,6 +91,14 @@ token columns are required in that manifest. Capture minus issue determines
 cycle age; existing feature diagnostics retain floor rejection details. This
 derivation does not change the writer, archived bytes, floor or admission gates.
 
+## Offline window diagnostic
+
+`tools.research.nbm_target_fix window --output <new-directory>` enumerates the
+candidate search across all local hours in standard and daylight time. Its
+`healthy_unavailable` total is computed from the emitted rows; an empty
+candidate list emits unavailable healthy/fallback cycles and empty ages.
+Run this diagnostic through the workstation heavy-work wrapper.
+
 ## Shadow input regime
 
 The owner-authorized NBM repair is an input-regime boundary for the active,
