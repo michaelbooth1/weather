@@ -5,11 +5,50 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+import hashlib
+import json
 
 from weather.market.mm_live_envelope import STAGE2_HOLD_V1, select_envelope
-from weather.market.mm_official_adapter import normalize_official_user_event
-from weather.market.mm_user_stream import OfficialUserStreamReader
+from weather.market.mm_official_adapter import normalize_official_user_event, _validated_normalized_official_user_event
+from weather.market.mm_user_stream import OfficialUserStreamReader, SCHEMA_VERSION
+from weather.market.reward_quote import _decimal
 from weather.paths import REPO_ROOT
+
+
+def verify_stage2_user_stream_journal(path, *, maker, condition, tokens, orders):
+    """Require an exact pair, no trade lifecycle and a terminal cancel per ACK."""
+    raw = Path(path).read_bytes()
+    rows = [json.loads(line) for line in raw.splitlines()]
+    if (not rows or any(r.get('schema_version') != SCHEMA_VERSION for r in rows)
+            or rows[0].get('event_type') != 'stream_starting'
+            or rows[0].get('maker_address') != maker or rows[0].get('condition_id') != condition
+            or rows[0].get('token_ids') != list(tokens) or rows[0].get('account_wide_subscription') is not True
+            or rows[-1].get('event_type') != 'stream_stopped'
+            or sum(r.get('event_type') == 'stream_stopped' for r in rows) != 1
+            or sum(r.get('event_type') == 'subscription_sent' for r in rows) != 1):
+        raise RuntimeError('Stage 2 stream identity or terminal lifecycle is incomplete')
+    terminal = set()
+    for row in rows:
+        event = row.get('event_type')
+        if event not in {'stream_starting', 'subscription_sent', 'user_event', 'stream_stopped'}:
+            raise RuntimeError('Stage 2 stream records a failure or unknown event')
+        if event != 'user_event':
+            continue
+        payload = row['payload']
+        token = payload.get('clob_token_id')
+        if token not in tokens:
+            raise RuntimeError('Stage 2 stream contains an unrelated token')
+        normalized = _validated_normalized_official_user_event(payload, maker_address=maker,
+            condition_id=condition, token_id=token)
+        oid = normalized['order_id']
+        if (oid not in orders or orders[oid] != token or normalized['official_event_type'] != 'order'
+                or normalized.get('side') != 'BUY' or _decimal(normalized.get('size_matched')) != 0):
+            raise RuntimeError('Stage 2 stream contains an unknown order or trade lifecycle')
+        if normalized['event_type'] == 'canceled':
+            terminal.add(oid)
+    if terminal != set(orders):
+        raise RuntimeError('Stage 2 stream lacks every exact zero-fill cancellation')
+    return {'sha256': hashlib.sha256(raw).hexdigest(), 'row_count': len(rows), 'terminal_order_ids': sorted(terminal)}
 
 
 class Stage2UserStreamReader(OfficialUserStreamReader):

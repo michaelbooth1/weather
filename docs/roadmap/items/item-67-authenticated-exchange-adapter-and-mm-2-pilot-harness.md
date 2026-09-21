@@ -11,13 +11,15 @@ Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
 preserve the separate economic-stage evidence requirements.
 
-**Mission 09-80a (2026-09-21): partial, inert.** A pure reward quote calculator
-and proposed envelope definitions are available for independent review. W0's
-real-validator tests reproduce the isolated-wallet stop for the published
-September 6 balances. Stage 0/1 runtime, templates, caps and credential rules
-are unchanged; no Stage 2 session, sealer, authorization, or live result exists.
-The [owner decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
-records the pending control and timing dispositions.
+**Mission 09-80b (2026-09-21): inert, qualification in progress.** Two exact
+token capabilities share one account heartbeat in the bounded Stage 2 hold.
+The sealer, template, manifest builder and runner bind its profile and require
+matching dated owner grants. Stage 0/1 numeric profiles remain unchanged; each
+sealed template now collects one exact typed session/location confirmation.
+W0 still rejects the published mixed-wallet balances. The
+[owner decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
+owns the corrected cancellation bound and proposed cumulative treatment.
+No Stage 2 authorization or live result exists.
 
 Source: market-making roadmap items 43-46 and 55-57 built the keyless
 policy/orchestration/risk foundation, while item 45 defines the platform and

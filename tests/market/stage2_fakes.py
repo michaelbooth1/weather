@@ -138,7 +138,8 @@ class Venue:
                 canceled.append(row["id"])
         return {"canceled": canceled, "not_canceled": {}}
 
-    def snapshot(self):
+    def snapshot(self, *, checkpoint=lambda: None):
+        checkpoint()
         values = {
             "yes_bids": [{"price": ".34", "size": "100"}], "yes_asks": [{"price": ".35", "size": "100"}],
             "no_bids": [{"price": ".65", "size": "100"}], "no_asks": [{"price": ".66", "size": "100"}],

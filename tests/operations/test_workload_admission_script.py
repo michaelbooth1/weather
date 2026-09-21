@@ -263,7 +263,7 @@ def test_portable_profile_is_exactly_host_bound_and_live_workload_scoped() -> No
     assert '-Name "MachineGuid"' in text
     assert "$env:COMPUTERNAME" not in text
     assert "$env:USERNAME" not in text
-    assert "InternationalLive-(?:stage0|stage1_cancel_all|stage1_dead_man)-" in text
+    assert "InternationalLive-(?:stage0|stage1_cancel_all|stage1_dead_man|stage2_hold)-" in text
     assert "portable execution-host identity does not match the sealed host binding" in text
     assert "portable execution-host admission cannot combine with Stage-A" in text
     assert '"Global\\WeatherProjectHeavyWorkloadV1"' in text

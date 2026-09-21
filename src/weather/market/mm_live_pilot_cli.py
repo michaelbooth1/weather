@@ -1418,6 +1418,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args[:1] == ['stage2-hold']:
+        from weather.market.mm_stage2_rehearsal import main as stage2_main
+        return stage2_main(raw_args[1:])
     args = build_parser().parse_args(argv)
     try:
         if args.command == "prepare-identity":

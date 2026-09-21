@@ -5,8 +5,8 @@ import json
 import pytest
 
 from weather.market.mm_live_envelope import STAGE2_HOLD_V1 as PROFILE
-from weather.market.mm_stage2_hold import CONFIRMATION, run_hold_session
-from tests.market.stage2_fakes import Clock, Venue, adapters_and_gates, CONDITION, TOKENS
+from weather.market.mm_stage2_hold import CONFIRMATION, run_hold_session, verify_prediction_journal, canonical_bytes
+from tests.market.stage2_fakes import Clock, Venue, adapters_and_gates, CONDITION, TOKENS, MAKER
 
 
 def run(tmp_path, *, change=None, stop_at=None, seconds=125):
@@ -16,11 +16,11 @@ def run(tmp_path, *, change=None, stop_at=None, seconds=125):
     if change:
         change(venue)
     scope = {'profile_sha256': PROFILE.sha256, 'selection_sha256': 'c' * 64,
-             'condition_id': CONDITION, 'token_ids': list(TOKENS),
+             'condition_id': CONDITION, 'token_ids': list(TOKENS), 'maker_address': MAKER,
              'end_at_utc': (clock.now() + timedelta(seconds=seconds)).isoformat()}
     result = run_hold_session(
         adapters, gates, scope=scope, initial_public=venue.snapshot(),
-        public_reader=venue.snapshot, geography_reader=venue.geography,
+        public_reader=getattr(venue, 'public_reader', venue.snapshot), geography_reader=venue.geography,
         journal_path=tmp_path / 'journal.jsonl', prediction_path=tmp_path / 'prediction.json',
         confirmation=CONFIRMATION,
         operator_stop=lambda: stop_at is not None and clock.seconds >= stop_at,
@@ -92,6 +92,8 @@ def test_public_end_conditions_cancel_both(tmp_path, key, value, reason):
     result, venue, rows = run(tmp_path, change=change)
     assert_clean(result, venue, rows)
     assert result['end_condition'] == reason, result
+    assert result['reward_terms_changed'] is key.startswith('reward_')
+    verify_prediction_journal(result, tmp_path / 'journal.jsonl')
 
 
 def test_primary_cancel_failure_is_no_go_even_when_deadman_clears(tmp_path):
@@ -142,3 +144,51 @@ def test_shared_heartbeat_never_extends_source_lease(tmp_path):
     with pytest.raises(RuntimeError):
         a[1].accept_shared_stage2_heartbeat(a[0])
     assert sum(call[0] == 'heartbeat' for call in venue.calls) == 1
+
+
+def test_slow_public_responses_keep_checking_controls_between_reads(tmp_path):
+    def change(venue):
+        original = venue.snapshot
+        def read(*, checkpoint=lambda: None):
+            # Five two-second HTTP responses, each using the controller's
+            # real checkpoint. No control function is replaced.
+            for _ in range(5):
+                checkpoint()
+                venue.clock.sleep(2)
+                checkpoint()
+            return original()
+        venue.public_reader = read
+    result, venue, rows = run(tmp_path, change=change, seconds=145)
+    assert_clean(result, venue, rows)
+    assert result['end_condition'] == 'timeout'
+    assert result['visible_two_sided_minutes'] > 0
+    verify_prediction_journal(result, tmp_path / 'journal.jsonl')
+
+
+def test_no_fill_cash_change_cannot_pass_reconciliation(tmp_path):
+    def change(venue):
+        original = venue.cancel_all
+        def cancel():
+            result = original()
+            venue.cash = '49000000'
+            return result
+        venue.cancel_all = cancel
+    result, venue, rows = run(tmp_path, change=change, stop_at=8)
+    assert result['cancel_acknowledged'] and not result['cleanup_ok']
+    assert not list(venue.list_open_orders().iter_items())
+
+
+def test_rehashed_journal_without_cancellation_ack_is_not_evidence(tmp_path):
+    result, venue, rows = run(tmp_path)
+    rows = [r for r in rows if r['event'] != 'cancel_all_acknowledged']
+    previous, output = None, b''
+    for i, row in enumerate(rows):
+        row.update(sequence=i, previous_sha256=previous)
+        raw = canonical_bytes(row)
+        previous = hashlib.sha256(raw).hexdigest()
+        output += raw
+    path = tmp_path / 'edited.jsonl'
+    path.write_bytes(output)
+    result['journal_sha256'] = hashlib.sha256(output).hexdigest()
+    with pytest.raises(ValueError, match='cleanup lacks'):
+        verify_prediction_journal(result, path)

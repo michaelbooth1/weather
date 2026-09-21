@@ -77,14 +77,19 @@ owns only execution-host provisioning and relocation.
 
 ## Fixed profiles
 
-**Stage 2 proposal, not in force:** the host registry and workload admission
-still admit only the existing Stage 0/1 names. The proposed `stage2_hold_v1`
-numeric envelope is inert. Its [owner decision draft](stage2-hold-owner-authorization-draft.md)
-lists the dedicated-wallet, cancellation timing and evidence-budget decisions
-that precede any assignment-schema or launcher extension. A future session
+**Stage 2 support, no authority:** the host registry recognizes the optional
+`stage2_hold_owner_authorization` object and workload admission recognizes the
+`stage2_hold` stage suffix. The offline module allowlist and admission controls
+are unchanged. The `stage2_hold_v1` envelope remains inert without matching
+dated grants; the [owner decision draft](stage2-hold-owner-authorization-draft.md)
+owns their exact shape and proposed treatment. A future session
 also needs exact source/host/principal qualification, guarded adoption, fresh
 attended Stage 0/1, matching dated owner authority and all existing action-time
-gates. Defining an envelope or passing offline tests grants none of these.
+gates. Stage 2 alone binds a 120-minute session and twenty-second cleanup,
+contained in one UTC reward day and one supported local execution date. The
+existing Stage 0/1 240-second portable ceiling is unchanged. The same host-wide
+mutex and kill-on-close child containment apply for the whole hold and teardown.
+Defining an envelope or passing offline tests grants none of these.
 
 | Profile | Intended machine | Local host gate |
 | --- | --- | --- |

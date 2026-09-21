@@ -20,6 +20,11 @@ These instructions apply under `weather.market`. Inherit
   owns immutable profile definitions. Neither creates an exchange capability.
   Profile integration follows the [pilot runbook](../../../docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md#stage-2-one-band-maker-quote)
   and must preserve all Stage 1 controls and numeric ratchets.
+- `mm_stage2_hold` owns the bounded two-capability controller and chained
+  prediction journal; `mm_stage2_selection` owns frozen public ranking;
+  `mm_stage2_rewards` separates accrual from paid evidence. The closed
+  `mm_stage2_rehearsal` exchange never grants live authority. Sealed live wiring
+  belongs to `mm_stage2_entrypoint`, with exact two-token stream evidence.
 - Do not add direct secrets to config, logs, docs, or process arguments. Live
   actions require explicit user authorization plus existing readiness, release,
   credential-reference, risk, and confirmation gates.

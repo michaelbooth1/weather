@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import stat
+from datetime import date, datetime
 from pathlib import Path
 
 from weather.paths import REPO_ROOT
@@ -269,7 +270,8 @@ def load_execution_host_assignment(
         "active_portable_execution_principal_id",
         "reassignment_requires_new_production_tip",
     }
-    if not isinstance(payload, dict) or set(payload) != expected:
+    grant_key = "stage2_hold_owner_authorization"
+    if not isinstance(payload, dict) or set(payload) not in (expected, expected | {grant_key}):
         raise ExecutionHostAssignmentError(
             "execution-host assignment does not have the exact keys"
         )
@@ -277,6 +279,21 @@ def load_execution_host_assignment(
     active_host_id = payload["active_portable_execution_host_id"]
     active_principal_id = payload["active_portable_execution_principal_id"]
     status = payload["assignment_status"]
+    if grant_key in payload:
+        grant = payload[grant_key]
+        try:
+            valid_grant = (
+                status == 'ASSIGNED' and isinstance(grant, dict)
+                and set(grant) == {'profile_id', 'profile_sha256', 'authorized_on', 'expires_at_utc'}
+                and grant['profile_id'] == 'stage2_hold_v1'
+                and _SHA256_RE.fullmatch(grant['profile_sha256']) is not None
+                and date.fromisoformat(grant['authorized_on']).isoformat() == grant['authorized_on']
+                and datetime.fromisoformat(grant['expires_at_utc'].replace('Z', '+00:00')).utcoffset() is not None
+            )
+        except (TypeError, ValueError, KeyError, AttributeError):
+            valid_grant = False
+        if not valid_grant:
+            raise ExecutionHostAssignmentError('Stage 2 grant schema is invalid')
     if (
         payload["schema_version"] != EXECUTION_HOST_ASSIGNMENT_SCHEMA_VERSION
         or _SHA256_RE.fullmatch(str(capture_id or "")) is None

@@ -1,0 +1,748 @@
+"""Inert sealer-owned Stage 2 template. Shared host/Git guards match Stage 1."""
+
+from __future__ import annotations
+
+import hashlib
+
+import json
+
+import os
+
+import re
+
+import subprocess
+
+import sys
+
+import winreg
+
+from datetime import datetime, timedelta
+
+from pathlib import Path
+
+from types import SimpleNamespace
+
+from zoneinfo import ZoneInfo
+
+TEMPLATE_SEALED = False
+
+PRODUCTION = Path("__SEAL_PRODUCTION_ROOT__")
+
+PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
+
+PRODUCTION_PYTHON_SHA256 = "__SEAL_PRODUCTION_PYTHON_SHA256__"
+
+PRODUCTION_PYVENV_CONFIG = Path("__SEAL_PRODUCTION_PYVENV_CONFIG__")
+
+PRODUCTION_PYVENV_CONFIG_SHA256 = "__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"
+
+PRODUCTION_RUNTIME_PYTHON = Path("__SEAL_PRODUCTION_RUNTIME_PYTHON__")
+
+PRODUCTION_RUNTIME_PYTHON_SHA256 = "__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"
+
+HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
+
+SCOPE = "__SEAL_SCOPE__"
+
+SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
+
+CANCELLATION_MODE = "__SEAL_CANCELLATION_MODE__"
+
+STAGE_NAME = "__SEAL_STAGE_NAME__"
+
+EXECUTION_PHASE = "preflight"
+
+CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
+
+SESSION_CONFIRMATION = None
+
+HOST_ATTESTATIONS = []
+
+LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
+
+LIVE_WINDOW_START = (0, 30, 0, 0)
+
+LIVE_WINDOW_END = (9, 0, 0, 0)
+
+ALLOWED_DIRTY_PATHS = {
+    "config/location_market_events.json",
+    "config/locations.json",
+}
+
+CONDITION_RE = re.compile(r"0x[0-9a-f]{64}")
+
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+GIT_OID_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+
+CORE_WORKERS = {
+    "snapshot_tracker",
+    "market_microstructure",
+    "observation_trigger",
+}
+
+CAPTURE_COLOCATED_HOST_PROFILE = "capture_colocated_v1"
+
+PORTABLE_EXECUTION_HOST_PROFILE = "portable_execution_v1"
+
+PORTABLE_TOPIC_BRANCH = "codex/live-gate-provenance-20260831"
+
+EXECUTION_HOST_ID_DOMAIN = "international_live_execution_host_v2"
+
+PRE_CREDENTIAL_RESERVE_SECONDS = (
+    120
+    if isinstance(SCOPE, dict)
+    and SCOPE.get("execution_host_profile") == PORTABLE_EXECUTION_HOST_PROFILE
+    else 60
+)
+
+PRE_MUTATION_RESERVE_SECONDS = 60
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def _current_execution_host_id() -> str:
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+            access=winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        ) as key:
+            machine, value_type = winreg.QueryValueEx(key, "MachineGuid")
+    except OSError as exc:
+        raise RuntimeError("execution host identity is unavailable") from exc
+    if value_type != winreg.REG_SZ or not str(machine).strip():
+        raise RuntimeError("execution host identity is unavailable")
+    material = "\0".join((EXECUTION_HOST_ID_DOMAIN, str(machine).strip().casefold()))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+def _run(command: list[str], *, allowed=(0,)) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command,
+        cwd=PRODUCTION,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode not in allowed:
+        raise RuntimeError(f"sealed public preflight exited {result.returncode}")
+    return result
+
+def _git(*args: str, allowed=(0,)) -> subprocess.CompletedProcess[str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("GIT_")
+        and key.upper()
+        not in {
+            "ALL_PROXY", "CURL_CA_BUNDLE", "HTTP_PROXY", "HTTPS_PROXY",
+            "NO_PROXY", "REQUESTS_CA_BUNDLE", "SSL_CERT_DIR", "SSL_CERT_FILE",
+            "WEATHER_MARKET_REGISTRY",
+        }
+    }
+    environment.update(
+        {
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GCM_INTERACTIVE": "Never",
+        }
+    )
+    command = [
+        str(SCOPE["git_executable"]),
+        "-c",
+        "credential.helper=",
+        "-c",
+        "credential.interactive=false",
+        "-c",
+        f"core.hooksPath={os.devnull}",
+        "-C",
+        str(PRODUCTION),
+        *args,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=PRODUCTION,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode not in allowed:
+        raise RuntimeError(f"sealed Git preflight exited {result.returncode}")
+    return result
+
+def _is_fully_sealed() -> bool:
+    if not TEMPLATE_SEALED or not isinstance(SCOPE, dict) or not isinstance(
+        SOURCE_SHA256, dict
+    ):
+        return False
+    return True
+
+def _assert_sealed() -> None:
+    if not _is_fully_sealed():
+        raise RuntimeError("fixed-scope Stage 2 template is not sealed")
+    if not isinstance(SCOPE["allowed_status_flag_sha256"], list):
+        raise RuntimeError("allowed status hashes are not sealed as a list")
+    if any(
+        SHA256_RE.fullmatch(str(value).lower()) is None
+        for value in SCOPE["allowed_status_flag_sha256"]
+    ):
+        raise RuntimeError("allowed status hashes contain an invalid value")
+    profile = str(SCOPE.get("execution_host_profile") or "")
+    if profile != PORTABLE_EXECUTION_HOST_PROFILE:
+        raise RuntimeError("execution host profile is invalid")
+    profile_hash = hashlib.sha256(json.dumps(SCOPE['profile_values'], sort_keys=True, separators=(',', ':')).encode('ascii')).hexdigest()
+    if profile_hash != SCOPE['stage2']['profile_sha256'] or SCOPE['profile_values']['profile_id'] != 'stage2_hold_v1':
+        raise RuntimeError('sealed Stage 2 profile bytes changed')
+    expected_branch = str(SCOPE.get("expected_production_branch") or "")
+    expected_remote_ref = str(SCOPE.get("expected_remote_branch_ref") or "")
+    if (
+        profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and expected_branch != "master"
+    ) or (
+        profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and expected_branch not in {"master", PORTABLE_TOPIC_BRANCH}
+    ) or expected_remote_ref != f"refs/heads/{expected_branch}":
+        raise RuntimeError("sealed production branch is invalid for the host profile")
+    if (
+        SHA256_RE.fullmatch(str(SCOPE.get("execution_host_id") or "").lower())
+        is None
+        or str(SCOPE["execution_host_id"]).lower()
+        != _current_execution_host_id()
+    ):
+        raise RuntimeError("wrapper is sealed for a different execution host")
+    if (
+        SHA256_RE.fullmatch(
+            str(SCOPE.get("git_executable_sha256") or "").lower()
+        )
+        is None
+        or not Path(str(SCOPE.get("git_executable") or "")).is_absolute()
+        or SCOPE.get("canonical_origin_url")
+        != "https://github.com/michaelbooth1/weather.git"
+    ):
+        raise RuntimeError("sealed Git trust binding is invalid")
+    if (
+        profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and SCOPE["allowed_status_flag_sha256"]
+    ):
+        raise RuntimeError("portable execution host has capture status exceptions")
+    try:
+        market_timezone = ZoneInfo(str(SCOPE.get("market_timezone") or ""))
+    except Exception as exc:
+        raise RuntimeError("sealed market timezone is invalid") from exc
+    if not str(SCOPE.get("market_id") or "").strip() or not market_timezone:
+        raise RuntimeError("sealed market calendar binding is invalid")
+    condition = str(SCOPE["condition_id"]).lower()
+    token = str(SCOPE["token_id"])
+    if CONDITION_RE.fullmatch(condition) is None:
+        raise RuntimeError("fixed condition id is invalid")
+    if not token.isdigit() or int(token) <= 0:
+        raise RuntimeError("fixed token id is invalid")
+    budget = float(SCOPE["requested_budget_pusd"])
+    if budget != SCOPE["profile_values"]["per_band_pusd"]:
+        raise RuntimeError("fixed requested budget differs from the hashed profile")
+    if CANCELLATION_MODE != "cancel_all":
+        raise RuntimeError("sealed cancellation mode is invalid")
+    _assert_window_current()
+
+def _assert_window_current() -> None:
+    start = datetime.fromisoformat(str(SCOPE["run_not_before_local"]))
+    stop = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    now = datetime.now().astimezone()
+    cleanup_reserve = SCOPE.get("cleanup_reserve_seconds")
+    if start.tzinfo is None or stop.tzinfo is None or not start < stop:
+        raise RuntimeError("fixed local run window is invalid")
+    if (
+        isinstance(cleanup_reserve, bool)
+        or not isinstance(cleanup_reserve, int)
+        or cleanup_reserve <= 0
+    ):
+        raise RuntimeError("fixed cleanup reserve is invalid")
+    if (stop - start).total_seconds() > SCOPE["profile_values"]["session_seconds"]:
+        raise RuntimeError("fixed local run window exceeds the hashed profile")
+    calendar_timezone = (
+        LIVE_WINDOW_TIMEZONE
+        if SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE
+        else ZoneInfo(SCOPE["market_timezone"])
+    )
+    local_start = start.astimezone(calendar_timezone)
+    local_stop = stop.astimezone(calendar_timezone)
+    local_contained_end = (
+        stop + timedelta(seconds=cleanup_reserve)
+    ).astimezone(calendar_timezone)
+    start_wall = (
+        local_start.hour,
+        local_start.minute,
+        local_start.second,
+        local_start.microsecond,
+    )
+    contained_end_wall = (
+        local_contained_end.hour,
+        local_contained_end.minute,
+        local_contained_end.second,
+        local_contained_end.microsecond,
+    )
+    execution_date = local_start.date()
+    execution_dates_match = (
+        local_stop.date() == execution_date
+        and local_contained_end.date() == execution_date
+    )
+    capture_target_date_matches = (
+        execution_date.isoformat() == SCOPE["target_date"]
+    )
+    portable_target_date_matches = SCOPE["target_date"] in {
+        execution_date.isoformat(),
+        (execution_date + timedelta(days=1)).isoformat(),
+    }
+    profile_date_matches = (
+        capture_target_date_matches
+        if SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE
+        else portable_target_date_matches
+    )
+    colocated_window_matches = (
+        start_wall >= LIVE_WINDOW_START
+        and contained_end_wall <= LIVE_WINDOW_END
+    )
+    if not execution_dates_match or not profile_date_matches or (
+        SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE
+        and not colocated_window_matches
+    ):
+        if SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE:
+            raise RuntimeError(
+                "fixed execution plus cleanup reserve is outside the supported "
+                "00:30-09:00 America/Toronto live window"
+            )
+        raise RuntimeError(
+            "fixed portable execution requires one local execution date and "
+            "a current-day or next-day market target"
+        )
+    if not start <= now <= stop or (
+        now.astimezone(calendar_timezone).date() != execution_date
+    ):
+        raise RuntimeError("fixed-scope Stage 1 wrapper is outside its exact window")
+
+def _assert_attended_invocation() -> None:
+    from weather.execution_host import current_execution_session_id
+
+    if current_execution_session_id() == 0:
+        raise RuntimeError("run the reviewed command from the signed-in Windows desktop")
+
+def _assert_reserve(reserve_seconds: int, *, label: str) -> None:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    if (deadline - datetime.now().astimezone()).total_seconds() < reserve_seconds:
+        raise RuntimeError(f"sealed Stage 1 {label} reserve is exhausted")
+
+def _assert_precredential_reserve() -> None:
+    _assert_reserve(PRE_CREDENTIAL_RESERVE_SECONDS, label="pre-credential")
+
+def _assert_mutation_reserve() -> None:
+    _assert_reserve(PRE_MUTATION_RESERVE_SECONDS, label="pre-mutation")
+
+def _assert_git_and_sources() -> None:
+    from weather.operations.live_path_security import (
+        assert_no_ambient_proxy_configuration,
+    )
+
+    assert_no_ambient_proxy_configuration()
+    if Path(sys.executable).resolve() != PRODUCTION_PYTHON.resolve():
+        raise RuntimeError("fixed-scope wrapper is not using the production interpreter")
+    git_executable = Path(str(SCOPE["git_executable"]))
+    if (
+        not git_executable.is_file()
+        or _sha256(git_executable)
+        != str(SCOPE["git_executable_sha256"]).lower()
+    ):
+        raise RuntimeError("sealed Git executable changed")
+    origin_url = _git(
+        "config", "--local", "--get", "remote.origin.url"
+    ).stdout.strip()
+    push_url = _git(
+        "config",
+        "--local",
+        "--get-all",
+        "remote.origin.pushurl",
+        allowed=(0, 1),
+    ).stdout.strip()
+    config_names = _git(
+        "config", "--local", "--name-only", "--list"
+    ).stdout.splitlines()
+    forbidden_prefixes = (
+        "url.", "include.", "includeif.", "http.", "credential.",
+        "core.sshcommand", "remote.origin.proxy",
+    )
+    if (
+        origin_url != SCOPE["canonical_origin_url"]
+        or push_url
+        or any(
+            name.casefold().startswith(forbidden_prefixes)
+            for name in config_names
+        )
+    ):
+        raise RuntimeError("production Git remote or trust configuration changed")
+    profile = str(SCOPE["execution_host_profile"])
+    selected_branch = str(SCOPE["expected_production_branch"])
+    if (
+        profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and selected_branch != "master"
+    ) or (
+        profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and selected_branch not in {"master", PORTABLE_TOPIC_BRANCH}
+    ):
+        raise RuntimeError("sealed production branch is invalid for the host profile")
+    selected_local_ref = f"refs/heads/{selected_branch}"
+    selected_cached_ref = f"refs/remotes/origin/{selected_branch}"
+    selected_remote_ref = str(SCOPE["expected_remote_branch_ref"])
+    if selected_remote_ref != selected_local_ref:
+        raise RuntimeError("sealed remote branch ref does not match the selected branch")
+    master_remote_ref = "refs/heads/master"
+    head = _git("rev-parse", "HEAD").stdout.strip().lower()
+    local_selected = _git("rev-parse", selected_local_ref).stdout.strip().lower()
+    cached_selected = _git("rev-parse", selected_cached_ref).stdout.strip().lower()
+    master = _git("rev-parse", "refs/heads/master").stdout.strip().lower()
+    cached_master = _git(
+        "rev-parse", "refs/remotes/origin/master"
+    ).stdout.strip().lower()
+    branch = _git("branch", "--show-current").stdout.strip()
+    required_remote_refs = sorted({master_remote_ref, selected_remote_ref})
+    assert_no_ambient_proxy_configuration()
+    remote_result = _git(
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        SCOPE["canonical_origin_url"],
+        *required_remote_refs,
+    )
+    assert_no_ambient_proxy_configuration()
+    remote_rows = [
+        line.split()
+        for line in remote_result.stdout.splitlines()
+        if line.strip()
+    ]
+    remote_by_ref = {}
+    for row in remote_rows:
+        if (
+            len(row) != 2
+            or row[1] not in required_remote_refs
+            or row[1] in remote_by_ref
+            or GIT_OID_RE.fullmatch(row[0].lower()) is None
+        ):
+            raise RuntimeError("live origin ref proof is malformed or unavailable")
+        remote_by_ref[row[1]] = row[0].lower()
+    if set(remote_by_ref) != set(required_remote_refs):
+        raise RuntimeError("live origin ref proof is malformed or unavailable")
+    remote_master = remote_by_ref[master_remote_ref]
+    remote_selected = remote_by_ref[selected_remote_ref]
+    if not (
+        head
+        == local_selected
+        == cached_selected
+        == remote_selected
+        == str(SCOPE["expected_production_tip"]).lower()
+        and master == cached_master == remote_master
+        and branch == selected_branch
+    ):
+        raise RuntimeError("production selected ref, master baseline, or branch changed")
+    base_ancestry = _git(
+        "merge-base",
+        "--is-ancestor",
+        remote_master,
+        head,
+        allowed=(0, 1),
+    )
+    if base_ancestry.returncode != 0:
+        raise RuntimeError("live origin master is not an ancestor of the selected tip")
+    tree = _git("rev-parse", "HEAD^{tree}").stdout.strip().lower()
+    if tree != str(SCOPE["expected_production_tree"]).lower():
+        raise RuntimeError("production tree changed after wrapper review")
+    hardening = _git(
+        "merge-base",
+        "--is-ancestor",
+        HARDENING_TIP,
+        head,
+        allowed=(0, 1),
+    )
+    if hardening.returncode != 0:
+        raise RuntimeError("interrupt-cleanup hardening is not integrated")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if _git("rev-parse", "-q", "--verify", marker, allowed=(0, 1)).returncode == 0:
+            raise RuntimeError("production has an in-progress Git operation")
+    dirty = {
+        line[3:].replace("\\", "/")
+        for line in _git("status", "--porcelain=v1").stdout.splitlines()
+        if line.strip()
+    }
+    execution_profile = str(SCOPE["execution_host_profile"])
+    worktree_policy_clean = (
+        not dirty
+        if execution_profile == "portable_execution_v1"
+        else dirty.issubset(ALLOWED_DIRTY_PATHS)
+    )
+    if not worktree_policy_clean:
+        raise RuntimeError("production worktree has unexpected changes")
+    for relative, expected in SOURCE_SHA256.items():
+        path = (PRODUCTION / relative).resolve()
+        if not path.is_file() or _sha256(path) != str(expected).lower():
+            raise RuntimeError("reviewed live source hash changed")
+
+def _assert_host_state() -> None:
+    _assert_window_current()
+    from weather.operations.live_path_security import (
+        LivePathSecurityError,
+        canonical_windows_powershell,
+        validate_launcher_lease_process_lineage,
+    )
+
+    powershell = canonical_windows_powershell()
+    portable = (
+        SCOPE["execution_host_profile"] == PORTABLE_EXECUTION_HOST_PROFILE
+    )
+    status_script = (
+        "international_live_execution_host_status.ps1"
+        if portable
+        else "status.ps1"
+    )
+    status_result = _run(
+        [
+            str(powershell),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(PRODUCTION / "scripts" / "ops" / status_script),
+            "-Json",
+            "-RepoRoot",
+            str(PRODUCTION),
+        ],
+        allowed=(0, 2),
+    )
+    status = json.loads(status_result.stdout)
+    observed_flag_hashes = sorted(
+        hashlib.sha256(str(flag).encode("utf-8")).hexdigest()
+        for flag in status.get("flags") or []
+    )
+    if observed_flag_hashes != sorted(SCOPE["allowed_status_flag_sha256"]):
+        raise RuntimeError("execution host status flags differ from the sealed set")
+    if portable:
+        if (
+            status_result.returncode != 0
+            or status.get("status") != "PASS"
+            or status.get("flags") != []
+            or status.get("schema_version")
+            != "international_live_execution_host_status_v0.3"
+            or status.get("execution_host_id") != SCOPE["execution_host_id"]
+            or SHA256_RE.fullmatch(
+                str(status.get("execution_principal_id") or "").lower()
+            )
+            is None
+            or (status.get("execution_host_assignment") or {}).get(
+                "current_assignment_matches"
+            )
+            is not True
+            or Path(str(status.get("repository_root") or "")).resolve()
+            != PRODUCTION.resolve()
+            or status.get("credential_access") is not False
+            or status.get("exchange_contact") is not False
+            or status.get("scheduler_mutation") is not False
+            or status.get("capture_mutation") is not False
+        ):
+            raise RuntimeError("portable execution host status contract changed")
+    else:
+        today = str((status.get("streak") or {}).get("today") or "")
+        if not (today.startswith("ON_TRACK") or today.startswith("CLEAN")):
+            raise RuntimeError("capture day is not healthy")
+        runtime = status.get("capture_runtime") or {}
+        if not CORE_WORKERS.issubset(runtime):
+            raise RuntimeError("core capture runtime status is incomplete")
+        if any(
+            runtime[name].get("parsed") is not True
+            or runtime[name].get("consecutive_errors") != 0
+            or runtime[name].get("last_error_present") is True
+            for name in CORE_WORKERS
+        ):
+            raise RuntimeError("core capture has an unclean current state")
+        tape = status.get("execution_tape") or {}
+        if not all(
+            (
+                tape.get("armed") is True,
+                tape.get("process_healthy") is True,
+                tape.get("capture_state") == "CONNECTED",
+                tape.get("evidence_integrity") == "PASS",
+                float(tape.get("heartbeat_age_seconds")) <= 15,
+            )
+        ):
+            raise RuntimeError("public execution capture is not healthy")
+    clock = status.get("clock") or {}
+    if (
+        clock.get("synchronized") is not True
+        or clock.get("sync_age_hours") is None
+        or not 0 <= float(clock["sync_age_hours"]) <= 24
+    ):
+        raise RuntimeError("host clock is not synchronized")
+    if (status.get("resilience") or {}).get("reboot_pending") is not False:
+        raise RuntimeError("host has a pending reboot")
+    lock_path = PRODUCTION / "data" / "logs" / "heavy_workload.lock"
+    try:
+        owner = json.loads(lock_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("fixed-scope launcher lease record is unavailable") from exc
+    try:
+        owner_pid = int(owner.get("pid"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("fixed-scope launcher lease owner is invalid") from exc
+    if not (
+        owner.get("schema_version") == "weather_heavy_workload_lease_v3"
+        and owner.get("workload") == SCOPE["expected_lease_workload"]
+        and str(owner.get("owner_process_creation_time_token") or "").startswith(
+            "win32-filetime:"
+        )
+        and owner.get("execution_host_profile")
+        == SCOPE["execution_host_profile"]
+        and owner.get("execution_host_id") == SCOPE["execution_host_id"]
+        and (
+            SCOPE["execution_host_profile"] != PORTABLE_EXECUTION_HOST_PROFILE
+            or owner.get("execution_principal_id")
+            == status.get("execution_principal_id")
+        )
+    ):
+        raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    try:
+        lease_process_lineage = validate_launcher_lease_process_lineage(
+            lease_owner_pid=owner_pid,
+            lease_path=lock_path,
+            expected_owner_creation_time_token=owner[
+                "owner_process_creation_time_token"
+            ],
+            expected_owner_executable=powershell,
+            expected_pyvenv_config=PRODUCTION_PYVENV_CONFIG,
+            expected_pyvenv_config_sha256=PRODUCTION_PYVENV_CONFIG_SHA256,
+            expected_redirector_executable=PRODUCTION_PYTHON,
+            expected_redirector_sha256=PRODUCTION_PYTHON_SHA256,
+            expected_runtime_executable=PRODUCTION_RUNTIME_PYTHON,
+            expected_runtime_sha256=PRODUCTION_RUNTIME_PYTHON_SHA256,
+        )
+    except LivePathSecurityError as exc:
+        raise RuntimeError(
+            "fixed-scope wrapper does not own the shared launcher lease"
+        ) from exc
+    HOST_ATTESTATIONS.append(
+        {
+            "checked_at_local": datetime.now().astimezone().isoformat(),
+            "status_json_sha256": hashlib.sha256(
+                status_result.stdout.encode("utf-8")
+            ).hexdigest(),
+            "status_flag_sha256": observed_flag_hashes,
+            "execution_host_profile": SCOPE["execution_host_profile"],
+            "execution_host_id": SCOPE["execution_host_id"],
+            "lease_process_lineage": lease_process_lineage,
+        }
+    )
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _fresh_geography(*, precredential=False):
+    from weather.market.mm_geographic_eligibility import PHYSICAL_LOCATION_CONFIRMATION, check_geographic_eligibility
+    from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
+    if not SESSION_CONFIRMATION:
+        raise RuntimeError('typed session confirmation is absent')
+    assert_no_ambient_proxy_configuration()
+    root = Path(SCOPE['attempt_root']) / 'stage2-hold' / 'geography'
+    path = (Path(SCOPE['geography_precredential_receipt_out']) if precredential
+            else root / (datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%f') + '.json'))
+    return check_geographic_eligibility(path,
+        confirmation=PHYSICAL_LOCATION_CONFIRMATION,
+        physical_location_eligible=SESSION_CONFIRMATION['physical_location_eligible'],
+        no_circumvention=SESSION_CONFIRMATION['no_circumvention'])
+
+
+def _pre_submit():
+    from weather.operations.international_live_wrapper_sealer import revalidate_stage2_runtime
+    _assert_mutation_reserve()
+    _assert_host_state()
+    revalidate_stage2_runtime(SCOPE, doctor_complete=True, stream_started=True)
+    return _fresh_geography()
+
+
+def _write_execution_receipt(status, exception_type=None):
+    from weather.market.mm_stage2_hold import SCHEMA_VERSION
+    artifacts = {}
+    for role in ('doctor_receipt', 'doctor_no_receipt', 'geography_precredential_receipt', 'result', 'command_receipt', 'user_stream_journal', 'lifecycle_journal'):
+        path = Path(SCOPE[role + '_out'])
+        if path.is_file():
+            artifacts[role] = {'path': str(path), 'sha256': _sha256(path)}
+    _atomic_json(Path(SCOPE['wrapper_execution_receipt_out']), {
+        'schema_version': SCHEMA_VERSION, 'kind': 'session', 'stage': STAGE_NAME,
+        'status': status, 'exception_type': exception_type, 'phase': EXECUTION_PHASE,
+        'finished_at_utc': datetime.now().astimezone().isoformat(),
+        'scope': SCOPE, 'session_confirmation': SESSION_CONFIRMATION,
+        'host_attestations': HOST_ATTESTATIONS, 'artifacts': artifacts,
+        'wrapper': {'path': str(Path(__file__).resolve()), 'sha256': _sha256(Path(__file__))},
+    })
+
+
+def main():
+    global SESSION_CONFIRMATION, EXECUTION_PHASE
+    if len(sys.argv) != 1:
+        raise RuntimeError('sealed Stage 2 wrapper accepts no arguments')
+    _assert_sealed()
+    _assert_git_and_sources()
+    _assert_host_state()
+    _assert_attended_invocation()
+    sys.path.insert(0, str(PRODUCTION / 'src'))
+    from weather.operations.international_live_wrapper_sealer import revalidate_stage2_runtime
+    from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+    from weather.market.mm_live_attendance import confirm_attended_session
+    from weather.market.mm_stage2_hold import CONFIRMATION
+    from weather.market import mm_stage2_entrypoint as stage2_entry
+    validated = revalidate_stage2_runtime(SCOPE)
+    activation = activate_live_sdk_overlay(SCOPE['sdk_overlay_manifest_path'], SCOPE['sdk_overlay_manifest_sha256'])
+    stage2_entry.keyless_doctors(validated, activation)
+    display = {key: SCOPE[key] for key in ('stage2', 'profile_values', 'condition_id', 'requested_budget_pusd',
+                                           'run_not_before_local', 'run_not_after_local', 'cleanup_reserve_seconds')}
+    print(json.dumps({'confirmation_scope': display}, sort_keys=True))
+    display_sha = hashlib.sha256(json.dumps(display, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    EXECUTION_PHASE = 'confirmation'
+    SESSION_CONFIRMATION = confirm_attended_session(CONFIRMATION, display_sha)
+    _assert_precredential_reserve()
+    _assert_git_and_sources()
+    _assert_host_state()
+    revalidate_stage2_runtime(SCOPE, doctor_complete=True)
+    _fresh_geography(precredential=True)
+    EXECUTION_PHASE = 'stage2_session'
+    result = stage2_entry.run_sealed_hold(SCOPE, confirmation_receipt=SESSION_CONFIRMATION,
+                                         pre_submit_attestor=_pre_submit, geography_reader=_fresh_geography)
+    if not result['cleanup_ok'] or not result['cancel_acknowledged'] or not result['context_cleanup']['ok'] or result['fill_seen']:
+        raise RuntimeError('Stage 2 did not prove explicit cancellation within cleanup budget')
+    EXECUTION_PHASE = 'complete'
+    _write_execution_receipt('PASS')
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        exit_code = main()
+    except BaseException as exc:
+        if _is_fully_sealed():
+            try:
+                _write_execution_receipt('FAIL', type(exc).__name__)
+            except BaseException:
+                pass
+        print(json.dumps({'status': 'FAIL', 'exception_type': type(exc).__name__}), file=sys.stderr)
+        raise SystemExit(1)
+    raise SystemExit(exit_code)

@@ -86,6 +86,97 @@ class HoldEnd(RuntimeError):
         super().__init__(reason)
 
 
+def verify_prediction_journal(prediction, journal_path):
+    """Recompute the frozen sums from the retained, chained session journal."""
+    import math
+    raw = Path(journal_path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != prediction['journal_sha256']:
+        raise ValueError('prediction journal hash differs')
+    previous, rows, last_time = None, [], None
+    for index, line in enumerate(raw.splitlines(keepends=True)):
+        row = json.loads(line)
+        when = utc(row['recorded_at_utc'])
+        if (canonical_bytes(row) != line or row['schema_version'] != SCHEMA_VERSION
+                or row['kind'] != 'journal' or row['sequence'] != index
+                or row['previous_sha256'] != previous or last_time is not None and when < last_time):
+            raise ValueError('session journal chain or clock differs')
+        previous, last_time = hashlib.sha256(line).hexdigest(), when
+        rows.append(row)
+    if (len(rows) < 2 or rows[0]['event'] != 'opened' or rows[-1]['event'] != 'terminal'
+            or rows[0]['scope'] != prediction['scope'] or rows[0]['mode'] != prediction['mode']
+            or rows[0]['profile_sha256'] != PROFILE.sha256 or prediction['profile_sha256'] != PROFILE.sha256
+            or prediction['reward_day'] != utc(rows[0]['recorded_at_utc']).date().isoformat()
+            or prediction['condition_id'] != prediction['scope']['condition_id']
+            or utc(prediction['frozen_at_utc']) < last_time or prediction['earnings_read'] is not False):
+        raise ValueError('frozen prediction scope or terminal record differs')
+    for key in ('cleanup_ok', 'cancel_acknowledged', 'fill_seen', 'failure_type'):
+        if rows[-1][key] != prediction[key]:
+            raise ValueError('frozen terminal outcome differs')
+    sums = {'P_many': 0.0, 'P_single': 0.0, 'visible_two_sided_minutes': 0.0}
+    prior_sample, prior_visible, scoring, samples = None, False, True, 0
+    boundaries = [r for r in rows if r['event'] == 'submit_boundary']
+    acknowledgments = [r for r in rows if r['event'] == 'order_acknowledged']
+    proposals = [r for r in rows if r['event'] == 'proposal']
+    ends = [r for r in rows if r['event'] == 'end_condition']
+    if len(proposals) != 1 or len(ends) != 1 or ends[0]['reason'] != prediction['end_condition']:
+        raise ValueError('journal proposal or end condition differs')
+    initial_terms = proposals[0]['snapshot']['quote_inputs']
+    changed = False
+    if len(boundaries) > 2 or len(acknowledgments) > len(boundaries):
+        raise ValueError('session exceeds the submit ceiling')
+    for i, row in enumerate(boundaries):
+        if (row['leg'] != i + 1 or row['token_id'] != prediction['scope']['token_ids'][i]
+                or _decimal(row['size']) != 20 or _decimal(row['price']) * 20 > PROFILE.per_order_pusd
+                or _decimal(row['fresh_fee_rate_bps']) < 0
+                or _decimal(row['fresh_fee_rate_bps']) != _decimal(row['candidate_fee_rate_bps'])):
+            raise ValueError('journal submit binding differs')
+    cancellation = [r for r in rows if r['event'] == 'cancel_all_acknowledged']
+    zeroes = [r for r in rows if r['event'] == 'zero_open_orders']
+    if (prediction['cancel_acknowledged'] is not bool(cancellation) or len(cancellation) > 1
+            or prediction['cleanup_ok'] and (len(zeroes) != 1 or not zeroes[0]['cleanup_in_budget']
+                or zeroes[0]['cleanup_elapsed_seconds'] > PROFILE.cleanup_seconds)):
+        raise ValueError('terminal cleanup lacks acknowledged evidence')
+    for row in rows:
+        if row['event'] == 'public_observation':
+            changed = changed or any(row['snapshot']['quote_inputs'][k] != initial_terms[k] for k in (
+                'reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
+        if row['event'] != 'minute':
+            continue
+        if len(boundaries) != 2 or len(acknowledgments) != 2:
+            raise ValueError('minutes precede two acknowledged orders')
+        samples += 1
+        snapshot, observed = row['snapshot'], row['observation']
+        changed = changed or any(snapshot['quote_inputs'][k] != initial_terms[k] for k in (
+            'reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
+        current = utc(row['recorded_at_utc'])
+        quote = public_quote(snapshot, now=current, condition_id=prediction['condition_id'],
+                             token_ids=prediction['scope']['token_ids'])
+        from dataclasses import replace
+        held = replace(quote, yes_buy=_decimal(boundaries[0]['price']), no_buy=_decimal(boundaries[1]['price']))
+        if observe_held_quote(snapshot, held) != observed:
+            raise ValueError('journal reward observation does not reproduce')
+        elapsed = 0 if prior_sample is None else (current - prior_sample).total_seconds()
+        counted = elapsed / 60 if 0 < elapsed <= 60.5 and prior_visible and observed['visible_two_sided'] else 0
+        if not math.isclose(counted, row['counted_minutes'], abs_tol=1e-6):
+            raise ValueError('journal visible minutes do not reproduce')
+        if set(row['scoring']) != {r['order_id'] for r in acknowledgments} or any(type(v) is not bool for v in row['scoring'].values()):
+            raise ValueError('journal scoring identities differ')
+        scoring = scoring and all(row['scoring'].values())
+        sums['visible_two_sided_minutes'] += counted
+        sums['P_many'] += counted * observed['per_minute_many']
+        sums['P_single'] += counted * observed['per_minute_single']
+        prior_sample, prior_visible = current, observed['visible_two_sided']
+    if any(not math.isclose(float(prediction[k]), v, rel_tol=1e-9, abs_tol=1e-6) for k, v in sums.items()):
+        raise ValueError('frozen reward sums differ from journal')
+    if prediction['all_observed_legs_scoring'] != (scoring and samples > 0 and len(acknowledgments) == 2):
+        raise ValueError('frozen scoring outcome differs')
+    if prediction['reward_terms_changed'] != changed:
+        raise ValueError('frozen reward terms outcome differs')
+    if prediction['visible_two_sided_minutes'] > PROFILE.session_seconds / 60:
+        raise ValueError('visible minutes exceed the session ceiling')
+    return rows
+
+
 def public_quote(snapshot, *, now, condition_id, token_ids):
     if (snapshot.get("condition_id") != condition_id
             or tuple(snapshot.get("token_ids", ())) != tuple(token_ids)
@@ -131,7 +222,7 @@ def _order_id(row):
     return str(row.get("id") or row.get("order_id") or row.get("orderID") or row.get("lifecycle_key") or "")
 
 
-def _exact_open_orders(rows, expected):
+def _exact_open_orders(rows, expected, *, maker, condition):
     if not isinstance(rows, list) or len(rows) != len(expected):
         raise HoldEnd("unexpected_open_orders")
     seen = set()
@@ -141,6 +232,8 @@ def _exact_open_orders(rows, expected):
             raise HoldEnd("unexpected_open_orders")
         token, price, size = expected[order_id]
         if (str(row.get("asset_id") or row.get("token_id")) != token
+                or str(row.get('maker_address', '')).lower() != maker.lower()
+                or row.get('market') != condition or str(row.get('status', '')).lower() != 'live'
                 or row.get("side") != "BUY" or _decimal(row.get("price")) != price
                 or _decimal(row.get("original_size")) != size):
             raise HoldEnd("open_order_binding")
@@ -149,7 +242,7 @@ def _exact_open_orders(rows, expected):
         seen.add(order_id)
 
 
-def _check_fills(adapters, expected):
+def _check_fills(adapters, expected, *, check_rest=True, checkpoint=lambda: None):
     for adapter in adapters:
         for row in adapter.user_events():
             oid = _order_id(row)
@@ -159,12 +252,16 @@ def _check_fills(adapters, expected):
                     or row.get("event_type") in {"trade", "trade_pending", "rejected"}
                     or _decimal(row.get("size_matched", 0)) > 0):
                 raise HoldEnd("fill")
+        if not check_rest:
+            continue
+        checkpoint()
         # REST evidence catches fills even before the user stream delivers them.
         if adapter.account_trades():
             raise HoldEnd("fill")
         for oid, (token, _, _) in expected.items():
             if token != adapter.token_id:
                 continue
+            checkpoint()
             order = adapter.get_order(oid)
             if _order_id(order) != oid or str(order.get("asset_id")) != token:
                 raise HoldEnd("rest_order_binding")
@@ -221,6 +318,10 @@ def run_hold_session(
             raise ValueError("hold session requires a dedicated isolated wallet")
     if mode not in {"live", "rehearsal"}:
         raise ValueError("unknown session mode")
+    if mode == 'live':
+        from weather.market.mm_official_adapter import OfficialPolymarketGlobalAdapter
+        if any(type(a) is not OfficialPolymarketGlobalAdapter for a in adapters):
+            raise ValueError('live mode requires the official grant-checked adapters')
     quote = public_quote(initial_public, now=wall(), condition_id=scope["condition_id"], token_ids=tokens)
     if quote.reserve_pusd > PROFILE.per_band_pusd:
         raise ValueError("band cap exceeded")
@@ -232,6 +333,7 @@ def run_hold_session(
     p_many = p_single = visible_minutes = 0.0
     all_scoring, terms_changed, fill_seen = True, False, False
     next_beat = next_geo = next_public = mono()
+    next_account = mono()
     geo = None
     last_sample, previous_visible = None, False
     deadline_mono = mono() + seconds
@@ -239,6 +341,7 @@ def run_hold_session(
     initial_terms = {k: initial_public["quote_inputs"][k] for k in (
         "reward_min_size", "reward_rate_per_day", "reward_max_spread_cents")}
     failure = None
+    starting_collateral = None
 
     def record(event, **fields):
         journal.record(event, **fields)
@@ -281,20 +384,21 @@ def run_hold_session(
                 raise HoldEnd("heartbeat_loss") from exc
 
     try:
+        record('proposal', snapshot=initial_public)
         control_tick()
-        _exact_open_orders(adapters[0].open_orders(), {})
+        _exact_open_orders(adapters[0].open_orders(), {}, maker=adapters[0].maker_address, condition=scope['condition_id'])
         positions, evidence = _verified_exact_positions(adapters[0])
         if positions:
             raise HoldEnd("initial_positions")
-        record("initial_zero_state", positions_evidence=evidence,
-               collateral=_collateral(adapters[0], gates[0], quote.reserve_pusd))
+        starting_collateral = _collateral(adapters[0], gates[0], quote.reserve_pusd)
+        record("initial_zero_state", positions_evidence=evidence, collateral=starting_collateral)
         for adapter, gate in zip(adapters, gates):
             capabilities.append(adapter.authorize_stage1_lifecycle(gate, submit_deadline_utc=end.isoformat()))
         for index, (adapter, capability, price) in enumerate(zip(adapters, capabilities, (quote.yes_buy, quote.no_buy))):
             control_tick()
             if index:
-                _check_fills(adapters, expected)
-                _exact_open_orders(adapters[0].open_orders(), expected)
+                _check_fills(adapters, expected, checkpoint=control_tick)
+                _exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
             rules = adapter.refresh_market_rules()
             candidate_rules = initial_public["rules"][adapter.token_id]
             if (rules["neg_risk"] is not candidate_rules["neg_risk"]
@@ -320,17 +424,24 @@ def run_hold_session(
             record("order_acknowledged", order_id=oid, leg=index + 1)
         while True:
             control_tick()
-            _check_fills(adapters, expected)
-            _exact_open_orders(adapters[0].open_orders(), expected)
+            account_due = mono() >= next_account
+            _check_fills(adapters, expected, check_rest=account_due, checkpoint=control_tick)
+            if account_due:
+                _exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
+                next_account = mono() + 1
             if mono() >= next_public:
-                snapshot = public_reader()
+                requested_at = mono()
+                snapshot = public_reader(checkpoint=control_tick)
+                terms_changed = terms_changed or any(snapshot["quote_inputs"][k] != v for k, v in initial_terms.items())
+                record('public_observation', snapshot=snapshot)
+                control_tick()
                 public_quote(snapshot, now=wall(), condition_id=scope["condition_id"], token_ids=tokens)
                 observation = observe_held_quote(snapshot, quote)
                 scoring = scoring_reader(tuple(expected))
+                control_tick()
                 if set(scoring) != set(expected) or any(type(v) is not bool for v in scoring.values()):
                     raise HoldEnd("scoring_evidence")
                 all_scoring = all_scoring and all(scoring.values())
-                terms_changed = terms_changed or any(snapshot["quote_inputs"][k] != v for k, v in initial_terms.items())
                 sample_time = mono()
                 elapsed = 0 if last_sample is None else sample_time - last_sample
                 counted = (elapsed / 60 if 0 < elapsed <= 60.5 and previous_visible
@@ -341,7 +452,7 @@ def run_hold_session(
                 record("minute", snapshot=snapshot, observation=observation,
                        scoring=scoring, counted_minutes=counted)
                 last_sample, previous_visible = sample_time, observation["visible_two_sided"]
-                next_public = sample_time + PROFILE.public_refresh_seconds
+                next_public = requested_at + PROFILE.public_refresh_seconds
             sleep(min(0.25, max(0, deadline_mono - mono())))
     except QuoteRefused as exc:
         reason = str(exc)
@@ -390,8 +501,13 @@ def run_hold_session(
             for adapter in adapters:
                 if adapter.account_trades():
                     fill_seen = True
+            ending_collateral = _collateral(adapters[0], gates[0], quote.reserve_pusd)
+            if (not fill_seen and starting_collateral is not None
+                    and ending_collateral['cash_pusd'] != starting_collateral['cash_pusd']):
+                raise RuntimeError('no-fill collateral did not reconcile')
             cleanup_ok = mono() - cleanup_start <= PROFILE.cleanup_seconds
             record("zero_open_orders", positions_evidence=evidence, fill_seen=fill_seen,
+                   collateral=ending_collateral,
                    cleanup_elapsed_seconds=mono() - cleanup_start, cleanup_in_budget=cleanup_ok)
         except BaseException as exc:
             failure = type(exc).__name__
