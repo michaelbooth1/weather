@@ -1,5 +1,37 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 20 design of the first paid reward epoch (RE-1)
+
+No status change and **no live authority**. The bounded successor that W6 asks for is designed and
+frozen in [the RE-1 pre-registration](../../research/liquidity-reward-epoch-preregistration-2026-09-20.md):
+one next-day band chosen by a mechanical rule, two backed 20-share buys about 1.5 cents from the
+midpoint, one 360-minute session, first fill ends quoting, prediction hashed before the payout is
+known, verdict on `k = paid / predicted`, at most three sessions, proposed `H` = 1.00 per day per
+100 deployed and a track stop date of 2026-10-31.
+
+**Public reads on 2026-09-20 changed three inputs (W3).** (1) The venue publishes a per-condition
+reward record with a `market_competitiveness` field never captured here; it read 0 on five of
+eight same-day bands, and it is not our competing Q-score in other units. (2) Reward settings move
+intraday: same-day bands flip from a 20-share to a 100-share minimum during the morning, so the
+71-158 per day desk estimate for same-day 20-share bands is too high. (3) Next-day 20-share bands
+are contested: modelled share 0.01-0.10 in ten of twelve cities and 0.18-0.34 only in Los Angeles,
+that is 0.5-6 per band per day. A zero-risk public capture (RE-0) of these records runs on the
+capture host until 2026-09-30.
+
+**Capability finding (W5/W6).** Neither `master` nor the maker candidate can rest a quote: one
+far-from-mid order per sealed stage, one token per adapter, a single-use capability burned before
+signing, a 240-second session ceiling, a 60-second geoblock receipt, a sealer that rejects any
+stage-2 wrapper, no re-quote loop, no reward-aware pricer, no network reader for earnings or order
+scoring (the pinned SDK has all four readers). An automated epoch (RE-1A) is several weeks of
+safety-critical build. The pre-registration therefore puts **RE-1M first: the owner places the two
+orders by hand** while two public-read tools name the band and prices and watch the book. Its
+answer decides whether RE-1A is built. The tools are host-local under
+`scratch/audit-2026-09-18/re1/` and must be ported into `weather.market` before RE-2.
+
+**Maker candidate (PR 55) reconcile, 2026-09-20:** `codex/maker-reconcile-20260920` merges it onto
+the reliability stack. It carries the four 2026-09-06 control relaxations recorded in the pilot
+runbook; adoption needs an explicit owner disposition of each.
+
 ## September 19 reward-pool measurement, authored studies and open owner decisions
 
 No status change: non-live implementation continues and economic proof is
