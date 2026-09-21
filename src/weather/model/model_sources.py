@@ -33,6 +33,8 @@ from weather.sources.nbm_probabilistic_tmax import (
     NBM_PROB_TMAX_SCHEMA_VERSION,
     nbp_cycle_key,
     nbp_cycle_candidates,
+    nbp_target_cycle_candidates,
+    NBM_NBP_PARSER_V2,
     nbp_request_key,
     nbp_text_url,
     parse_nbp_station_tmax,
@@ -1712,7 +1714,10 @@ class SourceFetchMixin:
             }
         tried_urls = []
         last_payload = None
-        for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
+        now = datetime.now(timezone.utc)
+        for run_time in nbp_target_cycle_candidates(
+            now, self.target_date, cycles=nbp_cycle_candidates(now, hours_back=24)
+        ):
             url = nbp_text_url(run_time)
             tried_urls.append(url)
             try:
@@ -1762,6 +1767,7 @@ class SourceFetchMixin:
                 self.target_date,
                 source_url=url,
                 fetched_at=fetched_at,
+                parser_version=NBM_NBP_PARSER_V2,
             )
             payload["tried_urls"] = list(tried_urls)
             fanout_metadata = {
@@ -1823,6 +1829,7 @@ class SourceFetchMixin:
             attestation["single_fetch"] = fanout_metadata
             if fanout_result.reused:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh_cache",
                     "stale": False,
                     "cache_status": "fresh_cache",
@@ -1840,6 +1847,7 @@ class SourceFetchMixin:
                 }
             else:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh",
                     "stale": False,
                     "cache_status": "live",

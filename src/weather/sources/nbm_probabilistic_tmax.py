@@ -13,6 +13,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 from weather.forecast_payload_contracts import (
     NBM_NBP_ENCODING,
@@ -37,6 +38,22 @@ NBM_NBP_PERCENTILE_ROWS = {
     "TXNP7": 75,
     "TXNP9": 90,
 }
+NBM_NBP_PARSER_V1 = "nbm-probabilistic-tmax-parser-v1"
+NBM_NBP_PARSER_V2 = "nbm-probabilistic-tmax-parser-v2"
+NBM_NBP_TXN_CYCLES = (0, 1, 7, 12, 13, 19)
+# Explicitly qualified mainland stations. Unknown geography fails closed in v2.
+NBM_NBP_STATION_TIMEZONES = {
+    "KLGA": "America/New_York", "KATL": "America/New_York",
+    "KMIA": "America/New_York", "KAUS": "America/Chicago",
+    "KORD": "America/Chicago", "KDAL": "America/Chicago",
+    "KHOU": "America/Chicago", "KBKF": "America/Denver",
+    "KLAX": "America/Los_Angeles", "KSFO": "America/Los_Angeles",
+    "KSEA": "America/Los_Angeles",
+}
+NBM_PROB_TMAX_PROVENANCE_COLUMNS = [
+    "nbm_prob_tmax_parser_version", "nbm_prob_tmax_valid_hour_utc",
+    "nbm_prob_tmax_cycle_age_hours", "nbm_prob_tmax_maximum_period_flag",
+]
 NBM_PROB_TMAX_FEATURE_COLUMNS = [
     "nbm_prob_tmax_p10",
     "nbm_prob_tmax_p25",
@@ -53,6 +70,7 @@ NBM_PROB_TMAX_FEATURE_COLUMNS = [
     "nbm_prob_tmax_physical_valid_flag",
     "nbm_prob_tmax_impossible_flag",
     "nbm_prob_tmax_floor_gap",
+    *NBM_PROB_TMAX_PROVENANCE_COLUMNS,
 ]
 NBM_STATION_ARCHIVE_COLUMNS = [
     "schema_version",
@@ -80,6 +98,8 @@ NBM_STATION_ARCHIVE_COLUMNS = [
     "payload_hash",
     "fetched_at",
     "raw_payload_path",
+    "parser_version", "period_kind", "group_index", "token_index",
+    "cycle_age_hours",
 ]
 
 
@@ -109,6 +129,24 @@ def nbp_cycle_candidates(now_utc: datetime | None = None, hours_back: int = 24) 
     now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     cursor = now_utc.replace(minute=0, second=0, microsecond=0)
     return [cursor - timedelta(hours=offset) for offset in range(max(0, int(hours_back)) + 1)]
+
+
+def nbp_target_cycle_candidates(now_utc: datetime, target_date: date, hours_back: int = 24,
+                                *, cycles: Iterable[datetime] | None = None) -> list[datetime]:
+    """Newest complete-TXN cycle whose published horizon can include the day.
+
+    The 00/01/07Z first maximum labels the issue date's daytime window;
+    12/13/19Z start with a minimum and first carry the following day's maximum.
+    Actual station completeness and period identity are still checked by v2.
+    """
+    result = []
+    for cycle in nbp_cycle_candidates(now_utc, hours_back) if cycles is None else cycles:
+        if cycle.hour not in NBM_NBP_TXN_CYCLES:
+            continue
+        first_day = cycle.date() + timedelta(days=int(cycle.hour >= 12))
+        if first_day <= target_date <= first_day + timedelta(days=8):
+            result.append(cycle)
+    return result
 
 
 def qmd_grib_url(
@@ -397,6 +435,7 @@ def replay_nbp_shared_payload(
     *,
     source_url: str | None = None,
     fetched_at: str | None = None,
+    parser_version: str | int | None = None,
 ) -> dict:
     """Replay one market extraction from verified shared national bytes."""
 
@@ -414,6 +453,7 @@ def replay_nbp_shared_payload(
         target_date,
         source_url=source_url,
         fetched_at=fetched_at,
+        parser_version=parser_version or NBM_NBP_PARSER_V1,
     )
 
 
@@ -476,7 +516,7 @@ def station_nbp_block(text: str, station_id: str) -> list[str]:
     return lines[start:end]
 
 
-def _slot_index_for_target(fhr_pairs: Iterable[tuple[float | None, float | None]], issue_time: datetime, target_date: date) -> int | None:
+def _slot_index_for_target_v1(fhr_pairs: Iterable[tuple[float | None, float | None]], issue_time: datetime, target_date: date) -> int | None:
     for index, pair in enumerate(fhr_pairs):
         max_fhr = pair[0]
         if max_fhr is None:
@@ -488,7 +528,7 @@ def _slot_index_for_target(fhr_pairs: Iterable[tuple[float | None, float | None]
     return None
 
 
-def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, source_url: str | None = None, fetched_at: str | None = None) -> dict:
+def parse_nbp_station_tmax_v1(text: str, station_id: str, target_date: date | str, source_url: str | None = None, fetched_at: str | None = None) -> dict:
     if isinstance(target_date, str):
         target_date = date.fromisoformat(target_date)
     station_id = str(station_id or "").upper().strip()
@@ -523,7 +563,7 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
 
     rows = {_row_code(line): _parse_pair_row(line) for line in block if _row_code(line)}
     fhr_pairs = rows.get("FHR") or []
-    slot_index = _slot_index_for_target(fhr_pairs, issue_time, target_date)
+    slot_index = _slot_index_for_target_v1(fhr_pairs, issue_time, target_date)
     if slot_index is None:
         return {
             "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
@@ -579,10 +619,118 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
         "historical_archive_available": False,
         "exceedance_grid_available": False,
         "exceedance_status": "native_qmd_grid_or_band_edge_extraction_pending",
-        "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS),
+        "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS[:-len(NBM_PROB_TMAX_PROVENANCE_COLUMNS)]),
         "raw_station_block": "\n".join(block),
         "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
     }
+
+
+def nbp_parser_version_number(value: str | int | None) -> int:
+    if value in (None, "", 1, "1", NBM_NBP_PARSER_V1):
+        return 1
+    if value in (2, "2", NBM_NBP_PARSER_V2):
+        return 2
+    raise ValueError(f"unsupported NBP parser version: {value!r}")
+
+
+def _slot_for_target_v2(rows: dict, issue: datetime, target: date, station_id: str):
+    zone_name = NBM_NBP_STATION_TIMEZONES.get(station_id)
+    if zone_name is None:
+        return None, "station_max_date_ambiguous"
+    zone = ZoneInfo(zone_name)
+    matches = []
+    for group, pair in enumerate(rows.get("FHR") or []):
+        for token, lead in enumerate(pair):
+            if lead is None or lead < 0 or not lead.is_integer():
+                continue
+            valid = issue + timedelta(hours=lead)
+            if valid.hour != 0 or valid.minute != 0:
+                continue
+            # NOAA's 12Z..06Z window is named by its daytime date, not by
+            # its ending date. Its start and 00Z label must agree locally.
+            local_day = (valid - timedelta(hours=12)).astimezone(zone).date()
+            if valid.astimezone(zone).date() != local_day:
+                return None, "station_max_date_ambiguous"
+            if local_day == target:
+                matches.append((group, token, lead, valid))
+    if len(matches) != 1:
+        return None, "target_max_not_in_cycle" if not matches else "target_max_ambiguous"
+    return matches[0], None
+
+
+def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str,
+                           source_url: str | None = None, fetched_at: str | None = None,
+                           *, parser_version: str | int = NBM_NBP_PARSER_V2) -> dict:
+    """Parse a complete target-day maximum; v1 remains an explicit replay rule."""
+    if nbp_parser_version_number(parser_version) == 1:
+        return parse_nbp_station_tmax_v1(text, station_id, target_date, source_url, fetched_at)
+    target = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+    station = str(station_id or "").strip().upper()
+    block = station_nbp_block(text, station)
+    issue = _parse_issue_time(block[0]) if block else None
+    raw = nbp_raw_payload(text, station, target, source_url, fetched_at)
+    raw["parser_version"] = NBM_NBP_PARSER_V2
+    payload = {
+        "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
+        "parser_version": NBM_NBP_PARSER_V2,
+        "available": False, "source_kind": "nbp_station_text",
+        "station_id": station, "target_date": target.isoformat(),
+        "source_url": source_url, "url": source_url, "fetched_at": fetched_at,
+        "payload_hash": _payload_hash(text), "raw_payload": raw,
+        "raw_station_block": "\n".join(block),
+        "percentiles": {}, "period_kind": None,
+    }
+    if not block or issue is None:
+        payload["reason"] = "station_not_found_in_nbp_text" if not block else "nbp_issue_time_not_found"
+        return payload
+    payload["issued_at"] = issue.isoformat()
+    payload["product_version"] = _parse_product_version(block[0])
+    rows = {_row_code(line): _parse_pair_row(line) for line in block if _row_code(line)}
+    selected, reason = _slot_for_target_v2(rows, issue, target, station)
+    if selected is None:
+        payload["reason"] = reason
+        return payload
+    group, token, lead, valid = selected
+    values, rejections = {}, {}
+    for code in (*NBM_NBP_PERCENTILE_ROWS, "TXNMN", "TXNSD"):
+        pairs = rows.get(code) or []
+        value = pairs[group][token] if group < len(pairs) else None
+        values[code] = value
+        rejections[code] = ("missing_row_or_token" if value is None else
+                            "provider_missing_sentinel" if value == -99 else
+                            "negative_spread" if code == "TXNSD" and value < 0 else None)
+    age = None
+    if fetched_at:
+        fetched = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+        if fetched.tzinfo is None:
+            raise ValueError("NBP fetched_at must be timezone aware")
+        age = (fetched - issue).total_seconds() / 3600
+        if age < 0:
+            raise ValueError("NBP issue time is after capture")
+    provenance = {
+        "issued_at": issue.isoformat(), "valid_time_utc": valid.isoformat(),
+        "period_kind": "maximum", "group_index": group, "token_index": token,
+        "forecast_hour": int(lead), "cycle_age_hours": age,
+        "station_timezone": NBM_NBP_STATION_TIMEZONES[station],
+        "raw_values": values, "value_rejection_reasons": rejections,
+    }
+    payload.update(provenance)
+    raw.update(provenance)
+    if any(rejections.values()):
+        payload["reason"] = "target_max_incomplete_rows"
+        return payload
+    percentiles = {str(q): values[code] for code, q in NBM_NBP_PERCENTILE_ROWS.items()}
+    payload.update({
+        "available": True, "percentiles": percentiles,
+        "mean_native": values["TXNMN"], "stddev_native": values["TXNSD"],
+        "day_max_native": percentiles["50"], "day_max_c": percentiles["50"],
+        "p10_p90_spread": percentiles["90"] - percentiles["10"],
+        "iqr": percentiles["75"] - percentiles["25"],
+        "historical_archive_available": False, "exceedance_grid_available": False,
+        "exceedance_status": "native_qmd_grid_or_band_edge_extraction_pending",
+        "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS),
+    })
+    return payload
 
 
 def nbp_station_archive_row(payload: dict, raw_payload_path: str | None = None) -> dict:
@@ -614,6 +762,9 @@ def nbp_station_archive_row(payload: dict, raw_payload_path: str | None = None) 
         "payload_hash": (payload or {}).get("payload_hash"),
         "fetched_at": (payload or {}).get("fetched_at"),
         "raw_payload_path": raw_payload_path,
+        **{key: (payload or {}).get(key) for key in (
+            "parser_version", "period_kind", "group_index", "token_index", "cycle_age_hours"
+        )},
     }
 
 
@@ -635,7 +786,7 @@ class NBPStationArchiveStore:
         self.payload_dir = self.root / "payloads"
         self.rows_path = self.root / "nbp_station_tmax.csv"
 
-    def existing_keys(self) -> set[tuple[str | None, str | None, str | None, str | None]]:
+    def existing_keys(self) -> set[tuple]:
         if not self.rows_path.exists():
             return set()
         keys = set()
@@ -646,33 +797,49 @@ class NBPStationArchiveStore:
                     row.get("target_date"),
                     row.get("issued_at"),
                     row.get("payload_hash"),
+                    nbp_parser_version_number(row.get("parser_version")),
                 ))
         return keys
 
     def write_payload(self, payload: dict) -> dict:
         payload = dict(payload or {})
+        if self.rows_path.exists():
+            with self.rows_path.open(encoding="utf-8", newline="") as handle:
+                if next(csv.reader(handle), []) != NBM_STATION_ARCHIVE_COLUMNS:
+                    raise ValueError("legacy station archive header: use a new archive root; never rewrite evidence")
+        identity = nbp_station_archive_row(payload)
+        version = nbp_parser_version_number(payload.get("parser_version"))
+        key = (identity.get("station_id"), identity.get("target_date"),
+               identity.get("issued_at"), identity.get("payload_hash"), version)
+        if key in self.existing_keys():
+            with self.rows_path.open(encoding="utf-8", newline="") as handle:
+                row = next(row for row in csv.DictReader(handle) if (
+                    row.get("station_id"), row.get("target_date"), row.get("issued_at"),
+                    row.get("payload_hash"), nbp_parser_version_number(row.get("parser_version"))
+                ) == key)
+            return {"schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+                    "written_row_count": 0, "skipped_existing_row_count": 1,
+                    "rows_path": str(self.rows_path),
+                    "raw_payload_path": row.get("raw_payload_path"), "row": row}
         raw_payload = payload.get("raw_payload")
         raw_path = None
         if raw_payload is not None:
             payload_hash_value = payload.get("payload_hash") or (raw_payload or {}).get("payload_hash") or _payload_hash(raw_payload)
             station = str(payload.get("station_id") or "unknown").lower()
             target_date = str(payload.get("target_date") or "unknown")
-            filename = f"{target_date}_{station}_{payload_hash_value[:12]}.json"
+            suffix = "" if version == 1 else f"_parser-v{version}"
+            filename = f"{target_date}_{station}_{payload_hash_value[:12]}{suffix}.json"
             raw_path_obj = self.payload_dir / filename
             raw_path_obj.parent.mkdir(parents=True, exist_ok=True)
-            raw_path_obj.write_text(json.dumps(raw_payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+            serialized = json.dumps(raw_payload, indent=2, sort_keys=True, default=str) + "\n"
+            if raw_path_obj.exists():
+                if raw_path_obj.read_text(encoding="utf-8") != serialized:
+                    raise ValueError("station raw payload already exists with different provenance")
+            else:
+                with raw_path_obj.open("x", encoding="utf-8", newline="\n") as handle:
+                    handle.write(serialized)
             raw_path = str(raw_path_obj)
         row = nbp_station_archive_row(payload, raw_payload_path=raw_path)
-        key = (row.get("station_id"), row.get("target_date"), row.get("issued_at"), row.get("payload_hash"))
-        if key in self.existing_keys():
-            return {
-                "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
-                "written_row_count": 0,
-                "skipped_existing_row_count": 1,
-                "rows_path": str(self.rows_path),
-                "raw_payload_path": raw_path,
-                "row": row,
-            }
         _append_csv(self.rows_path, NBM_STATION_ARCHIVE_COLUMNS, [row])
         return {
             "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
@@ -771,11 +938,24 @@ def replay_nbp_station_archive_row(row: dict, *, rows_path: str | Path | None = 
                     row.get("target_date") or raw_payload.get("target_date"),
                     source_url=row.get("source_url") or raw_payload.get("source_url"),
                     fetched_at=row.get("fetched_at") or raw_payload.get("fetched_at"),
+                    parser_version=row.get("parser_version") or NBM_NBP_PARSER_V1,
                 )
             except (TypeError, ValueError):
                 issues.append("raw_payload_replay_failed")
                 replayed = None
         if replayed:
+            try:
+                raw_version = nbp_parser_version_number(raw_payload.get("parser_version"))
+            except ValueError:
+                raw_version = None
+            if nbp_parser_version_number(row.get("parser_version")) != raw_version:
+                issues.append("parser_version_mismatch")
+            if nbp_parser_version_number(row.get("parser_version")) == 2:
+                for key in ("period_kind", "group_index", "token_index", "cycle_age_hours"):
+                    same = (_same_float(row.get(key), replayed.get(key)) if key != "period_kind"
+                            else row.get(key) == replayed.get(key))
+                    if not same:
+                        issues.append(f"{key}_mismatch")
             if _as_bool(row.get("available")) != bool(replayed.get("available")):
                 issues.append("available_mismatch")
             for key in ("station_id", "target_date", "issued_at", "valid_time_utc", "product_version"):
