@@ -12,6 +12,22 @@ from weather.operations.storage_classes import (
 
 
 class TestStorageClassRegistry(unittest.TestCase):
+    def test_nbp_cycle_index_has_exact_projection_cleanup_contract(self):
+        classification = classify_storage_path(
+            "data/forecast_payload_cas/nbp_cycle_index/ab/abcdef.json"
+        )
+        self.assertEqual(classification.artifact_family, "nbp_complete_cycle_index")
+        self.assertEqual(classification.storage_class, ANALYSIS_PROJECTION)
+        self.assertEqual(classification.patterns, ("forecast_payload_cas/nbp_cycle_index/**/*.json",))
+        self.assertEqual(classification.rebuild_source, "original fan-out receipt and verified shared forecast blob")
+        self.assertEqual(classification.delete_gate, "reviewed_exact_path_cleanup_manifest")
+        self.assertTrue(classification.protected)
+        for path in (
+            "data/forecast_payload_cas/other_index/ab/abcdef.json",
+            "data/forecast_payload_cas/nbp_cycle_index/ab/abcdef.txt",
+        ):
+            self.assertNotEqual(classify_storage_path(path).artifact_family, "nbp_complete_cycle_index")
+
     def test_three_storage_classes_have_operator_contracts(self):
         contracts = {row["name"]: row for row in storage_class_contracts_payload()}
 

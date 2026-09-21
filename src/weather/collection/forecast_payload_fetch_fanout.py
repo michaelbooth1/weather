@@ -880,10 +880,11 @@ class CrossProcessMarketInvariantFetchFanout:
             )
         return result
 
-    def _cycle_index_path(self, source: str, request_key: str, cycle_key: str) -> Path:
+    def _cycle_index_path(self, source: str, request_key: str, cycle_key: str,
+                          stations: tuple[str, ...]) -> Path:
         key = _canonical_json_bytes({
             "source": source, "request_key": request_key, "cycle_key": cycle_key,
-            "policy": _NBP_COMPLETENESS_POLICY, "stations": _nbp_reuse_stations(),
+            "policy": _NBP_COMPLETENESS_POLICY, "stations": stations,
         })
         digest = hashlib.sha256(key).hexdigest()
         return self.cas.root / "nbp_cycle_index" / digest[:2] / f"{digest}.json"
@@ -904,11 +905,12 @@ class CrossProcessMarketInvariantFetchFanout:
                    scope_key=scope_key)
         index_path = None
         try:
-            index_path = self._cycle_index_path(source, request_key, cycle_key)
+            stations = _nbp_reuse_stations()
+            index_path = self._cycle_index_path(source, request_key, cycle_key, stations)
             receipt = self._read_receipt(self.cas.root, index_path)
             if receipt is not None:
                 if (receipt.get("reuse_completeness_policy") != _NBP_COMPLETENESS_POLICY
-                        or receipt.get("reuse_stations") != list(_nbp_reuse_stations())
+                        or receipt.get("reuse_stations") != list(stations)
                         or receipt.get("status") != "success"):
                     raise ForecastPayloadCASIntegrityError("NBP reuse index completeness mismatch")
                 # Read through the original verified receipt: its hash still binds
@@ -922,7 +924,7 @@ class CrossProcessMarketInvariantFetchFanout:
                 self._validate_reuse_time(original, cycle_key)
                 result = self._result_from_receipt(original, source=source, request_key=request_key,
                     cycle_key=cycle_key, scope_key=original["scope_key"], waited_seconds=0.)
-                if not _complete_nbp(result.value["text"], cycle_key, _nbp_reuse_stations()):
+                if not _complete_nbp(result.value["text"], cycle_key, stations):
                     raise ForecastPayloadCASIntegrityError("NBP indexed bulletin is incomplete")
                 # Reuse is not a coordinator network event in this capture pass.
                 return replace(result, coordination_status="cross_pass_complete_cycle_reused",
@@ -956,7 +958,7 @@ class CrossProcessMarketInvariantFetchFanout:
             result = FanoutFetchResult(fetch_once(), source, request_key, cycle_key,
                 fetched=True, reused=False, coordination_status="cycle_reuse_coordination_fail_open")
         try:
-            if index_path is not None and _complete_nbp(result.value["text"], cycle_key, _nbp_reuse_stations()):
+            if index_path is not None and _complete_nbp(result.value["text"], cycle_key, stations):
                 receipt_path, _ = self._paths(**key)
                 receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt and receipt.get("status") == "success" and receipt.get("payload_hash") == result.prepublished_payload_hash:
@@ -964,7 +966,7 @@ class CrossProcessMarketInvariantFetchFanout:
                     receipt = {k: v for k, v in receipt.items() if k != _RECEIPT_CONTENT_SHA256_KEY}
                     _write_immutable_json(self.cas.root, index_path, {
                         **receipt, "reuse_completeness_policy": _NBP_COMPLETENESS_POLICY,
-                        "reuse_stations": list(_nbp_reuse_stations()),
+                        "reuse_stations": list(stations),
                     })
         except Exception:
             pass  # A successful fetch remains usable even if indexing fails.

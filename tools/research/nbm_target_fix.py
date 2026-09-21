@@ -198,9 +198,84 @@ def window(output: Path) -> None:
                       'output': str(output / 'window.csv')}))
 
 
+def reuse_cost(cache: Path, output: Path) -> None:
+    """83c: time one retained national bulletin with every download stubbed."""
+    import gc
+    import time
+    import tracemalloc
+    from unittest.mock import patch
+    from weather.collection.forecast_payload_fetch_fanout import (
+        CrossProcessMarketInvariantFetchFanout, _complete_nbp, _nbp_reuse_stations,
+    )
+    from weather.sources.nbm_probabilistic_tmax import nbp_request_key, nbp_cycle_key_from_url
+
+    output.mkdir(parents=True, exist_ok=False)
+    body = cache.read_bytes()
+    receipt = json.loads(cache.with_suffix(cache.suffix + '.json').read_text())
+    digest = hashlib.sha256(body).hexdigest()
+    if digest != receipt['sha256'] or len(body) != receipt['bytes']:
+        raise ValueError('retained national file does not match its original receipt')
+    cycle = nbp_cycle_key_from_url(receipt['url'])
+    key = dict(source='nbm_probabilistic_tmax', request_key=nbp_request_key(receipt['url']), cycle_key=cycle)
+    stations = _nbp_reuse_stations()
+    downloads = []
+
+    def download():
+        downloads.append(1)
+        return dict(text=body.decode('utf-8'), fetched_at=receipt['retrieved_at_utc'],
+                    request_started_at=receipt['started_at_utc'],
+                    response_received_at=receipt['retrieved_at_utc'])
+
+    measurements = []
+
+    def measure(name, callback):
+        gc.collect()
+        tracemalloc.start()
+        started = time.perf_counter()
+        try:
+            result = callback()
+            seconds = time.perf_counter() - started
+            current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        measurements.append(dict(operation=name, wall_seconds=seconds,
+                                 traced_current_bytes=current, traced_peak_bytes=peak))
+        return result
+
+    with patch('requests.sessions.Session.request', side_effect=AssertionError('83c forbids network')):
+        warm = CrossProcessMarketInvariantFetchFanout(output / 'cas')
+        first = warm.fetch_reusable_nbp(**key, scope_key='warm', fetch_fn=download)
+        if not list((output / 'cas' / 'nbp_cycle_index').glob('*/*.json')):
+            raise ValueError('retained bulletin failed completeness or receipt admission')
+        del first, warm
+        coordinator = CrossProcessMarketInvariantFetchFanout(output / 'cas')
+        raw = measure('blob_read_hash', lambda: coordinator.cas.read(digest, expected_bytes=len(body)))
+        text = raw.decode('utf-8')
+        del raw
+        if not measure('complete_nbp', lambda: _complete_nbp(text, cycle, stations)):
+            raise ValueError('retained bulletin is incomplete')
+        del text
+        before = len(downloads)
+        result = measure('whole_reuse', lambda: coordinator.fetch_reusable_nbp(
+            **key, scope_key='later-reuse', fetch_fn=download))
+        assert result.reused and not result.fetched and len(downloads) == before
+        assert result.coordinator_network_fetch_count == 0
+        del result, coordinator
+        ordinary = CrossProcessMarketInvariantFetchFanout(output / 'cas')
+        result = measure('whole_per_scope_stubbed', lambda: ordinary.fetch(
+            **key, scope_key='later-ordinary', fetch_fn=download))
+        assert result.fetched and len(downloads) == before + 1
+        del result, ordinary
+    summary = dict(national_sha256=digest, national_bytes=len(body), cycle=cycle,
+                   stations=list(stations), network_requests=0, stub_downloads=len(downloads),
+                   measurements=measurements)
+    (output / 'cost.json').write_text(json.dumps(summary, indent=2) + '\n')
+    print(json.dumps(summary))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage', choices=['p0', 'p5', 'contracts', 'window'])
+    parser.add_argument('stage', choices=['p0', 'p5', 'contracts', 'window', 'reuse-cost'])
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--artifact', type=Path)
     parser.add_argument('--output', type=Path, required=True)
@@ -215,6 +290,10 @@ def main():
         p5(args.artifact, args.output)
     elif args.stage == 'window':
         window(args.output)
+    elif args.stage == 'reuse-cost':
+        if args.cache is None:
+            parser.error('reuse-cost requires --cache naming an existing national file')
+        reuse_cost(args.cache, args.output)
     else:
         contracts(args.output)
 
