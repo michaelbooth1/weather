@@ -66,6 +66,18 @@ def test_sdk_trade_model_retains_fill_facts():
     assert rows[0]['maker_orders'][0]['matched_amount'] == '0.1'
 
 
+def test_sdk_credential_owner_is_redacted_without_losing_order_binding():
+    from weather.market.re1_attended import SecretGuard
+    private_owner = 'synthetic-private-api-key'
+    row = _plain_sdk_value(sdk_order().model_copy(update={'owner': private_owner}))
+    guard = SecretGuard([private_owner])
+    cleaned = guard.clean(row)
+    assert 'owner' not in cleaned and cleaned['id'] == 'order-1'
+    _exact_open_orders([cleaned], {'order-1': (TOKENS[0], __import__('decimal').Decimal('.33'), 20)}, maker=MAKER, condition=CONDITION)
+    with pytest.raises(RuntimeError, match='secret_output_refused'):
+        guard.clean({'unexpected_field': private_owner})
+
+
 @pytest.mark.parametrize('status', ['CANCELED', 'CANCELLED', 'EXPIRED', 'MATCHED', 'DELAYED', 'UNMATCHED', 'unknown'])
 def test_nonresting_sdk_status_ends_and_cancels(tmp_path, status):
     session, venue, clock = setup(tmp_path)

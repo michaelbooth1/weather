@@ -47,7 +47,8 @@ class SecretGuard:
             value = {k: self.clean(v) for k, v in value.items()
                      if str(k).lower().replace('_', '') not in {
                          'headers', 'auth', 'authorization', 'signature', 'secret',
-                         'apikey', 'apisecret', 'passphrase', 'privatekey'}}
+                         'apikey', 'apisecret', 'passphrase', 'privatekey'} and
+                     not (str(k).lower() == 'owner' and isinstance(v, str) and v in self.secrets)}
         elif isinstance(value, (tuple, list)):
             value = [self.clean(v) for v in value]
         encoded = canonical_bytes(value).decode('utf-8')

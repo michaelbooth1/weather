@@ -532,6 +532,16 @@ SDK's own bootstrap helper with mutation paths trapped, while the transport
 guard test proves inactive credentials are refused. This preserves credential
 validation and adds no order authority.
 
+The installed post serializer also binds `owner` to `owner_api_key`
+(`_internal/actions/orders/post.py:78`). SDK order/trade models retain that
+field, so journaling a credential-bearing owner would trip the secret guard
+after a successful POST. The guard now removes an `owner` field only when
+its exact value is a loaded secret, then performs the unchanged refusal scan.
+Maker address, token, order ID, price, size and fill/status evidence remain.
+`test_sdk_credential_owner_is_redacted_without_losing_order_binding` proves
+this with a real SDK `OpenOrder` model and still refuses the same secret in
+an unexpected field.
+
 Preflight measures min, median, nearest-rank p95 and max for twenty reads per
 step (six heartbeats, at five-second cadence). It records every exception by
 step/type, every heartbeat acknowledgment, stream readiness, both asset
@@ -632,6 +642,13 @@ was stopped; the wrapper exited and completed teardown. That aborted launch
 is not counted as a full-suite qualification. The corrected final tip receives
 its own focused checks and one completed full-suite run.
 
+Bootstrap repair `05ae28692307a69d95f995d14d66d47a05864542` passed **37
+focused tests in 3.12 seconds**, plus compileall. Its full-suite launch was
+also deliberately stopped, at 28% with no observed failures, to add the
+credential-owner redaction regression above. That aborted run likewise does
+not count as full qualification; verified child-only termination allowed
+the wrapper to finish cleanup. Final qualification below supersedes both.
+
 Retained seeded rehearsal: `scratch/re1-84c-seeded-1`, seed **84003**, fixed
 360-minute end reached, **351** successful/visible minute samples, nine
 missed minutes, two simulated POSTs, zero re-quotes/fills, acknowledged
@@ -653,8 +670,8 @@ test is `tests/market/test_re1_resilience.py::test_seeded_two_percent_six_hour_r
 The ignored retention harness `scratch/re1_84c_retained_proof.py` invokes
 that same test with the retained directory above; use a new directory for
 another retained run. Full-suite arguments are `-m pytest -q` with explicit
-`--basetemp=C:/tmp/weather-re1-84c-full` and
-`--junitxml=scratch/re1-84c-full.xml`. Completed pytest temporary trees are
+`--basetemp=C:/tmp/weather-re1-84c-full-verified` and
+`--junitxml=scratch/re1-84c-full-verified.xml`. Completed pytest temporary trees are
 removed only after the admitted process exits; receipts and journals remain.
 
 **Owner preflight latency table: NOT RUN. Authenticated FAIL lines: none
