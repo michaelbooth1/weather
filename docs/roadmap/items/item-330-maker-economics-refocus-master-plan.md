@@ -2,6 +2,14 @@
 
 ## September 19 reward-pool measurement, authored studies and open owner decisions
 
+**Mission 09-80a implementation handback (2026-09-21): partial, inert.** The
+pure two-token quote calculator and hash-bound envelope definitions are built;
+there is no Stage 2 runner or paid-reward evidence. Restoring the isolated
+wallet rejects the historical Stage 0/1 allocation, the requested five-second
+dead-man bound is unsupported, and three 45-minute sessions cannot reach RE-1's
+180-minute evidence minimum. The [decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
+owns the required dispositions. The frozen verdict table is unchanged.
+
 No status change: non-live implementation continues and economic proof is
 open. **No live trading is authorized.** Nothing below is a result about our
 own account.

@@ -1787,6 +1787,23 @@ the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
+Mission 09-80a's proposed place-and-hold lane is **inert and incomplete**.
+`weather.market.reward_quote.price_reward_quote` is a pure calculator for
+twenty-share YES and NO BUYs, snapped outward from the size-adjusted midpoint.
+It checks both token books, post-only availability, the treatment's spread,
+midpoint, reward terms and capital ceilings. Its share estimates are displayed
+competition scenarios, never observed earnings or order authority.
+`weather.market.mm_live_envelope` defines hash-bound proposed limits and refuses
+Stage 2 selection without matching dated owner grants in current authority and
+the host assignment. These definitions are not yet connected to live caps,
+the host-assignment schema, a sealer, or an exchange capability; Stage 1 source
+and behavior remain unchanged.
+
+The [owner decision draft](stage2-hold-owner-authorization-draft.md) records the
+wallet and cancellation falsifiers, the incompatible evidence-duration budget,
+remaining authorization schema work, and proposed abort card. No Stage 2
+command, wrapper or live session is available from this partial implementation.
+
 - Require a current passing `mm_platform_verification_v0.6`, including the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,

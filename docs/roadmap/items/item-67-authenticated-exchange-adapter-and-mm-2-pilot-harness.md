@@ -11,6 +11,14 @@ Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
 preserve the separate economic-stage evidence requirements.
 
+**Mission 09-80a (2026-09-21): partial, inert.** A pure reward quote calculator
+and proposed envelope definitions are available for independent review. W0's
+real-validator tests reproduce the isolated-wallet stop for the published
+September 6 balances. Stage 0/1 runtime, templates, caps and credential rules
+are unchanged; no Stage 2 session, sealer, authorization, or live result exists.
+The [owner decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
+records the pending control and timing dispositions.
+
 Source: market-making roadmap items 43-46 and 55-57 built the keyless
 policy/orchestration/risk foundation, while item 45 defines the platform and
 account gates required before any live order can be submitted.

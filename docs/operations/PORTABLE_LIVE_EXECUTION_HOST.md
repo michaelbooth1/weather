@@ -77,6 +77,15 @@ owns only execution-host provisioning and relocation.
 
 ## Fixed profiles
 
+**Stage 2 proposal, not in force:** the host registry and workload admission
+still admit only the existing Stage 0/1 names. The proposed `stage2_hold_v1`
+numeric envelope is inert. Its [owner decision draft](stage2-hold-owner-authorization-draft.md)
+lists the dedicated-wallet, cancellation timing and evidence-budget decisions
+that precede any assignment-schema or launcher extension. A future session
+also needs exact source/host/principal qualification, guarded adoption, fresh
+attended Stage 0/1, matching dated owner authority and all existing action-time
+gates. Defining an envelope or passing offline tests grants none of these.
+
 | Profile | Intended machine | Local host gate |
 | --- | --- | --- |
 | `capture_colocated_v1` | Dedicated capture PC | Three capture workers, execution tape, streak, clock, reboot, shared lease, and `[00:30, 09:00) America/Toronto` containment |
