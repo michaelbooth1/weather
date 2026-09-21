@@ -292,3 +292,27 @@ original failure receipts, and retained diagnostics remain in place. The five
 verified pytest basetemp directories were removed after retaining results:
 `scratch/pytest-focused-1`, `scratch/pytest-gates-1`, `C:/tmp/83g2`,
 `C:/tmp/83q1`, and `C:/tmp/83q2`. `C:/tmp/83probe1` retains the contract probe.
+
+## 2026-09-21 — mission 83b handback update
+
+**PARTIAL — the remaining parser repair is implemented, but the full suite
+retains two inventory/admission-contract failures.** See the
+[83b report](agent-report-2026-09-83b-workstation-finish-the-guidance-repair.md)
+and its final verification receipt for current results and implementation
+commit. The preceding 83a text remains the historical record.
+
+The four provenance columns now use the existing stored diagnostic category,
+outside every tested training/source-gate feature list. Bad live capture clocks
+return complete unavailable payloads while replay raises. Real manifest/CAS
+derivation tests reproduce both parser versions, and 192 timezone/hour cases
+show no healthy gap in the unchanged search window. The manifest and download
+requirements withdrawn in 83b section 3 stay withdrawn; the known-defect parity
+CLI BLOCK remains an accepted positive-control result.
+
+The full suite returned 6,100 passed, 34 skipped, two failed and 923 passed
+subtests. `tools/research/research_harness.py` still needs the 83a tool's inventory
+entry (outside mission ownership), and the blanket `weather.` assertion in
+`test_workload_admission_script.py` conflicts with the earlier exact tool
+admission exception. Neither failure was bypassed or re-baselined. Part B's
+independent reuse branch is not a prerequisite for the parser repair. No model
+was fitted, retired or re-scored, and no observed-high floor was changed.
