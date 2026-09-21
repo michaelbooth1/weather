@@ -1806,6 +1806,10 @@ account heartbeat. It cancels on timeout, operator stop, fill, public-book or
 reward-term invalidation, heartbeat loss, and geography failure. The primary
 cancel-all acknowledgment and terminal REST evidence are journaled; a dead-man
 disappearance is only a backstop and never substitutes for that acknowledgment.
+Stage 2 bounds each SDK connect/read/write/pool phase to half a second and
+the separate positions read to two seconds, with controller checkpoints
+between reads. These are socket inactivity limits, not a replacement for
+the launcher deadline or the venue dead-man backstop.
 The host schema, manifest builder, no-argument template, sealer and contained
 session runner recognize `stage2_hold` only under the portable profile. The
 grants must match the canonical profile hash and UTC execution date and outlive

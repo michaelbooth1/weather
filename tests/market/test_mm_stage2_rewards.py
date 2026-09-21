@@ -86,6 +86,32 @@ def test_official_scoring_and_earnings_parsers_retain_exact_body(tmp_path):
         transport.close()
 
 
+def test_stage2_sdk_timeout_and_two_order_cancel_use_actual_transport():
+    from weather.market.mm_stage2_entrypoint import configure_hold_transport_timeouts
+    from weather.market.mm_official_adapter import _plain_sdk_value
+    client, fixture_http, _calls = sdk_fixture()
+    import httpx
+    from polymarket.clients._transport import SyncTransport
+
+    calls = []
+    def handle(request):
+        calls.append((request.method, request.url.path, request.extensions['timeout']))
+        assert not any(k.lower().startswith('poly_') for k in request.headers)
+        return httpx.Response(200, json={'canceled': ['one', 'two'], 'not_canceled': {}})
+    http = httpx.Client(base_url='https://clob.polymarket.com', transport=httpx.MockTransport(handle))
+    transport = SyncTransport(base_url='https://clob.polymarket.com', client=http)
+    client._ctx = SimpleNamespace(**dict.fromkeys(('gamma', 'data', 'clob', 'secure_clob'), transport))
+    try:
+        configure_hold_transport_timeouts(client)
+        assert calls == []
+        response = _plain_sdk_value(client.cancel_all())
+        assert response == {'canceled': ['one', 'two'], 'not_canceled': {}}
+        assert calls == [('DELETE', '/cancel-all', dict.fromkeys(('connect', 'read', 'write', 'pool'), 0.5))]
+    finally:
+        http.close()
+        fixture_http.close()
+
+
 @pytest.mark.parametrize(('paid', 'decision'), [('1', 'PAID_AS_MODELLED'), ('0.2', 'PAID_DILUTED'), ('0', 'NOT_PAID'), ('0.1', 'INCONCLUSIVE')])
 def test_frozen_verdict_thresholds(paid, decision):
     evidence = evidence_fixture()

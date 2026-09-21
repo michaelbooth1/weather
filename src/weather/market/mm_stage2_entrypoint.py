@@ -17,6 +17,24 @@ from weather.market.mm_stage2_hold import public_quote
 from weather.market.mm_stage2_user_stream import Stage2UserStreamReader, verify_stage2_user_stream_journal
 
 
+def configure_hold_transport_timeouts(client):
+    """Bound each SDK socket phase before resting orders can exist.
+
+    The pinned SDK has no public create() timeout argument. Its four read/order
+    transports own HTTPX clients; fail closed if that qualified shape changes.
+    This changes only the new Stage 2 client, never a Stage 0/1 client or SDK
+    global. Four half-second phases leave room for the next control checkpoint.
+    """
+    import httpx
+    from polymarket.clients._transport import SyncTransport
+
+    transports = [getattr(client._ctx, name) for name in ('gamma', 'data', 'clob', 'secure_clob')]
+    if any(type(t) is not SyncTransport or type(t._client) is not httpx.Client for t in transports):
+        raise RuntimeError('Stage 2 SDK transport differs from its qualified timeout contract')
+    for transport in transports:
+        transport._client.timeout = httpx.Timeout(0.5)
+
+
 def keyless_doctors(validated, activation):
     from weather.market import mm_live_pilot_cli as cli
     scope = validated['scope']
@@ -124,6 +142,7 @@ def run_sealed_hold(scope, *, confirmation_receipt, pre_submit_attestor, geograp
     try:
         credentials = cli.load_global_credential_bundle()
         client = cli.build_unified_clob_client(credentials, identity, expected_signer_address=reference['wallet_address'])
+        configure_hold_transport_timeouts(client)
         maker = str(credentials.funder)
         stream = Stage2UserStreamReader(token_ids=tokens, authority_root=root,
             api_key=credentials.api_key, secret=credentials.api_secret, passphrase=credentials.api_passphrase,
@@ -133,7 +152,7 @@ def run_sealed_hold(scope, *, confirmation_receipt, pre_submit_attestor, geograp
         adapters = [OfficialPolymarketGlobalAdapter(client, token_id=token, maker_address=maker,
             condition_id=scope['condition_id'], user_event_reader=lambda token=token: stream.events_for_token(token),
             user_event_health_reader=stream.health,
-            position_reader=lambda: cli.fetch_current_positions(maker, scope['condition_id']),
+            position_reader=lambda: cli.fetch_current_positions(maker, scope['condition_id'], timeout_seconds=2),
             heartbeat_sender=heartbeat, market_rule_reader=lambda token=token: cli.fetch_market_rule_endpoints(token, timeout_seconds=2),
             authoritative_readers_verified=True, max_order_notional=PROFILE.per_order_pusd,
             envelope_profile_id=PROFILE.profile_id, envelope_authority_root=root) for token in tokens]
