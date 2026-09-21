@@ -296,7 +296,8 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     assert "rclone" not in modules
     assert all(
         module.startswith("weather.")
-        or module in {"tools.research.missing_information.run", "tools.research.morning_guidance.run"}
+        or module in {"tools.research.missing_information.run", "tools.research.morning_guidance.run",
+                      "tools.research.nbm_target_trace.run"}
         for module in modules
     )
 

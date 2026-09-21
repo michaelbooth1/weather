@@ -1,0 +1,172 @@
+{
+  "blocks": 132,
+  "completed_at_utc": "2026-09-21T13:43:47.433004+00:00",
+  "manifests": [
+    {
+      "bytes": 34724477,
+      "retrieved_at_utc": "2026-09-21T13:42:50.959686+00:00",
+      "sha256": "191b638c6fda356a53b8087bc91e2e4002770cdddd8fd34e70c66b22ea353448",
+      "started_at_utc": "2026-09-21T13:42:48.770133+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260917/01/text/blend_nbptx.t01z"
+    },
+    {
+      "bytes": 34724479,
+      "retrieved_at_utc": "2026-09-21T13:42:53.313628+00:00",
+      "sha256": "4ed1513243a636a7eac49f2ad0da9df962b0a889aa0cfa502e55439cdb0c277d",
+      "started_at_utc": "2026-09-21T13:42:52.060753+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260917/07/text/blend_nbptx.t07z"
+    },
+    {
+      "bytes": 34714883,
+      "retrieved_at_utc": "2026-09-21T13:42:55.828856+00:00",
+      "sha256": "9677cfb928448f58868f87e221b137ddb8b1f74b1f465316da012785ed7810c7",
+      "started_at_utc": "2026-09-21T13:42:54.417772+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260917/13/text/blend_nbptx.t13z"
+    },
+    {
+      "bytes": 34714882,
+      "retrieved_at_utc": "2026-09-21T13:43:02.506547+00:00",
+      "sha256": "7f78e924729d5d90acdf460f37b526d2e91971aa2e8a0107e105ed7eabc023ac",
+      "started_at_utc": "2026-09-21T13:42:56.925306+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260917/19/text/blend_nbptx.t19z"
+    },
+    {
+      "bytes": 34724473,
+      "retrieved_at_utc": "2026-09-21T13:43:05.167310+00:00",
+      "sha256": "08f45921f9ea3270f719e52846126095b0663ffa55265fae673f88264aba6acf",
+      "started_at_utc": "2026-09-21T13:43:03.602810+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260918/01/text/blend_nbptx.t01z"
+    },
+    {
+      "bytes": 34724473,
+      "retrieved_at_utc": "2026-09-21T13:43:07.983695+00:00",
+      "sha256": "677a138d830792d4351fd8f0e57e9d325fd3806878f9e352f643fb65161e063d",
+      "started_at_utc": "2026-09-21T13:43:06.262848+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260918/07/text/blend_nbptx.t07z"
+    },
+    {
+      "bytes": 34714883,
+      "retrieved_at_utc": "2026-09-21T13:43:10.540424+00:00",
+      "sha256": "60061d5f55438f7a85b141e0e0b9faa104db7b3d97cdc40117d436a04991a7fa",
+      "started_at_utc": "2026-09-21T13:43:09.079467+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260918/13/text/blend_nbptx.t13z"
+    },
+    {
+      "bytes": 34714882,
+      "retrieved_at_utc": "2026-09-21T13:43:13.469199+00:00",
+      "sha256": "08cd59b5d10dc04c91947afbf249e3fc93ee5238a14352c261ff92b88a34a23d",
+      "started_at_utc": "2026-09-21T13:43:11.709620+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260918/19/text/blend_nbptx.t19z"
+    },
+    {
+      "bytes": 34724484,
+      "retrieved_at_utc": "2026-09-21T13:43:21.124256+00:00",
+      "sha256": "310ebb57566975fa1064d6f85d8d524bbaed04f2991cbcc7ae8abecc65972136",
+      "started_at_utc": "2026-09-21T13:43:14.565575+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260919/01/text/blend_nbptx.t01z"
+    },
+    {
+      "bytes": 34724475,
+      "retrieved_at_utc": "2026-09-21T13:43:24.001896+00:00",
+      "sha256": "b0f8417265b9761d59c392de41b068729347c7d677c3424a86941249a1bac07e",
+      "started_at_utc": "2026-09-21T13:43:22.246053+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260919/07/text/blend_nbptx.t07z"
+    },
+    {
+      "bytes": 34714889,
+      "retrieved_at_utc": "2026-09-21T13:43:27.320041+00:00",
+      "sha256": "a4a07d27be9ce0bcc59e76a412d396183dea10321d037f04a13bceab8a25f5e2",
+      "started_at_utc": "2026-09-21T13:43:25.097066+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260919/13/text/blend_nbptx.t13z"
+    },
+    {
+      "bytes": 34714885,
+      "retrieved_at_utc": "2026-09-21T13:43:30.223266+00:00",
+      "sha256": "4d69b73781928e29b78d8c16864d767d1cdf2fc13716cdc11cb5ece7924ed01c",
+      "started_at_utc": "2026-09-21T13:43:28.415820+00:00",
+      "url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260919/19/text/blend_nbptx.t19z"
+    }
+  ],
+  "noaa_description": "https://vlab.noaa.gov/web/mdl/nbm-textcard-v5.0",
+  "observations": [
+    {
+      "bytes": 1142,
+      "retrieved_at_utc": "2026-09-21T13:43:31.855426+00:00",
+      "sha256": "52a6c80c1fdf3ae69c3478be5b865d484f35e7084d6fe3fdeda7f5e8d94c556b",
+      "started_at_utc": "2026-09-21T13:43:31.320425+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=GA_ASOS&stations=ATL&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1152,
+      "retrieved_at_utc": "2026-09-21T13:43:33.225285+00:00",
+      "sha256": "137b66021577b8942575ce581beee574f7464e2fd90d3c1f51b0317b18b154ce",
+      "started_at_utc": "2026-09-21T13:43:32.858413+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=TX_ASOS&stations=AUS&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1128,
+      "retrieved_at_utc": "2026-09-21T13:43:34.711174+00:00",
+      "sha256": "b112b0c23cc2df8ada90f8d8f497153aa2b98c93eb33a0ea851c3058b6018bc7",
+      "started_at_utc": "2026-09-21T13:43:34.226462+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=IL_ASOS&stations=ORD&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1170,
+      "retrieved_at_utc": "2026-09-21T13:43:36.230975+00:00",
+      "sha256": "498715b1f7adcb96d4f4ef1276c2429353c8c1e4b071c537ed6868f5ce7bbf16",
+      "started_at_utc": "2026-09-21T13:43:35.713155+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=TX_ASOS&stations=DAL&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1070,
+      "retrieved_at_utc": "2026-09-21T13:43:37.651519+00:00",
+      "sha256": "fdcc32a616f160a73b4e2b1559619e0f93afb43ef912e8a1331e4e7df9f89bed",
+      "started_at_utc": "2026-09-21T13:43:37.233341+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=CO_ASOS&stations=BKF&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1153,
+      "retrieved_at_utc": "2026-09-21T13:43:39.144115+00:00",
+      "sha256": "d0f72dd91c90268c1ae12d21686da17b28bcd74caa4b959274e52dd212a45c8b",
+      "started_at_utc": "2026-09-21T13:43:38.653144+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=TX_ASOS&stations=HOU&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1099,
+      "retrieved_at_utc": "2026-09-21T13:43:40.545424+00:00",
+      "sha256": "163d399201ed4b77fc07e603fb86e6cbb888a3a1d5e764c63e7cf708fd3cd666",
+      "started_at_utc": "2026-09-21T13:43:40.146523+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=CA_ASOS&stations=LAX&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1174,
+      "retrieved_at_utc": "2026-09-21T13:43:42.074653+00:00",
+      "sha256": "52eef7885922750d0297f32f87c50aa473a58b17a99484637057fe176b78c07f",
+      "started_at_utc": "2026-09-21T13:43:41.551843+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=FL_ASOS&stations=MIA&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1159,
+      "retrieved_at_utc": "2026-09-21T13:43:43.513478+00:00",
+      "sha256": "667c2db15361159e3bd8cd0a5956cca0ee587c2a9ebb5d3d38e324f9a6fc1a4a",
+      "started_at_utc": "2026-09-21T13:43:43.077208+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=NY_ASOS&stations=LGA&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1087,
+      "retrieved_at_utc": "2026-09-21T13:43:44.952083+00:00",
+      "sha256": "da7e3f2217fd088187512b40eea16d3f3bdaf352848748345dc405eced935994",
+      "started_at_utc": "2026-09-21T13:43:44.520005+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=CA_ASOS&stations=SFO&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    },
+    {
+      "bytes": 1131,
+      "retrieved_at_utc": "2026-09-21T13:43:46.417537+00:00",
+      "sha256": "1bc6f2eefd6a2e77b711743de70e4c4c01781d08ef1d0118e1e8b1caba509d13",
+      "started_at_utc": "2026-09-21T13:43:45.959500+00:00",
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py?network=WA_ASOS&stations=SEA&year1=2026&month1=9&day1=15&year2=2026&month2=9&day2=20&na=blank&format=csv"
+    }
+  ],
+  "stage": "T0",
+  "tokens": 2376
+}
