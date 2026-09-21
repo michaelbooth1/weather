@@ -123,9 +123,12 @@ def build_client(fields, *, readonly=False):
         raise RuntimeError('existing_wallet_required_no_deployment')
     logger = logging.Logger('re1-sdk-disabled')
     logger.disabled = True
-    client = SecureClient.create(private_key=fields['PRIVATE_KEY'], wallet=maker,
+    # Pinned 0.6.0 bootstrap validates supplied credentials and constructs the
+    # client. Public create() additionally calls _ensure_wallet_ready(), which
+    # may deploy; that mutation is outside every RE-1M mode's authority.
+    client = SecureClient._create(private_key=fields['PRIVATE_KEY'], wallet=maker,
         credentials=ApiKeyCreds(key=fields['API_KEY'], secret=fields['API_SECRET'], passphrase=fields['API_PASSPHRASE']),
-        logger=logger)
+        validate_credentials=True, logger=logger)
     try:
         if (client.wallet.lower() != maker.lower() or client.signer.lower() != signer.lower() or
                 client.wallet_type != {2: 'GNOSIS_SAFE', 3: 'DEPOSIT_WALLET'}[kind]):

@@ -108,7 +108,11 @@ def test_collection_sdk_transport_refuses_every_non_get(monkeypatch):
     client = SimpleNamespace(wallet=MAKER, signer=Account.from_key(key).address, wallet_type='GNOSIS_SAFE')
     names = ('gamma', 'data', 'clob', 'secure_clob', 'relayer', 'rfq', 'combos', 'builder_gateway')
     client._ctx = SimpleNamespace(**{n: SimpleNamespace(_client=SimpleNamespace(event_hooks={'request': []})) for n in names})
-    monkeypatch.setattr('polymarket.SecureClient.create', lambda **kwargs: client)
+    monkeypatch.setattr('polymarket.SecureClient.create', lambda **kwargs: pytest.fail('deployment-capable factory'))
+    def bootstrap(**kwargs):
+        assert kwargs['validate_credentials'] is True and kwargs['credentials'] is not None
+        return client
+    monkeypatch.setattr('polymarket.SecureClient._create', bootstrap)
     monkeypatch.setattr(transport, 'fetch_wallet_deployed', lambda *args, **kwargs: True)
     fields = dict(PRIVATE_KEY=key, FUNDER_ADDRESS=MAKER, WALLET_ADDRESS=client.signer, SIGNATURE_TYPE='2',
                   API_KEY='synthetic', API_SECRET='synthetic', API_PASSPHRASE='synthetic')
