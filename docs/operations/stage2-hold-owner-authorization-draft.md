@@ -41,6 +41,10 @@ After host qualification, review, guarded adoption and fresh attended Stage
 dedicated public identity reference, condition, complete selection-table hash,
 session window and the treatment above. This implementation branch is not a
 new exception to the delegation contract's sole authorized portable topic ref.
+After any grant commit, repeat the four fresh Stage 0/1 predecessor runs used
+by Stage 2: the prior runs bind the old Git tip and host-assignment bytes.
+This preserves the initial-qualification-before-grant decision sequence and
+the exact execution bindings. A grant alone cannot replace those fresh runs.
 
 The two grants must contain identical four-field objects. The approved
 `stage2_hold_v1` profile supplies its SHA-256; its canonical bytes include all

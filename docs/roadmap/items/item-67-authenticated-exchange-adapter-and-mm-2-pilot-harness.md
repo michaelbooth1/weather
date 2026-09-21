@@ -11,7 +11,7 @@ Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
 preserve the separate economic-stage evidence requirements.
 
-**Mission 09-80b (2026-09-21): inert, qualification in progress.** Two exact
+**Mission 09-80b (2026-09-21): inert, workstation suite qualified.** Two exact
 token capabilities share one account heartbeat in the bounded Stage 2 hold.
 The sealer, template, manifest builder and runner bind its profile and require
 matching dated owner grants. Stage 0/1 numeric profiles remain unchanged; each
@@ -20,6 +20,10 @@ W0 still rejects the published mixed-wallet balances. The
 [owner decision draft](../../operations/stage2-hold-owner-authorization-draft.md)
 owns the corrected cancellation bound and proposed cumulative treatment.
 No Stage 2 authorization or live result exists.
+The [80b handback](../agent-report-2026-09-80b-workstation-finish-the-resting-quote-session.md)
+retains the zero-failure full-suite result, three public-book/fake-exchange
+rehearsals and the remaining production qualification boundary. A grant commit
+requires fresh predecessor runs on its exact tip and assignment bytes.
 
 Source: market-making roadmap items 43-46 and 55-57 built the keyless
 policy/orchestration/risk foundation, while item 45 defines the platform and

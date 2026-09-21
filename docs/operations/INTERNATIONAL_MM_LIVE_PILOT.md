@@ -1851,6 +1851,10 @@ with a different token is not NO evidence. The selection must be at most thirty
 minutes old, and only its first-ranked condition may be sealed. The existing
 manifest/build-receipt and fixed-launcher hash review procedure applies; the
 Stage 2 budget and 7,200-second ceiling are profile-bound, without CLI overrides.
+Preserve the owner decision sequence: initial attended Stage 0/1 qualification
+precedes the grant decision. Committing grants changes the exact Git tip and
+host-assignment bytes, so repeat all four predecessors used by Stage 2 after
+that commit. Their old receipts cannot be reused across that binding change.
 
 Before any earnings read, each session freezes its prediction and journal SHA.
 The explicit `stage2-hold collect --predictions <records.json> --payment-evidence
