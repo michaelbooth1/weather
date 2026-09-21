@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-21 America/Toronto (the reliability stack qualified on the host and merged; master published; workstation missions 79a, 80a, 80b, 81a, 82a, 83a, 83b, 83c, 83d and 84b handed back).**
+**Last updated: 2026-09-21 America/Toronto (the reliability stack qualified on the host and merged; master published; workstation missions 79a, 80a, 80b, 81a, 82a, 83a, 83b, 83c, 83d, 84b and 84c handed back).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the current decision and
@@ -34,9 +34,11 @@ build — PARTIAL / NO-GO, stopped correctly on two errors in its handoff; EF §
 `codex/integrate-1-research-20260921` @ `c04200081` (the research stack), layer 2 `codex/integrate-2-parser-20260921`
 @ `abd648c7c` and layer 3 `codex/integrate-3-reuse-20260921` @ `cee879c45`. After `2026-09-83d` bound the 82a trace
 to parser version 1 (396 of 396 retained rows reproduce), all three pass the workstation full suite with zero failures
-and are ready for host qualification. `2026-09-84b` delivered the attended reward-test script (money controls accepted;
-not yet fit for a six-hour run). Open mission: `2026-09-84c` (survive transient failures, an owner-run read-only
-`preflight`, an owner-run `reconcile`).
+and are ready for host qualification. `2026-09-84b`/`84c` delivered the attended reward-test script, fit for a six-hour run (per-fact freshness budgets,
+heartbeat daemon, SDK-model reply tests, owner-run `preflight` and `reconcile`; `codex/reward-test-attended-20260921`
+@ `7e6e1709c`, PR 78, full suite clean, seeded 2%-failure six-hour rehearsal reached its end). 84c also disabled the
+pinned SDK's silent API-key creation. **The authenticated path is unexecuted: `live` refuses until the owner's
+`preflight` PASSes on that tip on the same UTC day.**
 None grants live authority.
 
 ## Current truth
@@ -63,7 +65,7 @@ None grants live authority.
    the merge marker (Production source row), then land the waiting roll-free branches.
 2. **RE-1 is approved by the owner (2026-09-21)** and runs as an attended script on the workstation,
    missions `2026-09-84a`-`84c`; first session 2026-09-22 (start by 13:59 Eastern) only after a clean owner-run
-   `preflight` on the 84c tip, otherwise 2026-09-23. Still the owner's: the
+   `preflight` on `7e6e1709c` (the 84c tip; 84c is accepted), otherwise 2026-09-23. Still the owner's: the
    account, hurdle `H` and the stop date (before earnings are read). Freeze `R` from
    it before any further markout read.
 3. Merge the new master into `codex/stage2-hold-build-20260921` (it contains the maker-reconcile branch)
