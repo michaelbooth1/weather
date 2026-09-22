@@ -1612,3 +1612,115 @@ or edit in `scratch\w\reward-test-attended-20260921`; no full suite, production
 write, Scheduler registration, restart, merge or adoption. The owner runs the
 fresh preflight tomorrow morning on the newly approved tip. Production
 integration still needs a fresh closure verdict from operations.
+
+## 84f — September 22, 2026: selected-condition accrual and cached User-Agent
+
+**IMPLEMENTED; 180 FOCUSED TESTS PASS. Full suite is pending one run after
+19:00 Eastern on the published 84f tip, with its result reported separately.
+No real preflight or live session was run.**
+
+Executed the owner's pinned handoff
+`workstation-handoff-2026-09-84f-selected-condition-accrual-and-a-cached-user-agent.md`
+from `origin/codex/reward-test-attended-handoff-20260921` at `472856011`.
+Implementation commit: `20b73c3a95e9b8e4729bd88332d88a06df7b5cfb`, an additive
+commit on `c190fb10bfeb615b3f8f5ba27d9b5a0fdeba1e31`. Branch remains
+`codex/re1-public-reads-ua-20260922`; existing draft PR 85 remains stacked on
+`codex/re1-preflight-hardening-20260922` (`7010a0b58`). The report-only commit
+containing this section is the handback tip; its exact hash is returned to the
+owner after normal push and remote-ref verification. No history was rewritten.
+
+### Implemented behavior and reader trace
+
+- `re1_transport.py:142` validates one public GET to exactly
+  `https://clob.polymarket.com/rewards/markets/<condition>`, using `json_read`.
+  `data` must be a list with zero or one row, `count == len(data)`,
+  `next_cursor == 'LTE='`, and `limit` an integer (not bool) in 1..500.
+  Invalid envelopes raise `RuntimeError('condition_config_unreadable')`.
+  `OwnerVenue.accrual` at line 359 refuses `condition=None` with
+  `RuntimeError('condition_required')` before any read, retains the list under
+  `market_configurations`, and preserves earnings rows, totals, percentages,
+  day and `payment_verified=False`.
+- Only `collect_accruals` changed in `re1_payout_evidence.py` (line 170).
+  It uses the same helper once for `scope['condition_id']` and keeps
+  `retained['market_configurations']` as the public row list. The removed
+  universe-configuration earnings cross-check depended on the retired
+  user-specific response; account earnings and native-precision totals still
+  undergo the unchanged `normalize_earnings` checks. `read_pages`, row budgets,
+  pagination budgets, activity and wallet reads are unchanged.
+- Optional `json_read` journaling retains the header-free GET request hash and
+  the SHA-256 of the actual response bytes under
+  `/rewards/markets/<condition>`. The existing `sdk_response` event contract
+  keeps `ReadJournal.last_response_hash` and source summaries binding those
+  bytes. Regression coverage compares both hashes to mock transport bytes,
+  checks exactly one selected-condition request, and retains malformed
+  configuration envelopes while refusing complete accrual evidence.
+- `link_reward_payment` (`re1_payout_evidence.py:225`) reads
+  `raw_earnings.get('rows')` at line 231; it does not consume
+  `market_configurations`. The pure `reconcile_incentive_payments`
+  (`mm_exchange_reports.py:793`) loads normalized `accruals`, `distributions`
+  and `wallet_credits` at lines 828-832, plus scope/source provenance.
+  It does not interpret configurations for payment decisions; its whole-input
+  JSON hash/size check at lines 817-821 naturally includes retained evidence.
+  Neither reader nor the reviewed 85b linkage rule was modified.
+- `_user_agent` (`re1_transport.py:114`) caches the first successful
+  `code_identity()` using `lru_cache(maxsize=1)`. Format stays
+  `weather-re1-attended/<first-nine-of-HEAD>`. The first read still enforces
+  clean identity; later reads reuse it. The ten-read regression at
+  `test_re1_transport.py:106` proves **10 requests, 1 identity call**, with an
+  identity stub that would raise `preflight_requires_clean_tip` if called again.
+  The separate first-read test proves dirty identity prevents any request.
+
+### Focused verification and deferred qualification
+
+**180 passed in 15.26s; zero failures, errors or skips**, through this worktree's
+`scripts/ops/workstation_heavy.ps1`, wrapper exit 0. The fake preflight fixture
+retains its fake accrual implementation and proves 20/20 accrual reads plus a
+20-read latency receipt. `test_re1_attended_parity_audit.py` is unchanged and
+passed. SDK-shape, payout round-trip, downstream evidence and import-architecture
+coverage also passed. Test transports are closed mocks; no venue/account call
+was made. The task-owned temporary tree was removed after terminal wrapper exit.
+C: free bytes before/after: 172982558720 / 172983324672.
+
+Focused reproduction from the implementation checkout: use its
+`scripts/ops/workstation_heavy.ps1 -Kind pytest`, the absolute project
+`venv/Scripts/python.exe` as `-PythonPath`, and the absolute checkout as
+`-RepoRoot`. Encode this JSON array as UTF-8 base64 for `-ArgumentsBase64`:
+
+```json
+["-m","pytest","tests/market/test_re1_transport.py","tests/market/test_re1_payout_evidence.py","tests/market/test_re1_owner_checks.py","tests/market/test_re1_attended_parity_audit.py","tests/market/test_re1_sdk_shapes.py","tests/market/test_re1_evidence.py","tests/operations/test_import_architecture.py","-q","--basetemp=scratch/84f-focused-temp","--junitxml=scratch/84f-focused.xml"]
+```
+
+Retained JUnit: `scratch/84f-focused.xml`, SHA-256
+`5f873c518ef663dbbc7b7571e925526759a7369a858288009155ff5342577c59`.
+The full-suite count is **pending**, not inferred from focused tests or CI.
+The obsolete 19:05 run on `7010a0b58` was paused in Codex. One replacement
+follow-up will run the full suite on the exact published 84f tip after 19:00
+Eastern on September 22 and append its separate result here. No second suite
+or automatic repair is authorized by that follow-up.
+
+### Roll disposition and exclusions
+
+`scripts/ops/roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922
+-Base c190fb10b -JsonOut scratch/84f-roll-verdict.json` returned exit 1:
+**UNDECIDABLE: no live closure evidence**. No JSON receipt was emitted.
+`scratch/84f-roll-verdict.txt` SHA-256:
+`9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0`.
+Production operations must obtain a fresh verdict before integration.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_transport.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_payout_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `tests/market/test_re1_transport.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_payout_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_owner_checks.py` | Offline regression evidence; no live closure measurement |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Append-only handback; roll-free by standing contract |
+
+**Not done:** no real preflight, live, public probe, account/payout collection,
+`.env` or credential access, RPC/provider/key change, order, heartbeat or cancel
+request; no selection, sizing, attempt accounting, controller, resilience,
+public-book, reconciler or 85b-rule change; no execution-worktree access/change,
+production write, frozen-mirror evidence access, Scheduler registration, restart,
+merge or adoption; no full suite before 19:00 Eastern. The implementation
+worktree remains `scratch/w/re1-preflight-hardening-20260922`; the 09-21
+execution worktree remains untouched.
