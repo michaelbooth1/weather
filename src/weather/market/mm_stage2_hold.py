@@ -22,27 +22,10 @@ from weather.market.mm_live_lifecycle_probe import _validate_bootstrap_binding, 
 from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
 from weather.market.reward_quote import QuoteRefused, price_reward_quote, _decimal, _levels
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
-from weather.schema_registry import schema_version
-
-
-SCHEMA_VERSION = schema_version("mm_stage2_hold")
+from weather.market.mm_stage2_public import (
+    SCHEMA_VERSION, HoldEnd, canonical_bytes, digest, utc, public_quote,
+)
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE2_PLACE_AND_HOLD"
-
-
-def canonical_bytes(value):
-    return (json.dumps(value, sort_keys=True, separators=(",", ":"),
-                       allow_nan=False, default=str) + "\n").encode("utf-8")
-
-
-def digest(value):
-    return hashlib.sha256(canonical_bytes(value)).hexdigest()
-
-
-def utc(value):
-    result = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    if result.tzinfo is None or result.utcoffset() is None:
-        raise ValueError("session times must be timezone-aware")
-    return result.astimezone(timezone.utc)
 
 
 def write_new(path, value):
@@ -78,12 +61,6 @@ class HoldJournal:
 
     def close(self):
         self.handle.close()
-
-
-class HoldEnd(RuntimeError):
-    def __init__(self, reason):
-        self.reason = reason
-        super().__init__(reason)
 
 
 def verify_prediction_journal(prediction, journal_path):
@@ -189,14 +166,6 @@ def verify_prediction_journal(prediction, journal_path):
     if prediction['visible_two_sided_minutes'] > PROFILE.session_seconds / 60:
         raise ValueError('visible minutes exceed the session ceiling')
     return rows
-
-
-def public_quote(snapshot, *, now, condition_id, token_ids):
-    if (snapshot.get("condition_id") != condition_id
-            or tuple(snapshot.get("token_ids", ())) != tuple(token_ids)
-            or not 0 <= (utc(now) - utc(snapshot.get("observed_at_utc"))).total_seconds() <= 60):
-        raise HoldEnd("public_scope_or_freshness")
-    return price_reward_quote(**snapshot["quote_inputs"])
 
 
 def observe_held_quote(snapshot, quote):

@@ -3,9 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import time
 
-from weather.market.mm_stage2_rehearsal import MemoryVenue, MAKER
 from weather.market.mm_stage2_selection import PublicBooks
-from weather.market.re1_attended import HOST
 
 
 class WallClock:
@@ -35,9 +33,10 @@ class Re1PublicBooks(PublicBooks):
 
 
 class RehearsalVenue:
-    host, maker = HOST, MAKER
-
     def __init__(self, snapshot, directory, *, clock, public=None):
+        from weather.market.mm_stage2_rehearsal import MemoryVenue, MAKER
+        from weather.market.re1_attended import HOST
+        self.host, self.maker = HOST, MAKER
         self.memory = MemoryVenue(snapshot, directory)
         self.memory.clock = clock
         self.public = public

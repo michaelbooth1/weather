@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
@@ -14,12 +14,45 @@ from weather.market.exchange_economics_sources import (
 )
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
-from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, public_quote, utc
+from weather.market.mm_stage2_public import SCHEMA_VERSION, digest, public_quote, utc
 from weather.market.reward_quote import QuoteRefused, _decimal
+from weather.market.reward_share_estimate import order_score, q_min, share_of
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, assert_no_ambient_market_registry_override
 
 
 LOCATION_ORDER = ('los-angeles', 'seattle', 'san-francisco', 'denver')
+
+
+def capacity_quote(snapshot, *, size, now):
+    """Model larger size at the frozen 20-share prices; never a live proposal.
+
+    Admission and prices remain the canonical treatment. Capital above its
+    live ceilings is hypothetical only. Competition and reward terms are fixed.
+    """
+    amount = _decimal(size)
+    if amount not in {20, 50, 100, 200}:
+        raise ValueError('capacity size must be 20, 50, 100 or 200')
+    quote = public_quote(snapshot, now=now, condition_id=snapshot['condition_id'],
+                         token_ids=snapshot['token_ids'])
+    if amount == 20:
+        return quote
+    inputs = snapshot['quote_inputs']
+    maximum, minimum = map(_decimal, (inputs['reward_max_spread_cents'], inputs['reward_min_size']))
+    distances = ((quote.adjusted_mid - quote.yes_buy) * 100,
+                 (1 - quote.adjusted_mid - quote.no_buy) * 100)
+    own = q_min(*(order_score(float(amount), float(d), float(maximum), float(minimum))
+                  for d in distances), float(quote.adjusted_mid))
+    many, single = (share_of(own, rival) for rival in (quote.competing_q_many, quote.competing_q_single))
+    rate = float(_decimal(inputs['reward_rate_per_day'])) / 1440
+    return replace(quote, size=amount, reserve_pusd=amount * (quote.yes_buy + quote.no_buy),
+                   own_q_min=own, share_many=many, share_single=single,
+                   predicted_per_minute_many=rate * many, predicted_per_minute_single=rate * single)
+
+
+def selection_rank(row):
+    """The frozen ranking, shared by RE-1 and offline capacity tables."""
+    priority = LOCATION_ORDER.index(row['market_id']) if row['market_id'] in LOCATION_ORDER else len(LOCATION_ORDER)
+    return (-row['predicted_360_minutes'], priority, row['condition_id'])
 
 
 def select_table(universe, *, now, complete=True, source_records=()):
@@ -51,10 +84,7 @@ def select_table(universe, *, now, complete=True, source_records=()):
         except (QuoteRefused, ValueError, RuntimeError, KeyError, TypeError) as exc:
             row['refusal'] = str(exc) if isinstance(exc, QuoteRefused) else type(exc).__name__
         rows.append(row)
-    def rank(row):
-        priority = LOCATION_ORDER.index(row['market_id']) if row['market_id'] in LOCATION_ORDER else len(LOCATION_ORDER)
-        return (-row['predicted_360_minutes'], priority, row['condition_id'])
-    survivors = sorted((r for r in rows if r['eligible']), key=rank)
+    survivors = sorted((r for r in rows if r['eligible']), key=selection_rank)
     return {'schema_version': SCHEMA_VERSION, 'kind': 'selection', 'created_at_utc': current.isoformat(),
             'target_date': target, 'universe_complete': complete is True,
             'source_records': list(source_records), 'location_tie_order': list(LOCATION_ORDER),
