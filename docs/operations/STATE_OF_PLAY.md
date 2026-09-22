@@ -37,8 +37,10 @@ to parser version 1 (396 of 396 retained rows reproduce), all three pass the wor
 and are ready for host qualification. `2026-09-84b`/`84c` delivered the attended reward-test script, fit for a six-hour run (per-fact freshness budgets,
 heartbeat daemon, SDK-model reply tests, owner-run `preflight` and `reconcile`; `codex/reward-test-attended-20260921`
 @ `7e6e1709c`, PR 78, full suite clean, seeded 2%-failure six-hour rehearsal reached its end). 84c also disabled the
-pinned SDK's silent API-key creation. **The authenticated path is unexecuted: `live` refuses until the owner's
-`preflight` PASSes on that tip on the same UTC day.**
+pinned SDK's silent API-key creation. **The owner's first real `preflight` runs (2026-09-22) found four defects on that
+tip: no `-ExecutionPolicy Bypass` on the host-identity spawn, `python-dotenv` undeclared, Cloudflare 403 on every
+plain-urllib public read (no `User-Agent`), and the accrual read paging the whole reward-market universe past the
+50-page budget; `84d` (`7010a0b58`) fixes the first two, `84e` the last two. `live` needs a same-day PASS on the tip run.**
 None grants live authority.
 
 ## Current truth
@@ -61,11 +63,12 @@ None grants live authority.
 
 ## Ordered non-live critical path
 
-1. **Owner today (2026-09-22): RE-1 `preflight` on `7e6e1709c` (84c tip, accepted), then session 1 by 13:59 Eastern
-   if it prints no FAIL line, else 2026-09-23.** Missions `2026-09-84a`-`85b`; attended script on the workstation. Paste
-   `85b` if `codex/re1-payout-link-20260922` is not yet pushed (85a accepted: the venue exposes no earned-day-to-payment
-   link, so 85b adopts a labelled exact-amount rule; verdict earliest 2026-09-25). Still the owner's: the account,
-   hurdle `H` and the stop date (before earnings are read). Freeze `R` from it before any further markout read.
+1. **RE-1 session 1 moved to 2026-09-23 (no session on 09-22: two code defects, see above).** Order: `84e` handed
+   back and accepted -> production agent names the session tip -> owner makes a fresh worktree at that tip, tunnel down,
+   runs `preflight`, and on PASS starts `live` by 13:59 Eastern; a `NO QUALIFYING BAND` line means retry every quarter
+   hour, not a defect (bands flickered hour to hour on 09-22). `84a`-`85b` are accepted on their branches (85b's
+   exact-amount payout rule is roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). Still the
+   owner's: the account, hurdle `H` and the stop date (before earnings are read). Freeze `R` before any markout read.
 2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
    **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
    closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.
