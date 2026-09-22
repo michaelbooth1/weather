@@ -1,0 +1,1231 @@
+{
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/nbm-target-trace-20260921 -Base origin/codex/nbm-target-trace-handoff-20260921",
+  "exit_code": 1,
+  "result": "UNDECIDABLE: no live closure evidence",
+  "files": [
+    {
+      "path": ".codex/hooks/pre_tool_use_host_load.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-82a-workstation-is-the-guidance-read-for-the-right-day.md",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "scripts/ops/workload_admission.ps1",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tests/operations/test_missing_information_admission.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tests/operations/test_nbm_target_trace_admission.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tests/operations/test_workload_admission_script.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tests/reporting/test_nbm_target_trace.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/__init__.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/artifact-selectors.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/file-manifest.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/picks.csv",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/supplement.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/t0-receipt.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/t1-receipt.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/t2-receipt.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/t2-summary.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/evidence/tokens.csv",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/publish.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/README.md",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/roll-files.json",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    },
+    {
+      "path": "tools/research/nbm_target_trace/run.py",
+      "verdict": "UNDECIDABLE",
+      "snapshot": "unverified",
+      "clob": "unverified",
+      "observation_trigger": "unverified",
+      "enrichment": "unverified"
+    }
+  ]
+}

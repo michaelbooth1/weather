@@ -567,7 +567,15 @@ the merge within its bounded wait. The merge and recovery proof succeeded, but p
 not; the quiet wrapper never attempts an interactive or S4U `git push` itself. This terminal
 retains the `documented_unpublished` active marker. First compare the marker's exact merge
 commit with local `master` and `origin/master`. If the remote already equals that commit, use
-the hash-bound active-marker reconciliation path above. If local master alone equals it and
+the hash-bound active-marker reconciliation path above for a manifest-backed attempt, or
+`scripts/ops/reconcile_ordinary_quiet_merge.ps1 -ExpectedActiveMarkerSha256 <sha>
+-ReviewReference <review>` for an ordinary merge that has no attempt manifest (the attempt
+reconciler requires one). It re-proves Git identity, merge parents, the documentation snapshot
+and current capture/execution-tape health, writes an immutable receipt under
+`data/alerts/quiet_window_merge_reconciliations/` embedding the marker bytes, appends to the
+history, and only then retires the marker; `-DryRun` runs every proof without writing. Never
+land anything on local `master` while the marker exists: boot recovery treats a `master` that
+moved past `marker.merge_commit` as an unverified merge and hard-resets it. If local master alone equals it and
 the branch/attempt is still reviewed for publication, an active operator may retry only the
 credential-bearing `WeatherOneShotPush` task, require `origin/master` to acknowledge that exact
 commit, and then use the same reconciler. If the remote moved anywhere else, do not push or

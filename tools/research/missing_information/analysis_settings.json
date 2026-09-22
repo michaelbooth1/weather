@@ -1,0 +1,26 @@
+{
+  "mission": "2026-09-79a",
+  "plan_sha256": "024dbac70c636e42c4f514d66d79fb955c75362c6534892954c05d0bc9e33a81",
+  "handoff_base": "278c2388b439f71f81233ae96ab3ff0d2d500794",
+  "first_date": "2026-08-01",
+  "last_date": "2026-09-19",
+  "stratum_switch": "2026-08-23",
+  "bootstrap_draws": 2000,
+  "seed": 20260921,
+  "interval_level": 0.95,
+  "tail_excess_share": 0.64,
+  "disagreement_threshold": 0.30,
+  "kernel_min_earlier_dates": 5,
+  "kernel_fit": "one residual per earlier market-date and time bucket; no cross-stratum fit",
+  "power_method": "centered crossed-bootstrap shift; two-sided descriptive 5%; not achieved power",
+  "power_effects": {"brier_difference": 0.01, "brier_ratio": 0.30, "fraction": 0.10, "log_odds_ratio": 0.6931471805599453},
+  "reading_rules_unchanged": true,
+  "implementation_notes": [
+    "Python implementation replaces the plan's illustrative JavaScript extraction, on the workstation under the required wrapper.",
+    "Captured fields ending _c are native units as traced in snapshot_store.source_values; never convert based on suffix.",
+    "Peak primary is first reach of final printed station maximum; also report monotone-envelope sensitivity and censoring.",
+    "No clock test identifies paid/private information uniquely; report the frozen interpretation alongside identification limits.",
+    "Guidance-bust association alone cannot establish that nobody knew pre-day.",
+    "No trading-wallet attribution test was prespecified for candidate E; label it untested."
+  ]
+}
