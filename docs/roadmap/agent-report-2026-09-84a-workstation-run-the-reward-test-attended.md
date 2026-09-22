@@ -908,3 +908,96 @@ Scheduler change, restart, merge, gate change or live authority change.
 `re1_transport.py`, `re1_evidence.py` and the reconciler are unchanged.
 Measured economic sample: **zero real dates, zero real markets, zero real
 payments**; no interval, profitability claim or campaign decision is made.
+
+### 85a final qualification and handback
+
+Qualified source commit: `ba219032fee00c76f375cf12a94c3dc158c617f1` on
+`codex/re1-payout-evidence-20260921`, based exactly on `7e6e1709c`.
+The final follow-up commit appends documentation only; source and tests stay
+at this qualified commit. Draft [PR 82](https://github.com/michaelbooth1/weather/pull/82)
+targets the declared parent branch/PR 78, not master.
+
+The full workstation suite passed **7,191 tests, 991 subtests; 34 skipped,
+13 warnings**, in **3,963.09s (1:06:03)**. The workload wrapper returned exit 0.
+It ran on the clean source commit above from September 21 **21:08:06 Eastern**;
+the JUnit receipt was written at **22:14:09 Eastern**, with successful wrapper
+exit observed by **22:14:45 Eastern**. Thus the entire run finished the night
+before September 22's excluded 09:00–19:00 interval. Warnings concerned empty
+imputation features and a NumPy binary-size warning in an existing source test.
+The three mission-owned pytest temporary trees were removed after completion;
+the JUnit and CI receipts remain in this worktree's ignored `scratch/` directory.
+
+The focused run passed **58 tests in 4.78s**; the expanded evidence,
+transport, payment-activity, import-boundary and module-size selection passed
+**306 tests in 26.78s**. Compilation of `app src tests`, the agent documentation
+audit, generated-backlog check, both collection CLI help commands and
+`git diff --check` passed. No owner credentials are loaded by the help commands.
+
+Retained local JUnit receipts (paths relative to this evidence worktree):
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-85a-focus1.xml` | `cb33c8114201e27710268ffd62c9dacbb720eae006d18f280ebb5ae50733e7f5` |
+| `scratch/re1-85a-architecture.xml` | `5f89a8ceb0df3361ff6fade13fb485951bf31683101013186ce2bcef8a77ee7c` |
+| `scratch/re1-85a-full.xml` | `24a8e2177497fe32ab19d5fb9b60207d89566559b883f71cec1e9db86e60e73a` |
+
+The full-suite reproduction command below is for this workstation only.
+The production host must use its own admitted bounded-suite procedure.
+The September 22 09:00–19:00 Eastern full-suite exclusion remains binding.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-evidence-20260921'
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1TestArgs = @('-m', 'pytest', '-q', '--basetemp=C:/tmp/weather-re1-85a-full', '--junitxml=scratch/re1-85a-full.xml')
+$re1EncodedArgs = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $re1TestArgs -Compress)))
+& "$re1Repo\scripts\ops\workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1EncodedArgs -RepoRoot $re1Repo
+& $re1Python -m weather.operations.agent_docs_audit
+& $re1Python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+```
+
+**CI is not green.** Source commit `ba219032` passed Windows
+[native-launch qualification](https://github.com/michaelbooth1/weather/actions/runs/35674788378).
+Its [Linux CI run](https://github.com/michaelbooth1/weather/actions/runs/35674788384)
+reported **30 failed, 6,626 passed, 529 skipped, 989 subtests passed**.
+The 30 failed test node IDs exactly match the
+[parent run at `7e6e1709c`](https://github.com/michaelbooth1/weather/actions/runs/35668138811):
+missing optional `httpx`/`polymarket` dependencies, with a cascading cleanup
+assertion. Comparing the sorted failed-node lists produced no differences.
+The failing tests, dependency declarations and CI workflow are byte-unchanged
+from the parent. The new SDK-only tests skip in that Linux environment and
+are exercised locally against installed SDK 0.6.0. Repairing the inherited CI
+dependency setup requires its owning mission; those files were not taken.
+
+Retained failed-job logs: `scratch/re1-85a-parent-ci.txt`, SHA-256
+`d5d4921aa4e8fd06b0d5796cbc1746a821689fee8b4b5c9cd57f49e5503ebcee`;
+`scratch/re1-85a-source-ci.txt`, SHA-256
+`1e614f825812ff58712405a4d58e5f401f06b1b30d9970580521840c45136e79`.
+The linked runs qualify the source commit, not the later documentation-only tip.
+
+The repository-owned roll check was run read-only:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/re1-payout-evidence-20260921 -Base 7e6e1709c -JsonOut scratch/re1-85a-roll-verdict.json *> scratch/re1-85a-roll-verdict.txt
+```
+
+It returned **exit 1, UNDECIDABLE: no live closure evidence** for snapshot,
+CLOB, observation-trigger or enrichment. It did not emit the JSON file.
+The text receipt has SHA-256
+`9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0`.
+No frozen mirror or production evidence was read to manufacture a verdict.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_payout_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_attended_cli.py` | Live closure membership unavailable; no roll-free claim |
+| `tests/market/test_re1_payout_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_sdk_shapes.py` | Offline SDK-shape evidence; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Documentation; no runtime adoption |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Documentation; no runtime adoption |
+
+No schema-registry file changed. The complete six-file stacked diff was
+reviewed against the refreshed declared parent. Branch publication and the
+draft PR are the handback boundary; adoption needs the operations owner's
+fresh closure verdict. The missing authoritative distribution source remains
+the reason an actual paid RE-1 verdict cannot be produced.
