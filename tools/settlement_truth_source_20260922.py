@@ -40,7 +40,7 @@ CANDIDATES = ("wu", "asos", "metar", "metar_with_6h", "metar_hourly", "nws", "nw
 
 def dump(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def sha(raw):
@@ -487,12 +487,13 @@ def report():
     if inv["labels_provenance"].get("sha256") != "73054e9d1f831fc3062d9a033ffb3ce0bf6e78ea19b138bd5001a0426e3fee13":
         raise ValueError("dated report prose is bound to the frozen 86a input; fresh inputs require a new report")
     rules = json.loads((ROOT / "rules.json").read_text())
-    station_bytes = (ROOT / "station_days.csv").read_bytes()
+    # Git's text policy is LF: hash the published bytes, not Windows CSV newlines.
+    station_bytes = (ROOT / "station_days.csv").read_bytes().replace(b"\r\n", b"\n")
     station_path = target.with_name(base + "-station-days.csv")
     station_path.write_bytes(station_bytes)
     diff_path = target.with_name(base + "-disagreements.csv")
     with diff_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["comparison", "market", "date", "candidate", "reference", "difference", "unit"])
+        writer = csv.DictWriter(handle, fieldnames=["comparison", "market", "date", "candidate", "reference", "difference", "unit"], lineterminator="\n")
         writer.writeheader()
         writer.writerows(analysis["differences"])
     receipt_path = target.with_name(base + "-provenance.json")
@@ -666,7 +667,7 @@ def report():
         "Neither protected RE-1 worktree was accessed or modified. Existing main-checkout changes were untouched. "
         "No current capture-health, live-readiness or promotion-countability claim is made.",
     ]
-    target.write_text("\n".join(lines)+"\n", encoding="utf-8")
+    target.write_text("\n".join(lines)+"\n", encoding="utf-8", newline="\n")
     print(target)
 
 
