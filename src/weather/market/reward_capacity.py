@@ -330,10 +330,6 @@ def run(deadline, *, once=False, interval_minutes=15, configured_only=False):
     now = datetime.now(timezone.utc)
     if now >= deadline or deadline > now + timedelta(hours=18):
         raise ValueError('deadline_must_be_future_and_within_18_hours')
-    local = now.astimezone(ET)
-    hard_stop = datetime(2026, 9, 22, 19, 45, tzinfo=ET)
-    if local.date() == hard_stop.date() and deadline > hard_stop:
-        raise ValueError('September_22_deadline_cannot_exceed_1945_ET')
     from weather.execution_host import current_execution_host_id, current_execution_principal_id
     assignment = json.loads(config_path('international_live_execution_host.json').read_bytes())
     host = current_execution_host_id()

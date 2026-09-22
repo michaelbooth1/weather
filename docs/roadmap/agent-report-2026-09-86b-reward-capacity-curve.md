@@ -219,3 +219,46 @@ JSON verdict. No production evidence was substituted or fetched. Per-file:
 
 No schema registry was changed. The Python change includes import refactoring
 as well as additions; it is not represented as additive-only schema work.
+
+## Amendment preparation — awaiting session 1 completion
+
+The owner instructed this task to follow §5 of the amended handoff fetched
+on September 22. The original NO-GO above remains the accepted result for the
+unamended venue-wide scope. The authorized collection is now **configured-city
+scope**, `--configured-only --interval-minutes 15`. The broader 248-band count
+is context only. No batch-book path or scoring change is authorized or added.
+
+The only production-code change in this preparation removes the fixed
+September 22 19:45 calendar cutoff. A deadline must still be strictly in the
+future and no more than 18 hours from invocation. The focused offline tests
+passed **23/23**: they admit the former evening cutoff and midnight crossing,
+admit exactly 18 hours, and reject past, present and greater-than-18-hour
+deadlines before file or network activity. The admitted test uses a fake cycle
+and verifies the configured-only/15-minute arguments; it does not sample.
+
+**No sampler was started.** `data/reward_capacity/STOP` was written in this
+task's worktree, and no sampler lock exists. No polling, scheduled start,
+network proof, full suite or RE-1 command was run. The sampler stays stopped
+until the owner explicitly says **RE-1 session 1 has ended**.
+
+On that signal, retain all existing evidence, confirm no RE-1 command is
+running or about to run, then remove this task's STOP marker and run with a
+fresh duration-based deadline:
+
+```powershell
+# Only after the explicit owner signal and confirmation of the quiet interval.
+$capacityUntil = [DateTimeOffset]::UtcNow.AddHours(18).ToString('o')
+& $capacityPython -m weather.market.reward_capacity --configured-only `
+  --interval-minutes 15 --until $capacityUntil
+```
+
+Prepare the second fresh deadline only after the first process has exited and
+its stopped receipt/lock release are checked; each deadline is at most 18 hours.
+Continue toward 24 **covered** hours, with failed or paused cells left missing.
+Before any later RE-1 command, including preflight or live, the owner or this
+agent must write `data/reward_capacity/STOP` and verify sampler exit before the
+RE-1 command starts. A STOP-triggered exit does not authorize a restart.
+
+The configured-city curve section and final measurement handback remain pending
+the owner's session-1 completion signal and actual collection. No modelled
+dollars or coverage are manufactured during preparation.

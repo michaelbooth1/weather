@@ -227,7 +227,8 @@ def test_summary_replays_response_bytes_and_rejects_tampering(tmp_path):
         write_summary(tmp_path)
 
 
-def test_failed_cycle_has_nonzero_exit_and_removes_own_lock(tmp_path, monkeypatch):
+@pytest.mark.parametrize('duration_seconds', [60, 8 * 3600, 18 * 3600])
+def test_duration_deadline_admits_cross_day_run_and_cleans_failed_cycle(tmp_path, monkeypatch, duration_seconds):
     import weather.market.reward_capacity as capacity
     import weather.execution_host as host
     class FixedDatetime(datetime):
@@ -243,9 +244,28 @@ def test_failed_cycle_has_nonzero_exit_and_removes_own_lock(tmp_path, monkeypatc
     monkeypatch.setattr(capacity, 'config_path', lambda *_: assignment)
     monkeypatch.setattr(host, 'current_execution_host_id', lambda: 'workstation')
     monkeypatch.setattr(host, 'current_execution_principal_id', lambda: 'owner')
-    def refused(*_args, **_kwargs): raise ValueError('pagination_duplicate')
+    def refused(*_args, **kwargs):
+        assert kwargs == {'interval_minutes': 15, 'configured_only': True}
+        raise ValueError('pagination_duplicate')
     monkeypatch.setattr(capacity, 'sample', refused)
-    assert capacity.run(NOW + timedelta(minutes=1), once=True) == 2
+    # Eight hours passes the former Sept 22 cutoff; eighteen crosses midnight.
+    # Reaching the fake cycle proves admission without making public requests.
+    deadline = NOW + timedelta(seconds=duration_seconds)
+    assert capacity.run(deadline, once=True, configured_only=True, interval_minutes=15) == 2
     assert not (capacity.ROOT / 'sampler.lock').exists()
     terminal = json.loads(next(capacity.ROOT.glob('*/lifecycle.jsonl')).read_text().splitlines()[-1])
     assert terminal['event'] == 'stopped' and terminal['exit_code'] == 2
+
+
+@pytest.mark.parametrize('duration_seconds', [-1, 0, 18 * 3600 + 1])
+def test_duration_deadline_refuses_expired_or_over_18_hours_before_io(tmp_path, monkeypatch, duration_seconds):
+    import weather.market.reward_capacity as capacity
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None): return NOW
+    monkeypatch.setattr(capacity, 'datetime', FixedDatetime)
+    monkeypatch.setattr(capacity, 'ROOT', tmp_path / 'must-not-be-created')
+    monkeypatch.setattr(capacity, 'config_path', lambda *_: pytest.fail('deadline refusal must precede IO'))
+    with pytest.raises(ValueError, match='deadline_must_be_future_and_within_18_hours'):
+        capacity.run(NOW + timedelta(seconds=duration_seconds), once=True, configured_only=True)
+    assert not capacity.ROOT.exists()
