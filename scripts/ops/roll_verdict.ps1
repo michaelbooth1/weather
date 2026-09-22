@@ -207,7 +207,33 @@ if ($haveOrigin -and $Base -eq "master") {
 }
 $baseSha = (& git rev-parse --short "$baseRef")
 
-$changed = @(& git diff --name-only "$baseRef...$Branch" 2>$null | Where-Object { $_ })
+# The changed set is the set of files the merge would WRITE onto the base: diff the base against
+# the tree `git merge-tree --write-tree` produces. `base...branch` was wrong in both directions
+# once the branch had several merge bases with master (a branch that merged master, or shares a
+# merged side branch with it): git picks one base and warns on stderr -- a terminating error
+# under the Stop preference, which aborted the 2026-09-22 quiet-window run before any merge --
+# and diffing against the older base lists files already on master as if the merge changed them.
+# If the merge would conflict (or git predates --write-tree), fall back to the union of the diffs
+# against every merge base, which is a superset and cannot hide a roll.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $changedBasis = "merge-tree"
+    $mergeTree = @(& git merge-tree --write-tree "$baseRef" "$Branch" 2>$null | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -eq 0 -and $mergeTree.Count -ge 1 -and $mergeTree[0] -match '^[0-9a-f]{40}$') {
+        $changed = @(& git diff --name-only "$baseRef" $mergeTree[0] 2>$null | Where-Object { $_ })
+    }
+    else {
+        $changedBasis = "union of diffs against every merge base (merge-tree unavailable or the merge conflicts)"
+        $mergeBases = @(& git merge-base --all "$baseRef" "$Branch" 2>$null | Where-Object { $_ })
+        if ($LASTEXITCODE -ne 0 -or $mergeBases.Count -eq 0) { $mergeBases = @("$baseRef") }
+        $changed = @($(foreach ($mergeBase in $mergeBases) {
+            & git diff --name-only "$mergeBase" "$Branch" 2>$null | Where-Object { $_ }
+        }) | Sort-Object -Unique)
+    }
+}
+finally { $ErrorActionPreference = $previousPreference }
+if ($changedBasis -ne "merge-tree") { Write-Output "note:     changed set basis: $changedBasis" }
 if ($changed.Count -eq 0) {
     Write-Output "UNDECIDABLE: no changed files found for $Branch against $baseRef ($baseSha) (is it fetched?)"
     exit 1
