@@ -20,10 +20,10 @@ Owner, 2026-09-21: the first paid reward test (RE-1, pre-registered) is approved
 workstation as an **attended script the owner starts personally**, worst case 20-30 dollars accepted, at most three
 sessions, none after 2026-09-30 (mission `2026-09-84a`; the script must be confirmed by the owner in the workstation
 session before it can sign). This is a one-off exception outside the sealed lane and changes nothing in it.
-Geographic eligibility is recorded as resolved by owner statement (the 2026-09-06 Ontario geoblock
-readings were a file-access tunnel to the owner's home PC; the execution PC is physically eligible
-and never moves; the tunnel must be down during any live session) — see
-[the live pilot runbook](INTERNATIONAL_MM_LIVE_PILOT.md) and item 67.
+**Owner, 2026-09-22: RE-1 capital is a learning budget.** Trading losses inside the envelope are reported as cost of
+learning, never a reason to stop or skip a session; a fill is data (shares held to settlement, markout kept).
+Geographic eligibility is resolved by owner statement (the 2026-09-06 Ontario readings were a tunnel to the owner's
+home PC; the execution PC is eligible and never moves; tunnel down during live) — [runbook](INTERNATIONAL_MM_LIVE_PILOT.md), item 67.
 
 Owner, 2026-09-21: **model work is unpaused**, and shortening the path to a live test is a priority.
 Five workstation missions were handed back and verified on 2026-09-21: `2026-09-79a` (what the
