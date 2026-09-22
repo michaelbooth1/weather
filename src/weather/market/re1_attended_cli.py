@@ -155,10 +155,13 @@ def run_collect(args):
         payment = json.loads(payment_bytes) if payment_bytes is not None else None
         binding = {'payment_evidence_path': str(args.payment_evidence.absolute()) if args.payment_evidence else None,
                    'payment_evidence_sha256': hashlib.sha256(payment_bytes).hexdigest() if payment_bytes is not None else None}
-        result = {**payout_verdict(prediction, accrual, payment), 'accrual': accrual, 'balances': balances, **binding}
+        diagnostics = payment.get('payout_diagnostics') if isinstance(payment, dict) else None
+        result = {**payout_verdict(prediction, accrual, payment), 'accrual': accrual, 'balances': balances,
+                  'payout_diagnostics': diagnostics, **binding}
         destination = args.prediction.parent / ('payout-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
         write_new(destination, guard.clean(result))
-        guard.print({'verdict': result['verdict'], 'k': result['k'], 'k_accrued': result['k_accrued'], 'receipt': str(destination), **binding})
+        guard.print({'verdict': result['verdict'], 'k': result['k'], 'k_accrued': result['k_accrued'],
+                     'receipt': str(destination), 'payout_diagnostics': diagnostics, **binding})
         return 0
     finally:
         venue.close()

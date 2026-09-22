@@ -1001,3 +1001,331 @@ reviewed against the refreshed declared parent. Branch publication and the
 draft PR are the handback boundary; adoption needs the operations owner's
 fresh closure verdict. The missing authoritative distribution source remains
 the reason an actual paid RE-1 verdict cannot be produced.
+
+## 85b — reviewed reward-day linkage, 2026-09-21 (night)
+
+**IMPLEMENTED: the real collector now produces paid or closed-window unpaid
+evidence under the explicitly reviewed RE-1 rule; 332 focused and regression
+tests pass. No real payout or profit is proved.** Final full-suite qualification,
+source commit, CI and roll-verdict receipts are appended below when complete.
+This supersedes 85a's producer limitation for RE-1 only, not the pure bridge's
+refusal to invent an authoritative earned-period reference.
+
+Task source: `workstation-handoff-2026-09-85b-link-the-reward-payment-to-its-day.md`
+at `91b29bda89382c8f6796f87b267962729893df87`. New branch
+`codex/re1-payout-link-20260922` starts exactly at
+`045a100edc44f4c241ed384cb0c7e74d422d3aec` in
+`scratch/w/re1-payout-link-20260922`; its draft PR targets PR 82. The execution
+worktree `scratch/w/reward-test-attended-20260921` was not edited, checked out,
+tested from or otherwise changed. Its `7e6e1709c` authority remains separate.
+
+### Producer rule and diagnostics
+
+The implementation records
+`linkage_basis: exact_amount_single_condition_unique_credit_v0.1` and
+`venue_earned_period_reference: false`. It is the reviewed producer decision
+specified by 85b, not a newly discovered endpoint or venue-issued day reference.
+No source/API research or owner-account collection was repeated for this task.
+
+Final earnings require `accruals.status == OBSERVED`, `complete == true`, both
+asset totals and only `ACCRUED`/`COMPLETED_ZERO` pUSD rows. Nonzero earnings in
+any other condition, including sub-micro amounts in either asset, refuse the
+rule. Native rows and totals must agree before rounding. `amount` uses
+`ROUND_HALF_EVEN` at six decimals; `venue_amount` preserves the unrounded value.
+`A` is the integer sum of quantized pUSD rows and must be positive.
+
+`list_activity` now requests `type=REWARD` only, maker-scoped over
+`[D+1 00:00Z, min(D+3 00:00Z, collection time))`; the integer API end is the
+exclusive bound minus one second. Other pagination/query parameters and raw
+request/response hashing are unchanged. `activity_request_scope` records
+these actual bounds separately from the reconciler's normalized `request_scope`
+for the reward-day/cash period. No source scope validator was altered.
+
+Each activity transaction must join exactly one confirmed pUSD wallet credit.
+Candidates retain `join_status` and `matching_credit_ids`; zero or multiple
+matches retain `unjoined` and refuse with `activity_credit_join_failed`.
+Exactly one candidate may satisfy `abs(C-A) <= 1` micro-unit. Every pUSD credit
+must then be accounted for; unexplained credits are never automatically
+excluded. Even another REWARD-joined candidate is not silently assigned to
+another day. It remains in the file and the existing
+`wallet_credit_unattributed` check keeps the verdict inconclusive.
+
+On success the positive selected-condition accrual receives one distribution
+with its `accrual_id`, the credit's actual `amount` and
+`credit_id=137:<transaction_hash>:<log_index>`. `distribution_id` is `reward-`
+plus the first 48 hex characters of the digest of day, transaction and log
+index. Extra fields are `linkage_basis`, `activity_sha256`,
+`activity_timestamp_utc` and `matched_amount_delta_units`. The distribution's
+`source_record_sha256` binds the retained activity response bytes; it does not
+pretend the venue supplied the derived distribution. Zero rows in other
+conditions receive no fabricated distribution.
+
+The distribution source becomes `OBSERVED`, complete, pagination-complete and
+payout-cycle-complete, with coverage through the lesser of cash end and the
+activity observation. The composed source's observation time also follows the
+wallet read; `activity_observed_at_utc` retains the actual activity observation.
+Incomplete wallet coverage, invalid activity scope or failed reads cannot
+establish payment or absence. `NOT_PAID` additionally requires cash-window
+closure, positive `A`, no REWARD rows and no credits in either asset.
+
+`payout_diagnostics` is retained by `collect-evidence` and included in both
+the saved and printed `collect-payout` result for every verdict. Its fields are
+`reward_day`, `accrual_total_venue`, `accrual_total_units`,
+`other_condition_accruals` (`count`, `total` by native asset),
+`reward_activity_rows` (`timestamp_utc`, `transaction_hash`, `amount`),
+`pusd_credits_in_window` / `usdc_e_credits_in_window` (`credited_at_utc`,
+`transaction_hash`, `log_index`, `amount`), `linkage_rule_outcome` and
+`cash_window_closed`. Missing totals remain unknown. The outcome names the
+first failed check, `matched`, or the completed absence result `not_paid`.
+All output still passes the loaded secret guard.
+
+### Observed offline round trips
+
+The positive distribution fixture from 85a is removed. These tests use actual
+SDK 0.6.0 reply models through closed SDK transports and hex-shaped Polygon
+RPC replies, then call the real collector, reconciler and RE-1 verdict. The
+test inputs are synthetic account evidence; no distribution row is inserted
+by a fixture.
+
+| Required case | Observed output |
+| --- | --- |
+| 1. One REWARD/credit of A=1.250000 | `paid=1.25`, `k=0.625`, `PAID_AS_MODELLED`; linkage basis retained |
+| 1. C=A-1 micro-unit | Complete reconciliation, `PARTIALLY_PAID`, `paid=1.249999`, `k=0.6249995`, `PAID_AS_MODELLED` |
+| 2. C=A+1 | `PAID`, `paid=1.250001`, `k=0.6250005`, `PAID_AS_MODELLED` |
+| 2. C=A+2 | `no_amount_match`, `INCONCLUSIVE`, paid/k unknown; diagnostics retain A=1250000 units and C=1.250002 |
+| 3. Two matching REWARD credits | `ambiguous_amount_match`, `INCONCLUSIVE` |
+| 4. Nonzero second condition in either asset | `other_condition_accruals`, `INCONCLUSIVE`; even 0.0000001 is not discarded |
+| 5. Closed, empty activity and both credit sources | `not_paid`, reconciler `UNPAID`, `paid=0.0`, `NOT_PAID` |
+| 6. USDC.e credit with no pUSD/activity | `non_pusd_credit_present`, `INCONCLUSIVE`; USDC.e diagnostic row retained |
+| 7. REWARD transaction has zero or two credits | `activity_credit_join_failed`, `unjoined`, `INCONCLUSIVE` |
+| 8. One missing block chunk | `wallet_coverage_incomplete`, `INCONCLUSIVE`, paid/k unknown |
+| 9. Read-only surface | Fake client rejects every non-read method; closed venue transports reject non-GET requests; RPC remains limited to three reads |
+
+Additional checks preserve 85a's wire hashes, range splitting, finality,
+malformed logs, scope failures, exclusive campaign output and secret guards.
+They also cover half-even ties, a total mismatch that would disappear after
+rounding, wrong activity programme/window, incomplete empty reads, unexplained
+credits (including extra REWARD candidates), and guarded diagnostics even on
+an inconclusive result. Native totals and diagnostic sums also preserve
+precision beyond Decimal's default context. The final expanded run passed
+**332 tests in 13.00s**; `scratch/re1-85b-focus3.xml` SHA-256 is
+`2cd3214c04852551118758752a9a7b6fba23f4d87274c8f68ba6cb9277c371f5`.
+
+### Entire consumer diff
+
+This is the only edit to `mm_exchange_reports.py`. The one-unit allowance is
+per accrual's cumulative payments, not per distribution. Overpayment within
+that bound cannot make unpaid accrued cash negative. The explicit 85b A-1
+test controls the lower boundary: it remains PARTIALLY_PAID, as requested.
+
+```diff
+@@ -806,6 +806,7 @@ def reconcile_incentive_payments(evidence):
+         "excluded_external_credit_ids": [], "duplicate_record_count": 0,
+         "unresolved": [], "accrual_unresolved": [], "accruals_fully_paid": False,
+         "blockers": [], "network_reads_performed": False,
++        "rounding_tolerance_units": 1,
+     }
+     unresolved = set()
+     try:
+@@ -880,7 +881,7 @@ def reconcile_incentive_payments(evidence):
+                                "incentive_credit_precedes_accrual")
+             amount = credit["amount_units"]
+             paid_by_accrual[distribution["accrual_id"]] += amount
+-            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"],
++            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"] + 1,
+                                "incentive_distribution_exceeds_accrual")
+             allocated_credits.add(distribution["credit_id"])
+             bucket = ("portfolio_paid" if accrual["condition_id"] is None else
+@@ -920,9 +921,9 @@ def reconcile_incentive_payments(evidence):
+                 else:
+                     amount = accrual["amount_units"]
+                     totals[programme]["accrued"] += amount
+-                    totals[programme]["unpaid_accrued"] += amount - paid
+-                    state = "PAID" if paid == amount else "PARTIALLY_PAID" if paid else "UNPAID"
+-                    if paid != amount:
++                    totals[programme]["unpaid_accrued"] += max(0, amount - paid)
++                    state = "PAID" if amount <= paid <= amount + 1 else "PARTIALLY_PAID" if paid else "UNPAID"
++                    if not amount <= paid <= amount + 1:
+                         fully_paid = False
+             result["accrual_states"].append({
+                 "accrual_id": accrual_id, "programme": programme, "condition_id": condition,
+```
+
+### Owner run card and boundaries
+
+For reward day September 22, collect on or after **September 25 00:00Z**;
+the morning of September 25 Eastern is within that bound. Run from the new
+evidence worktree after source qualification. Do not switch or edit the
+attended execution worktree. Use the exact session prediction and the exact
+new evidence path printed by the collector.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-link-20260922'
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1Prediction = Read-Host 'Paste the exact frozen prediction.json path'
+& $re1Python -m weather.market.re1_attended_cli collect-evidence $re1Prediction
+$re1Evidence = Read-Host 'Paste the printed payment_evidence_path'
+& $re1Python -m weather.market.re1_attended_cli collect-payout $re1Prediction --payment-evidence $re1Evidence
+```
+
+Each collection remains one new immutable file. An incomplete collection exits
+2 and preserves its diagnostics; it cannot authorize payment or live action.
+No owner `.env` read, credential export/vault access, authenticated account
+call, real RPC, live session, heartbeat, order, cancel, stream, Scheduler or
+production write, restart, promotion, adoption or merge was performed.
+`re1_attended.py`, `re1_resilience.py`, `re1_owner_checks.py`,
+`re1_transport.py`, `re1_evidence.py` and `mm_paid_credit_activity.py` are
+unchanged. The bridge contract gains only the requested pointer sentence.
+Measured economic sample: **zero real dates, zero real markets, zero real
+payments**; no economic interval, profit estimate or campaign decision follows.
+
+### 85b activity-query coverage refinement
+
+Review identified a boundary case: a query launched just before cash end can
+return afterward. Linkage now requires the actual `activity_request_scope`
+end to reach cash end; the later response timestamp cannot extend its coverage.
+Both paid and empty-window variants pass. The existing accrual payout-cycle
+gate also keeps this pre-deadline scenario inconclusive; the added check
+prevents the activity source itself from claiming full coverage.
+
+The initial full run on `ce8afe372b33efdc55c875bee0a7c60ab0fa2bac` was stopped
+at 33% without reported test failures to incorporate this refinement. Only
+its identified pytest child was stopped; the still-running repository wrapper
+performed its normal teardown and lease release, and the next wrapper admitted
+successfully. That interrupted run is not a qualification receipt.
+The revised focused selection passed **334 tests in 13.41s**;
+`scratch/re1-85b-focus4.xml` SHA-256 is
+`f4409fecfec8c4a8b79d60c06453bacc6ff935c03662cd618f06a804bcb10e44`.
+The revised committed source receives a new, complete full-suite run.
+
+### 85b strict-audit correction and approved scope extension
+
+Linux CI on `f4407cb54810e1ca1cd6b9d2b1f63e17d200f8b6` reported the
+parent's same 30 failing test nodes plus one new failure:
+`tests/operations/test_schema_registry.py::TestSchemaRegistry::test_source_tree_strict_audit_has_only_explicit_exclusions`.
+The required versioned linkage label was unclassified. This new failure was
+not inherited and was not accepted as a baseline exception. Windows CI passed
+on that source.
+
+The owner explicitly approved the proposed additive registry entry in this
+task on September 21 Eastern. `schema_registry_data.py` now classifies
+`exact_amount_single_condition_unique_credit_v0.1` as a
+`payout_linkage_policy_id` owned by `weather.market.re1_payout_evidence`;
+it is not a serialized artifact schema. The change is **additive-only**:
+one `SchemaLiteralExclusion`, no existing registration or scanner changes.
+The delegation contract places the whole registry family in all four capture
+closures, so this addition makes production adoption **roll-sensitive**.
+Pushing this draft branch grants no integration or live authority.
+
+The full run on `f4407cb` was deliberately stopped at 64% after CI identified
+this new failure. Its verified pytest child was stopped, the wrapper completed
+normal teardown, and subsequent wrapped tests admitted successfully. Neither
+interrupted full run counts as qualification. The revised focused selection,
+now including the strict registry audit, passed **342 tests in 12.70s**;
+`scratch/re1-85b-focus5.xml` SHA-256 is
+`8c052b433b33313dcdddf7f2ff17543d2eef3eb57b9a5405b5fc7d5b7ff5e93a`.
+The corrected committed source receives a new complete full run.
+
+### 85b final qualification and publication
+
+**85b is implemented and locally qualified for operations review. The real collector-to-verdict tests produce paid or not-paid answers only under the labelled reviewed rule; no real payout or profit is proved. Production adoption is roll-sensitive, and Linux CI retains the fixed parent's 30 failures.**
+
+Qualified source: `4bb010306bd6726ef134bf1375d96d2aebb7b734` on
+`codex/re1-payout-link-20260922`, stacked exactly on
+`045a100edc44f4c241ed384cb0c7e74d422d3aec`. The source and tests remained
+unchanged during the complete full run. The final publication commit appends
+this report only. Draft [PR 83](https://github.com/michaelbooth1/weather/pull/83)
+targets `codex/re1-payout-evidence-20260921` / PR 82.
+
+The complete full suite passed **7,219 tests, 34 skipped, 991 subtests passed,
+1 warning**, in **2,872.35s (47m 52s)**. The repository wrapper returned exit 0.
+The run started September 21 at **23:30:22 Eastern**; its JUnit receipt was
+written September 22 at **00:18:14 Eastern**, and successful wrapper exit
+was observed by **00:18:37 Eastern**. The entire run finished before the
+September 22 09:00-19:00 Eastern exclusion. JUnit records zero failures and
+zero errors; its 8,244 entries include the subtests and skips. The warning
+was the cached-NetCDF test's NumPy binary-size RuntimeWarning; it did not fail.
+
+The final focused selection passed **342 tests in 12.70s**, including the
+strict schema audit. Compilation of
+`app src tests`, the agent documentation audit, generated-backlog check, both
+collection CLI help commands and cumulative diff checks passed. No protected
+live-control or bridge implementation file changed. The bridge contract's
+only addition is its one pointer sentence. The owner-approved registry addition
+is the single policy classification recorded above; it is additive-only.
+
+Retained local receipts (relative to this evidence worktree):
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-85b-focus5.xml` | `8c052b433b33313dcdddf7f2ff17543d2eef3eb57b9a5405b5fc7d5b7ff5e93a` |
+| `scratch/re1-85b-full3.xml` | `54128312fd223d3b1ecda2c99badf435dd20481da2505c125f65c0955630f0e5` |
+| `scratch/re1-85b-approved-roll-verdict.txt` | `9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0` |
+
+The full run used the workstation wrapper with these arguments. These are
+workstation reproduction commands; the production host must use its own
+admitted bounded-suite procedure. Preserve retained receipts by choosing a
+new output name for a later replay. Do not run the full suite during September
+22's 09:00–19:00 Eastern exclusion interval.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-link-20260922'
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1TestArgs = @('-m', 'pytest', '-q', '--basetemp=C:/tmp/weather-re1-85b-full3', '--junitxml=scratch/re1-85b-full3.xml')
+$re1EncodedArgs = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $re1TestArgs -Compress)))
+& "$re1Repo\scripts\ops\workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1EncodedArgs -RepoRoot $re1Repo
+& $re1Python -m weather.operations.agent_docs_audit
+& $re1Python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+```
+
+CI on the qualified source: [Windows Qualification](https://github.com/michaelbooth1/weather/actions/runs/35683378868)
+passed. [Linux CI](https://github.com/michaelbooth1/weather/actions/runs/35683378805)
+reported **30 failed, 6,628 passed, 529 skipped, 989 subtests passed**, in
+500.09s. The sorted failing-node set is exactly equal to the fixed parent's
+30 failures ([parent run](https://github.com/michaelbooth1/weather/actions/runs/35679011323));
+`Compare-Object` returned no differences. Those logs show missing `httpx` /
+`polymarket` dependencies and their cascades. The newly introduced strict-audit
+failure is fixed. This is **not a green Linux CI claim** or permission to alter
+unrelated dependency configuration.
+
+CI receipts retained locally:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-85b-parent-ci.txt` | `4e5e1438480953caeaafc0e98c56e7fe735780af9c886196d091f3a7028f2ec0` |
+| `scratch/re1-85b-source-ci.txt` (superseded source with new audit failure) | `2f881c8d50e06425288e842b236b4a68775c9041806cb32a1ef9bbb7cc5013e6` |
+| `scratch/re1-85b-corrected-ci.txt` | `db51237a377d49ce3558970e6058c0adda9c89de0618ad1e377d5de6d9af8f4f` |
+
+The sorted `*-ci-failed-nodes.txt` files beside the logs preserve the exact
+comparison. Final docs-only publication retains these source-commit CI
+receipts; it does not substitute a different source qualification.
+
+The repository-owned roll check was rerun for the revised source:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/re1-payout-link-20260922 -Base 045a100ed -JsonOut scratch/re1-85b-approved-roll-verdict.json *> scratch/re1-85b-approved-roll-verdict.txt
+```
+
+It returned **exit 1, UNDECIDABLE: no live closure evidence** for snapshot,
+CLOB, observation-trigger and enrichment; no JSON receipt was emitted.
+No frozen mirror or production state was read to manufacture a verdict.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_payout_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_attended_cli.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/mm_exchange_reports.py` | Shared consumer; live closure membership unavailable; no roll-free claim |
+| `src/weather/schema_registry_data.py` | Additive-only policy classification; all four closures under delegation contract section 3; roll-sensitive |
+| `tests/market/test_re1_payout_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_mm_paid_incentive_reconciliation.py` | Offline consumer boundary tests; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Documentation; no runtime adoption |
+| `docs/operations/paid-credit-activity-evidence.md` | One documentation pointer; no bridge behavior change |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Documentation; no runtime adoption |
+
+The complete nine-file stacked diff was reviewed against the refreshed
+declared parent. Branch publication and the draft PR are the handback boundary;
+roll-sensitive integration/adoption remains with the operations owner in the
+quiet window after a fresh closure verdict. No owner credentials or real
+payout evidence were read, and no
+production write, registration, restart, live action or merge occurred.

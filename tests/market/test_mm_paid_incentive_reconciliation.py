@@ -167,6 +167,21 @@ def test_partial_payment_books_only_confirmed_cash_and_preserves_unpaid_accrual(
     assert result["accrual_states"][0]["state"] == "PARTIALLY_PAID"
 
 
+@pytest.mark.parametrize('extra_units,accepted', [(1, True), (2, False)])
+def test_distribution_rounding_tolerance_is_one_micro_unit_per_accrual(extra_units, accepted):
+    evidence = evidence_fixture()
+    add_payment(evidence, amount=f'1.25000{extra_units}', accrued='1.250000')
+    result = reports.reconcile_incentive_payments(evidence)
+    assert result['rounding_tolerance_units'] == 1
+    assert result['complete'] is accepted
+    if accepted:
+        assert result['accrual_states'][0]['state'] == 'PAID' and result['accruals_fully_paid']
+        assert result['programmes']['maker_rebate']['unpaid_accrued_amount'] == '0.000000'
+        assert result['actual_maker_rebate_usdc'] == 1.250001
+    else:
+        assert result['blockers'] == ['incentive_distribution_exceeds_accrual']
+
+
 def test_paid_liquidity_without_fills_does_not_upgrade_live_evidence():
     evidence = evidence_fixture()
     add_payment(evidence, programme="liquidity_reward")

@@ -1,10 +1,10 @@
-"""Owner-run RE-1 reads; missing earned-period/payment linkage stays unsupported.
+"""Owner-run RE-1 reads with an explicitly labelled, bounded payout linkage rule.
 
-The SDK's account REWARD activity is retained as a candidate, never promoted
-to an accrual-linked distribution. See paid-credit-activity-evidence.md.
+This RE-1 producer rule is not an authoritative venue earned-period reference
+and does not change the pure activity bridge. See INTERNATIONAL_MM_LIVE_PILOT.md.
 """
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 import hashlib
 import json
 import re
@@ -23,6 +23,7 @@ ASSET_MARKERS = {a.lower(): dict(chain_id=137, asset_address=a.lower(),
 MAX_ROWS = 2048
 MAX_CALLS = 2048
 MAX_BYTES = 2_000_000
+LINKAGE_BASIS = 'exact_amount_single_condition_unique_credit_v0.1'
 
 
 def now_utc():
@@ -36,6 +37,32 @@ def require(ok, reason):
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def micro_units(value):
+    amount = Decimal(value)
+    require(amount.is_finite() and abs(amount.as_tuple().exponent) <= 2048
+            and len(amount.as_tuple().digits) <= 2048, 'amount_precision_budget')
+    with localcontext() as context:
+        context.prec = max(40, len(amount.as_tuple().digits) + 8)
+        return int(amount.quantize(Decimal('0.000001'), rounding=ROUND_HALF_EVEN) * 1_000_000)
+
+
+def amount_text(units):
+    whole, fraction = divmod(units, 1_000_000)
+    return f'{whole}.{fraction:06d}' if units else '0'
+
+
+def native_sum(values):
+    amounts = [Decimal(value) for value in values]
+    require(all(v.is_finite() for v in amounts), 'amount_not_finite')
+    integers = max((max(0, v.adjusted() + 1) for v in amounts), default=0)
+    fractions = max((max(0, -v.as_tuple().exponent) for v in amounts), default=0)
+    precision = max(40, integers + fractions + len(str(len(amounts))) + 1)
+    require(precision <= 4096, 'amount_precision_budget')
+    with localcontext() as context:
+        context.prec = precision
+        return sum(amounts, Decimal(0))
 
 
 class ReadJournal:
@@ -120,7 +147,8 @@ def normalize_earnings(rows, totals, scope, observed):
         require((condition, asset) not in by_key, 'earnings_duplicate')
         by_key[condition, asset] = amount
         result.append(dict(maker_address=scope['maker_address'], cash_asset=ASSET_MARKERS[asset],
-            observed_at_utc=observed.isoformat(), source_record_sha256=provenance, amount=format(amount, 'f'),
+            observed_at_utc=observed.isoformat(), source_record_sha256=provenance,
+            amount=amount_text(micro_units(amount)), venue_amount=format(amount, 'f'),
             asset_rate=format(rate, 'f'), accrual_id='earning-' + digest([scope['maker_address'], condition, asset, start.isoformat()])[:48],
             programme='liquidity_reward', condition_id=condition, period_start_utc=start.isoformat(),
             period_end_utc=end.isoformat(), status='ESTIMATED' if observed < end else 'ACCRUED' if amount else 'COMPLETED_ZERO'))
@@ -130,7 +158,7 @@ def normalize_earnings(rows, totals, scope, observed):
                 'earnings_total_asset_or_amount')
         require(row['maker_address'].lower() == scope['maker_address'] and utc(row['date']) == start,
                 'earnings_total_scope')
-        require(amount == sum((v for (c, a), v in by_key.items() if a == asset), Decimal(0)), 'earnings_total_mismatch')
+        require(amount == native_sum(v for (c, a), v in by_key.items() if a == asset), 'earnings_total_mismatch')
         total_by_asset[asset] = amount
         # An explicit account-wide zero total proves zero for the selected
         # condition. An omitted asset, or merely an empty page, does not.
@@ -176,27 +204,116 @@ def collect_accruals(venue, scope, journal, clock):
 
 
 def collect_distribution_candidates(venue, scope, journal, clock):
-    """Activity proves a label and transaction, not which day's accrual it paid."""
+    """Retain REWARD candidates; the separate producer rule decides their day."""
     journal.kind = 'distributions'
     rows, pagination, failure = [], False, None
     try:
         end = min(utc(scope['cash_end_utc']), utc(clock()))
+        start = utc(scope['accrual_end_utc'])
+        require(start < end, 'activity_window_not_open')
         rows = read_pages(venue.client.list_activity(user=scope['maker_address'],
-            activity_types=['REWARD', 'MAKER_REBATE'], start=int(utc(scope['accrual_start_utc']).timestamp()),
+            activity_types=['REWARD'], start=int(start.timestamp()),
             end=int(end.timestamp()) - 1, sort_by='TIMESTAMP', sort_direction='ASC', page_size=500), journal, '/activity')
         for row, _ in rows:
-            require(row['wallet'].lower() == scope['maker_address'] and row['type'] in {'REWARD', 'MAKER_REBATE'}, 'activity_scope')
-            require(utc(scope['accrual_start_utc']) <= utc(row['timestamp']) < end, 'activity_time')
+            require(row['wallet'].lower() == scope['maker_address'] and row['type'] == 'REWARD', 'activity_scope')
+            require(start <= utc(row['timestamp']) < end, 'activity_time')
+            hex32(row['transaction_hash'])
         pagination = True
     except Exception as exc:
         failure = type(exc).__name__
-    src = source(scope, 'distributions', journal, clock, status='UNSUPPORTED', pagination=pagination)
-    src.update(reason='activity_has_no_earned_period_or_accrual_reference',
+    src = source(scope, 'distributions', journal, clock, status='OBSERVED' if pagination else 'FAILED', pagination=pagination)
+    src.update(reason='linkage_not_evaluated', linkage_basis=LINKAGE_BASIS,
+        venue_earned_period_reference=False, activity_observed_at_utc=src['observed_at_utc'],
+        activity_request_scope=dict(maker_address=scope['maker_address'],
+            period_start_utc=scope['accrual_end_utc'], period_end_utc=end.isoformat()),
         candidate_endpoint='https://data-api.polymarket.com/activity', candidate_pagination_complete=pagination,
         failure_type=failure)
-    # No day-linked distribution was observed, even when an activity page is
-    # nonempty. Passing the deadline alone never changes UNSUPPORTED to OBSERVED.
     return src, [dict(row, source_record_sha256=provenance) for row, provenance in rows]
+
+
+def link_reward_payment(scope, accrual_source, accruals, raw_earnings, activity_source, activities, wallet_source, credits, clock):
+    """Apply the reviewed RE-1 rule; never allocate unexplained wallet credits."""
+    pusd = [r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET]
+    cash = [r for r in credits if r['cash_asset'] == INCENTIVE_CASH_ASSET]
+    other_cash = [r for r in credits if r['cash_asset'] != INCENTIVE_CASH_ASSET]
+    other = [r for r in accruals if r['condition_id'] != scope['condition_id'] and Decimal(r['venue_amount']) > 0]
+    raw = raw_earnings.get('rows')
+    try:
+        venue_total = None if raw is None else format(native_sum(r['earnings'] for r in raw
+            if r['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']), 'f')
+        observed_other = [r for r in raw or [] if r['condition_id'].lower() != scope['condition_id'] and Decimal(r['earnings']) > 0]
+        other_observations = dict(count=None if raw is None else len(observed_other), total={
+            marker['symbol']: None if raw is None else format(native_sum(r['earnings'] for r in observed_other
+                if r['asset_address'].lower() == asset), 'f') for asset, marker in ASSET_MARKERS.items()})
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        venue_total = None
+        other_observations = dict(count=None, total=None)
+    units = sum(micro_units(r['amount']) for r in pusd) if accrual_source['complete'] else None
+    closed = utc(clock()) >= utc(scope['cash_end_utc'])
+    credit_fields = ('credited_at_utc', 'transaction_hash', 'log_index', 'amount')
+    diagnostics = dict(reward_day=utc(scope['accrual_start_utc']).date().isoformat(),
+        accrual_total_venue=venue_total, accrual_total_units=units,
+        other_condition_accruals=other_observations,
+        reward_activity_rows=[dict(timestamp_utc=utc(r['timestamp']).isoformat(),
+            transaction_hash=r['transaction_hash'], amount=r['amount']) for r in activities if r['type'] == 'REWARD'],
+        pusd_credits_in_window=[{k: r[k] for k in credit_fields} for r in cash],
+        usdc_e_credits_in_window=[{k: r[k] for k in credit_fields} for r in other_cash],
+        cash_window_closed=closed, linkage_rule_outcome='accruals_not_final')
+    src = activity_source
+    src.update(complete=False, observed_at_utc=utc(clock()).isoformat())
+    def finish(reason, distributions=(), *, complete=False):
+        diagnostics['linkage_rule_outcome'] = src['reason'] = reason
+        src['complete'] = complete
+        if complete:
+            src.update(status='OBSERVED', pagination_complete=True, payout_cycle_complete=True,
+                coverage_through_utc=min(utc(scope['cash_end_utc']), utc(src['activity_observed_at_utc'])).isoformat())
+        return list(distributions), diagnostics
+    if accrual_source['status'] != 'OBSERVED' or not accrual_source['complete'] or any(
+            r['status'] not in {'ACCRUED', 'COMPLETED_ZERO'} for r in pusd):
+        return finish('accruals_not_final')
+    if other:
+        return finish('other_condition_accruals')
+    if not units or units < 0:
+        return finish('nonpositive_accrual')
+    if (not src['candidate_pagination_complete'] or src['failure_type'] is not None or
+            utc(src['activity_request_scope']['period_end_utc']) < utc(scope['cash_end_utc'])):
+        return finish('activity_coverage_incomplete')
+    joined, unjoined = [], []
+    for activity in activities:
+        matches = [c for c in cash if c['status'] == 'CONFIRMED' and c['transaction_hash'] == activity['transaction_hash'].lower()]
+        activity['join_status'] = 'joined' if len(matches) == 1 else 'unjoined'
+        activity['matching_credit_ids'] = [c['credit_id'] for c in matches]
+        (joined if len(matches) == 1 else unjoined).append((activity, matches))
+    if unjoined:
+        return finish('activity_credit_join_failed')
+    if not activities:
+        if other_cash: return finish('non_pusd_credit_present')
+        if cash: return finish('wallet_credit_unattributed')
+        if not closed: return finish('cash_window_open')
+        if not wallet_source['complete'] or not wallet_source['pagination_complete']:
+            return finish('wallet_coverage_incomplete')
+        return finish('not_paid', complete=True)
+    matches = [(a, cs[0]) for a, cs in joined if abs(micro_units(cs[0]['amount']) - units) <= 1]
+    if not matches: return finish('no_amount_match')
+    if len(matches) != 1: return finish('ambiguous_amount_match')
+    if not wallet_source['complete'] or not wallet_source['pagination_complete']:
+        return finish('wallet_coverage_incomplete')
+    activity, credit = matches[0]
+    if any(c['credit_id'] != credit['credit_id'] for c in cash):
+        return finish('wallet_credit_unattributed')
+    # Zero rows for other conditions do not receive a fabricated distribution.
+    targets = [r for r in pusd if r['condition_id'] == scope['condition_id'] and micro_units(r['amount']) > 0]
+    if len(targets) != 1: return finish('accrual_identity_ambiguous')
+    accrual = targets[0]
+    distribution = dict(maker_address=scope['maker_address'], cash_asset=dict(INCENTIVE_CASH_ASSET),
+        observed_at_utc=src['observed_at_utc'], source_record_sha256=activity['source_record_sha256'],
+        amount=credit['amount'], distribution_id='reward-' + digest([
+            diagnostics['reward_day'], credit['transaction_hash'], credit['log_index']])[:48],
+        accrual_id=accrual['accrual_id'], programme='liquidity_reward', condition_id=scope['condition_id'],
+        status='PAID', credit_id=credit['credit_id'], linkage_basis=LINKAGE_BASIS,
+        activity_sha256=activity['source_record_sha256'], activity_timestamp_utc=utc(activity['timestamp']).isoformat(),
+        matched_amount_delta_units=micro_units(credit['amount']) - units)
+    return finish('matched', [distribution], complete=True)
 
 
 class RpcRangeLimit(RuntimeError):
@@ -373,16 +490,19 @@ def collect_evidence(venue, prediction, *, clock=now_utc, opener=urlopen):
     if venue.journal_failed:
         accrual_source.update(complete=False, status='FAILED', reason='sdk_journal_failed')
         distribution_source.update(complete=False, reason='sdk_journal_failed')
+    distributions, diagnostics = link_reward_payment(scope, accrual_source, accruals, raw_earnings,
+        distribution_source, candidates, wallet_source, credits, clock)
     # v0.1 only represents native pUSD. Preserve USDC.e separately, never
     # relabel or convert it into pUSD to satisfy the existing matcher.
     evidence = dict(schema_version=PAID_INCENTIVE_EVIDENCE_SCHEMA, scope=scope, as_of_utc=utc(clock()).isoformat(),
         sources=dict(accruals=accrual_source, distributions=distribution_source, wallet_credits=wallet_source),
-        accruals=[r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET], distributions=[],
+        accruals=[r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET], distributions=distributions,
         wallet_credits=[r for r in credits if r['cash_asset'] == INCENTIVE_CASH_ASSET], excluded_external_credit_ids=[],
         asset_observations={a: dict(accruals=[r for r in accruals if r['cash_asset']['asset_address'] == a],
             wallet_credits=[r for r in credits if r['cash_asset']['asset_address'] == a]) for a in ASSET_MARKERS},
         distribution_candidates=candidates, sdk_earnings=raw_earnings, wire_journal=journal.records,
-        prediction_sha256=digest(prediction), limitations=['distribution_earned_period_link_unavailable',
+        prediction_sha256=digest(prediction), payout_diagnostics=diagnostics,
+        limitations=['reviewed_re1_linkage_rule_not_venue_earned_period_reference',
             'reconciler_accepts_native_pusd_only', 'reconciler_requires_closed_cash_window'])
     return venue.guard.clean(evidence)
 

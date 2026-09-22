@@ -806,6 +806,7 @@ def reconcile_incentive_payments(evidence):
         "excluded_external_credit_ids": [], "duplicate_record_count": 0,
         "unresolved": [], "accrual_unresolved": [], "accruals_fully_paid": False,
         "blockers": [], "network_reads_performed": False,
+        "rounding_tolerance_units": 1,
     }
     unresolved = set()
     try:
@@ -880,7 +881,7 @@ def reconcile_incentive_payments(evidence):
                                "incentive_credit_precedes_accrual")
             amount = credit["amount_units"]
             paid_by_accrual[distribution["accrual_id"]] += amount
-            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"],
+            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"] + 1,
                                "incentive_distribution_exceeds_accrual")
             allocated_credits.add(distribution["credit_id"])
             bucket = ("portfolio_paid" if accrual["condition_id"] is None else
@@ -920,9 +921,9 @@ def reconcile_incentive_payments(evidence):
                 else:
                     amount = accrual["amount_units"]
                     totals[programme]["accrued"] += amount
-                    totals[programme]["unpaid_accrued"] += amount - paid
-                    state = "PAID" if paid == amount else "PARTIALLY_PAID" if paid else "UNPAID"
-                    if paid != amount:
+                    totals[programme]["unpaid_accrued"] += max(0, amount - paid)
+                    state = "PAID" if amount <= paid <= amount + 1 else "PARTIALLY_PAID" if paid else "UNPAID"
+                    if not amount <= paid <= amount + 1:
                         fully_paid = False
             result["accrual_states"].append({
                 "accrual_id": accrual_id, "programme": programme, "condition_id": condition,
