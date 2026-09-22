@@ -1,0 +1,997 @@
+market,date,unit,stratum,capture_evidence,wu,label_source,venue_band,venue_source,asos,asos_samples,asos_hours,metar,metar_samples,metar_hours,metar_with_6h,metar_with_6h_samples,metar_with_6h_hours,metar_hourly,metar_hourly_samples,metar_hourly_hours,nws,nws_samples,nws_hours,nws_hourly,nws_hourly_samples,nws_hourly_hours
+toronto,2026-07-01,C,pre,True,36,daily_summary,36 C,frozen CSV reconciliation,,0,0,36,29,24,36,29,24,36,24,24,,0,0,,0,0
+toronto,2026-07-02,C,pre,True,34,daily_summary,34 C,frozen CSV reconciliation,,0,0,34,24,24,34,24,24,34,24,24,,0,0,,0,0
+toronto,2026-07-03,C,pre,True,35,daily_summary,35 C,frozen CSV reconciliation,,0,0,35,27,24,35,27,24,35,25,24,,0,0,,0,0
+toronto,2026-07-04,C,pre,True,27,daily_summary,27 C or below,frozen CSV reconciliation,,0,0,27,50,24,27,50,24,27,25,24,,0,0,,0,0
+toronto,2026-07-05,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-06,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-07,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,26,24,27,26,24,27,24,24,,0,0,,0,0
+toronto,2026-07-08,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,24,24,29,24,24,29,24,24,,0,0,,0,0
+toronto,2026-07-09,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,33,24,29,33,24,29,24,24,,0,0,,0,0
+toronto,2026-07-10,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-11,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-12,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-07-13,C,pre,True,33,daily_summary,33 C,frozen CSV reconciliation,,0,0,33,24,24,33,24,24,33,24,24,,0,0,,0,0
+toronto,2026-07-14,C,pre,True,36,daily_summary,36 C,frozen CSV reconciliation,,0,0,36,24,24,36,24,24,36,24,24,,0,0,,0,0
+toronto,2026-07-15,C,pre,True,28,daily_summary,28 C or below,frozen CSV reconciliation,,0,0,28,30,24,28,30,24,28,24,24,,0,0,,0,0
+toronto,2026-07-16,C,pre,True,30,daily_summary,30 C,frozen CSV reconciliation,,0,0,30,26,24,30,26,24,30,24,24,,0,0,,0,0
+toronto,2026-07-17,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-18,C,pre,True,28,daily_summary,28 C,frozen CSV reconciliation,,0,0,28,31,24,28,31,24,28,24,24,,0,0,,0,0
+toronto,2026-07-19,C,pre,True,25,daily_summary,25 C,frozen CSV reconciliation,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-07-20,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-07-21,C,pre,True,24,daily_summary,24 C,frozen CSV reconciliation,,0,0,24,49,24,24,49,24,24,26,24,,0,0,,0,0
+toronto,2026-07-22,C,pre,True,22,daily_summary,22 C,frozen CSV reconciliation,,0,0,22,27,24,22,27,24,22,25,24,,0,0,,0,0
+toronto,2026-07-23,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,25,24,26,25,24,25,24,24,,0,0,,0,0
+toronto,2026-07-24,C,pre,True,25,daily_summary,25 C,frozen CSV reconciliation,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-07-25,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-07-26,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,26,24,27,26,24,27,24,24,,0,0,,0,0
+toronto,2026-07-27,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,29,24,29,29,24,29,24,24,,0,0,,0,0
+toronto,2026-07-28,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,39,24,27,39,24,27,24,24,,0,0,,0,0
+toronto,2026-07-29,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-07-30,C,pre,True,28,daily_summary,28 C,frozen CSV reconciliation,,0,0,28,24,24,28,24,24,28,24,24,,0,0,,0,0
+toronto,2026-07-31,C,pre,True,30,daily_summary,30 C,frozen CSV reconciliation,,0,0,30,24,24,30,24,24,30,24,24,,0,0,,0,0
+toronto,2026-08-01,C,pre,True,28,daily_summary,28 C,frozen CSV reconciliation,,0,0,28,25,24,28,25,24,28,24,24,,0,0,,0,0
+toronto,2026-08-02,C,pre,True,24,daily_summary,24 C,frozen CSV reconciliation,,0,0,24,52,24,24,52,24,24,26,24,,0,0,,0,0
+toronto,2026-08-03,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,31,24,27,31,24,27,25,24,,0,0,,0,0
+toronto,2026-08-04,C,pre,True,28,daily_summary,28 C,frozen CSV reconciliation,,0,0,28,24,24,28,24,24,28,24,24,,0,0,,0,0
+toronto,2026-08-05,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,24,24,29,24,24,29,24,24,,0,0,,0,0
+toronto,2026-08-06,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,34,24,29,34,24,29,24,24,,0,0,,0,0
+toronto,2026-08-07,C,pre,True,26,daily_summary,26 C,frozen CSV reconciliation,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-08-08,C,pre,True,,none,30 C,frozen CSV reconciliation,,0,0,30,29,24,30,29,24,30,24,24,,0,0,,0,0
+toronto,2026-08-09,C,pre,True,27,daily_summary,27 C,frozen CSV reconciliation,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-08-10,C,pre,True,29,daily_summary,29 C,frozen CSV reconciliation,,0,0,29,27,24,29,27,24,29,24,24,,0,0,,0,0
+toronto,2026-08-11,C,pre,True,,none,29 C,frozen CSV reconciliation,,0,0,29,24,24,29,24,24,29,24,24,,0,0,,0,0
+toronto,2026-08-12,C,pre,False,,unavailable,,unavailable,,0,0,27,40,24,27,40,24,27,25,24,,0,0,,0,0
+toronto,2026-08-13,C,pre,False,,unavailable,,unavailable,,0,0,28,25,24,28,25,24,28,24,24,,0,0,,0,0
+toronto,2026-08-14,C,pre,False,,unavailable,,unavailable,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-08-15,C,pre,False,,unavailable,,unavailable,,0,0,24,24,24,24,24,24,24,24,24,,0,0,,0,0
+toronto,2026-08-16,C,pre,False,,unavailable,,unavailable,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-08-17,C,pre,False,,unavailable,,unavailable,,0,0,26,24,24,26,24,24,26,24,24,,0,0,,0,0
+toronto,2026-08-18,C,pre,False,,unavailable,,unavailable,,0,0,27,24,24,27,24,24,27,24,24,,0,0,,0,0
+toronto,2026-08-19,C,pre,False,,unavailable,,unavailable,,0,0,27,25,24,27,25,24,27,24,24,,0,0,,0,0
+toronto,2026-08-20,C,pre,False,,unavailable,,unavailable,,0,0,24,25,24,24,25,24,24,24,24,,0,0,,0,0
+toronto,2026-08-21,C,pre,False,,unavailable,,unavailable,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-08-22,C,pre,False,,unavailable,,unavailable,,0,0,25,36,24,25,36,24,25,24,24,,0,0,,0,0
+toronto,2026-08-23,C,post,False,,unavailable,,unavailable,,0,0,20,46,24,20,46,24,20,25,24,,0,0,,0,0
+toronto,2026-08-24,C,post,False,,unavailable,,unavailable,,0,0,22,29,24,22,29,24,22,24,24,,0,0,,0,0
+toronto,2026-08-25,C,post,False,,unavailable,,unavailable,,0,0,25,25,24,25,25,24,25,24,24,,0,0,,0,0
+toronto,2026-08-26,C,post,False,,unavailable,,unavailable,,0,0,24,24,24,24,24,24,24,24,24,,0,0,,0,0
+toronto,2026-08-27,C,post,False,,unavailable,,unavailable,,0,0,26,25,24,26,25,24,26,24,24,,0,0,,0,0
+toronto,2026-08-28,C,post,False,,unavailable,,unavailable,,0,0,22,24,24,22,24,24,22,24,24,,0,0,,0,0
+toronto,2026-08-29,C,post,False,,unavailable,,unavailable,,0,0,26,25,24,26,25,24,26,24,24,,0,0,,0,0
+toronto,2026-08-30,C,post,False,,unavailable,,unavailable,,0,0,22,31,24,22,31,24,22,24,24,,0,0,,0,0
+toronto,2026-08-31,C,post,False,,unavailable,,unavailable,,0,0,21,43,24,21,43,24,21,24,24,,0,0,,0,0
+toronto,2026-09-01,C,post,False,,unavailable,,unavailable,,0,0,27,34,24,27,34,24,27,24,24,,0,0,,0,0
+toronto,2026-09-02,C,post,False,,unavailable,,unavailable,,0,0,28,60,24,28,60,24,27,25,24,,0,0,,0,0
+toronto,2026-09-03,C,post,False,,unavailable,,unavailable,,0,0,29,24,24,29,24,24,29,24,24,,0,0,,0,0
+toronto,2026-09-04,C,post,False,,unavailable,,unavailable,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-09-05,C,post,False,,unavailable,,unavailable,,0,0,24,24,24,24,24,24,24,24,24,,0,0,,0,0
+toronto,2026-09-06,C,post,False,,unavailable,,unavailable,,0,0,22,24,24,22,24,24,22,24,24,,0,0,,0,0
+toronto,2026-09-07,C,post,False,,unavailable,,unavailable,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-09-08,C,post,False,,unavailable,,unavailable,,0,0,25,24,24,25,24,24,25,24,24,,0,0,,0,0
+toronto,2026-09-09,C,post,False,,unavailable,,unavailable,,0,0,24,27,24,24,27,24,24,25,24,,0,0,,0,0
+toronto,2026-09-10,C,post,False,,unavailable,,unavailable,,0,0,25,27,24,25,27,24,25,24,24,,0,0,,0,0
+toronto,2026-09-11,C,post,False,,unavailable,,unavailable,,0,0,23,24,24,23,24,24,23,24,24,,0,0,,0,0
+toronto,2026-09-12,C,post,False,,unavailable,,unavailable,,0,0,25,25,24,25,25,24,25,24,24,,0,0,,0,0
+toronto,2026-09-13,C,post,False,,unavailable,,unavailable,,0,0,28,27,24,28,27,24,28,24,24,,0,0,,0,0
+toronto,2026-09-14,C,post,False,,unavailable,,unavailable,,0,0,19,24,24,19,24,24,19,24,24,,0,0,,0,0
+toronto,2026-09-15,C,post,False,,unavailable,,unavailable,,0,0,23,29,24,23,29,24,23,24,24,23,11,9,23,9,9
+toronto,2026-09-16,C,post,False,,unavailable,,unavailable,,0,0,25,24,24,25,24,24,25,24,24,25,24,24,25,24,24
+toronto,2026-09-17,C,post,False,,unavailable,,unavailable,,0,0,24,29,24,24,29,24,24,24,24,24,29,24,24,24,24
+toronto,2026-09-18,C,post,False,,unavailable,,unavailable,,0,0,21,24,24,21,24,24,21,24,24,21,24,24,21,24,24
+toronto,2026-09-19,C,post,False,,unavailable,,unavailable,,0,0,18,24,24,18,24,24,18,24,24,18,24,24,18,24,24
+toronto,2026-09-20,C,post,False,,unavailable,,unavailable,,0,0,21,24,24,21,24,24,21,24,24,21,24,24,21,24,24
+toronto,2026-09-21,C,post,False,,unavailable,,unavailable,,0,0,15,24,24,15,24,24,15,24,24,15,24,24,15,24,24
+nyc,2026-07-01,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,89,720,13,92,25,24,93,25,24,92,24,24,,0,0,,0,0
+nyc,2026-07-02,F,pre,True,102,daily_summary,102-103 F,frozen CSV reconciliation,104,1232,21,102,25,24,104,25,24,102,24,24,,0,0,,0,0
+nyc,2026-07-03,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,94,708,13,100,25,24,101,25,24,100,24,24,,0,0,,0,0
+nyc,2026-07-04,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,97,1440,24,97,28,24,97,28,24,97,24,24,,0,0,,0,0
+nyc,2026-07-05,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,78,1190,21,78,31,24,78,31,24,78,26,24,,0,0,,0,0
+nyc,2026-07-06,F,pre,True,71,daily_summary,70-71 F,frozen CSV reconciliation,72,151,3,71,42,24,71,42,24,70,27,24,,0,0,,0,0
+nyc,2026-07-07,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,73,781,15,72,31,24,72,31,24,72,26,24,,0,0,,0,0
+nyc,2026-07-08,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,77,740,13,87,26,24,87,26,24,87,24,24,,0,0,,0,0
+nyc,2026-07-09,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,89,1187,21,87,27,24,89,27,24,87,24,24,,0,0,,0,0
+nyc,2026-07-10,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,90,1436,24,88,25,24,89,25,24,88,24,24,,0,0,,0,0
+nyc,2026-07-11,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,85,651,11,82,24,24,83,24,24,82,24,24,,0,0,,0,0
+nyc,2026-07-12,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,,0,0,85,25,24,85,25,24,85,24,24,,0,0,,0,0
+nyc,2026-07-13,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,79,106,2,85,25,24,85,25,24,85,24,24,,0,0,,0,0
+nyc,2026-07-14,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,84,614,11,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+nyc,2026-07-15,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,30,24,98,30,24,98,25,24,,0,0,,0,0
+nyc,2026-07-16,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,88,814,15,88,26,24,88,26,24,88,24,24,,0,0,,0,0
+nyc,2026-07-17,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,81,626,11,87,24,24,88,24,24,87,24,24,,0,0,,0,0
+nyc,2026-07-18,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,81,801,15,80,32,24,80,32,24,80,24,24,,0,0,,0,0
+nyc,2026-07-19,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,83,1440,24,81,25,24,83,25,24,80,24,24,,0,0,,0,0
+nyc,2026-07-20,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,73,132,3,82,24,24,83,24,24,82,24,24,,0,0,,0,0
+nyc,2026-07-21,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,84,789,15,82,32,24,83,32,24,82,25,24,,0,0,,0,0
+nyc,2026-07-22,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,82,721,13,88,31,24,89,31,24,88,24,24,,0,0,,0,0
+nyc,2026-07-23,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,82,1211,21,81,24,24,81,24,24,81,24,24,,0,0,,0,0
+nyc,2026-07-24,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,82,1197,21,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+nyc,2026-07-25,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1440,24,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+nyc,2026-07-26,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,86,1204,21,82,24,24,84,24,24,82,24,24,,0,0,,0,0
+nyc,2026-07-27,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,85,876,16,84,27,23,85,27,23,84,23,23,,0,0,,0,0
+nyc,2026-07-28,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,75,66,2,80,31,24,81,31,24,80,25,24,,0,0,,0,0
+nyc,2026-07-29,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,84,1134,19,81,35,24,83,35,24,81,25,24,,0,0,,0,0
+nyc,2026-07-30,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,77,796,15,76,32,24,76,32,24,76,25,24,,0,0,,0,0
+nyc,2026-07-31,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,87,1202,21,84,24,24,86,24,24,84,24,24,,0,0,,0,0
+nyc,2026-08-01,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,88,1440,24,87,24,24,87,24,24,87,24,24,,0,0,,0,0
+nyc,2026-08-02,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,86,1200,21,85,27,24,86,27,24,85,24,24,,0,0,,0,0
+nyc,2026-08-03,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,79,651,11,84,36,24,86,36,24,84,24,24,,0,0,,0,0
+nyc,2026-08-04,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,86,554,10,84,25,24,85,25,24,84,24,24,,0,0,,0,0
+nyc,2026-08-05,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,82,658,11,84,26,24,85,26,24,84,24,24,,0,0,,0,0
+nyc,2026-08-06,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,1012,18,90,31,24,91,31,24,90,25,24,,0,0,,0,0
+nyc,2026-08-07,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1122,19,93,30,24,94,30,24,93,24,24,,0,0,,0,0
+nyc,2026-08-08,F,pre,True,,none,90-91 F,frozen CSV reconciliation,91,1030,18,91,26,24,91,26,24,91,24,24,,0,0,,0,0
+nyc,2026-08-09,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,83,246,5,91,25,24,91,25,24,91,24,24,,0,0,,0,0
+nyc,2026-08-10,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1440,24,91,26,24,91,26,24,91,24,24,,0,0,,0,0
+nyc,2026-08-11,F,pre,True,,none,86-87 F,frozen CSV reconciliation,82,724,13,87,27,24,88,27,24,86,24,24,,0,0,,0,0
+nyc,2026-08-12,F,pre,False,,unavailable,,unavailable,87,1185,21,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+nyc,2026-08-13,F,pre,False,,unavailable,,unavailable,87,1205,21,86,28,24,86,28,24,86,25,24,,0,0,,0,0
+nyc,2026-08-14,F,pre,False,,unavailable,,unavailable,81,628,11,86,24,24,86,24,24,86,24,24,,0,0,,0,0
+nyc,2026-08-15,F,pre,False,,unavailable,,unavailable,85,720,13,84,24,24,85,24,24,84,24,24,,0,0,,0,0
+nyc,2026-08-16,F,pre,False,,unavailable,,unavailable,83,1052,18,81,25,24,82,25,24,81,24,24,,0,0,,0,0
+nyc,2026-08-17,F,pre,False,,unavailable,,unavailable,81,682,13,80,34,24,80,34,24,79,25,24,,0,0,,0,0
+nyc,2026-08-18,F,pre,False,,unavailable,,unavailable,86,1211,21,85,26,24,85,26,24,85,24,24,,0,0,,0,0
+nyc,2026-08-19,F,pre,False,,unavailable,,unavailable,89,1436,24,87,24,24,88,24,24,87,24,24,,0,0,,0,0
+nyc,2026-08-20,F,pre,False,,unavailable,,unavailable,86,1171,21,85,37,24,86,37,24,85,24,24,,0,0,,0,0
+nyc,2026-08-21,F,pre,False,,unavailable,,unavailable,81,1440,24,78,25,24,79,25,24,78,24,24,,0,0,,0,0
+nyc,2026-08-22,F,pre,False,,unavailable,,unavailable,72,720,13,77,24,24,77,24,24,77,24,24,,0,0,,0,0
+nyc,2026-08-23,F,post,False,,unavailable,,unavailable,84,1440,24,83,34,24,84,34,24,83,25,24,,0,0,,0,0
+nyc,2026-08-24,F,post,False,,unavailable,,unavailable,82,839,16,81,25,24,82,25,24,81,24,24,,0,0,,0,0
+nyc,2026-08-25,F,post,False,,unavailable,,unavailable,75,79,2,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+nyc,2026-08-26,F,post,False,,unavailable,,unavailable,83,1127,19,82,25,24,82,25,24,82,24,24,,0,0,,0,0
+nyc,2026-08-27,F,post,False,,unavailable,,unavailable,,0,0,77,28,24,79,28,24,77,24,24,,0,0,,0,0
+nyc,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,84,24,24,85,24,24,84,24,24,,0,0,,0,0
+nyc,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,78,24,24,79,24,24,78,24,24,,0,0,,0,0
+nyc,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,81,24,24,82,24,24,81,24,24,,0,0,,0,0
+nyc,2026-08-31,F,post,False,,unavailable,,unavailable,,0,0,77,24,24,78,24,24,77,24,24,,0,0,,0,0
+nyc,2026-09-01,F,post,False,,unavailable,,unavailable,80,1048,18,80,44,24,80,44,24,80,26,24,,0,0,,0,0
+nyc,2026-09-02,F,post,False,,unavailable,,unavailable,75,1200,21,74,35,24,74,35,24,74,25,24,,0,0,,0,0
+nyc,2026-09-03,F,post,False,,unavailable,,unavailable,79,647,11,87,34,24,88,34,24,87,25,24,,0,0,,0,0
+nyc,2026-09-04,F,post,False,,unavailable,,unavailable,86,720,13,84,24,24,86,24,24,84,24,24,,0,0,,0,0
+nyc,2026-09-05,F,post,False,,unavailable,,unavailable,81,720,13,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+nyc,2026-09-06,F,post,False,,unavailable,,unavailable,78,554,10,75,26,24,77,26,24,75,25,24,,0,0,,0,0
+nyc,2026-09-07,F,post,False,,unavailable,,unavailable,80,1205,21,79,24,24,79,24,24,79,24,24,,0,0,,0,0
+nyc,2026-09-08,F,post,False,,unavailable,,unavailable,75,242,5,80,26,24,80,26,24,80,24,24,,0,0,,0,0
+nyc,2026-09-09,F,post,False,,unavailable,,unavailable,84,1194,21,83,24,24,84,24,24,83,24,24,,0,0,,0,0
+nyc,2026-09-10,F,post,False,,unavailable,,unavailable,88,1435,24,87,24,24,87,24,24,87,24,24,,0,0,,0,0
+nyc,2026-09-11,F,post,False,,unavailable,,unavailable,81,961,18,80,24,24,80,24,24,80,24,24,,0,0,,0,0
+nyc,2026-09-12,F,post,False,,unavailable,,unavailable,80,1440,24,78,24,23,79,24,23,78,24,23,,0,0,,0,0
+nyc,2026-09-13,F,post,False,,unavailable,,unavailable,82,1438,24,81,33,24,82,33,24,81,26,24,,0,0,,0,0
+nyc,2026-09-14,F,post,False,,unavailable,,unavailable,78,1173,21,77,24,24,77,24,24,77,24,24,,0,0,,0,0
+nyc,2026-09-15,F,post,False,,unavailable,,unavailable,74,1436,24,72,25,24,73,25,24,72,24,24,72,115,10,72,19,10
+nyc,2026-09-16,F,post,False,,unavailable,,unavailable,79,1203,21,78,24,24,79,24,24,78,24,24,79,312,24,79,48,24
+nyc,2026-09-17,F,post,False,,unavailable,,unavailable,86,1440,24,84,24,24,85,24,24,84,24,24,84,312,24,84,48,24
+nyc,2026-09-18,F,post,False,,unavailable,,unavailable,82,1440,24,81,27,24,81,27,24,81,24,24,81,315,24,81,48,24
+nyc,2026-09-19,F,post,False,,unavailable,,unavailable,71,730,13,70,24,24,71,24,24,70,24,24,72,312,24,70,48,24
+nyc,2026-09-20,F,post,False,,unavailable,,unavailable,72,1439,24,72,37,24,72,37,24,71,26,24,72,322,24,72,49,24
+nyc,2026-09-21,F,post,False,,unavailable,,unavailable,69,97,2,70,28,24,71,28,24,70,24,24,72,316,24,72,48,24
+atlanta,2026-07-01,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1242,21,95,26,24,96,26,24,95,24,24,,0,0,,0,0
+atlanta,2026-07-02,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1416,24,98,24,24,98,24,24,98,24,24,,0,0,,0,0
+atlanta,2026-07-03,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1440,24,93,28,24,95,28,24,93,24,24,,0,0,,0,0
+atlanta,2026-07-04,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1438,24,93,30,24,93,30,24,93,26,24,,0,0,,0,0
+atlanta,2026-07-05,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1440,24,93,28,24,94,28,24,93,24,24,,0,0,,0,0
+atlanta,2026-07-06,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,1438,24,90,24,24,91,24,24,90,24,24,,0,0,,0,0
+atlanta,2026-07-07,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+atlanta,2026-07-08,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,907,17,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+atlanta,2026-07-09,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,95,1392,24,95,27,24,95,27,24,95,24,24,,0,0,,0,0
+atlanta,2026-07-10,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,92,30,24,94,30,24,92,25,24,,0,0,,0,0
+atlanta,2026-07-11,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,30,24,94,30,24,92,24,24,,0,0,,0,0
+atlanta,2026-07-12,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,92,1440,24,92,28,24,92,28,24,92,24,24,,0,0,,0,0
+atlanta,2026-07-13,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,83,1436,24,82,32,24,83,32,24,82,25,24,,0,0,,0,0
+atlanta,2026-07-14,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,85,1440,24,84,39,24,85,39,24,84,24,24,,0,0,,0,0
+atlanta,2026-07-15,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,90,1440,24,89,28,24,90,28,24,89,24,24,,0,0,,0,0
+atlanta,2026-07-16,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1196,21,92,26,24,93,26,24,92,24,24,,0,0,,0,0
+atlanta,2026-07-17,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,92,1223,21,89,30,24,91,30,24,89,24,24,,0,0,,0,0
+atlanta,2026-07-18,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1355,23,93,28,24,93,28,24,93,24,24,,0,0,,0,0
+atlanta,2026-07-19,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1438,24,91,30,24,91,30,24,91,24,24,,0,0,,0,0
+atlanta,2026-07-20,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,93,24,24,93,24,24,93,24,24,,0,0,,0,0
+atlanta,2026-07-21,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,1440,24,90,26,24,91,26,24,90,24,24,,0,0,,0,0
+atlanta,2026-07-22,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,89,1121,20,88,33,24,89,33,24,88,24,24,,0,0,,0,0
+atlanta,2026-07-23,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,90,1440,24,89,26,24,90,26,24,89,24,24,,0,0,,0,0
+atlanta,2026-07-24,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,89,1438,24,88,33,24,88,33,24,88,24,24,,0,0,,0,0
+atlanta,2026-07-25,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,90,1440,24,88,38,24,89,38,24,88,24,24,,0,0,,0,0
+atlanta,2026-07-26,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1031,19,91,35,24,92,35,24,91,25,24,,0,0,,0,0
+atlanta,2026-07-27,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1370,23,91,28,24,91,28,24,91,23,23,,0,0,,0,0
+atlanta,2026-07-28,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,24,24,94,24,24,94,24,24,,0,0,,0,0
+atlanta,2026-07-29,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,90,1109,20,89,31,24,89,31,24,89,25,24,,0,0,,0,0
+atlanta,2026-07-30,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,90,1440,24,89,24,24,90,24,24,89,24,24,,0,0,,0,0
+atlanta,2026-07-31,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,1440,24,90,24,24,91,24,24,90,24,24,,0,0,,0,0
+atlanta,2026-08-01,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,1440,24,86,30,24,86,30,24,86,24,24,,0,0,,0,0
+atlanta,2026-08-02,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1440,24,91,34,24,92,34,24,91,25,24,,0,0,,0,0
+atlanta,2026-08-03,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,1440,24,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+atlanta,2026-08-04,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,86,1440,24,84,27,24,86,27,24,84,24,24,,0,0,,0,0
+atlanta,2026-08-05,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,90,1440,24,89,31,24,90,31,24,89,24,24,,0,0,,0,0
+atlanta,2026-08-06,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,89,1440,24,88,32,24,89,32,24,88,24,24,,0,0,,0,0
+atlanta,2026-08-07,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,87,1440,24,87,31,24,87,31,24,87,24,24,,0,0,,0,0
+atlanta,2026-08-08,F,pre,True,,none,90-91 F,frozen CSV reconciliation,92,1440,24,91,29,24,92,29,24,91,24,24,,0,0,,0,0
+atlanta,2026-08-09,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1438,24,91,24,24,93,24,24,91,24,24,,0,0,,0,0
+atlanta,2026-08-10,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,94,1440,24,94,26,24,94,26,24,92,24,24,,0,0,,0,0
+atlanta,2026-08-11,F,pre,True,,none,92-93 F,frozen CSV reconciliation,94,1440,24,93,31,24,93,31,24,90,25,24,,0,0,,0,0
+atlanta,2026-08-12,F,pre,False,,unavailable,,unavailable,93,1253,21,92,31,24,93,31,24,92,24,24,,0,0,,0,0
+atlanta,2026-08-13,F,pre,False,,unavailable,,unavailable,96,1366,23,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+atlanta,2026-08-14,F,pre,False,,unavailable,,unavailable,96,1440,24,94,30,24,95,30,24,94,24,24,,0,0,,0,0
+atlanta,2026-08-15,F,pre,False,,unavailable,,unavailable,97,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+atlanta,2026-08-16,F,pre,False,,unavailable,,unavailable,96,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+atlanta,2026-08-17,F,pre,False,,unavailable,,unavailable,99,1243,21,98,29,24,98,29,24,98,25,24,,0,0,,0,0
+atlanta,2026-08-18,F,pre,False,,unavailable,,unavailable,93,1210,22,92,24,24,92,24,24,92,24,24,,0,0,,0,0
+atlanta,2026-08-19,F,pre,False,,unavailable,,unavailable,95,1440,24,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+atlanta,2026-08-20,F,pre,False,,unavailable,,unavailable,97,1139,20,97,24,24,97,24,24,97,24,24,,0,0,,0,0
+atlanta,2026-08-21,F,pre,False,,unavailable,,unavailable,94,1241,21,94,29,24,94,29,24,94,25,24,,0,0,,0,0
+atlanta,2026-08-22,F,pre,False,,unavailable,,unavailable,,0,0,93,27,24,94,27,24,93,24,24,,0,0,,0,0
+atlanta,2026-08-23,F,post,False,,unavailable,,unavailable,,0,0,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+atlanta,2026-08-24,F,post,False,,unavailable,,unavailable,,0,0,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+atlanta,2026-08-25,F,post,False,,unavailable,,unavailable,100,1364,23,92,24,24,94,24,24,92,24,24,,0,0,,0,0
+atlanta,2026-08-26,F,post,False,,unavailable,,unavailable,92,1435,24,91,26,24,91,26,24,91,24,24,,0,0,,0,0
+atlanta,2026-08-27,F,post,False,,unavailable,,unavailable,78,317,6,88,31,24,89,31,24,88,24,24,,0,0,,0,0
+atlanta,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,91,25,24,93,25,24,91,24,24,,0,0,,0,0
+atlanta,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,89,37,24,89,37,24,89,24,24,,0,0,,0,0
+atlanta,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,90,33,24,91,33,24,90,24,24,,0,0,,0,0
+atlanta,2026-08-31,F,post,False,,unavailable,,unavailable,94,897,15,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+atlanta,2026-09-01,F,post,False,,unavailable,,unavailable,94,1360,24,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+atlanta,2026-09-02,F,post,False,,unavailable,,unavailable,96,1056,19,95,24,24,95,24,24,95,24,24,,0,0,,0,0
+atlanta,2026-09-03,F,post,False,,unavailable,,unavailable,97,1357,23,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+atlanta,2026-09-04,F,post,False,,unavailable,,unavailable,95,1170,20,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+atlanta,2026-09-05,F,post,False,,unavailable,,unavailable,99,1155,21,97,30,24,97,30,24,97,25,24,,0,0,,0,0
+atlanta,2026-09-06,F,post,False,,unavailable,,unavailable,96,1435,24,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+atlanta,2026-09-07,F,post,False,,unavailable,,unavailable,84,1440,24,82,28,24,83,28,24,82,24,24,,0,0,,0,0
+atlanta,2026-09-08,F,post,False,,unavailable,,unavailable,89,1356,24,88,24,24,88,24,24,88,24,24,,0,0,,0,0
+atlanta,2026-09-09,F,post,False,,unavailable,,unavailable,90,1169,20,89,24,24,89,24,24,89,24,24,,0,0,,0,0
+atlanta,2026-09-10,F,post,False,,unavailable,,unavailable,91,1440,24,90,24,24,91,24,24,90,24,24,,0,0,,0,0
+atlanta,2026-09-11,F,post,False,,unavailable,,unavailable,89,1045,19,88,38,24,88,38,24,88,24,24,,0,0,,0,0
+atlanta,2026-09-12,F,post,False,,unavailable,,unavailable,85,1194,21,84,42,24,85,42,24,84,25,24,,0,0,,0,0
+atlanta,2026-09-13,F,post,False,,unavailable,,unavailable,91,1368,23,90,24,24,90,24,24,90,24,24,,0,0,,0,0
+atlanta,2026-09-14,F,post,False,,unavailable,,unavailable,93,1440,24,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+atlanta,2026-09-15,F,post,False,,unavailable,,unavailable,91,1440,24,90,24,24,90,24,24,90,24,24,90,115,10,90,19,10
+atlanta,2026-09-16,F,post,False,,unavailable,,unavailable,90,1440,24,88,27,24,89,27,24,88,24,24,90,315,24,88,48,24
+atlanta,2026-09-17,F,post,False,,unavailable,,unavailable,91,1438,24,89,24,24,90,24,24,89,24,24,90,311,24,90,48,24
+atlanta,2026-09-18,F,post,False,,unavailable,,unavailable,94,1435,24,93,24,24,93,24,24,93,24,24,93,311,24,93,48,24
+atlanta,2026-09-19,F,post,False,,unavailable,,unavailable,93,1440,24,91,29,24,92,29,24,91,24,24,91,315,24,91,48,24
+atlanta,2026-09-20,F,post,False,,unavailable,,unavailable,89,1440,24,88,27,24,89,27,24,88,24,24,88,315,24,88,48,24
+atlanta,2026-09-21,F,post,False,,unavailable,,unavailable,76,185,4,90,26,24,90,26,24,90,24,24,90,314,24,90,48,24
+austin,2026-07-01,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,90,883,17,96,29,24,96,29,24,96,24,24,,0,0,,0,0
+austin,2026-07-02,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,97,1309,24,95,29,24,96,29,24,95,24,24,,0,0,,0,0
+austin,2026-07-03,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1265,24,97,32,24,98,32,24,97,24,24,,0,0,,0,0
+austin,2026-07-04,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,82,351,6,96,28,24,97,28,24,96,24,24,,0,0,,0,0
+austin,2026-07-05,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,631,11,95,29,24,96,29,24,95,24,24,,0,0,,0,0
+austin,2026-07-06,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,98,1366,24,98,25,24,98,25,24,98,24,24,,0,0,,0,0
+austin,2026-07-07,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,92,935,17,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+austin,2026-07-08,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1418,24,98,26,24,99,26,24,98,24,24,,0,0,,0,0
+austin,2026-07-09,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1428,24,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+austin,2026-07-10,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,96,873,16,94,27,24,95,27,24,94,24,24,,0,0,,0,0
+austin,2026-07-11,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,90,739,13,90,31,24,90,31,24,90,25,24,,0,0,,0,0
+austin,2026-07-12,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,87,856,15,95,29,24,96,29,24,95,25,24,,0,0,,0,0
+austin,2026-07-13,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,81,637,13,93,26,24,94,26,24,93,24,24,,0,0,,0,0
+austin,2026-07-14,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1006,17,79,38,24,80,38,24,79,24,24,,0,0,,0,0
+austin,2026-07-15,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,78,771,15,80,33,22,80,33,22,80,23,22,,0,0,,0,0
+austin,2026-07-16,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,81,538,10,89,19,16,90,19,16,89,16,16,,0,0,,0,0
+austin,2026-07-17,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,84,184,4,94,27,24,94,27,24,94,24,24,,0,0,,0,0
+austin,2026-07-18,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1403,24,94,26,24,95,26,24,94,24,24,,0,0,,0,0
+austin,2026-07-19,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,95,1201,23,95,26,24,95,26,24,95,24,24,,0,0,,0,0
+austin,2026-07-20,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,78,295,5,97,26,24,97,26,24,97,24,24,,0,0,,0,0
+austin,2026-07-21,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,100,31,24,101,31,24,100,24,24,,0,0,,0,0
+austin,2026-07-22,F,pre,True,103,daily_summary,102-103 F,frozen CSV reconciliation,,0,0,103,24,24,104,24,24,103,24,24,,0,0,,0,0
+austin,2026-07-23,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,24,24,100,24,24,98,24,24,,0,0,,0,0
+austin,2026-07-24,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,95,28,24,96,28,24,95,25,24,,0,0,,0,0
+austin,2026-07-25,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,26,24,97,26,24,96,24,24,,0,0,,0,0
+austin,2026-07-26,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,26,24,97,26,24,96,24,24,,0,0,,0,0
+austin,2026-07-27,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1273,22,98,25,23,98,25,23,98,23,23,,0,0,,0,0
+austin,2026-07-28,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,100,1374,24,97,29,24,99,29,24,97,24,24,,0,0,,0,0
+austin,2026-07-29,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,741,15,98,28,24,99,28,24,98,24,24,,0,0,,0,0
+austin,2026-07-30,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,101,657,13,100,27,24,101,27,24,100,24,24,,0,0,,0,0
+austin,2026-07-31,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,100,1173,21,100,29,24,100,29,24,100,24,24,,0,0,,0,0
+austin,2026-08-01,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1358,24,95,26,24,96,26,24,95,24,24,,0,0,,0,0
+austin,2026-08-02,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,101,1334,24,100,24,24,100,24,24,100,24,24,,0,0,,0,0
+austin,2026-08-03,F,pre,True,102,daily_summary,102-103 F,frozen CSV reconciliation,103,1343,24,102,24,24,102,24,24,102,24,24,,0,0,,0,0
+austin,2026-08-04,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,86,495,10,101,28,24,101,28,24,101,24,24,,0,0,,0,0
+austin,2026-08-05,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,101,1055,18,99,28,24,100,28,24,99,24,24,,0,0,,0,0
+austin,2026-08-06,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,101,984,19,100,27,24,101,27,24,100,24,24,,0,0,,0,0
+austin,2026-08-07,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,99,862,16,99,28,24,100,28,24,99,24,24,,0,0,,0,0
+austin,2026-08-08,F,pre,True,,none,98-99 F,frozen CSV reconciliation,92,720,13,98,27,24,99,27,24,98,24,24,,0,0,,0,0
+austin,2026-08-09,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,99,29,24,100,29,24,99,24,24,,0,0,,0,0
+austin,2026-08-10,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,30,24,99,30,24,97,25,24,,0,0,,0,0
+austin,2026-08-11,F,pre,True,,none,100-101 F,frozen CSV reconciliation,101,1083,19,100,28,24,101,28,24,100,24,24,,0,0,,0,0
+austin,2026-08-12,F,pre,False,,unavailable,,unavailable,102,1396,24,101,25,24,102,25,24,101,24,24,,0,0,,0,0
+austin,2026-08-13,F,pre,False,,unavailable,,unavailable,103,1387,24,102,26,24,102,26,24,102,24,24,,0,0,,0,0
+austin,2026-08-14,F,pre,False,,unavailable,,unavailable,98,778,14,97,29,24,98,29,24,97,24,24,,0,0,,0,0
+austin,2026-08-15,F,pre,False,,unavailable,,unavailable,104,1134,19,102,26,24,103,26,24,102,24,24,,0,0,,0,0
+austin,2026-08-16,F,pre,False,,unavailable,,unavailable,102,1061,18,102,28,24,102,28,24,102,24,24,,0,0,,0,0
+austin,2026-08-17,F,pre,False,,unavailable,,unavailable,84,230,4,103,24,24,104,24,24,103,24,24,,0,0,,0,0
+austin,2026-08-18,F,pre,False,,unavailable,,unavailable,102,720,13,101,24,24,102,24,24,101,24,24,,0,0,,0,0
+austin,2026-08-19,F,pre,False,,unavailable,,unavailable,92,142,4,102,24,24,102,24,24,102,24,24,,0,0,,0,0
+austin,2026-08-20,F,pre,False,,unavailable,,unavailable,83,78,3,103,26,24,103,26,24,103,24,24,,0,0,,0,0
+austin,2026-08-21,F,pre,False,,unavailable,,unavailable,105,720,13,104,24,24,104,24,24,104,24,24,,0,0,,0,0
+austin,2026-08-22,F,pre,False,,unavailable,,unavailable,,0,0,105,24,24,107,24,24,105,24,24,,0,0,,0,0
+austin,2026-08-23,F,post,False,,unavailable,,unavailable,106,669,12,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+austin,2026-08-24,F,post,False,,unavailable,,unavailable,105,1380,24,104,24,24,104,24,24,104,24,24,,0,0,,0,0
+austin,2026-08-25,F,post,False,,unavailable,,unavailable,103,1319,23,102,24,24,103,24,24,102,24,24,,0,0,,0,0
+austin,2026-08-26,F,post,False,,unavailable,,unavailable,104,1352,24,102,24,24,103,24,24,102,24,24,,0,0,,0,0
+austin,2026-08-27,F,post,False,,unavailable,,unavailable,105,979,17,103,25,24,104,25,24,103,24,24,,0,0,,0,0
+austin,2026-08-28,F,post,False,,unavailable,,unavailable,102,720,13,101,31,24,102,31,24,101,25,24,,0,0,,0,0
+austin,2026-08-29,F,post,False,,unavailable,,unavailable,100,1283,23,99,27,24,100,27,24,99,25,24,,0,0,,0,0
+austin,2026-08-30,F,post,False,,unavailable,,unavailable,101,680,14,99,32,24,100,32,24,99,24,24,,0,0,,0,0
+austin,2026-08-31,F,post,False,,unavailable,,unavailable,,0,0,99,28,24,101,28,24,99,24,24,,0,0,,0,0
+austin,2026-09-01,F,post,False,,unavailable,,unavailable,101,720,13,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+austin,2026-09-02,F,post,False,,unavailable,,unavailable,102,720,13,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+austin,2026-09-03,F,post,False,,unavailable,,unavailable,101,811,15,99,24,23,99,24,23,99,23,23,,0,0,,0,0
+austin,2026-09-04,F,post,False,,unavailable,,unavailable,84,576,13,95,27,24,95,27,24,95,24,24,,0,0,,0,0
+austin,2026-09-05,F,post,False,,unavailable,,unavailable,101,1396,24,100,31,24,100,31,24,100,25,24,,0,0,,0,0
+austin,2026-09-06,F,post,False,,unavailable,,unavailable,96,1366,24,96,27,24,96,27,24,96,25,24,,0,0,,0,0
+austin,2026-09-07,F,post,False,,unavailable,,unavailable,99,832,14,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+austin,2026-09-08,F,post,False,,unavailable,,unavailable,102,929,18,100,24,24,102,24,24,100,24,24,,0,0,,0,0
+austin,2026-09-09,F,post,False,,unavailable,,unavailable,100,1406,24,99,28,24,100,28,24,99,24,24,,0,0,,0,0
+austin,2026-09-10,F,post,False,,unavailable,,unavailable,101,937,17,100,24,24,100,24,24,100,24,24,,0,0,,0,0
+austin,2026-09-11,F,post,False,,unavailable,,unavailable,104,1241,22,102,33,24,103,33,24,102,24,24,,0,0,,0,0
+austin,2026-09-12,F,post,False,,unavailable,,unavailable,102,953,17,100,28,24,101,28,24,100,24,24,,0,0,,0,0
+austin,2026-09-13,F,post,False,,unavailable,,unavailable,98,649,13,100,29,24,101,29,24,100,24,24,,0,0,,0,0
+austin,2026-09-14,F,post,False,,unavailable,,unavailable,102,883,19,101,28,24,101,28,24,101,24,24,,0,0,,0,0
+austin,2026-09-15,F,post,False,,unavailable,,unavailable,103,491,10,102,28,24,102,28,24,102,24,24,102,128,11,102,21,11
+austin,2026-09-16,F,post,False,,unavailable,,unavailable,100,1389,24,99,31,24,99,31,24,99,24,24,99,318,24,99,48,24
+austin,2026-09-17,F,post,False,,unavailable,,unavailable,98,1309,23,96,25,24,97,25,24,96,24,24,97,313,24,97,48,24
+austin,2026-09-18,F,post,False,,unavailable,,unavailable,99,1440,24,97,26,24,98,26,24,97,24,24,99,313,24,97,48,24
+austin,2026-09-19,F,post,False,,unavailable,,unavailable,98,1398,24,97,24,24,97,24,24,97,24,24,97,312,24,97,48,24
+austin,2026-09-20,F,post,False,,unavailable,,unavailable,99,650,12,96,24,24,98,24,24,96,24,24,99,312,24,97,48,24
+austin,2026-09-21,F,post,False,,unavailable,,unavailable,,0,0,99,24,24,101,24,24,99,24,24,100,312,24,99,48,24
+chicago,2026-07-01,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,95,1221,22,95,24,24,95,24,24,95,24,24,,0,0,,0,0
+chicago,2026-07-02,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,35,24,95,35,24,94,26,24,,0,0,,0,0
+chicago,2026-07-03,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,88,1440,24,86,47,24,88,47,24,86,24,24,,0,0,,0,0
+chicago,2026-07-04,F,pre,True,83,daily_summary,82-83 F,frozen CSV reconciliation,84,1268,22,83,42,24,83,42,24,83,26,24,,0,0,,0,0
+chicago,2026-07-05,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,76,1207,22,76,38,24,76,38,24,76,24,24,,0,0,,0,0
+chicago,2026-07-06,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1335,23,79,26,24,80,26,24,79,24,24,,0,0,,0,0
+chicago,2026-07-07,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,86,1440,24,85,24,24,85,24,24,85,24,24,,0,0,,0,0
+chicago,2026-07-08,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,89,1440,24,88,24,24,89,24,24,88,24,24,,0,0,,0,0
+chicago,2026-07-09,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,909,17,86,28,24,87,28,24,86,24,24,,0,0,,0,0
+chicago,2026-07-10,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,82,1369,23,81,29,24,81,29,24,81,24,24,,0,0,,0,0
+chicago,2026-07-11,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,83,1440,24,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+chicago,2026-07-12,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,1139,20,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+chicago,2026-07-13,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1173,21,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+chicago,2026-07-14,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,1440,24,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+chicago,2026-07-15,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,25,24,95,25,24,94,24,24,,0,0,,0,0
+chicago,2026-07-16,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,898,16,90,29,24,91,29,24,90,24,24,,0,0,,0,0
+chicago,2026-07-17,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1437,24,92,29,24,92,29,24,92,25,24,,0,0,,0,0
+chicago,2026-07-18,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1440,24,91,26,24,91,26,24,91,24,24,,0,0,,0,0
+chicago,2026-07-19,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1042,19,79,29,24,80,29,24,79,26,24,,0,0,,0,0
+chicago,2026-07-20,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,83,1201,21,82,27,24,82,27,24,82,24,24,,0,0,,0,0
+chicago,2026-07-21,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,88,1440,24,86,30,24,87,30,24,86,24,24,,0,0,,0,0
+chicago,2026-07-22,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,73,638,12,74,25,24,74,25,24,74,24,24,,0,0,,0,0
+chicago,2026-07-23,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,78,1440,24,77,24,24,78,24,24,77,24,24,,0,0,,0,0
+chicago,2026-07-24,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,80,1174,20,78,24,24,80,24,24,78,24,24,,0,0,,0,0
+chicago,2026-07-25,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,80,1440,24,80,27,24,80,27,24,80,24,24,,0,0,,0,0
+chicago,2026-07-26,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,72,297,5,91,28,24,92,28,24,91,24,24,,0,0,,0,0
+chicago,2026-07-27,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,86,1388,24,85,53,23,86,53,23,85,25,23,,0,0,,0,0
+chicago,2026-07-28,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1440,24,79,32,24,80,32,24,79,25,24,,0,0,,0,0
+chicago,2026-07-29,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,81,1440,24,80,24,24,80,24,24,80,24,24,,0,0,,0,0
+chicago,2026-07-30,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,88,1440,24,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+chicago,2026-07-31,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,81,1440,24,80,24,24,81,24,24,80,24,24,,0,0,,0,0
+chicago,2026-08-01,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,73,1440,24,72,38,24,73,38,24,72,25,24,,0,0,,0,0
+chicago,2026-08-02,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,78,1224,21,77,28,24,78,28,24,76,24,24,,0,0,,0,0
+chicago,2026-08-03,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,84,1376,23,82,26,24,83,26,24,82,24,24,,0,0,,0,0
+chicago,2026-08-04,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,87,1440,24,85,24,24,86,24,24,85,24,24,,0,0,,0,0
+chicago,2026-08-05,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,82,1440,24,81,24,24,82,24,24,81,24,24,,0,0,,0,0
+chicago,2026-08-06,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,82,1440,24,81,27,24,82,27,24,81,24,24,,0,0,,0,0
+chicago,2026-08-07,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,87,1255,21,87,26,24,87,26,24,87,24,24,,0,0,,0,0
+chicago,2026-08-08,F,pre,True,,none,84-85 F,frozen CSV reconciliation,84,1373,23,84,24,24,84,24,24,84,24,24,,0,0,,0,0
+chicago,2026-08-09,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,84,1440,24,84,36,24,84,36,24,84,24,24,,0,0,,0,0
+chicago,2026-08-10,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,86,1306,23,87,33,24,87,33,24,87,24,24,,0,0,,0,0
+chicago,2026-08-11,F,pre,True,,none,80-81 F,frozen CSV reconciliation,82,1440,24,81,40,24,81,40,24,81,27,24,,0,0,,0,0
+chicago,2026-08-12,F,pre,False,,unavailable,,unavailable,84,1230,21,83,30,24,84,30,24,83,25,24,,0,0,,0,0
+chicago,2026-08-13,F,pre,False,,unavailable,,unavailable,78,1389,24,78,40,24,78,40,24,78,25,24,,0,0,,0,0
+chicago,2026-08-14,F,pre,False,,unavailable,,unavailable,80,1440,24,81,38,24,81,38,24,79,25,24,,0,0,,0,0
+chicago,2026-08-15,F,pre,False,,unavailable,,unavailable,74,215,4,79,43,24,79,43,24,79,26,24,,0,0,,0,0
+chicago,2026-08-16,F,pre,False,,unavailable,,unavailable,86,1429,24,85,40,24,86,40,24,85,24,24,,0,0,,0,0
+chicago,2026-08-17,F,pre,False,,unavailable,,unavailable,80,1440,24,79,28,24,80,28,24,79,24,24,,0,0,,0,0
+chicago,2026-08-18,F,pre,False,,unavailable,,unavailable,81,1238,22,79,27,24,81,27,24,79,24,24,,0,0,,0,0
+chicago,2026-08-19,F,pre,False,,unavailable,,unavailable,79,1269,22,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+chicago,2026-08-20,F,pre,False,,unavailable,,unavailable,79,1440,24,77,24,24,78,24,24,77,24,24,,0,0,,0,0
+chicago,2026-08-21,F,pre,False,,unavailable,,unavailable,76,758,13,80,24,24,80,24,24,80,24,24,,0,0,,0,0
+chicago,2026-08-22,F,pre,False,,unavailable,,unavailable,80,720,13,81,24,24,82,24,24,81,24,24,,0,0,,0,0
+chicago,2026-08-23,F,post,False,,unavailable,,unavailable,77,720,13,76,24,24,77,24,24,76,24,24,,0,0,,0,0
+chicago,2026-08-24,F,post,False,,unavailable,,unavailable,79,1434,24,78,24,24,78,24,24,78,24,24,,0,0,,0,0
+chicago,2026-08-25,F,post,False,,unavailable,,unavailable,81,939,17,80,25,24,81,25,24,80,24,24,,0,0,,0,0
+chicago,2026-08-26,F,post,False,,unavailable,,unavailable,,0,0,84,28,24,84,28,24,84,24,24,,0,0,,0,0
+chicago,2026-08-27,F,post,False,,unavailable,,unavailable,,0,0,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+chicago,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,83,24,24,83,24,24,83,24,24,,0,0,,0,0
+chicago,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,80,24,24,81,24,24,80,24,24,,0,0,,0,0
+chicago,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,82,24,24,83,24,24,82,24,24,,0,0,,0,0
+chicago,2026-08-31,F,post,False,,unavailable,,unavailable,83,405,7,86,37,24,87,37,24,85,25,24,,0,0,,0,0
+chicago,2026-09-01,F,post,False,,unavailable,,unavailable,95,1440,24,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+chicago,2026-09-02,F,post,False,,unavailable,,unavailable,96,1230,22,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+chicago,2026-09-03,F,post,False,,unavailable,,unavailable,91,1440,24,90,24,24,91,24,24,90,24,24,,0,0,,0,0
+chicago,2026-09-04,F,post,False,,unavailable,,unavailable,93,1440,24,93,26,24,93,26,24,93,24,24,,0,0,,0,0
+chicago,2026-09-05,F,post,False,,unavailable,,unavailable,81,1204,21,80,37,24,81,37,24,80,25,24,,0,0,,0,0
+chicago,2026-09-06,F,post,False,,unavailable,,unavailable,79,1198,21,78,24,24,79,24,24,78,24,24,,0,0,,0,0
+chicago,2026-09-07,F,post,False,,unavailable,,unavailable,79,698,12,80,24,24,81,24,24,80,24,24,,0,0,,0,0
+chicago,2026-09-08,F,post,False,,unavailable,,unavailable,85,1182,21,85,24,24,85,24,24,85,24,24,,0,0,,0,0
+chicago,2026-09-09,F,post,False,,unavailable,,unavailable,80,1245,21,79,34,24,80,34,24,79,24,24,,0,0,,0,0
+chicago,2026-09-10,F,post,False,,unavailable,,unavailable,76,720,13,77,24,24,77,24,24,77,24,24,,0,0,,0,0
+chicago,2026-09-11,F,post,False,,unavailable,,unavailable,,0,0,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+chicago,2026-09-12,F,post,False,,unavailable,,unavailable,88,1180,20,87,24,24,88,24,24,87,24,24,,0,0,,0,0
+chicago,2026-09-13,F,post,False,,unavailable,,unavailable,75,1200,21,74,25,24,75,25,24,74,24,24,,0,0,,0,0
+chicago,2026-09-14,F,post,False,,unavailable,,unavailable,71,630,11,70,24,24,71,24,24,70,24,24,,0,0,,0,0
+chicago,2026-09-15,F,post,False,,unavailable,,unavailable,84,1409,24,84,25,24,84,25,24,84,24,24,84,127,11,84,21,11
+chicago,2026-09-16,F,post,False,,unavailable,,unavailable,77,1440,24,76,33,24,76,33,24,76,24,24,76,321,24,76,48,24
+chicago,2026-09-17,F,post,False,,unavailable,,unavailable,80,1440,24,79,48,24,80,48,24,79,24,24,81,330,24,79,48,24
+chicago,2026-09-18,F,post,False,,unavailable,,unavailable,72,1208,21,71,31,24,72,31,24,71,26,24,72,317,24,72,50,24
+chicago,2026-09-19,F,post,False,,unavailable,,unavailable,70,1439,24,70,49,24,70,49,24,70,24,24,70,331,24,70,48,24
+chicago,2026-09-20,F,post,False,,unavailable,,unavailable,69,1308,23,70,62,24,70,62,24,69,26,24,70,343,24,70,50,24
+chicago,2026-09-21,F,post,False,,unavailable,,unavailable,63,169,3,66,35,24,66,35,24,66,24,24,66,320,24,66,48,24
+dallas,2026-07-01,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+dallas,2026-07-02,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,97,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+dallas,2026-07-03,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1440,24,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+dallas,2026-07-04,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,102,1440,24,98,24,24,101,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-05,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1440,24,97,27,23,97,27,23,97,23,23,,0,0,,0,0
+dallas,2026-07-06,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,101,1440,24,98,25,24,100,25,24,98,24,24,,0,0,,0,0
+dallas,2026-07-07,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,102,1440,24,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-07-08,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,102,1396,24,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-07-09,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,102,1440,24,101,25,24,101,25,24,101,24,24,,0,0,,0,0
+dallas,2026-07-10,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1440,24,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-11,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1440,24,98,24,24,98,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-12,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1440,24,98,27,24,100,27,24,98,24,24,,0,0,,0,0
+dallas,2026-07-13,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1440,24,92,32,24,92,32,24,92,24,24,,0,0,,0,0
+dallas,2026-07-14,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,94,1046,18,91,30,24,92,30,24,91,24,24,,0,0,,0,0
+dallas,2026-07-15,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1233,21,91,27,24,92,27,24,91,24,24,,0,0,,0,0
+dallas,2026-07-16,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,91,1440,24,89,31,24,91,31,24,89,24,24,,0,0,,0,0
+dallas,2026-07-17,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,27,24,95,27,24,94,24,24,,0,0,,0,0
+dallas,2026-07-18,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1440,24,97,24,24,97,24,24,97,24,24,,0,0,,0,0
+dallas,2026-07-19,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1440,24,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-20,F,pre,True,102,daily_summary,102-103 F,frozen CSV reconciliation,91,329,6,102,24,24,103,24,24,102,24,24,,0,0,,0,0
+dallas,2026-07-21,F,pre,True,107,daily_summary,106-107 F,frozen CSV reconciliation,,0,0,107,24,24,108,24,24,107,24,24,,0,0,,0,0
+dallas,2026-07-22,F,pre,True,108,daily_summary,108-109 F,frozen CSV reconciliation,,0,0,108,25,24,109,25,24,108,24,24,,0,0,,0,0
+dallas,2026-07-23,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,24,24,97,24,24,97,24,24,,0,0,,0,0
+dallas,2026-07-24,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,94,28,24,95,28,24,94,24,24,,0,0,,0,0
+dallas,2026-07-25,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-26,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-27,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,101,1359,23,99,23,23,100,23,23,99,23,23,,0,0,,0,0
+dallas,2026-07-28,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,100,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-07-29,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1440,24,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-07-30,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,101,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-07-31,F,pre,True,102,daily_summary,102-103 F,frozen CSV reconciliation,104,1440,24,102,24,24,103,24,24,102,24,24,,0,0,,0,0
+dallas,2026-08-01,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1440,24,97,24,24,97,24,24,97,24,24,,0,0,,0,0
+dallas,2026-08-02,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,97,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+dallas,2026-08-03,F,pre,True,99,daily_summary,98-99 F,frozen CSV reconciliation,101,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-08-04,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,90,511,9,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-05,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,102,1124,19,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-06,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-07,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,101,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-08,F,pre,True,,none,100-101 F,frozen CSV reconciliation,102,1440,24,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-09,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,100,1225,21,98,27,24,99,27,24,98,24,24,,0,0,,0,0
+dallas,2026-08-10,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1063,18,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+dallas,2026-08-11,F,pre,True,,none,98-99 F,frozen CSV reconciliation,100,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-08-12,F,pre,False,,unavailable,,unavailable,102,1440,24,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-13,F,pre,False,,unavailable,,unavailable,102,1440,24,101,24,24,101,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-14,F,pre,False,,unavailable,,unavailable,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-15,F,pre,False,,unavailable,,unavailable,101,1440,24,100,25,24,100,25,24,100,24,24,,0,0,,0,0
+dallas,2026-08-16,F,pre,False,,unavailable,,unavailable,105,1440,24,103,24,24,104,24,24,103,24,24,,0,0,,0,0
+dallas,2026-08-17,F,pre,False,,unavailable,,unavailable,106,1440,24,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+dallas,2026-08-18,F,pre,False,,unavailable,,unavailable,106,1440,24,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+dallas,2026-08-19,F,pre,False,,unavailable,,unavailable,105,1440,24,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+dallas,2026-08-20,F,pre,False,,unavailable,,unavailable,106,1331,23,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+dallas,2026-08-21,F,pre,False,,unavailable,,unavailable,100,1440,24,98,24,24,100,24,24,98,24,24,,0,0,,0,0
+dallas,2026-08-22,F,pre,False,,unavailable,,unavailable,106,1440,24,104,24,24,105,24,24,104,24,24,,0,0,,0,0
+dallas,2026-08-23,F,post,False,,unavailable,,unavailable,109,1440,24,108,24,24,108,24,24,108,24,24,,0,0,,0,0
+dallas,2026-08-24,F,post,False,,unavailable,,unavailable,109,1440,24,107,24,24,108,24,24,107,24,24,,0,0,,0,0
+dallas,2026-08-25,F,post,False,,unavailable,,unavailable,101,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-26,F,post,False,,unavailable,,unavailable,102,1440,24,100,25,24,101,25,24,100,25,24,,0,0,,0,0
+dallas,2026-08-27,F,post,False,,unavailable,,unavailable,102,1440,24,100,25,24,101,25,24,100,24,24,,0,0,,0,0
+dallas,2026-08-28,F,post,False,,unavailable,,unavailable,103,1440,24,101,24,24,102,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-29,F,post,False,,unavailable,,unavailable,103,1440,24,101,24,24,102,24,24,101,24,24,,0,0,,0,0
+dallas,2026-08-30,F,post,False,,unavailable,,unavailable,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-08-31,F,post,False,,unavailable,,unavailable,101,1440,24,100,24,24,100,24,24,100,24,24,,0,0,,0,0
+dallas,2026-09-01,F,post,False,,unavailable,,unavailable,102,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-09-02,F,post,False,,unavailable,,unavailable,101,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-09-03,F,post,False,,unavailable,,unavailable,93,1440,24,91,26,24,92,26,24,91,24,24,,0,0,,0,0
+dallas,2026-09-04,F,post,False,,unavailable,,unavailable,100,1440,24,99,27,24,99,27,24,99,23,23,,0,0,,0,0
+dallas,2026-09-05,F,post,False,,unavailable,,unavailable,101,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-09-06,F,post,False,,unavailable,,unavailable,100,1440,24,98,24,24,100,24,24,98,24,24,,0,0,,0,0
+dallas,2026-09-07,F,post,False,,unavailable,,unavailable,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-09-08,F,post,False,,unavailable,,unavailable,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-09-09,F,post,False,,unavailable,,unavailable,102,1440,24,100,24,24,101,24,24,100,24,24,,0,0,,0,0
+dallas,2026-09-10,F,post,False,,unavailable,,unavailable,101,1438,24,99,26,24,100,26,24,99,24,24,,0,0,,0,0
+dallas,2026-09-11,F,post,False,,unavailable,,unavailable,100,1440,24,99,25,24,100,25,24,99,24,24,,0,0,,0,0
+dallas,2026-09-12,F,post,False,,unavailable,,unavailable,102,1440,24,101,24,24,102,24,24,101,24,24,,0,0,,0,0
+dallas,2026-09-13,F,post,False,,unavailable,,unavailable,101,1440,24,99,24,24,101,24,24,99,24,24,,0,0,,0,0
+dallas,2026-09-14,F,post,False,,unavailable,,unavailable,100,1440,24,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+dallas,2026-09-15,F,post,False,,unavailable,,unavailable,101,1440,24,99,25,24,100,25,24,99,24,24,100,127,11,99,21,11
+dallas,2026-09-16,F,post,False,,unavailable,,unavailable,100,1440,24,99,24,24,99,24,24,99,24,24,99,312,24,99,48,24
+dallas,2026-09-17,F,post,False,,unavailable,,unavailable,100,1440,24,97,25,24,100,25,24,97,24,24,99,313,24,99,48,24
+dallas,2026-09-18,F,post,False,,unavailable,,unavailable,99,1440,24,97,24,24,98,24,24,97,24,24,99,312,24,97,48,24
+dallas,2026-09-19,F,post,False,,unavailable,,unavailable,97,1440,24,96,24,24,97,24,24,96,24,24,97,312,24,97,48,24
+dallas,2026-09-20,F,post,False,,unavailable,,unavailable,98,1440,24,96,27,24,98,27,24,96,24,24,99,315,24,97,48,24
+dallas,2026-09-21,F,post,False,,unavailable,,unavailable,82,25,1,97,27,24,98,27,24,97,24,24,99,315,24,97,48,24
+denver,2026-07-01,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,90,24,24,90,24,24,90,24,24,,0,0,,0,0
+denver,2026-07-02,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,90,30,24,91,30,24,88,24,24,,0,0,,0,0
+denver,2026-07-03,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,92,29,24,92,29,24,92,25,24,,0,0,,0,0
+denver,2026-07-04,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,,0,0,89,26,24,91,26,24,89,24,24,,0,0,,0,0
+denver,2026-07-05,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,94,24,24,96,24,24,94,24,24,,0,0,,0,0
+denver,2026-07-06,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,27,24,98,27,24,96,23,23,,0,0,,0,0
+denver,2026-07-07,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+denver,2026-07-08,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,93,26,24,94,26,24,93,24,24,,0,0,,0,0
+denver,2026-07-09,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,91,25,23,92,25,23,91,23,23,,0,0,,0,0
+denver,2026-07-10,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,90,29,24,91,29,24,90,24,24,,0,0,,0,0
+denver,2026-07-11,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+denver,2026-07-12,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+denver,2026-07-13,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,23,23,98,23,23,97,23,23,,0,0,,0,0
+denver,2026-07-14,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+denver,2026-07-15,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+denver,2026-07-16,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+denver,2026-07-17,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+denver,2026-07-18,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,94,25,24,95,25,24,94,25,24,,0,0,,0,0
+denver,2026-07-19,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+denver,2026-07-20,F,pre,True,100,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,100,24,24,102,24,24,100,24,24,,0,0,,0,0
+denver,2026-07-21,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,22,22,98,22,22,97,22,22,,0,0,,0,0
+denver,2026-07-22,F,pre,True,94,daily_summary,94 F or higher,frozen CSV reconciliation,,0,0,94,32,24,95,32,24,94,24,24,,0,0,,0,0
+denver,2026-07-23,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,,0,0,85,30,24,87,30,24,85,24,24,,0,0,,0,0
+denver,2026-07-24,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,27,20,98,27,20,96,21,20,,0,0,,0,0
+denver,2026-07-25,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,101,24,24,102,24,24,101,24,24,,0,0,,0,0
+denver,2026-07-26,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,101,26,24,103,26,24,101,24,24,,0,0,,0,0
+denver,2026-07-27,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,92,27,24,93,27,24,92,24,24,,0,0,,0,0
+denver,2026-07-28,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,92,27,24,95,27,24,92,24,24,,0,0,,0,0
+denver,2026-07-29,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,90,30,24,92,30,24,90,24,24,,0,0,,0,0
+denver,2026-07-30,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,,0,0,94,26,24,96,26,24,94,24,24,,0,0,,0,0
+denver,2026-07-31,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,,0,0,90,28,24,90,28,24,90,24,24,,0,0,,0,0
+denver,2026-08-01,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,,0,0,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+denver,2026-08-02,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,101,24,24,103,24,24,101,24,24,,0,0,,0,0
+denver,2026-08-03,F,pre,True,101,daily_summary,100-101 F,frozen CSV reconciliation,,0,0,101,26,24,101,26,24,101,24,24,,0,0,,0,0
+denver,2026-08-04,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,,0,0,74,24,24,76,24,24,74,24,24,,0,0,,0,0
+denver,2026-08-05,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,,0,0,85,24,24,86,24,24,85,24,24,,0,0,,0,0
+denver,2026-08-06,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+denver,2026-08-07,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,24,24,97,24,24,96,24,24,,0,0,,0,0
+denver,2026-08-08,F,pre,True,,none,98-99 F,frozen CSV reconciliation,,0,0,99,24,24,101,24,24,99,24,24,,0,0,,0,0
+denver,2026-08-09,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,,0,0,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+denver,2026-08-10,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,,0,0,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+denver,2026-08-11,F,pre,True,,none,94-95 F,frozen CSV reconciliation,,0,0,94,26,24,96,26,24,94,24,24,,0,0,,0,0
+denver,2026-08-12,F,pre,False,,unavailable,,unavailable,,0,0,93,26,24,95,26,24,93,24,24,,0,0,,0,0
+denver,2026-08-13,F,pre,False,,unavailable,,unavailable,,0,0,80,30,23,82,30,23,80,23,23,,0,0,,0,0
+denver,2026-08-14,F,pre,False,,unavailable,,unavailable,,0,0,87,30,24,87,30,24,87,25,24,,0,0,,0,0
+denver,2026-08-15,F,pre,False,,unavailable,,unavailable,,0,0,83,30,23,84,30,23,83,23,23,,0,0,,0,0
+denver,2026-08-16,F,pre,False,,unavailable,,unavailable,,0,0,83,33,24,84,33,24,83,24,24,,0,0,,0,0
+denver,2026-08-17,F,pre,False,,unavailable,,unavailable,,0,0,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+denver,2026-08-18,F,pre,False,,unavailable,,unavailable,,0,0,88,24,24,88,24,24,88,24,24,,0,0,,0,0
+denver,2026-08-19,F,pre,False,,unavailable,,unavailable,,0,0,91,22,22,92,22,22,91,22,22,,0,0,,0,0
+denver,2026-08-20,F,pre,False,,unavailable,,unavailable,,0,0,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+denver,2026-08-21,F,pre,False,,unavailable,,unavailable,,0,0,100,28,24,100,28,24,100,25,24,,0,0,,0,0
+denver,2026-08-22,F,pre,False,,unavailable,,unavailable,,0,0,92,33,24,94,33,24,92,24,24,,0,0,,0,0
+denver,2026-08-23,F,post,False,,unavailable,,unavailable,,0,0,92,30,24,94,30,24,92,24,24,,0,0,,0,0
+denver,2026-08-24,F,post,False,,unavailable,,unavailable,,0,0,92,27,23,93,27,23,92,23,23,,0,0,,0,0
+denver,2026-08-25,F,post,False,,unavailable,,unavailable,,0,0,83,24,24,86,24,24,83,24,24,,0,0,,0,0
+denver,2026-08-26,F,post,False,,unavailable,,unavailable,,0,0,87,31,24,89,31,24,87,24,24,,0,0,,0,0
+denver,2026-08-27,F,post,False,,unavailable,,unavailable,,0,0,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+denver,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,93,28,24,95,28,24,93,24,24,,0,0,,0,0
+denver,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,92,28,24,93,28,24,92,24,24,,0,0,,0,0
+denver,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,83,27,24,85,27,24,83,24,24,,0,0,,0,0
+denver,2026-08-31,F,post,False,,unavailable,,unavailable,,0,0,87,26,24,87,26,24,87,24,24,,0,0,,0,0
+denver,2026-09-01,F,post,False,,unavailable,,unavailable,,0,0,86,24,24,88,24,24,86,24,24,,0,0,,0,0
+denver,2026-09-02,F,post,False,,unavailable,,unavailable,,0,0,89,26,24,90,26,24,89,24,24,,0,0,,0,0
+denver,2026-09-03,F,post,False,,unavailable,,unavailable,,0,0,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+denver,2026-09-04,F,post,False,,unavailable,,unavailable,,0,0,93,24,24,95,24,24,93,24,24,,0,0,,0,0
+denver,2026-09-05,F,post,False,,unavailable,,unavailable,,0,0,94,25,24,95,25,24,94,25,24,,0,0,,0,0
+denver,2026-09-06,F,post,False,,unavailable,,unavailable,,0,0,92,28,24,93,28,24,92,24,24,,0,0,,0,0
+denver,2026-09-07,F,post,False,,unavailable,,unavailable,,0,0,90,24,24,90,24,24,90,24,24,,0,0,,0,0
+denver,2026-09-08,F,post,False,,unavailable,,unavailable,,0,0,87,31,24,87,31,24,87,24,24,,0,0,,0,0
+denver,2026-09-09,F,post,False,,unavailable,,unavailable,,0,0,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+denver,2026-09-10,F,post,False,,unavailable,,unavailable,,0,0,89,23,23,89,23,23,89,23,23,,0,0,,0,0
+denver,2026-09-11,F,post,False,,unavailable,,unavailable,,0,0,89,24,24,91,24,24,89,24,24,,0,0,,0,0
+denver,2026-09-12,F,post,False,,unavailable,,unavailable,,0,0,81,24,24,82,24,24,81,24,24,,0,0,,0,0
+denver,2026-09-13,F,post,False,,unavailable,,unavailable,,0,0,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+denver,2026-09-14,F,post,False,,unavailable,,unavailable,,0,0,87,24,24,87,24,24,87,24,24,,0,0,,0,0
+denver,2026-09-15,F,post,False,,unavailable,,unavailable,,0,0,73,25,24,76,25,24,73,24,24,73,12,12,73,12,12
+denver,2026-09-16,F,post,False,,unavailable,,unavailable,,0,0,89,24,24,89,24,24,89,24,24,85,23,23,85,23,23
+denver,2026-09-17,F,post,False,,unavailable,,unavailable,,0,0,81,26,24,82,26,24,81,24,24,81,24,22,81,22,22
+denver,2026-09-18,F,post,False,,unavailable,,unavailable,,0,0,86,30,24,87,30,24,86,24,24,86,28,22,86,22,22
+denver,2026-09-19,F,post,False,,unavailable,,unavailable,,0,0,76,36,24,78,36,24,76,26,24,76,31,19,76,21,19
+denver,2026-09-20,F,post,False,,unavailable,,unavailable,,0,0,75,26,24,76,26,24,75,24,24,75,24,22,75,22,22
+denver,2026-09-21,F,post,False,,unavailable,,unavailable,,0,0,76,29,24,77,29,24,76,24,24,76,26,21,76,21,21
+houston,2026-07-01,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,25,24,96,25,24,95,24,24,,0,0,,0,0
+houston,2026-07-02,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,27,24,96,27,24,95,24,24,,0,0,,0,0
+houston,2026-07-03,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,98,1438,24,96,24,24,98,24,24,96,24,24,,0,0,,0,0
+houston,2026-07-04,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1440,24,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+houston,2026-07-05,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,98,1436,24,98,26,24,98,26,24,98,24,24,,0,0,,0,0
+houston,2026-07-06,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,98,1396,24,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+houston,2026-07-07,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,93,27,24,94,27,24,93,24,24,,0,0,,0,0
+houston,2026-07-08,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,96,1440,24,92,27,24,95,27,24,92,24,24,,0,0,,0,0
+houston,2026-07-09,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1440,24,93,24,24,95,24,24,93,24,24,,0,0,,0,0
+houston,2026-07-10,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,92,1440,24,92,30,24,92,30,24,92,25,24,,0,0,,0,0
+houston,2026-07-11,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,91,1438,24,89,29,24,91,29,24,89,24,24,,0,0,,0,0
+houston,2026-07-12,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1436,24,93,28,24,94,28,24,93,24,24,,0,0,,0,0
+houston,2026-07-13,F,pre,True,84,daily_summary,84-85 F,frozen CSV reconciliation,85,1440,24,84,28,24,85,28,24,84,24,24,,0,0,,0,0
+houston,2026-07-14,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,81,1065,18,81,36,24,81,36,24,81,24,24,,0,0,,0,0
+houston,2026-07-15,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,88,1215,21,87,27,24,87,27,24,87,24,24,,0,0,,0,0
+houston,2026-07-16,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1440,24,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+houston,2026-07-17,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1440,24,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+houston,2026-07-18,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,93,1440,24,93,24,24,93,24,24,93,24,24,,0,0,,0,0
+houston,2026-07-19,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,24,24,95,24,24,95,24,24,,0,0,,0,0
+houston,2026-07-20,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,97,1440,24,95,26,24,96,26,24,95,24,24,,0,0,,0,0
+houston,2026-07-21,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,99,1440,24,97,30,24,98,30,24,97,24,24,,0,0,,0,0
+houston,2026-07-22,F,pre,True,102,daily_summary,102-103 F,frozen CSV reconciliation,98,834,15,102,26,24,102,26,24,102,24,24,,0,0,,0,0
+houston,2026-07-23,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,91,1440,24,90,39,24,90,39,24,90,25,24,,0,0,,0,0
+houston,2026-07-24,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+houston,2026-07-25,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1440,24,92,24,24,92,24,24,92,24,24,,0,0,,0,0
+houston,2026-07-26,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,26,24,95,26,24,94,24,24,,0,0,,0,0
+houston,2026-07-27,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,23,23,95,23,23,94,23,23,,0,0,,0,0
+houston,2026-07-28,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,24,24,95,24,24,95,24,24,,0,0,,0,0
+houston,2026-07-29,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,96,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+houston,2026-07-30,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,1438,24,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+houston,2026-07-31,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,1438,24,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-01,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1440,24,94,25,24,95,25,24,94,25,24,,0,0,,0,0
+houston,2026-08-02,F,pre,True,98,daily_summary,98-99 F,frozen CSV reconciliation,99,1440,24,98,24,24,98,24,24,98,24,24,,0,0,,0,0
+houston,2026-08-03,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,98,1440,24,96,24,24,97,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-04,F,pre,True,95,daily_summary,94-95 F,frozen CSV reconciliation,83,525,9,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+houston,2026-08-05,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,1081,19,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-06,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,95,1438,24,92,30,24,95,30,24,92,24,24,,0,0,,0,0
+houston,2026-08-07,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1440,24,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+houston,2026-08-08,F,pre,True,,none,92-93 F,frozen CSV reconciliation,94,1440,24,92,25,24,93,25,24,92,24,24,,0,0,,0,0
+houston,2026-08-09,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1245,21,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+houston,2026-08-10,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,1036,18,86,32,24,87,32,24,86,24,24,,0,0,,0,0
+houston,2026-08-11,F,pre,True,,none,92-93 F,frozen CSV reconciliation,93,1440,24,92,26,24,93,26,24,92,24,24,,0,0,,0,0
+houston,2026-08-12,F,pre,False,,unavailable,,unavailable,96,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+houston,2026-08-13,F,pre,False,,unavailable,,unavailable,96,1440,24,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+houston,2026-08-14,F,pre,False,,unavailable,,unavailable,95,1438,24,93,24,24,95,24,24,93,24,24,,0,0,,0,0
+houston,2026-08-15,F,pre,False,,unavailable,,unavailable,97,1440,24,96,25,24,96,25,24,96,24,24,,0,0,,0,0
+houston,2026-08-16,F,pre,False,,unavailable,,unavailable,96,1440,24,95,25,24,95,25,24,95,24,24,,0,0,,0,0
+houston,2026-08-17,F,pre,False,,unavailable,,unavailable,97,849,15,96,24,24,96,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-18,F,pre,False,,unavailable,,unavailable,96,1440,24,94,24,24,96,24,24,94,24,24,,0,0,,0,0
+houston,2026-08-19,F,pre,False,,unavailable,,unavailable,97,1440,24,96,24,24,97,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-20,F,pre,False,,unavailable,,unavailable,98,1440,24,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+houston,2026-08-21,F,pre,False,,unavailable,,unavailable,99,1440,24,98,25,24,99,25,24,98,24,24,,0,0,,0,0
+houston,2026-08-22,F,pre,False,,unavailable,,unavailable,101,1440,24,100,25,24,101,25,24,100,24,24,,0,0,,0,0
+houston,2026-08-23,F,post,False,,unavailable,,unavailable,98,900,16,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+houston,2026-08-24,F,post,False,,unavailable,,unavailable,99,732,13,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+houston,2026-08-25,F,post,False,,unavailable,,unavailable,99,1440,24,97,24,24,98,24,24,97,24,24,,0,0,,0,0
+houston,2026-08-26,F,post,False,,unavailable,,unavailable,99,1440,24,98,24,24,99,24,24,98,24,24,,0,0,,0,0
+houston,2026-08-27,F,post,False,,unavailable,,unavailable,98,1440,24,97,27,24,97,27,24,97,24,24,,0,0,,0,0
+houston,2026-08-28,F,post,False,,unavailable,,unavailable,96,950,16,95,28,24,96,28,24,95,24,24,,0,0,,0,0
+houston,2026-08-29,F,post,False,,unavailable,,unavailable,94,722,14,95,24,24,96,24,24,95,24,24,,0,0,,0,0
+houston,2026-08-30,F,post,False,,unavailable,,unavailable,97,1438,24,96,24,24,97,24,24,96,24,24,,0,0,,0,0
+houston,2026-08-31,F,post,False,,unavailable,,unavailable,91,1440,24,90,27,24,90,27,24,90,24,24,,0,0,,0,0
+houston,2026-09-01,F,post,False,,unavailable,,unavailable,87,1436,24,87,25,24,87,25,24,87,24,24,,0,0,,0,0
+houston,2026-09-02,F,post,False,,unavailable,,unavailable,96,1440,24,95,26,24,96,26,24,95,24,24,,0,0,,0,0
+houston,2026-09-03,F,post,False,,unavailable,,unavailable,93,1440,24,92,30,24,93,30,24,92,24,24,,0,0,,0,0
+houston,2026-09-04,F,post,False,,unavailable,,unavailable,93,1440,24,91,24,24,93,24,24,91,24,24,,0,0,,0,0
+houston,2026-09-05,F,post,False,,unavailable,,unavailable,92,1439,24,91,25,24,91,25,24,91,24,24,,0,0,,0,0
+houston,2026-09-06,F,post,False,,unavailable,,unavailable,92,1440,24,89,25,24,91,25,24,89,24,24,,0,0,,0,0
+houston,2026-09-07,F,post,False,,unavailable,,unavailable,96,1440,24,95,26,24,95,26,24,95,24,24,,0,0,,0,0
+houston,2026-09-08,F,post,False,,unavailable,,unavailable,95,1440,24,93,26,24,94,26,24,93,24,24,,0,0,,0,0
+houston,2026-09-09,F,post,False,,unavailable,,unavailable,92,851,15,91,27,24,91,27,24,91,24,24,,0,0,,0,0
+houston,2026-09-10,F,post,False,,unavailable,,unavailable,93,1440,24,89,27,24,92,27,24,89,24,24,,0,0,,0,0
+houston,2026-09-11,F,post,False,,unavailable,,unavailable,95,1440,24,94,29,24,94,29,24,94,24,24,,0,0,,0,0
+houston,2026-09-12,F,post,False,,unavailable,,unavailable,97,1436,24,96,24,24,97,24,24,96,24,24,,0,0,,0,0
+houston,2026-09-13,F,post,False,,unavailable,,unavailable,94,1440,24,93,26,24,93,26,24,93,24,24,,0,0,,0,0
+houston,2026-09-14,F,post,False,,unavailable,,unavailable,96,1436,24,94,24,24,95,24,24,94,24,24,,0,0,,0,0
+houston,2026-09-15,F,post,False,,unavailable,,unavailable,94,836,15,94,29,24,96,29,24,94,24,24,97,124,11,94,19,10
+houston,2026-09-16,F,post,False,,unavailable,,unavailable,94,1440,24,93,24,24,94,24,24,93,24,24,93,312,24,93,48,24
+houston,2026-09-17,F,post,False,,unavailable,,unavailable,89,1439,24,87,25,24,88,25,24,87,24,24,88,313,24,88,48,24
+houston,2026-09-18,F,post,False,,unavailable,,unavailable,93,1440,24,92,24,24,93,24,24,92,24,24,92,312,24,92,48,24
+houston,2026-09-19,F,post,False,,unavailable,,unavailable,93,1440,24,92,24,24,93,24,24,92,24,24,92,312,24,92,48,24
+houston,2026-09-20,F,post,False,,unavailable,,unavailable,95,1440,24,92,24,24,94,24,24,92,24,24,93,312,24,92,48,24
+houston,2026-09-21,F,post,False,,unavailable,,unavailable,82,50,1,92,24,24,93,24,24,92,24,24,93,312,24,92,48,24
+los-angeles,2026-07-01,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,,0,0,70,31,24,71,31,24,70,25,24,,0,0,,0,0
+los-angeles,2026-07-02,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,,0,0,72,27,24,73,27,24,72,24,24,,0,0,,0,0
+los-angeles,2026-07-03,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,66,239,4,72,30,24,73,30,24,72,25,24,,0,0,,0,0
+los-angeles,2026-07-04,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,77,976,17,75,25,24,76,25,24,75,24,24,,0,0,,0,0
+los-angeles,2026-07-05,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,76,719,13,75,27,24,75,27,24,75,24,24,,0,0,,0,0
+los-angeles,2026-07-06,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,67,222,4,74,26,24,75,26,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-07,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,75,996,17,74,25,24,74,25,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-08,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,75,937,17,74,25,24,74,25,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-09,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,69,700,13,74,28,24,74,28,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-10,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,75,1233,22,74,27,24,74,27,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-11,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,77,720,13,75,28,24,77,28,24,75,25,24,,0,0,,0,0
+los-angeles,2026-07-12,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,75,720,13,74,25,24,77,25,24,74,24,24,,0,0,,0,0
+los-angeles,2026-07-13,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,69,261,5,75,31,24,75,31,24,75,24,24,,0,0,,0,0
+los-angeles,2026-07-14,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,78,1179,21,77,28,24,77,28,24,77,24,24,,0,0,,0,0
+los-angeles,2026-07-15,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,82,717,13,80,23,23,81,23,23,80,23,23,,0,0,,0,0
+los-angeles,2026-07-16,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,73,232,4,82,25,24,84,25,24,82,24,24,,0,0,,0,0
+los-angeles,2026-07-17,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,73,488,9,86,27,24,86,27,24,86,24,24,,0,0,,0,0
+los-angeles,2026-07-18,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,,0,0,78,24,24,78,24,24,78,24,24,,0,0,,0,0
+los-angeles,2026-07-19,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,79,1164,20,77,26,24,78,26,24,77,24,24,,0,0,,0,0
+los-angeles,2026-07-20,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,72,708,13,81,29,23,83,29,23,81,23,23,,0,0,,0,0
+los-angeles,2026-07-21,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,78,726,13,81,29,24,81,29,24,81,25,24,,0,0,,0,0
+los-angeles,2026-07-22,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,78,974,17,77,33,24,77,33,24,77,24,24,,0,0,,0,0
+los-angeles,2026-07-23,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,,0,0,80,25,24,80,25,24,80,24,24,,0,0,,0,0
+los-angeles,2026-07-24,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,72,199,4,78,25,24,78,25,24,78,24,24,,0,0,,0,0
+los-angeles,2026-07-25,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,80,989,17,78,25,24,79,25,24,78,24,24,,0,0,,0,0
+los-angeles,2026-07-26,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1181,20,79,26,24,80,26,24,79,24,24,,0,0,,0,0
+los-angeles,2026-07-27,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,71,22,1,79,24,23,79,24,23,79,23,23,,0,0,,0,0
+los-angeles,2026-07-28,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,79,720,13,78,27,24,79,27,24,78,24,24,,0,0,,0,0
+los-angeles,2026-07-29,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,70,205,4,79,31,24,80,31,24,79,24,24,,0,0,,0,0
+los-angeles,2026-07-30,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,79,1248,22,77,27,24,78,27,24,77,24,24,,0,0,,0,0
+los-angeles,2026-07-31,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,80,1207,21,79,31,24,81,31,24,79,24,24,,0,0,,0,0
+los-angeles,2026-08-01,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,71,225,5,79,26,24,80,26,24,79,24,24,,0,0,,0,0
+los-angeles,2026-08-02,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,74,721,13,78,28,24,79,28,24,78,24,24,,0,0,,0,0
+los-angeles,2026-08-03,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,79,1440,24,78,32,24,78,32,24,78,24,24,,0,0,,0,0
+los-angeles,2026-08-04,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,70,221,5,77,29,24,78,29,24,77,24,24,,0,0,,0,0
+los-angeles,2026-08-05,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,78,1238,21,76,35,24,77,35,24,76,24,24,,0,0,,0,0
+los-angeles,2026-08-06,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,79,1440,24,77,32,24,78,32,24,77,24,24,,0,0,,0,0
+los-angeles,2026-08-07,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,71,35,1,79,26,24,80,26,24,79,24,24,,0,0,,0,0
+los-angeles,2026-08-08,F,pre,True,,none,78-79 F,frozen CSV reconciliation,80,1165,20,79,24,24,79,24,24,79,24,24,,0,0,,0,0
+los-angeles,2026-08-09,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,81,1440,24,80,29,24,80,29,24,80,24,24,,0,0,,0,0
+los-angeles,2026-08-10,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,80,969,17,78,26,24,79,26,24,78,24,24,,0,0,,0,0
+los-angeles,2026-08-11,F,pre,True,,none,80-81 F,frozen CSV reconciliation,,0,0,80,30,24,80,30,24,80,24,24,,0,0,,0,0
+los-angeles,2026-08-12,F,pre,False,,unavailable,,unavailable,,0,0,76,30,24,78,30,24,76,24,24,,0,0,,0,0
+los-angeles,2026-08-13,F,pre,False,,unavailable,,unavailable,70,222,4,77,24,24,77,24,24,77,24,24,,0,0,,0,0
+los-angeles,2026-08-14,F,pre,False,,unavailable,,unavailable,72,498,9,78,27,24,78,27,24,78,24,24,,0,0,,0,0
+los-angeles,2026-08-15,F,pre,False,,unavailable,,unavailable,,0,0,76,27,24,77,27,24,76,24,24,,0,0,,0,0
+los-angeles,2026-08-16,F,pre,False,,unavailable,,unavailable,,0,0,76,28,24,77,28,24,76,24,24,,0,0,,0,0
+los-angeles,2026-08-17,F,pre,False,,unavailable,,unavailable,78,693,12,77,30,24,78,30,24,77,25,24,,0,0,,0,0
+los-angeles,2026-08-18,F,pre,False,,unavailable,,unavailable,83,1210,21,81,24,24,82,24,24,81,24,24,,0,0,,0,0
+los-angeles,2026-08-19,F,pre,False,,unavailable,,unavailable,83,1440,24,80,25,24,82,25,24,80,24,24,,0,0,,0,0
+los-angeles,2026-08-20,F,pre,False,,unavailable,,unavailable,78,1199,21,77,26,24,77,26,24,77,24,24,,0,0,,0,0
+los-angeles,2026-08-21,F,pre,False,,unavailable,,unavailable,84,1440,24,81,24,24,83,24,24,81,24,24,,0,0,,0,0
+los-angeles,2026-08-22,F,pre,False,,unavailable,,unavailable,82,1198,21,82,25,24,82,25,24,82,24,24,,0,0,,0,0
+los-angeles,2026-08-23,F,post,False,,unavailable,,unavailable,85,975,17,84,25,24,85,25,24,84,24,24,,0,0,,0,0
+los-angeles,2026-08-24,F,post,False,,unavailable,,unavailable,85,1192,21,82,25,24,84,25,24,82,24,24,,0,0,,0,0
+los-angeles,2026-08-25,F,post,False,,unavailable,,unavailable,86,939,17,84,26,24,85,26,24,84,24,24,,0,0,,0,0
+los-angeles,2026-08-26,F,post,False,,unavailable,,unavailable,88,1440,24,87,24,24,87,24,24,87,24,24,,0,0,,0,0
+los-angeles,2026-08-27,F,post,False,,unavailable,,unavailable,77,27,1,88,27,24,90,27,24,88,24,24,,0,0,,0,0
+los-angeles,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,85,25,24,86,25,24,85,24,24,,0,0,,0,0
+los-angeles,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,85,25,24,87,25,24,85,24,24,,0,0,,0,0
+los-angeles,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,83,25,24,84,25,24,83,24,24,,0,0,,0,0
+los-angeles,2026-08-31,F,post,False,,unavailable,,unavailable,69,217,4,78,25,23,79,25,23,78,24,23,,0,0,,0,0
+los-angeles,2026-09-01,F,post,False,,unavailable,,unavailable,77,1193,21,75,28,24,76,28,24,75,24,24,,0,0,,0,0
+los-angeles,2026-09-02,F,post,False,,unavailable,,unavailable,78,1199,21,76,24,24,77,24,24,76,24,24,,0,0,,0,0
+los-angeles,2026-09-03,F,post,False,,unavailable,,unavailable,78,957,18,77,27,24,78,27,24,77,24,24,,0,0,,0,0
+los-angeles,2026-09-04,F,post,False,,unavailable,,unavailable,79,1193,21,77,28,24,78,28,24,77,24,24,,0,0,,0,0
+los-angeles,2026-09-05,F,post,False,,unavailable,,unavailable,82,1208,21,80,24,24,81,24,24,80,24,24,,0,0,,0,0
+los-angeles,2026-09-06,F,post,False,,unavailable,,unavailable,76,1440,24,76,29,24,76,29,24,75,24,24,,0,0,,0,0
+los-angeles,2026-09-07,F,post,False,,unavailable,,unavailable,85,1205,21,84,24,24,85,24,24,84,24,24,,0,0,,0,0
+los-angeles,2026-09-08,F,post,False,,unavailable,,unavailable,92,1221,21,91,30,24,92,30,24,91,24,24,,0,0,,0,0
+los-angeles,2026-09-09,F,post,False,,unavailable,,unavailable,100,1199,21,97,24,24,99,24,24,97,24,24,,0,0,,0,0
+los-angeles,2026-09-10,F,post,False,,unavailable,,unavailable,93,1440,24,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+los-angeles,2026-09-11,F,post,False,,unavailable,,unavailable,86,962,18,85,24,24,85,24,24,85,24,24,,0,0,,0,0
+los-angeles,2026-09-12,F,post,False,,unavailable,,unavailable,75,511,9,81,30,24,82,30,24,81,24,24,,0,0,,0,0
+los-angeles,2026-09-13,F,post,False,,unavailable,,unavailable,80,1173,20,78,28,24,79,28,24,78,24,24,,0,0,,0,0
+los-angeles,2026-09-14,F,post,False,,unavailable,,unavailable,72,715,13,78,28,24,80,28,24,78,25,24,,0,0,,0,0
+los-angeles,2026-09-15,F,post,False,,unavailable,,unavailable,82,1440,24,80,26,24,81,26,24,80,24,24,81,153,13,80,25,13
+los-angeles,2026-09-16,F,post,False,,unavailable,,unavailable,80,1440,24,78,25,23,79,25,23,78,23,23,79,312,24,79,46,23
+los-angeles,2026-09-17,F,post,False,,unavailable,,unavailable,79,1440,24,76,26,24,78,26,24,76,24,24,77,276,24,76,45,24
+los-angeles,2026-09-18,F,post,False,,unavailable,,unavailable,78,1440,24,76,26,24,77,26,24,76,24,24,77,314,24,76,48,24
+los-angeles,2026-09-19,F,post,False,,unavailable,,unavailable,78,1440,24,77,27,24,77,27,24,77,24,24,77,314,24,77,48,24
+los-angeles,2026-09-20,F,post,False,,unavailable,,unavailable,79,1368,23,77,28,24,78,28,24,77,25,24,79,316,24,77,49,24
+los-angeles,2026-09-21,F,post,False,,unavailable,,unavailable,,0,0,77,27,24,77,27,24,77,24,24,77,315,24,77,48,24
+miami,2026-07-01,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1264,22,92,26,24,93,26,24,92,24,24,,0,0,,0,0
+miami,2026-07-02,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1222,22,92,32,24,93,32,24,92,25,24,,0,0,,0,0
+miami,2026-07-03,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1238,22,91,29,24,91,29,24,91,24,24,,0,0,,0,0
+miami,2026-07-04,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,730,14,91,33,24,93,33,24,91,26,24,,0,0,,0,0
+miami,2026-07-05,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,94,710,12,94,26,24,94,26,24,94,24,24,,0,0,,0,0
+miami,2026-07-06,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,91,1244,22,91,39,24,93,39,24,91,24,24,,0,0,,0,0
+miami,2026-07-07,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,92,25,24,93,25,24,92,24,24,,0,0,,0,0
+miami,2026-07-08,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1332,24,92,29,24,92,29,24,92,25,24,,0,0,,0,0
+miami,2026-07-09,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1440,24,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+miami,2026-07-10,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,92,33,24,93,33,24,92,26,24,,0,0,,0,0
+miami,2026-07-11,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,92,1197,20,90,30,24,91,30,24,90,24,24,,0,0,,0,0
+miami,2026-07-12,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,92,720,13,94,24,24,94,24,24,94,24,24,,0,0,,0,0
+miami,2026-07-13,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1365,23,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+miami,2026-07-14,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,94,1072,19,94,24,24,94,24,24,94,24,24,,0,0,,0,0
+miami,2026-07-15,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,93,26,24,94,26,24,93,25,24,,0,0,,0,0
+miami,2026-07-16,F,pre,True,97,daily_summary,96-97 F,frozen CSV reconciliation,97,1197,21,97,26,24,97,26,24,97,25,24,,0,0,,0,0
+miami,2026-07-17,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1322,23,92,26,24,94,26,24,92,24,24,,0,0,,0,0
+miami,2026-07-18,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,96,1440,24,91,26,24,91,26,24,91,24,24,,0,0,,0,0
+miami,2026-07-19,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,92,1440,24,91,28,24,91,28,24,91,24,24,,0,0,,0,0
+miami,2026-07-20,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,93,1354,24,93,24,24,93,24,24,93,24,24,,0,0,,0,0
+miami,2026-07-21,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,898,16,91,26,24,92,26,24,91,24,24,,0,0,,0,0
+miami,2026-07-22,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,720,13,92,24,24,92,24,24,92,24,24,,0,0,,0,0
+miami,2026-07-23,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,720,13,92,28,24,93,28,24,92,25,24,,0,0,,0,0
+miami,2026-07-24,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,851,15,92,29,24,93,29,24,92,24,24,,0,0,,0,0
+miami,2026-07-25,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1205,21,92,29,24,92,29,24,90,25,24,,0,0,,0,0
+miami,2026-07-26,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,95,1293,22,94,25,24,94,25,24,94,24,24,,0,0,,0,0
+miami,2026-07-27,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,93,1215,21,90,34,24,92,34,24,90,24,24,,0,0,,0,0
+miami,2026-07-28,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,92,855,15,89,26,24,91,26,24,89,24,24,,0,0,,0,0
+miami,2026-07-29,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,94,1440,24,94,27,24,94,27,24,94,24,24,,0,0,,0,0
+miami,2026-07-30,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,985,18,96,26,24,96,26,24,96,24,24,,0,0,,0,0
+miami,2026-07-31,F,pre,True,96,daily_summary,96-97 F,frozen CSV reconciliation,97,1323,23,96,27,24,96,27,24,96,25,24,,0,0,,0,0
+miami,2026-08-01,F,pre,True,93,daily_summary,92-93 F,frozen CSV reconciliation,95,1186,21,93,30,24,94,30,24,93,25,24,,0,0,,0,0
+miami,2026-08-02,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,88,858,15,90,26,24,91,26,24,90,24,24,,0,0,,0,0
+miami,2026-08-03,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1440,24,91,28,24,93,28,24,91,24,24,,0,0,,0,0
+miami,2026-08-04,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,93,1440,24,90,28,24,92,28,24,90,24,24,,0,0,,0,0
+miami,2026-08-05,F,pre,True,89,daily_summary,88-89 F,frozen CSV reconciliation,91,1440,24,89,31,24,90,31,24,89,24,24,,0,0,,0,0
+miami,2026-08-06,F,pre,True,88,daily_summary,88-89 F,frozen CSV reconciliation,89,1440,24,88,35,24,88,35,24,88,25,24,,0,0,,0,0
+miami,2026-08-07,F,pre,True,90,daily_summary,90-91 F,frozen CSV reconciliation,92,1302,22,90,28,24,91,28,24,90,24,24,,0,0,,0,0
+miami,2026-08-08,F,pre,True,,none,90-91 F,frozen CSV reconciliation,93,720,13,91,27,24,92,27,24,91,24,24,,0,0,,0,0
+miami,2026-08-09,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,1351,23,92,24,24,92,24,24,92,24,24,,0,0,,0,0
+miami,2026-08-10,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,93,821,14,92,25,24,93,25,24,92,24,24,,0,0,,0,0
+miami,2026-08-11,F,pre,True,,none,92-93 F,frozen CSV reconciliation,94,1341,23,93,25,24,94,25,24,93,24,24,,0,0,,0,0
+miami,2026-08-12,F,pre,False,,unavailable,,unavailable,95,1279,22,93,27,24,94,27,24,93,24,24,,0,0,,0,0
+miami,2026-08-13,F,pre,False,,unavailable,,unavailable,95,1184,21,94,28,24,94,28,24,94,25,24,,0,0,,0,0
+miami,2026-08-14,F,pre,False,,unavailable,,unavailable,96,720,13,94,24,24,96,24,24,94,24,24,,0,0,,0,0
+miami,2026-08-15,F,pre,False,,unavailable,,unavailable,94,1177,21,93,29,24,93,29,24,93,24,24,,0,0,,0,0
+miami,2026-08-16,F,pre,False,,unavailable,,unavailable,94,1113,20,93,26,24,94,26,24,93,24,24,,0,0,,0,0
+miami,2026-08-17,F,pre,False,,unavailable,,unavailable,96,1440,24,95,24,24,95,24,24,95,24,24,,0,0,,0,0
+miami,2026-08-18,F,pre,False,,unavailable,,unavailable,100,1286,22,99,24,24,100,24,24,99,24,24,,0,0,,0,0
+miami,2026-08-19,F,pre,False,,unavailable,,unavailable,96,1272,22,95,27,24,96,27,24,95,24,24,,0,0,,0,0
+miami,2026-08-20,F,pre,False,,unavailable,,unavailable,94,1264,22,93,25,24,93,25,24,93,25,24,,0,0,,0,0
+miami,2026-08-21,F,pre,False,,unavailable,,unavailable,95,1440,24,92,27,24,94,27,24,92,24,24,,0,0,,0,0
+miami,2026-08-22,F,pre,False,,unavailable,,unavailable,94,810,14,94,25,24,94,25,24,94,24,24,,0,0,,0,0
+miami,2026-08-23,F,post,False,,unavailable,,unavailable,94,1197,21,92,26,24,93,26,24,92,25,24,,0,0,,0,0
+miami,2026-08-24,F,post,False,,unavailable,,unavailable,92,1386,24,91,33,24,91,33,24,91,24,24,,0,0,,0,0
+miami,2026-08-25,F,post,False,,unavailable,,unavailable,93,1156,20,92,26,24,92,26,24,92,24,24,,0,0,,0,0
+miami,2026-08-26,F,post,False,,unavailable,,unavailable,93,1360,23,92,29,24,92,29,24,92,25,24,,0,0,,0,0
+miami,2026-08-27,F,post,False,,unavailable,,unavailable,84,336,6,93,26,24,93,26,24,92,24,24,,0,0,,0,0
+miami,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,93,27,24,93,27,24,93,24,24,,0,0,,0,0
+miami,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,85,38,24,85,38,24,85,26,24,,0,0,,0,0
+miami,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,91,24,23,91,24,23,91,23,23,,0,0,,0,0
+miami,2026-08-31,F,post,False,,unavailable,,unavailable,,0,0,91,34,24,91,34,24,91,25,24,,0,0,,0,0
+miami,2026-09-01,F,post,False,,unavailable,,unavailable,90,595,12,89,30,24,89,30,24,89,24,24,,0,0,,0,0
+miami,2026-09-02,F,post,True,89,daily_summary,90-91 F,supplied EF10c audit control,90,1078,19,89,30,24,90,30,24,89,24,24,,0,0,,0,0
+miami,2026-09-03,F,post,False,,unavailable,,unavailable,94,1332,23,93,29,24,93,29,24,93,25,24,,0,0,,0,0
+miami,2026-09-04,F,post,False,,unavailable,,unavailable,91,1199,21,90,30,24,91,30,24,90,25,24,,0,0,,0,0
+miami,2026-09-05,F,post,False,,unavailable,,unavailable,85,737,13,91,34,24,92,34,24,90,24,24,,0,0,,0,0
+miami,2026-09-06,F,post,False,,unavailable,,unavailable,92,1440,24,90,27,24,92,27,24,90,24,24,,0,0,,0,0
+miami,2026-09-07,F,post,False,,unavailable,,unavailable,92,1213,21,91,30,24,92,30,24,91,25,24,,0,0,,0,0
+miami,2026-09-08,F,post,False,,unavailable,,unavailable,91,1228,21,90,25,24,92,25,24,90,24,24,,0,0,,0,0
+miami,2026-09-09,F,post,False,,unavailable,,unavailable,91,1289,22,90,32,24,90,32,24,90,24,24,,0,0,,0,0
+miami,2026-09-10,F,post,False,,unavailable,,unavailable,91,1087,20,90,30,24,91,30,24,90,24,24,,0,0,,0,0
+miami,2026-09-11,F,post,False,,unavailable,,unavailable,89,1072,19,88,40,24,88,40,24,88,25,24,,0,0,,0,0
+miami,2026-09-12,F,post,False,,unavailable,,unavailable,82,375,7,93,25,24,93,25,24,93,24,24,,0,0,,0,0
+miami,2026-09-13,F,post,False,,unavailable,,unavailable,93,816,14,90,28,24,92,28,24,90,24,24,,0,0,,0,0
+miami,2026-09-14,F,post,False,,unavailable,,unavailable,90,720,13,89,24,24,90,24,24,89,24,24,,0,0,,0,0
+miami,2026-09-15,F,post,False,,unavailable,,unavailable,93,1205,22,92,24,24,93,24,24,92,24,24,92,113,10,92,19,10
+miami,2026-09-16,F,post,False,,unavailable,,unavailable,92,1309,22,91,28,24,92,28,24,91,24,24,91,314,24,91,48,24
+miami,2026-09-17,F,post,False,,unavailable,,unavailable,84,1191,21,84,27,24,84,27,24,84,24,24,84,306,24,84,48,24
+miami,2026-09-18,F,post,False,,unavailable,,unavailable,90,1205,22,89,34,24,90,34,24,88,24,24,90,320,24,88,48,24
+miami,2026-09-19,F,post,False,,unavailable,,unavailable,88,1217,21,89,26,24,90,26,24,89,24,24,90,314,24,90,48,24
+miami,2026-09-20,F,post,False,,unavailable,,unavailable,89,805,14,89,33,24,90,33,24,89,24,24,90,317,24,89,48,24
+miami,2026-09-21,F,post,False,,unavailable,,unavailable,,0,0,88,24,24,88,24,24,88,24,24,88,312,24,88,48,24
+san-francisco,2026-07-01,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,58,445,8,70,24,24,71,24,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-02,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,72,1013,18,70,24,24,71,24,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-03,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,58,427,8,69,27,24,70,27,24,69,24,24,,0,0,,0,0
+san-francisco,2026-07-04,F,pre,True,68,daily_summary,68-69 F,frozen CSV reconciliation,69,1221,21,68,27,24,69,27,24,68,24,24,,0,0,,0,0
+san-francisco,2026-07-05,F,pre,True,68,daily_summary,68-69 F,frozen CSV reconciliation,61,675,12,68,31,24,70,31,24,68,24,24,,0,0,,0,0
+san-francisco,2026-07-06,F,pre,True,67,daily_summary,66-67 F,frozen CSV reconciliation,69,1174,21,67,31,24,68,31,24,67,24,24,,0,0,,0,0
+san-francisco,2026-07-07,F,pre,True,62,daily_summary,62-63 F,frozen CSV reconciliation,63,1191,21,62,28,24,62,28,24,62,24,24,,0,0,,0,0
+san-francisco,2026-07-08,F,pre,True,64,daily_summary,64-65 F,frozen CSV reconciliation,66,1214,21,64,30,24,65,30,24,64,24,24,,0,0,,0,0
+san-francisco,2026-07-09,F,pre,True,67,daily_summary,66-67 F,frozen CSV reconciliation,69,1440,24,67,30,24,69,30,24,67,24,24,,0,0,,0,0
+san-francisco,2026-07-10,F,pre,True,65,daily_summary,64-65 F,frozen CSV reconciliation,67,1440,24,65,33,24,66,33,24,65,24,24,,0,0,,0,0
+san-francisco,2026-07-11,F,pre,True,67,daily_summary,66-67 F,frozen CSV reconciliation,67,1243,21,67,25,24,67,25,24,67,24,24,,0,0,,0,0
+san-francisco,2026-07-12,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,64,717,13,74,24,24,76,24,24,74,24,24,,0,0,,0,0
+san-francisco,2026-07-13,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,63,460,8,76,24,24,79,24,24,76,24,24,,0,0,,0,0
+san-francisco,2026-07-14,F,pre,True,81,daily_summary,80-81 F,frozen CSV reconciliation,84,1145,20,81,24,24,83,24,24,81,24,24,,0,0,,0,0
+san-francisco,2026-07-15,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,75,1220,21,73,24,24,74,24,24,73,24,24,,0,0,,0,0
+san-francisco,2026-07-16,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,70,1200,21,69,24,24,69,24,24,69,24,24,,0,0,,0,0
+san-francisco,2026-07-17,F,pre,True,67,daily_summary,66-67 F,frozen CSV reconciliation,69,1440,24,67,30,24,68,30,24,67,24,24,,0,0,,0,0
+san-francisco,2026-07-18,F,pre,True,71,daily_summary,70-71 F,frozen CSV reconciliation,60,726,13,71,31,24,72,31,24,71,24,24,,0,0,,0,0
+san-francisco,2026-07-19,F,pre,True,65,daily_summary,64-65 F,frozen CSV reconciliation,67,1440,24,65,27,24,66,27,24,65,24,24,,0,0,,0,0
+san-francisco,2026-07-20,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,73,1187,21,70,25,24,72,25,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-21,F,pre,True,91,daily_summary,90-91 F,frozen CSV reconciliation,93,1440,24,91,24,24,92,24,24,91,24,24,,0,0,,0,0
+san-francisco,2026-07-22,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,74,1440,24,73,28,24,74,28,24,73,24,24,,0,0,,0,0
+san-francisco,2026-07-23,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,70,1440,24,69,27,24,70,27,24,69,24,24,,0,0,,0,0
+san-francisco,2026-07-24,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,72,1197,21,70,30,24,71,30,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-25,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,72,1440,24,70,25,24,71,25,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-26,F,pre,True,68,daily_summary,68-69 F,frozen CSV reconciliation,70,1210,21,68,29,24,69,29,24,68,25,24,,0,0,,0,0
+san-francisco,2026-07-27,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,71,946,16,69,27,24,70,27,24,69,23,23,,0,0,,0,0
+san-francisco,2026-07-28,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,71,1213,21,70,30,24,71,30,24,70,24,24,,0,0,,0,0
+san-francisco,2026-07-29,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,70,1440,24,69,30,24,70,30,24,69,24,24,,0,0,,0,0
+san-francisco,2026-07-30,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,74,1440,24,73,25,24,73,25,24,73,24,24,,0,0,,0,0
+san-francisco,2026-07-31,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,72,1440,24,72,26,24,72,26,24,72,24,24,,0,0,,0,0
+san-francisco,2026-08-01,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,75,1440,24,73,27,24,74,27,24,73,24,24,,0,0,,0,0
+san-francisco,2026-08-02,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,81,1200,21,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+san-francisco,2026-08-03,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,79,1425,24,77,26,24,78,26,24,77,24,24,,0,0,,0,0
+san-francisco,2026-08-04,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,74,1207,21,73,26,24,73,26,24,73,24,24,,0,0,,0,0
+san-francisco,2026-08-05,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,73,1440,24,70,30,24,72,30,24,70,24,24,,0,0,,0,0
+san-francisco,2026-08-06,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,73,1431,24,72,28,24,72,28,24,72,24,24,,0,0,,0,0
+san-francisco,2026-08-07,F,pre,True,67,daily_summary,66-67 F,frozen CSV reconciliation,59,239,4,67,29,24,68,29,24,67,24,24,,0,0,,0,0
+san-francisco,2026-08-08,F,pre,True,,none,67 F or below,frozen CSV reconciliation,68,1440,24,66,26,24,67,26,24,66,25,24,,0,0,,0,0
+san-francisco,2026-08-09,F,pre,True,70,daily_summary,75 F or below,frozen CSV reconciliation,71,1185,21,70,26,24,71,26,24,70,24,24,,0,0,,0,0
+san-francisco,2026-08-10,F,pre,True,73,daily_summary,72-73 F,frozen CSV reconciliation,74,974,18,73,24,24,73,24,24,73,24,24,,0,0,,0,0
+san-francisco,2026-08-11,F,pre,True,,none,76-77 F,frozen CSV reconciliation,61,466,8,76,24,24,76,24,24,76,24,24,,0,0,,0,0
+san-francisco,2026-08-12,F,pre,False,,unavailable,,unavailable,65,259,5,73,27,24,74,27,24,73,24,24,,0,0,,0,0
+san-francisco,2026-08-13,F,pre,False,,unavailable,,unavailable,72,1356,23,71,32,24,71,32,24,71,24,24,,0,0,,0,0
+san-francisco,2026-08-14,F,pre,False,,unavailable,,unavailable,71,1226,21,70,35,24,70,35,24,69,24,24,,0,0,,0,0
+san-francisco,2026-08-15,F,pre,False,,unavailable,,unavailable,70,1248,22,68,30,24,69,30,24,68,24,24,,0,0,,0,0
+san-francisco,2026-08-16,F,pre,False,,unavailable,,unavailable,70,1204,21,69,26,24,70,26,24,69,24,24,,0,0,,0,0
+san-francisco,2026-08-17,F,pre,False,,unavailable,,unavailable,73,1183,21,71,28,24,72,28,24,71,24,24,,0,0,,0,0
+san-francisco,2026-08-18,F,pre,False,,unavailable,,unavailable,70,1440,24,68,29,24,70,29,24,68,24,24,,0,0,,0,0
+san-francisco,2026-08-19,F,pre,False,,unavailable,,unavailable,69,1440,24,67,32,24,68,32,24,67,24,24,,0,0,,0,0
+san-francisco,2026-08-20,F,pre,False,,unavailable,,unavailable,69,1440,24,68,33,24,69,33,24,68,24,24,,0,0,,0,0
+san-francisco,2026-08-21,F,pre,False,,unavailable,,unavailable,68,1440,24,67,26,24,68,26,24,67,24,24,,0,0,,0,0
+san-francisco,2026-08-22,F,pre,False,,unavailable,,unavailable,70,1189,21,68,28,24,69,28,24,68,24,24,,0,0,,0,0
+san-francisco,2026-08-23,F,post,False,,unavailable,,unavailable,78,1205,21,76,24,24,77,24,24,76,24,24,,0,0,,0,0
+san-francisco,2026-08-24,F,post,False,,unavailable,,unavailable,61,711,13,71,25,24,73,25,24,71,24,24,,0,0,,0,0
+san-francisco,2026-08-25,F,post,False,,unavailable,,unavailable,69,1225,21,67,26,24,68,26,24,67,24,24,,0,0,,0,0
+san-francisco,2026-08-26,F,post,False,,unavailable,,unavailable,77,947,16,76,30,24,77,30,24,76,24,24,,0,0,,0,0
+san-francisco,2026-08-27,F,post,False,,unavailable,,unavailable,,0,0,73,24,24,73,24,24,73,24,24,,0,0,,0,0
+san-francisco,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,65,28,24,65,28,24,65,24,24,,0,0,,0,0
+san-francisco,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,70,29,24,71,29,24,70,24,24,,0,0,,0,0
+san-francisco,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,71,30,24,71,30,24,71,25,24,,0,0,,0,0
+san-francisco,2026-08-31,F,post,False,,unavailable,,unavailable,67,1217,21,66,28,24,67,28,24,66,24,24,,0,0,,0,0
+san-francisco,2026-09-01,F,post,False,,unavailable,,unavailable,72,1202,21,71,25,24,71,25,24,71,24,24,,0,0,,0,0
+san-francisco,2026-09-02,F,post,False,,unavailable,,unavailable,73,1440,24,72,26,24,73,26,24,72,24,24,,0,0,,0,0
+san-francisco,2026-09-03,F,post,False,,unavailable,,unavailable,72,1440,24,71,31,24,72,31,24,71,24,24,,0,0,,0,0
+san-francisco,2026-09-04,F,post,False,,unavailable,,unavailable,72,1440,24,71,27,24,72,27,24,71,24,24,,0,0,,0,0
+san-francisco,2026-09-05,F,post,False,,unavailable,,unavailable,75,1204,21,73,28,24,74,28,24,73,24,24,,0,0,,0,0
+san-francisco,2026-09-06,F,post,False,,unavailable,,unavailable,72,1440,24,71,27,24,72,27,24,71,24,24,,0,0,,0,0
+san-francisco,2026-09-07,F,post,False,,unavailable,,unavailable,83,1440,24,80,24,24,83,24,24,80,24,24,,0,0,,0,0
+san-francisco,2026-09-08,F,post,False,,unavailable,,unavailable,75,717,13,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+san-francisco,2026-09-09,F,post,False,,unavailable,,unavailable,95,1198,21,93,24,24,94,24,24,93,24,24,,0,0,,0,0
+san-francisco,2026-09-10,F,post,False,,unavailable,,unavailable,86,1428,24,84,24,24,85,24,24,84,24,24,,0,0,,0,0
+san-francisco,2026-09-11,F,post,False,,unavailable,,unavailable,72,973,18,72,26,24,73,26,24,72,24,24,,0,0,,0,0
+san-francisco,2026-09-12,F,post,False,,unavailable,,unavailable,72,1440,24,71,24,24,71,24,24,71,24,24,,0,0,,0,0
+san-francisco,2026-09-13,F,post,False,,unavailable,,unavailable,71,1440,24,70,28,24,71,28,24,70,24,24,,0,0,,0,0
+san-francisco,2026-09-14,F,post,False,,unavailable,,unavailable,62,715,13,75,24,24,78,24,24,75,24,24,,0,0,,0,0
+san-francisco,2026-09-15,F,post,False,,unavailable,,unavailable,73,1440,24,72,27,24,73,27,24,72,24,24,73,154,13,72,25,13
+san-francisco,2026-09-16,F,post,False,,unavailable,,unavailable,67,1440,24,65,29,24,66,29,24,64,24,24,66,316,24,64,48,24
+san-francisco,2026-09-17,F,post,False,,unavailable,,unavailable,73,1440,24,71,28,24,72,28,24,71,25,24,72,316,24,72,49,24
+san-francisco,2026-09-18,F,post,False,,unavailable,,unavailable,70,1440,24,68,29,24,69,29,24,68,24,24,70,315,24,68,48,24
+san-francisco,2026-09-19,F,post,False,,unavailable,,unavailable,69,1418,24,67,28,24,68,28,24,67,24,24,68,315,24,67,48,24
+san-francisco,2026-09-20,F,post,False,,unavailable,,unavailable,64,1148,20,64,29,24,64,29,24,64,24,24,64,317,24,64,48,24
+san-francisco,2026-09-21,F,post,False,,unavailable,,unavailable,,0,0,68,28,24,68,28,24,68,24,24,68,315,24,68,48,24
+seattle,2026-07-01,F,pre,True,63,daily_summary,62-63 F,frozen CSV reconciliation,65,1220,22,63,30,24,64,30,24,63,24,24,,0,0,,0,0
+seattle,2026-07-02,F,pre,True,65,daily_summary,64-65 F,frozen CSV reconciliation,68,1440,24,65,27,24,68,27,24,65,24,24,,0,0,,0,0
+seattle,2026-07-03,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,75,1093,19,72,26,24,73,26,24,72,24,24,,0,0,,0,0
+seattle,2026-07-04,F,pre,True,70,daily_summary,70-71 F,frozen CSV reconciliation,73,1440,24,70,30,24,72,30,24,70,25,24,,0,0,,0,0
+seattle,2026-07-05,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,77,1206,21,76,25,24,77,25,24,76,24,24,,0,0,,0,0
+seattle,2026-07-06,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,86,1110,20,85,24,24,85,24,24,85,24,24,,0,0,,0,0
+seattle,2026-07-07,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,76,1440,24,74,28,24,75,28,24,74,24,24,,0,0,,0,0
+seattle,2026-07-08,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,71,1440,24,69,26,24,71,26,24,69,24,24,,0,0,,0,0
+seattle,2026-07-09,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,80,1440,24,78,28,24,79,28,24,78,24,24,,0,0,,0,0
+seattle,2026-07-10,F,pre,True,76,daily_summary,76-77 F,frozen CSV reconciliation,79,1134,19,76,25,24,78,25,24,76,24,24,,0,0,,0,0
+seattle,2026-07-11,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,77,1137,19,75,24,24,76,24,24,75,24,24,,0,0,,0,0
+seattle,2026-07-12,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,73,1440,24,72,25,24,72,25,24,72,24,24,,0,0,,0,0
+seattle,2026-07-13,F,pre,True,79,daily_summary,78-79 F,frozen CSV reconciliation,81,1440,24,79,24,24,80,24,24,79,24,24,,0,0,,0,0
+seattle,2026-07-14,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,85,1071,19,85,24,24,85,24,24,85,24,24,,0,0,,0,0
+seattle,2026-07-15,F,pre,True,83,daily_summary,82-83 F,frozen CSV reconciliation,84,1440,24,83,24,24,83,24,24,83,24,24,,0,0,,0,0
+seattle,2026-07-16,F,pre,True,64,daily_summary,64-65 F,frozen CSV reconciliation,66,1196,21,64,51,24,64,51,24,63,25,24,,0,0,,0,0
+seattle,2026-07-17,F,pre,True,71,daily_summary,70-71 F,frozen CSV reconciliation,73,1440,24,71,30,24,72,30,24,71,24,24,,0,0,,0,0
+seattle,2026-07-18,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,76,1440,24,74,27,24,75,27,24,74,24,24,,0,0,,0,0
+seattle,2026-07-19,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,79,1127,19,78,24,24,78,24,24,78,24,24,,0,0,,0,0
+seattle,2026-07-20,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,83,1061,18,82,24,24,82,24,24,82,24,24,,0,0,,0,0
+seattle,2026-07-21,F,pre,True,92,daily_summary,92-93 F,frozen CSV reconciliation,94,1440,24,92,24,24,93,24,24,92,24,24,,0,0,,0,0
+seattle,2026-07-22,F,pre,True,94,daily_summary,94-95 F,frozen CSV reconciliation,96,1126,19,94,26,24,95,26,24,94,24,24,,0,0,,0,0
+seattle,2026-07-23,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,77,1440,24,75,29,24,76,29,24,75,24,24,,0,0,,0,0
+seattle,2026-07-24,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,83,1440,24,82,31,24,82,31,24,82,25,24,,0,0,,0,0
+seattle,2026-07-25,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,74,1440,24,72,27,24,73,27,24,72,25,24,,0,0,,0,0
+seattle,2026-07-26,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,75,1196,21,72,26,24,74,26,24,72,24,24,,0,0,,0,0
+seattle,2026-07-27,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,80,1440,24,78,27,23,79,27,23,78,23,23,,0,0,,0,0
+seattle,2026-07-28,F,pre,True,72,daily_summary,72-73 F,frozen CSV reconciliation,74,1440,24,72,26,24,73,26,24,72,24,24,,0,0,,0,0
+seattle,2026-07-29,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,76,1440,24,75,24,24,75,24,24,75,24,24,,0,0,,0,0
+seattle,2026-07-30,F,pre,True,78,daily_summary,78-79 F,frozen CSV reconciliation,79,1256,21,78,24,24,79,24,24,78,24,24,,0,0,,0,0
+seattle,2026-07-31,F,pre,True,82,daily_summary,82-83 F,frozen CSV reconciliation,84,1160,20,82,24,24,84,24,24,82,24,24,,0,0,,0,0
+seattle,2026-08-01,F,pre,True,71,daily_summary,70-71 F,frozen CSV reconciliation,73,1440,24,71,31,24,72,31,24,71,24,24,,0,0,,0,0
+seattle,2026-08-02,F,pre,True,69,daily_summary,68-69 F,frozen CSV reconciliation,71,1336,23,69,25,24,71,25,24,69,24,24,,0,0,,0,0
+seattle,2026-08-03,F,pre,True,75,daily_summary,74-75 F,frozen CSV reconciliation,77,1440,24,75,24,24,76,24,24,75,24,24,,0,0,,0,0
+seattle,2026-08-04,F,pre,True,80,daily_summary,80-81 F,frozen CSV reconciliation,81,1194,21,80,25,24,81,25,24,80,24,24,,0,0,,0,0
+seattle,2026-08-05,F,pre,True,86,daily_summary,86-87 F,frozen CSV reconciliation,87,1440,24,86,24,24,87,24,24,86,24,24,,0,0,,0,0
+seattle,2026-08-06,F,pre,True,87,daily_summary,86-87 F,frozen CSV reconciliation,88,1195,21,87,24,24,88,24,24,87,24,24,,0,0,,0,0
+seattle,2026-08-07,F,pre,True,85,daily_summary,84-85 F,frozen CSV reconciliation,87,1208,21,85,25,24,86,25,24,85,24,24,,0,0,,0,0
+seattle,2026-08-08,F,pre,True,,none,82-83 F,frozen CSV reconciliation,83,1440,24,83,24,24,83,24,24,83,24,24,,0,0,,0,0
+seattle,2026-08-09,F,pre,True,77,daily_summary,76-77 F,frozen CSV reconciliation,78,1440,24,77,26,24,77,26,24,77,24,24,,0,0,,0,0
+seattle,2026-08-10,F,pre,True,74,daily_summary,74-75 F,frozen CSV reconciliation,75,1440,24,74,29,24,74,29,24,74,24,24,,0,0,,0,0
+seattle,2026-08-11,F,pre,True,,none,78-79 F,frozen CSV reconciliation,80,1440,24,78,26,24,79,26,24,78,24,24,,0,0,,0,0
+seattle,2026-08-12,F,pre,False,,unavailable,,unavailable,80,1440,24,78,29,24,79,29,24,78,24,24,,0,0,,0,0
+seattle,2026-08-13,F,pre,False,,unavailable,,unavailable,82,1440,24,80,32,24,81,32,24,80,25,24,,0,0,,0,0
+seattle,2026-08-14,F,pre,False,,unavailable,,unavailable,78,1192,21,77,35,24,78,35,24,77,24,24,,0,0,,0,0
+seattle,2026-08-15,F,pre,False,,unavailable,,unavailable,76,1440,24,75,26,24,75,26,24,75,24,24,,0,0,,0,0
+seattle,2026-08-16,F,pre,False,,unavailable,,unavailable,75,1440,24,75,26,24,75,26,24,75,24,24,,0,0,,0,0
+seattle,2026-08-17,F,pre,False,,unavailable,,unavailable,81,938,18,78,28,24,80,28,24,78,24,24,,0,0,,0,0
+seattle,2026-08-18,F,pre,False,,unavailable,,unavailable,80,1440,24,78,30,24,80,30,24,78,24,24,,0,0,,0,0
+seattle,2026-08-19,F,pre,False,,unavailable,,unavailable,83,716,13,82,27,24,83,27,24,82,25,24,,0,0,,0,0
+seattle,2026-08-20,F,pre,False,,unavailable,,unavailable,87,1440,24,85,24,24,86,24,24,85,24,24,,0,0,,0,0
+seattle,2026-08-21,F,pre,False,,unavailable,,unavailable,81,698,13,80,24,24,81,24,24,80,24,24,,0,0,,0,0
+seattle,2026-08-22,F,pre,False,,unavailable,,unavailable,77,1203,21,75,30,24,76,30,24,75,24,24,,0,0,,0,0
+seattle,2026-08-23,F,post,False,,unavailable,,unavailable,64,274,5,75,26,24,75,26,24,75,24,24,,0,0,,0,0
+seattle,2026-08-24,F,post,False,,unavailable,,unavailable,81,1230,22,80,30,24,81,30,24,80,24,24,,0,0,,0,0
+seattle,2026-08-25,F,post,False,,unavailable,,unavailable,85,1440,24,84,24,24,84,24,24,84,24,24,,0,0,,0,0
+seattle,2026-08-26,F,post,False,,unavailable,,unavailable,78,1440,24,77,28,24,77,28,24,77,24,24,,0,0,,0,0
+seattle,2026-08-27,F,post,False,,unavailable,,unavailable,64,164,3,73,26,24,74,26,24,73,24,24,,0,0,,0,0
+seattle,2026-08-28,F,post,False,,unavailable,,unavailable,,0,0,72,28,24,73,28,24,72,24,24,,0,0,,0,0
+seattle,2026-08-29,F,post,False,,unavailable,,unavailable,,0,0,71,30,24,71,30,24,71,24,24,,0,0,,0,0
+seattle,2026-08-30,F,post,False,,unavailable,,unavailable,,0,0,70,32,24,71,32,24,70,24,24,,0,0,,0,0
+seattle,2026-08-31,F,post,False,,unavailable,,unavailable,77,784,15,76,27,24,76,27,24,76,24,24,,0,0,,0,0
+seattle,2026-09-01,F,post,False,,unavailable,,unavailable,67,1066,18,66,35,24,66,35,24,66,25,24,,0,0,,0,0
+seattle,2026-09-02,F,post,False,,unavailable,,unavailable,70,720,13,69,26,24,70,26,24,69,24,24,,0,0,,0,0
+seattle,2026-09-03,F,post,False,,unavailable,,unavailable,69,1022,18,68,25,24,68,25,24,68,24,24,,0,0,,0,0
+seattle,2026-09-04,F,post,False,,unavailable,,unavailable,71,1185,21,69,27,24,70,27,24,69,24,24,,0,0,,0,0
+seattle,2026-09-05,F,post,False,,unavailable,,unavailable,71,1206,21,69,24,24,70,24,24,69,24,24,,0,0,,0,0
+seattle,2026-09-06,F,post,False,,unavailable,,unavailable,74,1202,21,73,24,24,74,24,24,73,24,24,,0,0,,0,0
+seattle,2026-09-07,F,post,False,,unavailable,,unavailable,71,728,13,70,29,24,70,29,24,70,24,24,,0,0,,0,0
+seattle,2026-09-08,F,post,False,,unavailable,,unavailable,75,1227,21,74,24,24,74,24,24,74,24,24,,0,0,,0,0
+seattle,2026-09-09,F,post,False,,unavailable,,unavailable,79,1195,21,77,27,24,78,27,24,77,24,24,,0,0,,0,0
+seattle,2026-09-10,F,post,False,,unavailable,,unavailable,66,666,12,70,24,24,71,24,24,70,24,24,,0,0,,0,0
+seattle,2026-09-11,F,post,False,,unavailable,,unavailable,60,60,1,66,25,24,67,25,24,66,24,24,,0,0,,0,0
+seattle,2026-09-12,F,post,False,,unavailable,,unavailable,62,732,13,66,26,24,66,26,24,66,24,24,,0,0,,0,0
+seattle,2026-09-13,F,post,False,,unavailable,,unavailable,61,1440,24,60,37,24,60,37,24,60,24,24,,0,0,,0,0
+seattle,2026-09-14,F,post,False,,unavailable,,unavailable,68,1190,21,66,27,24,67,27,24,66,25,24,,0,0,,0,0
+seattle,2026-09-15,F,post,False,,unavailable,,unavailable,68,1002,17,67,26,24,68,26,24,67,24,24,68,141,13,67,25,13
+seattle,2026-09-16,F,post,False,,unavailable,,unavailable,74,1440,24,74,25,24,74,25,24,74,24,24,74,299,24,74,47,24
+seattle,2026-09-17,F,post,False,,unavailable,,unavailable,78,707,12,76,24,24,77,24,24,76,24,24,77,287,24,76,48,24
+seattle,2026-09-18,F,post,False,,unavailable,,unavailable,69,1440,24,68,28,24,69,28,24,68,24,24,68,303,24,68,47,24
+seattle,2026-09-19,F,post,False,,unavailable,,unavailable,57,727,13,63,28,24,63,28,24,63,24,24,63,296,24,63,48,24
+seattle,2026-09-20,F,post,False,,unavailable,,unavailable,70,1440,24,70,26,24,70,26,24,70,24,24,70,302,24,70,47,24
+seattle,2026-09-21,F,post,False,,unavailable,,unavailable,57,45,1,66,24,24,67,24,24,66,24,24,66,288,24,66,45,24
