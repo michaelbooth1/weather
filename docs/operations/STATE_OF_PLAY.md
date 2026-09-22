@@ -65,10 +65,10 @@ Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS
 
 1. **RE-1 session 1 moved to 2026-09-23 (no session on 09-22: two code defects, see above).** Order: owner makes a
    fresh worktree at `475a626e4` (never the 09-21 execution worktree), tunnel down, runs `preflight` (valid from
-   00:00Z 09-23, i.e. 20:00 Eastern 09-22; a later FAIL voids a PASS), and on PASS starts `live` by 13:59 Eastern; a `NO QUALIFYING BAND` line means retry every quarter
-   hour, not a defect (bands flickered hour to hour on 09-22). `84a`-`85b` are accepted on their branches (85b's
-   exact-amount payout rule is roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). Still the
-   owner's: the account, hurdle `H` and the stop date (before earnings are read). Freeze `R` before any markout read.
+   00:00Z 09-23 = 20:00 ET 09-22; a later FAIL voids a PASS), on PASS starts `live` by 13:59 ET; `NO QUALIFYING BAND`
+   = retry each quarter hour. `84a`-`85b` accepted (85b roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). **Owner 2026-09-22, before any order:** the frozen RE-1 verdict
+   table binds (`k = paid / P_many`, `k >= 0.5` -> RE-2); `H` = 1.00 net/day per 100 deployed; no paid verdict by
+   2026-10-31 closes the maker track. Freeze `R` before any markout read.
 2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
    **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
    closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.

@@ -124,7 +124,7 @@ same treatment on up to three bands, at most five sessions and two payout cycles
 days. `R` (execution-tape markout pre-registration) is frozen from RE-2's paid reward per filled
 share before anyone re-reads the markout numbers.
 
-**Hurdle and stop (owner to set; defaults proposed):** `H` = 1.00 dollar net per day per 100
+**Hurdle and stop (owner set both to these defaults on 2026-09-22, before any RE-1 order):** `H` = 1.00 dollar net per day per 100
 deployed across the RE-2 cohort, trading losses included. **If no epoch has returned a paid verdict
 by 2026-10-31 the maker track closes** and the project reverts to cheap capture only, pending an
 owner decision on whether it continues at all.
