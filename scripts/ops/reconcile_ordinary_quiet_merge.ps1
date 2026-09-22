@@ -87,14 +87,18 @@ function Test-PathEqual([string]$left, [string]$right) {
     return [string]::Equals($l, $r, [StringComparison]::OrdinalIgnoreCase)
 }
 
+# Runs with the production checkout as the working directory: the supervisor
+# status command has no --repo-root and resolves the repository from cwd, so a
+# caller sitting in a worktree would otherwise read a nonexistent status file.
 function Invoke-PythonJson([string[]]$arguments) {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    Push-Location -LiteralPath $RepoRoot
     try {
         $out = @(& $Python @arguments 2>$null | ForEach-Object { [string]$_ })
         $code = $LASTEXITCODE
     }
-    finally { $ErrorActionPreference = $previous }
+    finally { Pop-Location; $ErrorActionPreference = $previous }
     try { $payload = (($out -join "`n") | ConvertFrom-Json) }
     catch { throw ("{0} produced unreadable JSON" -f ($arguments -join ' ')) }
     return [pscustomobject]@{ exit = $code; payload = $payload }
