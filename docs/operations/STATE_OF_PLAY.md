@@ -41,7 +41,7 @@ pinned SDK's silent API-key creation. **The owner's first real `preflight` runs 
 tip: no `-ExecutionPolicy Bypass` on the host-identity spawn, `python-dotenv` undeclared, Cloudflare 403 on every
 plain-urllib public read (no `User-Agent`), and the accrual read paging the whole reward-market universe past the
 50-page budget; `84d` (`7010a0b58`) fixes the first two, `84e` (`c190fb10b`) the User-Agent, `84f` the paginator.
-`live` needs a same-day PASS on the tip run.** None grants live authority.
+Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS on it.** None grants live authority.
 
 ## Current truth
 
@@ -63,9 +63,9 @@ plain-urllib public read (no `User-Agent`), and the accrual read paging the whol
 
 ## Ordered non-live critical path
 
-1. **RE-1 session 1 moved to 2026-09-23 (no session on 09-22: two code defects, see above).** Order: `84f` handed
-   back and accepted -> production agent names the session tip -> owner makes a fresh worktree at that tip, tunnel down,
-   runs `preflight`, and on PASS starts `live` by 13:59 Eastern; a `NO QUALIFYING BAND` line means retry every quarter
+1. **RE-1 session 1 moved to 2026-09-23 (no session on 09-22: two code defects, see above).** Order: owner makes a
+   fresh worktree at `475a626e4` (never the 09-21 execution worktree), tunnel down, runs `preflight` (valid from
+   00:00Z 09-23, i.e. 20:00 Eastern 09-22; a later FAIL voids a PASS), and on PASS starts `live` by 13:59 Eastern; a `NO QUALIFYING BAND` line means retry every quarter
    hour, not a defect (bands flickered hour to hour on 09-22). `84a`-`85b` are accepted on their branches (85b's
    exact-amount payout rule is roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). Still the
    owner's: the account, hurdle `H` and the stop date (before earnings are read). Freeze `R` before any markout read.
