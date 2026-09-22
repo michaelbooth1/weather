@@ -1979,25 +1979,50 @@ exclusive `payout-evidence-<UTC timestamp>.json` beside the prediction. It never
 starts a stream, signs an order, heartbeats or cancels. The owner runs it;
 agents do not run it with owner credentials.
 
-**This collector cannot currently prove paid rewards.** SDK 0.6.0
-`list_activity` supplies account `REWARD`/`MAKER_REBATE` candidates, but no
-earned period or shared accrual reference. The
-[activity-to-credit contract](paid-credit-activity-evidence.md#output-limits)
-forbids inventing that link from equal amounts or the following day's date.
-The collector therefore records `distributions.status=UNSUPPORTED`, retains
-the candidates separately and exits 2 after printing the file path, hash and
-INCONCLUSIVE result. Waiting or repeating an empty query cannot remove this
-blocker. There is no distribution-import or override flag.
+#### RE-1 reward-day linkage
 
-The cash window is the reward day's UTC start through its end plus 48 hours.
-Until an authoritative day-linked distribution exists, no later distribution
-observation can extend it. Logs cover both configured RE-1 assets, in bounded
-block chunks whose timestamps are resolved by binary search. Missing chunks,
-range-limit exhaustion or an unfinalized tail prevent complete coverage.
-Only native pUSD rows enter the existing reconciler; USDC.e remains separate
-asset evidence. Sub-micro-unit earnings are preserved without rounding and
-may be refused by that reconciler. Its closed-cash-window requirement still
-applies; observation of a payment alone cannot shorten the required window.
+RE-1 uses the reviewed producer rule
+`linkage_basis=exact_amount_single_condition_unique_credit_v0.1` to link a
+reward payment to its day. SDK 0.6.0 supplies no authoritative earned-period
+reference; this is an explicitly labelled RE-1 rule, not such a reference.
+The separate [pure activity bridge](paid-credit-activity-evidence.md#output-limits)
+and its inference restrictions remain unchanged.
+
+For reward day `D`, collect on or after **D+3 00:00Z**. Accruals must be final,
+both asset totals present, and every nonzero earning in either asset must
+belong to the selected condition. Totals are checked at venue precision;
+each accrual `amount` is then rounded to micro-units with `ROUND_HALF_EVEN`,
+retaining the unrounded `venue_amount`. The pUSD sum `A` must be positive.
+The tiny consumer tolerance is recorded as `rounding_tolerance_units: 1`:
+`A+1` is accepted as PAID, `A+2` is refused, and `A-1` remains PARTIALLY_PAID.
+Confirmed cash is never increased to match an accrual.
+
+The maker-scoped `/activity` query requests only `REWARD` rows over
+`[D+1 00:00Z, min(D+3 00:00Z, observation))`, with complete pagination.
+Each activity transaction must have exactly one confirmed pUSD Transfer in
+the cash window. Exactly one joined credit must be within one micro-unit of
+`A`. The distribution retains `linkage_basis`, `activity_sha256`,
+`activity_timestamp_utc` and `matched_amount_delta_units`; its ID binds day,
+transaction and log index, and `accrual_id` binds the earning. Raw request and
+response hashes remain in the journal. `activity_request_scope` records the
+actual activity query interval, separately from the normalized day/cash
+`request_scope` required by the reconciler.
+
+The two ways this stays **INCONCLUSIVE** are (1) final, single-condition,
+unique amount/transaction linkage cannot be established, or (2) cash coverage
+is incomplete or contains unexplained pUSD credits. An unjoined activity,
+multiple matching credits, another condition's earning, or an amount mismatch
+is never coerced. Other reward candidates stay visible; the collector does
+not guess their earned day, automatically exclude them, or offer an import or
+override flag. The matcher's `wallet_credit_unattributed` remains unresolved.
+
+`NOT_PAID` requires the closed cash window, positive `A`, complete reads,
+zero REWARD rows and zero credits in **both** assets. Any USDC.e credit
+prevents this absence conclusion. Logs cover `[D 00:00Z, D+3 00:00Z)` in
+bounded block chunks resolved by timestamp binary search. A missing chunk,
+range-limit exhaustion or unfinalized tail prevents complete coverage.
+Only native pUSD enters the reconciler; USDC.e remains separate evidence.
+The closed-cash-window requirement is unchanged; a payment cannot shorten it.
 
 The in-memory journal uses `OwnerVenue`'s response hook for the exact response
 byte hashes, adding header-free request-target/body hashes. Source hashes
@@ -2007,7 +2032,13 @@ never retained, and every persisted/printed value passes the secret guard.
 Pass a retained file explicitly to
 `collect-payout <prediction.json> --payment-evidence <payout-evidence.json>`.
 That command prints and retains the input path and SHA-256 of the exact bytes
-it judged. An unsupported file leaves `paid` and `k` unknown, never zero.
+it judged. The producer retains `payout_diagnostics`, and `collect-payout`
+prints it for every verdict: reward day, unrounded and micro-unit accrual
+totals, other-condition count and native totals by asset, activity rows,
+pUSD/USDC.e credits, `cash_window_closed` and `linkage_rule_outcome` (first
+failed check, `matched`, or the completed absence case `not_paid`). Missing
+observations remain unknown. An incomplete file leaves `paid` and `k` unknown;
+`collect-evidence` exits 2 after writing it and exits 0 for complete evidence.
 
 `weather.market.mm_exchange_reports.reconcile_incentive_payments` accepts
 supplied normalized evidence and performs no account, wallet or network read.

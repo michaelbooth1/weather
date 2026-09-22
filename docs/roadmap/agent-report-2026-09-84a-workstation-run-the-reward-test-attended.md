@@ -1001,3 +1001,180 @@ reviewed against the refreshed declared parent. Branch publication and the
 draft PR are the handback boundary; adoption needs the operations owner's
 fresh closure verdict. The missing authoritative distribution source remains
 the reason an actual paid RE-1 verdict cannot be produced.
+
+## 85b — reviewed reward-day linkage, 2026-09-21 (night)
+
+**IMPLEMENTED: the real collector now produces paid or closed-window unpaid
+evidence under the explicitly reviewed RE-1 rule; 332 focused and regression
+tests pass. No real payout or profit is proved.** Final full-suite qualification,
+source commit, CI and roll-verdict receipts are appended below when complete.
+This supersedes 85a's producer limitation for RE-1 only, not the pure bridge's
+refusal to invent an authoritative earned-period reference.
+
+Task source: `workstation-handoff-2026-09-85b-link-the-reward-payment-to-its-day.md`
+at `91b29bda89382c8f6796f87b267962729893df87`. New branch
+`codex/re1-payout-link-20260922` starts exactly at
+`045a100edc44f4c241ed384cb0c7e74d422d3aec` in
+`scratch/w/re1-payout-link-20260922`; its draft PR targets PR 82. The execution
+worktree `scratch/w/reward-test-attended-20260921` was not edited, checked out,
+tested from or otherwise changed. Its `7e6e1709c` authority remains separate.
+
+### Producer rule and diagnostics
+
+The implementation records
+`linkage_basis: exact_amount_single_condition_unique_credit_v0.1` and
+`venue_earned_period_reference: false`. It is the reviewed producer decision
+specified by 85b, not a newly discovered endpoint or venue-issued day reference.
+No source/API research or owner-account collection was repeated for this task.
+
+Final earnings require `accruals.status == OBSERVED`, `complete == true`, both
+asset totals and only `ACCRUED`/`COMPLETED_ZERO` pUSD rows. Nonzero earnings in
+any other condition, including sub-micro amounts in either asset, refuse the
+rule. Native rows and totals must agree before rounding. `amount` uses
+`ROUND_HALF_EVEN` at six decimals; `venue_amount` preserves the unrounded value.
+`A` is the integer sum of quantized pUSD rows and must be positive.
+
+`list_activity` now requests `type=REWARD` only, maker-scoped over
+`[D+1 00:00Z, min(D+3 00:00Z, collection time))`; the integer API end is the
+exclusive bound minus one second. Other pagination/query parameters and raw
+request/response hashing are unchanged. `activity_request_scope` records
+these actual bounds separately from the reconciler's normalized `request_scope`
+for the reward-day/cash period. No source scope validator was altered.
+
+Each activity transaction must join exactly one confirmed pUSD wallet credit.
+Candidates retain `join_status` and `matching_credit_ids`; zero or multiple
+matches retain `unjoined` and refuse with `activity_credit_join_failed`.
+Exactly one candidate may satisfy `abs(C-A) <= 1` micro-unit. Every pUSD credit
+must then be accounted for; unexplained credits are never automatically
+excluded. Even another REWARD-joined candidate is not silently assigned to
+another day. It remains in the file and the existing
+`wallet_credit_unattributed` check keeps the verdict inconclusive.
+
+On success the positive selected-condition accrual receives one distribution
+with its `accrual_id`, the credit's actual `amount` and
+`credit_id=137:<transaction_hash>:<log_index>`. `distribution_id` is `reward-`
+plus the first 48 hex characters of the digest of day, transaction and log
+index. Extra fields are `linkage_basis`, `activity_sha256`,
+`activity_timestamp_utc` and `matched_amount_delta_units`. The distribution's
+`source_record_sha256` binds the retained activity response bytes; it does not
+pretend the venue supplied the derived distribution. Zero rows in other
+conditions receive no fabricated distribution.
+
+The distribution source becomes `OBSERVED`, complete, pagination-complete and
+payout-cycle-complete, with coverage through the lesser of cash end and the
+activity observation. The composed source's observation time also follows the
+wallet read; `activity_observed_at_utc` retains the actual activity observation.
+Incomplete wallet coverage, invalid activity scope or failed reads cannot
+establish payment or absence. `NOT_PAID` additionally requires cash-window
+closure, positive `A`, no REWARD rows and no credits in either asset.
+
+`payout_diagnostics` is retained by `collect-evidence` and included in both
+the saved and printed `collect-payout` result for every verdict. Its fields are
+`reward_day`, `accrual_total_venue`, `accrual_total_units`,
+`other_condition_accruals` (`count`, `total` by native asset),
+`reward_activity_rows` (`timestamp_utc`, `transaction_hash`, `amount`),
+`pusd_credits_in_window` / `usdc_e_credits_in_window` (`credited_at_utc`,
+`transaction_hash`, `log_index`, `amount`), `linkage_rule_outcome` and
+`cash_window_closed`. Missing totals remain unknown. The outcome names the
+first failed check, `matched`, or the completed absence result `not_paid`.
+All output still passes the loaded secret guard.
+
+### Observed offline round trips
+
+The positive distribution fixture from 85a is removed. These tests use actual
+SDK 0.6.0 reply models through closed SDK transports and hex-shaped Polygon
+RPC replies, then call the real collector, reconciler and RE-1 verdict. The
+test inputs are synthetic account evidence; no distribution row is inserted
+by a fixture.
+
+| Required case | Observed output |
+| --- | --- |
+| 1. One REWARD/credit of A=1.250000 | `paid=1.25`, `k=0.625`, `PAID_AS_MODELLED`; linkage basis retained |
+| 1. C=A-1 micro-unit | Complete reconciliation, `PARTIALLY_PAID`, `paid=1.249999`, `k=0.6249995`, `PAID_AS_MODELLED` |
+| 2. C=A+1 | `PAID`, `paid=1.250001`, `k=0.6250005`, `PAID_AS_MODELLED` |
+| 2. C=A+2 | `no_amount_match`, `INCONCLUSIVE`, paid/k unknown; diagnostics retain A=1250000 units and C=1.250002 |
+| 3. Two matching REWARD credits | `ambiguous_amount_match`, `INCONCLUSIVE` |
+| 4. Nonzero second condition in either asset | `other_condition_accruals`, `INCONCLUSIVE`; even 0.0000001 is not discarded |
+| 5. Closed, empty activity and both credit sources | `not_paid`, reconciler `UNPAID`, `paid=0.0`, `NOT_PAID` |
+| 6. USDC.e credit with no pUSD/activity | `non_pusd_credit_present`, `INCONCLUSIVE`; USDC.e diagnostic row retained |
+| 7. REWARD transaction has zero or two credits | `activity_credit_join_failed`, `unjoined`, `INCONCLUSIVE` |
+| 8. One missing block chunk | `wallet_coverage_incomplete`, `INCONCLUSIVE`, paid/k unknown |
+| 9. Read-only surface | Fake client rejects every non-read method; closed venue transports reject non-GET requests; RPC remains limited to three reads |
+
+Additional checks preserve 85a's wire hashes, range splitting, finality,
+malformed logs, scope failures, exclusive campaign output and secret guards.
+They also cover half-even ties, a total mismatch that would disappear after
+rounding, wrong activity programme/window, incomplete empty reads, unexplained
+credits (including extra REWARD candidates), and guarded diagnostics even on
+an inconclusive result. Native totals and diagnostic sums also preserve
+precision beyond Decimal's default context. The final expanded run passed
+**332 tests in 13.00s**; `scratch/re1-85b-focus3.xml` SHA-256 is
+`2cd3214c04852551118758752a9a7b6fba23f4d87274c8f68ba6cb9277c371f5`.
+
+### Entire consumer diff
+
+This is the only edit to `mm_exchange_reports.py`. The one-unit allowance is
+per accrual's cumulative payments, not per distribution. Overpayment within
+that bound cannot make unpaid accrued cash negative. The explicit 85b A-1
+test controls the lower boundary: it remains PARTIALLY_PAID, as requested.
+
+```diff
+@@ -806,6 +806,7 @@ def reconcile_incentive_payments(evidence):
+         "excluded_external_credit_ids": [], "duplicate_record_count": 0,
+         "unresolved": [], "accrual_unresolved": [], "accruals_fully_paid": False,
+         "blockers": [], "network_reads_performed": False,
++        "rounding_tolerance_units": 1,
+     }
+     unresolved = set()
+     try:
+@@ -880,7 +881,7 @@ def reconcile_incentive_payments(evidence):
+                                "incentive_credit_precedes_accrual")
+             amount = credit["amount_units"]
+             paid_by_accrual[distribution["accrual_id"]] += amount
+-            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"],
++            _incentive_require(paid_by_accrual[distribution["accrual_id"]] <= accrual["amount_units"] + 1,
+                                "incentive_distribution_exceeds_accrual")
+             allocated_credits.add(distribution["credit_id"])
+             bucket = ("portfolio_paid" if accrual["condition_id"] is None else
+@@ -920,9 +921,9 @@ def reconcile_incentive_payments(evidence):
+                 else:
+                     amount = accrual["amount_units"]
+                     totals[programme]["accrued"] += amount
+-                    totals[programme]["unpaid_accrued"] += amount - paid
+-                    state = "PAID" if paid == amount else "PARTIALLY_PAID" if paid else "UNPAID"
+-                    if paid != amount:
++                    totals[programme]["unpaid_accrued"] += max(0, amount - paid)
++                    state = "PAID" if amount <= paid <= amount + 1 else "PARTIALLY_PAID" if paid else "UNPAID"
++                    if not amount <= paid <= amount + 1:
+                         fully_paid = False
+             result["accrual_states"].append({
+                 "accrual_id": accrual_id, "programme": programme, "condition_id": condition,
+```
+
+### Owner run card and boundaries
+
+For reward day September 22, collect on or after **September 25 00:00Z**;
+the morning of September 25 Eastern is within that bound. Run from the new
+evidence worktree after source qualification. Do not switch or edit the
+attended execution worktree. Use the exact session prediction and the exact
+new evidence path printed by the collector.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-link-20260922'
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1Prediction = Read-Host 'Paste the exact frozen prediction.json path'
+& $re1Python -m weather.market.re1_attended_cli collect-evidence $re1Prediction
+$re1Evidence = Read-Host 'Paste the printed payment_evidence_path'
+& $re1Python -m weather.market.re1_attended_cli collect-payout $re1Prediction --payment-evidence $re1Evidence
+```
+
+Each collection remains one new immutable file. An incomplete collection exits
+2 and preserves its diagnostics; it cannot authorize payment or live action.
+No owner `.env` read, credential export/vault access, authenticated account
+call, real RPC, live session, heartbeat, order, cancel, stream, Scheduler or
+production write, restart, promotion, adoption or merge was performed.
+`re1_attended.py`, `re1_resilience.py`, `re1_owner_checks.py`,
+`re1_transport.py`, `re1_evidence.py` and `mm_paid_credit_activity.py` are
+unchanged. The bridge contract gains only the requested pointer sentence.
+Measured economic sample: **zero real dates, zero real markets, zero real
+payments**; no economic interval, profit estimate or campaign decision follows.

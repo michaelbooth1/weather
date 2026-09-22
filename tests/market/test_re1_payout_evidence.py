@@ -1,6 +1,8 @@
-"""Closed SDK/RPC transports. A supplied distribution fixture is not a venue endpoint."""
+"""SDK models and closed RPC transports exercise the reviewed RE-1 producer rule."""
 from copy import deepcopy
+from ast import literal_eval
 from datetime import timedelta
+from decimal import Decimal
 import hashlib
 import json
 from types import SimpleNamespace
@@ -69,10 +71,13 @@ def sdk_venue(*, fail=None, guard=None):
 
 class RpcFixture:
     """A monotone finalized chain, hex RPC envelopes and exact Transfer logs."""
-    def __init__(self, *, missing=None, cap=None, malformed=None, tip=2600):
+    def __init__(self, *, missing=None, cap=None, malformed=None, tip=2600, transfers=None):
         self.missing, self.cap, self.malformed, self.tip = missing, cap, malformed, tip
         self.calls = []
         self.genesis = START - timedelta(seconds=100)
+        self.transfers = transfers if transfers is not None else [
+            (1729, INCENTIVE_CASH_ASSET['asset_address'], TX, 1250000, 0),
+            (1730, collector.ASSETS[0].lower(), '0x' + '2' * 64, 1250000, 0)]
     def block(self, height):
         return dict(number=hex(height), timestamp=hex(int(self.genesis.timestamp()) + height * 100),
                     hash='0x' + format(height + 100, '064x'))
@@ -97,12 +102,11 @@ class RpcFixture:
                 response['error'] = dict(code=-32005, message='block range limit')
             else:
                 logs = []
-                for height, asset, tx in [(1729, INCENTIVE_CASH_ASSET['asset_address'], TX),
-                        (1730, collector.ASSETS[0].lower(), '0x' + '2' * 64)]:
+                for height, asset, tx, units, index in self.transfers:
                     if first <= height <= last:
                         logs.append(dict(address=asset, blockNumber=hex(height), blockHash=self.block(height)['hash'],
                             topics=[collector.TRANSFER, '0x' + '0' * 24 + 'c' * 40, query['topics'][2]],
-                            transactionHash=tx, logIndex='0x0', removed=False, data='0x' + format(1250000, '064x')))
+                            transactionHash=tx, logIndex=hex(index), removed=False, data='0x' + format(units, '064x')))
                 if self.malformed and logs: self.malformed(logs)
                 response['result'] = logs
         raw = json.dumps(response, indent=1).encode() + b'\n'
@@ -116,8 +120,10 @@ class RpcFixture:
         return Reply()
 
 
-def collect(*, rpc=None, fail=None, now=NOW):
-    venue, calls, _ = sdk_venue(fail=fail)
+def collect(*, rpc=None, fail=None, now=NOW, activities=None, adjust=None):
+    venue, calls, payloads = sdk_venue(fail=fail)
+    if activities is not None: payloads['/activity'] = activities
+    if adjust is not None: adjust(payloads)
     try:
         result = collector.collect_evidence(venue, prediction(), clock=lambda: now, opener=rpc or RpcFixture())
         assert all(not h for http in (venue.client._ctx.data._client, venue.client._ctx.secure_clob._client)
@@ -127,48 +133,29 @@ def collect(*, rpc=None, fail=None, now=NOW):
         venue.client.close()
 
 
-def with_explicit_test_distribution(evidence):
-    """Conditional positive control ONLY: supply the missing authoritative link.
-
-    No SDK/public endpoint supplies these fields. This is intentionally kept in
-    tests, never a production fallback from an activity row or a wallet credit.
-    """
-    result = deepcopy(evidence)
-    accrual = result['accruals'][0]
-    result['sources']['distributions'].update(status='OBSERVED', complete=True,
-        pagination_complete=True, payout_cycle_complete=True, coverage_through_utc=result['scope']['cash_end_utc'])
-    result['distributions'] = [dict(maker_address=MAKER, cash_asset=dict(INCENTIVE_CASH_ASSET),
-        observed_at_utc=NOW.isoformat(), source_record_sha256='d' * 64, amount='1.250000',
-        distribution_id='synthetic-explicit-period-link', accrual_id=accrual['accrual_id'],
-        programme='liquidity_reward', condition_id=CONDITION, status='PAID', credit_id=f'137:{TX}:0')]
-    return result
-
-
 @pytest.mark.parametrize('missing', [None, 2300])
-def test_real_reconciler_round_trip_with_explicit_distribution_control(missing):
+def test_real_collector_reconciler_verdict_round_trip_without_distribution_fixture(missing):
     result, _ = collect(rpc=RpcFixture(missing=missing))
-    # The actual output must refuse: neither activity nor credit establishes
-    # the day-to-payment link. The positive control explicitly supplies it.
-    assert result['sources']['distributions']['status'] == 'UNSUPPORTED'
-    assert not reconcile_incentive_payments(result)['valid']
-    result = with_explicit_test_distribution(result)
     reconciled = reconcile_incentive_payments(result)
     verdict = payout_verdict(prediction(), {'rows': result['sdk_earnings']['rows']}, result)
     assert reconciled['valid'], reconciled
     if missing is None:
         assert reconciled['complete'] and reconciled['actual_liquidity_reward_usdc'] == 1.25, reconciled
         assert verdict['paid'] == '1.25' and verdict['k'] == '0.625' and verdict['verdict'] == 'PAID_AS_MODELLED'
+        assert result['distributions'][0]['linkage_basis'] == collector.LINKAGE_BASIS
+        assert result['payout_diagnostics']['linkage_rule_outcome'] == 'matched'
     else:
         assert not reconciled['complete']
         assert verdict['paid'] is None and verdict['k'] is None and verdict['verdict'] == 'INCONCLUSIVE'
 
 
-def test_actual_sdk_and_rpc_sources_remain_unlinked_and_hash_real_bytes():
+def test_actual_sdk_and_rpc_sources_link_under_reviewed_rule_and_hash_real_bytes():
     rpc = RpcFixture(cap=250)
     result, calls = collect(rpc=rpc)
     accrual, distributions, wallet = (result['sources'][s] for s in ('accruals', 'distributions', 'wallet_credits'))
     assert accrual['complete'] and accrual['pagination_complete']
-    assert not distributions['complete'] and distributions['status'] == 'UNSUPPORTED'
+    assert distributions['complete'] and distributions['status'] == 'OBSERVED'
+    assert distributions['venue_earned_period_reference'] is False
     assert distributions['pagination_complete'] and result['distribution_candidates'][0]['type'] == 'REWARD'
     assert wallet['complete'] and wallet['pagination_complete'], wallet
     assert wallet['block_bounds']['first_block'] == 1 and wallet['block_bounds']['last_block'] == 2592
@@ -183,7 +170,8 @@ def test_actual_sdk_and_rpc_sources_remain_unlinked_and_hash_real_bytes():
     assert [r['sha256'] for r in journal if r['event'] == 'rpc_response'] == [hashlib.sha256(raw).hexdigest() for _, raw in rpc.calls]
     activity_req = next(req for req, _ in calls if req.url.path == '/activity')
     assert activity_req.url.params['user'] == MAKER
-    assert activity_req.url.params['type'] == 'REWARD,MAKER_REBATE'
+    assert activity_req.url.params['type'] == 'REWARD'
+    assert activity_req.url.params['start'] == str(int((START + timedelta(days=1)).timestamp()))
     assert 'market' not in activity_req.url.params
     assert activity_req.url.params['end'] == str(int((START + timedelta(days=3)).timestamp()) - 1)
 
@@ -196,7 +184,7 @@ def test_malformed_or_ambiguous_log_never_proves_coverage(mutate):
     result, _ = collect(rpc=RpcFixture(malformed=mutate))
     assert not result['sources']['wallet_credits']['complete']
     assert not result['sources']['wallet_credits']['pagination_complete']
-    assert payout_verdict(prediction(), {'rows': []}, with_explicit_test_distribution(result))['paid'] is None
+    assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
 
 
 def test_future_cash_window_and_unfinalized_tail_are_not_claimed_complete():
@@ -212,7 +200,7 @@ def test_future_cash_window_and_unfinalized_tail_are_not_claimed_complete():
 def test_future_block_or_insufficient_finality_refuses_cash_completeness(tip):
     result, _ = collect(rpc=RpcFixture(tip=tip))
     assert not result['sources']['wallet_credits']['complete']
-    assert payout_verdict(prediction(), {'rows': []}, with_explicit_test_distribution(result))['paid'] is None
+    assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
 
 
 @pytest.mark.parametrize('case', ['missing_total', 'wrong_maker', 'wrong_day', 'total_mismatch', 'duplicate', 'precision'])
@@ -232,13 +220,13 @@ def test_sdk_evidence_scope_omission_and_precision_fail_closed(case):
     finally:
         venue.client.close()
     if case == 'precision':
-        # Preserve the venue's sub-micro-unit estimate. Never round it into
-        # authoritative native cash just to satisfy the existing schema.
-        assert result['accruals'][0]['amount'] == '1.250000001'
-        assert not reconcile_incentive_payments(with_explicit_test_distribution(result))['valid']
+        assert result['accruals'][0]['amount'] == '1.250000'
+        assert result['accruals'][0]['venue_amount'] == '1.250000001'
+        assert reconcile_incentive_payments(result)['complete']
+        assert payout_verdict(prediction(), {'rows': []}, result)['paid'] == '1.25'
     else:
         assert not result['sources']['accruals']['complete']
-    assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
+        assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
 
 
 def test_empty_earnings_require_explicit_zero_totals_for_both_assets():
@@ -267,7 +255,7 @@ def test_paginator_requires_terminal_page_and_refuses_repeated_cursor():
 @pytest.mark.parametrize('path', ['/rewards/user', '/rewards/user/markets', '/rewards/user/total', '/activity'])
 def test_read_failure_is_retained_and_never_zero_payment(path):
     result, _ = collect(fail=path)
-    assert result['sources']['distributions']['status'] != 'OBSERVED'
+    assert not result['sources']['distributions']['complete']
     assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
     assert any(s.get('failure_type') == 'TimeoutError' for s in result['sources'].values())
 
@@ -292,12 +280,12 @@ def test_credential_mode_is_readonly_and_exclusive_file_is_in_fixed_campaign(tmp
     monkeypatch.setattr('weather.market.re1_transport.OwnerVenue', lambda *a, **kw: venue)
     original = collector.collect_evidence
     monkeypatch.setattr(collector, 'collect_evidence', lambda v, p: original(v, p, clock=lambda: NOW, opener=RpcFixture()))
-    assert collector.run_collect_evidence(SimpleNamespace(prediction=path)) == 2
+    assert collector.run_collect_evidence(SimpleNamespace(prediction=path)) == 0
     files = list(session.glob('payout-evidence-*.json'))
     assert len(files) == 1 and len(list(session.iterdir())) == 2
     text = capsys.readouterr().out
-    assert 'INCONCLUSIVE' in text and hashlib.sha256(files[0].read_bytes()).hexdigest() in text
-    assert json.loads(files[0].read_bytes())['sources']['distributions']['status'] == 'UNSUPPORTED'
+    assert 'PAID_AS_MODELLED' in text and hashlib.sha256(files[0].read_bytes()).hexdigest() in text
+    assert json.loads(files[0].read_bytes())['sources']['distributions']['status'] == 'OBSERVED'
 
 
 def test_prediction_refusal_precedes_credentials(tmp_path, monkeypatch):
@@ -322,7 +310,7 @@ def test_guard_prevents_sdk_secret_output_and_no_nonread_endpoints():
 def test_collect_payout_prints_hash_of_exact_input_bytes(tmp_path, monkeypatch, capsys):
     from weather.market import re1_attended_cli as cli
     path = tmp_path / 'payment.json'
-    raw = b'{ "incomplete": true }\n'
+    raw = b'{ "incomplete": true, "payout_diagnostics": {"linkage_rule_outcome":"no_amount_match"} }\n'
     path.write_bytes(raw)
     guard = SecretGuard()
     monkeypatch.setattr(cli, 'load_prediction', lambda *a, **kw: prediction())
@@ -333,5 +321,169 @@ def test_collect_payout_prints_hash_of_exact_input_bytes(tmp_path, monkeypatch, 
     assert cli.run_collect(SimpleNamespace(prediction=tmp_path / 'prediction.json', payment_evidence=path)) == 0
     printed = capsys.readouterr().out
     assert hashlib.sha256(raw).hexdigest() in printed and 'payment_evidence_path' in printed
+    assert literal_eval(printed)['payout_diagnostics']['linkage_rule_outcome'] == 'no_amount_match'
     result = json.loads(next(tmp_path.glob('payout-*.json')).read_bytes())
     assert result['payment_evidence_sha256'] == hashlib.sha256(raw).hexdigest() and result['paid'] is None
+    assert result['payout_diagnostics']['linkage_rule_outcome'] == 'no_amount_match'
+
+
+def activity(tx=TX, *, amount='1.25', at=START + timedelta(days=2), kind='REWARD'):
+    return dict(proxyWallet=MAKER, timestamp=int(at.timestamp()), transactionHash=tx, type=kind, usdcSize=amount)
+
+
+def transfer(units=1250000, *, tx=TX, index=0, asset=INCENTIVE_CASH_ASSET['asset_address']):
+    return (1729, asset, tx, units, index)
+
+
+def outcome(evidence):
+    return payout_verdict(prediction(), {'rows': evidence['sdk_earnings'].get('rows', [])}, evidence)
+
+
+@pytest.mark.parametrize('delta,state,complete', [(0, 'PAID', True), (-1, 'PARTIALLY_PAID', True),
+    (1, 'PAID', True), (2, None, False)])
+def test_amount_boundaries_round_trip(delta, state, complete):
+    evidence, _ = collect(rpc=RpcFixture(transfers=[transfer(1250000 + delta)]))
+    reconciled, verdict = reconcile_incentive_payments(evidence), outcome(evidence)
+    diagnostics = evidence['payout_diagnostics']
+    assert diagnostics['accrual_total_venue'] == '1.250000'
+    assert diagnostics['accrual_total_units'] == 1250000
+    assert Decimal(diagnostics['pusd_credits_in_window'][0]['amount']) == Decimal(1250000 + delta) / 1000000
+    if complete:
+        assert reconciled['complete'] and reconciled['rounding_tolerance_units'] == 1
+        assert reconciled['accrual_states'][0]['state'] == state
+        assert Decimal(verdict['paid']) == Decimal(1250000 + delta) / 1000000
+        assert Decimal(verdict['k']) == Decimal(1250000 + delta) / 2000000
+        assert verdict['verdict'] == 'PAID_AS_MODELLED'
+        assert evidence['distributions'][0]['matched_amount_delta_units'] == delta
+    else:
+        assert diagnostics['linkage_rule_outcome'] == 'no_amount_match'
+        assert verdict['verdict'] == 'INCONCLUSIVE' and verdict['paid'] is None and verdict['k'] is None
+
+
+def test_two_reward_credits_of_accrual_amount_are_ambiguous():
+    tx2 = '0x' + '3' * 64
+    evidence, _ = collect(activities=[activity(), activity(tx2)], rpc=RpcFixture(transfers=[transfer(), transfer(tx=tx2)]))
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'ambiguous_amount_match'
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and not evidence['distributions']
+
+
+@pytest.mark.parametrize('asset', collector.ASSETS)
+def test_nonzero_second_condition_even_below_micro_precision_forbids_link(asset):
+    def second_condition(payloads):
+        original = next(r for r in payloads['/rewards/user']['data'] if r['asset_address'].lower() == asset.lower())
+        other = dict(original, condition_id='0x' + 'd' * 64, earnings='0.0000001')
+        payloads['/rewards/user']['data'].append(other)
+        total = next(r for r in payloads['/rewards/user/total'] if r['asset_address'].lower() == asset.lower())
+        total['earnings'] = str(Decimal(total['earnings']) + Decimal('0.0000001'))
+        config = deepcopy(payloads['/rewards/user/markets']['data'][0])
+        config.update(condition_id=other['condition_id'], earnings=[{k: other[k] for k in ('asset_address', 'asset_rate', 'earnings')}])
+        payloads['/rewards/user/markets']['data'].append(config)
+    evidence, _ = collect(adjust=second_condition)
+    assert evidence['sources']['accruals']['complete']
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'other_condition_accruals'
+    assert evidence['payout_diagnostics']['other_condition_accruals']['count'] == 1
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and not evidence['distributions']
+
+
+def test_closed_window_empty_reward_and_both_asset_credit_queries_proves_not_paid():
+    evidence, _ = collect(activities=[], rpc=RpcFixture(transfers=[]))
+    verdict = outcome(evidence)
+    assert evidence['payout_diagnostics']['cash_window_closed']
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'not_paid'
+    assert evidence['sources']['distributions']['complete'] and evidence['distributions'] == []
+    assert verdict['payment_reconciliation']['accrual_states'][0]['state'] == 'UNPAID'
+    assert verdict['paid'] == '0.0' and verdict['verdict'] == 'NOT_PAID'
+
+
+def test_usdc_credit_prevents_not_paid_when_pusd_and_activity_are_empty():
+    evidence, _ = collect(activities=[], rpc=RpcFixture(transfers=[transfer(asset=collector.ASSETS[0].lower())]))
+    assert evidence['payout_diagnostics']['usdc_e_credits_in_window']
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'non_pusd_credit_present'
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and outcome(evidence)['paid'] is None
+
+
+@pytest.mark.parametrize('transfers', [[], [transfer(), transfer(index=1)]])
+def test_activity_requires_exactly_one_credit_for_its_transaction(transfers):
+    evidence, _ = collect(rpc=RpcFixture(transfers=transfers))
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'activity_credit_join_failed'
+    assert evidence['distribution_candidates'][0]['join_status'] == 'unjoined'
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and outcome(evidence)['paid'] is None
+
+
+@pytest.mark.parametrize('activities', [[], [activity()], [activity(), activity('0x' + '3' * 64, amount='0.000010')]])
+def test_unexplained_pusd_credits_are_never_suppressed(activities):
+    evidence, _ = collect(activities=activities, rpc=RpcFixture(transfers=[transfer(), transfer(10, tx='0x' + '3' * 64)]))
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'wallet_credit_unattributed'
+    assert evidence['excluded_external_credit_ids'] == []
+    reconciled = reconcile_incentive_payments(evidence)
+    assert any(r.startswith('wallet_credit_unattributed:') for r in reconciled['unresolved'])
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE'
+
+
+@pytest.mark.parametrize('native,quantized', [('1.2500005', '1.250000'), ('1.2500015', '1.250002'),
+    ('1.2500000000000000000000000000000001', '1.250000')])
+def test_half_even_quantization_preserves_venue_amount_and_exact_totals(native, quantized):
+    def adjust(payloads):
+        for rows in (payloads['/rewards/user']['data'], payloads['/rewards/user/total'],
+                     payloads['/rewards/user/markets']['data'][0]['earnings']):
+            for row in rows:
+                if row['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']:
+                    row['earnings'] = native
+    evidence, _ = collect(adjust=adjust, rpc=RpcFixture(transfers=[transfer(collector.micro_units(quantized))]))
+    assert evidence['accruals'][0]['amount'] == quantized
+    assert evidence['accruals'][0]['venue_amount'] == native
+    assert evidence['payout_diagnostics']['accrual_total_venue'] == native
+    assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
+
+
+@pytest.mark.parametrize('fail', ['/activity', None])
+def test_empty_but_incomplete_reads_never_prove_not_paid(fail):
+    evidence, _ = collect(activities=[], fail=fail, rpc=RpcFixture(transfers=[], missing=None if fail else 2300))
+    assert not evidence['sources']['distributions']['complete']
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and outcome(evidence)['paid'] is None
+
+
+def test_totals_are_compared_before_rounding_even_when_micro_units_agree():
+    def adjust(payloads):
+        total = next(r for r in payloads['/rewards/user/total']
+                     if r['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address'])
+        total['earnings'] = '1.2500001'
+    evidence, _ = collect(adjust=adjust)
+    assert not evidence['sources']['accruals']['complete']
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'accruals_not_final'
+    assert evidence['payout_diagnostics']['accrual_total_units'] is None
+    assert outcome(evidence)['paid'] is None
+
+
+def test_native_total_comparison_does_not_round_at_default_decimal_precision():
+    def adjust(payloads):
+        for rows in (payloads['/rewards/user']['data'], payloads['/rewards/user/markets']['data'][0]['earnings']):
+            for row in rows:
+                if row['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']:
+                    row['earnings'] = '1.2500000000000000000000000000000001'
+    evidence, _ = collect(adjust=adjust)
+    assert evidence['sources']['accruals']['status'] == 'FAILED'
+    assert evidence['payout_diagnostics']['accrual_total_venue'] == '1.2500000000000000000000000000000001'
+    assert outcome(evidence)['paid'] is None
+
+
+@pytest.mark.parametrize('bad_activity', [activity(at=START + timedelta(hours=12)), activity(kind='MAKER_REBATE')])
+def test_wrong_activity_window_or_programme_is_retained_but_cannot_link(bad_activity):
+    evidence, _ = collect(activities=[bad_activity])
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'activity_coverage_incomplete'
+    assert not evidence['distributions'] and outcome(evidence)['paid'] is None
+
+
+def test_guard_refuses_secret_in_payout_diagnostics(tmp_path, monkeypatch):
+    from weather.market import re1_attended_cli as cli
+    path = tmp_path / 'payment.json'
+    path.write_text(json.dumps({'payout_diagnostics': {'unexpected': 'synthetic-loaded-secret'}}))
+    monkeypatch.setattr(cli, 'load_prediction', lambda *a, **kw: prediction())
+    monkeypatch.setattr('weather.market.re1_transport.load_owner_credentials', lambda *_:
+                        ({'FUNDER_ADDRESS': MAKER}, SecretGuard(['synthetic-loaded-secret'])))
+    monkeypatch.setattr('weather.market.re1_transport.build_client', lambda *a, **kw: None)
+    monkeypatch.setattr('weather.market.re1_transport.OwnerVenue', lambda *a, **kw: SimpleNamespace(
+        accrual=lambda day: {'rows': []}, balances=lambda: {}, close=lambda: None))
+    with pytest.raises(RuntimeError, match='secret_output_refused'):
+        cli.run_collect(SimpleNamespace(prediction=tmp_path / 'prediction.json', payment_evidence=path))
+    assert not list(tmp_path.glob('payout-*.json'))

@@ -154,6 +154,8 @@ previous day cannot fill this gap. Every result therefore keeps
 `economic_pnl_verified=false`, `network_reads_performed=false` and
 `live_authority=false`. It contains no fabricated accrual or distribution record.
 
+The separate [RE-1 reward-day producer rule](INTERNATIONAL_MM_LIVE_PILOT.md#re-1-reward-day-linkage) is a reviewed, labelled exception for that collector only and does not alter this bridge or its output guarantees.
+
 [Owner fixtures](../../tests/market/test_mm_paid_credit_activity.py) cover exact
 joins, native precision, duplicate idempotence, conflicting evidence, invalid
 scope, missing finality, ambiguous logs, aggregate payments and these limits.
