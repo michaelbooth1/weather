@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from functools import lru_cache
 import json
 import hashlib
 import logging
@@ -18,6 +19,7 @@ import subprocess
 import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 from weather.market.mm_official_adapter import (
     OfficialPolymarketGlobalAdapter, _plain_sdk_value, fetch_current_positions,
@@ -108,17 +110,45 @@ def load_owner_credentials(mode):
     return fields, guard
 
 
-def json_read(url, *, body=None, timeout=2):
+@lru_cache(maxsize=1)
+def _user_agent():
     from weather.market.re1_owner_checks import code_identity
+    return 'weather-re1-attended/' + code_identity()[:9]
+
+
+def json_read(url, *, body=None, timeout=2, journal=None):
     assert_no_ambient_proxy_configuration()
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
                       headers={'Accept': 'application/json', 'Content-Type': 'application/json',
-                               'User-Agent': 'weather-re1-attended/' + code_identity()[:9]})
+                               'User-Agent': _user_agent()})
+    if journal is not None:
+        payload = request.data or b''
+        raw_request = request.get_method().encode() + b'\n' + request.selector.encode() + b'\n' + payload
+        journal.record('wire_request', method=request.get_method(), url=url,
+                       sha256=hashlib.sha256(raw_request).hexdigest(),
+                       hash_basis='method_LF_raw_path_LF_body', body_sha256=hashlib.sha256(payload).hexdigest())
     with urlopen(request, timeout=timeout) as response:
         raw = response.read(2_000_001)
         if response.status != 200 or response.geturl() != url or len(raw) > 2_000_000:
             raise RuntimeError('public_read_refused')
-        return json.loads(raw)
+        value = json.loads(raw)
+        if journal is not None:
+            journal.record('sdk_response', method=request.get_method(), path=urlsplit(url).path,
+                           status=response.status, length=len(raw), sha256=hashlib.sha256(raw).hexdigest(),
+                           response=value)
+        return value
+
+
+def condition_configurations(condition, *, journal=None):
+    if condition is None:
+        raise RuntimeError('condition_required')
+    payload = json_read(HOST + '/rewards/markets/' + condition, journal=journal)
+    rows = payload.get('data') if isinstance(payload, dict) else None
+    if (not isinstance(rows, list) or len(rows) > 1 or payload.get('count') != len(rows)
+            or payload.get('next_cursor') != 'LTE=' or type(payload.get('limit')) is not int
+            or not 1 <= payload['limit'] <= 500):
+        raise RuntimeError('condition_config_unreadable')
+    return rows
 
 
 def geography(*, timeout=2):
@@ -327,8 +357,10 @@ class OwnerVenue:
                 self.journal.record('heartbeat_v1_acknowledgment', response=self.sender.last_response)
     def scoring(self, ids): return self.readers.scoring(ids)
     def accrual(self, day):
+        if self.condition is None:
+            raise RuntimeError('condition_required')
         return {'day': day, 'rows': bounded_rows(self.client.list_user_earnings_for_day(date=day)),
-                'market_configurations': bounded_rows(self.client.list_user_earnings_and_markets_config(date=day)),
+                'market_configurations': condition_configurations(self.condition, journal=getattr(self, 'journal', None)),
                 'total_earnings': _plain_sdk_value(self.client.get_total_earnings_for_user_for_day(date=day)),
                 'percentages': _plain_sdk_value(self.client.get_reward_percentages()), 'payment_verified': False}
     def balances(self):

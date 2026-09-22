@@ -22,6 +22,7 @@ from weather.market.re1_transport import OwnerVenue
 START = utc('2026-09-01T00:00:00Z')
 NOW = START + timedelta(days=3, hours=1)
 TX = '0x' + '1' * 64
+CONFIG_PATH = '/rewards/markets/' + CONDITION
 
 
 def prediction():
@@ -31,13 +32,16 @@ def prediction():
 
 
 def sdk_venue(*, fail=None, guard=None):
+    from io import BytesIO
     import httpx
+    from weather.market import re1_transport as transport
     from polymarket.clients.secure import SecureClient, _CREATE_TOKEN
     from polymarket.clients._transport import SyncTransport
-    rows, totals, config = sdk_earnings_models()
+    rows, totals, _ = sdk_earnings_models()
     payloads = {'/rewards/user': dict(data=[r.model_dump(mode='json') for r in rows], next_cursor='LTE='),
         '/rewards/user/total': [r.model_dump(mode='json') for r in totals],
-        '/rewards/user/markets': dict(data=[config.model_dump(mode='json')], next_cursor='LTE=', total_count=1),
+        CONFIG_PATH: dict(data=[dict(condition_id=CONDITION, rewards_min_size=20,
+            rewards_max_spread=3, rewards_daily_rate=100)], next_cursor='LTE=', count=1, limit=500),
         '/activity': [dict(proxyWallet=MAKER, timestamp=int((START + timedelta(days=2)).timestamp()),
             transactionHash=TX, type='REWARD', usdcSize=1.25)]}
     calls = []
@@ -54,18 +58,31 @@ def sdk_venue(*, fail=None, guard=None):
     ctx = SimpleNamespace(secure_clob=SyncTransport(base_url=collector.HOST, client=http),
         data=SyncTransport(base_url='https://data-api.polymarket.com', client=data_http), wallet_type='GNOSIS_SAFE')
     sdk = SecureClient(ctx=ctx, _create_token=_CREATE_TOKEN)
+    patcher = pytest.MonkeyPatch()
+    def public_open(request, *, timeout):
+        assert request.full_url == collector.HOST + CONFIG_PATH and timeout == 2
+        assert request.get_method() == 'GET' and request.data is None
+        reply = handle(httpx.Request('GET', request.full_url, headers=dict(request.header_items())))
+        class Reply(BytesIO):
+            status = 200
+            def geturl(self): return request.full_url
+        return Reply(reply.content)
+    patcher.setattr(transport, 'urlopen', public_open)
+    patcher.setattr(transport, '_user_agent', lambda: 'weather-re1-attended/123456789')
     class ReadsOnly:
         _ctx = ctx
         def __getattr__(self, name):
-            assert name in {'list_user_earnings_for_day', 'list_user_earnings_and_markets_config',
+            assert name in {'list_user_earnings_for_day',
                 'get_total_earnings_for_user_for_day', 'list_activity'}, 'non-read SDK method: ' + name
             return getattr(sdk, name)
         def close(self):
+            patcher.undo()
             http.close()
             data_http.close()
     venue = object.__new__(OwnerVenue)
     venue.client, venue.maker, venue.guard = ReadsOnly(), MAKER, guard or SecretGuard()
     venue.readonly, venue.preflight, venue.journal_failed = True, False, False
+    venue.condition = CONDITION
     return venue, calls, payloads
 
 
@@ -166,6 +183,17 @@ def test_actual_sdk_and_rpc_sources_link_under_reviewed_rule_and_hash_real_bytes
     assert [r['sha256'] for r in journal if r['event'] == 'sdk_response'] == [hashlib.sha256(raw).hexdigest() for _, raw in calls]
     expected = [hashlib.sha256(req.method.encode() + b'\n' + req.url.raw_path + b'\n' + req.content).hexdigest() for req, _ in calls]
     assert [r['sha256'] for r in journal if r['event'] == 'wire_request'] == expected
+    configurations = [(req, raw) for req, raw in calls if req.url.path == CONFIG_PATH]
+    assert len(configurations) == 1
+    _, config_raw = configurations[0]
+    assert result['sdk_earnings']['market_configurations'] == json.loads(config_raw)['data']
+    config_responses = [r for r in journal if r['event'] == 'sdk_response' and r['path'] == CONFIG_PATH]
+    assert len(config_responses) == 1
+    assert config_responses[0]['sha256'] == hashlib.sha256(config_raw).hexdigest()
+    retained_journal = collector.ReadJournal(SecretGuard(), lambda: NOW)
+    retained_journal.records = journal
+    assert retained_journal.last_response_hash(CONFIG_PATH) == hashlib.sha256(config_raw).hexdigest()
+    assert all(req.url.path != '/rewards/user/markets' for req, _ in calls)
     assert [r['sha256'] for r in journal if r['event'] == 'rpc_request'] == [hashlib.sha256(req).hexdigest() for req, _ in rpc.calls]
     assert [r['sha256'] for r in journal if r['event'] == 'rpc_response'] == [hashlib.sha256(raw).hexdigest() for _, raw in rpc.calls]
     activity_req = next(req for req, _ in calls if req.url.path == '/activity')
@@ -214,7 +242,6 @@ def test_sdk_evidence_scope_omission_and_precision_fail_closed(case):
     else:
         payloads['/rewards/user']['data'][1]['earnings'] = '1.250000001'
         payloads['/rewards/user/total'][1]['earnings'] = '1.250000001'
-        payloads['/rewards/user/markets']['data'][0]['earnings'][1]['earnings'] = '1.250000001'
     try:
         result = collector.collect_evidence(venue, prediction(), clock=lambda: NOW, opener=RpcFixture())
     finally:
@@ -232,7 +259,7 @@ def test_sdk_evidence_scope_omission_and_precision_fail_closed(case):
 def test_empty_earnings_require_explicit_zero_totals_for_both_assets():
     venue, _, payloads = sdk_venue()
     payloads['/rewards/user']['data'] = []
-    payloads['/rewards/user/markets']['data'] = []
+    payloads[CONFIG_PATH].update(data=[], count=0)
     for row in payloads['/rewards/user/total']: row['earnings'] = '0'
     try:
         result = collector.collect_evidence(venue, prediction(), clock=lambda: NOW, opener=RpcFixture())
@@ -241,6 +268,19 @@ def test_empty_earnings_require_explicit_zero_totals_for_both_assets():
     assert result['sources']['accruals']['complete']
     assert all(a['accruals'][0]['status'] == 'COMPLETED_ZERO' for a in result['asset_observations'].values())
     assert payout_verdict(prediction(), {'rows': []}, result)['verdict'] == 'INCONCLUSIVE'
+
+
+@pytest.mark.parametrize('change', [
+    {'data': [{}, {}], 'count': 2}, {'next_cursor': 'more'}, {'count': 0}, {'limit': True},
+])
+def test_invalid_condition_configuration_is_journaled_but_cannot_prove_accruals(change):
+    result, calls = collect(adjust=lambda payloads: payloads[CONFIG_PATH].update(change))
+    assert result['sources']['accruals']['status'] == 'FAILED'
+    assert result['sources']['accruals']['failure_type'] == 'RuntimeError'
+    assert not result['sources']['accruals']['complete'] and outcome(result)['paid'] is None
+    responses = [r for r in result['wire_journal'] if r['event'] == 'sdk_response' and r['path'] == CONFIG_PATH]
+    raw = next(raw for req, raw in calls if req.url.path == CONFIG_PATH)
+    assert len(responses) == 1 and responses[0]['sha256'] == hashlib.sha256(raw).hexdigest()
 
 
 def test_paginator_requires_terminal_page_and_refuses_repeated_cursor():
@@ -252,7 +292,7 @@ def test_paginator_requires_terminal_page_and_refuses_repeated_cursor():
             collector.read_pages(pages, journal, '/rewards/user')
 
 
-@pytest.mark.parametrize('path', ['/rewards/user', '/rewards/user/markets', '/rewards/user/total', '/activity'])
+@pytest.mark.parametrize('path', ['/rewards/user', CONFIG_PATH, '/rewards/user/total', '/activity'])
 def test_read_failure_is_retained_and_never_zero_payment(path):
     result, _ = collect(fail=path)
     assert not result['sources']['distributions']['complete']
@@ -375,9 +415,6 @@ def test_nonzero_second_condition_even_below_micro_precision_forbids_link(asset)
         payloads['/rewards/user']['data'].append(other)
         total = next(r for r in payloads['/rewards/user/total'] if r['asset_address'].lower() == asset.lower())
         total['earnings'] = str(Decimal(total['earnings']) + Decimal('0.0000001'))
-        config = deepcopy(payloads['/rewards/user/markets']['data'][0])
-        config.update(condition_id=other['condition_id'], earnings=[{k: other[k] for k in ('asset_address', 'asset_rate', 'earnings')}])
-        payloads['/rewards/user/markets']['data'].append(config)
     evidence, _ = collect(adjust=second_condition)
     assert evidence['sources']['accruals']['complete']
     assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'other_condition_accruals'
@@ -424,8 +461,7 @@ def test_unexplained_pusd_credits_are_never_suppressed(activities):
     ('1.2500000000000000000000000000000001', '1.250000')])
 def test_half_even_quantization_preserves_venue_amount_and_exact_totals(native, quantized):
     def adjust(payloads):
-        for rows in (payloads['/rewards/user']['data'], payloads['/rewards/user/total'],
-                     payloads['/rewards/user/markets']['data'][0]['earnings']):
+        for rows in (payloads['/rewards/user']['data'], payloads['/rewards/user/total']):
             for row in rows:
                 if row['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']:
                     row['earnings'] = native
@@ -457,10 +493,9 @@ def test_totals_are_compared_before_rounding_even_when_micro_units_agree():
 
 def test_native_total_comparison_does_not_round_at_default_decimal_precision():
     def adjust(payloads):
-        for rows in (payloads['/rewards/user']['data'], payloads['/rewards/user/markets']['data'][0]['earnings']):
-            for row in rows:
-                if row['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']:
-                    row['earnings'] = '1.2500000000000000000000000000000001'
+        for row in payloads['/rewards/user']['data']:
+            if row['asset_address'].lower() == INCENTIVE_CASH_ASSET['asset_address']:
+                row['earnings'] = '1.2500000000000000000000000000000001'
     evidence, _ = collect(adjust=adjust)
     assert evidence['sources']['accruals']['status'] == 'FAILED'
     assert evidence['payout_diagnostics']['accrual_total_venue'] == '1.2500000000000000000000000000000001'

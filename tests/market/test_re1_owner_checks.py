@@ -76,6 +76,7 @@ def test_preflight_twenty_reads_six_heartbeats_no_attempt(tmp_path, monkeypatch)
     row = clean_preflight(root, now=clock.now(), commit='f' * 40)
     assert row['timeouts_seconds'] == dict.fromkeys(counts, 2)
     assert row['latency_seconds']['open_orders']['count'] == 20
+    assert row['latency_seconds']['accrual']['count'] == 20
     with pytest.raises(RuntimeError, match='preflight'):
         clean_preflight(root, now=clock.now(), commit='e' * 40)
 

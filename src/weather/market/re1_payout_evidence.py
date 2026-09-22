@@ -168,29 +168,20 @@ def normalize_earnings(rows, totals, scope, observed):
 
 
 def collect_accruals(venue, scope, journal, clock):
+    from weather.market.re1_transport import condition_configurations
     journal.kind = 'accruals'
     retained = {}
     try:
         day = utc(scope['accrual_start_utc']).date().isoformat()
         rows = read_pages(venue.client.list_user_earnings_for_day(date=day), journal, '/rewards/user')
         retained['rows'] = [r for r, _ in rows]
-        configurations = read_pages(venue.client.list_user_earnings_and_markets_config(date=day), journal, '/rewards/user/markets')
-        retained['market_configurations'] = [r for r, _ in configurations]
+        retained['market_configurations'] = condition_configurations(scope['condition_id'], journal=journal)
         totals = _plain_sdk_value(venue.client.get_total_earnings_for_user_for_day(date=day))
         retained['total_earnings'] = totals
         require(len(totals) <= MAX_ROWS, 'earnings_total_budget')
         provenance = journal.last_response_hash('/rewards/user/total')
         observed = utc(clock())
         normalized, all_assets = normalize_earnings(rows, [(r, provenance) for r in totals], scope, observed)
-        expected = {(r['condition_id'].lower(), r['asset_address'].lower()): Decimal(r['earnings']) for r, _ in rows}
-        configured = {}
-        for row, _ in configurations:
-            require(row['maker_address'].lower() == scope['maker_address'], 'configuration_account')
-            for earning in row['earnings']:
-                key = row['condition_id'].lower(), earning['asset_address'].lower()
-                require(key not in configured and key[1] in ASSET_MARKERS, 'configuration_duplicate_or_asset')
-                configured[key] = Decimal(earning['earnings'])
-        require({k: v for k, v in expected.items() if v} == {k: v for k, v in configured.items() if v}, 'configuration_earnings_mismatch')
         closed = observed >= utc(scope['accrual_end_utc'])
         src = source(scope, 'accruals', journal, clock, complete=closed and all_assets,
             pagination=True, through=min(observed, utc(scope['accrual_end_utc'])))

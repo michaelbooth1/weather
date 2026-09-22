@@ -13,6 +13,69 @@ from tests.market.test_mm_stage2_rewards import sdk_fixture
 from weather.market.re1_transport import OwnerVenue, bounded_rows
 
 
+@pytest.fixture(autouse=True)
+def clear_user_agent_cache():
+    from weather.market.re1_transport import _user_agent
+    _user_agent.cache_clear()
+    yield
+    _user_agent.cache_clear()
+
+
+def reward_payload(rows=None):
+    rows = [{'condition_id': CONDITION, 'rewards_min_size': 20, 'rewards_max_spread': 3}] if rows is None else rows
+    return dict(data=rows, count=len(rows), next_cursor='LTE=', limit=500)
+
+
+@pytest.fixture
+def accrual_venue(monkeypatch):
+    from weather.market import re1_transport as transport
+    calls = []
+    payload = reward_payload()
+    def read(url, **kwargs):
+        calls.append(url)
+        return payload
+    monkeypatch.setattr(transport, 'json_read', read)
+    def universe(**kwargs): pytest.fail('universe configuration paginator called')
+    venue = object.__new__(OwnerVenue)
+    venue.condition = CONDITION
+    venue.client = SimpleNamespace(
+        list_user_earnings_for_day=lambda **kwargs: [SimpleNamespace(items=[{'earnings': '1.25'}], next_cursor=None)],
+        list_user_earnings_and_markets_config=universe,
+        get_total_earnings_for_user_for_day=lambda **kwargs: [{'earnings': '1.25'}],
+        get_reward_percentages=lambda: {CONDITION: '0.5'})
+    return venue, payload, calls
+
+
+@pytest.mark.parametrize('empty', [False, True])
+def test_accrual_reads_selected_condition_once(accrual_venue, empty):
+    venue, payload, calls = accrual_venue
+    if empty: payload.update(data=[], count=0)
+    result = venue.accrual('2026-09-22')
+    assert calls == ['https://clob.polymarket.com/rewards/markets/' + CONDITION]
+    assert result == dict(day='2026-09-22', rows=[{'earnings': '1.25'}],
+        market_configurations=payload['data'], total_earnings=[{'earnings': '1.25'}],
+        percentages={CONDITION: '0.5'}, payment_verified=False)
+
+
+@pytest.mark.parametrize('change', [
+    {'data': [{}, {}], 'count': 2}, {'data': {}}, {'next_cursor': 'more'}, {'count': 0},
+    {'limit': 0}, {'limit': 501}, {'limit': True}, {'limit': '500'},
+])
+def test_accrual_refuses_incomplete_condition_configuration(accrual_venue, change):
+    venue, payload, _ = accrual_venue
+    payload.update(change)
+    with pytest.raises(RuntimeError, match='^condition_config_unreadable$'):
+        venue.accrual('2026-09-22')
+
+
+def test_accrual_requires_condition_before_any_read(accrual_venue):
+    venue, _, calls = accrual_venue
+    venue.condition, venue.client = None, None
+    with pytest.raises(RuntimeError, match='^condition_required$'):
+        venue.accrual('2026-09-22')
+    assert calls == []
+
+
 @pytest.mark.parametrize('url,body', [
     ('https://polymarket.com/api/geoblock', None),
     ('https://polygon.drpc.org', {'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []}),
@@ -38,6 +101,39 @@ def test_json_read_request_identifies_attended_commit(monkeypatch, url, body):
     monkeypatch.setattr(transport, 'urlopen', opened)
     assert transport.json_read(url, body=body) == {'ok': True}
     assert len(requests) == 1
+
+
+def test_ten_public_reads_compute_identity_once_and_keep_initial_header(monkeypatch):
+    from io import BytesIO
+    from weather.market import re1_transport as transport
+    calls, requests = [], []
+    url = transport.GEOBLOCK
+    def identity():
+        calls.append(True)
+        if len(calls) > 1: raise RuntimeError('preflight_requires_clean_tip')
+        return '123456789' + 'a' * 31
+    class Reply(BytesIO):
+        status = 200
+        def geturl(self): return url
+    def opened(request, **kwargs):
+        requests.append(request)
+        return Reply(b'{}')
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', identity)
+    monkeypatch.setattr(transport, 'assert_no_ambient_proxy_configuration', lambda: None)
+    monkeypatch.setattr(transport, 'urlopen', opened)
+    for _ in range(10): assert transport.json_read(url) == {}
+    assert len(calls) == 1 and len(requests) == 10
+    assert {r.get_header('User-agent') for r in requests} == {'weather-re1-attended/123456789'}
+
+
+def test_first_public_read_still_requires_clean_tip(monkeypatch):
+    from weather.market import re1_transport as transport
+    def dirty(): raise RuntimeError('preflight_requires_clean_tip')
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', dirty)
+    monkeypatch.setattr(transport, 'assert_no_ambient_proxy_configuration', lambda: None)
+    monkeypatch.setattr(transport, 'urlopen', lambda *a, **kw: pytest.fail('request before clean identity'))
+    with pytest.raises(RuntimeError, match='preflight_requires_clean_tip'):
+        transport.json_read(transport.GEOBLOCK)
 
 
 def fixture():
@@ -91,11 +187,13 @@ def test_ask_moves_after_signing_refuses_raw_post():
     assert len(calls) == 1 and calls[0][0] == 'sign'
 
 
-def test_pinned_sdk_reward_readers_and_pagination():
+def test_pinned_sdk_reward_readers_and_pagination(monkeypatch):
+    monkeypatch.setattr('weather.market.re1_transport.json_read', lambda *a, **kw: reward_payload())
     client, http, calls = sdk_fixture()
     try:
         venue = object.__new__(OwnerVenue)
         venue.client = client
+        venue.condition = CONDITION
         result = venue.accrual('2026-09-21')
         assert result['rows'][0]['earnings'] == '0.123456789012345678'
         assert result['payment_verified'] is False
@@ -191,10 +289,12 @@ def test_pinned_bootstrap_cannot_create_or_derive_credentials(monkeypatch):
         provided=credentials, nonce=0, validate=False, logger=None) is credentials
 
 
-def test_sdk_request_and_response_times_are_journaled_without_auth():
+def test_sdk_request_and_response_times_are_journaled_without_auth(monkeypatch):
+    monkeypatch.setattr('weather.market.re1_transport.json_read', lambda *a, **kw: reward_payload())
     client, http, _ = sdk_fixture()
     venue = object.__new__(OwnerVenue)
     venue.client = client
+    venue.condition = CONDITION
     records = []
     venue.set_journal(SimpleNamespace(record=lambda event, **fields: records.append((event, fields))))
     try:
