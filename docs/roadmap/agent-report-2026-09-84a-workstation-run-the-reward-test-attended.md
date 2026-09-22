@@ -1197,3 +1197,31 @@ The revised focused selection passed **334 tests in 13.41s**;
 `scratch/re1-85b-focus4.xml` SHA-256 is
 `f4409fecfec8c4a8b79d60c06453bacc6ff935c03662cd618f06a804bcb10e44`.
 The revised committed source receives a new, complete full-suite run.
+
+### 85b strict-audit correction and approved scope extension
+
+Linux CI on `f4407cb54810e1ca1cd6b9d2b1f63e17d200f8b6` reported the
+parent's same 30 failing test nodes plus one new failure:
+`tests/operations/test_schema_registry.py::TestSchemaRegistry::test_source_tree_strict_audit_has_only_explicit_exclusions`.
+The required versioned linkage label was unclassified. This new failure was
+not inherited and was not accepted as a baseline exception. Windows CI passed
+on that source.
+
+The owner explicitly approved the proposed additive registry entry in this
+task on September 21 Eastern. `schema_registry_data.py` now classifies
+`exact_amount_single_condition_unique_credit_v0.1` as a
+`payout_linkage_policy_id` owned by `weather.market.re1_payout_evidence`;
+it is not a serialized artifact schema. The change is **additive-only**:
+one `SchemaLiteralExclusion`, no existing registration or scanner changes.
+The delegation contract places the whole registry family in all four capture
+closures, so this addition makes production adoption **roll-sensitive**.
+Pushing this draft branch grants no integration or live authority.
+
+The full run on `f4407cb` was deliberately stopped at 64% after CI identified
+this new failure. Its verified pytest child was stopped, the wrapper completed
+normal teardown, and subsequent wrapped tests admitted successfully. Neither
+interrupted full run counts as qualification. The revised focused selection,
+now including the strict registry audit, passed **342 tests in 12.70s**;
+`scratch/re1-85b-focus5.xml` SHA-256 is
+`8c052b433b33313dcdddf7f2ff17543d2eef3eb57b9a5405b5fc7d5b7ff5e93a`.
+The corrected committed source receives a new complete full run.

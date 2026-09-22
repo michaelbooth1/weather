@@ -2924,6 +2924,12 @@ EXCLUDED_SCHEMA_LITERALS = (
 )
 EXCLUDED_SCHEMA_LITERALS += (
     SchemaLiteralExclusion(
+        "exact_amount_single_condition_unique_credit_v0.1",
+        "weather.market.re1_payout_evidence",
+        "payout_linkage_policy_id",
+        "Reviewed RE-1 reward-payment linkage policy identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "stage1_v1",
         "weather.market.mm_live_envelope",
         "live_envelope_profile",
