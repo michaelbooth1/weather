@@ -755,3 +755,156 @@ reconciliation, payout collection or live session; no production access,
 capture/Scheduler change, restart, host reassignment, promotion, sealed-lane
 edit or merge to master. The simulated six-hour outcome proves the tested
 fault model only; it proves neither profit nor future venue/network behavior.
+
+## 85a — payout evidence collector, 2026-09-21
+
+**BLOCKED FOR A PAID RE-1 VERDICT: the read-only collector is implemented,
+but the inspected venue surfaces do not supply an earned-period-to-payment
+link. Its actual output is INCONCLUSIVE, not PAID or NOT_PAID.** This is the
+85a source-unavailable disposition, not a request to weaken the matcher.
+
+Branch `codex/re1-payout-evidence-20260921` is stacked on
+`7e6e1709c243cf88aa7799bf4486a9af821abbf5`, in the new worktree
+`scratch/w/re1-payout-evidence-20260921`. The mission specification was read
+from `codex/reward-test-attended-handoff-20260921` at `6ab3f63a7`.
+The execution worktree `scratch/w/reward-test-attended-20260921` was not
+opened for editing, checked out, tested from, or otherwise modified.
+
+### Sources inspected and implemented
+
+The pinned installed `polymarket-client==0.6.0` owns the following SDK
+methods, request builders and reply models. Tests construct those actual
+models and execute the SDK facade against closed HTTP transports. No owner
+credentials, real account, live earnings or real RPC were queried here.
+
+| Source | Exact read/query | Meaning and limitation |
+| --- | --- | --- |
+| Accrual rows | `SecureClient.list_user_earnings_for_day(date=D)` → `GET https://clob.polymarket.com/rewards/user?date=D&signature_type=S`, plus `next_cursor` on subsequent pages | `UserEarning`: maker, condition, asset, date, native earnings, asset rate. All returned accounts/days/assets and duplicate identities are checked. |
+| Configuration cross-check | `list_user_earnings_and_markets_config(date=D)` → `GET /rewards/user/markets?date=D&signature_type=S&page_size=100`, plus cursor | `UserRewardsEarning` and nested `EarningBreakdown`/`UserRewardsConfig`; nonzero condition/asset earnings must agree with the first read. |
+| Account totals | `get_total_earnings_for_user_for_day(date=D)` → `GET /rewards/user/total?date=D&signature_type=S` | `TotalUserEarning`; explicit per-asset totals must agree with account-wide rows. Omitted assets are unknown, not zero. |
+| Distribution candidates | `list_activity(user=maker, activity_types=['REWARD','MAKER_REBATE'], start=A, end=min(C,now)-1, sort_by='TIMESTAMP', sort_direction='ASC', page_size=500)` → `GET https://data-api.polymarket.com/activity?user=maker&type=REWARD,MAKER_REBATE&excludeDepositsWithdrawals=false&start=A&end=E&sortBy=TIMESTAMP&sortDirection=ASC&limit=500&offset=O` | Address-scoped activity exists; a day-linked distribution read was not found. `RewardActivity`/`MakerRebateActivity` expose wallet, activity timestamp, transaction hash and amount, not earned day, accrual reference, asset contract or transfer log index. Retained as candidates; `distributions=[]`, source `UNSUPPORTED`. |
+| Wallet credits | `POST https://polygon.drpc.org` JSON-RPC reads: `eth_chainId []`, `eth_getBlockByNumber ["finalized",false]`, numeric block reads, then `eth_getLogs [{address:[USDC.e,pUSD],fromBlock:hex(first),toBlock:hex(last),topics:[Transfer,null,padded_maker]}]` | Only chain 137, configured contract addresses and recipient match. Binary search establishes half-open timestamp bounds. Initial 1,000-block chunks split on explicit provider range limits. Failed chunks remain gaps. No signing/broadcast RPC method exists here. |
+
+`D` is the frozen reward UTC day; `S` comes from the SDK's existing wallet
+type, not a new override. `A` is that day's 00:00Z epoch; `C` is its end
+plus 48 hours. Offset starts at zero. Exact URLs, cursor/offset values,
+RPC request bodies, response hashes and observation times remain in the
+produced file. All three `request_scope` objects use the reconciler's exact
+maker, pUSD marker, account condition scope and required period keys. The
+wallet query additionally covers USDC.e and retains it separately.
+
+The SDK evidence is corroborated by the official
+[earnings](https://docs.polymarket.com/api-reference/rewards/get-earnings-for-user-by-date),
+[total earnings](https://docs.polymarket.com/api-reference/rewards/get-total-earnings-for-user-by-date),
+[configuration](https://docs.polymarket.com/api-reference/rewards/get-user-earnings-and-markets-configuration)
+and [activity](https://docs.polymarket.com/api-reference/core/get-user-activity)
+references. The current public [v2 activity reference](https://docs.polymarket.com/api-reference/feeds/list-account-activity)
+also lacks an earned-period/accrual link; its payment timestamp is not an
+earned date. No invented endpoint or private UI route was tried. This agrees
+with the repository's pre-existing
+[activity-to-credit contract](../operations/paid-credit-activity-evidence.md#output-limits).
+An address-scoped credit/activity read must not be described as absent;
+the absent capability is authoritative linkage to this reward day and band.
+
+### Evidence rules and unavoidable gaps
+
+`re1_payout_evidence.py` attaches an in-memory sink to the existing
+`OwnerVenue.set_journal` response hook; the session journal is never appended.
+Response SHA-256 values cover the bytes actually received, not reserialized
+SDK models. The additional request hook hashes method, raw request target
+and body with LF separators, excluding credentials/headers. RPC request
+hashes cover the actual serialized JSON sent. Source-level hashes bind the
+ordered lists of these hashes and are explicitly labelled with that basis.
+Every retained/printed structure passes the loaded secret guard.
+
+Accruals preserve venue precision and rates. Positive closed-day rows map
+to `ACCRUED`, open-day rows to `ESTIMATED`, explicit closed zero rows to
+`COMPLETED_ZERO`. An explicit zero account total can establish zero for the
+selected condition; an omitted total cannot. CLI prediction validation
+still requires the following UTC day, so open-day mapping is tested offline.
+
+Wallet coverage records start predecessor, first block, end successor,
+finalized anchor, every queried chunk and the headers used to validate logs.
+It rechecks the finalized anchor at its numeric height. Removed logs,
+wrong recipient/contract/block hash, malformed quantities and duplicate
+credits fail closed. Credit identity is `137:transaction_hash:log_index`;
+the transaction hash is retained separately, so multiple logs are not
+collapsed into one credit. No wallet credit is declared externally funded
+or allocated to a distribution by inference.
+
+Three limits remain outside this mission's authorized consumer changes:
+
+1. Neither inspected API provides the authoritative day-to-payment link.
+   The collector's distribution source stays `UNSUPPORTED`, including on
+   empty queries after the cash deadline. `payout_cycle_complete` records
+   deadline passage only; it does not change source status or completeness.
+2. `mm_paid_incentive_evidence` accepts only native pUSD. The collector keeps
+   both assets in `asset_observations`, with only pUSD in the existing matcher
+   rows. It never relabels USDC.e. Sub-micro-unit venue estimates remain
+   unrounded and can be refused by the exact-micro-unit consumer.
+3. The matcher requires `cash_end_utc <= as_of_utc` and complete coverage
+   through cash end. For reward day September 22, the requested cash window
+   ends September 25 at 00:00Z; a September 23 observation cannot satisfy
+   this unchanged contract even if a real payment has appeared.
+
+There has been no authoritative day-linked distribution observation, so the
+window is not extended beyond end plus 48 hours. Future support needs an
+actual venue-earned-period reference, then a reviewed producer mapping;
+the collector supplies no manual bypass or fabricated substitute.
+
+### Tests and owner run card
+
+The focused source/SDK/evidence tests pass **58 tests**. The positive
+round-trip control uses real SDK earnings models and raw hex `eth_getLogs`
+replies, then **explicitly supplies a synthetic normalized distribution in
+the test only**. The real reconciler returns paid `1.25`, and the unchanged
+RE-1 verdict returns `k=0.625`, `PAID_AS_MODELLED`. Removing block chunk
+coverage returns paid/k unknown and `INCONCLUSIVE`, never zero or NOT_PAID.
+Without that synthetic missing source, the actual collector output refuses
+in both cases. This is conditional matcher qualification, **not** the
+unavailable all-real-SDK positive round trip requested by 85a.
+
+Other tests cover adaptive range caps, finalized boundaries, future blocks,
+scope/total mismatches, repeated cursors, read failures, omitted asset totals,
+sub-micro precision, malformed/removed/duplicate logs, guard refusal, exact
+wire hashes, immutable output in the fixed campaign and `collect-payout`'s
+printed raw-file hash. The fake client raises on every non-read method;
+closed HTTP transports reject all non-GET venue requests. Public RPC POSTs
+are restricted to the three read methods above.
+
+The owner runs these commands from the **new evidence worktree** after the
+session's prediction is frozen. Replace the paths with the exact prediction
+and evidence filenames printed by the two commands; do not guess an attempt
+number or use an earlier session's evidence.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-evidence-20260921'
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1Prediction = Read-Host 'Paste the exact frozen prediction.json path'
+& $re1Python -m weather.market.re1_attended_cli collect-evidence $re1Prediction
+$re1Evidence = Read-Host 'Paste the printed payment_evidence_path'
+& $re1Python -m weather.market.re1_attended_cli collect-payout $re1Prediction --payment-evidence $re1Evidence
+```
+
+The fixed campaign root is resolved from the attending Windows token, not
+the execution worktree or a caller-supplied directory. `collect-evidence`
+loads credentials only after validating the prediction/journal and campaign
+path, writes exactly one new timestamped file with `write_new`, closes the
+client, prints its path/hash and currently exits **2** for incomplete evidence.
+Each rerun produces a new file. There is presently **no complete file to
+choose** from this collector; repeated collection alone cannot resolve the
+distribution limitation. `collect-payout` prints the exact input path/hash
+and remains inconclusive. Neither command changes the frozen prediction.
+
+Qualification completion, source commit and repository roll-verdict output
+are appended below after the final checks. Full-suite work uses the shared
+workstation wrapper and must finish outside September 22 09:00–19:00 Eastern.
+
+What was not done: no owner `.env` read, secret export, vault access,
+authenticated account call, live public-account query, real RPC, heartbeat,
+signature, order, cancel, stream, session, production-host access, capture or
+Scheduler change, restart, merge, gate change or live authority change.
+`re1_attended.py`, `re1_resilience.py`, `re1_owner_checks.py`,
+`re1_transport.py`, `re1_evidence.py` and the reconciler are unchanged.
+Measured economic sample: **zero real dates, zero real markets, zero real
+payments**; no interval, profitability claim or campaign decision is made.

@@ -1,6 +1,7 @@
 """Owner-attended RE-1M rehearsal, preflight, live, panic, reconcile and collection."""
 import argparse
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import signal
@@ -30,6 +31,8 @@ def parser():
     collect = modes.add_parser('collect-payout')
     collect.add_argument('prediction', type=Path)
     collect.add_argument('--payment-evidence', type=Path, help='independently reconciled distribution/wallet evidence; absent means payment unverified')
+    evidence = modes.add_parser('collect-evidence', help='read-only payout sources; missing linkage stays inconclusive')
+    evidence.add_argument('prediction', type=Path)
     return result
 
 
@@ -148,11 +151,14 @@ def run_collect(args):
     try:
         accrual = venue.accrual(prediction['reward_day'])
         balances = venue.balances()
-        payment = json.loads(args.payment_evidence.read_bytes()) if args.payment_evidence else None
-        result = {**payout_verdict(prediction, accrual, payment), 'accrual': accrual, 'balances': balances}
+        payment_bytes = args.payment_evidence.read_bytes() if args.payment_evidence else None
+        payment = json.loads(payment_bytes) if payment_bytes is not None else None
+        binding = {'payment_evidence_path': str(args.payment_evidence.absolute()) if args.payment_evidence else None,
+                   'payment_evidence_sha256': hashlib.sha256(payment_bytes).hexdigest() if payment_bytes is not None else None}
+        result = {**payout_verdict(prediction, accrual, payment), 'accrual': accrual, 'balances': balances, **binding}
         destination = args.prediction.parent / ('payout-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
         write_new(destination, guard.clean(result))
-        guard.print({'verdict': result['verdict'], 'k': result['k'], 'k_accrued': result['k_accrued'], 'receipt': str(destination)})
+        guard.print({'verdict': result['verdict'], 'k': result['k'], 'k_accrued': result['k_accrued'], 'receipt': str(destination), **binding})
         return 0
     finally:
         venue.close()
@@ -170,6 +176,9 @@ def main(argv=None):
         if args.mode == 'reconcile':
             from weather.market.re1_owner_checks import run_reconcile
             return run_reconcile(args.attempt)
+        if args.mode == 'collect-evidence':
+            from weather.market.re1_payout_evidence import run_collect_evidence
+            return run_collect_evidence(args)
         return run_collect(args)
     except BaseException as exc:
         # Do not echo exception messages: SDK/parser errors can carry secrets.

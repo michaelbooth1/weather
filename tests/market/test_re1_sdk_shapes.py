@@ -127,3 +127,45 @@ def test_response_hook_never_raises_non_json_or_secret_guard_failure():
         assert venue.journal_failed
     finally:
         http.close()
+
+
+def sdk_earnings_models():
+    from polymarket.models.clob.rewards import UserEarning, TotalUserEarning, UserRewardsEarning
+    from weather.market.re1_transport import ASSETS
+    from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET
+    rows = [UserEarning.model_validate(dict(date='2026-09-01T00:00:00Z', maker_address=MAKER,
+        condition_id=CONDITION, asset_address=asset, asset_rate='1',
+        earnings='1.250000' if asset.lower() == INCENTIVE_CASH_ASSET['asset_address'] else '0')) for asset in ASSETS]
+    totals = [TotalUserEarning.model_validate(r.model_dump(exclude={'condition_id'})) for r in rows]
+    config = UserRewardsEarning.model_validate(dict(condition_id=CONDITION, maker_address=MAKER,
+        earning_percentage=1.0, earnings=[r.model_dump(include={'asset_address', 'asset_rate', 'earnings'}) for r in rows],
+        event_slug='test', image='', market_competitiveness=0, market_slug='test', question='fixture',
+        rewards_config=[dict(asset_address=r.asset_address, start_date='2026-09-01T00:00:00Z',
+            end_date='2026-09-02T00:00:00Z', rate_per_day='40', total_rewards='40') for r in rows],
+        rewards_max_spread=3, rewards_min_size='20', tokens=[]))
+    return rows, totals, config
+
+
+def test_earnings_reply_models_reach_real_reconciler_vocabulary():
+    from weather.market.re1_payout_evidence import normalize_earnings
+    from weather.market.mm_stage2_hold import utc
+    from tests.market.test_mm_paid_incentive_reconciliation import evidence_fixture
+    rows, totals, config = sdk_earnings_models()
+    plain = _plain_sdk_value(rows)
+    scope = dict(evidence_fixture()['scope'], maker_address=MAKER, condition_id=CONDITION)
+    normalized, complete = normalize_earnings([(r, 'a' * 64) for r in plain],
+        [(r, 'b' * 64) for r in _plain_sdk_value(totals)], scope, utc('2026-09-04T01:00:00Z'))
+    assert complete and {r['status'] for r in normalized} == {'ACCRUED', 'COMPLETED_ZERO'}
+    assert sorted(r['amount'] for r in normalized) == ['0', '1.250000']
+    assert _plain_sdk_value(config)['earnings'][0]['asset_rate'] == '1'
+    opened, _ = normalize_earnings([(r, 'a' * 64) for r in plain], [], scope, utc('2026-09-01T12:00:00Z'))
+    assert {r['status'] for r in opened} == {'ESTIMATED'}
+
+
+def test_sdk_reward_activity_has_no_earned_period_or_condition():
+    from polymarket.models.data.activity import RewardActivity
+    row = RewardActivity.model_validate(dict(proxyWallet=MAKER, timestamp=1788350400,
+        transactionHash='0x' + '1' * 64, type='REWARD', amount='1.25'))
+    plain = _plain_sdk_value(row)
+    assert plain['wallet'] == MAKER and plain['amount'] == '1.25'
+    assert not {'date', 'accrual_id', 'condition_id', 'asset_address', 'log_index'} & plain.keys()
