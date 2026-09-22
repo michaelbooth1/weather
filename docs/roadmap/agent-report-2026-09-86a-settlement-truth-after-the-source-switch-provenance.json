@@ -1,7 +1,7 @@
 {
   "config_sha256": "bf61ebc48ab807367bc2675420925acdb0c0a71c0cef253c46c9169ec108ce88",
-  "disagreements_sha256": "5870071dce506fa101837d6e634215ea9bd0dd4f436ae501a96f9ec1b3bf3274",
-  "instrument_commit": "362b626e3b4d3ba340cfbfc6842c573c21561d33",
+  "disagreements_sha256": "bd2e1d0a373f03171a5ec45bc2cbbc65c2f52716f84a0e3eaa4979b1b7278a6f",
+  "instrument_commit": "1ead63e75802831d82a78844e0d4cd8c96372230",
   "labels": {
     "bytes": 1157402,
     "sha256": "73054e9d1f831fc3062d9a033ffb3ce0bf6e78ea19b138bd5001a0426e3fee13"
@@ -858,8 +858,8 @@
       "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T07%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
     }
   ],
-  "script_sha256": "60c3ef147c95aa746e65da1f16c0073e60322cf978d9355be7ae514c3fc49122",
-  "station_days_sha256": "d140c404c66b35a55d17bd9a12bf7fb91f42e72722f4fab8c0e3c0cec0ab3a3f",
+  "script_sha256": "5f3050ae09429f79f36214a5575c9c88c8fc4235734d0457fe708ed2ba0384f3",
+  "station_days_sha256": "ea62c491825f133ab5dc5172824c985f1f042bc636ff5edea6a5aabe38f4fe91",
   "tables": [
     {
       "available": 480,

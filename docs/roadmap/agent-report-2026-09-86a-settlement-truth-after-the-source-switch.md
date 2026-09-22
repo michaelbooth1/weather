@@ -131,15 +131,16 @@ Verification: focused deterministic tests run through `scripts/ops/workstation_h
 
 ## Git handback and what was NOT done
 
-Branch: `codex/settlement-truth-source-20260922`. Base: fetched `origin/master` `3b4232ae8e337c876f5771294914122b28ea5890`. Instrument commit: `362b626e3b4d3ba340cfbfc6842c573c21561d33`. The final branch tip is returned with this report; its own hash cannot be embedded recursively.
+Branch: `codex/settlement-truth-source-20260922`. Base: fetched `origin/master` `3b4232ae8e337c876f5771294914122b28ea5890`. Instrument commit: `1ead63e75802831d82a78844e0d4cd8c96372230`. The final branch tip is returned with this report; its own hash cannot be embedded recursively.
 
 No serving, training, model scoring, label, config, ledger, floor, gate, release, EF/digest or production change; no credentials or `.env` read; no exchange mutation; no registration, restart, merge or full suite. Neither protected RE-1 worktree was accessed or modified. Existing main-checkout changes were untouched. No current capture-health, live-readiness or promotion-countability claim is made.
 
 ### Verification handback
 
 - Initial focused suite: **15 passed** in 0.11 s through the workstation wrapper. Its first invocation had 12 passes and 3 temp-directory setup errors; creating the owned temp parent resolved those errors.
-- Final expanded suite (18 cases): **not run**. The wrapper refused admission because another heavy or portable-live workload held the host-global lease. No guard was bypassed. Network and heavy work stopped pending the owner's live-session clarification.
+- Final expanded suite: **18 passed** in 0.20 s through the same workstation wrapper. The first final-run attempt was refused because another workload held the host-global lease. Network and heavy work stopped; after the owner confirmed RE-1 was neither starting nor running, a normal guarded retry passed. No guard was bypassed.
 - Test temp directory was removed after the successful run using an exact resolved-path check. Free disk was 169,606,881,280 bytes before that initial test sequence and 169,593,298,944 afterward; concurrent public-cache growth was also occurring, so the difference is not attributed to pytest. Before the refused final run, free disk was 169,473,384,448 bytes.
+- Final test free disk: 169,468,702,720 bytes before and 169,468,661,760 after; the owned pytest temp directory was removed. The two published CSV SHA-256 digests were checked against LF-normalized artifact bytes so Git checkout normalization cannot invalidate them.
 - `git diff --cached --check` passed for the instrument commit. No full suite or broad compileall ran. No canonical documentation, roadmap item or generated backlog changed, so their generators were not invoked.
 - `scripts/ops/roll_verdict.ps1 -Branch HEAD -Base origin/master -JsonOut data/settlement_truth_86a/roll-verdict.json` returned **UNDECIDABLE: no live closure evidence** (exit 1). This isolated worktree has none of the four required capture status files. No hand-derived roll-free verdict substitutes for that result.
 
