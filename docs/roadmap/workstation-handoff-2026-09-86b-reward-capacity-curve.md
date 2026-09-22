@@ -17,8 +17,8 @@ Once RE-1 returns `k`, the curve scaled by `k` is the RE-2 sizing input and the 
 1. **A public sampler** (`tools/` script or `src/weather/market/` module with tests) that every 15 minutes reads,
    for every weather reward market the venue lists for today and tomorrow: the per-condition reward record
    (`GET https://clob.polymarket.com/rewards/markets/<condition>`, same shape checks as `mm_stage2_selection.reward()`)
-   and both books. It reuses the canonical RE-1 selection and prediction code (`Re1PublicBooks` and `predicted_minutes`
-   in `re1_transport.py`, `mm_stage2_selection.py`) unchanged — **no re-implementation of the share formula**; if a size other than 20
+   and both books. It reuses the canonical RE-1 selection and prediction code (`Re1PublicBooks` in `re1_rehearsal.py`,
+   the ranking and `predicted_360_minutes` in `mm_stage2_selection.py`) unchanged — **no re-implementation of the share formula**; if a size other than 20
    needs a code path, add a pure function next to the canonical one and prove it returns the canonical value at 20.
    Journal every response with its SHA-256. Send a descriptive `User-Agent`. Throttle to one request per second.
 2. **The curve**, from at least 24 hours of samples: per hour and per size, qualifying bands, modelled share,
@@ -30,7 +30,7 @@ Once RE-1 returns `k`, the curve scaled by `k` is the RE-2 sizing input and the 
 
 ## 3. Rules
 
-- Branch `codex/reward-capacity-curve-20260922` from `475a626e4` (the RE-1 session tip, which carries `re1_transport.py` and `mm_stage2_selection.py`; master does not); own worktree, never the session worktree; nothing adopted.
+- Branch `codex/reward-capacity-curve-20260922` from `475a626e4` (the RE-1 session tip, which carries `re1_rehearsal.py` and `mm_stage2_selection.py`; master does not); own worktree, never the session worktree; nothing adopted.
 - **The sampler must be stopped before the owner starts RE-1 `live` and stay stopped while `live` runs** (it shares
   the network path the session's latency budgets measure); run it now until 19:45 ET and again after the session.
 - No full suite before 19:00 ET 2026-09-22 or during a live session; focused tests only.
