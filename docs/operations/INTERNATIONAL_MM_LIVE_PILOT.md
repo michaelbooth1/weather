@@ -1895,6 +1895,13 @@ includes the child's return code and bounded stderr. An earlier failed step
 does not produce a second heartbeat-budget failure when heartbeat was never
 measured; an otherwise clean run still requires that measurement.
 
+Before loading credentials or starting repeated reads, preflight probes the
+public geoblock URL and Polygon RPC (`eth_blockNumber`) through `json_read`.
+Public reads identify the clean commit with `User-Agent:
+weather-re1-attended/<first-nine-commit-characters>`. An HTTP refusal prints one
+FAIL row with `public_read_blocked: <url> -> HTTP <code>` and stops before the
+read loops; the same cause is retained in the journal and FAIL receipt.
+
 `NO QUALIFYING BAND` means **retry later**, at the next quarter hour; it does
 not mean the preflight implementation is broken. The line reports the best
 row's location, event date, 360-minute prediction and refusal, or `none` for an

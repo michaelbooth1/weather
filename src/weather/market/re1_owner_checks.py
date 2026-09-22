@@ -7,6 +7,7 @@ from pathlib import Path
 import statistics
 import subprocess
 import sys
+from urllib.error import HTTPError
 
 from weather.market.mm_stage2_hold import digest, utc, write_new
 from weather.market.re1_attended import GuardedJournal, SecretGuard
@@ -69,7 +70,7 @@ def measure(name, fn, *, repeats, clock, journal, guard, failures, cadence=0):
 def run_preflight():
     if not sys.stdin.isatty():
         raise RuntimeError('owner_terminal_required')
-    from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue
+    from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue, json_read, GEOBLOCK, RPC
     from polymarket._internal.actions.rewards import build_get_orders_scoring_request
     from polymarket.errors import UserInputError
     clock, guard = WallClock(), SecretGuard()
@@ -85,6 +86,16 @@ def run_preflight():
             head = code_identity()
             journal.record('preflight_step', step='proxy_host_tip', status='PASS', commit=head)
             guard.print('PASS proxy_host_tip')
+            phase = 'public_read_probe'
+            for url, body in ((GEOBLOCK, None),
+                              (RPC, {'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []})):
+                try:
+                    json_read(url, body=body)
+                except HTTPError as exc:
+                    exc.close()
+                    raise RuntimeError(f'public_read_blocked: {url} -> HTTP {exc.code}') from None
+            journal.record('preflight_step', step=phase, status='PASS')
+            guard.print('PASS public_read_probe')
             phase = 'credential_topology'
             fields, guard = load_owner_credentials('preflight')
             journal.guard = guard
@@ -160,7 +171,8 @@ def run_preflight():
         row = {'step': phase, 'exception_type': type(exc).__name__, 'message': failure_message(exc, guard)}
         failures.append(row)
         journal.record('preflight_fail', **row)
-        guard.print({'status': 'FAIL', **row})
+        if phase != 'public_read_probe':
+            guard.print({'status': 'FAIL', **row})
     finally:
         try:
             if venue is not None:
@@ -187,6 +199,10 @@ def run_preflight():
         summary = {'status': receipt['status'], 'receipt': str(directory / 'preflight.json'), 'latency_seconds': stats}
         if failures:
             summary['message'] = 'preflight_failed'
+            if phase == 'public_read_probe':
+                # This early failure has no client to close and no measured reads.
+                # Print the cause and receipt once, without a second FAIL summary.
+                summary.update(failures[0])
         guard.print(summary)
     return 0 if not failures else 1
 

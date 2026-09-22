@@ -22,6 +22,7 @@ def preflight_fixture(tmp_path, monkeypatch, *, failed=None, nonempty=False):
     monkeypatch.setattr(checks, 'assert_no_ambient_proxy_configuration', lambda: None)
     monkeypatch.setattr(checks, 'WallClock', lambda: clock)
     monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda: table))
+    monkeypatch.setattr(transport, 'json_read', lambda url, **kwargs: {})
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
     fields = {'FUNDER_ADDRESS': fake.maker}
     def credentials(mode):
@@ -59,7 +60,16 @@ def preflight_fixture(tmp_path, monkeypatch, *, failed=None, nonempty=False):
 
 def test_preflight_twenty_reads_six_heartbeats_no_attempt(tmp_path, monkeypatch):
     root, clock, counts, beats = preflight_fixture(tmp_path, monkeypatch)
+    from weather.market import re1_transport as transport
+    probes = []
+    def probe(url, *, body):
+        assert not counts and not beats
+        probes.append((url, body))
+        return {}
+    monkeypatch.setattr(transport, 'json_read', probe)
     assert run_preflight() == 0
+    assert probes == [(transport.GEOBLOCK, None),
+                      (transport.RPC, {'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []})]
     assert counts == dict.fromkeys(('open_orders', 'positions', 'balances', 'geoblock', 'accrual'), 20) | {'heartbeat': 6, 'user_stream': 21}
     assert all(b-a == pytest.approx(5) for a, b in zip(beats, beats[1:]))
     assert not list(root.glob('session-*'))
@@ -68,6 +78,44 @@ def test_preflight_twenty_reads_six_heartbeats_no_attempt(tmp_path, monkeypatch)
     assert row['latency_seconds']['open_orders']['count'] == 20
     with pytest.raises(RuntimeError, match='preflight'):
         clean_preflight(root, now=clock.now(), commit='e' * 40)
+
+
+@pytest.mark.parametrize('blocked_url', ['https://polymarket.com/api/geoblock', 'https://polygon.drpc.org'])
+@pytest.mark.parametrize('status', [403, 429, 503])
+def test_public_probe_failure_prints_one_row_without_read_loops(tmp_path, monkeypatch, capsys, blocked_url, status):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from weather.market import re1_owner_checks as checks, re1_transport as transport
+    root, clock, counts, beats = preflight_fixture(tmp_path, monkeypatch)
+    probes = []
+    response = BytesIO(b'blocked')
+    def probe(url, *, body):
+        probes.append(url)
+        if url == blocked_url:
+            raise HTTPError(url, status, 'fixture', {}, response)
+        return {}
+    def forbidden(*args, **kwargs):
+        pytest.fail('public probe failure must stop before credentials, selection, client or read loops')
+    monkeypatch.setattr(transport, 'json_read', probe)
+    monkeypatch.setattr(transport, 'load_owner_credentials', forbidden)
+    monkeypatch.setattr(transport, 'build_client', forbidden)
+    monkeypatch.setattr(transport, 'OwnerVenue', forbidden)
+    monkeypatch.setattr(checks, 'Re1PublicBooks', forbidden)
+    monkeypatch.setattr(checks, 'measure', forbidden)
+    assert run_preflight() == 1
+    output = capsys.readouterr().out
+    message = f'public_read_blocked: {blocked_url} -> HTTP {status}'
+    assert output.count("'status': 'FAIL'") == 1 and output.count(message) == 1
+    assert 'heartbeat_latency_budget' not in output
+    assert probes == ([transport.GEOBLOCK] if blocked_url == transport.GEOBLOCK else [transport.GEOBLOCK, transport.RPC])
+    assert response.closed and counts == {} and beats == []
+    receipt, journal = preflight_evidence(root)
+    assert receipt['status'] == 'FAIL' and receipt['latency_seconds'] == {} and receipt['timeouts_seconds'] == {}
+    assert receipt['failures'] == [{'step': 'public_read_probe', 'exception_type': 'RuntimeError', 'message': message}]
+    assert sum(row['event'] == 'preflight_fail' for row in journal) == 1
+    assert not any(row['event'] == 'preflight_read' for row in journal)
+    with pytest.raises(RuntimeError, match='clean_final_tip_preflight_required'):
+        clean_preflight(root, now=clock.now(), commit='f' * 40)
 
 
 @pytest.mark.parametrize('failure', ['positions', 'bootstrap'])

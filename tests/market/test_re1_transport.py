@@ -13,6 +13,33 @@ from tests.market.test_mm_stage2_rewards import sdk_fixture
 from weather.market.re1_transport import OwnerVenue, bounded_rows
 
 
+@pytest.mark.parametrize('url,body', [
+    ('https://polymarket.com/api/geoblock', None),
+    ('https://polygon.drpc.org', {'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []}),
+])
+def test_json_read_request_identifies_attended_commit(monkeypatch, url, body):
+    from io import BytesIO
+    from weather.market import re1_transport as transport
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', lambda: '123456789' + 'a' * 31)
+    monkeypatch.setattr(transport, 'assert_no_ambient_proxy_configuration', lambda: None)
+    requests = []
+    class Reply(BytesIO):
+        status = 200
+        def geturl(self): return url
+    def opened(request, *, timeout):
+        requests.append(request)
+        assert request.full_url == url and timeout == 2
+        assert request.get_method() == ('GET' if body is None else 'POST')
+        assert request.data == (None if body is None else json.dumps(body).encode())
+        assert dict(request.header_items()) == {
+            'Accept': 'application/json', 'Content-type': 'application/json',
+            'User-agent': 'weather-re1-attended/123456789'}
+        return Reply(b'{"ok": true}')
+    monkeypatch.setattr(transport, 'urlopen', opened)
+    assert transport.json_read(url, body=body) == {'ok': True}
+    assert len(requests) == 1
+
+
 def fixture():
     pytest.importorskip('polymarket')
     from polymarket.models.clob.orders import SignedOrder

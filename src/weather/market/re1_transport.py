@@ -34,6 +34,7 @@ from weather.paths import REPO_ROOT
 
 ASSETS = ('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB')
 RPC = 'https://polygon.drpc.org'
+GEOBLOCK = 'https://polymarket.com/api/geoblock'
 
 
 class Re1Heartbeat(OfficialHeartbeatSender):
@@ -108,9 +109,11 @@ def load_owner_credentials(mode):
 
 
 def json_read(url, *, body=None, timeout=2):
+    from weather.market.re1_owner_checks import code_identity
     assert_no_ambient_proxy_configuration()
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
-                      headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
+                      headers={'Accept': 'application/json', 'Content-Type': 'application/json',
+                               'User-Agent': 'weather-re1-attended/' + code_identity()[:9]})
     with urlopen(request, timeout=timeout) as response:
         raw = response.read(2_000_001)
         if response.status != 200 or response.geturl() != url or len(raw) > 2_000_000:
@@ -119,7 +122,7 @@ def json_read(url, *, body=None, timeout=2):
 
 
 def geography(*, timeout=2):
-    value = json_read('https://polymarket.com/api/geoblock', timeout=timeout)
+    value = json_read(GEOBLOCK, timeout=timeout)
     if type(value.get('blocked')) is not bool:
         raise RuntimeError('geoblock_unreadable')
     return value
