@@ -1968,6 +1968,47 @@ that calculation exactly.
 
 ### Offline paid-incentive reconciliation
 
+The owner-run RE-1 `collect-evidence <prediction.json>` command in
+`weather.market.re1_attended_cli` captures read-only SDK earnings, account
+reward activity and finalized Polygon Transfer logs. Run it from the separate
+evidence worktree against the printed prediction under the fixed
+`campaign_root()`; keep the attended execution worktree at its approved tip.
+The prediction and its journal are verified before credentials are loaded
+using the existing read-only collection permission. The command writes one
+exclusive `payout-evidence-<UTC timestamp>.json` beside the prediction. It never
+starts a stream, signs an order, heartbeats or cancels. The owner runs it;
+agents do not run it with owner credentials.
+
+**This collector cannot currently prove paid rewards.** SDK 0.6.0
+`list_activity` supplies account `REWARD`/`MAKER_REBATE` candidates, but no
+earned period or shared accrual reference. The
+[activity-to-credit contract](paid-credit-activity-evidence.md#output-limits)
+forbids inventing that link from equal amounts or the following day's date.
+The collector therefore records `distributions.status=UNSUPPORTED`, retains
+the candidates separately and exits 2 after printing the file path, hash and
+INCONCLUSIVE result. Waiting or repeating an empty query cannot remove this
+blocker. There is no distribution-import or override flag.
+
+The cash window is the reward day's UTC start through its end plus 48 hours.
+Until an authoritative day-linked distribution exists, no later distribution
+observation can extend it. Logs cover both configured RE-1 assets, in bounded
+block chunks whose timestamps are resolved by binary search. Missing chunks,
+range-limit exhaustion or an unfinalized tail prevent complete coverage.
+Only native pUSD rows enter the existing reconciler; USDC.e remains separate
+asset evidence. Sub-micro-unit earnings are preserved without rounding and
+may be refused by that reconciler. Its closed-cash-window requirement still
+applies; observation of a payment alone cannot shorten the required window.
+
+The in-memory journal uses `OwnerVenue`'s response hook for the exact response
+byte hashes, adding header-free request-target/body hashes. Source hashes
+bind ordered per-message hash lists; they are explicitly labelled as such.
+RPC request hashes bind transmitted JSON bytes. Authentication headers are
+never retained, and every persisted/printed value passes the secret guard.
+Pass a retained file explicitly to
+`collect-payout <prediction.json> --payment-evidence <payout-evidence.json>`.
+That command prints and retains the input path and SHA-256 of the exact bytes
+it judged. An unsupported file leaves `paid` and `k` unknown, never zero.
+
 `weather.market.mm_exchange_reports.reconcile_incentive_payments` accepts
 supplied normalized evidence and performs no account, wallet or network read.
 Its schema IDs are registered as `mm_paid_incentive_evidence`,
