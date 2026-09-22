@@ -1474,3 +1474,141 @@ selection, sizing, payout, reconciler, schema-registry or attempt-accounting
 change; no production write, Scheduler registration, restart, merge or adoption;
 no full suite before 19:00 Eastern. Adoption remains the owner's decision and
 requires a fresh same-day preflight at any newly approved execution tip.
+
+## 84e — September 22, 2026: identify public reads and stop blocked preflight early
+
+**IMPLEMENTED; REAL PUBLIC PROBES PASS WITH THE DESCRIPTIVE USER-AGENT; 69 FOCUSED
+TESTS PASS. No real preflight or live session was run. Full-suite qualification
+is not claimed; the owner's no-full-suite-before-19:00-Eastern boundary remains.**
+
+Owner instruction: Mission 84e in this task. Branch
+`codex/re1-public-reads-ua-20260922` is stacked exactly on
+`7010a0b585e1d6f31787a34e84bbf11d80939bd3` (84d), in the existing 84d worktree
+`C:\Users\Michael\Documents\github\weather\scratch\w\re1-preflight-hardening-20260922`.
+The owner explicitly requested reuse of that worktree and this append-only
+section; 84d's branch, commits, prior report and changes remain intact.
+Implementation commit: `5b01a80b922b1342e4b7db878fb85ea6a76e1a2d`.
+The following report-only commit is the handback tip; resolve it from the exact
+published branch. The draft PR targets `codex/re1-preflight-hardening-20260922`.
+
+### Public probe evidence, before publication
+
+The initial clean-base comparison ran at **2026-09-22 17:06:09 UTC / 13:06:09
+Eastern** on this workstation with CPython 3.11.9. It called the existing
+`json_read` with only the Request User-Agent changed for the new-header arm.
+The committed implementation comparison ran at **17:11:08 UTC / 13:11:08
+Eastern**. It called the committed `json_read` unchanged for the new-header
+arm; the old-header control removed only User-Agent immediately before real
+`urllib.request.urlopen`. Both comparisons retained `Accept: application/json`,
+`Content-Type: application/json`, the two-second timeout, JSON encoding, response
+size limit, exact-final-URL check and status/JSON checks.
+
+| Clean commit / User-Agent | GET `https://polymarket.com/api/geoblock` | POST `https://polygon.drpc.org` (`eth_blockNumber`) |
+| --- | ---: | ---: |
+| 84d `7010a0b58`; old implicit `Python-urllib/3.11` | HTTP 403 | HTTP 403 |
+| 84d `7010a0b58`; `weather-re1-attended/7010a0b58` | HTTP 200; `json_read` PASS | HTTP 200; `json_read` PASS |
+| 84e source `5b01a80b9`; old implicit `Python-urllib/3.11` | HTTP 403 | HTTP 403 |
+| 84e source `5b01a80b9`; `weather-re1-attended/5b01a80b9` | HTTP 200; `json_read` PASS | HTTP 200; `json_read` PASS |
+
+Exact header line measured on the implementation commit:
+
+```text
+User-Agent: weather-re1-attended/5b01a80b9
+```
+
+Exact implementation expression:
+
+```python
+'User-Agent': 'weather-re1-attended/' + code_identity()[:9]
+```
+
+The suffix follows the current clean commit, including a subsequent report-only
+tip; it is not hard-coded to the source commit. The RPC body in every POST was:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": []}
+```
+
+The Mozilla-compatible fallback was **not needed or tried** because the first
+descriptive form succeeded on both URLs. No provider, key, proxy, tunnel or TLS
+setting was changed. HTTP 200 here establishes public transport access only;
+it does not claim geographic eligibility, account readiness or permission to trade.
+
+### Failure behavior and verification
+
+After the existing host/proxy/clean-tip gate and before loading credentials,
+building a client, selecting a band, opening a stream or entering any 20-read
+loop, `run_preflight` probes geoblock once, then the fixed Polygon RPC once.
+The first HTTP error stops the sequence immediately, closes the error response,
+and records one `public_read_probe` failure with the message
+`public_read_blocked: <url> -> HTTP <code>`. The terminal prints exactly one
+message-bearing FAIL row, including the receipt path. The journal and receipt
+retain the same cause; latency/timeout maps remain empty and `clean_preflight`
+rejects the receipt. 84d's no-band, guarded-message and heartbeat-budget behavior
+is preserved, as are later geography and repeated-read gates.
+
+- **69 passed in 10.63s**, no failures or skips: transport, owner-check,
+  attended parity-audit and import-architecture files. New coverage inspects
+  actual Request objects via monkeypatched `urlopen` for both GET and POST;
+  six injected failures cover both URLs at HTTP 403, 429 and 503. The success
+  path proves two probes precede the existing read counts. No test uses real auth.
+- Compilation of the four edited Python files: PASS through the workstation
+  wrapper. Full suite and full-tree compilation: not run.
+- Agent docs audit: PASS (18 agent files, 912 Markdown files); generated-backlog
+  `--check`: PASS; cumulative diff check and exact-base ancestry: PASS.
+- Tests and compilation used `scripts/ops/workstation_heavy.ps1` with its
+  host/principal, shared mutex and Job checks. The explicit task-owned pytest
+  temporary directory was removed after the wrapper's terminal exit.
+
+Focused reproduction: use the implementation worktree's workstation wrapper
+with `-Kind pytest`, absolute RE-1 `-PythonPath` and absolute `-RepoRoot`, encoding
+the following array as UTF-8 base64 for `-ArgumentsBase64`; use fresh receipt
+and temporary names on repeat runs:
+
+```json
+["-m", "pytest", "tests/market/test_re1_owner_checks.py", "tests/market/test_re1_transport.py", "tests/market/test_re1_attended_parity_audit.py", "tests/operations/test_import_architecture.py", "-q", "--basetemp=scratch/84e-focused-temp", "--junitxml=scratch/84e-focused.xml"]
+```
+
+Public-only reproduction from a clean approved checkout is `json_read(GEOBLOCK)`
+and `json_read(RPC, body={"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber",
+"params": []})` from `weather.market.re1_transport`. The retained scratch probe
+script also compares the old header and prints only request identity/status,
+never response bodies. The actual workstation command was:
+
+```powershell
+Get-Content -Raw scratch/84e_public_probe.py | C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe -
+```
+
+Retained local receipts, relative to the implementation worktree (not assumed
+to exist in a clean checkout):
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/84e-public-probes-base.jsonl` | `514ed6b1c7f3472364b8577db1390d3574f290978cbe57826d972588ab1b46bb` |
+| `scratch/84e-public-probes-implementation.jsonl` | `ced15c12747977b66fb2cf55128a30603fae455289db9a1bd0f77bb3b39cf8c2` |
+| `scratch/84e_public_probe.py` | `4733897c4857e6991bee5e5334139cd9c2a647073c11cbe93b617b9da398e5df` |
+| `scratch/84e-focused.xml` | `2afa2836ca0a5377ba6a23f79612ba5bf06f3092bd8957023ef399fc46b750fd` |
+| `scratch/84e-roll-verdict.txt` | `9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0` |
+
+### Roll disposition and exclusions
+
+`scripts/ops/roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922
+-Base 7010a0b58 -JsonOut scratch/84e-roll-verdict.json` returned **exit 1,
+UNDECIDABLE: no live closure evidence** for all four supervisors; no JSON
+receipt was emitted. No production or frozen-mirror evidence was consulted.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_transport.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_owner_checks.py` | Live closure membership unavailable; no roll-free claim |
+| `tests/market/test_re1_transport.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_owner_checks.py` | Offline regression evidence; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Run-card documentation; roll-free by standing contract |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Append-only handback; roll-free by standing contract |
+
+**Not done:** no real preflight, live, credential/account/payout read, `.env`
+access, provider switch, API key, order, heartbeat or cancel request; no command
+or edit in `scratch\w\reward-test-attended-20260921`; no full suite, production
+write, Scheduler registration, restart, merge or adoption. The owner runs the
+fresh preflight tomorrow morning on the newly approved tip. Production
+integration still needs a fresh closure verdict from operations.
