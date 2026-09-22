@@ -33,6 +33,14 @@ def latency(values):
             'p95': values[math.ceil(.95 * len(values)) - 1], 'max': values[-1], 'count': len(values)}
 
 
+def failure_message(exc, guard):
+    try:
+        return guard.clean(str(exc))[:200]
+    except RuntimeError:
+        # SecretGuard refuses residual secrets; retain the failure without its text.
+        return 'secret_output_refused'
+
+
 def measure(name, fn, *, repeats, clock, journal, guard, failures, cadence=0):
     times, results = [], []
     for index in range(repeats):
@@ -44,13 +52,17 @@ def measure(name, fn, *, repeats, clock, journal, guard, failures, cadence=0):
             times.append(elapsed)
             results.append(value)
         except Exception as exc:
-            row = {'step': name, 'index': index, 'exception_type': type(exc).__name__}
+            row = {'step': name, 'index': index, 'exception_type': type(exc).__name__,
+                   'message': failure_message(exc, guard)}
             failures.append(row)
             journal.record('preflight_fail', **row)
             guard.print({'status': 'FAIL', **row})
         if cadence and index + 1 < repeats:
             clock.sleep(max(0, start + cadence - clock.monotonic()))
-    guard.print({'step': name, 'status': 'PASS' if len(results) == repeats else 'FAIL', 'latency_seconds': latency(times)})
+    summary = {'step': name, 'status': 'PASS' if len(results) == repeats else 'FAIL', 'latency_seconds': latency(times)}
+    if len(results) != repeats:
+        summary['message'] = 'one_or_more_reads_failed'
+    guard.print(summary)
     return latency(times), results
 
 
@@ -87,6 +99,19 @@ def run_preflight():
             table = Re1PublicBooks().selection()
             write_new(directory / 'selection.json', guard.clean(table))
             if not table['selected_condition_id']:
+                best = max(table['rows'], key=lambda row: row['predicted_360_minutes']
+                           if row['predicted_360_minutes'] is not None else -math.inf, default=None)
+                detail = {'location': best['market_id'] if best else None,
+                          'event_date': best['target_date'] if best else None,
+                          'predicted_360_minutes': best['predicted_360_minutes'] if best else None,
+                          'refusal': best['refusal'] if best else None}
+                best_text = (f"{detail['location']} {detail['event_date']} "
+                             f"predicted_360_minutes={detail['predicted_360_minutes']} ({detail['refusal']})"
+                             if best else 'none')
+                message = guard.clean(f"NO QUALIFYING BAND at {utc(clock.now()):%H:%M}Z — best {best_text}; "
+                                      'retry at the next quarter hour')
+                guard.print(message)
+                journal.record('preflight_step', step='public_selection', status='NO_BAND', message=message, **detail)
                 raise RuntimeError('no_qualifying_band')
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
             phase = 'user_stream_readiness'
@@ -107,7 +132,8 @@ def run_preflight():
                 if name == 'open_orders':
                     empty = len(results) == 20 and all(rows == [] for rows in results)
                     if len(results) == 20 and not empty:
-                        failures.append({'step': name, 'exception_type': 'AccountNotEmpty'})
+                        failures.append({'step': name, 'exception_type': 'AccountNotEmpty',
+                                         'message': 'account_has_open_orders'})
                         journal.record('preflight_fail', **failures[-1])
                         guard.print({'status': 'FAIL', **failures[-1]})
                 if name == 'geoblock' and any(row.get('blocked') is not False for row in results):
@@ -131,7 +157,7 @@ def run_preflight():
             if venue.journal_failed:
                 raise RuntimeError('response_journal_failed')
     except Exception as exc:
-        row = {'step': phase, 'exception_type': type(exc).__name__}
+        row = {'step': phase, 'exception_type': type(exc).__name__, 'message': failure_message(exc, guard)}
         failures.append(row)
         journal.record('preflight_fail', **row)
         guard.print({'status': 'FAIL', **row})
@@ -142,11 +168,14 @@ def run_preflight():
             elif client is not None:
                 client.close()
         except Exception as exc:
-            failures.append({'step': 'close', 'exception_type': type(exc).__name__})
+            failures.append({'step': 'close', 'exception_type': type(exc).__name__, 'message': 'client_close_failed'})
+            journal.record('preflight_fail', **failures[-1])
             guard.print({'status': 'FAIL', **failures[-1]})
         timeouts = {name: max(2, 3 * row['p95']) for name, row in stats.items() if row is not None}
-        if timeouts.get('heartbeat', 8) >= 8:
-            failures.append({'step': 'heartbeat_latency_budget', 'exception_type': 'TimeoutError'})
+        if ('heartbeat' in stats or not failures) and timeouts.get('heartbeat', 8) >= 8:
+            failures.append({'step': 'heartbeat_latency_budget', 'exception_type': 'TimeoutError',
+                             'message': 'heartbeat_timeout_must_be_below_8_seconds'})
+            journal.record('preflight_fail', **failures[-1])
             guard.print({'status': 'FAIL', **failures[-1]})
         receipt = {'commit': head, 'maker_address': maker, 'at_utc': clock.now().isoformat(),
                    'status': 'FAIL' if failures else 'PASS', 'latency_seconds': stats,
@@ -155,7 +184,10 @@ def run_preflight():
         journal.close()
         receipt['journal_sha256'] = hashlib.sha256(journal.path.read_bytes()).hexdigest()
         write_new(directory / 'preflight.json', guard.clean(receipt))
-        guard.print({'status': receipt['status'], 'receipt': str(directory / 'preflight.json'), 'latency_seconds': stats})
+        summary = {'status': receipt['status'], 'receipt': str(directory / 'preflight.json'), 'latency_seconds': stats}
+        if failures:
+            summary['message'] = 'preflight_failed'
+        guard.print(summary)
     return 0 if not failures else 1
 
 

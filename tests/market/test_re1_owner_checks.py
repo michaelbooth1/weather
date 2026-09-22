@@ -19,6 +19,7 @@ def preflight_fixture(tmp_path, monkeypatch, *, failed=None, nonempty=False):
     monkeypatch.setattr(checks, 'campaign_root', lambda: root)
     monkeypatch.setattr(checks, 'live_mutex', nullcontext)
     monkeypatch.setattr(checks, 'code_identity', lambda: 'f' * 40)
+    monkeypatch.setattr(checks, 'assert_no_ambient_proxy_configuration', lambda: None)
     monkeypatch.setattr(checks, 'WallClock', lambda: clock)
     monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda: table))
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
@@ -129,3 +130,134 @@ def test_owner_stream_configuration_and_readonly_heartbeat_guard(tmp_path, monke
     assert venue.heartbeat() == {'status': 'ok'}
     for action in (lambda: venue.submit({}, checkpoint=lambda: None), lambda: venue.cancel('one'), venue.cancel_all):
         with pytest.raises(RuntimeError, match='read_only'): action()
+
+
+def preflight_evidence(root):
+    path = next(root.glob('preflight-*/preflight.json'))
+    receipt = json.loads(path.read_bytes())
+    journal = [json.loads(line) for line in (path.parent / 'journal.jsonl').read_bytes().splitlines()]
+    assert journal[-1]['failures'] == receipt['failures']
+    for failure in receipt['failures']:
+        assert any(row['event'] == 'preflight_fail' and all(row.get(k) == v for k, v in failure.items())
+                   for row in journal)
+    return receipt, journal
+
+
+@pytest.mark.parametrize('rows', [
+    [{'market_id': 'chicago', 'target_date': '2026-09-23', 'predicted_360_minutes': .75, 'refusal': 'predicted_below_two'},
+     {'market_id': 'austin', 'target_date': '2026-09-23', 'predicted_360_minutes': 1.34, 'refusal': 'predicted_below_two'},
+     {'market_id': 'nyc', 'target_date': '2026-09-23', 'predicted_360_minutes': None, 'refusal': 'one_sided_book'}],
+    [],
+    [{'market_id': 'nyc', 'target_date': '2026-09-23', 'predicted_360_minutes': None, 'refusal': 'one_sided_book'}],
+])
+def test_no_qualifying_band_is_named_and_still_fails(tmp_path, monkeypatch, capsys, rows):
+    from weather.market import re1_owner_checks as checks
+    root, clock, _, beats = preflight_fixture(tmp_path, monkeypatch)
+    table = {'selected_condition_id': None, 'rows': rows}
+    monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda: table))
+    assert run_preflight() == 1
+    output = capsys.readouterr().out
+    best = ('austin 2026-09-23 predicted_360_minutes=1.34 (predicted_below_two)' if len(rows) == 3 else
+            'nyc 2026-09-23 predicted_360_minutes=None (one_sided_book)' if rows else 'none')
+    line = f'NO QUALIFYING BAND at 12:00Z — best {best}; retry at the next quarter hour'
+    assert line in output
+    assert output.index(line) < output.index("'status': 'FAIL'")
+    assert 'heartbeat_latency_budget' not in output and beats == []
+    receipt, journal = preflight_evidence(root)
+    failure = {'step': 'public_selection', 'exception_type': 'RuntimeError', 'message': 'no_qualifying_band'}
+    assert receipt['status'] == 'FAIL' and receipt['failures'] == [failure]
+    printed = str({'status': 'FAIL', **failure})
+    assert printed in output
+    no_band = [row for row in journal if row.get('status') == 'NO_BAND']
+    assert len(no_band) == 1 and no_band[0]['event'] == 'preflight_step'
+    assert no_band[0]['message'] == line and no_band[0]['step'] == 'public_selection'
+    expected = rows[1] if len(rows) == 3 else rows[0] if rows else {}
+    assert no_band[0]['location'] == expected.get('market_id')
+    assert no_band[0]['event_date'] == expected.get('target_date')
+    assert no_band[0]['predicted_360_minutes'] == expected.get('predicted_360_minutes')
+    assert no_band[0]['refusal'] == expected.get('refusal')
+    with pytest.raises(RuntimeError, match='clean_final_tip_preflight_required'):
+        clean_preflight(root, now=clock.now(), commit='f' * 40)
+    # Expose actual captured lines to the -s qualification transcript.
+    print(line)
+    print(printed)
+
+
+def test_host_failure_prints_only_one_failure_step(tmp_path, monkeypatch, capsys):
+    from weather.market import re1_owner_checks as checks
+    root, _, _, _ = preflight_fixture(tmp_path, monkeypatch)
+    def fail():
+        raise RuntimeError('host_identity_query_failed: rc=0 stderr=running scripts is disabled on this system')
+    monkeypatch.setattr(checks, 'live_mutex', fail)
+    assert run_preflight() == 1
+    output = capsys.readouterr().out
+    receipt, _ = preflight_evidence(root)
+    assert len(receipt['failures']) == 1
+    failure = receipt['failures'][0]
+    assert failure['step'] == 'proxy_host_tip'
+    assert 'running scripts is disabled' in failure['message']
+    assert output.count("'status': 'FAIL', 'step':") == 1
+    assert 'heartbeat_latency_budget' not in output
+
+
+def test_unmeasured_heartbeat_on_otherwise_clean_run_fails_closed(tmp_path, monkeypatch, capsys):
+    from weather.market import re1_owner_checks as checks
+    root, _, _, beats = preflight_fixture(tmp_path, monkeypatch)
+    original = checks.measure
+    def missing_sample(name, *args, **kwargs):
+        stats, results = original(name, *args, **kwargs)
+        # Inject an incomplete measurement without a recorded failure: heartbeat is not reached.
+        return stats, results[:-1] if name == 'open_orders' else results
+    monkeypatch.setattr(checks, 'measure', missing_sample)
+    assert run_preflight() == 1
+    receipt, _ = preflight_evidence(root)
+    assert beats == [] and 'heartbeat' not in receipt['latency_seconds']
+    assert [row['step'] for row in receipt['failures']] == ['heartbeat_latency_budget']
+    assert 'heartbeat_latency_budget' in capsys.readouterr().out
+
+
+def test_measured_slow_heartbeat_still_fails_after_other_failure(tmp_path, monkeypatch):
+    from weather.market import re1_owner_checks as checks
+    root, _, _, _ = preflight_fixture(tmp_path, monkeypatch, failed='positions')
+    original = checks.measure
+    def slow_heartbeat(name, *args, **kwargs):
+        stats, results = original(name, *args, **kwargs)
+        if name == 'heartbeat':
+            stats['p95'] = 3
+        return stats, results
+    monkeypatch.setattr(checks, 'measure', slow_heartbeat)
+    assert run_preflight() == 1
+    receipt, _ = preflight_evidence(root)
+    assert [row['step'] for row in receipt['failures']] == ['positions', 'heartbeat_latency_budget']
+
+
+@pytest.mark.parametrize('message,expected', [('safe diagnostic ' * 30, ('safe diagnostic ' * 30)[:200]),
+                                           ('synthetic-private', 'secret_output_refused')])
+def test_guarded_failure_message_round_trips(tmp_path, monkeypatch, capsys, message, expected):
+    from weather.market import re1_transport as transport
+    root, _, _, _ = preflight_fixture(tmp_path, monkeypatch)
+    def fail(*args, **kwargs):
+        raise ValueError(message)
+    monkeypatch.setattr(transport, 'build_client', fail)
+    assert run_preflight() == 1
+    output = capsys.readouterr().out
+    receipt, _ = preflight_evidence(root)
+    failure = {'step': 'client_bootstrap', 'exception_type': 'ValueError', 'message': expected}
+    assert receipt['failures'] == [failure]
+    assert str({'status': 'FAIL', **failure}) in output
+    assert 'synthetic-private' not in output
+
+
+def test_close_and_account_failures_have_fixed_journalled_messages(tmp_path, monkeypatch, capsys):
+    from weather.market import re1_transport as transport
+    root, _, _, _ = preflight_fixture(tmp_path, monkeypatch, nonempty=True)
+    def fail(self):
+        raise RuntimeError('synthetic-private')
+    monkeypatch.setattr(transport.OwnerVenue, 'close', fail)
+    assert run_preflight() == 1
+    output = capsys.readouterr().out
+    receipt, _ = preflight_evidence(root)
+    assert receipt['failures'] == [
+        {'step': 'open_orders', 'exception_type': 'AccountNotEmpty', 'message': 'account_has_open_orders'},
+        {'step': 'close', 'exception_type': 'RuntimeError', 'message': 'client_close_failed'}]
+    assert 'synthetic-private' not in output and 'heartbeat_latency_budget' not in output

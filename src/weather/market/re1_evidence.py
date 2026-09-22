@@ -27,9 +27,14 @@ def live_mutex():
     """Share the host's heavy/live exclusion without claiming a sealed profile."""
     if os.name != 'nt': raise RuntimeError('live_requires_assigned_windows_workstation')
     command = "& { param($root) . (Join-Path $root 'scripts/ops/workload_admission.ps1'); @{host_id=(Get-WeatherExecutionHostId); principal_id=(Get-WeatherExecutionPrincipalId)} | ConvertTo-Json -Compress }"
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command, str(REPO_ROOT)],
-                            capture_output=True, text=True, check=True, timeout=20)
-    facts = json.loads(result.stdout)
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command, str(REPO_ROOT)],
+                            capture_output=True, text=True, timeout=20)
+    try:
+        facts = json.loads(result.stdout)
+    except ValueError:
+        facts = None
+    if result.returncode != 0 or not isinstance(facts, dict) or not {'host_id', 'principal_id'} <= facts.keys():
+        raise RuntimeError(f'host_identity_query_failed: rc={result.returncode} stderr={result.stderr[:200]}')
     assignment = json.loads((REPO_ROOT / 'config/international_live_execution_host.json').read_bytes())
     if (assignment['assignment_status'] != 'ASSIGNED' or facts['host_id'] == assignment['dedicated_capture_execution_host_id'] or
             facts['host_id'] != assignment['active_portable_execution_host_id'] or

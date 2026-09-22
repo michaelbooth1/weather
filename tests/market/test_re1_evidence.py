@@ -139,3 +139,89 @@ def test_unexpected_failure_cannot_qualify_paid_result():
     evidence = evidence_fixture()
     add_payment(evidence, programme='liquidity_reward', amount='1')
     assert payout_verdict(prediction, {'rows': []}, evidence)['verdict'] == 'INCONCLUSIVE'
+
+
+@pytest.mark.parametrize('rc,stdout', [
+    (0, ''), (1, '{"host_id":"fixture","principal_id":"fixture"}'),
+    (0, '{"host_id":"fixture"}'), (0, '{"principal_id":"fixture"}'),
+    (0, 'not JSON'), (0, '[]'), (0, 'null'), (0, '   '),
+])
+def test_host_identity_spawn_and_failed_child_diagnostic(monkeypatch, rc, stdout):
+    from weather.market import re1_evidence as evidence
+    calls = []
+    stderr = 'running scripts is disabled on this system' + '!' * 220
+    def child(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
+    # Replace the module binding, not the process-wide os.name (also runs on Linux).
+    monkeypatch.setattr(evidence, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(evidence.subprocess, 'run', child)
+    with pytest.raises(RuntimeError) as caught:
+        with evidence.live_mutex():
+            pytest.fail('invalid identity admitted')
+    assert str(caught.value) == f'host_identity_query_failed: rc={rc} stderr={stderr[:200]}'
+    args, kwargs = calls[0]
+    assert args[:6] == ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
+    assert len(args) == 8 and args[-1] == str(evidence.REPO_ROOT)
+    assert 'Get-WeatherExecutionHostId' in args[6]
+    assert kwargs == {'capture_output': True, 'text': True, 'timeout': 20}
+
+
+def test_valid_host_query_still_enforces_assignment(tmp_path, monkeypatch):
+    from weather.market import re1_evidence as evidence
+    (tmp_path / 'config').mkdir()
+    (tmp_path / 'config/international_live_execution_host.json').write_text(json.dumps({
+        'assignment_status': 'ASSIGNED', 'dedicated_capture_execution_host_id': 'capture',
+        'active_portable_execution_host_id': 'portable', 'active_portable_execution_principal_id': 'owner',
+    }))
+    monkeypatch.setattr(evidence, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(evidence, 'REPO_ROOT', tmp_path)
+    monkeypatch.setattr(evidence.subprocess, 'run', lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout='{"host_id":"capture","principal_id":"owner"}', stderr=''))
+    with pytest.raises(RuntimeError, match='wrong_workstation_or_principal'):
+        with evidence.live_mutex():
+            pytest.fail('capture host admitted')
+
+
+def test_re1_third_party_imports_have_declared_dependencies():
+    """Resolve imports against core/live declarations and their required dependencies."""
+    import ast
+    from importlib import metadata
+    import re
+    import sys
+    import tomllib
+    from packaging.requirements import Requirement
+    from weather.paths import REPO_ROOT
+
+    def normalized(name):
+        return re.sub(r'[-_.]+', '-', name).lower()
+
+    project = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
+    core = project['dependencies']
+    requirements = (REPO_ROOT / 'requirements.txt').read_text(encoding='utf-8').splitlines()
+    assert 'python-dotenv==1.2.3' in core and 'python-dotenv==1.2.3' in requirements
+    pending = [Requirement(item) for item in core + project['optional-dependencies']['live']]
+    declared = set()
+    while pending:
+        requirement = pending.pop()
+        if requirement.marker and not requirement.marker.evaluate({'extra': ''}):
+            continue
+        name = normalized(requirement.name)
+        if name in declared:
+            continue
+        declared.add(name)
+        pending.extend(Requirement(item) for item in metadata.requires(requirement.name) or [])
+    providers = metadata.packages_distributions()
+    missing = []
+    for path in sorted((REPO_ROOT / 'src/weather/market').glob('re1_*.py')):
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            names = ([a.name for a in node.names] if isinstance(node, ast.Import) else
+                     [node.module] if isinstance(node, ast.ImportFrom) and not node.level and node.module else [])
+            for name in names:
+                top = name.split('.')[0]
+                if top in sys.stdlib_module_names or top == 'weather':
+                    continue
+                distributions = {normalized(item) for item in providers.get(top, [])}
+                if not distributions & declared:
+                    missing.append(f'{path.name}:{node.lineno}: {top} -> {sorted(distributions)}')
+    assert not missing, 'Undeclared RE-1 imports: ' + '; '.join(missing)
