@@ -207,6 +207,7 @@ if ($marker.execution_tape_recovery_required -eq $true) {
     $writerLockPath = Join-Path $RepoRoot "data\snapshots\.execution_tape_status.json.writer.lock"
     $attempt = 0
     $tapeOk = $false
+    $tapeSeen = "no read"
     while (-not $tapeOk -and $attempt -lt 2) {
         $attempt++
         try {
@@ -214,6 +215,7 @@ if ($marker.execution_tape_recovery_required -eq $true) {
             $writerLock = Get-Content -LiteralPath $writerLockPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $health = $tape.payload.health
             $status = $tape.payload.status
+            $tapeSeen = "exit=$($tape.exit) health=$($health.state) alive=$($health.pid_alive) identity=$($health.runtime_identity_matches_current) integrity=$($health.evidence_integrity) status=$($status.state) pid=$($status.pid) managed=$($status.managed_process.pid) lock=$($writerLock.pid)"
             $tapeOk = ($tape.exit -eq 0 -and
                 [string]$health.state -in @("RUNNING", "DEGRADED") -and
                 $health.pid_alive -eq $true -and
@@ -224,12 +226,12 @@ if ($marker.execution_tape_recovery_required -eq $true) {
                 [int]$status.pid -eq [int]$status.managed_process.pid -and
                 [int]$status.pid -eq [int]$writerLock.pid)
         }
-        catch { $tapeOk = $false }
+        catch { $tapeOk = $false; $tapeSeen = "read failed: $($_.Exception.Message)" }
         # The status file is rewritten every 10 s; a read that races the rewrite
         # is the known transient, so one bounded retry is allowed.
         if (-not $tapeOk -and $attempt -lt 2) { Start-Sleep -Seconds $ExecutionTapeRetrySeconds }
     }
-    if (-not $tapeOk) { throw "Current execution-tape status/lock/process proof is unhealthy after $attempt read(s)." }
+    if (-not $tapeOk) { throw "Current execution-tape status/lock/process proof is unhealthy after $attempt read(s): $tapeSeen" }
     $tapeSummary = [pscustomobject]@{ state = [string]$status.state; health = [string]$health.state; pid = [int]$status.pid; reads = $attempt }
     Note "execution tape healthy: $($tapeSummary.health)/$($tapeSummary.state) pid $($tapeSummary.pid)"
 }
