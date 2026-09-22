@@ -65,6 +65,15 @@ The runbook owns the state machine, wait rules, and recovery. Do not break:
   preserves that status, rechecks Git and three-worker capture health, disables
   only the exact receipt-bound tasks, and writes a separate immutable
   `MERGED_RECONCILED` receipt with downstream authority still false.
+- An ordinary (manifest-less) quiet-window merge that reached
+  `documented_unpublished` and was published outside the wrapper is retired by
+  `reconcile_ordinary_quiet_merge.ps1 -ExpectedActiveMarkerSha256 <sha>
+  -ReviewReference <review>`: hash-bound marker, Git-proved
+  `HEAD == master == origin/master == merge_commit` with the recorded parents,
+  documentation snapshot, current capture and (when required) execution-tape
+  health, immutable receipt embedding the marker bytes, then compare-and-retire.
+  Never hand-delete the marker: while it exists the wrapper refuses every merge
+  and boot recovery hard-resets a master that moved past its merge commit.
 - `quiet_window_merge.ps1` records the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
