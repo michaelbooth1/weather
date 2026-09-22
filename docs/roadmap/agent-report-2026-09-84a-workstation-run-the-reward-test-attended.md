@@ -1329,3 +1329,148 @@ roll-sensitive integration/adoption remains with the operations owner in the
 quiet window after a fresh closure verdict. No owner credentials or real
 payout evidence were read, and no
 production write, registration, restart, live action or merge occurred.
+
+## 84d — September 22, 2026: first-owner-run preflight hardening
+
+**IMPLEMENTED; FOCUSED TESTS PASS. Full workstation qualification is pending the
+owner's 19:00 Eastern boundary on September 22. No adoption or live-readiness
+claim is made.**
+
+Handoff: `workstation-handoff-2026-09-84d-preflight-hardening-from-the-first-owner-run.md`
+at `827aa6a07` on `origin/codex/reward-test-attended-handoff-20260921`.
+Implementation commit: `874ce5313eeecb18c300a8ba4553ace234b3d680` on
+`codex/re1-preflight-hardening-20260922`, stacked exactly on
+`4bb04b686cc54a78745dd1a094717f007488cca3` (85b / PR 83).
+The separate implementation worktree is
+`C:\Users\Michael\Documents\github\weather\scratch\w\re1-preflight-hardening-20260922`.
+The draft PR targets `codex/re1-payout-link-20260922`; the following report-only
+commit preserves the qualified implementation. The attended execution worktree
+was not accessed or changed.
+
+### Five bounded changes
+
+The exact host-identity spawn argument list is:
+
+```python
+['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command, str(REPO_ROOT)]
+```
+
+`command` remains unchanged. `capture_output=True`, `text=True` and the
+20-second timeout remain; `check=True` is replaced with an explicit return-code
+and JSON-object/key check. Nonzero rc, empty/whitespace/non-JSON stdout,
+non-object JSON or either missing identity key raises
+`host_identity_query_failed: rc=<rc> stderr=<first 200 child stderr characters>`.
+The host/principal assignment, Global mutex and poison-file behavior are
+unchanged; the valid-query capture-host rejection is also tested.
+
+The exact dependency line, added to both dependency declarations, is:
+
+```text
+python-dotenv==1.2.3
+```
+
+This is the version returned by `venv/Scripts/python.exe -m pip show
+python-dotenv` in the RE-1 interpreter. No package was installed, and the dotenv
+reader was not replaced or changed. The AST dependency audit visits imports at
+every scope in `src/weather/market/re1_*.py`, resolves their top-level packages
+using `importlib.metadata.packages_distributions()`, and requires a distribution
+in the declared core/live dependency graph, including required transitive
+dependencies of the pinned SDK. It does not accept unrelated ambient packages.
+Both files must retain the exact dotenv pin. The complete audit requires the
+declared live SDK environment used for this qualification.
+
+Failure rows retain their existing keys and add the guarded, at-most-200-character
+message to terminal, individual journal events, terminal journal and receipt.
+`SecretGuard.clean` refuses rather than redacts secrets: if it refuses exception
+text, the diagnostic is the fixed `secret_output_refused` and the receipt stays
+FAIL. Close and AccountNotEmpty diagnostics use fixed strings. The pre-existing
+PASS/FAIL tokens and `clean_preflight` comparison are unchanged.
+
+No-band output is computed only from the retained selection table; it names the
+highest prediction, handles unscored rows and an empty table, prints before the
+public-selection failure and journals `preflight_step` / `NO_BAND` with the same
+message and location/date/prediction/refusal. The receipt remains FAIL with
+`public_selection` / `no_qualifying_band`, and `clean_preflight` rejects it.
+The derivative heartbeat-budget failure is emitted only when `'heartbeat' in
+stats` or no earlier failure exists, retaining the original eight-second gate.
+
+These are actual captured output strings asserted and printed by the injected
+no-band test, **not output from an owner/account preflight**:
+
+```text
+NO QUALIFYING BAND at 12:00Z — best austin 2026-09-23 predicted_360_minutes=1.34 (predicted_below_two); retry at the next quarter hour
+{'status': 'FAIL', 'step': 'public_selection', 'exception_type': 'RuntimeError', 'message': 'no_qualifying_band'}
+```
+
+### Verification and reproduction
+
+- Handoff-focused evidence, owner-check and parity files: **47 passed in 5.53s**.
+- All eight RE-1 test files plus import architecture: **214 passed in 146.33s**;
+  no failures or skips. This includes the same 47 tests, not 261 distinct tests.
+- Compilation of the four changed Python files: PASS through the workstation wrapper.
+- Agent documentation audit: PASS; generated-backlog `--check`: PASS;
+  cumulative diff checks: PASS.
+- Full suite and full-tree compilation: **not run yet**. The September 22
+  09:00–19:00 Eastern exclusion remains in force. Parent full-suite counts are
+  not claimed as qualification of this change.
+
+Both pytest runs used the repository-owned workstation mutex/Job wrapper,
+the main project's RE-1 interpreter, explicit temporary roots outside `data`,
+and JUnit receipts. Completed task-owned temporary roots were removed after
+terminal wrapper exit. Free space was 174,000,877,568 bytes before the first
+run and 173,995,606,016 bytes after both cleanups; other host activity can also
+affect those volume measurements.
+
+Retained receipts relative to this implementation worktree:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/84d-focused.xml` | `dc95a9685c30b7d2a26c4d26aae0d536b45877ba866d223b9431269263224ffb` |
+| `scratch/84d-regression.xml` | `9721f48e883fbc299df4cf31bd1f75967fcc9ab899f24ffd3b3110cf192ff53c` |
+| `scratch/84d-roll-verdict.txt` | `9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0` |
+
+Reproduce the focused selection from the implementation worktree with its
+`scripts/ops/workstation_heavy.ps1`, `-Kind pytest`, the absolute RE-1
+`-PythonPath`, and that worktree's absolute `-RepoRoot`. Encode this JSON array
+as UTF-8 base64 for `-ArgumentsBase64`; choose fresh task-owned receipt/temp names
+instead of overwriting retained evidence:
+
+```json
+["-m", "pytest", "tests/market/test_re1_attended.py", "tests/market/test_re1_evidence.py", "tests/market/test_re1_owner_checks.py", "tests/market/test_re1_resilience.py", "tests/market/test_re1_transport.py", "tests/market/test_re1_sdk_shapes.py", "tests/market/test_re1_attended_parity_audit.py", "tests/market/test_re1_payout_evidence.py", "tests/operations/test_import_architecture.py", "-q", "--basetemp=C:/Users/Michael/Documents/github/weather/scratch/84d-regression-temp", "--junitxml=scratch/84d-regression.xml"]
+```
+
+Use the capture host's admitted bounded-suite path for any production-host
+verification; these commands qualify only the non-capture workstation.
+
+### Roll disposition and exclusions
+
+The repository-owned check was run against the exact stacked base:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/re1-preflight-hardening-20260922 -Base 4bb04b686 -JsonOut scratch/84d-roll-verdict.json
+```
+
+It returned **exit 1, UNDECIDABLE: no live closure evidence** for snapshot,
+CLOB, observation-trigger and enrichment. No JSON receipt was emitted. No
+production or frozen-mirror closure evidence was accessed; operations must
+obtain a fresh production verdict before any integration.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_owner_checks.py` | Live closure membership unavailable; no roll-free claim |
+| `requirements.txt` | Dependency declaration only; runtime adoption not performed |
+| `pyproject.toml` | Dependency declaration only; runtime adoption not performed |
+| `tests/market/test_re1_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_owner_checks.py` | Offline regression evidence; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Run-card documentation; roll-free by standing contract |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Append-only handback; roll-free by standing contract |
+
+**Not done:** no real `preflight`, `live`, account or payout collection; no owner
+`.env` read, credential loading or package/environment installation; no persistent
+execution-policy change; no change or command in
+`scratch\w\reward-test-attended-20260921`; no controller, resilience, public-book,
+selection, sizing, payout, reconciler, schema-registry or attempt-accounting
+change; no production write, Scheduler registration, restart, merge or adoption;
+no full suite before 19:00 Eastern. Adoption remains the owner's decision and
+requires a fresh same-day preflight at any newly approved execution tip.
