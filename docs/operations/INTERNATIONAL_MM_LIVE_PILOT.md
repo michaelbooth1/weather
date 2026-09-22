@@ -1878,6 +1878,35 @@ session or post-session collection; SDK accrual alone never counts as payment.
 - Cancel at TTL, stale evidence, user-stream silence, heartbeat failure,
   reconciliation mismatch, unexpected fill state, risk limit, or operator stop.
 
+#### RE-1 attended preflight run card
+
+Use the owner-approved execution tip and RE-1 interpreter. Environment
+prerequisites are the declared `python-dotenv` pin in `requirements.txt` and
+`pyproject.toml`, plus permission for the host-identity PowerShell child to load
+the admission helper. The hardened child explicitly uses `-ExecutionPolicy
+Bypass`; once that change is adopted, no persistent execution-policy change is
+required. Earlier tips needed the owner's manual policy adjustment and
+`python-dotenv` installation. Keep the existing dotenv parser.
+
+The owner runs `python -m weather.market.re1_attended_cli preflight` from the
+approved clean execution worktree. FAIL diagnostics now include a guarded
+message in the terminal, journal and receipt. A host-identity query failure
+includes the child's return code and bounded stderr. An earlier failed step
+does not produce a second heartbeat-budget failure when heartbeat was never
+measured; an otherwise clean run still requires that measurement.
+
+`NO QUALIFYING BAND` means **retry later**, at the next quarter hour; it does
+not mean the preflight implementation is broken. The line reports the best
+row's location, event date, 360-minute prediction and refusal, or `none` for an
+empty table, and the journal records `NO_BAND`. The receipt remains **FAIL**
+with `public_selection` / `no_qualifying_band`, so it cannot authorize `live`.
+Selection, sizing and attempt counting are unchanged.
+
+Adoption remains the owner's decision. Every execution-tip change requires a
+fresh same-day preflight; the campaign root and attempt counts are shared across
+tips. Preparing or qualifying a candidate does not update the execution worktree
+or authorize an owner session.
+
 ### Stage 3: evidence and settlement
 
 For every accepted order, retain intent, signed-request hash (never the secret
