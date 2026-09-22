@@ -1225,3 +1225,107 @@ now including the strict registry audit, passed **342 tests in 12.70s**;
 `scratch/re1-85b-focus5.xml` SHA-256 is
 `8c052b433b33313dcdddf7f2ff17543d2eef3eb57b9a5405b5fc7d5b7ff5e93a`.
 The corrected committed source receives a new complete full run.
+
+### 85b final qualification and publication
+
+**85b is implemented and locally qualified for operations review. The real collector-to-verdict tests produce paid or not-paid answers only under the labelled reviewed rule; no real payout or profit is proved. Production adoption is roll-sensitive, and Linux CI retains the fixed parent's 30 failures.**
+
+Qualified source: `4bb010306bd6726ef134bf1375d96d2aebb7b734` on
+`codex/re1-payout-link-20260922`, stacked exactly on
+`045a100edc44f4c241ed384cb0c7e74d422d3aec`. The source and tests remained
+unchanged during the complete full run. The final publication commit appends
+this report only. Draft [PR 83](https://github.com/michaelbooth1/weather/pull/83)
+targets `codex/re1-payout-evidence-20260921` / PR 82.
+
+The complete full suite passed **7,219 tests, 34 skipped, 991 subtests passed,
+1 warning**, in **2,872.35s (47m 52s)**. The repository wrapper returned exit 0.
+The run started September 21 at **23:30:22 Eastern**; its JUnit receipt was
+written September 22 at **00:18:14 Eastern**, and successful wrapper exit
+was observed by **00:18:37 Eastern**. The entire run finished before the
+September 22 09:00-19:00 Eastern exclusion. JUnit records zero failures and
+zero errors; its 8,244 entries include the subtests and skips. The warning
+was the cached-NetCDF test's NumPy binary-size RuntimeWarning; it did not fail.
+
+The final focused selection passed **342 tests in 12.70s**, including the
+strict schema audit. Compilation of
+`app src tests`, the agent documentation audit, generated-backlog check, both
+collection CLI help commands and cumulative diff checks passed. No protected
+live-control or bridge implementation file changed. The bridge contract's
+only addition is its one pointer sentence. The owner-approved registry addition
+is the single policy classification recorded above; it is additive-only.
+
+Retained local receipts (relative to this evidence worktree):
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-85b-focus5.xml` | `8c052b433b33313dcdddf7f2ff17543d2eef3eb57b9a5405b5fc7d5b7ff5e93a` |
+| `scratch/re1-85b-full3.xml` | `54128312fd223d3b1ecda2c99badf435dd20481da2505c125f65c0955630f0e5` |
+| `scratch/re1-85b-approved-roll-verdict.txt` | `9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0` |
+
+The full run used the workstation wrapper with these arguments. These are
+workstation reproduction commands; the production host must use its own
+admitted bounded-suite procedure. Preserve retained receipts by choosing a
+new output name for a later replay. Do not run the full suite during September
+22's 09:00–19:00 Eastern exclusion interval.
+
+```powershell
+Set-Location 'C:\Users\Michael\Documents\github\weather\scratch\w\re1-payout-link-20260922'
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$re1TestArgs = @('-m', 'pytest', '-q', '--basetemp=C:/tmp/weather-re1-85b-full3', '--junitxml=scratch/re1-85b-full3.xml')
+$re1EncodedArgs = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $re1TestArgs -Compress)))
+& "$re1Repo\scripts\ops\workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1EncodedArgs -RepoRoot $re1Repo
+& $re1Python -m weather.operations.agent_docs_audit
+& $re1Python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+```
+
+CI on the qualified source: [Windows Qualification](https://github.com/michaelbooth1/weather/actions/runs/35683378868)
+passed. [Linux CI](https://github.com/michaelbooth1/weather/actions/runs/35683378805)
+reported **30 failed, 6,628 passed, 529 skipped, 989 subtests passed**, in
+500.09s. The sorted failing-node set is exactly equal to the fixed parent's
+30 failures ([parent run](https://github.com/michaelbooth1/weather/actions/runs/35679011323));
+`Compare-Object` returned no differences. Those logs show missing `httpx` /
+`polymarket` dependencies and their cascades. The newly introduced strict-audit
+failure is fixed. This is **not a green Linux CI claim** or permission to alter
+unrelated dependency configuration.
+
+CI receipts retained locally:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/re1-85b-parent-ci.txt` | `4e5e1438480953caeaafc0e98c56e7fe735780af9c886196d091f3a7028f2ec0` |
+| `scratch/re1-85b-source-ci.txt` (superseded source with new audit failure) | `2f881c8d50e06425288e842b236b4a68775c9041806cb32a1ef9bbb7cc5013e6` |
+| `scratch/re1-85b-corrected-ci.txt` | `db51237a377d49ce3558970e6058c0adda9c89de0618ad1e377d5de6d9af8f4f` |
+
+The sorted `*-ci-failed-nodes.txt` files beside the logs preserve the exact
+comparison. Final docs-only publication retains these source-commit CI
+receipts; it does not substitute a different source qualification.
+
+The repository-owned roll check was rerun for the revised source:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/re1-payout-link-20260922 -Base 045a100ed -JsonOut scratch/re1-85b-approved-roll-verdict.json *> scratch/re1-85b-approved-roll-verdict.txt
+```
+
+It returned **exit 1, UNDECIDABLE: no live closure evidence** for snapshot,
+CLOB, observation-trigger and enrichment; no JSON receipt was emitted.
+No frozen mirror or production state was read to manufacture a verdict.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_payout_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_attended_cli.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/mm_exchange_reports.py` | Shared consumer; live closure membership unavailable; no roll-free claim |
+| `src/weather/schema_registry_data.py` | Additive-only policy classification; all four closures under delegation contract section 3; roll-sensitive |
+| `tests/market/test_re1_payout_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_mm_paid_incentive_reconciliation.py` | Offline consumer boundary tests; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Documentation; no runtime adoption |
+| `docs/operations/paid-credit-activity-evidence.md` | One documentation pointer; no bridge behavior change |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Documentation; no runtime adoption |
+
+The complete nine-file stacked diff was reviewed against the refreshed
+declared parent. Branch publication and the draft PR are the handback boundary;
+roll-sensitive integration/adoption remains with the operations owner in the
+quiet window after a fresh closure verdict. No owner credentials or real
+payout evidence were read, and no
+production write, registration, restart, live action or merge occurred.
