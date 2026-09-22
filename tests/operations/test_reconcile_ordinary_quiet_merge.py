@@ -26,7 +26,8 @@ CONFIG_PATHS = ("config/locations.json", "config/location_market_events.json")
 def _git(repo: Path, *args: str) -> str:
     env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
                GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_NOSYSTEM="1")
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env, check=True)
+    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env)
+    assert result.returncode == 0, f"git {' '.join(args)} failed ({result.returncode}): {result.stderr.strip()}"
     return result.stdout.strip()
 
 
@@ -59,10 +60,14 @@ def _build(tmp_path: Path) -> dict[str, object]:
     _git(repo, "merge", "-q", "--no-ff", "-m", "merge feature", source_tip)
     merge_commit = _git(repo, "rev-parse", "HEAD")
 
+    # The reconciler reads the local tracking ref and never fetches, so the
+    # published state is modelled by the ref itself. A real push into a bare
+    # repository under pytest's basetemp exceeds MAX_PATH on Windows
+    # (receive-pack's tmp_objdir ignores core.longpaths).
     origin = tmp_path / "origin.git"
     _git(repo, "init", "-q", "--bare", str(origin))
     _git(repo, "remote", "add", "origin", str(origin))
-    _git(repo, "push", "-q", "origin", "master")
+    _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
     assert _git(repo, "rev-parse", "origin/master") == merge_commit
 
     alerts = repo / "data" / "alerts"
@@ -148,7 +153,8 @@ def test_dry_run_proves_everything_and_retains_marker(tmp_path: Path) -> None:
 def test_real_run_retires_marker_with_receipt_and_history(tmp_path: Path) -> None:
     fx = _build(tmp_path)
     marker_sha = _sha256(fx["marker"])
-    marker_raw = fx["marker"].read_text(encoding="utf-8")
+    # The receipt embeds the exact bytes (CRLF included); read_text would translate them.
+    marker_raw = fx["marker"].read_bytes().decode("utf-8")
     result = _run(fx)
     assert result.returncode == 0, result.stdout + result.stderr
     assert not fx["marker"].exists()

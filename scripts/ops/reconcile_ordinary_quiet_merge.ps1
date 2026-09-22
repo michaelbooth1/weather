@@ -274,7 +274,8 @@ $historyRow = [ordered]@{
     merge_commit = $mergeCommit; marker_sha256 = $markerSha256; receipt_path = $receiptPath
     receipt_sha256 = $receiptSha256; review_reference = $ReviewReference; detail = "ordinary marker retired after Git-proved publication"
 }
-($historyRow | ConvertTo-Json -Depth 4 -Compress) | Add-Content -Path $historyPath -Encoding utf8
+# BOM-free append: Add-Content -Encoding utf8 stamps a BOM when it creates the file.
+[IO.File]::AppendAllText($historyPath, (($historyRow | ConvertTo-Json -Depth 4 -Compress) + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 if ((Get-FileSha256Hex $markerPath) -ne $markerSha256) { throw "Active marker changed between proof and retirement; receipt written, marker retained." }
 Remove-Item -LiteralPath $markerPath -Force -ErrorAction Stop
 if (Test-Path -LiteralPath $markerPath) { throw "Active marker still exists after retirement." }
