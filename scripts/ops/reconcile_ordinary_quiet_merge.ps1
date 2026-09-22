@@ -26,7 +26,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ReviewReference,
     [string]$Python = "",
     [string]$Notes = "",
-    [int]$ExecutionTapeRetrySeconds = 12,
+    [int]$ExecutionTapeRetrySeconds = 4,
+    [int]$ExecutionTapeReads = 5,
     [switch]$DryRun
 )
 
@@ -208,14 +209,18 @@ if ($marker.execution_tape_recovery_required -eq $true) {
     $attempt = 0
     $tapeOk = $false
     $tapeSeen = "no read"
-    while (-not $tapeOk -and $attempt -lt 2) {
+    while (-not $tapeOk -and $attempt -lt $ExecutionTapeReads) {
         $attempt++
         try {
             $tape = Invoke-PythonJson @("-m", "weather.operations.execution_tape_supervisor", "status", "--stale-after-seconds", "180")
             $writerLock = Get-Content -LiteralPath $writerLockPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $health = $tape.payload.health
             $status = $tape.payload.status
-            $tapeSeen = "exit=$($tape.exit) health=$($health.state) alive=$($health.pid_alive) identity=$($health.runtime_identity_matches_current) integrity=$($health.evidence_integrity) status=$($status.state) pid=$($status.pid) managed=$($status.managed_process.pid) lock=$($writerLock.pid)"
+            # A read that races the writer's replace yields the reduced UNKNOWN
+            # health shape (no evidence_integrity); under StrictMode that access
+            # would throw, so the summary is built from what is present.
+            $tapeSeen = "exit=$($tape.exit) " + (($health.PSObject.Properties | Where-Object { $_.Name -in @("state", "pid_alive", "runtime_identity_matches_current", "evidence_integrity", "detail") } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join " ") + " status=$($status.state) pid=$($status.pid) lock=$($writerLock.pid)"
+            if (-not ($health.PSObject.Properties.Name -contains "evidence_integrity")) { throw "reduced health payload (status file unreadable during rewrite)" }
             $tapeOk = ($tape.exit -eq 0 -and
                 [string]$health.state -in @("RUNNING", "DEGRADED") -and
                 $health.pid_alive -eq $true -and
@@ -226,10 +231,10 @@ if ($marker.execution_tape_recovery_required -eq $true) {
                 [int]$status.pid -eq [int]$status.managed_process.pid -and
                 [int]$status.pid -eq [int]$writerLock.pid)
         }
-        catch { $tapeOk = $false; $tapeSeen = "read failed: $($_.Exception.Message)" }
-        # The status file is rewritten every 10 s; a read that races the rewrite
-        # is the known transient, so one bounded retry is allowed.
-        if (-not $tapeOk -and $attempt -lt 2) { Start-Sleep -Seconds $ExecutionTapeRetrySeconds }
+        catch { $tapeOk = $false; $tapeSeen = "read failed: $($_.Exception.Message) [$tapeSeen]" }
+        # The status file is rewritten every 10 s and the reader sees nothing
+        # while it is replaced; the retry interval must not phase-lock with it.
+        if (-not $tapeOk -and $attempt -lt $ExecutionTapeReads) { Start-Sleep -Seconds $ExecutionTapeRetrySeconds }
     }
     if (-not $tapeOk) { throw "Current execution-tape status/lock/process proof is unhealthy after $attempt read(s): $tapeSeen" }
     $tapeSummary = [pscustomobject]@{ state = [string]$status.state; health = [string]$health.state; pid = [int]$status.pid; reads = $attempt }
