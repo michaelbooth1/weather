@@ -3104,6 +3104,12 @@ against a venue-paid 90–91 band — venue above WU, the floor-safe and label-u
   market-days had no WU label and could not be compared. **Exact-degree agreement for the 11
   Fahrenheit markets is unmeasured.** Whether the venue's binding Rules text changed too is
   unverified; the Rules text is retained nowhere.
+- **Update 2026-09-22:** a production ledger count (latest revision per market-day, `reconciliation_status`) gives
+  **359 of 360** post-switch market-days (2026-08-23..09-21) matching at band level, all 360 labelled from WU daily
+  summaries; the 156-day gap was backfilled. Mission `2026-09-86a` (`codex/settlement-truth-source-20260922` @
+  `d53e280a7`, UNDECIDABLE for lack of a post-switch panel on the workstation) found free IEM METAR (routine + SPECI)
+  reproduces 480/480 pre-switch WU degrees and 504/504 venue bands, and that current event Rules resolve on the WRH
+  page's "Hourly Data" with a WU fallback. Post-switch exact-degree agreement remains unmeasured.
 - **Open:** `locations.json`, `MarketSpec` and the ledger hard-code WU; no gate can detect a source
   change; the string `wrh/timeseries` appears nowhere in `src/`, `tests/` or `scripts/`.
 
