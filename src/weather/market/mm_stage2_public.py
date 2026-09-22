@@ -37,5 +37,3 @@ def public_quote(snapshot, *, now, condition_id, token_ids):
             or not 0 <= (utc(now) - utc(snapshot.get("observed_at_utc"))).total_seconds() <= 60):
         raise HoldEnd("public_scope_or_freshness")
     return price_reward_quote(**snapshot["quote_inputs"])
-
-
