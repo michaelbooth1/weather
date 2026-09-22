@@ -42,3 +42,18 @@ Once RE-1 returns `k`, the curve scaled by `k` is the RE-2 sizing input and the 
 `docs/roadmap/agent-report-2026-09-86b-reward-capacity-curve.md`: verdict first in bold (modelled dollars per day at
 20/50/100/200 shares on the best 1/3/10 bands, with capital); sample window and count; the parity proof at 20
 shares; what was NOT done. Hand back the tip; keep the sampler's journals in the worktree's ignored `data/`.
+
+## 5. Amendment 2026-09-22 ~16:30 ET (production agent, after the `0d06f35af` handback)
+
+The handback is accepted as a correct NO-GO on the unamended cadence (248 bands x 5 reads cannot fit 15 minutes at one
+request per second). **Scope amendment: `--configured-only` at the 15-minute cadence** (73 bands, about 470 requests,
+about 8 minutes per cycle). The configured highest-temperature cities are the only markets our settlement, labels and
+RE-2 cohort cover; the 248-band count is reported as context, not sampled. Batch-book reads stay out (a new reader
+path would need its own parity proof). The run is labelled "configured-city scope", never "venue universe".
+
+Timing: the sampler runs **only when no RE-1 command is running or about to run**. It stays stopped tonight (owner
+preflight from 20:00 ET, live possibly overnight). Start it when the owner says session 1 has ended; run two back-to-back
+deadlines of at most 18 hours to reach 24 covered hours; the owner or agent writes `data/reward_capacity/STOP` before any
+later RE-1 `preflight` or `live`. If the date guard in the CLI refuses a deadline after 2026-09-22, relax it to "within
+18 hours of now" (a guard on duration, not on a calendar day) with a test; no other code change. Then write the curve
+section of the report and hand back.
