@@ -275,7 +275,8 @@ def link_reward_payment(scope, accrual_source, accruals, raw_earnings, activity_
         return finish('other_condition_accruals')
     if not units or units < 0:
         return finish('nonpositive_accrual')
-    if not src['candidate_pagination_complete'] or src['failure_type'] is not None:
+    if (not src['candidate_pagination_complete'] or src['failure_type'] is not None or
+            utc(src['activity_request_scope']['period_end_utc']) < utc(scope['cash_end_utc'])):
         return finish('activity_coverage_incomplete')
     joined, unjoined = [], []
     for activity in activities:

@@ -487,3 +487,24 @@ def test_guard_refuses_secret_in_payout_diagnostics(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match='secret_output_refused'):
         cli.run_collect(SimpleNamespace(prediction=tmp_path / 'prediction.json', payment_evidence=path))
     assert not list(tmp_path.glob('payout-*.json'))
+
+
+@pytest.mark.parametrize('has_payment', [False, True])
+def test_activity_query_started_before_cash_end_cannot_claim_full_coverage_after_response(has_payment):
+    venue, _, payloads = sdk_venue()
+    clock = {'now': START + timedelta(days=3, seconds=-1)}
+    if not has_payment: payloads['/activity'] = []
+    def cross_deadline(response):
+        clock['now'] = NOW
+    venue.client._ctx.data._client.event_hooks['response'].append(cross_deadline)
+    try:
+        evidence = collector.collect_evidence(venue, prediction(), clock=lambda: clock['now'],
+            opener=RpcFixture() if has_payment else RpcFixture(transfers=[]))
+    finally:
+        venue.client.close()
+    source = evidence['sources']['distributions']
+    assert utc(source['activity_request_scope']['period_end_utc']) < utc(evidence['scope']['cash_end_utc'])
+    assert utc(source['activity_observed_at_utc']) > utc(evidence['scope']['cash_end_utc'])
+    assert source['candidate_pagination_complete'] and not source['complete']
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'activity_coverage_incomplete'
+    assert outcome(evidence)['paid'] is None and outcome(evidence)['verdict'] == 'INCONCLUSIVE'

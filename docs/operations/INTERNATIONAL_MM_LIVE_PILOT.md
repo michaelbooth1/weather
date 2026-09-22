@@ -2006,7 +2006,8 @@ the cash window. Exactly one joined credit must be within one micro-unit of
 transaction and log index, and `accrual_id` binds the earning. Raw request and
 response hashes remain in the journal. `activity_request_scope` records the
 actual activity query interval, separately from the normalized day/cash
-`request_scope` required by the reconciler.
+`request_scope` required by the reconciler. That queried interval must reach
+cash end; receiving a response after closure cannot extend a shorter query.
 
 The two ways this stays **INCONCLUSIVE** are (1) final, single-condition,
 unique amount/transaction linkage cannot be established, or (2) cash coverage

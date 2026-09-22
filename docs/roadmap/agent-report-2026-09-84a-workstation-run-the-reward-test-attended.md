@@ -1178,3 +1178,22 @@ production write, restart, promotion, adoption or merge was performed.
 unchanged. The bridge contract gains only the requested pointer sentence.
 Measured economic sample: **zero real dates, zero real markets, zero real
 payments**; no economic interval, profit estimate or campaign decision follows.
+
+### 85b activity-query coverage refinement
+
+Review identified a boundary case: a query launched just before cash end can
+return afterward. Linkage now requires the actual `activity_request_scope`
+end to reach cash end; the later response timestamp cannot extend its coverage.
+Both paid and empty-window variants pass. The existing accrual payout-cycle
+gate also keeps this pre-deadline scenario inconclusive; the added check
+prevents the activity source itself from claiming full coverage.
+
+The initial full run on `ce8afe372b33efdc55c875bee0a7c60ab0fa2bac` was stopped
+at 33% without reported test failures to incorporate this refinement. Only
+its identified pytest child was stopped; the still-running repository wrapper
+performed its normal teardown and lease release, and the next wrapper admitted
+successfully. That interrupted run is not a qualification receipt.
+The revised focused selection passed **334 tests in 13.41s**;
+`scratch/re1-85b-focus4.xml` SHA-256 is
+`f4409fecfec8c4a8b79d60c06453bacc6ff935c03662cd618f06a804bcb10e44`.
+The revised committed source receives a new, complete full-suite run.
