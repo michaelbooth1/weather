@@ -45,7 +45,7 @@ None grants live authority.
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | Local `master` = `e28530af6` (2026-09-21 02:31): the reliability stack (`codex/reliability-host-qual-20260919` = PR 61 + audit fixes + host fixtures) merged through the guarded tool with capture and execution-tape recovery proved. **Published by the owner on 2026-09-21 (`origin/master` = `e28530af6`, a fast-forward)** after `WeatherOneShotPush`, an interactive-logon task, did not run and an agent push was refused by the permission layer. **The merge tool's marker is still `documented_unpublished` and blocks every further guarded merge until it is reconciled through the reviewed path** (never delete it; boot recovery preserves this merge across a restart - its conditions were checked against the marker on 2026-09-21). 41 enabled scheduled tasks still execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
+| Production source | Local `master` = `origin/master` = `29e161e7d` (2026-09-22 01:16). The reliability-stack marker (`documented_unpublished`, 2026-09-21) was retired at 00:47 by `scripts/ops/reconcile_ordinary_quiet_merge.ps1` after its five tests, a dry run and Git-proved publication (receipt `data/alerts/quiet_window_merge_reconciliations/ordinary-64d8f787…json`, history row `reconciled_published`). Four guarded merges then landed and were published by `WeatherOneShotPush` under an interactive logon: docs-night results `08f0fe8de`, the ordinary-merge reconciler `6cf037514`, the roll-verdict merge-tree fix `3ed12bacf` (a branch with several merge bases made `git` warn on stderr, which the Stop preference turned into an abort before any merge; the changed set is now the diff to the `merge-tree` result), and integration layer 1 `29e161e7d` (190 files, no importable source). No marker exists. 41 enabled scheduled tasks still execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
 | Disk | 2026-09-19: duplicate Git LFS model pickles in 152 linked worktrees were replaced by pointers under a dated owner waiver (36.9 -> 89.2 GiB free). `write_order_books_long_csv=false` has been LIVE since 2026-09-20 00:49:06 local; long CSVs for event days open at that moment stop there. Free space is a daily **sawtooth** whose low is ~04:50; judge headroom at the low. |
 | Landing path | **Open again.** The owner set a fixed 16-32 GB pagefile on 2026-09-20 (commit limit 22.0 -> 32.5 GB; never leave it system-managed on this host - if `commit_total_mb` reads ~22,000 it has reverted). On 2026-09-21 the bounded host suite passed **21 of 21 chunks** for the first time (peak commit ~41% against the 66% ceiling; ~54 min, of which ~40 min is the merge-tool test chunk). Two test-only fixes were needed: lease-acquisition tests now skip when an outer job owns the host-global mutex (the suite runner holds it for its whole run; run directly they pass, 39/0), and one audit-record line carried the paid provider's literal API host. Known defect: `quiet_window_merge.ps1` reads execution-tape status once with no retry, so a read that races the 10 s heartbeat rewrite aborts the merge (it did once; the unchanged retry passed). **Windows Update:** KB5129195 is staged and a restart is pending; active hours were moved to 23:00-17:00 so an automatic restart can only happen 17:00-23:00. **Owner action: one deliberate restart before 17:00 on 2026-09-21** (best 08:50-09:20), then restart the two public-read node loops. The merge tool and the lease refuse outside 00:30-09:00; pass `-RepoRoot` explicitly to ops scripts launched with `powershell -File`. |
 | Memory guard | The kill path of `memory_commit_guard.ps1` was inert 2026-08-23 -> 2026-09-20 00:38 (`$pid` assigned to the constant `$PID`). Fixed on master: the guard now really terminates out-of-window pytest/scan trees. |
@@ -61,23 +61,20 @@ None grants live authority.
 
 ## Ordered non-live critical path
 
-1. **Owner today:** restart the host before 17:00 (Landing path row). Next quiet window: reconcile
-   the merge marker (Production source row), then land the waiting roll-free branches.
-2. **RE-1 is approved by the owner (2026-09-21)** and runs as an attended script on the workstation,
-   missions `2026-09-84a`-`84c`; first session 2026-09-22 (start by 13:59 Eastern) only after a clean owner-run
-   `preflight` on `7e6e1709c` (the 84c tip; 84c is accepted), otherwise 2026-09-23. Still the owner's: the
-   account, hurdle `H` and the stop date (before earnings are read). Freeze `R` from
-   it before any further markout read.
-3. Merge the new master into `codex/stage2-hold-build-20260921` (it contains the maker-reconcile branch)
-   and qualify it on the host; adopt only after the owner disposes of the four control relaxations.
-4. Mission `2026-09-80b` is done. Next: host qualification and guarded adoption of its branch, an owner-attended Stage 0/1 re-run on landed code, and a dated owner Stage 2
-   authorization. **Owner: ratify or change the 80b defaults** (Maker candidate row). Earliest
-   repository-run live session is still about 2026-10-01 (estimate; 80a and 80b together used one day, not five).
-5. Production, in a heavy window: the exact census of chosen NBM period by cycle and local hour from
-   the event-day payload manifests. Land the three integration layers in order, one per quiet window,
-   starting with `codex/integrate-1-research-20260921`, once the merge marker is reconciled (the roll
-   tool decides each class; the workstation could not).
-6. Redeploy the hash-pinned watchdog so the briefing uses the trough-based disk arithmetic; give the
+1. **Owner today (2026-09-22): RE-1 `preflight` on `7e6e1709c` (84c tip, accepted), then session 1 by 13:59 Eastern
+   if it prints no FAIL line, else 2026-09-23.** Missions `2026-09-84a`-`85b`; attended script on the workstation. Paste
+   `85b` if `codex/re1-payout-link-20260922` is not yet pushed (85a accepted: the venue exposes no earned-day-to-payment
+   link, so 85b adopts a labelled exact-amount rule; verdict earliest 2026-09-25). Still the owner's: the account,
+   hurdle `H` and the stop date (before earnings are read). Freeze `R` from it before any further markout read.
+2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
+   **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
+   closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.
+3. After that: an owner-attended Stage 0/1 re-run on landed code and a dated owner Stage 2 authorization. **Owner:
+   ratify or change the 80b defaults** (Maker candidate row). Earliest repository-run live session about 2026-10-01.
+4. NBM census done (EF §10k: 27,473 rows over 14 days, **every** 12Z/13Z/19Z pick is a 12Z minimum); layer 1 landed. Land
+   layer 2 (`codex/integrate-2-parser-20260921` @ `abd648c7c`, ROLL-SENSITIVE: `feature_store`, `model_features`,
+   `model_sources`, `nbm_probabilistic_tmax`, `schema_registry_data`) then 3, one per 01:00-04:00 window, host-qualified.
+5. Redeploy the hash-pinned watchdog so the briefing uses the trough-based disk arithmetic; give the
    merge tool's execution-tape pre-check a bounded retry.
 
 ## Standing decisions

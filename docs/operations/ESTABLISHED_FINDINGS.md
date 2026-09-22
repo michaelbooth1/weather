@@ -3269,8 +3269,13 @@ as evidence). No score, no comparison with served or market, no candidate.
   all**, so the repair is to reject and use an older cycle, never to take the next token.
 - **Confirmed live on production, 2026-09-21:** the 10:08 local Los Angeles snapshot recorded cycle `20260921T13Z` with
   `provider_update_time` 2026-09-22 12:00Z - a minimum. The event-day `forecast_payloads` manifests carry `cycle_key` and
-  `provider_update_time` for every snapshot and the national bulletins are retained, so an exact census is possible on
-  the production host; it has not been run yet.
+  `provider_update_time` for every snapshot and the national bulletins are retained. **Exact census run on production
+  2026-09-22 01:17 (14 target dates 2026-09-08..21, 168 event-days, 12 markets, 27,473 NBM rows):** every row whose cycle
+  is 12Z, 13Z or 19Z chose a token valid at 12Z (a minimum) - 927 + 7,281 + 10,244 rows, zero exceptions (the 12Z rows
+  are a `20260921T12Z`-keyed bulletin captured 13:17-13:36Z, before 13Z arrives) - and every 01Z/07Z row chose a
+  00Z-valid token (a maximum) - 3,407 + 5,614 rows, zero exceptions. The minimum-picking cycles are 67% of all NBM
+  rows, so that share of the captured NBM guidance was a wrong-period value before the floor. Limit: exact deterministic census
+  of the manifests' chosen token; it does not say how many wrong-period values passed the floor into scored rows.
 - **It explains the export:** on all 55,565 floor-dropped US rows the recorded representative value is a median 14 F
   below the settled maximum and 2.7 F above the next day's observed minimum; the loss of guidance moves west to east with
   the local hour at which 13Z becomes the newest cycle (06:00 Pacific ... 09:00 Eastern). Hours 00-05 differ: there a

@@ -1,11 +1,10 @@
 # Overnight briefings
 
-> **HISTORICAL — dormant, not current authority.** Two nights were ever written here
-> (2026-08-09→10 and 2026-08-10→11); the last commit is 2026-08-11 (`git log`). Nothing appends to
-> this file today. Every "ACTION NEEDED" below is a record of that morning, **not an open
-> instruction** — do not run its commands. The live after-away read is the generated
-> `data/alerts/MORNING_BRIEFING.md` (`scripts\ops\health_watchdog.ps1`); current decisions are in
-> [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
+> **Narrative record, newest night first.** Every "ACTION NEEDED" is a record of that morning,
+> **not an open instruction** once a later section or [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) supersedes
+> it. The live after-away read is the generated `data/alerts/MORNING_BRIEFING.md`
+> (`scripts\ops\health_watchdog.ps1`); current decisions are in `STATE_OF_PLAY.md`. Dormant from
+> 2026-08-11 to 2026-09-21; the 2026-09-22 section resumed it.
 
 **As designed (2026-08): the after-away read, written by hand.** Unattended overnight wake agents
 appended a dated section here, newest night at the top.
@@ -19,6 +18,53 @@ appended a dated section here, newest night at the top.
 
 **How to read it:** every section leads with `OK`, `ATTENTION` or `ACTION NEEDED`. If any section
 says **ACTION NEEDED**, its first sentence is the thing to do, in imperative form with the command.
+
+---
+
+## Night of 2026-09-21 → 2026-09-22
+
+Production agent, unattended 00:37-01:25 under the shared lease, serial. Everything below reached
+`origin/master` through `quiet_window_merge.ps1` and `WeatherOneShotPush` (interactive logon: session 2,
+RDP, locked).
+
+### OK
+
+- **The reliability-stack marker is retired.** `scripts/ops/reconcile_ordinary_quiet_merge.ps1` (five
+  tests green on the host, dry run, then the real run at 00:47:14) proved HEAD = master = origin/master =
+  `e28530af6`, 3/3 capture workers and the execution tape, wrote
+  `data/alerts/quiet_window_merge_reconciliations/ordinary-64d8f787….json` (SHA-256 `f58f18c1…`) and a
+  `reconciled_published` history row, and removed the marker. The wrapper accepts merges again.
+- **Four guarded merges published:** docs-night results `08f0fe8de` (00:53), ordinary-merge reconciler
+  `6cf037514` (00:59), roll-verdict merge-tree fix `3ed12bacf` (01:10), integration layer 1
+  `codex/integrate-1-research-20260921` `29e161e7d` (01:16; 190 files, no importable source, ROLL-FREE).
+  Capture proved 3/3 before and after each; no marker remains.
+- **NBM period census done** (EF §10k): 14 days, 168 event-days, 27,473 rows - every 12Z/13Z/19Z-cycle
+  pick is a 12Z-valid minimum (18,452 rows, 67%), every 01Z/07Z pick a 00Z maximum; zero exceptions.
+- Stage 2 hold (`88aa7e43a`) merges cleanly with the new master (local trial `dbf2f065f`, not pushed);
+  verdict ROLL-SENSITIVE (66 importable, 7 roll) - quiet-window qualification, not a docs-hour landing.
+
+### ATTENTION
+
+- **`roll_verdict.ps1` aborted the wrapper at 01:00 before any merge:** a branch with two merge bases made
+  `git diff base...branch` warn on stderr, and the Stop preference turned the warning into a terminating
+  error. Fixed and landed (`3ed12bacf`): the changed set is now the diff between the base and the
+  `git merge-tree --write-tree` result (the union over merge bases was tried first and produced a false
+  ROLL for files already on master). The spent `-ProductionBaselineReconciliation` mode's byte binding
+  for `roll_verdict.ps1` no longer matches; that mode is hard-bound to a commit pair master has passed
+  and cannot run anyway.
+- The reconciler needed three host fixes tonight before its first real run: pytest's basetemp exceeds
+  MAX_PATH for a local `git push` (fixture sets the tracking ref instead), `Add-Content -Encoding utf8`
+  stamps a BOM on a new history file (BOM-free writer), and the tape-status command resolves the
+  repository from cwd, so a caller in a worktree reads no status file (the script now runs Python from
+  `RepoRoot`). Every rule in `scripts/ops/AGENTS.md` still holds.
+- `codex/re1-payout-link-20260922` appeared on origin at 00:48: the workstation has started mission 85b.
+
+### ACTION NEEDED
+
+**Owner, 2026-09-22: run the RE-1 `preflight` from `scratch\w\reward-test-attended-20260921` at `7e6e1709c`
+with the home tunnel down, and start session 1 by 13:59 Eastern only if it prints no FAIL line.** Then
+paste mission `2026-09-85b` to the workstation if it has not already taken it (branch above). The payout
+verdict for reward day 2026-09-22 is possible on 2026-09-25 at the earliest.
 
 ---
 
