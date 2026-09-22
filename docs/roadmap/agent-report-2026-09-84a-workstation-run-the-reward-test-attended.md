@@ -1724,3 +1724,138 @@ production write, frozen-mirror evidence access, Scheduler registration, restart
 merge or adoption; no full suite before 19:00 Eastern. The implementation
 worktree remains `scratch/w/re1-preflight-hardening-20260922`; the 09-21
 execution worktree remains untouched.
+
+## 84f — September 22, 2026, evening: one full-suite result
+
+**FULL-SUITE QUALIFICATION FAILED: 360 failed, 6904 passed, 33 skipped,
+991 subtests passed, 1 warning, zero collection/runtime errors reported by
+JUnit. Wrapper exit 1. No second run or repair was performed.**
+
+This is the separately reported single full-suite run authorized after 19:00
+Eastern. Tested commit: `475a626e4abd1c4f5824544078d0eccbf2156116`;
+tree: `b4e00b4e5e29380f1b6adc57835bf7d866bdfe12`; branch:
+`codex/re1-public-reads-ua-20260922`, still attached to draft PR 85.
+HEAD, branch, local date/time and clean tracked/untracked status were verified
+before launching. HEAD and clean status remained unchanged after the run and
+temporary-directory cleanup. This report-only follow-up does not change the
+tested implementation.
+
+### Timing, command and containment
+
+- Started: **2026-09-22 19:02:35.5844414 Eastern / 23:02:35.5844414 UTC**.
+- Wrapper terminal exit: **19:38:24.5163009 Eastern / 23:38:24.5163009 UTC**.
+- Pytest summary time: **2138.72 seconds (35m 38s)**. Wrapper wall time:
+  **2148.9318595 seconds**. JUnit records 8288 cases, including the 991 passing
+  subtests, 360 failures, 33 skips and 0 errors.
+- Exactly one full pytest invocation ran through this worktree's
+  `scripts/ops/workstation_heavy.ps1`, with `-Kind pytest`, the project
+  `C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe`, and
+  absolute `-RepoRoot`
+  `C:/Users/Michael/Documents/github/weather/scratch/w/re1-preflight-hardening-20260922`.
+  Its host/principal, shared mutex, poison and kill-on-close Job controls were
+  retained. No admission bypass or recovery was performed.
+- A create-only `scratch/84f-full-attempted.json` was flushed before invoking
+  the wrapper. The log, result receipt and JUnit are retained. The executor
+  session was polled to terminal exit before cleanup.
+- Only the resolved, non-reparse task-owned `scratch/84f-full-temp` root was
+  recursively removed. Removal was verified at **23:41:14.8427667 UTC**.
+  C: free bytes: **170956365824 before**, **160815882240 after wrapper exit**,
+  **168336728064 after cleanup**. These are volume observations, not an
+  attribution of every concurrent disk change.
+
+Exact pytest arguments executed:
+
+```json
+["-m","pytest","-q","--basetemp=scratch/84f-full-temp","--junitxml=scratch/84f-full.xml"]
+```
+
+Literal `-ArgumentsBase64` passed to the wrapper:
+
+```text
+WyItbSIsInB5dGVzdCIsIi1xIiwiLS1iYXNldGVtcD1zY3JhdGNoLzg0Zi1mdWxsLXRlbXAiLCItLWp1bml0eG1sPXNjcmF0Y2gvODRmLWZ1bGwueG1sIl0=
+```
+
+This records the command that ran; it is not authorization for another run.
+
+### Observed failures and limits of the result
+
+The scheduled follow-up specified a deeply nested, in-repository temporary
+root. That choice was made by the workstation agent when saving the follow-up,
+not by the implementation. It made this a poor full-suite qualification
+environment. Direct diagnostics include Git `Filename too long`,
+`WinError 206`, an experiment claim exceeding the Windows path budget
+(**270 UTF-16 units versus 259**), recovery publication requiring shorter
+Windows paths, and SDK portability rejecting a bundle root inside the
+repository. Many other failures report missing deeply nested fixture files or
+failed fixture renames. There is also a readiness assertion comparing a
+repository-relative path with an expected absolute path.
+
+These observations establish concrete test-environment limitations; no
+short-path control or baseline comparison was authorized or run, so the
+report does not assert that every failure is explained by them or that the
+whole implementation is qualified. No code was changed to make a gate pass.
+
+Failure counts by module, from the retained JUnit:
+
+| Module under `tests/` | Failures |
+| --- | ---: |
+| `operations/test_production_baseline_reconciler_execution.py` | 70 |
+| `operations/test_cold_archive_reclaim.py` | 50 |
+| `operations/test_status_script.py` | 40 |
+| `operations/test_replay_cache_retention.py` | 27 |
+| `operations/test_verified_cold_archive.py` | 24 |
+| `operations/test_cold_archive_catalog.py` | 23 |
+| `operations/test_experiment_executor.py` | 23 |
+| `operations/test_documentation_transaction.py` | 16 |
+| `market/test_live_sdk_portability.py` | 16 |
+| `collection/test_forecast_payload_cross_process_fanout.py` | 15 |
+| `operations/test_forecast_payload_cas_migration.py` | 13 |
+| `sources/test_forecast_training_corpus.py` | 11 |
+| `operations/test_production_baseline_reconciliation.py` | 8 |
+| `calibration/test_residual_distribution_corpus.py` | 7 |
+| `collection/test_shared_forecast_payload_cas.py` | 6 |
+| `operations/test_storage_recovery_night_wrapper.py` | 4 |
+| `operations/test_cold_archive_recovery_publication.py` | 4 |
+| `market/test_market_making_readiness.py` | 1 |
+| `operations/test_production_cold_archive_wrapper.py` | 1 |
+| `backtesting/test_replay_cache.py` | 1 |
+| **Total** | **360** |
+
+All **217 RE-1 tests passed within this full run**, with no failures or skips:
+attended 40, parity audit 5, evidence 26, owner checks 22, payout evidence 57,
+resilience 19, SDK shapes 15 and transport 33. This is a subset result, not
+a substitute for full-suite qualification.
+
+The one warning was in
+`tests/sources/test_reanalysis_synoptic.py::TestReanalysisSynoptic::test_load_pressure_level_daily_metrics_reads_cached_netcdf4`:
+a `RuntimeWarning` reporting `numpy.ndarray size changed`, expected 16 from
+the C header versus 96 from the Python object. No dependency change was made.
+
+### Retained receipts
+
+Paths below are relative to the implementation worktree and are ignored local
+receipts, not assumed present in a clean checkout. Raw logs are not published
+to Git; the report preserves their hashes and results.
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/84f-full-attempted.json` | `496536395eded912ecc70e4b426439739c8b66dba09f92cc54ff9cd1fdeb27bd` |
+| `scratch/84f-full.log` | `44b5ed1447c727c409a5da5af2e236705f0293cb367331681750fc4fe8a49937` |
+| `scratch/84f-full.xml` | `803d78835aadb6a5771df7328d661f870e2511ff4303651c6caf0388d2e30d94` |
+| `scratch/84f-full-result.json` | `825361fd4cf31aa6a5c231b004d22e5c184ccfd2c9916265be4383306a600707` |
+| `scratch/84f-full-cleanup.json` | `a26b748f5e5baba512fac56c011d51a2d5de408d6cb90216da787fac847784a5` |
+
+### Disposition and exclusions
+
+The one-time 84f automation is **PAUSED**. The cancelled 19:05 run on
+`7010a0b58` was not run. The one-run allowance is consumed; a further run
+requires a new owner instruction. PR 85 stays; no review was requested and
+nothing was merged or adopted.
+
+Only this report receives a tracked change, roll-free documentation by the
+standing contract. The earlier UNDECIDABLE production roll disposition is not
+upgraded by this run. No real preflight/live, owner `.env` or credential
+access, account/public probe, production write, Windows Scheduler change,
+execution-policy configuration change, execution-worktree access/change,
+repair, dependency installation, focused rerun, second full suite, compileall,
+audit or CI investigation was performed.
