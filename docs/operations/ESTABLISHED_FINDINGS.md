@@ -94,6 +94,11 @@ sequence numbers, not calendar dates.
 | 10e | 13 of about 26 serving post-processing stages are no-ops since live WU inputs were disabled (code-traced) |
 | 10f | The 2026-09-06 attended Stage 0/1 test ran off master; spent; grants nothing |
 | 10g | The memory-guard kill path has been inert since 2026-08-23 |
+| 10h | `-09-79a`: the gap starts in the morning; unused NBM guidance beats the served forecast there, and still trails the market |
+| 10i | `-09-80a`: place-and-hold constraints — 10-15 s cancel-on-disconnect, the wallet falsifier, the evidence-minute budget |
+| 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
+| 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
+| 10l | `-09-83a`: the versioned parser repair is built (PARTIAL); production downloads the same national NBM bulletin ~49 times an hour |
 
 ---
 
@@ -180,7 +185,7 @@ honesty. **Stepping off that path was correct, and this NO-GO closes it out rath
 ## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
 
 > **PARTLY SUPERSEDED — ordering only.** The 2026-08-13 maker-rebate pivot and the 2026-09-04 item-330
-> refocus put maker economics ahead of model work, and the owner has paused new model-alpha work.
+> refocus put maker economics ahead of model work; the owner paused new model-alpha work then and unpaused it on 2026-09-21.
 > Current ordering: §0 and [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
 > What stays binding from this section: release machinery is off the critical path, and
 > leakage-free evaluation is not negotiable.
@@ -3143,8 +3148,8 @@ including all five late-day lock-ins and the calibration taper — receive `None
   count is the auditor's. No alert-path monitor aggregates source, NaN-feature or model-kind
   degradation. Host-local write-up:
   `docs/roadmap/audits/full-audit-2026-09-18/dimensions/gap-what-production-serves.md`.
-- **Do not act on this as a forecast finding** until one served stage snapshot has been read; model-
-  alpha work is paused by owner decision.
+- **Do not act on this as a forecast finding** until one served stage snapshot has been read. (Model work was
+  unpaused by the owner on 2026-09-21; the read-before-acting condition still stands.)
 
 ### 10f. The 2026-09-06 attended Stage 0/1 test ran off master; it is spent
 
@@ -3168,7 +3173,163 @@ same pid three times. **Fix authored at `0b6d4f288` on `claude/audit-rollfree-fi
 adopted as of 2026-09-19** — until it is, treat the guard as a warning device only, and expect it to
 really terminate out-of-window agent process trees once it lands.
 
+### 10h. Unused station guidance beats the served forecast in the morning, and still trails the market — `-09-79a`, 2026-09-21
+
+Descriptive, on the served surface: 503 `promotion_countable` market-days (89,354 snapshots), target
+dates 2026-08-01..09-19, strata split at 2026-08-23 and never pooled (239 / 264 market-days, 20 / 22
+date clusters, 12 markets). Crossed date x market bootstrap, 2,000 draws. Values are before / from 08-23.
+
+- **The gap is already there in the morning.** Served / market Brier ratio 06:00-09:59 local: 1.482
+  [1.287, 1.749] / 1.440 [1.247, 1.654]; 13:00-16:59: 1.789 / 1.715. Share of signed excess at or after
+  noon 54.7% / 50.1%. The gap widens intraday but does not start there.
+- **Band probabilities read straight off the captured NBM percentiles — no fitted parameter — score
+  better than the served model on matched morning snapshots:** raw −0.0123 [−0.0230, −0.0036] /
+  −0.0152 [−0.0251, −0.0061] (218 / 239 market-days, 20 / 22 dates, 11 markets); with the observed floor
+  −0.0147 [−0.0260, −0.0033] / −0.0148 [−0.0275, −0.0020] (149 / 166, 19 / 22, 9). Ratio to market 1.198 /
+  1.177 raw and 1.217 / 1.148 floored: **not parity**. Earlier-date error kernels on point guidance:
+  HRRR 1.308 / 1.251, NWS 1.429 / 1.372, Open-Meteo 1.516 / 1.456.
+- **Settlement instrument and rounding are not the explanation:** our final captured station maximum
+  differs from the settlement bucket on 2 / 239 and 2 / 264 market-days (upper bounds 3.35% / 3.41%); model
+  mass below its own captured floor is zero throughout.
+- A captured Atlanta row traced through the canonical selection and imputation path: 27 selected columns
+  per cutoff, no NBM, NWS-grid or HRRR column; removing NBM changes no model input.
+- **Caveats, binding:** the NBM read is conditional on guidance being present — fill is 24.6-38.3% of
+  snapshots, none for Toronto, almost none after 10:00 local (and those rows score 0.16-0.18; cause
+  untraced), and the feature builder writes NBM only when it is valid against the observed floor. Power
+  at a 0.01 effect is 35-40% per stratum. Regime tags and the SPECI event study are unpowered (no tag
+  above 27% power at OR = 2). Provider-to-ingestion latency is unmeasurable: all 89,271 observation
+  payload rows lack a complete provider-time / first-seen pair. Historical active-artifact binding is
+  unproved. No candidate was fitted and no α spent.
+- Record: branch `codex/missing-information-checks-20260921` (ROLL-FREE by the repository tool),
+  `docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know-completion.md` and the
+  aggregate JSON beside it. Successor: mission `2026-09-81a` pre-registers two zero-parameter morning
+  candidates scored on every row.
+
+### 10i. Place-and-hold constraints found by `-09-80a` — 2026-09-21
+
+- **Venue cancel-on-disconnect is 10 s with a 5 s buffer, not one 5 s heartbeat interval.** The Stage 1
+  lifecycle already accepts order disappearance only inside 10-15 s, and the 2026-09-06 run measured
+  10.359 s. A held quote's primary end-of-session action must therefore be an explicit acknowledged
+  cancel; the dead-man is a backstop with up to 15 s of residual exposure.
+- **The 2026-09-06 wallet cannot satisfy master's isolated-wallet control:** the recorded cash readings
+  (275.48, 447.01397, 489.60767 pUSD) fail the `<= 100` isolated branch in the real validators; a
+  separately declared isolated wallet at 50 passes. Restoring isolation means a fresh dedicated wallet.
+- **Three 45-minute sessions cannot reach the RE-1 floor of 180 visible two-sided minutes**; a
+  place-and-hold build needs a dated RE-1A treatment addendum before its first order.
+- Chaining two single-token Stage 1 probes is not place-and-hold: each adapter binds one token, clamps at
+  10 pUSD and burns a single-use capability, and the lifecycle requires account-wide zero open orders.
+- Record: branch `codex/stage2-hold-build-20260921` (PARTIAL / NO-GO; pure pricer and inert hash-bound
+  envelope delivered, no execution path). Successor: mission `2026-09-80b`.
+
 ---
+
+### 10j. Scored on every morning row the guidance lead halves; a confirmation is not affordable — `-09-81a`, 2026-09-21
+
+Branch `codex/morning-guidance-candidate-20260921` @ `7edd82ebb`; pre-registration frozen at `e404f7fdc` and pushed
+before the first score, unchanged afterwards (verified by the production agent from the commit history). Development
+read on the 79a export, never a confirmation; no α spent; reservation file untouched.
+
+- Two zero-parameter candidates, fallback to served where no complete valid NBM set with a floor exists. US, 06:00-09:59,
+  458 market-days, 42 dates, 11 markets, pooled: C1 (NBM with floor) minus served **-0.006672 [-0.011525, -0.002373]**;
+  C2 (fixed 50/50 pool) **-0.006326 [-0.009902, -0.003145]**; ratios to market 1.356 / 1.362, intervals above one. Both
+  strata agree in sign. C1's gain is below the frozen half-of-79a threshold (0.00735 / 0.00738) in both strata: **the
+  minimum-effect falsifier fired.** C2 minus C1 is indistinguishable from zero. The candidate changes 46.1% of US morning
+  rows and one row in 10:00-12:59.
+- The size is what dilution predicts (about 0.46 x the 79a matched gain): the per-row benefit held where guidance was
+  usable, and the rest of the rows simply fell back to served.
+- **Why guidance is missing (traced through the code and the retained rejection field):** the feature builder drops each
+  NBM value that sits below the observed floor. US morning: 6,293 complete valid sets, 7,290 rows with an explicit
+  floor-dropped field, 1 unexplained. All-market fill by local hour 72.7% / 60.2% / ~33% / ~6-7% at 06 / 07 / 08 / 09 and
+  about zero afterwards; 16 of the 17 complete sets after 10:00 exist only because no floor was captured. 79a's matched
+  result was therefore selected on physical validity. Never-fetched and wrong-target counts are **unavailable, not zero**:
+  the export carries no payloads, issue times or chosen slots.
+- **Confirmation planning:** at half the pooled development effect, 45 new dates give 22.4% (C1) / 36.2% (C2) power, and
+  even unlimited dates give 37.0% / 43.1%, because the 11 market clusters keep their uncertainty however many dates are
+  added. **Under the crossed date x market rule no improvement of this size can be confirmed at any length of season**;
+  the plan would need an effect roughly twice as large. No reservation was proposed.
+- Open question raised by the production review, not a finding: a rejection rate of about nine in ten at 09:00 local is
+  hard to square with a correct forecast of today's maximum, and the parser's slot rule takes the first token of each
+  bulletin group. Mission `2026-09-82a` tests against real bulletins whether some cycles return a night minimum or
+  another day's value. No new candidate is scored until that is answered.
+
+### 10k. After 13Z the NBM parser reads tomorrow morning's minimum as today's maximum — `-09-82a`, 2026-09-21
+
+Branch `codex/nbm-target-trace-20260921` @ `2e8406366` (ROLL-FREE by the production tool). A trace against 12 public
+NOAA NBP bulletins (2026-09-17..19, cycles 01Z/07Z/13Z/19Z, the 11 US settlement stations, 132 station blocks committed
+as evidence). No score, no comparison with served or market, no candidate.
+
+- **Convention (NOAA's NBP product key):** `TXN` values valid at 12Z are minima, values valid at 00Z are maxima; for
+  mainland US stations the 00Z maximum belongs to the preceding local date. The pipe-separated groups are UTC dates:
+  01Z and 07Z bulletins begin with a 00Z maximum, **13Z and 19Z bulletins begin with a lone 12Z minimum.** Magnitudes
+  agree: maximum-token p50 sits a median +2 F from the observed maximum, minimum-token p50 +1 F from the observed minimum.
+- **What the unchanged parser picks** (`_slot_index_for_target` takes the first token of a group and subtracts a day
+  whatever its valid hour): for target = the local date, 33 of 33 right at 07Z and **33 of 33 wrong at 13Z and at 19Z**
+  (66 wrong picks, 3 dates, 11 markets), each the next morning's minimum, median 15 F below the day's observed maximum.
+  Target = tomorrow is right at every cycle. **A 13Z or 19Z bulletin contains no maximum for the current local date at
+  all**, so the repair is to reject and use an older cycle, never to take the next token.
+- **Confirmed live on production, 2026-09-21:** the 10:08 local Los Angeles snapshot recorded cycle `20260921T13Z` with
+  `provider_update_time` 2026-09-22 12:00Z - a minimum. The event-day `forecast_payloads` manifests carry `cycle_key` and
+  `provider_update_time` for every snapshot and the national bulletins are retained. **Exact census run on production
+  2026-09-22 01:17 (14 target dates 2026-09-08..21, 168 event-days, 12 markets, 27,473 NBM rows):** every row whose cycle
+  is 12Z, 13Z or 19Z chose a token valid at 12Z (a minimum) - 927 + 7,281 + 10,244 rows, zero exceptions (the 12Z rows
+  are a `20260921T12Z`-keyed bulletin captured 13:17-13:36Z, before 13Z arrives) - and every 01Z/07Z row chose a
+  00Z-valid token (a maximum) - 3,407 + 5,614 rows, zero exceptions. The minimum-picking cycles are 67% of all NBM
+  rows, so that share of the captured NBM guidance was a wrong-period value before the floor. Limit: exact deterministic census
+  of the manifests' chosen token; it does not say how many wrong-period values passed the floor into scored rows.
+- **It explains the export:** on all 55,565 floor-dropped US rows the recorded representative value is a median 14 F
+  below the settled maximum and 2.7 F above the next day's observed minimum; the loss of guidance moves west to east with
+  the local hour at which 13Z becomes the newest cycle (06:00 Pacific ... 09:00 Eastern). Hours 00-05 differ: there a
+  correct forecast loses only a low quantile to the floor. The handoff was wrong that the median is recoverable
+  (p75-IQR gives p25, p90-spread gives p10; p50 was deleted on 54,863 rows).
+- **Consequences for earlier reads:** the NBM rows that 79a and 81a scored were those that passed the floor, mostly 01Z
+  and 07Z picks, i.e. genuine same-day maxima; those results stand as stated. "No guidance after 10:00" was a parser
+  defect, not an absence of information. How many wrong-period values slipped past the floor into the scored rows is
+  **not yet counted**.
+- **Parity:** the served headline model selects no NBM column (§10h), but one tracked artifact does -
+  `feature_model_hgb_f_pooled_v0_3.pkl` selects all 15 `nbm_prob_tmax_*` columns and is bound to the shadow variant
+  `pooled_f_candidate_miami_current_fallback_v0_1` (not headline, promotion blocked, legacy-validation-quarantined),
+  which wrote predicted rows on production on 2026-09-21. The agent therefore stopped before any fix, as its handoff
+  required. Mission `2026-09-83a` builds the repair in place with a parser version and token provenance, replay of old
+  bytes under the old rule, and the rule that a row counts as guidance only when its provenance says "maximum".
+
+### 10l. The parser repair is built; production re-downloads the national bulletin on almost every pass — `-09-83a`, 2026-09-21
+
+Branch `codex/nbm-target-fix-20260921` @ `e1b663938` (roll-sensitive; the workstation's roll verdict was UNDECIDABLE
+for lack of live closure evidence, so production must run its own). Handback **PARTIAL**, stopped correctly.
+
+- **Built and reviewed:** parser version 2 selects the single `TXN` token valid at 00Z whose 12Z window start and 00Z
+  label fall on the target's station-local date (unambiguous for all 11 US stations, standard and daylight time),
+  requires all seven rows, and otherwise returns unavailable (`target_max_not_in_cycle`); version 1 stays callable and
+  replay dispatches on the recorded version. NOAA publishes complete `TXN` rows at 00/01/07/12/13/19Z (02Z and 18Z
+  returned 404); 00/01/07Z carry the issue date's maximum, 12/13/19Z do not. **From 12Z onward the newest bulletin
+  holding today's maximum is 07Z, so afternoon and evening guidance is 5 to 24 hours old by construction.** Version 1
+  also marked a station available when its block had no `TXN` rows at all (PGUM); version 2 rejects it.
+- **Two of the three blockers were errors in the production agent's handoff.** The manifest already records parser
+  version, issue time and valid time, and the bytes are retained, so the other token fields are derivable by replay.
+  The fetch budget assumed a two-hour bulletin cache that does not exist. The parity CLI's BLOCK is the expected result
+  of its known-defect fixture (4 of 4 rediscovered, 0 unexpected).
+- **Measured on production, 2026-09-21 00:00-15:00Z:** the fan-out scope is one supervisor iteration and markets fall
+  due in different iterations, so 729 of 783 NBM manifest rows were distinct network downloads of the ~35 MB national
+  bulletin (24.9 GB in 15 hours, about 49 downloads an hour) for six distinct files a day; every download found its
+  bytes already in the shared payload store. Production captures NBM for the current local date only, so the repair
+  itself adds no download. This waste predates the repair.
+- **Open from review:** the four provenance columns were appended to the NBM feature list and so became selectable
+  model inputs and source-gate features; they must be stored but not selectable. Version 2 can raise in the live path
+  on a bad clock. Mission `2026-09-83b` fixes both (Part A) and adds truthful, fail-open reuse of an already-held
+  cycle file (Part B, its own branch).
+- **`-09-83b` handback (same day, PARTIAL on both parts, stopped correctly; code reviewed and accepted).** Part A
+  (`codex/nbm-target-fix-20260921` @ `2e17ce0eb`): the four provenance columns are stored as diagnostics and the
+  selectable NBM list is back to its 15 names; a bad capture clock yields an unavailable payload with a specific
+  reason in the live path and still raises in replay; one manifest row plus the retained bytes reproduces the chosen
+  token. On a healthy day every local hour in all four US timezones has a reachable bulletin (07Z from early morning
+  on, up to 24 hours old late in the Pacific evening); if that one file is missing, evenings are unavailable rather
+  than wrong. Part B (`codex/nbp-bulletin-reuse-20260921` @ `62e8ff044`): a create-only index of complete, verified
+  cycle files; fixture probe 33 downloads to 1 over three passes of 11 markets, no extra retained text; fail-open on
+  every index or storage error; 403/404 never indexed; reused rows record no network fetch and keep the original
+  fetch time. Cost on a full-size bulletin is not yet measured. **Every remaining blocker was a file outside the
+  mission's ownership** (tool inventory entry, the admission test's exact-name set, the storage-class registration),
+  and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
+  ownership and asks for three stacked, individually green integration branches.
 
 ## Related
 
