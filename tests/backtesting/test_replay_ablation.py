@@ -12,6 +12,7 @@ from weather.backtesting.replay_ablation import (
     ablate_sources,
     build_payload,
     run_ablation,
+    settlement_distance_bucket,
     summarize,
     summarize_slice_effects,
     variant_names_for_spec,
@@ -96,6 +97,79 @@ class TestVariantSelection(unittest.TestCase):
         )
         self.assertEqual(nyc["coastal_context"], ("marine_context",))
         self.assertEqual(nyc["precip_context"], ("mrms_precip",))
+
+
+class TestSettlementDistanceBucket(unittest.TestCase):
+    def test_zero_native_endpoint_matches_string_zero(self):
+        cases = (
+            ("eq", "0 C", 0, "exact"),
+            ("eq", "0 C", 1, "adjacent"),
+            ("eq", "0 C", -2, "far"),
+            ("lte", "0 C or below", -2, "exact"),
+            ("lte", "0 C or below", 1, "adjacent"),
+            ("lte", "0 C or below", 2, "far"),
+            ("gte", "0 F or higher", 2, "exact"),
+            ("gte", "0 F or higher", -1, "adjacent"),
+            ("gte", "0 F or higher", -2, "far"),
+            ("between", "0-1 F", 1, "exact"),
+            ("between", "0-1 F", -1, "adjacent"),
+            ("between", "0-1 F", 3, "far"),
+        )
+        for native_value in (0, "0"):
+            for kind, label, settlement, expected in cases:
+                with self.subTest(
+                    native_value=native_value, kind=kind, settlement=settlement
+                ):
+                    band = {
+                        "bin_kind": kind,
+                        "range_label": label,
+                        "bin_value_c": native_value,
+                        "bin_value": 99,
+                    }
+                    self.assertEqual(
+                        settlement_distance_bucket(band, settlement), expected
+                    )
+                    self.assertEqual(band["bin_value_c"], native_value)
+
+    def test_missing_native_endpoint_uses_legacy_zero(self):
+        for native_value in (None, ""):
+            for legacy_value in (0, "0"):
+                with self.subTest(native=native_value, legacy=legacy_value):
+                    self.assertEqual(
+                        settlement_distance_bucket(
+                            {
+                                "bin_kind": "eq",
+                                "range_label": "0 C",
+                                "bin_value_c": native_value,
+                                "bin_value": legacy_value,
+                            },
+                            0,
+                        ),
+                        "exact",
+                    )
+
+    def test_distance_boundaries_and_nonzero_controls_are_preserved(self):
+        for value in (-3, 0, 3):
+            for distance, expected in (
+                (0, "exact"),
+                (0.49, "exact"),
+                (0.5, "adjacent"),
+                (1.5, "adjacent"),
+                (1.51, "far"),
+            ):
+                with self.subTest(value=value, distance=distance):
+                    self.assertEqual(
+                        settlement_distance_bucket(
+                            {"bin_kind": "eq", "bin_value_c": value},
+                            value + distance,
+                        ),
+                        expected,
+                    )
+        self.assertEqual(settlement_distance_bucket({}, 0), "unknown")
+        self.assertEqual(
+            settlement_distance_bucket({"bin_kind": "eq", "bin_value_c": 0}, None),
+            "unknown",
+        )
 
 
 class TestRunAblationEndToEnd(unittest.TestCase):

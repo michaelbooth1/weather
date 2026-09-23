@@ -185,6 +185,7 @@ def _build(tmp_path: Path, fixture: dict) -> dict:
 
 
 def test_verified_release_emits_exact_bindings_paths_and_powershell(tmp_path: Path):
+    tmp_path = tmp_path.resolve()
     fixture = _synthetic_release(tmp_path)
 
     payload = _build(tmp_path, fixture)

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from app.table_utils import arrow_safe_dataframe
+from app.monitor_data import cached_project
 
 
 def _timestamp(value):
@@ -45,6 +46,7 @@ def _active_rows(items):
     return rows
 
 
+@st.fragment(run_every="60s")
 def render_roadmap_page():
     from weather.reporting.roadmap.roadmap_backlog import summarize_roadmap_status
 
@@ -53,6 +55,7 @@ def render_roadmap_page():
         return summarize_roadmap_status()
 
     summary = cached_summary()
+    project = cached_project()
     active_items = summary.get("active_items") or []
     clear_items = [item for item in active_items if not item.get("blocked")]
     held_items = [item for item in active_items if item.get("blocked")]
@@ -82,10 +85,7 @@ def render_roadmap_page():
     )
     st.title("Roadmap")
     st.markdown(
-        '<div class="roadmap-hero"><strong>Focus on unfinished work.</strong>'
-        '<p>Completed history remains searchable in the repository. This page keeps '
-        'the active queue visible, separates dependency-held work, and never turns '
-        'a clear marker into an automatic priority.</p></div>',
+        '<p>Current maker work, next actions and the full project backlog.</p>',
         unsafe_allow_html=True,
     )
 
@@ -102,12 +102,25 @@ def render_roadmap_page():
 
     closed = int(summary.get("closed_item_count") or 0)
     total = int(summary.get("total_item_count") or 0)
-    st.progress(completion, text=f"Historical completion: {closed} of {total} tracked items")
     st.caption(
         f"Generated {_timestamp(summary.get('generated_at_utc'))}. "
         f"{summary.get('partial_item_count', 0)} items are in progress and "
         f"{summary.get('open_item_count', 0)} are open."
     )
+
+    st.subheader("Maker programme")
+    st.caption("Workstream status and next actions come from item 330. Historical repository completion is a separate measure.")
+    if project.get("next_steps"):
+        with st.expander("Current critical path"):
+            for index, step in enumerate(project["next_steps"], 1):
+                st.write(f"{index}. {step}")
+    for work in project.get("workstreams") or []:
+        title = f" · {work['title']}" if work['title'] != work['code'] else ""
+        with st.expander(f"{work['code']}{title} · {work['status']}"):
+            st.markdown("**Next action**")
+            st.write(work["next_action"])
+            st.markdown("**Recorded evidence**")
+            st.write(work["evidence"])
 
     if summary.get("lint_error_count"):
         st.error(
@@ -159,3 +172,6 @@ def render_roadmap_page():
             hide_index=True,
             width="stretch",
         )
+    with st.expander("Historical repository progress"):
+        st.progress(completion, text=f"Historical completion: {closed} of {total} tracked items")
+        st.caption("This ratio includes the whole repository backlog. It does not measure maker profitability or live readiness.")

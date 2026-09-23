@@ -82,6 +82,21 @@ class TestMarketBinsParsing(unittest.TestCase):
         eq = next(b for b in bins if b["kind"] == "eq")
         self.assertEqual((eq["value"], eq["value_hi"], eq["unit"]), (28, 28, "C"))
 
+    def test_negative_bands_preserve_probability_mass_and_native_signs(self):
+        model = TorontoHighTempModel()
+        bins = model.market_bins(self._event(["-5 C or below", "−4–−3°C", "-2 C or higher"]))
+        self.assertEqual([(b["kind"], b["value"], b["value_hi"]) for b in bins],
+                         [("lte", -5, -5), ("eq", -4, -3), ("gte", -2, -2)])
+        distribution = {-6: 0.1, -5: 0.2, -4: 0.25, -3: 0.15, -2: 0.3}
+        probabilities = [model.bin_probability(distribution, band) for band in bins]
+        for actual, expected in zip(probabilities, (0.3, 0.4, 0.3)):
+            self.assertAlmostEqual(actual, expected)
+        self.assertAlmostEqual(sum(probabilities), 1.0)
+
+    def test_invalid_and_wrong_unit_labels_do_not_become_served_bands(self):
+        model = TorontoHighTempModel(market_id="nyc")
+        self.assertEqual(model.market_bins(self._event(["81-80 F", "20 C", "unknown 80"])), [])
+
 
 class TestFahrenheitPresentation(unittest.TestCase):
     """The presentation layer receives values ALREADY in the market's native

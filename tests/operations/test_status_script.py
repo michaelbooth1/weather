@@ -152,6 +152,18 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip().lower()
 
 
+def _git_commit_exists(repo: Path, revision: str) -> bool:
+    assert GIT is not None
+    result = subprocess.run(
+        [GIT, "cat-file", "-e", f"{revision}^{{commit}}"],
+        cwd=repo,
+        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
+        check=False,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def _commit(repo: Path, message: str) -> str:
     _git(repo, "add", "--all")
     _git(repo, "commit", "-m", message)
@@ -223,10 +235,20 @@ def _build_reconciliation_status_fixture(
     alternates.parent.mkdir(parents=True, exist_ok=True)
     # Bytes, not text: Windows text mode writes CRLF and git then looks for ".../objects\r".
     alternates.write_bytes((source_objects.as_posix() + "\n").encode("utf-8"))
+    # Maker-side fixture proofs, kept: the origin starts with no refs and owns no objects;
+    # everything it can see is borrowed through the alternate.
+    assert _git(bare_origin, "for-each-ref", "--format=%(refname)") == ""
+    assert _git_commit_exists(bare_origin, published_target)
     _git(repo, "remote", "set-url", "origin", str(bare_origin))
     # Seed the published ref directly: every object is already reachable through the alternate,
     # so there is nothing to transfer. A push here re-sent ~494 MiB regardless.
     _git(bare_origin, "update-ref", "refs/heads/master", published_target)
+    assert _git(
+        bare_origin, "for-each-ref", "--format=%(refname) %(objectname)"
+    ) == f"refs/heads/master {published_target}"
+    own_object_counts = _git(bare_origin, "count-objects", "-v").splitlines()
+    assert "count: 0" in own_object_counts
+    assert "in-pack: 0" in own_object_counts
     _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
 
     _git(repo, "checkout", "--detach", safety_base)
@@ -1136,8 +1158,10 @@ def test_invalid_marker_uses_cached_origin_when_live_origin_is_unfetched(
     tmp_path: Path,
 ) -> None:
     fixture = _build_reconciliation_status_fixture(tmp_path)
+    repo = fixture["repo"]
     marker_path = fixture["marker_path"]
     bare_origin = fixture["bare_origin"]
+    assert isinstance(repo, Path)
     assert isinstance(marker_path, Path)
     assert isinstance(bare_origin, Path)
     marker_path.write_text("{", encoding="utf-8")
@@ -1149,8 +1173,14 @@ def test_invalid_marker_uses_cached_origin_when_live_origin_is_unfetched(
     (writer / "remote-only.txt").write_text("unfetched\n", encoding="utf-8")
     remote_only = _commit(writer, "remote-only")
     _git(writer, "push", "origin", "master")
+    assert _git_commit_exists(bare_origin, remote_only)
+    for reader in (repo, REPO_ROOT):
+        assert _git_commit_exists(reader, PUBLISHED_TARGET)
+        assert not _git_commit_exists(reader, remote_only)
 
     state = _publication_state(fixture, unpushed_count=None)
+    for reader in (repo, REPO_ROOT):
+        assert not _git_commit_exists(reader, remote_only)
     assert state["classification"] == "incident_evidence_invalid"
     assert state["live_origin_master"] == remote_only
     assert state["unpushed_base"] == "origin/master"

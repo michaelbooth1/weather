@@ -5,8 +5,9 @@ resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
 to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
 not exposed by this parser; a separately reviewed host-owned wrapper must call
-those library boundaries. Stage 1 additionally requires
-a fresh non-authorizing candidate plan bound to a successful paper-only quote.
+those library boundaries. Stage 1 additionally requires a fresh
+non-authorizing lifecycle plan that binds the exact Stage 0 scope to current
+public book and official market rules.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.io import write_json_atomic
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.market.mm_credentials import (
     FUNDER_ENV,
     REFERENCE_ENV,
@@ -35,6 +37,9 @@ from weather.market.mm_credentials import (
     stage0_client_identity_gate,
 )
 from weather.market.mm_exchange import credential_diagnostics
+from weather.market.mm_pilot_capital import (
+    EXISTING_WALLET_ALLOCATION, pilot_capital_limit,
+)
 from weather.market.mm_geographic_eligibility import (
     GeographicEligibilityError,
     validate_geographic_eligibility_receipt,
@@ -52,7 +57,10 @@ from weather.market.mm_live_lifecycle_probe import (
     execute_stage1_lifecycle_probe,
     verify_stage1_user_stream_journal,
 )
-from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
+from weather.market.mm_live_stage0_scope import validate_bound_stage0_event_metadata
+from weather.market.mm_live_stage1_lifecycle_plan import (
+    load_stage1_lifecycle_plan_gate,
+)
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
@@ -359,8 +367,12 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and final_stream_evidence.get("sha256")
         == result_payload.get("user_stream_journal_sha256")
         and final_stream_evidence.get("terminal_stream_stopped_verified") is True
+        and type(result_payload.get("user_stream_journal_row_count")) is int
+        and result_payload.get("user_stream_journal_row_count")
+        == final_stream_evidence.get("row_count")
         and type(result_payload.get("user_stream_scoped_order_event_count")) is int
-        and result_payload.get("user_stream_scoped_order_event_count") >= 2,
+        and result_payload.get("user_stream_scoped_order_event_count")
+        == final_stream_evidence.get("scoped_order_event_count"),
         "result_terminal_no_fill": (
             result_payload.get("schema_version")
             == "mm_live_lifecycle_probe_v0.3"
@@ -538,7 +550,7 @@ def build_live_pilot_context(
             maker_address=maker_address,
             condition_id=condition,
             authoritative_readers_verified=True,
-            max_order_notional=10.0,
+            max_order_notional=float(STAGE1_V1.per_order_pusd),
         )
         if not adapter.diagnostics().get("supports_trading"):
             raise RuntimeError("official adapter did not verify the authoritative reader boundary")
@@ -729,11 +741,18 @@ def run_prepare_identity(
     if args.confirmation != IDENTITY_CONFIRMATION:
         raise RuntimeError("identity preparation requires the exact confirmation token")
     budget = _validate_budget(args.budget)
-    wallet_cap = _validate_budget(args.wallet_cap)
-    if budget != 10.0 or wallet_cap != 100.0 or budget > wallet_cap:
-        raise RuntimeError(
-            "first identity requires a 10 pUSD request and separate 100 pUSD wallet cap"
-        )
+    allocation = getattr(args, "test_allocation", None)
+    existing_wallet = allocation is not None
+    wallet_funding = getattr(args, "wallet_cap", None)
+    if existing_wallet and wallet_funding is not None:
+        raise RuntimeError("test allocation cannot be combined with a wallet funding cap")
+    capital_limit = _validate_budget(allocation if existing_wallet else wallet_funding)
+    if budget != float(STAGE1_V1.per_order_pusd) or capital_limit != float(STAGE1_V1.wallet_pusd) or budget > capital_limit:
+        raise RuntimeError("first identity requires a 10 pUSD request and 100 pUSD capital limit")
+    if existing_wallet != bool(getattr(args, "confirm_existing_wallet_allocation", False)):
+        raise RuntimeError("existing-wallet allocation requires its explicit declaration")
+    if existing_wallet and args.confirm_isolated_wallet:
+        raise RuntimeError("an existing-wallet allocation cannot declare an isolated wallet")
     paths = _require_new_distinct_paths(
         {
             "identity": args.identity_out,
@@ -768,8 +787,13 @@ def run_prepare_identity(
             "signature_type_id": signature_type_id,
             "funder_address": str(args.funder_address).strip(),
             "isolated_pilot_wallet": bool(args.confirm_isolated_wallet),
-            "pilot_wallet_max_funding_usdc": wallet_cap,
+            "pilot_wallet_max_funding_usdc": None if existing_wallet else capital_limit,
         }
+        if existing_wallet:
+            identity.update(
+                pilot_capital_mode=EXISTING_WALLET_ALLOCATION,
+                pilot_test_allocation_pusd=capital_limit,
+            )
         gate = identity_gate(identity)
         receipt["checks"] = dict(gate.get("checks") or {})
         receipt["missing"] = list(gate.get("missing") or [])
@@ -841,7 +865,7 @@ def run_doctor(
         token_text = str(args.token_id or "").strip()
         condition_text = str(args.condition_id or "").strip().lower()
         try:
-            wallet_cap = float(identity.get("pilot_wallet_max_funding_usdc"))
+            wallet_cap = float(pilot_capital_limit(identity, require_wallet_declaration=True))
         except (TypeError, ValueError):
             wallet_cap = None
         checks = {
@@ -905,19 +929,11 @@ def run_stage0(
     if not callable(pre_mutation_attestor):
         raise RuntimeError("Stage 0 requires the sealed pre-mutation attestor")
     stage0_budget = _validate_budget(args.budget)
-    if stage0_budget != 10.0:
+    if stage0_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
-    try:
-        candidate_fee_rate = float(args.expected_candidate_fee_rate)
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise RuntimeError("Stage 0 requires the sealed candidate fee rate") from exc
     candidate_neg_risk = getattr(args, "expected_candidate_neg_risk", None)
-    if (
-        not math.isfinite(candidate_fee_rate)
-        or candidate_fee_rate <= 0
-        or not isinstance(candidate_neg_risk, bool)
-    ):
-        raise RuntimeError("Stage 0 requires exact eligible candidate market rules")
+    if not isinstance(candidate_neg_risk, bool):
+        raise RuntimeError("Stage 0 requires exact current candidate market rules")
     credential_deadline = _require_current_deadline(
         getattr(args, "credential_resolution_deadline_utc", None),
         label="Stage 0 credential resolution",
@@ -963,7 +979,6 @@ def run_stage0(
         receipt["exchange_mutation_attempted"] = True
         receipt["authenticated_exchange_write_attempted"] = True
     receipt["candidate_market_rules"] = {
-        "fee_rate": candidate_fee_rate,
         "neg_risk": candidate_neg_risk,
     }
     context = None
@@ -1004,7 +1019,6 @@ def run_stage0(
             target_date=args.target_date,
             requested_budget_usdc=args.budget,
             secret_hygiene=credential_secret_hygiene(),
-            expected_candidate_fee_rate=candidate_fee_rate,
             expected_candidate_neg_risk=candidate_neg_risk,
             pre_mutation_attestor=pre_mutation_attestor,
             progress_recorder=record_bootstrap_phase,
@@ -1079,7 +1093,7 @@ def run_stage1(
     context_builder=build_live_pilot_context,
     stream_waiter=wait_for_user_stream,
     bootstrap_loader=load_platform_bootstrap_gate,
-    candidate_loader=load_stage1_candidate_gate,
+    candidate_loader=load_stage1_lifecycle_plan_gate,
     lifecycle_executor=execute_stage1_lifecycle_probe,
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
@@ -1088,7 +1102,7 @@ def run_stage1(
     if not callable(pre_submit_attestor):
         raise RuntimeError("Stage 1 requires the sealed pre-submit attestor")
     stage1_budget = _validate_budget(args.budget)
-    if stage1_budget != 10.0:
+    if stage1_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 1 probe requires exactly 10 pUSD")
     submit_deadline_utc = getattr(args, "submit_deadline_utc", None)
     if not submit_deadline_utc:
@@ -1123,6 +1137,12 @@ def run_stage1(
             expected_condition_id=args.condition_id,
         )
         receipt["candidate_gate"] = dict(candidate_gate)
+        validate_bound_stage0_event_metadata(
+            args.event_metadata,
+            candidate_gate["event_metadata"],
+            target_date=args.target_date,
+            current_gamma=candidate_gate["current_gamma"],
+        )
         gate = bootstrap_loader(
             args.bootstrap,
             args.target_date,
@@ -1175,15 +1195,6 @@ def run_stage1(
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
         result["candidate_semantic_plan_sha256"] = candidate_gate[
             "semantic_plan_sha256"
-        ]
-        result["paper_run_config_sha256"] = candidate_gate[
-            "paper_run_config_sha256"
-        ]
-        result["paper_quote_intents_sha256"] = candidate_gate[
-            "paper_quote_intents_sha256"
-        ]
-        result["paper_quote_row_sha256"] = candidate_gate[
-            "paper_quote_row_sha256"
         ]
     except BaseException as exc:
         operation_error = exc
@@ -1262,7 +1273,7 @@ def run_bundle(
     if args.confirmation != BUNDLE_CONFIRMATION:
         raise RuntimeError("Stage 1 bundle requires the exact offline confirmation token")
     bundle_budget = _validate_budget(args.budget)
-    if bundle_budget != 10.0:
+    if bundle_budget != float(STAGE1_V1.per_order_pusd):
         raise RuntimeError("first Stage 1 bundle requires exactly 10 pUSD")
     paths = _require_new_distinct_paths(
         {
@@ -1285,8 +1296,8 @@ def run_bundle(
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 bundle bootstrap gate is not passing")
         if (
-            float(gate.get("requested_budget_usdc")) != 10.0
-            or float(gate.get("pilot_wallet_max_funding_usdc")) != 100.0
+            float(gate.get("requested_budget_usdc")) != float(STAGE1_V1.per_order_pusd)
+            or pilot_capital_limit(gate) != 100
         ):
             raise RuntimeError(
                 "Stage 1 bundle does not preserve the 10 pUSD request and 100 pUSD cap"
@@ -1356,11 +1367,14 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     identity.add_argument("--budget", required=True, type=float)
-    identity.add_argument("--wallet-cap", required=True, type=float)
+    capital = identity.add_mutually_exclusive_group(required=True)
+    capital.add_argument("--wallet-cap", type=float)
+    capital.add_argument("--test-allocation", type=float)
     identity.add_argument("--identity-out", required=True)
     identity.add_argument("--receipt-out", required=True)
     identity.add_argument("--confirm-international-platform", action="store_true")
     identity.add_argument("--confirm-isolated-wallet", action="store_true")
+    identity.add_argument("--confirm-existing-wallet-allocation", action="store_true")
     identity.add_argument("--confirmation", required=True)
 
     doctor = commands.add_parser(
@@ -1404,6 +1418,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args[:1] == ['stage2-hold']:
+        from weather.market.mm_stage2_rehearsal import main as stage2_main
+        return stage2_main(raw_args[1:])
     args = build_parser().parse_args(argv)
     try:
         if args.command == "prepare-identity":

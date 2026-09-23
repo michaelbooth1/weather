@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from weather.io import sha256_file
+from weather.market.location_config import LocationConfigError, verify_frozen_config_pair
 from weather.paths import ARTIFACTS_ROOT, REPO_ROOT
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
@@ -615,6 +616,18 @@ def _verify_semantic_contract_after_inventory(
                 raise ReleaseArtifactVerificationError(
                     f"semantic serving contract component {role!r} disagrees on {field}"
                 )
+    try:
+        config_pair = verify_frozen_config_pair(release_dir, by_role)
+    except (OSError, LocationConfigError) as exc:
+        raise ReleaseArtifactVerificationError(
+            f"frozen location config pair is invalid: {exc}"
+        ) from exc
+    declared_pair = contract.get("location_config_pair")
+    if ((declared_pair is not None or config_pair.generation_id is not None)
+            and declared_pair != config_pair.identity()):
+        raise ReleaseArtifactVerificationError(
+            "semantic contract location config identity mismatch"
+        )
     bundle_sha = str(by_role["pooled_band_model"].get("sha256") or "")
     if contract.get("bundle_sha256") != bundle_sha:
         raise ReleaseArtifactVerificationError(
@@ -778,6 +791,7 @@ def _verify_semantic_contract_after_inventory(
         "candidate_mode": candidate_mode,
         "production_capable": production_capable,
         "point_in_time_qualification": qualification,
+        "location_config_pair": config_pair.identity(),
     }
 
 

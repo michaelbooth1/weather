@@ -18,6 +18,9 @@ from pathlib import Path
 
 from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
+from weather.market.mm_live_envelope import STAGE1_V1
+from weather.schema_registry import schema_version
+from weather.time import evidence_age_seconds
 
 from weather.market.clob_recon import (
     DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON,
@@ -45,7 +48,7 @@ from weather.market.snapshot_cadence_quality import (
 
 
 SCHEMA_VERSION = "mm_quote_intent_v0.3"
-POLICY_VERSION = "mm_policy_v0.2"
+POLICY_VERSION = schema_version("mm_policy")
 EARLY_HOUR_GUARDRAIL_SCHEMA_VERSION = "early_hour_market_guardrail_v0.1"
 DEFAULT_PROMOTION_REFRESH = data_path() / "backtest" / "f_family_promotion_refresh.json"
 DEFAULT_KNOWN_EDGE_MAP = data_path() / "backtest" / "mm_known_edge_map.json"
@@ -71,12 +74,12 @@ DEFAULT_POLICY_CONFIG = {
     "edge_min_advantage": 0.03,
     "edge_fee_buffer": 0.005,
     "adverse_selection_buffer": 0.01,
-    "max_event_notional": 25.0,
-    "max_band_notional": 10.0,
+    "max_event_notional": float(STAGE1_V1.per_event_pusd),
+    "max_band_notional": float(STAGE1_V1.per_band_pusd),
     "max_correlated_regime_notional_usdc": 0.0,
     "max_correlated_regime_joint_loss_usdc": 0.0,
     "correlated_regime_market_groups": "",
-    "max_daily_loss": 25.0,
+    "max_daily_loss": float(STAGE1_V1.daily_loss_pusd),
     "information_event_calendar_enabled": True,
     "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
     "event_gate_widen_buffer": 0.01,
@@ -85,7 +88,7 @@ DEFAULT_POLICY_CONFIG = {
     "event_gate_exception_evidence_status": "",
     "event_gate_exception_evidence_id": "",
     "event_gate_exception_risk_cap_usdc": 0.0,
-    "clob_recon_policy_enabled": True,
+    "clob_recon_policy_enabled": False,
     "clob_recon_path": str(DEFAULT_CLOB_RECON),
     "hourly_trust_multiplier_00_08": 0.35,
     "hourly_trust_multiplier_09_14": 0.85,
@@ -601,7 +604,7 @@ def row_with_event_gate(row, config, now):
 
 
 def config_with_clob_recon(config):
-    enabled = bool_value(config.get("clob_recon_policy_enabled"), True)
+    enabled = bool_value(config.get("clob_recon_policy_enabled"), False)
     overrides, diagnostics = policy_overrides_from_recon(
         config.get("clob_recon_path") or DEFAULT_CLOB_RECON,
         enabled=enabled,
@@ -612,10 +615,7 @@ def config_with_clob_recon(config):
 
 
 def age_seconds(timestamp, now):
-    parsed = parse_time(timestamp)
-    if parsed is None:
-        return None
-    return max(0.0, (now - parsed).total_seconds())
+    return evidence_age_seconds(now, timestamp=timestamp)
 
 
 def promotion_state_from_action(action, verdict=None):
@@ -1020,12 +1020,29 @@ def _book_spread(row):
     return None
 
 
+def _row_age(row, now, age_keys, timestamp_key, reported_at_key=None):
+    timestamp = row.get(timestamp_key)
+    timestamp = timestamp if timestamp not in (None, "") else None
+    reported = [row[key] for key in age_keys if row.get(key) not in (None, "")]
+    reported_at = row.get(reported_at_key) if reported_at_key else None
+    ages = [evidence_age_seconds(now, timestamp=timestamp, reported_age=value, reported_at=reported_at)
+            for value in reported or [None]]
+    if any(age is None for age in ages) or max(ages) - min(ages) > 1.0:
+        return None
+    return max(ages)
+
+
 def _book_age(row, now):
-    for key in ("book_age_seconds", "clob_book_age_seconds"):
-        value = maybe_float(row.get(key))
-        if value is not None:
-            return max(0.0, value)
-    return age_seconds(row.get("clob_book_captured_at_utc"), now)
+    return _row_age(row, now, ("book_age_seconds", "clob_book_age_seconds"),
+                    "clob_book_captured_at_utc", "book_age_observed_at_utc")
+
+
+def _model_age(row, now):
+    return _row_age(row, now, ("model_age_seconds",), "captured_at_utc")
+
+
+def _watcher_age(row, now):
+    return _row_age(row, now, ("watcher_age_seconds",), "watcher_last_heartbeat")
 
 
 def _risk_limited_size(row, config, price, side=None):
@@ -1101,10 +1118,8 @@ def _base_output(row, config, now, reason_code, reason_detail):
     if uncertainty is None and fair is not None:
         uncertainty = math.sqrt(max(0.0, fair * (1.0 - fair)))
     book_age = _book_age(row, now)
-    model_age = None if market_harvest else maybe_float(row.get("model_age_seconds"))
-    if model_age is None and not market_harvest:
-        model_age = age_seconds(row.get("captured_at_utc"), now)
-    watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    model_age = None if market_harvest else _model_age(row, now)
+    watcher_age = _watcher_age(row, now)
     cadence = snapshot_cadence_quality({
         **row,
         "model_age_seconds": model_age,
@@ -1364,7 +1379,7 @@ def _decide_market_harvest(row, config, now, event_gate):
     mid = _midpoint(row)
     spread = _book_spread(row)
     book_age = _book_age(row, now)
-    watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    watcher_age = _watcher_age(row, now)
     depth = maybe_float(first_present(row, "book_depth_1pct_total", "clob_depth_1pct_total")) or 0.0
     cadence = snapshot_cadence_quality(row, config=config, now=now)
     if mid is None or spread is None:
@@ -1491,10 +1506,8 @@ def decide_quote(row, config=None, now=None):
     mid = _midpoint(row)
     spread = _book_spread(row)
     book_age = _book_age(row, now)
-    model_age = maybe_float(row.get("model_age_seconds"))
-    if model_age is None:
-        model_age = age_seconds(row.get("captured_at_utc"), now)
-    watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    model_age = _model_age(row, now)
+    watcher_age = _watcher_age(row, now)
     cadence = snapshot_cadence_quality({
         **row,
         "model_age_seconds": model_age,
@@ -1737,7 +1750,9 @@ def assemble_policy_inputs(
         for snapshot_row in snapshot_rows:
             clob_row = clob_by_token.get(_band_key(snapshot_row)) or clob_by_band.get(_band_key_without_token(snapshot_row)) or {}
             merged = dict(snapshot_row)
-            merged.update({key: value for key, value in clob_row.items() if value not in (None, "")})
+            # Book refreshes cannot renew the model observation or replace its replay identity.
+            merged.update({key: value for key, value in clob_row.items()
+                           if value not in (None, "") and key not in {"captured_at_utc", "snapshot_id"}})
             merged["market_id"] = market_id
             merged["promotion_state"] = promotion.get("promotion_state", "BLOCK")
             merged["fair_probability"] = merged.get("model_probability")
@@ -1748,7 +1763,9 @@ def assemble_policy_inputs(
                 else ""
             )
             merged["book_age_seconds"] = merged.get("clob_book_age_seconds")
+            merged["book_age_observed_at_utc"] = clob_row.get("captured_at_utc")
             merged["watcher_age_seconds"] = observation_status.get("watcher_age_seconds")
+            merged["watcher_last_heartbeat"] = observation_status.get("last_heartbeat")
             merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
             merged["source_fresh"] = observation_status.get("fresh", False)
             merged["source_freshness_state"] = source_freshness_state

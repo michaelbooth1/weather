@@ -16,14 +16,18 @@ import time
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from importlib import metadata
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_policy import bool_value
+from weather.market.mm_pilot_capital import pilot_capital_limit
+from weather.market.mm_live_envelope import STAGE1_V1, STAGE2_HOLD_V1, select_envelope
+from weather.paths import REPO_ROOT
 OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
 OFFICIAL_CLOB_VERSION = "0.6.0"
-MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
+MAX_STAGE1_ORDER_NOTIONAL = Decimal(STAGE1_V1.per_order_pusd)
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
 CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
 PUSD_COLLATERAL_PROXY_ADDRESS = "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
@@ -614,9 +618,11 @@ class OfficialPolymarketGlobalAdapter:
         sleeper=None,
         heartbeat_max_age_seconds=7.5,
         market_rules_max_age_seconds=10.0,
-        max_order_notional=10.0,
+        max_order_notional=float(STAGE1_V1.per_order_pusd),
         cancel_verify_attempts=20,
         cancel_verify_interval_seconds=0.25,
+        envelope_profile_id=STAGE1_V1.profile_id,
+        envelope_authority_root=REPO_ROOT,
     ):
         self.sdk_version = require_official_clob_version(sdk_version)
         self.client = client
@@ -636,6 +642,13 @@ class OfficialPolymarketGlobalAdapter:
         self.monotonic_clock = monotonic_clock or time.monotonic
         self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.sleeper = sleeper or time.sleep
+        self.envelope_authority_root = Path(envelope_authority_root)
+        self.envelope = select_envelope(
+            envelope_profile_id,
+            state_of_play_path=self.envelope_authority_root / "docs/operations/STATE_OF_PLAY.md",
+            assignment_path=self.envelope_authority_root / "config/international_live_execution_host.json",
+            now=self.utc_clock() if envelope_profile_id != STAGE1_V1.profile_id else None,
+        )
         self.heartbeat_max_age_seconds = _required_number(
             heartbeat_max_age_seconds,
             "heartbeat_max_age_seconds",
@@ -650,7 +663,7 @@ class OfficialPolymarketGlobalAdapter:
         )
         self.max_order_notional = min(
             requested_max_order_notional,
-            MAX_STAGE1_ORDER_NOTIONAL,
+            Decimal(self.envelope.per_order_pusd),
         )
         self.cancel_verify_attempts = max(1, int(cancel_verify_attempts))
         self.cancel_verify_interval_seconds = max(
@@ -690,10 +703,14 @@ class OfficialPolymarketGlobalAdapter:
         """Issue one opaque, single-submit capability bound to observed Stage 0."""
 
         gate = dict(bootstrap_gate or {})
+        if self.envelope is STAGE2_HOLD_V1:
+            self._require_current_envelope()
+            if gate.get("isolated_pilot_wallet") is not True or "pilot_capital_mode" in gate:
+                raise RuntimeError("Stage 2 requires the isolated-wallet capital branch")
         checks = gate.get("checks")
         try:
             requested_budget = Decimal(str(gate.get("requested_budget_usdc")))
-            wallet_cap = Decimal(str(gate.get("pilot_wallet_max_funding_usdc")))
+            wallet_cap = pilot_capital_limit(gate)
         except (InvalidOperation, TypeError, ValueError):
             requested_budget = wallet_cap = None
         operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
@@ -708,7 +725,7 @@ class OfficialPolymarketGlobalAdapter:
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.4",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.6",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",
@@ -820,7 +837,7 @@ class OfficialPolymarketGlobalAdapter:
             "sdk_version": self.sdk_version,
             "sdk_version_pinned": self.sdk_version == OFFICIAL_CLOB_VERSION,
             "max_order_notional": str(self.max_order_notional),
-            "max_order_notional_ceiling": str(MAX_STAGE1_ORDER_NOTIONAL),
+            "max_order_notional_ceiling": str(self.envelope.per_order_pusd),
             "token_id_present": self.token_id is not None,
             "user_event_reader_present": self.user_event_reader is not None,
             "user_event_health_reader_present": self.user_event_health_reader is not None,
@@ -838,7 +855,18 @@ class OfficialPolymarketGlobalAdapter:
             "blockers": blockers,
         }
 
+    def _require_current_envelope(self):
+        if self.envelope is not select_envelope(
+            self.envelope.profile_id,
+            state_of_play_path=self.envelope_authority_root / "docs/operations/STATE_OF_PLAY.md",
+            assignment_path=self.envelope_authority_root / "config/international_live_execution_host.json",
+            now=self.utc_clock(),
+        ):
+            raise RuntimeError("adapter envelope changed")
+
     def _require_order_placement(self):
+        if self.envelope is STAGE2_HOLD_V1:
+            self._require_current_envelope()
         if not self.supports_trading:
             raise RuntimeError(
                 "official CLOB order placement requires verified authoritative user-event "
@@ -1242,6 +1270,30 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("heartbeat response did not acknowledge status ok")
         return response
 
+    def accept_shared_stage2_heartbeat(self, source):
+        """Adopt one account acknowledgment without extending its original lease."""
+        if not all((
+            self.envelope is STAGE2_HOLD_V1,
+            isinstance(source, OfficialPolymarketGlobalAdapter),
+            source is not self,
+            source.envelope is STAGE2_HOLD_V1,
+            self.client is source.client,
+            self.heartbeat_sender is source.heartbeat_sender,
+            self.monotonic_clock == source.monotonic_clock,
+            self.maker_address == source.maker_address,
+            self.condition_id == source.condition_id,
+            self.token_id != source.token_id,
+        )):
+            raise RuntimeError("shared heartbeat account/session binding differs")
+        self._require_current_envelope()
+        source._require_order_placement()
+        self._last_heartbeat_monotonic = source._last_heartbeat_monotonic
+        self._heartbeat_acknowledgment_count = source._heartbeat_acknowledgment_count
+        self._probe["heartbeat_acknowledged"] = True
+        self._probe["heartbeat_stale"] = False
+        self._probe["heartbeat_acknowledgment_count"] = self._heartbeat_acknowledgment_count
+        self._require_order_placement()
+
     def place_order(
         self,
         intent,
@@ -1268,6 +1320,8 @@ class OfficialPolymarketGlobalAdapter:
         if price * size > self.max_order_notional:
             raise RuntimeError("order notional exceeds the adapter pilot cap")
         side = str(intent.get("side") or "").upper()
+        if self.envelope is STAGE2_HOLD_V1 and side != "BUY":
+            raise RuntimeError("Stage 2 permits only backed BUY orders")
         if side not in {"BUY", "SELL"}:
             raise ValueError("side must be BUY or SELL")
         if side == "BUY" and rules["best_ask"] is not None and price >= rules["best_ask"]:
@@ -1452,4 +1506,13 @@ class OfficialPolymarketGlobalAdapter:
         self._last_heartbeat_monotonic = None
         if remaining:
             raise RuntimeError("cancel-all did not converge to zero open orders")
+        if self.envelope is STAGE2_HOLD_V1:
+            # A rejected second submit can trigger this emergency cancellation
+            # before the hold controller enters its own final cancel/reconcile.
+            self._probe["stage2_cancel_acknowledgment"] = {
+                "response": _plain_sdk_value(response),
+                "checked_at_utc": self.utc_clock().astimezone(timezone.utc).isoformat(),
+                "profile_sha256": self.envelope.sha256,
+                "maker_address": self.maker_address, "condition_id": self.condition_id,
+            }
         return _plain_sdk_value(response)

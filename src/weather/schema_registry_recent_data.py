@@ -7,6 +7,21 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "maker_reward_simulation", "maker_reward_simulation_v0.1",
+        "weather.market.maker_reward_simulation", "active",
+        "Explicit hypothetical reward scenarios; no observed accrual, cash, or live authority.",
+    ),
+    SchemaSpec(
+        "maker_opportunity_capture", "maker_opportunity_capture_v0.1",
+        "weather.market.maker_opportunity_capture", "active",
+        "Bounded exact-condition public response capture with frozen selection, rules and both token books.",
+    ),
+    SchemaSpec(
+        "maker_opportunity_report", "maker_opportunity_report_v0.1",
+        "weather.reporting.market.maker_opportunity_report", "active",
+        "Source-bound order/capital diagnostics and explicit unresolved reward-economics evidence.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
