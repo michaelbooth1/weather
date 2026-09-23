@@ -110,3 +110,23 @@ Four points the design left open are fixed here. They bind exactly like the rule
    reward minimum size excluded), as RE-1 quotes and as the venue scores. Markouts at +1/+5/+30 minutes use the **existing
    markout tool's midpoint definition**, for comparability with the 2026-09-20 numbers; the size-adjusted midpoint is a
    reported sensitivity. The settlement markout uses the settled outcome (1 or 0).
+
+## Clarification 2 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+1. **Book input.** The study reads the **full-depth book tape** (`order_books.jsonl` / `.gz`, per event day), streamed one
+   date at a time within the tool's memory bound, for the size-adjusted midpoint and competing reward scores.
+   `order_books_summary.csv` is used only for coverage and gap checks. No precomputed input is supplied.
+2. **Prices.** The frozen distance is a **target**: each leg is placed at the canonical estimator's price — target distance
+   from the size-adjusted midpoint, **snapped outward to the venue tick** — exactly as RE-1 quotes. That snapped price
+   governs both simulated fills and reward scoring. The actual distance is recorded per leg.
+3. **Fill lifecycle and exposure.**
+   - Prints are consumed in venue-timestamp order. A qualifying print (strictly through the price under the conservative
+     rule; at or through under the optimistic rule; queue ahead ignored) fills
+     `min(printed size, remaining leg size)`. Partial fills are allowed.
+   - Filled shares leave the book at the print time; the remaining shares keep resting at the same price.
+   - At the next book sample the leg is re-placed at the full 20 shares at the new snapped price (a continuous maker).
+   - **Reward exposure** uses the resting size minute by minute. A leg whose resting size is below the band's reward
+     minimum earns zero until it is re-placed. **Quoted share-minutes** count resting shares × minutes, so exposure stops
+     for filled shares at the fill time.
+   - `R`'s denominator is total filled shares under the same rule; the conservative rule is primary, the optimistic one
+     a reported sensitivity.
