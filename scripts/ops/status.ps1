@@ -4535,6 +4535,25 @@ if ([string]$reconciliationPublication.classification -cne "ordinary") {
     $warns = $protectedWarns
 }
 
+# Independent passive maker evidence. Optional until explicitly registered;
+# read only its bounded atomic cache, never enumerate its journals.
+$makerEvidence = $null
+$makerEvidencePath = Join-Path $repo "data\maker_evidence\status.json"
+$makerEvidenceTask = Get-ScheduledTask -TaskName "WeatherMakerEvidenceCapture" -ErrorAction SilentlyContinue
+if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
+    try {
+        $makerFile = Get-Item -LiteralPath $makerEvidencePath -ErrorAction Stop
+        if ($makerFile.Length -gt 262144) { throw "status exceeds byte bound" }
+        $makerEvidence = Get-Content -LiteralPath $makerEvidencePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $makerAge = ((Get-Date).ToUniversalTime() - [datetime]$makerEvidence.updated_at_utc).TotalSeconds
+        if ($makerEvidenceTask -and [string]$makerEvidenceTask.State -ne "Disabled" -and
+            ($makerAge -gt 180 -or [string]$makerEvidence.state -ne "CAPTURING")) {
+            $flags.Add("MAKER_EVIDENCE: $($makerEvidence.state), status age $([int]$makerAge)s")
+        }
+    }
+    catch { $flags.Add("MAKER_EVIDENCE: status unreadable or missing") }
+}
+
 # ---- verdict ----
 $verdict = if ($flags.Count -gt 0) { "ATTENTION" } else { "OK" }
 $exitCode = if ($flags.Count -gt 0) { 2 } else { 0 }
@@ -4562,6 +4581,7 @@ if ($Json) {
         }
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
+        maker_evidence = $makerEvidence
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
             delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48
@@ -4708,6 +4728,10 @@ else {
         $(if ($documentationTransaction.due_at_local) { " (due $($documentationTransaction.due_at_local))" } else { "" })
 }
 Write-Output ("  DOCS      : {0}" -f $documentationStr)
+if ($makerEvidence) {
+    Write-Output ("  MAKER     : {0}, {1} bands, disk {2}, stream capped={3}" -f `
+        $makerEvidence.state, $makerEvidence.universe_size, $makerEvidence.disk_band, $makerEvidence.stream_capped)
+}
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
 if ($upcoming.Count -gt 0) {
     Write-Output "  ARMED     : (scheduled, not yet run)"

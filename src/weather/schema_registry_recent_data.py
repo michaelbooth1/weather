@@ -7,6 +7,11 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "maker_evidence", "maker_evidence_v1",
+        "weather.market.maker_evidence_store", "active",
+        "UTC-day append-only public maker evidence with exact reply hashes and payload references.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
