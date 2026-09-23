@@ -63,12 +63,12 @@ Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS
 
 ## Ordered non-live critical path
 
-1. **RE-1 session 1 ran from ~01:40Z 2026-09-23 on `0a7531baf` and ended on a FILL (cleanup_ok; prediction `be81609a…`)** (PR 85: 84f + heartbeat User-Agent fix; preflight PASS 01:33Z; condition `0x532f7e97…`, YES 0.49 / NO 0.48, P_many rate 0.0065/min ≈ 2.34 per 6 h). Earlier plan: Order: owner makes a
-   fresh worktree at `475a626e4` (never the 09-21 execution worktree), tunnel down, runs `preflight` (valid from
-   00:00Z 09-23 = 20:00 ET 09-22; a later FAIL voids a PASS), on PASS starts `live` by 13:59 ET; `NO QUALIFYING BAND`
-   = retry each quarter hour. `84a`-`85b` accepted (85b roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). **Owner 2026-09-22, before any order:** the frozen RE-1 verdict
-   table binds (`k = paid / P_many`, `k >= 0.5` -> RE-2); `H` = 1.00 net/day per 100 deployed. **Amended 09-23**
-   ([addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md)): below-minimum outcome, USDC.e or pUSD, closes only on adequate NOT_PAID. Freeze `R` before any markout read.
+1. **RE-1 session 1 ran ~01:47-02:30Z 2026-09-23 on `0a7531baf`, ended on a FILL:** 42 min, `P_many` 0.105, venue showed
+   0.12 earned (below the 1-dollar daily minimum, not paid); 5.57 NO filled at 0.48 by a complementary YES buy that crashed
+   the user stream (cleanup proven). **84g fixed it (ACCEPTED 09-23, 255 focused): session-2 tip `c771cbb42`**, fresh
+   preflight, clean UTC reward day (earliest 00:00Z 09-24 = 20:00 ET 09-23). Verdicts: frozen table (owner 09-22,
+   `H` = 1.00 net/day per 100) and the [09-23 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md)
+   side by side; the track closes only on adequate NOT_PAID. Freeze `R` before any markout read.
 2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
    **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
    closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.
