@@ -26,8 +26,10 @@ from weather.market.maker_evidence_public import (
     select_universe, unique_rows,
 )
 from weather.market.maker_evidence_store import (
-    DEFAULT_STREAM_CAP, SCHEMA, EvidenceStore, WriterLock, atomic_json, disk_band, digest, encoded, utc_now,
+    DEFAULT_STREAM_CAP, SCHEMA, EvidenceStore, WriterLock, RawFootprintLimit,
+    atomic_json, disk_band, digest, encoded, utc_now,
 )
+from weather.market.maker_evidence_archive import compress_closed_segments
 from weather.market.maker_evidence_stream import PublicStream
 from weather.paths import data_path
 
@@ -56,6 +58,29 @@ def token_pair(market):
     if any(not re.fullmatch(r"[0-9]{1,100}", str(token)) for token in tokens):
         raise ValueError("invalid token id")
     return [str(tokens[outcomes.index("Yes")]), str(tokens[outcomes.index("No")])]
+
+
+def update_window(path, now):
+    """Extras remain minute-book coverage; raw updates require a bounded UTC window."""
+    ids = load_extras(path)
+    if not ids:
+        return [], None
+    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    windows = payload.get("update_windows_utc", [])
+    if not isinstance(windows, list) or len(windows) > 2:
+        raise ValueError("at most two 30-minute update windows are allowed")
+    active = None
+    prior_end = None
+    for window in sorted(windows, key=lambda row: row["start"]):
+        start, end = (datetime.fromisoformat(window[key].replace("Z", "+00:00")) for key in ("start", "end"))
+        if start.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0):
+            raise ValueError("update windows require explicit UTC timestamps")
+        if not 0 < (end - start).total_seconds() <= 1800 or prior_end and start < prior_end:
+            raise ValueError("update windows must be nonoverlapping and at most 30 minutes")
+        prior_end = end
+        if start <= now < end:
+            active = end
+    return (ids, active) if active else ([], None)
 
 
 def get_books(reader, tokens, *, kind):
@@ -214,13 +239,9 @@ def capture(args):
         state["source_sha256"]["weather.market.maker_evidence_capture"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         compression_stop = threading.Event()
         compression_thread = None
-        compression_done_day = None
         def compress():
-            nonlocal compression_done_day
             try:
-                day = utc_now().date().isoformat()
-                if store.compress_closed_days(compression_stop):
-                    compression_done_day = day
+                store.maintenance(compression_stop)
             except Exception as exc:
                 state["compression_error"] = type(exc).__name__
                 store.event("compression_error", {"error_type": type(exc).__name__})
@@ -228,10 +249,34 @@ def capture(args):
             state.update(updated_at_utc=utc_now().isoformat(), elapsed_seconds=time.monotonic() - start,
                          http=reader.metrics(), stream=stream.metrics(), trades=trades.metrics(),
                          stream_retained_bytes_today=store.stream_bytes, stream_capped=store.stream_capped,
-                         journal_bytes_written=store.bytes_written)
+                         journal_bytes_written=store.bytes_written,
+                         raw_working_bytes=store.raw_bytes, peak_raw_working_bytes=store.peak_raw_bytes,
+                         raw_working_limit_bytes=store.max_raw_bytes)
             atomic_json(root / "status.json", state)
         specs = all_specs()
         status()
+        universe = []
+        update_checked_at, prior_window_end = utc_now(), None
+        def reconcile_updates(band):
+            nonlocal update_checked_at, prior_window_end
+            now = utc_now()
+            if prior_window_end is not None and state.get("update_stream_enabled"):
+                state["update_window_active_seconds"] = state.get("update_window_active_seconds", 0.) + max(
+                    0., (min(now, prior_window_end) - update_checked_at).total_seconds())
+            update_checked_at = now
+            try:
+                ids, end = update_window(args.extra_conditions, utc_now())
+            except Exception:
+                stream.stop()
+                raise
+            update_tokens = [token for row in universe if row["condition_id"] in ids for token in row["tokens"]]
+            if band in ("red", "critical") or store.stream_capped:
+                update_tokens, end = [], None
+            stream.replace_window(update_tokens, end)
+            prior_window_end = end
+            state.update(update_conditions=[row["condition_id"] for row in universe if row["condition_id"] in ids],
+                         update_window_end_utc=end.isoformat() if end else None,
+                         update_stream_enabled=bool(update_tokens))
         try:
             while time.monotonic() < deadline:
                 cycle_start = time.monotonic()
@@ -249,6 +294,9 @@ def capture(args):
                 if args.dry_run and re1_active():
                     state["state"] = "STOPPED_RE1_ACTIVE"
                     break
+                if store.failure:
+                    state["state"] = "STOPPED_RAW_FOOTPRINT"
+                    break
                 if band == "red":
                     stream.stop()
                 reader.deadline = min(deadline, cycle_start + 55)
@@ -262,28 +310,32 @@ def capture(args):
                             raise ValueError("selected book condition mismatch")
                     state.update(universe_size=len(universe), shortages=shortages, missing_events=missing)
                     trades.replace(tokens)
-                    if band != "red" and not store.stream_capped:
-                        stream.replace(tokens)
-                    else:
-                        stream.stop()
+                    reconcile_updates(band)
                     state["cycles"] += 1
                     state["state"] = "CAPTURING" if universe else "NO_ELIGIBLE_BANDS"
-                    if (band in ("green", "amber") and compression_done_day != utc_now().date().isoformat()
-                            and (compression_thread is None or not compression_thread.is_alive())):
-                        compression_thread = threading.Thread(target=compress, daemon=True)
-                        compression_thread.start()
                 except Exception as exc:
                     state["failed_cycles"] += 1
                     state["state"] = "DEGRADED"
                     state["last_error"] = type(exc).__name__ + ": " + str(exc)[:300]
-                    store.event("cycle_error", {"error": state["last_error"]})
+                    if not store.failure:
+                        store.event("cycle_error", {"error": state["last_error"]})
+                if compression_thread is None or not compression_thread.is_alive():
+                    compression_thread = threading.Thread(target=compress, daemon=True)
+                    compression_thread.start()
                 state["last_cycle_seconds"] = time.monotonic() - cycle_start
                 status()
                 next_cycle = min(deadline, cycle_start + 60)
                 while time.monotonic() < next_cycle:
                     time.sleep(min(5, next_cycle - time.monotonic()))
+                    if store.failure:
+                        stream.stop()
+                        trades.stop()
+                        break
+                    reconcile_updates(band)
                     status()
-            if time.monotonic() >= deadline:
+            if store.failure:
+                state["state"] = "STOPPED_RAW_FOOTPRINT"
+            elif time.monotonic() >= deadline:
                 state["state"] = "COMPLETED" if state["cycles"] else "FAILED_NO_CYCLES"
         except BaseException as exc:
             state.update(state="FAILED", last_error=type(exc).__name__)
@@ -297,9 +349,16 @@ def capture(args):
             stream.stop()
             trades.stop()
             reader.close()
+            if not store.failure:
+                store.event("run_summary", state)
+            try:
+                store.seal()
+                if state.get("disk_band") != "critical":
+                    compress_closed_segments(store)
+            except Exception as exc:
+                state.update(state="FAILED_STORAGE_FINALIZATION", last_error=type(exc).__name__ + ": " + str(exc)[:300])
             state["finished_at_utc"] = utc_now().isoformat()
             status()
-            store.event("run_summary", state)
         return 0 if state["state"] == "COMPLETED" and state["failed_cycles"] == 0 else 2
 
 

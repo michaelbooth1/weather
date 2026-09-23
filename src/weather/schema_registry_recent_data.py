@@ -7,9 +7,16 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
-        "maker_evidence", "maker_evidence_v1",
+        "maker_evidence_v1_legacy", "maker_evidence_v1",
+        "weather.market.maker_evidence_store", "legacy",
+        "Original daily journals, retained without migration; use their bound reader.",
+    ),
+    SchemaSpec(
+        "maker_evidence", "maker_evidence_v2",
         "weather.market.maker_evidence_store", "active",
-        "UTC-day append-only public maker evidence with exact reply hashes and payload references.",
+        "Hourly public journals with inline offsets/reply hashes and sealed file manifests.",
+        supersedes=("maker_evidence_v1",),
+        migration_notes="Use a fresh v2 root; retain v1 journals with their original reader.",
     ),
     SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",

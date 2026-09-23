@@ -5,11 +5,10 @@ import json
 import threading
 import time
 
-from websockets.sync.client import connect
-from websockets.exceptions import WebSocketException
+from websocket import WebSocketException
 
-from weather.market.market_microstructure_constants import CLOB_WS_URL
-from weather.market.maker_evidence_store import encoded
+from weather.market.maker_evidence_socket import connect
+from weather.market.maker_evidence_store import RawFootprintLimit, encoded
 
 MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 MAX_TOKENS = 100
@@ -24,6 +23,17 @@ class PublicStream:
         self.connected = 0
         self.last_event_utc = None
         self.counter_lock = threading.Lock()
+        self.window_end = None
+
+    def replace_window(self, tokens, end):
+        self.window_end = end
+        if end is None or self.store.clock() >= end:
+            self.stop()
+        else:
+            self.replace(tokens)
+
+    def _window_open(self):
+        return self.trades_only or (self.window_end is not None and self.store.clock() < self.window_end)
 
     def replace(self, tokens):
         wanted = tuple(sorted(set(tokens)))
@@ -49,21 +59,19 @@ class PublicStream:
 
     def _run(self, tokens):
         name = "trades" if self.trades_only else "updates"
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() and self._window_open():
             if not self.trades_only and self.store.stream_capped:
                 return
             try:
-                with connect(CLOB_WS_URL, open_timeout=4, close_timeout=1, ping_interval=None,
-                             max_size=MAX_MESSAGE_BYTES, max_queue=4, compression=None, proxy=None,
-                             user_agent_header="weather-passive-maker-evidence/1") as socket:
+                with connect() as socket:
                     with self.counter_lock:
                         self.connected += 1
                     self.store.event("stream_lifecycle", {"state": "connected", "channel": name,
-                                                         "tokens": tokens})
+                                                         "subscription": self.store.subscription(tokens, name)})
                     try:
                         socket.send(encoded({"assets_ids": tokens, "type": "market"}).decode())
                         next_ping, last_inbound = time.monotonic(), time.monotonic()
-                        while not self.stop_event.is_set():
+                        while not self.stop_event.is_set() and self._window_open():
                             if not self.trades_only and self.store.stream_capped:
                                 break
                             now = time.monotonic()
@@ -77,6 +85,8 @@ class PublicStream:
                             except TimeoutError:
                                 continue
                             last_inbound = time.monotonic()
+                            if not self._window_open():
+                                break
                             if message in ("PONG", b"PONG"):
                                 continue
                             raw = message.encode() if isinstance(message, str) else message
@@ -102,13 +112,16 @@ class PublicStream:
                         with self.counter_lock:
                             self.connected -= 1
                         self.store.event("stream_lifecycle", {"state": "disconnected", "channel": name,
-                                                             "tokens": tokens})
+                                                             "subscription": self.store.subscription(tokens, name)})
+            except RawFootprintLimit:
+                return  # Store latched the limit; the main worker writes terminal status.
             except (OSError, ValueError, WebSocketException, TimeoutError) as exc:
                 with self.counter_lock:
                     self.errors += 1
                 self.store.event("stream_gap", {"channel": name, "error_type": type(exc).__name__,
                                                "error": str(exc)[:300],
-                                               "tokens": tokens, "backfill_claimed": False})
+                                               "subscription": self.store.subscription(tokens, name),
+                                               "backfill_claimed": False})
             if self.stop_event.wait(2):
                 break
 

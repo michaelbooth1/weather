@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from weather.market.maker_evidence_store import EvidenceStore, WriterLock, disk_band, digest, encoded
+from weather.market.maker_evidence_store import EvidenceStore, WriterLock, SCHEMA, disk_band, digest, encoded, decode_body
 from weather.market.maker_evidence_public import (
     PublicReader, unique_rows, reward_record, select_universe, modelled_reward,
 )
@@ -23,7 +23,17 @@ def store(tmp_path):
 
 
 def manifests(store):
-    return [json.loads(row) for row in (store.folder / "manifest.jsonl").read_text().splitlines()]
+    rows = [json.loads(row) for path in store.folder.glob("*.jsonl") for row in path.read_text().splitlines()]
+    return sorted((row for row in rows if "kind" in row), key=lambda row: row["sequence"])
+
+
+def terminal(store):
+    store.seal()
+    status = {"schema_version": SCHEMA, "started_at_utc": NOW.isoformat(),
+              "finished_at_utc": (NOW + timedelta(minutes=30)).isoformat(),
+              "cycles": 30, "failed_cycles": 0, "http": {}, "stream": {}, "trades": {},
+              "peak_raw_working_bytes": store.peak_raw_bytes, "raw_working_bytes": store.raw_bytes}
+    (store.root / "status.json").write_bytes(encoded(status))
 
 
 def test_exact_duplicate_drops_logs_conflict_refuses():
@@ -55,11 +65,11 @@ def test_reward_bodies_only_change_but_every_response_hashed(store):
     rows = manifests(store)
     assert len(rows) == 3
     assert [r["body_stored"] for r in rows] == [True, False, True]
-    assert rows[0]["payload_offset"] == rows[1]["payload_offset"]
+    assert rows[0]["offset"] == rows[1]["payload_ref"]["offset"]
     assert rows[0]["response_sha256"] == digest(raw)
     assert rows[1]["response_sha256"] != rows[0]["response_sha256"]
     restarted = EvidenceStore(store.root, clock=lambda: NOW)
-    assert not restarted.record("rewards", b'{"data":[1],"count":1}', change_key="reward:a")
+    assert restarted.record("rewards", b'{"data":[1],"count":1}', change_key="reward:a")  # New sealed segment baseline.
 
 
 def test_hard_daily_cap_survives_restart_and_rolls_at_utc_day(tmp_path):
@@ -78,8 +88,7 @@ def test_hard_daily_cap_survives_restart_and_rolls_at_utc_day(tmp_path):
 
 def test_orphan_frame_still_counts_against_cap(store):
     store.record("stream", b"123456")
-    with (store.folder / "stream.jsonl").open("ab") as handle:
-        handle.write(encoded({"sequence": 2, "body_base64": base64.b64encode(b"78901").decode()}) + b"\n")
+    store._append("stream.jsonl", {"sequence": 2, "kind": "stream", "response_bytes": 5, "body_utf8": "78901"})
     restarted = EvidenceStore(store.root, stream_cap=10, clock=lambda: NOW)
     assert restarted.stream_capped and restarted.stream_bytes == 11
 
@@ -90,19 +99,20 @@ def test_storage_brake_boundaries(free, band):
     assert disk_band(free * 1024**3) == band
 
 
-def test_compress_closed_day_roundtrips_and_keeps_current(tmp_path, monkeypatch):
+def test_compress_closed_hour_roundtrips_and_keeps_current(tmp_path, monkeypatch):
     monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 100 * 1024**3)
     now = [NOW]
     store = EvidenceStore(tmp_path, clock=lambda: now[0])
     store.record("books", b'{"asset_id":"123","bids":[]}')
-    old_manifest = (store.folder / "manifest.jsonl").read_bytes()
+    old_bytes = (store.folder / "books.jsonl").read_bytes()
     old_day = store.folder
-    now[0] += timedelta(days=1)
+    now[0] += timedelta(hours=1)
     store.record("books", b"[]")
-    store.compress_closed_days()
-    assert not (old_day / "manifest.jsonl").exists()
-    assert gzip.decompress((old_day / "manifest.jsonl.gz").read_bytes()) == old_manifest
-    assert (store.folder / "manifest.jsonl").exists()
+    store.maintenance()
+    assert not (old_day / "books.jsonl").exists()
+    assert gzip.decompress((old_day / "books.jsonl.gz").read_bytes()) == old_bytes
+    assert (old_day / "manifest.json.gz").exists()
+    assert (store.folder / "books.jsonl").exists()
 
 
 def test_single_writer_kernel_lock(tmp_path):
@@ -177,8 +187,8 @@ def test_books_require_exact_token_coverage(store):
         get_books(Reader(), ["123"], kind="books")
 
 
-def test_torn_manifest_refuses_without_rewriting(store):
-    path = store.folder / "manifest.jsonl"
+def test_torn_journal_refuses_without_rewriting(store):
+    path = store.folder / "books.jsonl"
     path.write_bytes(b'{"broken":')
     with pytest.raises(json.JSONDecodeError):
         EvidenceStore(store.root, clock=lambda: NOW)
@@ -212,6 +222,7 @@ def test_update_socket_closes_on_daily_cap(tmp_path, monkeypatch):
     from weather.market import maker_evidence_stream as module
     store = EvidenceStore(tmp_path, stream_cap=10, clock=lambda: NOW)
     stream = module.PublicStream(store)
+    stream.window_end = NOW + timedelta(minutes=30)
     class Stop:
         def is_set(self):
             return False
@@ -260,16 +271,15 @@ def test_trade_channel_retains_explicit_trade_after_update_cap(store, monkeypatc
 
 def test_completed_capture_inspection_verifies_payload_and_detects_tamper(store):
     from weather.market.maker_evidence_inspect import inspect_capture
-    from weather.market.maker_evidence_store import atomic_json
     store.record("books", b"[]")
-    atomic_json(store.root / "status.json", {"started_at_utc": NOW.isoformat(),
-                "finished_at_utc": (NOW + timedelta(minutes=30)).isoformat(),
-                "cycles": 30, "failed_cycles": 0, "http": {}, "stream": {}, "trades": {}})
+    folder = store.folder
+    terminal(store)
     result = inspect_capture(store.root, NOW.date().isoformat())
-    assert result["manifest_rows_verified"] == 1 and result["elapsed_seconds"] == 1800
-    path = store.folder / "books.jsonl"
+    assert result["response_records_verified"] == 1 and result["elapsed_seconds"] == 1800
+    path = folder / "books.jsonl"
     row = json.loads(path.read_bytes())
-    row["body_base64"] = base64.b64encode(b"{}").decode()
+    row.pop("parts")
+    row["body_utf8"] = "{}"
     path.write_bytes(encoded(row) + b"\n")
     with pytest.raises(ValueError, match="hash mismatch"):
         inspect_capture(store.root, NOW.date().isoformat())
@@ -277,15 +287,16 @@ def test_completed_capture_inspection_verifies_payload_and_detects_tamper(store)
 
 def test_handshake_failure_is_recorded_and_retryable(store, monkeypatch):
     from weather.market import maker_evidence_stream as module
-    from websockets.exceptions import InvalidHandshake
+    from websocket import WebSocketException
     stream = module.PublicStream(store)
+    stream.window_end = NOW + timedelta(minutes=30)
     def refuse(*args, **kwargs):
         stream.stop_event.set()
-        raise InvalidHandshake("temporary public handshake failure")
+        raise WebSocketException("temporary public handshake failure")
     monkeypatch.setattr(module, "connect", refuse)
     stream._run(("123",))
     assert stream.errors == 1
-    assert manifests(store)[0]["kind"] == "stream_gap"
+    assert any(row["kind"] == "stream_gap" for row in manifests(store))
 
 
 def test_public_transient_read_retries_only_once_within_budget(store, monkeypatch):
@@ -308,12 +319,12 @@ def test_public_transient_read_retries_only_once_within_budget(store, monkeypatc
 
 def test_closed_day_gzip_does_not_hold_active_writer_lock(tmp_path, monkeypatch):
     import threading
-    from weather.market import maker_evidence_store as module
+    from weather.market import maker_evidence_archive as module
     monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 100 * 1024**3)
     now = [NOW]
     store = EvidenceStore(tmp_path, clock=lambda: now[0])
     store.record("books", b"[]")
-    now[0] += timedelta(days=1)
+    now[0] += timedelta(hours=1)
     store.record("books", b"[]")
     original_open = module.gzip.open
     acquired = []
@@ -328,7 +339,7 @@ def test_closed_day_gzip_does_not_hold_active_writer_lock(tmp_path, monkeypatch)
         thread.join(timeout=1)
         return original_open(*args, **kwargs)
     monkeypatch.setattr(module.gzip, "open", checking_open)
-    assert store.compress_closed_days()
+    assert store.maintenance()
     assert acquired and all(acquired)
 
 
@@ -358,15 +369,15 @@ def test_book_reply_partition_preserves_exact_wire_bytes(store):
     raw = ' [ {"asset_id":"123","bids":[],"note":"snow ☃"},\n{"asset_id":"456", "asks":[]} ]\n'.encode()
     store.record("books", raw)
     row = manifests(store)[0]
-    payload = json.loads((store.folder / row["payload_file"]).read_bytes())
+    payload = row
     chunks = []
     for part in payload["parts"]:
-        if "literal_base64" in part:
-            chunks.append(base64.b64decode(part["literal_base64"]))
+        if "literal_utf8" in part:
+            chunks.append(part["literal_utf8"].encode())
         else:
             with (store.folder / part["file"]).open("rb") as handle:
                 handle.seek(part["offset"])
-                chunks.append(base64.b64decode(json.loads(handle.readline())["body_base64"]))
+                chunks.append(decode_body(json.loads(handle.readline())))
     assert b"".join(chunks) == raw
     assert row["response_sha256"] == digest(raw)
     assert (store.folder / "book-123.jsonl").exists()
@@ -395,8 +406,7 @@ def test_partitioned_stream_orphan_counts_against_global_cap(store):
     raw = encoded({"market": CID, "event_type": "price_change"})
     store.record("stream", raw)
     path = store.folder / ("updates-" + CID + ".jsonl")
-    with path.open("ab") as handle:
-        handle.write(encoded({"sequence": 2, "body_base64": base64.b64encode(raw).decode()}) + b"\n")
+    store._append(path.name, {"sequence": 2, "kind": "stream", "response_bytes": len(raw), "body_utf8": raw.decode()})
     restarted = EvidenceStore(store.root, stream_cap=len(raw) + 1, clock=lambda: NOW)
     assert restarted.stream_capped and restarted.stream_bytes == 2 * len(raw)
 
@@ -407,11 +417,9 @@ def test_inspector_verifies_partitioned_books_and_projection(store):
     store.record("books", raw)
     store.record("discovery", b'[{"id":1,"volume":100}]',
                  stored_body=b'[{"id":1}]', change_key="discovery:1")
-    status = {"started_at_utc": NOW.isoformat(), "finished_at_utc": (NOW + timedelta(minutes=30)).isoformat(),
-              "cycles": 30, "failed_cycles": 0, "http": {}, "stream": {}, "trades": {}}
-    (store.root / "status.json").write_bytes(encoded(status))
+    terminal(store)
     result = inspect_capture(store.root, NOW.date().isoformat())
-    assert result["manifest_rows_verified"] == 2
+    assert result["response_records_verified"] == 2
     assert result["discovery_projection_responses"] == 1
     assert result["response_bytes_by_kind"]["books"] == len(raw)
 
@@ -427,6 +435,156 @@ def test_only_offline_inspector_is_workstation_heavy_allowlisted():
 def test_malformed_book_response_is_preserved_and_hashed(store, raw):
     store.record("books", raw)
     row = manifests(store)[0]
-    payload = json.loads((store.folder / row["payload_file"]).read_bytes())
-    assert base64.b64decode(payload["body_base64"]) == raw
+    assert decode_body(row) == raw
     assert row["response_sha256"] == digest(raw)
+
+
+def test_file_manifest_has_one_entry_per_file_and_inline_offsets(store):
+    for i in range(10):
+        store.event("sample", {"number": i})
+    folder = store.folder
+    assert not (folder / "manifest.json").exists()
+    store.seal()
+    manifest = json.loads((folder / "manifest.json").read_bytes())
+    assert len(manifest["files"]) == 1
+    assert manifest["files"]["sample.jsonl"]["records"] == 10
+    with (folder / "sample.jsonl").open("rb") as handle:
+        for _ in range(10):
+            offset = handle.tell()
+            assert json.loads(handle.readline())["offset"] == offset
+
+
+def test_raw_working_set_refuses_before_hard_limit(tmp_path):
+    from weather.market.maker_evidence_store import RawFootprintLimit
+    store = EvidenceStore(tmp_path, clock=lambda: NOW, max_raw_bytes=5000)
+    store.record("sample", b"x" * 2000)
+    before = (store.folder / "sample.jsonl").read_bytes()
+    with pytest.raises(RawFootprintLimit):
+        store.record("sample", b"x" * 2500)
+    assert (store.folder / "sample.jsonl").read_bytes() == before
+    assert store.peak_raw_bytes < 5000 and store.failure
+    store.seal()
+    assert sum(p.stat().st_size for p in store.root.glob("*/*/*") if p.is_file()) < 5000
+
+
+def test_subscription_lists_only_written_when_content_changes(store):
+    first = store.subscription(("123", "456"), "trades")
+    assert store.subscription(("123", "456"), "trades") == first
+    store.subscription(("123", "789"), "trades")
+    rows = manifests(store)
+    assert len(rows) == 2 and all(row["kind"] == "subscription" for row in rows)
+    store.event("stream_lifecycle", {"subscription": first, "state": "connected"})
+    terminal(store)
+    from weather.market.maker_evidence_inspect import inspect_capture
+    assert inspect_capture(store.root, NOW.date().isoformat())["response_records_verified"] == 3
+
+
+def test_updates_off_without_explicit_utc_window(tmp_path):
+    from weather.market.maker_evidence_capture import update_window
+    path = tmp_path / "extras.json"
+    path.write_bytes(encoded({"extra_conditions": [CID]}))
+    assert update_window(path, NOW) == ([], None)
+    end = NOW + timedelta(minutes=30)
+    path.write_bytes(encoded({"extra_conditions": [CID], "update_windows_utc": [
+        {"start": NOW.isoformat(), "end": end.isoformat()}]}))
+    assert update_window(path, NOW) == ([CID], end)
+    assert update_window(path, end) == ([], None)
+    assert update_window(path, NOW - timedelta(seconds=1)) == ([], None)
+
+
+@pytest.mark.parametrize("end", ["2026-09-23T15:31:00+00:00", "2026-09-23T15:30:00", "2026-09-23T11:30:00-04:00"])
+def test_update_window_refuses_unbounded_or_non_utc_times(tmp_path, end):
+    from weather.market.maker_evidence_capture import update_window
+    path = tmp_path / "extras.json"
+    path.write_bytes(encoded({"extra_conditions": [CID], "update_windows_utc": [
+        {"start": NOW.isoformat(), "end": end}]}))
+    with pytest.raises(ValueError):
+        update_window(path, NOW)
+
+
+def test_raw_socket_default_off_and_expiry_before_retention(store, monkeypatch):
+    from weather.market import maker_evidence_stream as module
+    stream = module.PublicStream(store)
+    monkeypatch.setattr(module, "connect", lambda: pytest.fail("raw stream enabled without a window"))
+    stream._run(("123",))
+    now = [NOW]
+    store.clock = lambda: now[0]
+    stream.window_end = NOW + timedelta(seconds=1)
+    class Socket:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def send(self, value):
+            pass
+        def recv(self, timeout):
+            now[0] += timedelta(seconds=2)
+            return '{"market":"' + CID + '"}'
+    monkeypatch.setattr(module, "connect", lambda: Socket())
+    stream._run(("123",))
+    assert store.stream_bytes == 0
+
+
+def test_websocket_rejects_oversized_frame_before_reading_payload():
+    import struct
+    from websocket import WebSocketProtocolException
+    from weather.market.maker_evidence_socket import BoundedFrameBuffer, MAX_MESSAGE_BYTES
+    header = bytearray(b"\x82\x7f" + struct.pack("!Q", MAX_MESSAGE_BYTES + 1))
+    requested = []
+    def receive(size):
+        requested.append(size)
+        chunk = bytes(header[:size])
+        del header[:size]
+        return chunk
+    buffer = BoundedFrameBuffer(receive, lambda: MAX_MESSAGE_BYTES)
+    with pytest.raises(WebSocketProtocolException, match="byte bound"):
+        buffer.recv_frame()
+    assert requested == [2, 8]
+
+
+def test_size_rotation_and_restart_keep_cap_and_compressed_bytes(tmp_path, monkeypatch):
+    from weather.market.maker_evidence_archive import compress_closed_segments
+    monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 100 * 1024**3)
+    store = EvidenceStore(tmp_path, clock=lambda: NOW, rotate_bytes=1)
+    store.record("stream", b"123")
+    store.record("stream", b"456")
+    store.seal()
+    assert compress_closed_segments(store)
+    assert store.raw_bytes == 0
+    restarted = EvidenceStore(tmp_path, clock=lambda: NOW, stream_cap=6)
+    assert restarted.stream_capped and restarted.stream_bytes == 6
+
+
+def test_fragmented_websocket_message_cannot_bypass_total_byte_bound(monkeypatch):
+    import struct
+    from websocket import WebSocketProtocolException
+    from weather.market import maker_evidence_socket as module
+    monkeypatch.setattr(module, "MAX_MESSAGE_BYTES", 10)
+    socket = module.BoundedWebSocket()
+    # First fragment fits; the continuation's advertised size exceeds the remainder.
+    wire = bytearray(b"\x02\x06abcdef\x80\x7e" + struct.pack("!H", 5))
+    requested = []
+    def receive(size):
+        requested.append(size)
+        chunk = bytes(wire[:size])
+        del wire[:size]
+        return chunk
+    socket.frame_buffer = module.BoundedFrameBuffer(receive, lambda: 10 - socket.fragment_bytes)
+    assert socket.recv_frame().data == b"abcdef"
+    with pytest.raises(WebSocketProtocolException, match="byte bound"):
+        socket.recv_frame()
+    assert requested == [2, 6, 2, 2]
+
+
+def test_corrupt_gzip_never_reclaims_plain_evidence(store, monkeypatch):
+    from weather.market.maker_evidence_archive import compress_closed_segments
+    monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 100 * 1024**3)
+    store.event("sample", {"value": 1})
+    folder = store.folder
+    store.seal()
+    plain = folder / "sample.jsonl"
+    original = plain.read_bytes()
+    (folder / "sample.jsonl.gz").write_bytes(gzip.compress(b"different evidence"))
+    with pytest.raises(ValueError, match="verification failed"):
+        compress_closed_segments(store)
+    assert plain.read_bytes() == original

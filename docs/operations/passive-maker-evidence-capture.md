@@ -36,15 +36,20 @@ are dropped and logged; conflicting rows or repeated cursors refuse the cycle.
 `--extra-conditions` names an optional, bounded JSON file:
 
 ```json
-{"extra_conditions": ["0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]}
+{"extra_conditions": ["0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"], "update_windows_utc": [{"start": "2026-09-24T00:00:00Z", "end": "2026-09-24T00:30:00Z"}]}
 ```
 
 The production agent publishes that file atomically with the session band and
-two controls for the requested before/after interval. Those conditions are
+two controls and explicit UTC windows for the 30 minutes before and after the
+session. Up to two non-overlapping windows are allowed, each at most 1,800 seconds.
+Raw updates are off without a currently active window and subscribe only to these
+conditions. The socket enforces the end time even during an HTTP cycle;
+configuration is reconciled between cycles. Extra conditions are
 added regardless of rank or reward eligibility. This worker does not inspect
 session worktrees or campaign roots.
 
-Raw updates use at most 100 tokens per connection and bounded message/queue
+The existing pinned `websocket-client` transport uses at most 100 tokens per
+connection and bounded message
 sizes. The hard daily cap defaults to 300,000,000 uncompressed response bytes,
 shared by all connections and surviving restart. A frame that would exceed it
 is rejected whole, a cap event is journaled, and update sockets close until the
@@ -57,18 +62,22 @@ deduplicated by an analysis consumer; no own-account fill or backfill is claimed
 
 ## Storage and brakes
 
-Default root: `data/maker_evidence`. One directory per UTC day contains raw
-response journals (base64 preserves exact book/reward/stream bytes), change-only reward bodies,
-universe selections, lifecycle/gap records and an append-only SHA-256 manifest.
-Each manifest row includes response time, raw hash/bytes, canonical content hash,
-and payload filename/byte offset. Even an unchanged reward reply gets a hash
-entry pointing to the last equal canonical body; whitespace/key-order differences
-can therefore have a distinct raw hash with the same content hash. The first
-reward reply each UTC day is stored. Status is an atomic operator cache.
+Default root: `data/maker_evidence`. Schema `maker_evidence_v2` stores journals
+inside `<UTC-day>/<UTC-hour>-<segment-id>/`. Each sealed segment has one
+`manifest.json` with one entry per file: SHA-256, byte count, record count and
+last offset. Each response record carries its own time, raw SHA-256/byte count,
+logical offset and payload reference. Exact UTF-8 bodies are stored as strings;
+non-UTF-8 replies fall back to base64. Status is an atomic operator cache.
+
+Subscription lists and discovery projections are stored only on content change.
+Unchanged rewards/projections reference the prior equal canonical body; key order
+or whitespace may differ from the received bytes, whose original hash is retained.
+Every new segment writes a fresh body baseline so its references are self-contained.
+Lifecycle records reference subscription lists instead of repeating them.
 
 Book replies are split losslessly into per-token journals, with a batch record
 retaining the original delimiters and offsets. Reassembly reproduces the exact
-wire SHA-256; token grouping lets day-close gzip reuse prior snapshots rather
+wire SHA-256; token grouping lets hourly gzip reuse prior snapshots rather
 than repeatedly compress unrelated books. Ranking and selected books share
 these token journals without dropping either capture.
 Updates and reward bodies are grouped by condition, and universe selections
@@ -80,23 +89,35 @@ Gamma discovery stores a change-only **selection projection**: event ID/slug,
 condition/token/outcome identities, active/closed/order-book flags and all
 published reward configurations/limits. Unrelated descriptions, volumes and
 analytics are omitted. Every received reply still has its original response
-SHA-256/byte count in the manifest, alongside the projection's independent
+SHA-256/byte count inline, alongside the projection's independent
 stored/content hashes and an explicit representation tag. The original full
 Gamma response cannot be reconstructed; every input actually used for universe
 selection is retained. This distinction is reported by the inspector.
 
-The writer holds a kernel lock. A torn journal refuses restart without
-rewriting evidence. At day close, a bounded background compression worker
-leaves the active writer lock free while streaming gzip verifies the complete restored
-SHA-256 before replacing its own plain journal. Logical offsets refer to the
-decompressed file. Current-day files are never compressed; no evidence expires.
+The writer holds a kernel lock. A torn journal refuses restart without rewriting
+evidence. Journals rotate at UTC hour boundaries, or earlier at 100 MB per segment.
+A bounded background worker compresses sealed segments while leaving the writer
+lock free, verifies the complete decompressed SHA-256, then removes its own plain
+representation. Compression is also attempted after failed HTTP cycles and during
+clean shutdown. Logical offsets refer to the decompressed file. Nothing expires.
+
+Writes stop before the total uncompressed journal/manifest working set reaches
+500,000,000 bytes, reserving space for sealing metadata. Status reports current
+and measured peak raw bytes; reaching the bound fails visibly rather than
+silently reducing capture. Verified compression runs in Green, Amber and Red;
+Critical stops capture. Compression delay cannot bypass the raw limit.
+
+The v2 writer refuses a legacy v1 root. Preserve legacy evidence and inspect it
+using its original bound reader; start v2 in a new root. There is no implicit
+migration or deletion.
+
 These journals are `canonical_evidence` in
 [the storage-class contract](data-storage-class-contract.md), with the same
 reviewed archive/reclaim gate as other original public evidence.
 
 Before each cycle the worker checks actual free space on its output volume.
 Red stops the raw update channel; Critical stops all capture and writes status.
-Green/Amber permit closed-day gzip. Windows process priority is IDLE (Scheduler
+Windows process priority is IDLE (Scheduler
 priority 10); buffers, reply sizes and universe size are bounded. The worker is
 independent of snapshot/CLOB supervisors and never calls them.
 
@@ -118,8 +139,11 @@ same evidence as production, using public reads only.
 After it stops, the bounded offline inspector verifies every manifest payload
 reference/hash and reports per-minute bytes, request latency aggregates, exact
 gzip-6 encoding size and explicitly labelled daily extrapolations. Set `--day`
-to the captured UTC day. It reads at most 2,048 plain journals / 1 GiB and changes
-no evidence (at most 16 open readers). Perform this scratch verification on the workstation; broader
+to the captured UTC day. It reads at most 20,000 journals / 1 GiB of decompressed
+data and changes no evidence (at most 16 open readers). It reports gzip bytes and
+daily projections by family, a stream-off projection against the 150 MB/day target,
+and incremental update bytes per 30-minute active window. These are observed-window
+extrapolations, not a full-day guarantee. Perform this scratch verification on the workstation; broader
 production-day inspection remains subject to the host load policy.
 
 Run the offline compression/integrity inspection through the workstation heavy

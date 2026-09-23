@@ -54,7 +54,7 @@ The separately registered `WeatherMakerEvidenceCapture` runs
 `python -m weather.market.maker_evidence_capture` directly, with a kernel writer
 lock and Scheduler IgnoreNew, rather than an `ensure` supervisor. Its
 [owning contract](passive-maker-evidence-capture.md) defines minute T+0/T+1/T+2
-books and reward records, capped raw updates, continuous public trades, disk
+books and reward records, capped extra-condition window updates, continuous public trades, disk
 brakes and `data/maker_evidence/status.json`. It does not enter streak grading
 or the existing capture recovery contract. The registrar is
 `scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption

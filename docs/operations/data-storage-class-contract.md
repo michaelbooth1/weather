@@ -49,7 +49,7 @@ Passive maker journals and manifests under `data/maker_evidence/<UTC-day>/`
 are canonical evidence, including gzip representations. Its atomic status and
 operator-maintained extra-condition list are operator caches. The
 [collector contract](passive-maker-evidence-capture.md) owns write, hash, cap
-and day-close mechanics; the same reviewed evidence-reclaim gate applies.
+and hourly rotation/compression mechanics; the same reviewed evidence-reclaim gate applies.
 
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from
 raw directory size, age, or duplicated-looking filenames alone.
