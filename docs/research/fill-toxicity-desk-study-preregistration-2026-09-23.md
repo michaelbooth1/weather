@@ -201,3 +201,11 @@ count at +1 and +5. The settlement horizon keeps its existing rule (events witho
 panel only). `R` is **not** horizon-restricted: it follows the frozen R rule over all panel leg-minutes (Clarifications 3-5
 exclusions only). Net pull value uses the 30-minute panel for both the avoided adverse loss and the lost reward of the same
 leg-minutes.
+
+## Clarification 8 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+Reward is scored jointly on both legs, so **net pull value uses the two-leg quote-minute as its unit**. A quote-minute enters
+the net-pull-value panel only if **both** of its leg-minutes are in the 30-minute panel of Clarification 7; otherwise the
+whole quote-minute (both legs' losses and its joint reward) leaves the net-pull-value panel, and is counted. Its lost reward
+is the canonical joint reward of that quote-minute, never recomputed for one leg and never split between legs. The
+concentration ratios keep the leg-minute unit of Clarification 7; `R` keeps the frozen R rule.
