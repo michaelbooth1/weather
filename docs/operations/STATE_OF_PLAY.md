@@ -20,10 +20,10 @@ Owner, 2026-09-21: the first paid reward test (RE-1, pre-registered) is approved
 workstation as an **attended script the owner starts personally**, worst case 20-30 dollars accepted, at most three
 sessions, none after 2026-09-30 (mission `2026-09-84a`; the script must be confirmed by the owner in the workstation
 session before it can sign). This is a one-off exception outside the sealed lane and changes nothing in it.
-Geographic eligibility is recorded as resolved by owner statement (the 2026-09-06 Ontario geoblock
-readings were a file-access tunnel to the owner's home PC; the execution PC is physically eligible
-and never moves; the tunnel must be down during any live session) — see
-[the live pilot runbook](INTERNATIONAL_MM_LIVE_PILOT.md) and item 67.
+**Owner, 2026-09-22: RE-1 capital is a learning budget.** Trading losses inside the envelope are reported as cost of
+learning, never a reason to stop or skip a session; a fill is data (shares held to settlement, markout kept).
+Geographic eligibility is resolved by owner statement (the 2026-09-06 Ontario readings were a tunnel to the owner's
+home PC; the execution PC is eligible and never moves; tunnel down during live) — [runbook](INTERNATIONAL_MM_LIVE_PILOT.md), item 67.
 
 Owner, 2026-09-21: **model work is unpaused**, and shortening the path to a live test is a priority.
 Five workstation missions were handed back and verified on 2026-09-21: `2026-09-79a` (what the
@@ -37,9 +37,11 @@ to parser version 1 (396 of 396 retained rows reproduce), all three pass the wor
 and are ready for host qualification. `2026-09-84b`/`84c` delivered the attended reward-test script, fit for a six-hour run (per-fact freshness budgets,
 heartbeat daemon, SDK-model reply tests, owner-run `preflight` and `reconcile`; `codex/reward-test-attended-20260921`
 @ `7e6e1709c`, PR 78, full suite clean, seeded 2%-failure six-hour rehearsal reached its end). 84c also disabled the
-pinned SDK's silent API-key creation. **The authenticated path is unexecuted: `live` refuses until the owner's
-`preflight` PASSes on that tip on the same UTC day.**
-None grants live authority.
+pinned SDK's silent API-key creation. **The owner's first real `preflight` runs (2026-09-22) found four defects on that
+tip: no `-ExecutionPolicy Bypass` on the host-identity spawn, `python-dotenv` undeclared, Cloudflare 403 on every
+plain-urllib public read (no `User-Agent`), and the accrual read paging the whole reward-market universe past the
+50-page budget; `84d` (`7010a0b58`) fixes the first two, `84e` (`c190fb10b`) the User-Agent, `84f` the paginator.
+Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS on it.** None grants live authority.
 
 ## Current truth
 
@@ -56,16 +58,17 @@ None grants live authority.
 | Live record | An owner-attended International Stage 0/1 test ran 2026-09-06 from the portable PC on unmerged branch code: three 0.005 pUSD post-only orders, cancelled, zero fills. It is spent and grants nothing. The code that ran is not on master. |
 | Maker candidate | PR 55 is reconciled onto the reliability lineage as `codex/maker-reconcile-20260920` @ `0fc25f40b` (roll-sensitive, not yet host-qualified; now carries the two host-suite test fixes). Mission 80a delivered a pure reward-aware pricer and an inert hash-bound Stage 2 envelope, and no execution path (EF §10i). **Mission `2026-09-80b` finished the inert build on `codex/stage2-hold-build-20260921` @ `88aa7e43a`, which contains the maker-reconcile branch, so production qualifies that one branch** (workstation full suite zero failures; trial merges with master and the three forecast branches are conflict-free; roll-sensitive, production verdict owed). It is built to the corrected rules: explicit cancel primary with the 10-15 s dead-man as backstop; a PROPOSED RE-1A addendum counting cumulative two-sided minutes per UTC reward day (120-minute sessions, four a day, three reward days); and default dispositions for the four 09-06 relaxations - fresh dedicated wallet, one typed confirmation per sealed session, receipt age stays unlimited, fee check unchanged. **All of these await the owner's ratification**; the build stays inert until two dated grants exist (owner draft: `docs/operations/stage2-hold-owner-authorization-draft.md` on that branch). Open owner question: a grant commit changes the bound Git tip, so the four attended Stage 0/1 predecessor runs must be repeated after it unless the owner approves granting before the first set. |
 | Forecast lead | `-09-79a` (EF §10h): the gap to the market is already 1.44-1.48x in the morning, and unfitted NBM-percentile band probabilities beat the served model there by ~0.012-0.015 Brier in both strata while still trailing the market at 1.15-1.22x. It is a lead on the guidance-present rows only (24.6-38.3% fill, none after 10:00). Mission `2026-09-81a` (EF §10j, pre-registration frozen before scoring): on every morning row the gain halves to about -0.0067 Brier and fails the frozen minimum-effect rule; **NO-GO for a confirmation this season**, and none is possible at this effect size because 11 market clusters cap power near 40%. Most guidance is discarded as below the observed floor (fill 73% at 06:00, ~7% at 09:00). **`-09-82a` (EF §10k) found why: 13Z and 19Z NBM bulletins hold no maximum for the current local date, and the parser took their first value - tomorrow morning's minimum - so the floor rightly discarded it; confirmed live on production.** A live, promotion-blocked shadow variant consumes those columns (the served model does not), so mission `2026-09-83a` built a versioned repair with replay parity on `codex/nbm-target-fix-20260921` (PARTIAL, EF §10l; roll-sensitive, needs a quiet window). After 12Z the newest bulletin holding today's maximum is 07Z, so later guidance is old by construction. **Production downloads the ~35 MB national bulletin on almost every market pass (24.9 GB in 15 hours on 2026-09-21); `-09-83b` built the finished repair and fail-open reuse (unlanded); mission `2026-09-83c` stacked them as three integration branches (all three ready for host qualification after `-09-83d`), which production qualifies and lands one layer per quiet window.** No candidate is scored until dates exist that were captured after the fix. Branches `codex/missing-information-checks-20260921`, `codex/morning-guidance-candidate-20260921` and `codex/nbm-target-trace-20260921` are ROLL-FREE and unmerged. Nothing is served or trained. |
-| Settlement source | The venue's declared resolution source moved from Weather Underground to weather.gov timeseries around 2026-08-23 (same stations; measured band agreement 921/921 before, 131/132 after). Master still hard-codes WU and no gate detects a source change. |
+| Settlement source | The venue's declared resolution source moved from Weather Underground to weather.gov timeseries around 2026-08-23 (same stations; band agreement 921/921 before; 2026-09-22 ledger: 359/360 after, no post-switch day unlabelled). Current Rules resolve on the page's "Hourly Data" (86a, UNDECIDABLE on exact degrees). Master still hard-codes WU; no gate detects a source change. |
 | Documentation | Restructured 2026-09-19 for agent use: conditional routing in `AGENTS.md`, `CLAUDE.md` entry point, findings digest, complete operations index, and audit checks for line budgets, index reachability, retired claims and this file's age. |
 
 ## Ordered non-live critical path
 
-1. **Owner today (2026-09-22): RE-1 `preflight` on `7e6e1709c` (84c tip, accepted), then session 1 by 13:59 Eastern
-   if it prints no FAIL line, else 2026-09-23.** Missions `2026-09-84a`-`85b`; attended script on the workstation. Paste
-   `85b` if `codex/re1-payout-link-20260922` is not yet pushed (85a accepted: the venue exposes no earned-day-to-payment
-   link, so 85b adopts a labelled exact-amount rule; verdict earliest 2026-09-25). Still the owner's: the account,
-   hurdle `H` and the stop date (before earnings are read). Freeze `R` from it before any further markout read.
+1. **RE-1 session 1 ran from ~01:40Z 2026-09-23 on `0a7531baf` and ended on a FILL (cleanup_ok; prediction `be81609a…`)** (PR 85: 84f + heartbeat User-Agent fix; preflight PASS 01:33Z; condition `0x532f7e97…`, YES 0.49 / NO 0.48, P_many rate 0.0065/min ≈ 2.34 per 6 h). Earlier plan: Order: owner makes a
+   fresh worktree at `475a626e4` (never the 09-21 execution worktree), tunnel down, runs `preflight` (valid from
+   00:00Z 09-23 = 20:00 ET 09-22; a later FAIL voids a PASS), on PASS starts `live` by 13:59 ET; `NO QUALIFYING BAND`
+   = retry each quarter hour. `84a`-`85b` accepted (85b roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). **Owner 2026-09-22, before any order:** the frozen RE-1 verdict
+   table binds (`k = paid / P_many`, `k >= 0.5` -> RE-2); `H` = 1.00 net/day per 100 deployed. **Amended 09-23**
+   ([addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md)): below-minimum outcome, USDC.e or pUSD, closes only on adequate NOT_PAID. Freeze `R` before any markout read.
 2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
    **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
    closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.

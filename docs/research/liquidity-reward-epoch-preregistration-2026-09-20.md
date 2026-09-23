@@ -104,6 +104,10 @@ none is wired into this repository yet.
 
 ## Frozen prediction and decision rule
 
+> **Amended 2026-09-23 (owner-approved, before any payment was observable):** see
+> [the interpretation addendum](liquidity-reward-epoch-addendum-2026-09-23.md) — `BELOW_PAYOUT_MINIMUM`, both reward
+> assets, graded adequacy, and a restated stop rule. Every session is reported under both.
+
 `re1_watch.js` accumulates `P_many` and `P_single` = sum over minutes in which both legs are visible
 of `rate(t) / 1440 x share(t)`, and at session end writes them with the journal's SHA-256 - before
 any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3.5 dollars.**
@@ -116,6 +120,13 @@ any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3
 | `NOT_PAID` | paid = 0, legs marked scoring, `P_many >= 2.0` | The model is wrong by more than the payout minimum can explain. No further live work on this thesis without a named mechanism. |
 | `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported. |
 
+**Reward day (owner, from use, 2026-09-22):** the venue's liquidity rewards reset and are paid daily at 20:00
+Eastern, i.e. 00:00 UTC in daylight time - the reward day is the UTC day. Session 1 (started about 01:40Z
+2026-09-23) lies wholly inside reward day 2026-09-23 and its payment is expected at 00:00Z 2026-09-24. A second
+session in the same UTC day adds to the same daily total and the same payment only if it quotes the **same
+condition**; earnings on any other condition that day make `link_reward_payment` stop at
+`other_condition_accruals` (`re1_payout_evidence.py`), so the day cannot be linked.
+
 M2's accrued earnings, if the venue shows them below the payout minimum, are reported beside `k`
 as `k_accrued`. They can sharpen `INCONCLUSIVE`; they cannot turn `NOT_PAID` into a pass.
 
@@ -124,7 +135,7 @@ same treatment on up to three bands, at most five sessions and two payout cycles
 days. `R` (execution-tape markout pre-registration) is frozen from RE-2's paid reward per filled
 share before anyone re-reads the markout numbers.
 
-**Hurdle and stop (owner to set; defaults proposed):** `H` = 1.00 dollar net per day per 100
+**Hurdle and stop (owner set both to these defaults on 2026-09-22, before any RE-1 order):** `H` = 1.00 dollar net per day per 100
 deployed across the RE-2 cohort, trading losses included. **If no epoch has returned a paid verdict
 by 2026-10-31 the maker track closes** and the project reverts to cheap capture only, pending an
 owner decision on whether it continues at all.
