@@ -172,3 +172,19 @@ The 20% rule in Clarification 4 counts **band-minutes**, the panel's own unit. F
 over its panel bands of expected minutes; the numerator is the band-minutes excluded for missing or stale terms. Panel bands
 are the date-market's bands with at least one captured reward record or reward configuration on that date. Missing-term
 exclusions otherwise act band by band (a minute excluded for one band does not remove other bands' same minute).
+
+## Clarification 6 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+**E3 source and rule.** The running maximum is built from the **routine hourly METAR stream as captured in our own market
+snapshots** (the METAR report time and temperature fields the collectors store), keeping only reports whose minute falls in
+the weather.gov WRH documented hourly filter — **:51-:59 for US NWS/FAA stations** — which is what the current Rules
+resolve on ("Hourly Data") and what mission 86a implemented as `metar_hourly`. Temperatures are converted to the market's
+native unit and rounded half-up with `weather.units`, as 86a did. **Toronto (CYYZ)** has no METAR source in our snapshots,
+so it uses the captured WU history rows (the same fields, time and value), unfiltered. SPECI and non-routine reports do not
+enter E3 (they remain in E2 through the observation triggers).
+
+**E3 event time** is the source report time of the first report at which the running maximum exceeds the band's upper edge
+(the band's YES is dead); open-top bands have no E3 event. The design's second clause ("the band becomes the only survivor")
+is **dropped**: it cannot be observed without a forecast of the remaining rise — that is the T3 estimate mission 89b builds,
+and it may enter a later, separately pre-registered study. Our detection time for the same report is recorded for the
+latency sub-study.
