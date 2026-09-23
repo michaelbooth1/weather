@@ -161,6 +161,8 @@ def run_collect(args):
         destination = args.prediction.parent / ('payout-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
         write_new(destination, guard.clean(result))
         guard.print({'verdict': result['verdict'], 'k': result['k'], 'k_accrued': result['k_accrued'],
+                     'verdict_frozen': result['verdict_frozen'], 'verdict_amended': result['verdict_amended'],
+                     'accrued_verdict': result['accrued_verdict'], 'flags': result['flags'],
                      'receipt': str(destination), 'payout_diagnostics': diagnostics, **binding})
         return 0
     finally:

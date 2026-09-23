@@ -4,6 +4,7 @@ This RE-1 producer rule is not an authoritative venue earned-period reference
 and does not change the pure activity bridge. See INTERNATIONAL_MM_LIVE_PILOT.md.
 """
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 import hashlib
 import json
@@ -14,6 +15,7 @@ from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENT
 from weather.market.mm_official_adapter import _plain_sdk_value
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
 from weather.market.re1_evidence import campaign_root, load_prediction, payout_verdict
+from weather.market import re1_transport
 from weather.market.re1_transport import ASSETS, HOST, RPC
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, validate_nonreparse_directory
 
@@ -168,29 +170,20 @@ def normalize_earnings(rows, totals, scope, observed):
 
 
 def collect_accruals(venue, scope, journal, clock):
+    from weather.market.re1_transport import condition_configurations
     journal.kind = 'accruals'
     retained = {}
     try:
         day = utc(scope['accrual_start_utc']).date().isoformat()
         rows = read_pages(venue.client.list_user_earnings_for_day(date=day), journal, '/rewards/user')
         retained['rows'] = [r for r, _ in rows]
-        configurations = read_pages(venue.client.list_user_earnings_and_markets_config(date=day), journal, '/rewards/user/markets')
-        retained['market_configurations'] = [r for r, _ in configurations]
+        retained['market_configurations'] = condition_configurations(scope['condition_id'], journal=journal)
         totals = _plain_sdk_value(venue.client.get_total_earnings_for_user_for_day(date=day))
         retained['total_earnings'] = totals
         require(len(totals) <= MAX_ROWS, 'earnings_total_budget')
         provenance = journal.last_response_hash('/rewards/user/total')
         observed = utc(clock())
         normalized, all_assets = normalize_earnings(rows, [(r, provenance) for r in totals], scope, observed)
-        expected = {(r['condition_id'].lower(), r['asset_address'].lower()): Decimal(r['earnings']) for r, _ in rows}
-        configured = {}
-        for row, _ in configurations:
-            require(row['maker_address'].lower() == scope['maker_address'], 'configuration_account')
-            for earning in row['earnings']:
-                key = row['condition_id'].lower(), earning['asset_address'].lower()
-                require(key not in configured and key[1] in ASSET_MARKERS, 'configuration_duplicate_or_asset')
-                configured[key] = Decimal(earning['earnings'])
-        require({k: v for k, v in expected.items() if v} == {k: v for k, v in configured.items() if v}, 'configuration_earnings_mismatch')
         closed = observed >= utc(scope['accrual_end_utc'])
         src = source(scope, 'accruals', journal, clock, complete=closed and all_assets,
             pagination=True, through=min(observed, utc(scope['accrual_end_utc'])))
@@ -231,7 +224,7 @@ def collect_distribution_candidates(venue, scope, journal, clock):
     return src, [dict(row, source_record_sha256=provenance) for row, provenance in rows]
 
 
-def link_reward_payment(scope, accrual_source, accruals, raw_earnings, activity_source, activities, wallet_source, credits, clock):
+def _link_reward_payment_frozen(scope, accrual_source, accruals, raw_earnings, activity_source, activities, wallet_source, credits, clock):
     """Apply the reviewed RE-1 rule; never allocate unexplained wallet credits."""
     pusd = [r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET]
     cash = [r for r in credits if r['cash_asset'] == INCENTIVE_CASH_ASSET]
@@ -316,6 +309,192 @@ def link_reward_payment(scope, accrual_source, accruals, raw_earnings, activity_
     return finish('matched', [distribution], complete=True)
 
 
+def link_reward_payment(scope, accrual_source, accruals, raw_earnings, activity_source, activities, wallet_source, credits, clock):
+    """Apply the reviewed RE-1 rule; never allocate unexplained wallet credits."""
+    pusd = list(accruals)  # Native rows keep their actual asset labels.
+    cash = list(credits)
+    other_cash = [r for r in credits if r['cash_asset'] != INCENTIVE_CASH_ASSET]
+    other = [r for r in accruals if r['condition_id'] != scope['condition_id'] and Decimal(r['venue_amount']) > 0]
+    raw = raw_earnings.get('rows')
+    try:
+        venue_total = None if raw is None else format(native_sum(r['earnings'] for r in raw), 'f')
+        observed_other = [r for r in raw or [] if r['condition_id'].lower() != scope['condition_id'] and Decimal(r['earnings']) > 0]
+        other_observations = dict(count=None if raw is None else len(observed_other), total={
+            marker['symbol']: None if raw is None else format(native_sum(r['earnings'] for r in observed_other
+                if r['asset_address'].lower() == asset), 'f') for asset, marker in ASSET_MARKERS.items()})
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        venue_total = None
+        other_observations = dict(count=None, total=None)
+    units = sum(micro_units(r['amount']) for r in pusd) if accrual_source['complete'] else None
+    closed = utc(clock()) >= utc(scope['cash_end_utc'])
+    credit_fields = ('credited_at_utc', 'transaction_hash', 'log_index', 'amount')
+    diagnostics = dict(reward_day=utc(scope['accrual_start_utc']).date().isoformat(),
+        accrual_total_venue=venue_total, accrual_total_units=units,
+        other_condition_accruals=other_observations,
+        reward_activity_rows=[dict(timestamp_utc=utc(r['timestamp']).isoformat(),
+            transaction_hash=r['transaction_hash'], amount=r['amount']) for r in activities if r['type'] == 'REWARD'],
+        pusd_credits_in_window=[{k: r[k] for k in credit_fields} for r in cash if r['cash_asset'] == INCENTIVE_CASH_ASSET],
+        usdc_e_credits_in_window=[{k: r[k] for k in credit_fields} for r in other_cash],
+        cash_window_closed=closed, linkage_rule_outcome='accruals_not_final')
+    src = activity_source
+    src.update(complete=False, observed_at_utc=utc(clock()).isoformat())
+    def finish(reason, distributions=(), *, complete=False):
+        diagnostics['linkage_rule_outcome'] = src['reason'] = reason
+        src['complete'] = complete
+        if complete:
+            src.update(status='OBSERVED', pagination_complete=True, payout_cycle_complete=True,
+                coverage_through_utc=min(utc(scope['cash_end_utc']), utc(src['activity_observed_at_utc'])).isoformat())
+        return list(distributions), diagnostics
+    if accrual_source['status'] != 'OBSERVED' or not accrual_source['complete'] or any(
+            r['status'] not in {'ACCRUED', 'COMPLETED_ZERO'} for r in pusd):
+        return finish('accruals_not_final')
+    if other:
+        return finish('other_condition_accruals')
+    if units is None or units < 0:
+        return finish('nonpositive_accrual')
+    if (not src['candidate_pagination_complete'] or src['failure_type'] is not None or
+            utc(src['activity_request_scope']['period_end_utc']) < utc(scope['cash_end_utc'])):
+        return finish('activity_coverage_incomplete')
+    joined, unjoined = [], []
+    for activity in activities:
+        matches = [c for c in cash if c['status'] == 'CONFIRMED' and c['transaction_hash'] == activity['transaction_hash'].lower()]
+        activity['join_status'] = 'joined' if len(matches) == 1 else 'unjoined'
+        activity['matching_credit_ids'] = [c['credit_id'] for c in matches]
+        (joined if len(matches) == 1 else unjoined).append((activity, matches))
+    if unjoined:
+        return finish('activity_credit_join_failed')
+    if not activities:
+        if cash: return finish('wallet_credit_unattributed')
+        if not closed: return finish('cash_window_open')
+        if not wallet_source['complete'] or not wallet_source['pagination_complete']:
+            return finish('wallet_coverage_incomplete')
+        return finish('not_paid', complete=True)
+    matches = [(a, cs[0]) for a, cs in joined if abs(micro_units(cs[0]['amount']) - units) <= 1]
+    if not matches: return finish('no_amount_match')
+    if len(matches) != 1: return finish('ambiguous_amount_match')
+    if not wallet_source['complete'] or not wallet_source['pagination_complete']:
+        return finish('wallet_coverage_incomplete')
+    activity, credit = matches[0]
+    if any(c['credit_id'] != credit['credit_id'] for c in cash):
+        return finish('wallet_credit_unattributed')
+    # Zero rows for other conditions do not receive a fabricated distribution.
+    targets = [r for r in pusd if r['condition_id'] == scope['condition_id'] and micro_units(r['amount']) > 0]
+    if len(targets) != 1: return finish('accrual_identity_ambiguous')
+    accrual = targets[0]
+    distribution = dict(maker_address=scope['maker_address'], cash_asset=dict(credit['cash_asset']),
+        observed_at_utc=src['observed_at_utc'], source_record_sha256=activity['source_record_sha256'],
+        amount=credit['amount'], distribution_id='reward-' + digest([
+            diagnostics['reward_day'], credit['transaction_hash'], credit['log_index']])[:48],
+        accrual_id=accrual['accrual_id'], programme='liquidity_reward', condition_id=scope['condition_id'],
+        status='PAID', credit_id=credit['credit_id'], linkage_basis=LINKAGE_BASIS,
+        activity_sha256=activity['source_record_sha256'], activity_timestamp_utc=utc(activity['timestamp']).isoformat(),
+        matched_amount_delta_units=micro_units(credit['amount']) - units)
+    return finish('matched', [distribution], complete=True)
+
+
+def reconcile_reward_payment(evidence, *, frozen=False):
+    """Replay RE-1 linkage in native assets; never relabel USDC.e as pUSD.
+
+    Older generic receipts still use the unchanged shared reconciler. Collector
+    receipts additionally prove both asset queries, all-condition earnings and
+    the unique native credit before the amended interpretation can use them.
+    """
+    from weather.market.mm_exchange_reports import (
+        reconcile_incentive_payments, _incentive_scope, _incentive_sources,
+    )
+    if not isinstance(evidence, dict) or 'asset_observations' not in evidence:
+        return reconcile_incentive_payments(evidence)
+    if frozen:
+        try:
+            original = deepcopy(evidence)
+            assets = original['asset_observations']
+            accruals = [r for a in assets.values() for r in a['accruals']]
+            credits = [r for a in assets.values() for r in a['wallet_credits']]
+            sources = original['sources']
+            original['distributions'], _ = _link_reward_payment_frozen(original['scope'],
+                sources['accruals'], accruals, original['sdk_earnings'], sources['distributions'],
+                original['distribution_candidates'], sources['wallet_credits'], credits,
+                lambda: utc(original['as_of_utc']))
+            return reconcile_incentive_payments(original)
+        except (ValueError, KeyError, TypeError, ArithmeticError, RuntimeError):
+            return dict(valid=False, complete=False, status='INVALID', scope={}, blockers=['frozen_linkage_invalid'])
+    result = dict(valid=False, complete=False, status='INVALID', scope={}, blockers=[],
+                  actual_liquidity_reward_usdc=None, cash_window_closed=False)
+    try:
+        require(evidence['schema_version'] == PAID_INCENTIVE_EVIDENCE_SCHEMA, 'evidence_schema')
+        require(len(canonical_bytes(evidence)) <= 4 * 1024 * 1024, 'evidence_budget')
+        scope, times, as_of = _incentive_scope(evidence)
+        result['scope'] = scope
+        unresolved = set()
+        _incentive_sources(evidence, scope, times, as_of, unresolved)
+        require(not unresolved, 'source_coverage_incomplete')
+        require(times['accrual_end_utc'] == times['accrual_start_utc'] + timedelta(days=1) and
+                times['cash_start_utc'] == times['accrual_start_utc'] and
+                times['cash_end_utc'] == times['accrual_start_utc'] + timedelta(days=3), 'reward_window')
+        sources = deepcopy(evidence['sources'])
+        assets = evidence['asset_observations']
+        require(set(assets) == set(ASSET_MARKERS) and
+                set(sources['wallet_credits']['assets']) == set(ASSET_MARKERS), 'asset_coverage')
+        raw = evidence['sdk_earnings']
+        normalized, complete = normalize_earnings(
+            [(r, '0' * 64) for r in raw['rows']], [(r, '0' * 64) for r in raw['total_earnings']],
+            scope, utc(sources['accruals']['observed_at_utc']))
+        require(complete, 'earnings_total_missing')
+        accruals, credits = [], []
+        identities = set()
+        for asset, marker in ASSET_MARKERS.items():
+            for kind, dest in [('accruals', accruals), ('wallet_credits', credits)]:
+                rows = assets[asset][kind]
+                require(isinstance(rows, list) and len(rows) <= MAX_ROWS, 'native_row_budget')
+                for row in rows:
+                    require(row['cash_asset'] == marker and row['maker_address'] == scope['maker_address'], 'native_row_scope')
+                    observed = utc(row['observed_at_utc'])
+                    require(observed <= utc(sources[kind]['observed_at_utc']) and
+                            re.fullmatch('[0-9a-f]{64}', row['source_record_sha256']), 'native_row_provenance')
+                    if kind == 'wallet_credits':
+                        tx = hex32(row['transaction_hash'])
+                        index = row['log_index']
+                        key = f'137:{tx}:{index}'
+                        at = utc(row['credited_at_utc'])
+                        require(type(index) is int and 0 <= index <= 9_999_999_999 and row['chain_id'] == 137 and
+                            row['credit_id'] == key and key not in identities and row['status'] == 'CONFIRMED' and
+                            times['cash_start_utc'] <= at < times['cash_end_utc'] and at <= observed and
+                            micro_units(row['amount']) > 0 and
+                            Decimal(row['amount']) == Decimal(micro_units(row['amount'])) / 1_000_000, 'native_credit_invalid')
+                        identities.add(key)
+                    dest.append(row)
+        def earnings_identity(rows):
+            return sorted((r['accrual_id'], r['condition_id'], r['cash_asset']['asset_address'],
+                           r['amount'], r['venue_amount'], r['asset_rate'], r['status'],
+                           r['period_start_utc'], r['period_end_utc']) for r in rows)
+        require(earnings_identity(accruals) == earnings_identity(normalized), 'native_earnings_mismatch')
+        activities = deepcopy(evidence['distribution_candidates'])
+        require(len(activities) <= MAX_ROWS, 'activity_budget')
+        for row in activities:
+            require(row['wallet'].lower() == scope['maker_address'] and row['type'] == 'REWARD' and
+                times['accrual_end_utc'] <= utc(row['timestamp']) < times['cash_end_utc'] and
+                re.fullmatch('[0-9a-f]{64}', row['source_record_sha256']), 'activity_scope')
+            hex32(row['transaction_hash'])
+        distributions, diagnostics = link_reward_payment(scope, sources['accruals'], accruals, raw,
+            sources['distributions'], activities, sources['wallet_credits'], credits,
+            lambda: utc(evidence['sources']['distributions']['observed_at_utc']))
+        require(sources['distributions']['complete'], diagnostics['linkage_rule_outcome'])
+        require(distributions == evidence.get('reward_distributions', evidence['distributions']), 'distribution_replay_mismatch')
+        require(all(utc(c['credited_at_utc']) >= times['accrual_end_utc'] for c in credits), 'credit_precedes_accrual')
+        day_total = sum(Decimal(r['venue_amount']) * Decimal(r['asset_rate']) for r in accruals)
+        condition_total = sum(Decimal(r['venue_amount']) * Decimal(r['asset_rate']) for r in accruals
+                              if r['condition_id'] == scope['condition_id'])
+        result.update(valid=True, complete=True, status='COMPLETE',
+            actual_liquidity_reward_usdc=str(sum((Decimal(r['amount']) for r in distributions), Decimal(0))),
+            day_earnings=str(day_total), condition_earnings=str(condition_total),
+            cash_window_closed=True, matched_distributions=distributions,
+            cash_assets=[r['cash_asset'] for r in distributions],
+            accrual_states=[dict(state='PAID' if distributions else 'UNPAID')])
+    except (ValueError, KeyError, TypeError, ArithmeticError, RuntimeError) as exc:
+        result['blockers'] = [str(exc)]
+    return result
+
+
 class RpcRangeLimit(RuntimeError):
     pass
 
@@ -332,7 +511,8 @@ class PolygonReads:
         payload = dict(jsonrpc='2.0', id=self.count, method=method, params=params)
         raw = json.dumps(payload, separators=(',', ':')).encode()
         self.journal.record('rpc_request', request=payload, url=RPC, sha256=sha(raw), hash_basis='transmitted_json_bytes')
-        request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json', 'Accept': 'application/json'})
+        request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json', 'Accept': 'application/json',
+                                                                'User-Agent': re1_transport._user_agent()})
         with self.opener(request, timeout=10) as response:
             body = response.read(MAX_BYTES + 1)
             self.journal.record('rpc_response', id=self.count, status=response.status, length=len(body), sha256=sha(body))
@@ -492,18 +672,20 @@ def collect_evidence(venue, prediction, *, clock=now_utc, opener=urlopen):
         distribution_source.update(complete=False, reason='sdk_journal_failed')
     distributions, diagnostics = link_reward_payment(scope, accrual_source, accruals, raw_earnings,
         distribution_source, candidates, wallet_source, credits, clock)
-    # v0.1 only represents native pUSD. Preserve USDC.e separately, never
-    # relabel or convert it into pUSD to satisfy the existing matcher.
+    # Preserve both native assets for the RE-1 replay. The shared reconciler
+    # still understands only pUSD and is used solely for the frozen verdict.
     evidence = dict(schema_version=PAID_INCENTIVE_EVIDENCE_SCHEMA, scope=scope, as_of_utc=utc(clock()).isoformat(),
         sources=dict(accruals=accrual_source, distributions=distribution_source, wallet_credits=wallet_source),
-        accruals=[r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET], distributions=distributions,
+        accruals=[r for r in accruals if r['cash_asset'] == INCENTIVE_CASH_ASSET],
+        distributions=[r for r in distributions if r['cash_asset'] == INCENTIVE_CASH_ASSET],
+        reward_distributions=distributions,
         wallet_credits=[r for r in credits if r['cash_asset'] == INCENTIVE_CASH_ASSET], excluded_external_credit_ids=[],
         asset_observations={a: dict(accruals=[r for r in accruals if r['cash_asset']['asset_address'] == a],
             wallet_credits=[r for r in credits if r['cash_asset']['asset_address'] == a]) for a in ASSET_MARKERS},
         distribution_candidates=candidates, sdk_earnings=raw_earnings, wire_journal=journal.records,
         prediction_sha256=digest(prediction), payout_diagnostics=diagnostics,
         limitations=['reviewed_re1_linkage_rule_not_venue_earned_period_reference',
-            'reconciler_accepts_native_pusd_only', 'reconciler_requires_closed_cash_window'])
+            'shared_reconciler_accepts_native_pusd_only_use_re1_verdict_for_both_assets', 'reconciler_requires_closed_cash_window'])
     return venue.guard.clean(evidence)
 
 
@@ -525,13 +707,14 @@ def run_collect_evidence(args):
         venue = OwnerVenue(client, fields, guard, condition=prediction['condition_id'], readonly=True)
         evidence = collect_evidence(venue, prediction)
         # The file must survive malformed/partial earnings as refused evidence.
-        # Accrued diagnostics are computed by collect-payout's separate read;
-        # this command reports only the paid-evidence decision.
-        result = payout_verdict(prediction, {'rows': []}, evidence)
         destination = path.parent / ('payout-evidence-' + now_utc().strftime('%Y%m%dT%H%M%S%fZ') + '.json')
         file_hash = write_new(destination, guard.clean(evidence))
+        accrual = evidence['sdk_earnings'] if evidence['sources']['accruals']['complete'] else {'rows': []}
+        result = payout_verdict(prediction, accrual, evidence)
         guard.print(dict(payment_evidence_path=str(destination), payment_evidence_sha256=file_hash,
-            verdict=result['verdict'], paid=result['paid'], k=result['k'],
+            verdict=result['verdict'], verdict_frozen=result['verdict_frozen'], verdict_amended=result['verdict_amended'],
+            accrued_verdict=result['accrued_verdict'], flags=result['flags'], k_accrued=result['k_accrued'],
+            paid=result['paid'], k=result['k'],
             reconciliation_status=result['payment_reconciliation']['status'],
             blockers=result['payment_reconciliation']['blockers'], limitations=evidence['limitations']))
         return 0 if result['payment_reconciliation']['complete'] else 2

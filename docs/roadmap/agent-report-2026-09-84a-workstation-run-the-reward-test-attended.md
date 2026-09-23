@@ -1474,3 +1474,567 @@ selection, sizing, payout, reconciler, schema-registry or attempt-accounting
 change; no production write, Scheduler registration, restart, merge or adoption;
 no full suite before 19:00 Eastern. Adoption remains the owner's decision and
 requires a fresh same-day preflight at any newly approved execution tip.
+
+## 84e — September 22, 2026: identify public reads and stop blocked preflight early
+
+**IMPLEMENTED; REAL PUBLIC PROBES PASS WITH THE DESCRIPTIVE USER-AGENT; 69 FOCUSED
+TESTS PASS. No real preflight or live session was run. Full-suite qualification
+is not claimed; the owner's no-full-suite-before-19:00-Eastern boundary remains.**
+
+Owner instruction: Mission 84e in this task. Branch
+`codex/re1-public-reads-ua-20260922` is stacked exactly on
+`7010a0b585e1d6f31787a34e84bbf11d80939bd3` (84d), in the existing 84d worktree
+`C:\Users\Michael\Documents\github\weather\scratch\w\re1-preflight-hardening-20260922`.
+The owner explicitly requested reuse of that worktree and this append-only
+section; 84d's branch, commits, prior report and changes remain intact.
+Implementation commit: `5b01a80b922b1342e4b7db878fb85ea6a76e1a2d`.
+The following report-only commit is the handback tip; resolve it from the exact
+published branch. The draft PR targets `codex/re1-preflight-hardening-20260922`.
+
+### Public probe evidence, before publication
+
+The initial clean-base comparison ran at **2026-09-22 17:06:09 UTC / 13:06:09
+Eastern** on this workstation with CPython 3.11.9. It called the existing
+`json_read` with only the Request User-Agent changed for the new-header arm.
+The committed implementation comparison ran at **17:11:08 UTC / 13:11:08
+Eastern**. It called the committed `json_read` unchanged for the new-header
+arm; the old-header control removed only User-Agent immediately before real
+`urllib.request.urlopen`. Both comparisons retained `Accept: application/json`,
+`Content-Type: application/json`, the two-second timeout, JSON encoding, response
+size limit, exact-final-URL check and status/JSON checks.
+
+| Clean commit / User-Agent | GET `https://polymarket.com/api/geoblock` | POST `https://polygon.drpc.org` (`eth_blockNumber`) |
+| --- | ---: | ---: |
+| 84d `7010a0b58`; old implicit `Python-urllib/3.11` | HTTP 403 | HTTP 403 |
+| 84d `7010a0b58`; `weather-re1-attended/7010a0b58` | HTTP 200; `json_read` PASS | HTTP 200; `json_read` PASS |
+| 84e source `5b01a80b9`; old implicit `Python-urllib/3.11` | HTTP 403 | HTTP 403 |
+| 84e source `5b01a80b9`; `weather-re1-attended/5b01a80b9` | HTTP 200; `json_read` PASS | HTTP 200; `json_read` PASS |
+
+Exact header line measured on the implementation commit:
+
+```text
+User-Agent: weather-re1-attended/5b01a80b9
+```
+
+Exact implementation expression:
+
+```python
+'User-Agent': 'weather-re1-attended/' + code_identity()[:9]
+```
+
+The suffix follows the current clean commit, including a subsequent report-only
+tip; it is not hard-coded to the source commit. The RPC body in every POST was:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": []}
+```
+
+The Mozilla-compatible fallback was **not needed or tried** because the first
+descriptive form succeeded on both URLs. No provider, key, proxy, tunnel or TLS
+setting was changed. HTTP 200 here establishes public transport access only;
+it does not claim geographic eligibility, account readiness or permission to trade.
+
+### Failure behavior and verification
+
+After the existing host/proxy/clean-tip gate and before loading credentials,
+building a client, selecting a band, opening a stream or entering any 20-read
+loop, `run_preflight` probes geoblock once, then the fixed Polygon RPC once.
+The first HTTP error stops the sequence immediately, closes the error response,
+and records one `public_read_probe` failure with the message
+`public_read_blocked: <url> -> HTTP <code>`. The terminal prints exactly one
+message-bearing FAIL row, including the receipt path. The journal and receipt
+retain the same cause; latency/timeout maps remain empty and `clean_preflight`
+rejects the receipt. 84d's no-band, guarded-message and heartbeat-budget behavior
+is preserved, as are later geography and repeated-read gates.
+
+- **69 passed in 10.63s**, no failures or skips: transport, owner-check,
+  attended parity-audit and import-architecture files. New coverage inspects
+  actual Request objects via monkeypatched `urlopen` for both GET and POST;
+  six injected failures cover both URLs at HTTP 403, 429 and 503. The success
+  path proves two probes precede the existing read counts. No test uses real auth.
+- Compilation of the four edited Python files: PASS through the workstation
+  wrapper. Full suite and full-tree compilation: not run.
+- Agent docs audit: PASS (18 agent files, 912 Markdown files); generated-backlog
+  `--check`: PASS; cumulative diff check and exact-base ancestry: PASS.
+- Tests and compilation used `scripts/ops/workstation_heavy.ps1` with its
+  host/principal, shared mutex and Job checks. The explicit task-owned pytest
+  temporary directory was removed after the wrapper's terminal exit.
+
+Focused reproduction: use the implementation worktree's workstation wrapper
+with `-Kind pytest`, absolute RE-1 `-PythonPath` and absolute `-RepoRoot`, encoding
+the following array as UTF-8 base64 for `-ArgumentsBase64`; use fresh receipt
+and temporary names on repeat runs:
+
+```json
+["-m", "pytest", "tests/market/test_re1_owner_checks.py", "tests/market/test_re1_transport.py", "tests/market/test_re1_attended_parity_audit.py", "tests/operations/test_import_architecture.py", "-q", "--basetemp=scratch/84e-focused-temp", "--junitxml=scratch/84e-focused.xml"]
+```
+
+Public-only reproduction from a clean approved checkout is `json_read(GEOBLOCK)`
+and `json_read(RPC, body={"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber",
+"params": []})` from `weather.market.re1_transport`. The retained scratch probe
+script also compares the old header and prints only request identity/status,
+never response bodies. The actual workstation command was:
+
+```powershell
+Get-Content -Raw scratch/84e_public_probe.py | C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe -
+```
+
+Retained local receipts, relative to the implementation worktree (not assumed
+to exist in a clean checkout):
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/84e-public-probes-base.jsonl` | `514ed6b1c7f3472364b8577db1390d3574f290978cbe57826d972588ab1b46bb` |
+| `scratch/84e-public-probes-implementation.jsonl` | `ced15c12747977b66fb2cf55128a30603fae455289db9a1bd0f77bb3b39cf8c2` |
+| `scratch/84e_public_probe.py` | `4733897c4857e6991bee5e5334139cd9c2a647073c11cbe93b617b9da398e5df` |
+| `scratch/84e-focused.xml` | `2afa2836ca0a5377ba6a23f79612ba5bf06f3092bd8957023ef399fc46b750fd` |
+| `scratch/84e-roll-verdict.txt` | `9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0` |
+
+### Roll disposition and exclusions
+
+`scripts/ops/roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922
+-Base 7010a0b58 -JsonOut scratch/84e-roll-verdict.json` returned **exit 1,
+UNDECIDABLE: no live closure evidence** for all four supervisors; no JSON
+receipt was emitted. No production or frozen-mirror evidence was consulted.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_transport.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_owner_checks.py` | Live closure membership unavailable; no roll-free claim |
+| `tests/market/test_re1_transport.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_owner_checks.py` | Offline regression evidence; no live closure measurement |
+| `docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md` | Run-card documentation; roll-free by standing contract |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Append-only handback; roll-free by standing contract |
+
+**Not done:** no real preflight, live, credential/account/payout read, `.env`
+access, provider switch, API key, order, heartbeat or cancel request; no command
+or edit in `scratch\w\reward-test-attended-20260921`; no full suite, production
+write, Scheduler registration, restart, merge or adoption. The owner runs the
+fresh preflight tomorrow morning on the newly approved tip. Production
+integration still needs a fresh closure verdict from operations.
+
+## 84f — September 22, 2026: selected-condition accrual and cached User-Agent
+
+**IMPLEMENTED; 180 FOCUSED TESTS PASS. Full suite is pending one run after
+19:00 Eastern on the published 84f tip, with its result reported separately.
+No real preflight or live session was run.**
+
+Executed the owner's pinned handoff
+`workstation-handoff-2026-09-84f-selected-condition-accrual-and-a-cached-user-agent.md`
+from `origin/codex/reward-test-attended-handoff-20260921` at `472856011`.
+Implementation commit: `20b73c3a95e9b8e4729bd88332d88a06df7b5cfb`, an additive
+commit on `c190fb10bfeb615b3f8f5ba27d9b5a0fdeba1e31`. Branch remains
+`codex/re1-public-reads-ua-20260922`; existing draft PR 85 remains stacked on
+`codex/re1-preflight-hardening-20260922` (`7010a0b58`). The report-only commit
+containing this section is the handback tip; its exact hash is returned to the
+owner after normal push and remote-ref verification. No history was rewritten.
+
+### Implemented behavior and reader trace
+
+- `re1_transport.py:142` validates one public GET to exactly
+  `https://clob.polymarket.com/rewards/markets/<condition>`, using `json_read`.
+  `data` must be a list with zero or one row, `count == len(data)`,
+  `next_cursor == 'LTE='`, and `limit` an integer (not bool) in 1..500.
+  Invalid envelopes raise `RuntimeError('condition_config_unreadable')`.
+  `OwnerVenue.accrual` at line 359 refuses `condition=None` with
+  `RuntimeError('condition_required')` before any read, retains the list under
+  `market_configurations`, and preserves earnings rows, totals, percentages,
+  day and `payment_verified=False`.
+- Only `collect_accruals` changed in `re1_payout_evidence.py` (line 170).
+  It uses the same helper once for `scope['condition_id']` and keeps
+  `retained['market_configurations']` as the public row list. The removed
+  universe-configuration earnings cross-check depended on the retired
+  user-specific response; account earnings and native-precision totals still
+  undergo the unchanged `normalize_earnings` checks. `read_pages`, row budgets,
+  pagination budgets, activity and wallet reads are unchanged.
+- Optional `json_read` journaling retains the header-free GET request hash and
+  the SHA-256 of the actual response bytes under
+  `/rewards/markets/<condition>`. The existing `sdk_response` event contract
+  keeps `ReadJournal.last_response_hash` and source summaries binding those
+  bytes. Regression coverage compares both hashes to mock transport bytes,
+  checks exactly one selected-condition request, and retains malformed
+  configuration envelopes while refusing complete accrual evidence.
+- `link_reward_payment` (`re1_payout_evidence.py:225`) reads
+  `raw_earnings.get('rows')` at line 231; it does not consume
+  `market_configurations`. The pure `reconcile_incentive_payments`
+  (`mm_exchange_reports.py:793`) loads normalized `accruals`, `distributions`
+  and `wallet_credits` at lines 828-832, plus scope/source provenance.
+  It does not interpret configurations for payment decisions; its whole-input
+  JSON hash/size check at lines 817-821 naturally includes retained evidence.
+  Neither reader nor the reviewed 85b linkage rule was modified.
+- `_user_agent` (`re1_transport.py:114`) caches the first successful
+  `code_identity()` using `lru_cache(maxsize=1)`. Format stays
+  `weather-re1-attended/<first-nine-of-HEAD>`. The first read still enforces
+  clean identity; later reads reuse it. The ten-read regression at
+  `test_re1_transport.py:106` proves **10 requests, 1 identity call**, with an
+  identity stub that would raise `preflight_requires_clean_tip` if called again.
+  The separate first-read test proves dirty identity prevents any request.
+
+### Focused verification and deferred qualification
+
+**180 passed in 15.26s; zero failures, errors or skips**, through this worktree's
+`scripts/ops/workstation_heavy.ps1`, wrapper exit 0. The fake preflight fixture
+retains its fake accrual implementation and proves 20/20 accrual reads plus a
+20-read latency receipt. `test_re1_attended_parity_audit.py` is unchanged and
+passed. SDK-shape, payout round-trip, downstream evidence and import-architecture
+coverage also passed. Test transports are closed mocks; no venue/account call
+was made. The task-owned temporary tree was removed after terminal wrapper exit.
+C: free bytes before/after: 172982558720 / 172983324672.
+
+Focused reproduction from the implementation checkout: use its
+`scripts/ops/workstation_heavy.ps1 -Kind pytest`, the absolute project
+`venv/Scripts/python.exe` as `-PythonPath`, and the absolute checkout as
+`-RepoRoot`. Encode this JSON array as UTF-8 base64 for `-ArgumentsBase64`:
+
+```json
+["-m","pytest","tests/market/test_re1_transport.py","tests/market/test_re1_payout_evidence.py","tests/market/test_re1_owner_checks.py","tests/market/test_re1_attended_parity_audit.py","tests/market/test_re1_sdk_shapes.py","tests/market/test_re1_evidence.py","tests/operations/test_import_architecture.py","-q","--basetemp=scratch/84f-focused-temp","--junitxml=scratch/84f-focused.xml"]
+```
+
+Retained JUnit: `scratch/84f-focused.xml`, SHA-256
+`5f873c518ef663dbbc7b7571e925526759a7369a858288009155ff5342577c59`.
+The full-suite count is **pending**, not inferred from focused tests or CI.
+The obsolete 19:05 run on `7010a0b58` was paused in Codex. One replacement
+follow-up will run the full suite on the exact published 84f tip after 19:00
+Eastern on September 22 and append its separate result here. No second suite
+or automatic repair is authorized by that follow-up.
+
+### Roll disposition and exclusions
+
+`scripts/ops/roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922
+-Base c190fb10b -JsonOut scratch/84f-roll-verdict.json` returned exit 1:
+**UNDECIDABLE: no live closure evidence**. No JSON receipt was emitted.
+`scratch/84f-roll-verdict.txt` SHA-256:
+`9259f6be9d32028d609f5eb2f3a41f7f7970af6045ba92f0436b41316a0bf8a0`.
+Production operations must obtain a fresh verdict before integration.
+
+| Changed file | Per-file disposition |
+| --- | --- |
+| `src/weather/market/re1_transport.py` | Live closure membership unavailable; no roll-free claim |
+| `src/weather/market/re1_payout_evidence.py` | Live closure membership unavailable; no roll-free claim |
+| `tests/market/test_re1_transport.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_payout_evidence.py` | Offline regression evidence; no live closure measurement |
+| `tests/market/test_re1_owner_checks.py` | Offline regression evidence; no live closure measurement |
+| `docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md` | Append-only handback; roll-free by standing contract |
+
+**Not done:** no real preflight, live, public probe, account/payout collection,
+`.env` or credential access, RPC/provider/key change, order, heartbeat or cancel
+request; no selection, sizing, attempt accounting, controller, resilience,
+public-book, reconciler or 85b-rule change; no execution-worktree access/change,
+production write, frozen-mirror evidence access, Scheduler registration, restart,
+merge or adoption; no full suite before 19:00 Eastern. The implementation
+worktree remains `scratch/w/re1-preflight-hardening-20260922`; the 09-21
+execution worktree remains untouched.
+
+## 84f — September 22, 2026, evening: one full-suite result
+
+**FULL-SUITE QUALIFICATION FAILED: 360 failed, 6904 passed, 33 skipped,
+991 subtests passed, 1 warning, zero collection/runtime errors reported by
+JUnit. Wrapper exit 1. No second run or repair was performed.**
+
+This is the separately reported single full-suite run authorized after 19:00
+Eastern. Tested commit: `475a626e4abd1c4f5824544078d0eccbf2156116`;
+tree: `b4e00b4e5e29380f1b6adc57835bf7d866bdfe12`; branch:
+`codex/re1-public-reads-ua-20260922`, still attached to draft PR 85.
+HEAD, branch, local date/time and clean tracked/untracked status were verified
+before launching. HEAD and clean status remained unchanged after the run and
+temporary-directory cleanup. This report-only follow-up does not change the
+tested implementation.
+
+### Timing, command and containment
+
+- Started: **2026-09-22 19:02:35.5844414 Eastern / 23:02:35.5844414 UTC**.
+- Wrapper terminal exit: **19:38:24.5163009 Eastern / 23:38:24.5163009 UTC**.
+- Pytest summary time: **2138.72 seconds (35m 38s)**. Wrapper wall time:
+  **2148.9318595 seconds**. JUnit records 8288 cases, including the 991 passing
+  subtests, 360 failures, 33 skips and 0 errors.
+- Exactly one full pytest invocation ran through this worktree's
+  `scripts/ops/workstation_heavy.ps1`, with `-Kind pytest`, the project
+  `C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe`, and
+  absolute `-RepoRoot`
+  `C:/Users/Michael/Documents/github/weather/scratch/w/re1-preflight-hardening-20260922`.
+  Its host/principal, shared mutex, poison and kill-on-close Job controls were
+  retained. No admission bypass or recovery was performed.
+- A create-only `scratch/84f-full-attempted.json` was flushed before invoking
+  the wrapper. The log, result receipt and JUnit are retained. The executor
+  session was polled to terminal exit before cleanup.
+- Only the resolved, non-reparse task-owned `scratch/84f-full-temp` root was
+  recursively removed. Removal was verified at **23:41:14.8427667 UTC**.
+  C: free bytes: **170956365824 before**, **160815882240 after wrapper exit**,
+  **168336728064 after cleanup**. These are volume observations, not an
+  attribution of every concurrent disk change.
+
+Exact pytest arguments executed:
+
+```json
+["-m","pytest","-q","--basetemp=scratch/84f-full-temp","--junitxml=scratch/84f-full.xml"]
+```
+
+Literal `-ArgumentsBase64` passed to the wrapper:
+
+```text
+WyItbSIsInB5dGVzdCIsIi1xIiwiLS1iYXNldGVtcD1zY3JhdGNoLzg0Zi1mdWxsLXRlbXAiLCItLWp1bml0eG1sPXNjcmF0Y2gvODRmLWZ1bGwueG1sIl0=
+```
+
+This records the command that ran; it is not authorization for another run.
+
+### Observed failures and limits of the result
+
+The scheduled follow-up specified a deeply nested, in-repository temporary
+root. That choice was made by the workstation agent when saving the follow-up,
+not by the implementation. It made this a poor full-suite qualification
+environment. Direct diagnostics include Git `Filename too long`,
+`WinError 206`, an experiment claim exceeding the Windows path budget
+(**270 UTF-16 units versus 259**), recovery publication requiring shorter
+Windows paths, and SDK portability rejecting a bundle root inside the
+repository. Many other failures report missing deeply nested fixture files or
+failed fixture renames. There is also a readiness assertion comparing a
+repository-relative path with an expected absolute path.
+
+These observations establish concrete test-environment limitations; no
+short-path control or baseline comparison was authorized or run, so the
+report does not assert that every failure is explained by them or that the
+whole implementation is qualified. No code was changed to make a gate pass.
+
+Failure counts by module, from the retained JUnit:
+
+| Module under `tests/` | Failures |
+| --- | ---: |
+| `operations/test_production_baseline_reconciler_execution.py` | 70 |
+| `operations/test_cold_archive_reclaim.py` | 50 |
+| `operations/test_status_script.py` | 40 |
+| `operations/test_replay_cache_retention.py` | 27 |
+| `operations/test_verified_cold_archive.py` | 24 |
+| `operations/test_cold_archive_catalog.py` | 23 |
+| `operations/test_experiment_executor.py` | 23 |
+| `operations/test_documentation_transaction.py` | 16 |
+| `market/test_live_sdk_portability.py` | 16 |
+| `collection/test_forecast_payload_cross_process_fanout.py` | 15 |
+| `operations/test_forecast_payload_cas_migration.py` | 13 |
+| `sources/test_forecast_training_corpus.py` | 11 |
+| `operations/test_production_baseline_reconciliation.py` | 8 |
+| `calibration/test_residual_distribution_corpus.py` | 7 |
+| `collection/test_shared_forecast_payload_cas.py` | 6 |
+| `operations/test_storage_recovery_night_wrapper.py` | 4 |
+| `operations/test_cold_archive_recovery_publication.py` | 4 |
+| `market/test_market_making_readiness.py` | 1 |
+| `operations/test_production_cold_archive_wrapper.py` | 1 |
+| `backtesting/test_replay_cache.py` | 1 |
+| **Total** | **360** |
+
+All **217 RE-1 tests passed within this full run**, with no failures or skips:
+attended 40, parity audit 5, evidence 26, owner checks 22, payout evidence 57,
+resilience 19, SDK shapes 15 and transport 33. This is a subset result, not
+a substitute for full-suite qualification.
+
+The one warning was in
+`tests/sources/test_reanalysis_synoptic.py::TestReanalysisSynoptic::test_load_pressure_level_daily_metrics_reads_cached_netcdf4`:
+a `RuntimeWarning` reporting `numpy.ndarray size changed`, expected 16 from
+the C header versus 96 from the Python object. No dependency change was made.
+
+### Retained receipts
+
+Paths below are relative to the implementation worktree and are ignored local
+receipts, not assumed present in a clean checkout. Raw logs are not published
+to Git; the report preserves their hashes and results.
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `scratch/84f-full-attempted.json` | `496536395eded912ecc70e4b426439739c8b66dba09f92cc54ff9cd1fdeb27bd` |
+| `scratch/84f-full.log` | `44b5ed1447c727c409a5da5af2e236705f0293cb367331681750fc4fe8a49937` |
+| `scratch/84f-full.xml` | `803d78835aadb6a5771df7328d661f870e2511ff4303651c6caf0388d2e30d94` |
+| `scratch/84f-full-result.json` | `825361fd4cf31aa6a5c231b004d22e5c184ccfd2c9916265be4383306a600707` |
+| `scratch/84f-full-cleanup.json` | `a26b748f5e5baba512fac56c011d51a2d5de408d6cb90216da787fac847784a5` |
+
+### Disposition and exclusions
+
+The one-time 84f automation is **PAUSED**. The cancelled 19:05 run on
+`7010a0b58` was not run. The one-run allowance is consumed; a further run
+requires a new owner instruction. PR 85 stays; no review was requested and
+nothing was merged or adopted.
+
+Only this report receives a tracked change, roll-free documentation by the
+standing contract. The earlier UNDECIDABLE production roll disposition is not
+upgraded by this run. No real preflight/live, owner `.env` or credential
+access, account/public probe, production write, Windows Scheduler change,
+execution-policy configuration change, execution-worktree access/change,
+repair, dependency installation, focused rerun, second full suite, compileall,
+audit or CI investigation was performed.
+
+## 84g — September 23, 2026: complementary fills and the payout addendum
+
+**PASS — all 255 focused RE-1 tests pass; complementary maker trades end as
+`fill` with proven cleanup, and the frozen and amended payout verdicts are
+reported side by side. No real payout was read and no live action was run.**
+
+Authority: the owner-requested 84g handoff and September 23 payout addendum,
+read with `git show` from fetched handoff commit
+`48ea0144` on `origin/codex/reward-test-attended-handoff-20260921`.
+Implementation stays on `codex/re1-public-reads-ua-20260922`, stacked directly
+on `0a7531baf007d41ae8d34015bdf9cfaf01c30244`, in the existing clean
+`scratch/w/re1-preflight-hardening-20260922` worktree. PR 85 retains its
+existing base, `codex/re1-preflight-hardening-20260922` at `7010a0b585e1d6f31787a34e84bbf11d80939bd3`.
+
+### Confirmed trade shape and failure path
+
+Read-only, allowlisted inspection of session-1 `journal.jsonl` confirms that
+the retained SDK trade uses **`token_id`**, not `asset_id`: top-level
+`trader_side=MAKER`, `outcome=Yes`, `side=BUY`, `price=0.52`, `size=25.57`.
+The two `maker_orders` entries have the complementary NO token, `outcome=No`,
+`side=BUY`, `price=0.48`, and `matched_amount` 20 and **5.57** respectively.
+The 5.57 row's `order_id` equals our NO terminal order; the terminal YES order
+has `size_matched=0`, and the NO order has `size_matched=5.57`; both are cancelled.
+The inspected field names were `token_id`, `outcome`, `side`, `maker_address`,
+`order_id`, `matched_amount`, and `price`. Identities in tests are synthetic;
+no owner, API key, or other credential field was copied into a fixture or report.
+
+Session-1 `user-stream.jsonl` confirms `stream_failed`, `RuntimeError`, at
+2026-09-23 02:30:07.439464 UTC. It contains no failing raw message. Consequently
+the complementary relationship is confirmed, while the exact lost WS payload
+and originating exception remain inferred. At the assigned base,
+`PairStream._normalize_event` passes top-level `asset_id` into
+`normalize_official_user_event`; its maker-row filter requires that same token
+and raises `official maker trade event does not identify the pilot maker order`
+when our maker is on the complement. `OwnerVenue.events` then raises
+`user_stream_invalid_event` for the non-network stream failure. The new fixture
+uses the WS `asset_id` alias and the confirmed complementary relationship;
+the SDK `token_id` alias is covered too.
+
+### Changes
+
+- RE-1 selects maker rows by known order ID, or funder plus either pair token,
+  independently of the top-level token. Unmatched trades for this condition
+  retain a recursively credential-stripped, guard-cleaned payload and original
+  canonical-message SHA-256. Failed normalization retains the cleaned message
+  on `stream_failed`. Other-market trades and other invalid events fail closed.
+- Matched, unmatched and failed-normalization trade signals force REST reads
+  of both active legs, journal `fill`, and end with `HoldEnd('fill')`. Cleanup
+  still runs. The Stage 2 normalizer, quotes, sizes, budgets and money gates
+  are unchanged.
+- Historical prediction bytes stay untouched. `load_prediction` derives
+  elapsed-minute coverage, unchanged minimum size/maximum spread and scoring
+  minutes from the verified journal, without changing its prediction hash.
+  The amended verdict accepts at least 95% sampled minutes and proven cleanup;
+  rate changes remain integrated. `SHORT` is reported below 180 two-sided minutes.
+- Both CLI report paths print `verdict_frozen` and `verdict_amended`, accrual
+  band and flags. The session-1-shaped synthetic case (P_many 0.105, accrual
+  0.12, paid 0, 42 visible minutes) gives frozen `INCONCLUSIVE`, amended
+  `BELOW_PAYOUT_MINIMUM`, `ACCRUED_AS_MODELLED`, and `SHORT`.
+- The frozen linker and shared reconciliation behavior are preserved. The
+  RE-1 amended replay validates account/day, both asset queries, complete
+  coverage, native earnings, unique transaction/log credit identity and the
+  unchanged exact-amount/single-condition rule. USDC.e and pUSD retain their
+  actual asset labels; native distributions live in `reward_distributions`.
+  Incomplete or ambiguous cash evidence stays unknown, never zero.
+- `close_track` only marks adequate `NOT_PAID`; `counts_as_low_accrual_session`
+  identifies adequate low-accrual results for the owner's two-session rule.
+  There is no automatic October 31 closure or campaign aggregation. The owner
+  reviews absent adequate evidence on that date, as the addendum requires.
+
+### Verification and publication
+
+Full focused run: **255 passed, zero failures/errors/skips**, in 139.88 seconds.
+Receipt: `scratch/84g-re1-green.xml`, SHA-256 `c6e4cf817c512ae26ff6c2ce60a20605dea8001f49ed1ffb7524ef383bd2ab8c`.
+After the final adjustment to persist partial payout receipts before interpretation,
+both affected suites passed again: **95 passed in 6.64 seconds**, zero failures
+or skips (`scratch/84g-payout-final.xml`, SHA-256 `a0d1fabeac5ab3ba56af97eb1307434db044c4e64f9f6d58bfb0671a987c4b13`).
+The first regression run exposed superseded single-verdict/asset assumptions;
+the next left only two equivalent-decimal-string assertions. Both are corrected
+and the complete focused run above is green. No full repository suite was run.
+
+Reproduce from the branch root on the assigned workstation, using its canonical
+project interpreter and shared-lock wrapper (create `C:/pt` first):
+
+```powershell
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+New-Item -ItemType Directory -Path C:/pt -Force | Out-Null
+$re1Args = @('-m','pytest') + @(Get-ChildItem tests/market/test_re1*.py | ForEach-Object { 'tests/market/' + $_.Name }) + @('-q','--basetemp=C:/pt/re184g-d','--junitxml=scratch/84g-re1-green.xml')
+$re1Encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($re1Args | ConvertTo-Json -Compress)))
+& "$re1Repo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1Encoded -RepoRoot $re1Repo
+```
+
+Each run used the repository-owned host/principal, shared mutex and child-tree
+Job wrapper. Admission succeeded; no competing full suite or sampler was
+stopped. Task-owned `C:/pt/re184g-*` temporary trees were removed after exit.
+No campaign-root file or execution worktree was written.
+
+Published implementation tip: **`58c2aea3f12c3a964f7f4684f475c3130f81ad9a`** on
+`codex/re1-public-reads-ua-20260922`; its report-only successor is the final
+handback tip. The branch is published without rewriting history.
+
+`roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922 -Base 0a7531baf`
+returned **UNDECIDABLE, exit 1: no live closure evidence**. Per-file disposition:
+the five RE-1 Python owners (`re1_attended.py`, `re1_attended_cli.py`,
+`re1_evidence.py`, `re1_payout_evidence.py`, `re1_transport.py`) and three test
+files (`test_re1_addendum.py`, `test_re1_evidence.py`,
+`test_re1_payout_evidence.py`) have no workstation proof of production closure
+membership; none is asserted roll-free. This appended report is roll-free
+documentation by contract. Production must obtain its own current mechanical
+verdict before integration; no merge/adoption occurred here.
+
+Explicit exclusions: no `.env` read, credential access/export, real preflight,
+live, cancel-only or collect command; no public/account/payout probe; no write
+under the campaign root; no access/change to the session-1 or 09-21 execution
+worktrees; no production write, registration, Scheduler change, restart, merge,
+promotion, model change, dependency change or full-suite interruption. The
+owner alone moves the session worktree, runs preflight and starts session 2 on
+a clean reward day.
+
+## 2026-09-23 — overnight full-suite requalification at 0a7531baf
+
+**PASS at the exact owner-requested commit: zero failures and zero errors.**
+One full repository suite ran on the non-capture workstation in the new detached
+worktree `scratch/w/pr85-fullsuite-20260923-0400`, at
+`0a7531baf007d41ae8d34015bdf9cfaf01c30244`. This qualifies that frozen PR 85
+revision only; it does not qualify the later 84g commits already on this report
+branch. The owner explicitly requested this appended section. Existing report
+content and newer branch work were preserved.
+
+The RE-1 process gate found no matching process before launch. The canonical
+`workstation_heavy.ps1` admitted the single suite with its shared host lease and
+child-tree containment. Pytest began at **04:03:45 ET**, ran **2743.211 seconds**
+(45m43s), and the wrapper exited **0** at **04:49:34 ET**. No suite was rerun.
+
+| JUnit result | Count |
+| --- | ---: |
+| Test-case elements | 7,297 |
+| Passed test-case elements | 7,263 |
+| Skipped test-case elements | 34 |
+| Failures | 0 |
+| Errors | 0 |
+| Aggregate JUnit tests, including subtest accounting | 8,288 |
+| Aggregate passing outcomes, including subtest accounting | 8,254 |
+
+**Failures by module: none.** The XML has no `failure` or `error` nodes.
+Its aggregate count includes 991 additional passing subtest outcomes; these
+are distinguished from the 7,297 test-case elements rather than double-counted
+as separately collected tests.
+
+Retained outside-repository evidence:
+
+- `C:/pt/pr85-0a7531baf-20260923.xml`, SHA-256
+  `8ed4629907fcd32a03b5ffd625b13c36306b78983cdad6f2a54ed446d640e773`.
+- `C:/pt/pr85-0a7531baf-20260923-start.json` binds commit, worktree,
+  arguments and start time; the corresponding `-exit.json` records exit 0.
+- `C:/pt/fs` was removed after exit after validating the exact resolved path;
+  absence was verified. The detached qualification worktree remains clean.
+
+Exact invocation, from the fresh worktree, with the common project interpreter:
+
+```powershell
+$qualificationRepo = (Get-Location).Path
+$qualificationPython = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+New-Item -ItemType Directory -Path C:/pt -Force | Out-Null
+$qualificationArgs = @('-m','pytest','-q','--basetemp=C:/pt/fs','--junitxml=C:/pt/pr85-0a7531baf-20260923.xml')
+$qualificationEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($qualificationArgs | ConvertTo-Json -Compress)))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$qualificationRepo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $qualificationPython -ArgumentsBase64 $qualificationEncoded -RepoRoot $qualificationRepo
+```
+
+This command records the completed one-shot run; it is not authority to rerun it.
+Only this Markdown report is changed, roll-free documentation by the delegation
+contract. No code change, `.env` read, access to either excluded session worktree,
+live/preflight action, order/account probe, production write, Scheduler change,
+merge or runtime adoption occurred. Workstation qualification does not replace
+production-host qualification. The separately authorized 86b public sampler
+starts only after this suite and cleanup have exited; its measurement handback
+belongs to the 86b report.
