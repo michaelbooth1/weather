@@ -63,7 +63,7 @@ Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS
 
 ## Ordered non-live critical path
 
-1. **RE-1 session 1 moved to 2026-09-23 (no session on 09-22: two code defects, see above).** Order: owner makes a
+1. **RE-1 session 1 STARTED ~01:40Z 2026-09-23 on `0a7531baf`** (PR 85: 84f + heartbeat User-Agent fix; preflight PASS 01:33Z; condition `0x532f7e97…`, YES 0.49 / NO 0.48, P_many rate 0.0065/min ≈ 2.34 per 6 h). Earlier plan: Order: owner makes a
    fresh worktree at `475a626e4` (never the 09-21 execution worktree), tunnel down, runs `preflight` (valid from
    00:00Z 09-23 = 20:00 ET 09-22; a later FAIL voids a PASS), on PASS starts `live` by 13:59 ET; `NO QUALIFYING BAND`
    = retry each quarter hour. `84a`-`85b` accepted (85b roll-sensitive to adopt). Verdict earliest D+3 (09-26 for a 09-23 session). **Owner 2026-09-22, before any order:** the frozen RE-1 verdict
