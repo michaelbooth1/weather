@@ -87,6 +87,12 @@ never pooled across the 2026-07-31 provenance boundary.
   projection (2.45 per 6 h) decayed to ~0.18 cents/minute; whether we caused it is not identifiable. Fill: a taker bought
   25.57 YES at .52 against two NO makers at .48 (20 ahead of our 5.57). Below the 1-dollar minimum: unpaid. Mission 86c
   (`codex/re1-session1-analysis-20260923` @ `b4b97807c`).
+- **Observation clock (89b, 2026-09-23, IEM archive 06-01..09-22, 12 stations):** routine METAR minutes are station-specific
+  (modal :51 KORD/KLGA, :52 KATL, :53 seven stations, :56 KSFO, :58 KBKF, :00 CYYZ; each >99.8% on its mode), so
+  `info_event_calendar.py`'s fixed :52 is wrong for 11 of 12; SPECI 1.9-5.2/day. A clock-and-running-maximum estimator of
+  'band already decided' scores Brier 0.042 on held-out September against 0.24 for a constant (miscalibrated in the
+  0.3-0.4 bin); report-to-availability lag is not measurable from the archive. Timing inputs only, no edge claim.
+  (`codex/observation-clock-20260923` @ `d059cc78`).
 - A current economics snapshot cannot score historical maker runs; each dated condition has its own identities. EF §8k.
 - International Stage 0/1 software is adopted on master; the 2026-09-06 attended test ran different, unmerged code; Stage 2 has never run. EF §8t, §10f, [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md).
 - Geographic eligibility is recorded as resolved by owner statement (2026-09-19); the operating rule is that the home file-access tunnel is down for a whole live session. [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md).
