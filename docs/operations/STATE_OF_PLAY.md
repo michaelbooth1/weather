@@ -68,9 +68,9 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1 session 2 tonight:** the owner starts it at or after 20:00 ET 09-23 (00:00Z 09-24, a fresh UTC reward day) on
-   `c771cbb42` after a same-day PASS `preflight`. Report under both verdict tables. A third session only if needed; none after 09-30.
-   Freeze `R` before any markout read.
+1. **RE-1 session 2 tonight on the 84h larger-size tip `1310ca6bf`** (owner 2026-09-23: more data is worth the test balance;
+   size 20/30/50/75 by wallet, reserve <= min(wallet-10, 75); size addendum `docs/research/liquidity-reward-epoch-addendum-2026-09-23b-size.md`
+   on its branch). Owner starts it at or after 20:00 ET after a same-day PASS `preflight`; both verdict tables. Freeze `R` done.
 2. **Disk:** storage-plan step 1 (inventory) inside 00:30-09:00 under the lease; then compress-and-retain and the Drive archive
    until the daily low holds at 70 GiB or more. Everything that lands waits on this.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
