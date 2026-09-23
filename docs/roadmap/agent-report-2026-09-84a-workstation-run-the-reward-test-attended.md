@@ -1979,3 +1979,70 @@ worktrees; no production write, registration, Scheduler change, restart, merge,
 promotion, model change, dependency change or full-suite interruption. The
 owner alone moves the session worktree, runs preflight and starts session 2 on
 a clean reward day.
+
+## 2026-09-23 — owner-requested full suite on frozen 84g tip
+
+**PASS: 7,301 passed, 34 skipped, zero failures/errors, 991 subtests passed; one warning. Exactly one full suite ran on the requested frozen tip, exit 0. It and temp cleanup finished before 19:00 ET. No code changes.**
+
+The owner explicitly requested one full repository suite on
+`c771cbb427cd2ab3cac1cbee52c84721bb3ac935`, with no code changes. The run used
+new branch `codex/re1-full-suite-20260923` in a new, initially clean worktree:
+`C:/Users/Michael/Documents/github/weather/scratch/w/re1-full-suite-20260923`.
+The session worktree `scratch/w/re1-session1-20260923` was never accessed.
+No 87a qualification-kit code or admission repair was merged into this checkout.
+The report-only successor preserves the tested code exactly.
+
+The guarded run started **2026-09-23 10:25:40 ET** (14:25:40 UTC) and finished
+with cleanup at **11:15:06 ET** (15:15:06 UTC). Pytest reported **2,849.37 seconds
+(47:29)**. The 18:15 start cutoff and 19:00 completion deadline were both met;
+no timeout or retry occurred. JUnit records 8,326 cases including the 991
+subtests, with zero failures, zero errors and 34 skips.
+
+Skip categories: 12 unavailable symlink-privilege fixtures, 11 tests requiring
+the mutex already held by the outer workstation wrapper, 8 native-rclone
+fixtures requiring an explicit executable, and 3 platform-specific fixtures.
+The single warning was `numpy.ndarray size changed, may indicate binary
+incompatibility` in the cached-netCDF4 reanalysis test; that test passed.
+
+`C:/pt/fs2` was deleted after the wrapper exited, and absence was independently
+verified. C: free space was 162,832,752,640 bytes before and 160,054,710,272 bytes
+after the run/cleanup. The tested worktree was still clean at `c771cbb42`
+before this report append. No failure repair or additional test run was needed.
+
+The full-suite command, from that new worktree, was:
+
+```powershell
+$fs2Repo = (Get-Location).Path
+$fs2Python = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+New-Item -ItemType Directory -Path C:/pt -Force | Out-Null
+$fs2Args = @('-m','pytest','-q','--tb=short','--basetemp=C:/pt/fs2','--junitxml=C:/pt/re1-c771-fs2-20260923.xml')
+$fs2Encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($fs2Args | ConvertTo-Json -Compress)))
+& "$fs2Repo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $fs2Python -ArgumentsBase64 $fs2Encoded -RepoRoot $fs2Repo
+```
+
+An outer task runner retained the wrapper process, allowed one launch only,
+refused a start after 18:15 ET, and imposed a two-hour cap plus an absolute
+18:58 ET teardown deadline. The repository wrapper owned the host/principal
+admission, shared mutex and kill-on-close child-tree Job. The runner verified
+the exact `C:\pt\fs2` cleanup path before removing it after exit. JUnit, stdout,
+stderr and the timing/cleanup receipt were retained outside the repository.
+
+Retained receipts (outside the repository):
+
+| File | SHA-256 |
+| --- | --- |
+| `C:/pt/re1-c771-fs2-20260923.xml` | `9a6e993ec2d47d93c4127ac4a73c68749bfa0e9c80b6f0c3ffd3223ac4dc80b3` |
+| `C:/pt/re1-c771-fs2-20260923.log` | `132d419d0d4c70a99f9750aea8811b13de3bfb527b4b5d35f25026e4c53f7895` |
+| `C:/pt/re1-c771-fs2-20260923.stderr.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `C:/pt/re1-c771-fs2-20260923-receipt.json` | `dc43ee5cea2b3ca7d5a37b78905f4b5a7e524d4f76b17e76503259449f5ed155` |
+
+The report-only publication is on `codex/re1-full-suite-20260923`; resolve its
+exact append commit with `git log -1 --format=%H -- docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md`.
+
+This appended section is the only tracked change relative to the tested tip;
+it is documentation and roll-free by the standing contract. No source,
+test, dependency or configuration changes, no second suite or failure rerun,
+no session-worktree access, no `.env` or credential access, and no live
+preflight, authenticated endpoint, order, campaign mutation, production
+adoption, registration, Scheduler change, restart or merge were performed.
+A test result is not authorization to start a live session.
