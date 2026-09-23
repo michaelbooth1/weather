@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 session 1 ran, unpaid below the minimum; session 2 tonight on `c771cbb42`; disk binds).**
+**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 session 1 ran, unpaid below the minimum; session 2 tonight on `1310ca6bf`; disk Critical).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -19,7 +19,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
 - Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most three
-  sessions, none after 2026-09-30, worst case 20-30 dollars; outside the sealed lane and changes nothing in it (mission 84a).
+  sessions, none after 2026-09-30, worst case the per-session reserve (at most 75 pUSD, 84h); outside the sealed lane and changes nothing in it (mission 84a).
 - Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
 - Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
   either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
@@ -34,7 +34,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Production source:** `master` = `origin/master` = `198f7ccbc` (2026-09-23; includes the per-chunk `--basetemp` fix
   `e1d766417`). 41 enabled tasks run from linked worktrees (OPERATIONS_DESIGN "What actually executes"). Before any merge,
   get `roll_verdict.ps1` and check for a quiet-window marker.
-- **Disk (binding):** ~50 GiB free on 2026-09-23, falling 10-13 GiB/day: the Red/Critical boundary of the storage plan. The
+- **Disk (binding):** 46.4 GiB free at 17:36 on 2026-09-23, falling 10-13 GiB/day: **Critical** in the storage plan. The
   bounded suite and roll-sensitive landings refuse below 50 GiB. Judge at the ~04:50 daily low. Plan step 2 is done; step 1
   (inventory by data family) is owed.
 - **Landing path:** fixed 16-32 GB pagefile (commit limit 32.5 GB; ~22,000 MB = reverted). Suite passed 09-21, stopped at the
@@ -52,8 +52,9 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   stream; cleanup proven; shares held. Below the 1-dollar daily minimum: **unpaid**. EF §10m (owed), digest.
 - **RE-1 verdict (provisional):** frozen table `INCONCLUSIVE` (`P_many` < 2); addendum `BELOW_PAYOUT_MINIMUM`, `k_accrued` ≈ 1.1,
   `SHORT`. Formal verdict after `collect-evidence` (earliest 00:00Z 2026-09-26), printed under both tables.
-- **RE-1 code:** 84g (complementary-fill handling, payout addendum) accepted 09-23; **session-2 tip `c771cbb42`** (PR 85 line;
-  PR 85 full suite at `0a7531baf`: 7,263 passed). Not on master. The 87a live-path qualification kit
+- **RE-1 code:** 84g (complementary-fill handling, payout addendum) at `c771cbb42`; 84h size rule on top: **session-2 tip
+  `1310ca6bf`** (full suite 7,360 passed, report `f45fc164b`). Not on master. Built, not landed: 88a capture
+  `7953d2608` (PR 87, ~114 MB/day, roll-sensitive), 89a desk-study tool `947d96935`, 89b observation clock `d059cc787`. The 87a live-path qualification kit
   (`codex/live-path-qualification-20260923` @ `800bb9b72`) is not adopted.
 - **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
@@ -70,12 +71,11 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 1. **RE-1 session 2 tonight on the 84h larger-size tip `1310ca6bf`** (owner 2026-09-23: more data is worth the test balance;
    size 20/30/50/75 by wallet, reserve <= min(wallet-10, 75); size addendum `docs/research/liquidity-reward-epoch-addendum-2026-09-23b-size.md`
-   on its branch). Owner starts it at or after 20:00 ET after a same-day PASS `preflight`; both verdict tables. Freeze `R` done.
+   on its branch). Owner starts it at or after 20:00 ET after a same-day PASS `preflight`; both verdict tables.
 2. **Disk:** storage-plan step 1 (inventory) inside 00:30-09:00 under the lease; then compress-and-retain and the Drive archive
    until the daily low holds at 70 GiB or more. Everything that lands waits on this.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) items 4-6): passive maker-evidence capture before 09-30,
-   freeze `R`, then the fill-toxicity desk study and the timing outputs. RE-2 needs a paid verdict and a dated owner grant.
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; run 89a; RE-2 needs a paid verdict.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n.

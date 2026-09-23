@@ -28,7 +28,7 @@
 
 ## Next 30 days, in order
 
-1. **Finish RE-1** (sessions 2-3 by 09-30 on the frozen tip `c771cbb42`; formal verdicts under both tables from 09-26). A
+1. **Finish RE-1** (sessions 2-3 by 09-30 on the 84h size tip `1310ca6bf`; formal verdicts under both tables from 09-26). A
    full six-hour session at session-1 competition accrues about 0.64, still below the 1-dollar minimum; a payment test may
    need a less contested band or a larger size (owner decision).
 2. **Disk** ([storage plan](storage-plan-2026-09-23.md)): inventory by data family, compress-and-retain, Drive archive until
@@ -74,7 +74,7 @@ Decided 2026-09-23:
 3. **K2's dollars-per-band-day floor is deferred** until the capture and sessions give data; K2 is inactive until set.
 4. **Payment tests may use any band and any size**, within the dedicated testing wallet: **100 pUSD total, all of it for
    testing** (the RE-1 session cap and end date stay). A size or selection change is a new dated pre-registration and a new
-   code tip with a fresh owner preflight; session 2 on 2026-09-23 stays on the frozen 20-share tip.
+   code tip with a fresh owner preflight; owner later the same day moved session 2 onto the 84h tip `1310ca6bf` (more data is worth the balance).
 
 Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
 quoting is wanted at all.
