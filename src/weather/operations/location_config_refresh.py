@@ -6,11 +6,11 @@ import argparse
 import json
 import re
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import config_path
+from weather.http import json_request, user_agent
 from weather.schema_registry import schema_version
 
 
@@ -23,7 +23,6 @@ DEFAULT_TAG_SLUG = "highest-temperature"
 DEFAULT_CATEGORY_URL = "https://polymarket.com/weather/high-temperature"
 DEFAULT_GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
 DEFAULT_LIMIT = 100
-USER_AGENT = "Mozilla/5.0 weather-location-config-refresh/0.1"
 
 EVENT_DATE_RE = re.compile(
     r"^highest-temperature-in-(?P<location>.+)-on-"
@@ -97,9 +96,10 @@ def fetch_gamma_events(
             limit=limit,
             offset=offset,
         )
-        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            page_events = json.loads(response.read().decode("utf-8"))
+        page_events = json_request(
+            url, method="GET", timeout=timeout_seconds, max_bytes=16 * 1024 * 1024,
+            headers={"User-Agent": user_agent("location-config-refresh")},
+        )
         if not isinstance(page_events, list):
             raise ValueError("Gamma events response must be a list")
         offsets.append(offset)

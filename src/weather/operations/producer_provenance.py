@@ -176,7 +176,7 @@ $actions = @($task.Actions | ForEach-Object {
     env = os.environ.copy()
     env["WEATHER_PRODUCER_TASK_NAME"] = str(task_name)
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
         timeout=float(timeout_seconds),
@@ -236,7 +236,7 @@ for ($depth = 0; $depth -lt 2 -and $nextId -gt 0; $depth++) {
     env = os.environ.copy()
     env["WEATHER_PRODUCER_PROCESS_ID"] = str(int(process_id))
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
         timeout=float(timeout_seconds),

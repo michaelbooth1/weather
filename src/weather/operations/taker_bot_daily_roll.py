@@ -521,6 +521,8 @@ def process_command_line(
             "powershell.exe",
             "-NoProfile",
             "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
             "-Command",
             (
                 "$process = Get-CimInstance Win32_Process "

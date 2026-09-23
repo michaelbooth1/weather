@@ -627,6 +627,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay_report",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
+        "weather.operations.fresh_venv_smoke",
         "weather.operations.nightly_retrain",
         "weather.operations.replay_status_backfill",
         "weather.operations.workstation_cold_archive_stage",
