@@ -18,6 +18,11 @@ pytest retained ~2.6 GB under `%TEMP%\pytest-of-micha`); free space was 49.7 GiB
 The fixed 16 GB pagefile has not grown (checked 09-23). The NBM re-download is a network/CPU cost, not retained disk
 (audit D5-01: the payload store skips bytes it already holds). No document attributes the current slope to a data class.
 
+**Owner, 2026-09-23: the production PC is the production agent's alone; the owner never uses it, and any leftover personal
+or non-project file on it may be deleted as needed.** That covers everything outside the project's evidence. Project evidence
+(`data/` tapes, ledgers, labels, the RE-1 campaign root, `.git/lfs`) still leaves only by the archive-verify-reclaim path
+below, because losing it harms the project, and credential files are never opened or removed.
+
 ## Bands (judge at the daily low, ~04:50, never an evening reading)
 
 | Band | Free at daily low | Action |
