@@ -87,3 +87,14 @@ def test_response_wrapper_bounds_unbounded_live_positions_read():
     response = BytesIO(b'x' * 101)
     with pytest.raises(ValueError, match='bound'):
         probe._BoundedResponse(response, limit=100).read()
+
+
+def test_every_public_request_rejects_ambient_proxy_before_network(monkeypatch):
+    url = 'https://data-api.polymarket.com/positions?user=public'
+    def refuse_proxy():
+        raise ValueError('ambient proxy forbidden')
+    monkeypatch.setattr(probe, 'assert_no_ambient_proxy_configuration', refuse_proxy)
+    monkeypatch.setattr(probe.http, '_OPENER', SimpleNamespace(
+        open=lambda *a, **k: pytest.fail('proxy refusal must precede network')))
+    with pytest.raises(ValueError, match='ambient proxy'):
+        probe.OneShotPublicOpener({('GET', url)})(Request(url), timeout=2)

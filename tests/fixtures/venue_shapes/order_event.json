@@ -1,13 +1,17 @@
 {
   "event_type": "order",
-  "type": "CANCELLATION",
-  "id": "redacted-our-order",
-  "market": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "asset_id": "1002",
-  "outcome": "No",
+  "official_event_type": "order",
+  "official_order_status": "LIVE",
+  "official_order_transition": "PLACEMENT",
+  "order_id": "redacted-observed-order",
+  "condition_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "clob_token_id": "1001",
+  "maker_address": "0x2222222222222222222222222222222222222222",
+  "outcome": "Yes",
   "side": "BUY",
-  "price": "0.48",
+  "price": "0.49",
   "original_size": "20",
-  "size_matched": "5.57",
-  "status": "CANCELED"
+  "size_matched": "0",
+  "exchange_timestamp": "1790128095742",
+  "source": "polymarket_global_user_ws"
 }

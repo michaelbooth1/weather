@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from http.client import HTTPException
 import json
 import math
 import re
@@ -76,18 +77,21 @@ def json_request(url, *, method, body=None, timeout, max_bytes, headers=None):
     except HTTPError as exc:
         try:
             preview = exc.read(min(max_bytes + 1, 800))
+        except (OSError, HTTPException) as read_error:
+            preview = getattr(read_error, "partial", b"")
         finally:
             exc.close()
         raise JsonRequestError("HTTP failure", status=exc.code, body=preview) from exc
-    except (URLError, OSError) as exc:
+    except (URLError, OSError, HTTPException) as exc:
         raise JsonRequestError("transport failure", status=None) from exc
     status = None
     try:
         with response:
             status = response.status
             raw = response.read(max_bytes + 1)
-    except (OSError, URLError) as exc:
-        raise JsonRequestError("response read failure", status=status) from exc
+    except (OSError, URLError, HTTPException) as exc:
+        raise JsonRequestError("response read failure", status=status,
+                               body=getattr(exc, "partial", b"")) from exc
     if status != 200:
         raise JsonRequestError("HTTP failure", status=status, body=raw)
     if len(raw) > max_bytes:

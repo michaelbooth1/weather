@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 from weather import http
 from weather.operations.live_contract_sources import public_definitions
+from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
 from weather.paths import config_path
 
 
@@ -46,6 +47,7 @@ class OneShotPublicOpener:
         if any(any(term in name.lower() for term in ('authorization', 'poly_', 'secret', 'cookie'))
                for name in request.headers):
             raise ValueError('credential header forbidden')
+        assert_no_ambient_proxy_configuration()
         response = http._OPENER.open(request, timeout=timeout)
         self.statuses[key] = response.status
         if response.status != 200:

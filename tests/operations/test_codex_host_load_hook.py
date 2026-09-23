@@ -170,6 +170,7 @@ def test_non_capture_host_has_no_time_window_but_requires_shared_mutex_wrapper()
     for kind, arguments in (
         ("pytest", ["-m", "pytest", "-q"]),
         ("compileall", ["-m", "compileall", "-q", "app", "src", "tests"]),
+        ("weather_heavy", ["-m", "weather.operations.fresh_venv_smoke"]),
         (
             "weather_heavy",
             ["-m", "weather.operations.density_live_replay_parity", "--dry-run"],
@@ -188,6 +189,7 @@ def test_non_capture_host_has_no_time_window_but_requires_shared_mutex_wrapper()
 def test_common_windows_heavy_entrypoints_require_wrapper_off_capture_host():
     now = datetime(2026, 8, 23, 14, 15, tzinfo=ZONE)
     commands = (
+        "python -m weather.operations.fresh_venv_smoke",
         r"py -3 -m pytest tests\operations\test_x.py -q",
         r"py.exe -3.11 -m pytest tests\operations\test_x.py -q",
         r"& 'C:\Windows\py.exe' -3 -m pytest tests\operations\test_x.py -q",

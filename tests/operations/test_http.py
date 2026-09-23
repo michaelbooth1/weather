@@ -1,4 +1,5 @@
 from io import BytesIO
+from http.client import IncompleteRead
 import json
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
@@ -72,6 +73,24 @@ def test_transport_failure(monkeypatch):
     with pytest.raises(http.JsonRequestError) as caught:
         http.json_request('https://example.com', method='GET', timeout=2, max_bytes=100)
     assert caught.value.status is None
+
+
+@pytest.mark.parametrize('status', [200, 403])
+def test_truncated_body_remains_typed_with_status_and_preview(monkeypatch, status):
+    class TruncatedResponse(Response):
+        def read(self, size=-1):
+            raise IncompleteRead(b'partial response', 30)
+    response = TruncatedResponse()
+    def open_request(*args, **kwargs):
+        if status == 403:
+            raise HTTPError('https://example.com', status, 'Forbidden', {}, response)
+        return response
+    monkeypatch.setattr(http, '_OPENER', SimpleNamespace(open=open_request))
+    with pytest.raises(http.JsonRequestError) as caught:
+        http.json_request('https://example.com', method='GET', timeout=2, max_bytes=100)
+    assert caught.value.status == status
+    assert caught.value.body_preview == 'partial response'
+    assert response.closed
 
 
 def test_location_refresh_uses_shared_helper_and_keeps_pagination(monkeypatch):
