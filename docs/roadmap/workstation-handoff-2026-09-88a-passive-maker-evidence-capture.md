@@ -47,3 +47,26 @@ latencies. No credentials, no authenticated endpoint, no order code imported.
 Never touch the RE-1 session worktree or campaign root; never run during an RE-1 `preflight` or `live` (the 30-minute dry
 run must finish before 19:45 ET on session days); no `.env`. Report: `docs/roadmap/agent-report-2026-09-88a-passive-maker-evidence-capture.md`
 with verdict first, measured bytes/day, the update-stream volume, test counts, the roll verdict attempt, and the tip.
+
+## 5. Amendment 1 (2026-09-23 afternoon, production agent, after the PARTIAL handback at `11f5ec49`, draft PR 87)
+
+Accepted as PARTIAL: the capture works (30 clean cycles, zero stream gaps, 115 tests), but it cannot run on a 50 GiB host
+as built. Measured: journals **15.8 MB/minute raw (~22.7 GB/day) held uncompressed until day close**; the update stream
+alone is 6.2 MB/minute, so the 300 MB daily cap is exhausted in under an hour and the stream is then dark for the rest of
+the day; repeated subscription lists and per-record manifests are a large share of what remains. Changes, all lossless for
+what we keep:
+
+1. **Update stream only where it pays:** off by default; on only inside the 30-minute windows before and after an RE-1
+   session (the `extra_conditions` windows), for those conditions only. Per-minute two-token books remain the all-day
+   competition record.
+2. **Bounded raw footprint:** rotate journals hourly and gzip each closed hour (verify decompressed SHA-256 as now); the
+   uncompressed working set on disk must stay under 500 MB at any time. Report the measured peak.
+3. **Write-on-change everywhere it is lossless:** subscription lists and discovery projections only when they change;
+   manifests per rotated file (with per-record offsets inside the file), not one record per event.
+4. **Dependency:** use the already-declared `websocket-client` instead of adding `websockets==15.0.1`, unless a named
+   capability requires it (then say which; the production interpreter must be able to install it).
+5. **Re-measure** with a new 30-minute dry run plus a projection per family; target **≤ 150 MB/day compressed** with the
+   stream off, and state the in-window cost with it on. No reduced cadence or narrower universe to pass.
+
+The production agent measures the tape's discard counter and registers the task only after the disk sweep brings the
+daily low out of the Critical band. Push to the same branch; PR 87 stays draft.
