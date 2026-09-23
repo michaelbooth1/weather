@@ -13,7 +13,8 @@
   and `python -m weather.operations.cold_archive_catalog locate --source-path <file>`
   (read-only, local metadata only).
 
-**Status:** the owner accepted the archive outcome and **paused further uploads
+**Status (2026-09-23):** the owner **re-enabled uploads and verified reclaim as needed** (no second disk;
+[storage plan](storage-plan-2026-09-23.md)). Earlier: the owner accepted the archive outcome and **paused further uploads
 and archive-source reclaim** ([STATE_OF_PLAY.md](STATE_OF_PLAY.md), "Current
 authority"). Locate, inventory, restore and cache use remain current; the
 upload and reclaim sections below describe retained machinery that needs a new
