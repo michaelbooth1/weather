@@ -20,12 +20,12 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
 - Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most three
   sessions, none after 2026-09-30, worst case 20-30 dollars; outside the sealed lane and changes nothing in it (mission 84a).
-- Owner 2026-09-22: RE-1 capital is a learning budget; losses are reported as cost of learning; a fill is data (held to
-  settlement, markout kept). Hurdle `H` = 1.00 net per day per 100 deployed.
-- Owner 2026-09-23: [RE-1 interpretation addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md): `BELOW_PAYOUT_MINIMUM`
-  judged on `k_accrued`, USDC.e or pUSD, graded adequacy. The track closes only on an adequate `NOT_PAID` or `k_accrued` < 0.1
-  in two adequate sessions; 2026-10-31 is an owner review, not an automatic close.
+- Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
+- Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
+  either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
 - Owner 2026-09-23: **no second disk**; off-PC Drive archive as needed ([storage plan](storage-plan-2026-09-23.md)).
+- Owner 2026-09-23 ([forward plan](forward-plan-2026-09-23.md)): `R` frozen as a rule; passive maker-evidence capture approved;
+  payment tests may use any band and size within the 100 pUSD testing wallet (new pre-registration and tip each time).
   Owner 2026-09-21: model work unpaused; pre-register before scoring. Owner 2026-09-19: eligibility resolved; tunnel down live.
 - **Open owner decisions:** the four 80b control-relaxation defaults; whether a Stage 2 grant may precede the Stage 0/1 re-runs.
 

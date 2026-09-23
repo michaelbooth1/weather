@@ -65,11 +65,16 @@
 - **K3:** once quoting, realized fill losses exceed twice the shadow prediction: pause and re-derive.
 - The RE-1 stop rule as restated in the [addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md).
 
-## Owner decisions needed
+## Owner decisions
 
-1. Freeze `R` (the markout pre-registration) so the desk study may read the tape.
-2. Approve the passive maker-evidence capture task (sized for the disk, brakes on the storage bands).
-3. A dollars-per-band-day floor for K2.
-4. The two-tier ship rule, and closing the α ledger as historical.
-5. Whether a payment test may use a larger size or a less contested band (the RE-1 session cap stays).
-6. Later: RE-2 authorization, and whether unattended quoting is wanted at all.
+Decided 2026-09-23:
+
+1. **`R` frozen as a rule, computed later** — [fill-toxicity-R-rule-2026-09-23.md](../research/fill-toxicity-R-rule-2026-09-23.md).
+2. **Passive maker-evidence capture approved** (item 4 above; sized for the disk, brakes on the storage bands).
+3. **K2's dollars-per-band-day floor is deferred** until the capture and sessions give data; K2 is inactive until set.
+4. **Payment tests may use any band and any size**, within the dedicated testing wallet: **100 pUSD total, all of it for
+   testing** (the RE-1 session cap and end date stay). A size or selection change is a new dated pre-registration and a new
+   code tip with a fresh owner preflight; session 2 on 2026-09-23 stays on the frozen 20-share tip.
+
+Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
+quoting is wanted at all.
