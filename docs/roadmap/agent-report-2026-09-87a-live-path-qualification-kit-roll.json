@@ -1,0 +1,1264 @@
+{
+  "branch": "codex/live-path-qualification-20260923",
+  "base": "198f7ccbcd8e80271693462425582097d22b298b",
+  "implementation_tip": "e977ec47e0cf4e5bdb391fbee06cce615995e40d",
+  "command": "scripts/ops/roll_verdict.ps1 -Branch codex/live-path-qualification-20260923 -Base origin/master",
+  "exit_code": 1,
+  "verdict": "UNDECIDABLE",
+  "reason": "No live closure evidence in clean workstation worktree; no per-file capture closure claim can be derived.",
+  "missing_evidence": [
+    "data/snapshots/loop_supervisor_status.json",
+    "data/snapshots/clob_loop_supervisor_status.json",
+    "data/snapshots/observation_trigger_supervisor_status.json",
+    "data/snapshots/clob_enrichment_status.json"
+  ],
+  "includes": "Cumulative dependency-bearing diff plus this report and inventory. Standing roll-free file-class policy is documented separately in the report; this is the mechanical result.",
+  "file_count": 249,
+  "files": [
+    {
+      "path": ".codex/hooks/pre_tool_use_host_load.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": ".gitignore",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/AGENTS.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/monitor_data.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/streamlit_app.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/views/control_room.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/views/liquidity_simulator.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "app/views/roadmap.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/architecture.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/AGENT_CONTEXT.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/config-inventory.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/DELEGATION_CONTRACT.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/ESTABLISHED_FINDINGS.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/exchange-economics-source-evidence.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/HOST_LOAD_POLICY.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/liquidity-reward-simulator.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/live-path-qualification.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/maker-account-evidence-capture.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/maker-incentive-feasibility.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/maker-opportunity-report.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/OPERATOR_MONITOR.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/package-boundaries.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/paid-credit-activity-evidence.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/path-policy.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/README.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/replay-incumbent-control.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/stage2-hold-owner-authorization-draft.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/operations/workstation-disk-and-mirror-scope.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/liquidity-reward-epoch-re1a-scope-review-2026-09-21.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/mm_platform_bootstrap_template.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/mm_platform_verification_template.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/mm_stage0_client_identity_template.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/mm_stage1_lifecycle_bundle_template.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/re1a-hold-treatment-addendum-2026-09-21.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/research/re1m-attended-script-deviation-2026-09-21.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/active-backlog.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-05-workstation-audit-fixes-overnight.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-80a-workstation-build-the-resting-quote-session.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-80b-workstation-finish-the-resting-quote-session.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-84a-workstation-run-the-reward-test-attended.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-87a-live-path-qualification-kit-roll.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-87a-live-path-qualification-kit.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/audits/codebase-audit-2026-09-05-witnesses.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/audits/codebase-audit-2026-09-05.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/audits/post-reclaim-implementation-sweep-2026-09-07.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/audits/post-reclaim-system-audit-2026-09-07.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-333-reproducible-runtime-and-paired-model-comparison.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-334-post-reclaim-model-economics-and-research-plan.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-335-signed-native-temperature-band-correctness.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/ROADMAP.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "docs/roadmap/workstation-handoff-2026-09-80b-finish-the-resting-quote-session.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "pyproject.toml",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "README.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "requirements.txt",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/launch/start_weather_dashboard.ps1",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/fresh_venv_smoke.ps1",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/international_live_templates/stage0.py.tmpl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/international_live_templates/stage2_hold.py.tmpl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/portable_live_sdk.ps1",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "scripts/ops/workload_admission.ps1",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/replay_ablation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/replay_backtest.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/replay_fidelity.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/replay.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/settlement_io.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/backtesting/settlement_ledger.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/collection/snapshot_store.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/execution_host.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/http.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/AGENTS.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/clob_recon.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/exchange_economics_sources.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/exchange_economics.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/location_config.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/maker_opportunity_capture.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/maker_opportunity_inputs.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/maker_reward_simulation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/market_making_live_pilot.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/market_making_preflight.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/market_making_run_support.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_credentials.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_exchange_reports.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_liquidity_earnings_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_attendance.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_bootstrap.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_candidate_cli.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_envelope.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_lifecycle_probe.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_pilot_cli.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_stage0_scope.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_live_stage1_lifecycle_plan.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_official_adapter.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_paid_credit_activity.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_paper_scoring.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_pilot_capital.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_policy.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_entrypoint.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_hold.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_rehearsal.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_rewards.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_selection.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_stage2_user_stream.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/mm_user_stream.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_attended_cli.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_attended.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_owner_checks.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_payout_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_rehearsal.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_resilience.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/re1_transport.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/reward_quote.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/taker_bot_scoring.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/market/taker_bot_strategy_evaluation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/model/model_presentation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/config_inventory.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/event_metadata_validation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/experiment_executor.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/fresh_venv_smoke.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/international_live_session_launcher_sealer.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/international_live_session_runner.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/international_live_wrapper_sealer.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/live_contract_probe.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/live_contract_sources.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/location_config_refresh.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/operating_reference.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/operator_host_status.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/producer_provenance.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/release_candidate_contract.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/operations/taker_bot_daily_roll.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/release_artifacts.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/market/maker_opportunity_report.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/market/operator_control_room.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/market/operator_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/market/operator_session.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/market/operator_trading.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/roadmap/project_overview.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/reporting/source_gates/source_family_inventory.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/schema_registry_data.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/schema_registry_recent_data.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/time.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "src/weather/units.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/app/test_app_architecture.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/app/test_app_roadmap.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/app/test_control_room_view.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/app/test_liquidity_simulator.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/backtesting/test_replay_ablation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/backtesting/test_replay_fidelity.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/backtesting/test_replay_native_bands.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/backtesting/test_settlement_ledger_native_bands.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/collection/test_snapshot_band_bins.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/dallas/bundle.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/dallas/journal.jsonl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/dallas/prediction.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/los-angeles/bundle.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/los-angeles/journal.jsonl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/los-angeles/prediction.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/miami/bundle.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/miami/journal.jsonl",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/miami/prediction.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/README.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/stage2_hold/20260921/selection.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/venue_shapes/complementary_trade_asset_id.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/venue_shapes/complementary_trade_token_id.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/venue_shapes/order_event.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/fixtures/venue_shapes/README.md",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/live_candidate_fixture.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/stage2_fakes.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_clob_recon.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_exchange_economics_sources.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_exchange_economics.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_live_sdk_overlay.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_location_config.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_maker_opportunity_capture.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_maker_reward_simulation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_market_making_readiness.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_market_making_run.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_credentials.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_exchange.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_liquidity_earnings_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_attendance.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_bootstrap.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_candidate_cli.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_envelope.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_lifecycle_probe.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_pilot_cli.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_stage0_scope.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_live_stage1_lifecycle_plan.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_paid_credit_activity.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_paid_incentive_reconciliation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_pilot_capital.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_stage2_hold.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_stage2_rehearsal.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_stage2_rewards.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_stage2_selection.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_mm_user_stream.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_native_band_scoring.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_quote_evidence_age.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_addendum.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_attended_parity_audit.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_attended.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_owner_checks.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_payout_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_resilience.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_sdk_shapes.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_re1_transport.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_reward_quote.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/market/test_stage2_handoff_constraints.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/model/test_market_units.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/model/test_units.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/live_path_allowlist.json",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/live_path_ast.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_codex_host_load_hook.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_event_metadata_validation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_execution_host.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_experiment_executor.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_http.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_international_live_session_launcher_sealer.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_international_live_session_runner.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_international_live_wrapper_sealer.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_live_contract_probe.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_live_path_ratchets.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_location_config_generation.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_location_config_refresh.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_operator_host_status.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_portable_live_sdk_script.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_production_baseline_reconciler_execution.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_release_candidate_contract.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_replay_cache_retention.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_schema_registry.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_stage2_child_evidence.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_stage2_host_schema.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_stage2_session_sealing.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_status_script.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_venue_shapes.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/operations/test_workload_admission_script.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/reporting/test_operator_control_room.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/reporting/test_operator_monitor.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/reporting/test_point_in_time_preselection_source.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/reporting/test_project_overview.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    },
+    {
+      "path": "tests/reporting/test_registration_parameters.py",
+      "mechanical_verdict": "UNDECIDABLE",
+      "capture_closure_membership": null
+    }
+  ]
+}
