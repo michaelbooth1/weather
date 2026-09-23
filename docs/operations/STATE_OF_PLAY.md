@@ -76,16 +76,16 @@ Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS
    ratify or change the 80b defaults** (Maker candidate row). Earliest repository-run live session about 2026-10-01.
 4. NBM census done (EF §10k: 27,473 rows over 14 days, **every** 12Z/13Z/19Z pick is a 12Z minimum); layer 1 landed. Land
    layer 2 (`codex/integrate-2-parser-20260921` @ `abd648c7c`, ROLL-SENSITIVE: `feature_store`, `model_features`,
-   `model_sources`, `nbm_probabilistic_tmax`, `schema_registry_data`) then 3, one per 01:00-04:00 window, host-qualified.
-5. Redeploy the hash-pinned watchdog so the briefing uses the trough-based disk arithmetic; give the
-   merge tool's execution-tape pre-check a bounded retry.
+   `model_sources`, `nbm_probabilistic_tmax`, `schema_registry_data`) then 3, one per 01:00-04:00 window, host-qualified. **09-23
+   00:40: bounded suite passed chunks 1-10/22, then stopped at its 50 GiB disk floor** (the wrapper passes no `--basetemp`, so
+   pytest kept ~2.6 GB in `%TEMP%\pytest-of-micha`; deleted). Blocked on disk: fix the wrapper's temp handling or free space first.
+5. Redeploy the hash-pinned watchdog (trough-based disk arithmetic); bounded retry for the merge tool's tape pre-check.
 
 ## Standing decisions
 
 - International Polymarket only; no paid weather sources. Model work is unpaused (owner, 2026-09-21): measurement first, and any candidate needs a pre-registration before it is scored.
 - Streak contiguity is a diagnostic, not an objective. Backups are deprioritized by the owner.
-- Capture-host heavy work is serial, admitted and time-gated. Pushing a branch never rolls capture.
-- Create worktrees with `GIT_LFS_SKIP_SMUDGE=1`; pass `--basetemp` to every pytest run and delete it.
+- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture. Worktrees: `GIT_LFS_SKIP_SMUDGE=1`; pytest: `--basetemp`, deleted.
 - Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay,
   release binding and evidence retention remain mandatory.
 
