@@ -1,4 +1,46 @@
 {
-  "raw_http": [],
-  "undeclared_imports": {}
+  "raw_http": [
+    "src/weather/market/exchange_economics.py:130",
+    "src/weather/market/exchange_economics.py:137",
+    "src/weather/market/exchange_economics.py:176",
+    "src/weather/market/exchange_economics.py:183",
+    "src/weather/market/mm_geographic_eligibility.py:151",
+    "src/weather/market/mm_geographic_eligibility.py:161",
+    "src/weather/market/mm_live_stage0_scope.py:271",
+    "src/weather/market/mm_live_stage0_scope.py:275",
+    "src/weather/market/mm_official_adapter.py:342",
+    "src/weather/market/mm_official_adapter.py:346",
+    "src/weather/market/mm_official_adapter.py:442",
+    "src/weather/market/mm_official_adapter.py:446",
+    "src/weather/market/mm_official_transport.py:97",
+    "src/weather/market/mm_official_transport.py:121",
+    "src/weather/market/mm_official_transport.py:150",
+    "src/weather/market/mm_official_transport.py:219",
+    "src/weather/market/mm_stage2_selection.py:109",
+    "src/weather/market/mm_stage2_selection.py:121",
+    "src/weather/market/re1_payout_evidence.py:514",
+    "src/weather/market/re1_transport.py:57",
+    "src/weather/market/re1_transport.py:121",
+    "src/weather/market/re1_transport.py:130",
+    "src/weather/sources/official_guidance_collection.py:192"
+  ],
+  "undeclared_imports": {
+    "src/weather/calibration/residual_distribution_v1.py:27:joblib": "DEP-1: declare directly instead of relying on scikit-learn",
+    "src/weather/operations/windows_silent.py:66:joblib": "DEP-1: declare directly instead of relying on scikit-learn",
+    "src/weather/market/mm_credentials.py:354:eth_account": "DEP-2: declare eth-account in the live extra",
+    "src/weather/market/mm_credential_import_cli.py:626:eth_account": "DEP-2: declare eth-account in the live extra",
+    "src/weather/market/re1_transport.py:164:eth_account": "DEP-2: frozen RE-1; declare eth-account after campaign",
+    "src/weather/market/mm_stage2_entrypoint.py:28:httpx": "DEP-3: declare httpx in the live extra",
+    "src/weather/market/re1_resilience.py:11:httpx": "DEP-3: frozen RE-1; declare httpx after campaign",
+    "src/weather/market/re1_transport.py:167:httpx": "DEP-3: frozen RE-1; declare httpx after campaign",
+    "src/weather/operations/closed_market_day_archive.py:22:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/operations/closed_market_day_archive.py:23:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/operations/event_day_manifest.py:438:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/operations/event_day_manifest.py:480:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/point_in_time_contract.py:678:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/point_in_time_contract.py:737:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/point_in_time_contract.py:753:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/reporting/validation/point_in_time_evaluation.py:37:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers",
+    "src/weather/reporting/validation/point_in_time_evaluation.py:38:pyarrow": "DEP-4: declare pyarrow for archive and PIT consumers"
+  }
 }

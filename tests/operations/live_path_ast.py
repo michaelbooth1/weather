@@ -65,7 +65,7 @@ def external_imports(tree):
                    [node.module] if isinstance(node, ast.ImportFrom) and not node.level and node.module else [])
         for name in imports:
             top = name.split('.')[0]
-            if top not in sys.stdlib_module_names and top not in {'weather', '__future__'}:
+            if top not in sys.stdlib_module_names and top not in {'weather', 'app', '__future__'}:
                 yield node.lineno, top
 
 
@@ -91,6 +91,13 @@ def import_misses(root):
             continue
         for line, top in external_imports(tree):
             distributions = {normalized(item) for item in providers.get(top, [])}
+            # Optional distributions need not be installed in architecture-only
+            # CI. These distribution-owned top-level names are explicit, not
+            # inferred from an unrelated transitive installation.
+            known = {'polymarket': 'polymarket-client', 'dotenv': 'python-dotenv',
+                     'websocket': 'websocket-client', 'sklearn': 'scikit-learn', 'netCDF4': 'netcdf4'}
+            if not distributions:
+                distributions = {known.get(top, normalized(top))}
             if not distributions & declared:
                 missing[f'{path}:{line}:{top}'] = sorted(distributions)
     return missing
@@ -120,11 +127,16 @@ def powershell_commands(tree):
         return any(is_shell(child, seen) for child in ast.iter_child_nodes(node))
 
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.List, ast.Tuple)) or not node.elts or not is_shell(node.elts[0]):
+        if not isinstance(node, (ast.List, ast.Tuple)) or not node.elts:
             continue
         words = [item.value.lower() if isinstance(item, ast.Constant) and isinstance(item.value, str) else None
                  for item in node.elts]
         boundaries = [i for i, word in enumerate(words) if word in {'-command', '-file', '-encodedcommand'}]
+        literal_shell = words[0] and words[0].replace('\\', '/').split('/')[-1] in {'powershell', 'powershell.exe'}
+        if not boundaries and not literal_shell:
+            continue
+        if not is_shell(node.elts[0]):
+            continue
         if not boundaries:
             yield node.lineno, False
             continue

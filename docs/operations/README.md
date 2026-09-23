@@ -189,6 +189,9 @@ Text moved out of always-read files. Verbatim, unmaintained, never authority.
 
 ## Update this file when
 
+The [live-path qualification runbook](live-path-qualification.md) owns the
+one-shot public contract probe, HTTP/dependency/spawn ratchets and fresh-venv smoke.
+
 A file is added to, renamed in, archived from or removed from `docs/operations/` (dated or not), a
 document changes ownership, or a dated record's subject changes status (a pause is lifted, a fix
 lands). Update the owning document in the same change when modifying:

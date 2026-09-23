@@ -584,6 +584,13 @@ for their non-package command surfaces.
 
 ## Documentation
 
+Public live-path contracts can be checked once before an attended preflight with
+`python -m weather.operations.live_contract_probe --token <configured-token> --condition <condition-id> --public-address <public-address>`.
+The requirements-only workstation import smoke is
+`scripts/ops/fresh_venv_smoke.ps1 -PythonPath <absolute-project-python>`.
+See the [qualification runbook](docs/operations/live-path-qualification.md) for
+scope, source isolation, results and the shared-lease requirement.
+
 - [State of play](docs/operations/STATE_OF_PLAY.md) - what is happening now and what is already decided.
 - [Documentation map](docs/README.md) - canonical router and classification.
 - [Architecture](docs/architecture.md) - owner boundaries and end-to-end flow.

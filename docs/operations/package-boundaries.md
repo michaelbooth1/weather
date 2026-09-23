@@ -37,6 +37,7 @@ These packages are intentionally importable by any owner package:
 - `weather.artifacts`
 - `weather.cold_archive_locations` (read-only archive discovery and verified local-cache resolution)
 - `weather.io`
+- `weather.http` (bounded JSON transport; callers own retries and consumer validation)
 - `weather.paths`
 - `weather.runtime_identity`
 - `weather.schema_registry`

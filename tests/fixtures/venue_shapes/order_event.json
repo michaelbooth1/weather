@@ -1,0 +1,13 @@
+{
+  "event_type": "order",
+  "type": "CANCELLATION",
+  "id": "redacted-our-order",
+  "market": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "asset_id": "1002",
+  "outcome": "No",
+  "side": "BUY",
+  "price": "0.48",
+  "original_size": "20",
+  "size_matched": "5.57",
+  "status": "CANCELED"
+}

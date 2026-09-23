@@ -1,0 +1,15 @@
+{
+  "id": "redacted-trade",
+  "market": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "token_id": "1001",
+  "trader_side": "MAKER",
+  "outcome": "Yes",
+  "side": "BUY",
+  "price": "0.52",
+  "size": "25.57",
+  "status": "MATCHED",
+  "maker_orders": [
+    {"token_id": "1002", "outcome": "No", "side": "BUY", "maker_address": "0x1111111111111111111111111111111111111111", "order_id": "redacted-other-order", "matched_amount": "20", "price": "0.48"},
+    {"token_id": "1002", "outcome": "No", "side": "BUY", "maker_address": "0x2222222222222222222222222222222222222222", "order_id": "redacted-our-order", "matched_amount": "5.57", "price": "0.48"}
+  ]
+}

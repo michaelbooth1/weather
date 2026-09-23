@@ -26,6 +26,7 @@ def test_every_powershell_spawn_bypasses_execution_policy():
     commands = [(path, line, valid) for path, tree in trees(ROOT) for line, valid in powershell_commands(tree)]
     assert commands, 'PowerShell inventory must not silently become empty'
     assert not [(path, line) for path, line, valid in commands if not valid]
+    print(f'PowerShell vectors: {len(commands)}; exceptions: 0')
 
 
 def test_http_ratchet_catches_aliases_and_injected_openers():

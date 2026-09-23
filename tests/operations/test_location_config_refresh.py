@@ -125,15 +125,15 @@ def test_metadata_only_cli_leaves_location_registry_unchanged(tmp_path):
 
 def test_full_final_page_cannot_publish_a_truncated_inventory(monkeypatch):
     from weather.operations import location_config_refresh as refresh
-    monkeypatch.setattr(refresh.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(b'[{}]'))
+    monkeypatch.setattr(refresh, "json_request", lambda *a, **kw: [{}])
     with pytest.raises(ValueError, match="pagination is incomplete"):
         refresh.fetch_gamma_events(limit=1, max_pages=2)
 
 
 def test_short_terminal_page_proves_pagination_complete(monkeypatch):
     from weather.operations import location_config_refresh as refresh
-    pages = iter([b'[{"id":"1"}]', b'[]'])
-    monkeypatch.setattr(refresh.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(next(pages)))
+    pages = iter([[{"id": "1"}], []])
+    monkeypatch.setattr(refresh, "json_request", lambda *a, **kw: next(pages))
     assert refresh.fetch_gamma_events(limit=1, max_pages=2) == ([{"id": "1"}], [0, 1])
 
 
