@@ -52,3 +52,16 @@ verdict exists by 2026-10-31, the owner reviews the track; it does not close aut
 `payout_verdict` and `link_reward_payment` are amended before the first `collect-payout` / `collect-evidence` run for
 session 1 (earliest 00:00Z 2026-09-26 under the reconciler's D+3 rule), with the frozen-table result printed beside the
 amended one. Nothing in the live quoting path changes. The hurdle `H` and every RE-2 condition are unchanged.
+
+## Venue mechanics from public documentation (research 2026-09-23, not an amendment)
+
+From docs.polymarket.com (liquidity rewards, pUSD, contracts, rewards API) and the Polymarket help centre (article 13364466):
+the payout minimum is **1 dollar per UTC day, and earnings below it are not paid and do not roll over** (per-market vs
+per-day total not stated); the epoch is the UTC day, paid about midnight UTC (20:00 ET in daylight time, 19:00 ET after
+2026-11-01); collateral moved from USDC.e to **pUSD** on 2026-04-28, and pUSD is the expected reward asset (the earnings
+API `asset_address` is authoritative); the book is sampled once a minute at a random offset and share = our `Q_min` over all
+makers' `Q_min`, summed over the day (the model RE-1 uses); `Q_one` = YES bids + NO asks, `Q_two` = YES asks + NO bids,
+single-sided liquidity scores at 1/c (c = 3) only with the midpoint in [0.10, 0.90], two-sided required outside it; an order
+must be live for an undocumented minimum duration before it scores. Open: whether the public YES book already contains
+mirrored NO orders (mission 86c question 1). Consequence for session 1: its 0.12 earned is below the minimum and will not
+be paid; it is judged on `k_accrued` under this addendum.
