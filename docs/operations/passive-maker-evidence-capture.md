@@ -74,6 +74,8 @@ Unchanged rewards/projections reference the prior equal canonical body; key orde
 or whitespace may differ from the received bytes, whose original hash is retained.
 Every new segment writes a fresh body baseline so its references are self-contained.
 Lifecycle records reference subscription lists instead of repeating them.
+Changed lists share one journal so compression can reuse their common token IDs;
+references retain the exact list hash and record offset.
 
 Book replies are split losslessly into per-token journals, with a batch record
 retaining the original delimiters and offsets. Reassembly reproduces the exact

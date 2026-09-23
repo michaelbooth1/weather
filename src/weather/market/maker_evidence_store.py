@@ -288,8 +288,10 @@ class EvidenceStore:
             value = {"channel": channel, "tokens": list(tokens)}
             key = digest(encoded(value))
             if key not in self.subscriptions:
-                self.record("subscription", encoded(value), partition=key[:24])
-                self.subscriptions[key] = {"file": "subscription-" + key[:24] + ".jsonl", "offset": 0}
+                # Keep adjacent changed sets together so gzip can reuse shared tokens.
+                self.record("subscription", encoded(value))
+                self.subscriptions[key] = {"file": "subscription.jsonl",
+                                           "offset": self.files["subscription.jsonl"]["last_offset"]}
             return {"sha256": key, "segment": str(self.folder.relative_to(self.root)).replace("\\", "/"),
                     **self.subscriptions[key]}
 

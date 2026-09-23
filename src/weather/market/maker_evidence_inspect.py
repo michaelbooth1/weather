@@ -16,6 +16,8 @@ MAX_INSPECTION_BYTES = 1024**3
 
 
 def family(name):
+    if name == "subscription.jsonl":
+        return "subscriptions"
     for prefix, group in (("book-", "token_books"), ("updates-", "updates"),
                           ("reward-", "rewards"), ("universe-", "universe"),
                           ("subscription-", "subscriptions")):

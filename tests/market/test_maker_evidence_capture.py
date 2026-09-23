@@ -470,13 +470,15 @@ def test_raw_working_set_refuses_before_hard_limit(tmp_path):
 def test_subscription_lists_only_written_when_content_changes(store):
     first = store.subscription(("123", "456"), "trades")
     assert store.subscription(("123", "456"), "trades") == first
-    store.subscription(("123", "789"), "trades")
+    second = store.subscription(("123", "789"), "trades")
+    assert first["file"] == second["file"] and second["offset"] > first["offset"]
     rows = manifests(store)
     assert len(rows) == 2 and all(row["kind"] == "subscription" for row in rows)
     store.event("stream_lifecycle", {"subscription": first, "state": "connected"})
+    store.event("stream_lifecycle", {"subscription": second, "state": "connected"})
     terminal(store)
     from weather.market.maker_evidence_inspect import inspect_capture
-    assert inspect_capture(store.root, NOW.date().isoformat())["response_records_verified"] == 3
+    assert inspect_capture(store.root, NOW.date().isoformat())["response_records_verified"] == 4
 
 
 def test_updates_off_without_explicit_utc_window(tmp_path):
