@@ -70,11 +70,11 @@ def test_exact_frozen_payout_thresholds(value, expected):
     evidence = evidence_fixture()
     if value != '0': add_payment(evidence, programme='liquidity_reward', amount=value)
     accrual = {'rows': []}
-    assert payout_verdict(prediction, accrual, evidence)['verdict'] == expected
+    assert payout_verdict(prediction, accrual, evidence)['verdict_frozen'] == expected
     assert payout_verdict(prediction, accrual)['k'] is None
     assert payout_verdict(prediction, accrual)['verdict'] == 'INCONCLUSIVE'
     prediction['visible_two_sided_minutes'] = 179
-    assert payout_verdict(prediction, accrual, evidence)['verdict'] == 'INCONCLUSIVE'
+    assert payout_verdict(prediction, accrual, evidence)['verdict_frozen'] == 'INCONCLUSIVE'
 
 
 def test_collect_requires_prediction_before_credentials(tmp_path, monkeypatch):

@@ -156,6 +156,11 @@ class Session:
         self.prices = [number(selected['quote'][k]) for k in ('yes_buy', 'no_buy')]
         self.initial_terms = selected['snapshot']['quote_inputs']
         self.known, self.active = {}, {}
+        if hasattr(venue, 'known_order_ids'):
+            venue.known_order_ids = self.known
+            if venue.stream is not None:
+                venue.stream.known_order_ids = self.known
+                venue.stream_args['known_order_ids'] = self.known
         self.submits = self.requotes = 0
         self.posts = 0
         self.venue.before_post = self.before_post
@@ -241,12 +246,29 @@ class Session:
         if events:
             self.journal.record('user_events', rows=events)
         for event in events or []:
+            if event.get('official_event_type') == 'trade' and event.get('condition_id') == self.condition:
+                self.fill_seen = True
+                if event.get('event_type') == 'unmatched_trade_event':
+                    self.journal.record('unmatched_trade_event', payload=event['payload'],
+                                        raw_event_sha256=event['raw_event_sha256'])
+                orders = []
+                # Force both legs even if the first row already proves a fill.
+                for oid in self.active:
+                    try:
+                        orders.append(self.required('fill_order', lambda: self.venue.order(oid),
+                                                    checkpoint=False, order_id=oid))
+                    except Exception as exc:
+                        self.evidence_failed = True
+                        self.journal.record('fill_order_unavailable', order_id=oid, exception_type=type(exc).__name__)
+                self.journal.record('fill', rows=orders, user_event=event)
+                raise HoldEnd('fill')
             if _order_id(event) not in self.known:
                 raise HoldEnd('unknown_user_event')
             if (event.get('official_event_type') == 'trade' or
                     event.get('event_type') in {'trade', 'trade_pending'} or
                     filled(event)):
                 self.fill_seen = True
+                self.journal.record('fill', user_event=event)
                 raise HoldEnd('fill')
             status = _value(event, 'status', 'official_order_status')
             if _order_id(event) in self.active and _order_id(event) != canceling and status and str(status).upper() != 'LIVE':

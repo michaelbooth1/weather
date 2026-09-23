@@ -215,21 +215,67 @@ class PairStream(OfficialUserStreamReader):
 The Stage2 reader's grant enforcement is left intact. This separate mission
 does not inherit it or override its grant check.
 """
-    def __init__(self, *, tokens, guard, **kwargs):
+    def __init__(self, *, tokens, guard, known_order_ids=None, **kwargs):
         self.tokens, self.guard = tuple(tokens), guard
+        self.known_order_ids = known_order_ids if known_order_ids is not None else set()
+        self.failed_event = None
+        self.failed_market_trade = False
         if len(self.tokens) != 2 or len(set(self.tokens)) != 2:
             raise ValueError('exact_pair_required')
         super().__init__(token_id=self.tokens[0], **kwargs)
 
     def _append(self, event_type, **fields):
+        if event_type == 'stream_failed' and self.failed_event is not None:
+            fields.update(failing_message=self.failed_event,
+                          raw_event_sha256=self.failed_event_sha256)
         super()._append(event_type, **self.guard.clean(fields))
 
     def _normalize_event(self, item):
-        token = item.get('asset_id')
-        if token not in self.tokens:
-            raise RuntimeError('unknown_account_event')
-        return normalize_official_user_event(item, maker_address=self.maker_address,
-                                             condition_id=self.condition_id, token_id=token)
+        try:
+            if not isinstance(item, dict):
+                raise RuntimeError('unknown_account_event')
+            if str(item.get('event_type', '')).lower() == 'trade':
+                if str(item.get('market', '')).lower() != self.condition_id:
+                    raise RuntimeError('unknown_account_event')
+                raw_hash = hashlib.sha256(json.dumps(item, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                rows = [r for r in item.get('maker_orders', []) if isinstance(r, dict) and (
+                    r.get('order_id') in self.known_order_ids or
+                    str(r.get('maker_address', '')).lower() == self.maker_address.lower() and
+                    r.get('asset_id', r.get('token_id')) in self.tokens)]
+                if not rows:
+                    cleaned = self._clean_event(item)
+                    self._append('unmatched_trade_event', payload=cleaned, raw_event_sha256=raw_hash)
+                    return [dict(event_type='unmatched_trade_event', official_event_type='trade',
+                                 condition_id=self.condition_id, payload=cleaned, raw_event_sha256=raw_hash)]
+                # RE-1 ends on any trade lifecycle signal; no Stage 2 behavior changes.
+                return [dict(event_type='trade', official_event_type='trade',
+                    condition_id=self.condition_id, order_id=r.get('order_id'),
+                    clob_token_id=r.get('asset_id', r.get('token_id')), outcome=r.get('outcome'),
+                    side=r.get('side'), fill_price=r.get('price'), fill_size=r.get('matched_amount'),
+                    official_trade_status=item.get('status'), raw_event_sha256=raw_hash) for r in rows]
+            token = item.get('asset_id')
+            if token not in self.tokens:
+                raise RuntimeError('unknown_account_event')
+            return normalize_official_user_event(item, maker_address=self.maker_address,
+                                                 condition_id=self.condition_id, token_id=token)
+        except Exception:
+            self.failed_market_trade = (isinstance(item, dict) and
+                str(item.get('event_type', '')).lower() == 'trade' and
+                str(item.get('market', '')).lower() == self.condition_id)
+            self.failed_event_sha256 = hashlib.sha256(json.dumps(item, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            self.failed_event = self._clean_event(item)
+            raise
+
+    def _clean_event(self, item):
+        # owner may contain another participant's API key, not just our loaded key.
+        def strip(value):
+            if isinstance(value, dict):
+                return {k: strip(v) for k, v in value.items() if not any(
+                    part in re.sub('[^a-z]', '', str(k).lower()) for part in
+                    ('owner', 'key', 'secret', 'passphrase', 'password', 'credential', 'auth', 'signature', 'header'))}
+            if isinstance(value, list): return [strip(v) for v in value]
+            return value
+        return self.guard.clean(strip(item))
 
     def _journal_token_scope(self):
         return {'token_ids': list(self.tokens)}
@@ -256,6 +302,7 @@ class OwnerVenue:
         self.readonly, self.stream = readonly, None
         self.preflight, self.timeouts = preflight, timeouts or {}
         self.journal_failed = False
+        self.known_order_ids = set()
         self.adapter = OfficialPolymarketGlobalAdapter(client, maker_address=self.maker, condition_id=condition,
                                                        sdk_version='0.6.0')
         self.readers = RewardsReaders(client, purpose='explicit_post_session_collect' if readonly else 'sealed_stage2_scoring')
@@ -266,7 +313,8 @@ class OwnerVenue:
         self.stream_number = 0
         self.directory = directory
         if directory is not None:
-            self.stream_args = dict(tokens=tokens, guard=guard, api_key=fields['API_KEY'], secret=fields['API_SECRET'],
+            self.stream_args = dict(tokens=tokens, guard=guard, known_order_ids=self.known_order_ids,
+                api_key=fields['API_KEY'], secret=fields['API_SECRET'],
                 passphrase=fields['API_PASSPHRASE'], maker_address=self.maker, condition_id=condition,
                 connect_timeout_seconds=self.timeouts.get('user_stream', 2), heartbeat_seconds=5, inbound_silence_seconds=10)
             self.stream = PairStream(**self.stream_args, journal_path=Path(directory) / 'user-stream.jsonl')
@@ -324,6 +372,9 @@ class OwnerVenue:
         if health['state'] == 'FAILED':
             if health['failure_type'] not in {'ConnectionError', 'TimeoutError', 'OSError',
                     'WebSocketConnectionClosedException', 'WebSocketTimeoutException'}:
+                if getattr(self.stream, 'failed_market_trade', False):
+                    return [dict(event_type='failed_trade_event', official_event_type='trade',
+                                 condition_id=self.condition, force_order_read=True)]
                 raise RuntimeError('user_stream_invalid_event')
             self.stream.stop(timeout_seconds=2)
             self.stream_number += 1

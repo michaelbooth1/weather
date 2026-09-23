@@ -28,6 +28,8 @@ CONFIG_PATH = '/rewards/markets/' + CONDITION
 def prediction():
     return dict(P_many=2, mode='live', evidence_complete=True, cleanup_ok=True, scoring_seen=True,
         reward_terms_changed=False, visible_two_sided_minutes=200, condition_id=CONDITION,
+        adequacy=dict(elapsed_minutes=200, public_book_minutes=200,
+                      size_spread_unchanged=True, two_sided_scoring_minutes=200),
         scope={'maker_address': MAKER}, reward_day='2026-09-01')
 
 
@@ -93,8 +95,7 @@ class RpcFixture:
         self.calls = []
         self.genesis = START - timedelta(seconds=100)
         self.transfers = transfers if transfers is not None else [
-            (1729, INCENTIVE_CASH_ASSET['asset_address'], TX, 1250000, 0),
-            (1730, collector.ASSETS[0].lower(), '0x' + '2' * 64, 1250000, 0)]
+            (1729, INCENTIVE_CASH_ASSET['asset_address'], TX, 1250000, 0)]
     def block(self, height):
         return dict(number=hex(height), timestamp=hex(int(self.genesis.timestamp()) + height * 100),
                     hash='0x' + format(height + 100, '064x'))
@@ -159,7 +160,8 @@ def test_real_collector_reconciler_verdict_round_trip_without_distribution_fixtu
     assert reconciled['valid'], reconciled
     if missing is None:
         assert reconciled['complete'] and reconciled['actual_liquidity_reward_usdc'] == 1.25, reconciled
-        assert verdict['paid'] == '1.25' and verdict['k'] == '0.625' and verdict['verdict'] == 'PAID_AS_MODELLED'
+        assert Decimal(verdict['paid']) == Decimal('1.25') and Decimal(verdict['k']) == Decimal('0.625')
+        assert verdict['verdict'] == 'PAID_AS_MODELLED'
         assert result['distributions'][0]['linkage_basis'] == collector.LINKAGE_BASIS
         assert result['payout_diagnostics']['linkage_rule_outcome'] == 'matched'
     else:
@@ -179,7 +181,7 @@ def test_actual_sdk_and_rpc_sources_link_under_reviewed_rule_and_hash_real_bytes
     assert wallet['block_bounds']['first_block'] == 1 and wallet['block_bounds']['last_block'] == 2592
     assert len(wallet['chunks']) > 3 and all(r['complete'] for r in wallet['chunks'])
     assert len(result['wallet_credits']) == 1
-    assert all(len(r['wallet_credits']) == 1 for r in result['asset_observations'].values())
+    assert sum(len(r['wallet_credits']) for r in result['asset_observations'].values()) == 1
     journal = result['wire_journal']
     assert [r['sha256'] for r in journal if r['event'] == 'sdk_response'] == [hashlib.sha256(raw).hexdigest() for _, raw in calls]
     expected = [hashlib.sha256(req.method.encode() + b'\n' + req.url.raw_path + b'\n' + req.content).hexdigest() for req, _ in calls]
@@ -251,7 +253,7 @@ def test_sdk_evidence_scope_omission_and_precision_fail_closed(case):
         assert result['accruals'][0]['amount'] == '1.250000'
         assert result['accruals'][0]['venue_amount'] == '1.250000001'
         assert reconcile_incentive_payments(result)['complete']
-        assert payout_verdict(prediction(), {'rows': []}, result)['paid'] == '1.25'
+        assert Decimal(payout_verdict(prediction(), {'rows': []}, result)['paid']) == Decimal('1.25')
     else:
         assert not result['sources']['accruals']['complete']
         assert payout_verdict(prediction(), {'rows': []}, result)['paid'] is None
@@ -430,13 +432,13 @@ def test_closed_window_empty_reward_and_both_asset_credit_queries_proves_not_pai
     assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'not_paid'
     assert evidence['sources']['distributions']['complete'] and evidence['distributions'] == []
     assert verdict['payment_reconciliation']['accrual_states'][0]['state'] == 'UNPAID'
-    assert verdict['paid'] == '0.0' and verdict['verdict'] == 'NOT_PAID'
+    assert Decimal(verdict['paid']) == 0 and verdict['verdict'] == 'NOT_PAID'
 
 
 def test_usdc_credit_prevents_not_paid_when_pusd_and_activity_are_empty():
     evidence, _ = collect(activities=[], rpc=RpcFixture(transfers=[transfer(asset=collector.ASSETS[0].lower())]))
     assert evidence['payout_diagnostics']['usdc_e_credits_in_window']
-    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'non_pusd_credit_present'
+    assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'wallet_credit_unattributed'
     assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and outcome(evidence)['paid'] is None
 
 

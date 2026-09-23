@@ -9,7 +9,6 @@ from pathlib import Path
 import subprocess
 
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new, _order_id
-from weather.market.mm_exchange_reports import reconcile_incentive_payments
 from weather.market.re1_attended import MAX_SESSIONS, LAST_DAY, observe, number
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
 from weather.paths import REPO_ROOT
@@ -131,6 +130,31 @@ def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None
     return directory, row
 
 
+class ReplayedPrediction(dict):
+    """Original immutable prediction mapping with journal-derived interpretation."""
+
+
+def journal_adequacy(rows):
+    start = utc(rows[0]['recorded_at_utc'])
+    stop = next((utc(r['recorded_at_utc']) for r in rows if r['event'].startswith('cleanup_')), utc(rows[-1]['recorded_at_utc']))
+    elapsed = max(1, math.ceil((stop - start).total_seconds() / 60))
+    samples, terms, scoring_minutes, scoring = set(), set(), 0, False
+    for row in rows:
+        if row['event'] == 'scoring_response':
+            values = row['response']
+            scoring = isinstance(values, dict) and len(values) == 2 and all(v is True for v in values.values())
+        if row['event'] in {'market_snapshot', 'submit_market_snapshot', 'minute'}:
+            inputs = row['snapshot']['quote_inputs']
+            terms.add(tuple(number(inputs[k]) for k in ('reward_min_size', 'reward_max_spread_cents')))
+        if row['event'] in {'market_snapshot', 'minute'}:
+            slot = int((utc(row['recorded_at_utc']) - start).total_seconds() // 60)
+            if 0 <= slot < elapsed: samples.add(slot)
+        if row['event'] == 'minute' and row['observation']['visible_two_sided'] and scoring:
+            scoring_minutes += 1
+    return dict(elapsed_minutes=elapsed, public_book_minutes=len(samples),
+                size_spread_unchanged=len(terms) == 1, two_sided_scoring_minutes=scoring_minutes)
+
+
 def load_prediction(path, *, now, require_later_day=True):
     path = validate_regular_nonreparse_file(path)
     prediction = json.loads(path.read_bytes())
@@ -175,11 +199,13 @@ def load_prediction(path, *, now, require_later_day=True):
             if prediction[key] != rows[-1][key]: raise ValueError('prediction_terminal')
     if any(not math.isclose(float(prediction[k]), v, abs_tol=1e-8) for k, v in totals.items()):
         raise ValueError('prediction_totals')
-    return prediction
+    result = ReplayedPrediction(prediction)
+    result.adequacy = journal_adequacy(rows)
+    return result
 
 
 def payout_verdict(prediction, accrual, payment_evidence=None):
-    """Frozen thresholds; missing cash provenance is INCONCLUSIVE, never paid."""
+    """Report frozen and owner-amended interpretations without rewriting inputs."""
     p = number(prediction['P_many'])
     condition = prediction['condition_id']
     maker = prediction['scope']['maker_address'].lower()
@@ -197,25 +223,74 @@ def payout_verdict(prediction, accrual, payment_evidence=None):
             by_asset[asset] = {'earnings': str(amount), 'asset_rate': str(rate)}
             accrued += amount * rate
     paid, payment = None, None
+    frozen_paid = None
     if payment_evidence is not None:
-        payment = reconcile_incentive_payments(payment_evidence)
+        from weather.market.re1_payout_evidence import reconcile_reward_payment
+        payment = reconcile_reward_payment(payment_evidence)
+        frozen_payment = reconcile_reward_payment(payment_evidence, frozen=True)
         scope = payment.get('scope') or {}
         start = utc(prediction['reward_day'] + 'T00:00:00Z')
         if (payment['valid'] and payment['complete'] and scope.get('condition_id') == condition and
                 scope.get('maker_address', '').lower() == maker and
                 utc(scope['accrual_start_utc']) == start and utc(scope['accrual_end_utc']) == start + timedelta(days=1)):
             paid = number(payment['actual_liquidity_reward_usdc'])
+        if (frozen_payment['valid'] and frozen_payment['complete'] and
+                frozen_payment.get('scope', {}).get('condition_id') == condition and
+                frozen_payment['scope'].get('maker_address', '').lower() == maker and
+                utc(frozen_payment['scope']['accrual_start_utc']) == start and
+                utc(frozen_payment['scope']['accrual_end_utc']) == start + timedelta(days=1)):
+            frozen_paid = number(frozen_payment['actual_liquidity_reward_usdc'])
     k = paid / p if paid is not None and p > 0 else None
     adequate = (prediction['mode'] == 'live' and prediction['evidence_complete'] and prediction['cleanup_ok'] and
                 prediction.get('failure_type') is None and
                 prediction['scoring_seen'] and not prediction['reward_terms_changed'] and
                 prediction['visible_two_sided_minutes'] >= 180)
     decision = 'INCONCLUSIVE'
-    if adequate and k is not None:
-        if k >= number('.5'): decision = 'PAID_AS_MODELLED'
-        elif number('.1') <= k < number('.5'): decision = 'PAID_DILUTED'
-        elif paid == 0 and p >= 2: decision = 'NOT_PAID'
-    return {'verdict': decision, 'paid': None if paid is None else str(paid), 'k': None if k is None else str(k),
+    frozen_k = frozen_paid / p if frozen_paid is not None and p > 0 else None
+    if adequate and frozen_k is not None:
+        if frozen_k >= number('.5'): decision = 'PAID_AS_MODELLED'
+        elif number('.1') <= frozen_k < number('.5'): decision = 'PAID_DILUTED'
+        elif frozen_paid == 0 and p >= 2: decision = 'NOT_PAID'
+    facts = getattr(prediction, 'adequacy', prediction.get('adequacy', {}))
+    coverage = (number(facts['public_book_minutes']) / number(facts['elapsed_minutes'])
+                if facts.get('elapsed_minutes', 0) > 0 else None)
+    amended_adequate = (prediction['mode'] == 'live' and prediction['cleanup_ok'] and
+        coverage is not None and number('.95') <= coverage <= 1 and facts.get('size_spread_unchanged') is True)
+    short = prediction['visible_two_sided_minutes'] < 180
+    day_total = payment.get('day_earnings') if payment else None
+    day_total = number(day_total) if day_total is not None else None
+    # The collection's complete, account-wide earnings are authoritative for
+    # both the daily minimum and the selected condition's accrued ratio.
+    if payment and payment.get('condition_earnings') is not None:
+        accrued = number(payment['condition_earnings'])
+    k_accrued = accrued / p if p > 0 else None
+    amended, cause, accrued_verdict = 'INCONCLUSIVE', None, None
+    if not amended_adequate: cause = 'session_inadequate_or_missing_replay'
+    elif p <= 0: cause = 'prediction_nonpositive'
+    elif paid is None: cause = 'payment_evidence_incomplete'
+    elif k >= number('.5'): amended = 'PAID_AS_MODELLED'
+    elif k >= number('.1'): amended = 'PAID_DILUTED'
+    elif paid == 0 and day_total is not None:
+        if not short and prediction['scoring_seen'] and (
+                day_total >= 1 and payment.get('cash_window_closed') is True or
+                day_total == 0 and facts.get('two_sided_scoring_minutes', 0) >= 180):
+            amended = 'NOT_PAID'
+        elif day_total < 1:
+            amended = 'BELOW_PAYOUT_MINIMUM'
+            accrued_verdict = ('ACCRUED_AS_MODELLED' if k_accrued >= number('.5') else
+                               'ACCRUED_DILUTED' if k_accrued >= number('.1') else 'ACCRUED_LOW')
+        else: cause = 'short_or_scoring_unproved'
+    else: cause = 'day_earnings_missing' if paid == 0 else 'paid_below_interpretation_band'
+    return {'verdict': amended, 'verdict_frozen': decision, 'verdict_amended': amended,
+            'accrued_verdict': accrued_verdict, 'flags': ['SHORT'] if short else [],
+            'adequate': amended_adequate, 'sample_coverage': None if coverage is None else str(coverage),
+            'adequacy_evidence': facts,
+            'inconclusive_cause': cause, 'day_earnings': None if day_total is None else str(day_total),
+            'close_track': amended == 'NOT_PAID' and amended_adequate,
+            'counts_as_low_accrual_session': bool(amended_adequate and day_total is not None and
+                                                 paid is not None and k_accrued is not None and k_accrued < number('.1')),
+            'paid_frozen': None if frozen_paid is None else str(frozen_paid),
+            'paid': None if paid is None else str(paid), 'k': None if k is None else str(k),
             'accrued': str(accrued), 'k_accrued': str(accrued / p) if p > 0 else None,
             'earnings_by_asset': by_asset, 'accrued_basis': 'venue_reported_asset_rate',
             'payment_reconciliation': payment, 'prediction_sha256': digest(prediction)}
