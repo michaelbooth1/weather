@@ -2038,3 +2038,113 @@ merge or runtime adoption occurred. Workstation qualification does not replace
 production-host qualification. The separately authorized 86b public sampler
 starts only after this suite and cleanup have exited; its measurement handback
 belongs to the 86b report.
+
+## 2026-09-23 — 84h larger-size payment session
+
+**PASS for the focused implementation handback; owner preflight and session 3
+remain pending.** No full suite was launched: the direct task instruction was
+to hand back the tip as soon as focused tests passed. All verification ended
+before 12:00 ET, well before the 19:00 ET ceiling. This does not qualify a live
+session or change session 2's frozen `c771cbb42` / 20-share treatment.
+
+The exact handoff and forward plan were read from fetched
+`origin/codex/reward-test-attended-handoff-20260921` at `cc028cda`.
+Implementation is stacked on PR 85's fetched
+`cd66451a56d798afea879ea754bfe95bbdbd4575`, with fetched master recorded as
+`198f7ccbcd8e80271693462425582097d22b298b`.
+Branch: **`codex/re1-larger-size-payment-20260923`**. Isolated worktree:
+`scratch/w/re1-size-84h`. The required
+[pre-registration](../research/liquidity-reward-epoch-addendum-2026-09-23b-size.md)
+was committed as **`0942f0a1` before any code change**. Implementation tip:
+**`ada167a83ffb6038076cce9855f8631e9408c37c`**; the report-only successor is the
+final published handback tip. No history was rewritten.
+
+For each band, choose the largest of 20, 30, 50 or 75 shares whose two-sided
+reserve is at most `min(available_collateral - 10, 75)`. The table, confirmation
+block and phrase digest bind size, reserve and the selection-time wallet
+reading. A fresh wallet and allowance check precedes orders; a balance drop
+can refuse the session and never silently changes the confirmed size. The
+per-order ceiling scales from 15.8/20 to `0.79 * size`, and the pair ceiling
+from 19.6/20 to `0.98 * size`, also bounded by wallet minus 10 and 75 pUSD.
+Both open orders, signed integer amounts and subsequent re-quotes retain the
+chosen size. There is no size/reserve override flag.
+
+Illustrative price sum 0.97 pUSD per YES/NO pair:
+
+| Wallet reading | Reserve budget | Selected shares per leg | Initial pair reserve |
+| ---: | ---: | ---: | ---: |
+| 97 | 75 | 75 | 72.75 |
+| 60 | 50 | 50 | 48.50 |
+| 40 | 30 | 30 | 29.10 |
+| 25 | 15 | Refuse | Even 20 needs 19.40 |
+
+All configured local T+0/T+1/T+2 bands are considered, with the reward minimum
+at most the affordable chosen size. The canonical estimator, full competing
+depth at selection, frozen ranking and 2.0 prediction gate are retained. Held
+observation and prediction replay use the bound size; old evidence defaults to
+20. The parity audit changes only its size input. The sealed lane retains its
+20-share proposer and rejects a sized table unless the attended RE-1 controller
+explicitly opts in. Fill handling, UTC-day and six-hour limits, heartbeat,
+verdict tables, three-session cap and September 30 end date are unchanged.
+Public-read failure still fails closed; no incomplete universe is promoted.
+
+Verification (all synthetic/inert exchange fixtures, under
+`scripts/ops/workstation_heavy.ps1`):
+
+- All ten RE-1 suites: **314 passed**. Four affected shared pricing/selection/
+  hold/rehearsal suites: **104 passed**. Combined: **418 passed in 138.75 s**,
+  zero failures/errors/skips.
+- After the final explicit sealed-lane rejection and parity-input change,
+  sizing/parity/selection rechecks: **73 passed**. The same invocation also
+  ran the architecture suite: 21 passed and its untracked-file check failed
+  because the two new source/test files were not staged yet. No code defect
+  was involved; after staging, all **22 architecture checks passed in 5.68 s**.
+- Documentation audit: **PASS**, 18 agent files / 913 Markdown files.
+  Staged and cumulative whitespace/diff checks passed. No full-suite or
+  live-readiness claim is made.
+
+Retained local JUnit receipts (under this isolated worktree):
+`scratch/84h-focused-a.xml`, SHA-256
+`e0d3a8fa7221a39bf9cb8c98f322fdf69ca2bf043ca534ce31d4a7efbf9a3c38`;
+`scratch/84h-focused-b.xml`, SHA-256
+`70e8aa29cb7b37d9ad4b4f9f01e66fc026b80eec61abec8198de16f508cbff72`;
+`scratch/84h-architecture.xml`, SHA-256
+`07b7d026794238bf1f44a1e73b6dd6a0e1c4ffb06c94f5e4724755f70a2d95de`.
+The middle receipt deliberately retains the pre-staging architecture failure.
+
+Reproduce focused checks from this branch root on the assigned workstation:
+
+```powershell
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+$re1Args = @('-m','pytest') + @(Get-ChildItem tests/market/test_re1*.py | ForEach-Object { 'tests/market/' + $_.Name }) + @('tests/market/test_reward_quote.py','tests/market/test_mm_stage2_selection.py','tests/market/test_mm_stage2_hold.py','tests/market/test_mm_stage2_rehearsal.py','tests/operations/test_import_architecture.py','-q','--basetemp=C:/pt/re184h-repro')
+$re1Encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($re1Args | ConvertTo-Json -Compress)))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$re1Repo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1Encoded -RepoRoot $re1Repo
+```
+
+The mechanical `roll_verdict.ps1 -Branch codex/re1-larger-size-payment-20260923
+-Base cd66451a56d798afea879ea754bfe95bbdbd4575` returned **UNDECIDABLE, exit 1:
+no live closure evidence**. Per-file roll disposition:
+
+| Changed file | Capture closure membership / verdict |
+| --- | --- |
+| `src/weather/market/mm_stage2_selection.py` | Unknown; no retained live closures |
+| `src/weather/market/reward_quote.py` | Unknown; no retained live closures |
+| `src/weather/market/re1_sizing.py` | Unknown; new module, imported by changed owners |
+| `src/weather/market/re1_attended.py` | Unknown; no retained live closures |
+| `src/weather/market/re1_attended_cli.py` | Unknown; no retained live closures |
+| `src/weather/market/re1_evidence.py` | Unknown; no retained live closures |
+| `src/weather/market/re1_owner_checks.py` | Unknown; no retained live closures |
+| `src/weather/market/re1_transport.py` | Unknown; no retained live closures |
+| `tests/market/test_re1_sizing.py` | Unknown; no retained live closures |
+| `tests/market/test_re1_attended_parity_audit.py` | Unknown; no retained live closures |
+| `tests/market/test_re1_owner_checks.py` | Unknown; no retained live closures |
+| `tests/market/test_re1_transport.py` | Unknown; no retained live closures |
+| This appended report and the dated size addendum | Roll-free documentation by contract |
+
+Production must obtain its current mechanical verdict before integration.
+No schema registry, host assignment, scheduler or release gate changed. No
+production write, registration, restart, merge, promotion, real preflight,
+live, cancel-only or collect command occurred. No `.env`, campaign root or
+`scratch/w/re1-session1-20260923` access occurred. Session evidence was not read
+or rewritten. The owner alone preflights the reviewed tip for session 3.
