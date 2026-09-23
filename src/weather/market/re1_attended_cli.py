@@ -12,6 +12,7 @@ from weather.market.mm_stage2_rehearsal import ReplayClock
 from weather.market.re1_attended import Session, SecretGuard, LAST_DAY
 from weather.market.re1_evidence import campaign_root, live_mutex, reserve_attempt, load_prediction, payout_verdict
 from weather.market.re1_rehearsal import RehearsalVenue, WallClock, Re1PublicBooks
+from weather.market.re1_sizing import session_caps
 
 _LIVE_STARTED = False
 
@@ -40,7 +41,7 @@ def run_rehearsal(args):
     public = Re1PublicBooks()
     if args.realtime and args.selection:
         raise ValueError('realtime_requires_fresh_public_selection')
-    table = json.loads(args.selection.read_bytes()) if args.selection else public.selection()
+    table = json.loads(args.selection.read_bytes()) if args.selection else public.selection(available_collateral='50')
     if not table['selected_condition_id']:
         write_new(args.output / 'selection.json', table)
         raise RuntimeError('no_qualifying_band')
@@ -58,8 +59,10 @@ def confirmation(table, guard, *, reader=input):
     selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
     phrase = 'RE1M TUNNEL DOWN ELIGIBLE ATTENDED ' + digest(table)[:12]
     guard.print({'condition': selected['condition_id'], 'quote': selected['quote'], 'selection_sha256': digest(table),
+                 'size': selected['quote']['size'], 'reserve_pusd': selected['quote']['reserve_pusd'],
+                 'available_collateral': table.get('available_collateral'),
                  'minutes': 360, 'max_submits': 10, 'max_sessions': 3, 'last_date': LAST_DAY})
-    guard.print('Only the balance of the controlled account is an unconditional loss ceiling. A dedicated account holding about $50 is recommended. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, $25 free, and remain within reach for six hours.')
+    guard.print('Dedicated testing wallet: at most 100 pUSD. The full two-sided reserve is at risk; the session capital ceiling is 0.98 times the chosen size, bounded by wallet minus 10 and 75 pUSD. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, and remain within reach for six hours.')
     guard.print('Type exactly: ' + phrase)
     typed = reader()
     if typed != phrase: raise RuntimeError('owner_confirmation_refused')
@@ -77,25 +80,31 @@ def run_live():
         if now.date().isoformat() > LAST_DAY or (now + timedelta(hours=6)).date() != now.date():
             raise RuntimeError('session_duration_or_utc_day')
         preflight = clean_preflight(campaign_root(), now=now, commit=code_identity())
-        public = Re1PublicBooks()
-        table = public.selection()
-        if not table['selected_condition_id']: raise RuntimeError('no_qualifying_band')
         if geography().get('blocked') is not False: raise RuntimeError('geoblock')
-        receipt = confirmation(table, SecretGuard())
         fields, guard = load_owner_credentials('live')
         if fields['FUNDER_ADDRESS'] != preflight['maker_address']:
             raise RuntimeError('preflight_account_changed')
         timeouts = preflight['timeouts_seconds']
         client = build_client(fields, timeout=max(timeouts.values()))
-        selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
-        venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'], timeouts=timeouts)
+        venue = None
         session = None
         handlers = {}
         try:
+            # No order/heartbeat capability is used before the exact phrase.
+            wallet_reader = OwnerVenue(client, fields, guard, readonly=True, timeouts=timeouts)
+            balances = wallet_reader.balances()
+            public = Re1PublicBooks()
+            table = public.selection(available_collateral=balances['available_collateral'])
+            if not table['selected_condition_id']: raise RuntimeError('no_qualifying_band')
+            receipt = confirmation(table, guard)
+            selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
+            _, reserve_cap = session_caps(selected['quote']['size'], table['available_collateral'])
+            venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
+                               timeouts=timeouts, size=selected['quote']['size'], reserve_cap=reserve_cap)
             directory, attempt = reserve_attempt(campaign_root(), now=datetime.now(timezone.utc), selection_sha256=digest(table),
                                                  open_orders=venue.open_orders, maker=venue.maker)
             venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
-                               directory=directory, timeouts=timeouts)
+                               directory=directory, timeouts=timeouts, size=selected['quote']['size'], reserve_cap=reserve_cap)
             session = Session(venue=venue, public=public, table=table, clock=WallClock(), directory=directory,
                               guard=guard, mode='live', confirmation=receipt, attempt=attempt)
             def interrupted(_signal, _frame): raise KeyboardInterrupt()
@@ -108,7 +117,9 @@ def run_live():
             return 0 if result['cleanup_ok'] and result['failure_type'] is None else 1
         finally:
             if session is not None: session.cleanup()
-            try: venue.close()
+            try:
+                if venue is not None: venue.close()
+                else: client.close()
             finally:
                 for value, handler in handlers.items(): signal.signal(value, handler)
 

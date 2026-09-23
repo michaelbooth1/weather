@@ -176,7 +176,7 @@ def load_prediction(path, *, now, require_later_day=True):
         rows.append(row)
         if row['event'] == 'minute':
             samples += 1
-            observed = observe(row['snapshot'], row['prices'])
+            observed = observe(row['snapshot'], row['prices'], prediction['scope'].get('size', 20))
             if observed != row['observation']: raise ValueError('minute_replay')
             if observed['visible_two_sided']:
                 totals['visible_two_sided_minutes'] += 1

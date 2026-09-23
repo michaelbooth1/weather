@@ -22,6 +22,7 @@ from weather.market.mm_official_adapter import _value
 from weather.market.re1_resilience import Freshness, HeartbeatLoop, retry_read, transient
 from weather.market.reward_quote import _decimal as number, _levels
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
+from weather.market.re1_sizing import SIZES, reserve_budget, session_caps
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
 
 HOST = 'https://clob.polymarket.com'
@@ -71,16 +72,19 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices):
+def observe(snapshot, prices, size=SIZE):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
 True touch remains a separate submit safety check. Plain mid is sensitivity.
 """
+    size = number(size)
+    if size not in SIZES:
+        raise HoldEnd('treatment_size')
     values = snapshot['quote_inputs']
     minimum, maximum, rate = (number(values[k]) for k in
         ('reward_min_size', 'reward_max_spread_cents', 'reward_rate_per_day'))
-    if minimum > SIZE:
+    if minimum > size:
         raise HoldEnd('reward_minimum')
     if minimum <= 0 or maximum <= 0 or rate < 40:
         raise HoldEnd('reward_rate_or_terms')
@@ -97,7 +101,7 @@ True touch remains a separate submit safety check. Plain mid is sensitivity.
     mid = (max(qb) + min(qa)) / 2
     plain = (max(p for p, _ in yb) + min(p for p, _ in ya)) / 2
     yes, no = map(number, prices)
-    visible = all(sum(s for p, s in levels if p == price) >= SIZE
+    visible = all(sum(s for p, s in levels if p == price) >= size
                   for levels, price in ((yb, yes), (nb, no)))
 
     def shares(at):
@@ -106,10 +110,10 @@ True touch remains a separate submit safety check. Plain mid is sensitivity.
             aggregate = {}
             for p, s in levels:
                 aggregate[p] = aggregate.get(p, Decimal(0)) + s
-            aggregate[own_price] = max(Decimal(0), aggregate.get(own_price, Decimal(0)) - SIZE)
+            aggregate[own_price] = max(Decimal(0), aggregate.get(own_price, Decimal(0)) - size)
             scores.append(side_score([(float(p), float(s)) for p, s in aggregate.items() if s > 0],
                                      float(at), float(maximum), float(minimum))[0])
-        own = q_min(*(order_score(float(SIZE), float(d), float(maximum), float(minimum))
+        own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum))
                       for d in ((at - yes) * 100, (1 - at - no) * 100)), float(at))
         return share_of(own, sum(scores) / 2), share_of(own, q_min(*scores, float(at)))
 
@@ -152,8 +156,16 @@ class Session:
         selected = next(r for r in table['rows'] if r['condition_id'] == self.condition)
         self.tokens = tuple(selected['token_ids'])
         validate_selection(table, expected_sha256=digest(table), condition_id=self.condition,
-                           token_ids=self.tokens, now=self.start)
+                           token_ids=self.tokens, now=self.start, allow_sized=True)
         self.prices = [number(selected['quote'][k]) for k in ('yes_buy', 'no_buy')]
+        self.size = number(selected['quote']['size'])
+        self.sized = table.get('size_treatment') == 'RE-1-84h'
+        self.order_cap, self.band_cap = (session_caps(self.size, table['available_collateral'])
+                                       if self.sized else (ORDER_CAP, BAND_CAP))
+        self.selection_sha256 = digest(table)
+        if mode == 'live' and (not self.sized or not confirmation or
+                confirmation.get('text') != 'RE1M TUNNEL DOWN ELIGIBLE ATTENDED ' + self.selection_sha256[:12]):
+            raise RuntimeError('size_confirmation_required')
         self.initial_terms = selected['snapshot']['quote_inputs']
         self.known, self.active = {}, {}
         if hasattr(venue, 'known_order_ids'):
@@ -176,6 +188,10 @@ class Session:
         self.scope = {'condition_id': self.condition, 'token_ids': list(self.tokens),
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
                       'protocol': 'RE-1M-attended-84c'}
+        if self.sized:
+            self.scope.update(size=str(self.size), reserve_pusd=selected['quote']['reserve_pusd'],
+                              available_collateral=table['available_collateral'],
+                              selection_sha256=self.selection_sha256)
         self.journal = GuardedJournal(self.directory / 'journal.jsonl', clock=clock.now,
                                      scope=self.scope, mode=mode, guard=self.guard)
         if hasattr(venue, 'set_journal'):
@@ -288,13 +304,14 @@ class Session:
                 self.evidence_failed = True
                 raise HoldEnd('order_no_longer_resting')
 
-    def submit(self, leg, price, *, side='BUY', size=SIZE, post_only=True, order_type='GTD'):
+    def submit(self, leg, price, *, side='BUY', size=None, post_only=True, order_type='GTD'):
         """The sole sign/submit boundary. No CLI/config can widen these limits."""
         self.control(force=True)
+        size = self.size if size is None else number(size)
         if (self.mode == 'live' and (not self.attempt or not 1 <= self.attempt.get('session_number', self.attempt['number']) <= MAX_SESSIONS)):
             raise HoldEnd('session_cap')
         now = utc(self.clock.now())
-        if (self.venue.host != HOST or side != 'BUY' or number(size) != SIZE or
+        if (self.venue.host != HOST or side != 'BUY' or size != self.size or size not in SIZES or
                 post_only is not True or order_type != 'GTD' or leg not in (0, 1)):
             raise HoldEnd('submit_shape')
         if ((self.end - self.start).total_seconds() != self.planned_seconds or
@@ -307,9 +324,9 @@ class Session:
         price = number(price)
         if price != self.prices[leg] or not Decimal('.17') <= price <= Decimal('.80') or price % Decimal('.01'):
             raise HoldEnd('submit_price')
-        if price * SIZE > ORDER_CAP or sum(self.prices) * SIZE > BAND_CAP:
+        if price * size > self.order_cap or sum(self.prices) * size > self.band_cap or sum(self.prices) * size > 75:
             raise HoldEnd('capital_cap')
-        expected = {oid: (self.tokens[i], p, SIZE) for oid, (i, p) in self.active.items()}
+        expected = {oid: (self.tokens[i], p, size) for oid, (i, p) in self.active.items()}
         rows = self.required('open_orders', self.venue.open_orders)
         _exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
         if len(rows) >= 2 or any(i == leg for i, _ in self.active.values()):
@@ -323,11 +340,12 @@ class Session:
         self.journal.record('submit_market_snapshot', snapshot=snapshot)
         self.market_time = self.clock.monotonic()
         values = snapshot['quote_inputs']
-        if number(values['reward_min_size']) != SIZE or number(values['reward_rate_per_day']) < 40:
+        if ((number(values['reward_min_size']) > size if self.sized else number(values['reward_min_size']) != SIZE)
+                or number(values['reward_rate_per_day']) < 40):
             raise HoldEnd('reward_terms')
-        observe(snapshot, self.prices)
+        observe(snapshot, self.prices, self.size)
         rule = snapshot['rules'][self.tokens[leg]]
-        if number(rule['tick_size']) != Decimal('.01') or number(rule['min_order_size']) > SIZE or number(rule['fee_rate_bps']) < 0:
+        if number(rule['tick_size']) != Decimal('.01') or number(rule['min_order_size']) > size or number(rule['fee_rate_bps']) < 0:
             raise HoldEnd('market_rules')
         asks = _levels(values['yes_asks' if leg == 0 else 'no_asks'])
         if price >= min(p for p, _ in asks):
@@ -471,8 +489,11 @@ class Session:
             if self.required('initial_positions', self.venue.positions, checkpoint=False) != []:
                 raise HoldEnd('initial_positions')
             balances = self.required('initial_balances', self.venue.balances, checkpoint=False)
-            if number(balances['available_collateral']) < 25:
+            if (sum(self.prices) * self.size > reserve_budget(balances['available_collateral']) if self.sized
+                    else number(balances['available_collateral']) < 25):
                 raise HoldEnd('available_collateral')
+            if self.sized:
+                self.band_cap = min(self.band_cap, reserve_budget(balances['available_collateral']))
             self.freshness.started = self.market_time = self.clock.monotonic()
             self.submit(0, self.prices[0])
             self.submit(1, self.prices[1])
@@ -498,7 +519,7 @@ class Session:
                     self.market_time = self.clock.monotonic()
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
-                    observation = observe(snapshot, self.prices)
+                    observation = observe(snapshot, self.prices, self.size)
                     self.control()
                     if self.clock.monotonic() >= next_accrual:
                         scoring = self.sample('scoring', lambda: self.venue.scoring(list(self.active)))

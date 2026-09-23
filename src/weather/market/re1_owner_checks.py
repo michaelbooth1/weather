@@ -107,7 +107,10 @@ def run_preflight():
             journal.record('preflight_step', step='client_bootstrap', status='PASS')
             guard.print('PASS client_bootstrap')
             phase = 'public_selection'
-            table = Re1PublicBooks().selection()
+            wallet_reader = OwnerVenue(client, fields, guard, readonly=True, preflight=True)
+            balances = wallet_reader.balances()
+            journal.record('selection_wallet', balances=balances)
+            table = Re1PublicBooks().selection(available_collateral=balances['available_collateral'])
             write_new(directory / 'selection.json', guard.clean(table))
             if not table['selected_condition_id']:
                 best = max(table['rows'], key=lambda row: row['predicted_360_minutes']
@@ -125,9 +128,12 @@ def run_preflight():
                 journal.record('preflight_step', step='public_selection', status='NO_BAND', message=message, **detail)
                 raise RuntimeError('no_qualifying_band')
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
+            from weather.market.re1_sizing import session_caps
+            _, reserve_cap = session_caps(selected['quote']['size'], table['available_collateral'])
             phase = 'user_stream_readiness'
             venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
-                               directory=directory, readonly=True, preflight=True)
+                               directory=directory, readonly=True, preflight=True,
+                               size=selected['quote']['size'], reserve_cap=reserve_cap)
             venue.set_journal(journal)
             venue.start()
             journal.record('preflight_step', step='user_stream_readiness', status='PASS')

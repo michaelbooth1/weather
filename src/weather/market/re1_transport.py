@@ -296,7 +296,12 @@ def bounded_rows(paginator):
 class OwnerVenue:
     host = HOST
     def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False,
-                 preflight=False, timeouts=None):
+                 preflight=False, timeouts=None, size='20', reserve_cap='19.6'):
+        from weather.market.re1_sizing import session_caps
+        self.size, self.reserve_cap = number(size), number(reserve_cap)
+        _, ceiling = session_caps(self.size, 100)
+        if not 0 < self.reserve_cap <= ceiling:
+            raise RuntimeError('capital_cap')
         self.client, self.fields, self.guard = client, fields, guard
         self.maker, self.condition, self.tokens = fields['FUNDER_ADDRESS'], condition, tuple(tokens)
         self.readonly, self.stream = readonly, None
@@ -424,20 +429,25 @@ class OwnerVenue:
                 raise RuntimeError('asset_balance_unreadable')
             assets[asset] = str(Decimal(int(result['result'], 16)) / 1_000_000)
         collateral = self.adapter.refresh_balance_allowance()
-        if not collateral.get('allowances') or max(number(v) for v in collateral['allowances'].values()) < 19600000:
+        if not collateral.get('allowances') or max(number(v) for v in collateral['allowances'].values()) < self.reserve_cap * 1_000_000:
             raise RuntimeError('collateral_allowance')
         return {'assets': assets, 'available_collateral': str(number(collateral['balance']) / 1_000_000),
                 'collateral_evidence': collateral}
 
     def submit(self, request, *, checkpoint):
         if self.readonly: raise RuntimeError('read_only')
+        from weather.market.re1_sizing import SIZES
+        size = number(request['size'])
+        if size not in SIZES or size != getattr(self, 'size', Decimal(20)):
+            raise RuntimeError('signed_order_binding')
         signed = self.client.create_limit_order(**request)
         expected_signer = self.maker if self.fields['SIGNATURE_TYPE'] == '3' else self.client.signer
         if (signed.maker.lower() != self.maker.lower() or signed.signer.lower() != expected_signer.lower() or
                 signed.signature_type != int(self.fields['SIGNATURE_TYPE']) or signed.token_id != request['token_id'] or
                 signed.side != 'BUY' or signed.order_type != 'GTD' or signed.post_only is not True or
-                signed.expiration != request['expiration'] or signed.taker_amount != 20000000 or
-                signed.maker_amount != int(number(request['price']) * 20000000)):
+                signed.expiration != request['expiration'] or signed.taker_amount != int(size * 1_000_000) or
+                signed.maker_amount != int(number(request['price']) * size * 1_000_000) or
+                number(request['price']) * size > Decimal('.79') * size):
             raise RuntimeError('signed_order_binding')
         checkpoint()
         # Signing can fetch SDK metadata. Re-read the actual token ask after

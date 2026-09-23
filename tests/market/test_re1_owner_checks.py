@@ -14,6 +14,7 @@ def preflight_fixture(tmp_path, monkeypatch, *, failed=None, nonempty=False):
     from weather.market import re1_owner_checks as checks, re1_transport as transport
     session, fake, clock = setup(tmp_path / 'selection-fixture')
     table = session.table
+    table['available_collateral'] = '50'
     session.journal.close()
     root = tmp_path / 'campaign'
     monkeypatch.setattr(checks, 'campaign_root', lambda: root)
@@ -21,7 +22,7 @@ def preflight_fixture(tmp_path, monkeypatch, *, failed=None, nonempty=False):
     monkeypatch.setattr(checks, 'code_identity', lambda: 'f' * 40)
     monkeypatch.setattr(checks, 'assert_no_ambient_proxy_configuration', lambda: None)
     monkeypatch.setattr(checks, 'WallClock', lambda: clock)
-    monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda: table))
+    monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda **kwargs: table))
     monkeypatch.setattr(transport, 'json_read', lambda url, **kwargs: {})
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
     fields = {'FUNDER_ADDRESS': fake.maker}
@@ -70,7 +71,7 @@ def test_preflight_twenty_reads_six_heartbeats_no_attempt(tmp_path, monkeypatch)
     assert run_preflight() == 0
     assert probes == [(transport.GEOBLOCK, None),
                       (transport.RPC, {'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []})]
-    assert counts == dict.fromkeys(('open_orders', 'positions', 'balances', 'geoblock', 'accrual'), 20) | {'heartbeat': 6, 'user_stream': 21}
+    assert counts == dict.fromkeys(('open_orders', 'positions', 'geoblock', 'accrual'), 20) | {'balances': 21, 'heartbeat': 6, 'user_stream': 21}
     assert all(b-a == pytest.approx(5) for a, b in zip(beats, beats[1:]))
     assert not list(root.glob('session-*'))
     row = clean_preflight(root, now=clock.now(), commit='f' * 40)
@@ -203,7 +204,7 @@ def test_no_qualifying_band_is_named_and_still_fails(tmp_path, monkeypatch, caps
     from weather.market import re1_owner_checks as checks
     root, clock, _, beats = preflight_fixture(tmp_path, monkeypatch)
     table = {'selected_condition_id': None, 'rows': rows}
-    monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda: table))
+    monkeypatch.setattr(checks, 'Re1PublicBooks', lambda: SimpleNamespace(selection=lambda **kwargs: table))
     assert run_preflight() == 1
     output = capsys.readouterr().out
     best = ('austin 2026-09-23 predicted_360_minutes=1.34 (predicted_below_two)' if len(rows) == 3 else

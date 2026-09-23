@@ -60,7 +60,17 @@ class RewardQuote:
     predicted_per_minute_single: float
 
 
-def price_reward_quote(
+def price_reward_quote(**inputs) -> RewardQuote:
+    """Frozen twenty-share proposer for the sealed lane and historical replay."""
+    return _price_reward_quote(**inputs, size=20)
+
+
+def price_sized_reward_quote(*, size, **inputs) -> RewardQuote:
+    """Explicit 84h pure proposal; size is still bounded to 20/30/50/75."""
+    return _price_reward_quote(**inputs, size=size)
+
+
+def _price_reward_quote(
     *,
     yes_bids: Iterable[Mapping[str, object]],
     yes_asks: Iterable[Mapping[str, object]],
@@ -73,21 +83,26 @@ def price_reward_quote(
     post_only_available: bool,
     per_order_ceiling: object = "16",
     per_band_ceiling: object = "20",
+    size: object = "20",
 ) -> RewardQuote:
-    """Price twenty shares per leg, 1.5 cents outward from size-adjusted mid.
+    """Price a bounded RE-1 size, 1.5 cents outward from size-adjusted mid.
 
 The YES book supplies the estimator's two competing-depth scenarios. Both
 actual token books supply touch checks; inferring a complementary ask is not
 enough to prove that the NO buy would be nonmarketable. Reward-minimum-sized
 levels supply the adjusted midpoint; smaller touch orders still bind safety.
-Ceilings may only be lowered. No profile is selected by this pure calculation.
+Default ceilings retain the sealed twenty-share treatment. Larger proposals
+require explicit size and ceilings; no profile is selected by this calculation.
 """
     minimum = _decimal(reward_min_size)
     maximum = _decimal(reward_max_spread_cents)
     rate = _decimal(reward_rate_per_day)
     step = _decimal(tick)
     order_cap, band_cap = _decimal(per_order_ceiling), _decimal(per_band_ceiling)
-    if not 0 < minimum <= 20:
+    size = _decimal(size)
+    if size not in (20, 30, 50, 75):
+        raise QuoteRefused("invalid_treatment_size")
+    if not 0 < minimum <= size:
         raise QuoteRefused("reward_minimum_outside_treatment")
     if maximum < 3 or rate < 40:
         raise QuoteRefused("reward_terms_outside_treatment")
@@ -95,7 +110,7 @@ Ceilings may only be lowered. No profile is selected by this pure calculation.
         raise QuoteRefused("unsupported_tick")
     if post_only_available is not True:
         raise QuoteRefused("post_only_unavailable")
-    if not (0 < order_cap <= 16 and 0 < band_cap <= 20):
+    if not (0 < order_cap <= Decimal('.8') * size and 0 < band_cap <= min(size, 75)):
         raise QuoteRefused("invalid_capital_ceiling")
     yb, ya, nb, na = map(_levels, (yes_bids, yes_asks, no_bids, no_asks))
     for bids, asks in ((yb, ya), (nb, na)):
@@ -122,14 +137,13 @@ Ceilings may only be lowered. No profile is selected by this pure calculation.
     for buy, asks in ((yes, ya), (no, na)):
         if buy <= 0 or min(price for price, _ in asks) - buy < step:
             raise QuoteRefused("would_cross_or_violate_touch_buffer")
-    size = Decimal("20")
     reserve = size * (yes + no)
     if max(yes, no) * size > order_cap or reserve > band_cap:
         raise QuoteRefused("capital_ceiling_exceeded")
     distances = ((mid - yes) * 100, (1 - mid - no) * 100)
     if any(not Decimal("1.0") <= d <= Decimal("3.0") or d >= maximum for d in distances):
         raise QuoteRefused("outside_leave_alone_window")
-    own = q_min(*(order_score(20, float(d), float(maximum), float(minimum)) for d in distances), float(mid))
+    own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) for d in distances), float(mid))
     scores = [
         side_score([(float(p), float(s)) for p, s in levels], float(mid), float(maximum), float(minimum))[0]
         for levels in (yb, ya)

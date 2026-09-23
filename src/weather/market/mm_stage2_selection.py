@@ -8,6 +8,7 @@ from decimal import Decimal
 import json
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from weather.market.exchange_economics_sources import (
     MAX_RESPONSE_BYTES, json_response_payload, response_evidence,
@@ -16,15 +17,18 @@ from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, public_quote, utc
 from weather.market.reward_quote import QuoteRefused, _decimal
+from weather.market.re1_sizing import reserve_budget, sized_quote
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, assert_no_ambient_market_registry_override
 
 
 LOCATION_ORDER = ('los-angeles', 'seattle', 'san-francisco', 'denver')
 
 
-def select_table(universe, *, now, complete=True, source_records=()):
-    """Rank all supplied configured tomorrow bands; keep every refusal row."""
+def select_table(universe, *, now, complete=True, source_records=(), available_collateral=None):
+    """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment."""
     current = utc(now)
+    if available_collateral is not None:
+        reserve_budget(available_collateral)
     target = (current.date() + timedelta(days=1)).isoformat()
     rows, identities = [], set()
     for band in universe:
@@ -38,10 +42,22 @@ def select_table(universe, *, now, complete=True, source_records=()):
         if not 0 <= (current - observed).total_seconds() <= 1800:
             raise ValueError('selection snapshot outside the 30-minute window')
         try:
-            if (band['market_id'] not in REGISTRY or band['target_date'] != target
+            if (band['market_id'] not in REGISTRY
                     or band['market_timezone'] != REGISTRY[band['market_id']].timezone):
                 raise QuoteRefused('not_configured_tomorrow_event')
-            quote = public_quote(band['snapshot'], now=observed, condition_id=condition, token_ids=band['token_ids'])
+            dates = [target] if available_collateral is None else [
+                (current.astimezone(ZoneInfo(band['market_timezone'])).date() + timedelta(days=d)).isoformat()
+                for d in range(3)]
+            if band['target_date'] not in dates:
+                raise QuoteRefused('not_configured_tomorrow_event' if available_collateral is None
+                                   else 'not_configured_local_day_0_1_2')
+            if available_collateral is None:
+                quote = public_quote(band['snapshot'], now=observed, condition_id=condition, token_ids=band['token_ids'])
+            else:
+                if (band['snapshot'].get('condition_id') != condition or
+                        list(band['snapshot'].get('token_ids', ())) != list(band['token_ids'])):
+                    raise QuoteRefused('public_scope_or_freshness')
+                quote = sized_quote(band['snapshot'], available_collateral)
             predicted = quote.predicted_per_minute_many * 360
             row.update(quote={k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(quote).items()},
                        predicted_360_minutes=predicted)
@@ -55,7 +71,10 @@ def select_table(universe, *, now, complete=True, source_records=()):
         priority = LOCATION_ORDER.index(row['market_id']) if row['market_id'] in LOCATION_ORDER else len(LOCATION_ORDER)
         return (-row['predicted_360_minutes'], priority, row['condition_id'])
     survivors = sorted((r for r in rows if r['eligible']), key=rank)
-    return {'schema_version': SCHEMA_VERSION, 'kind': 'selection', 'created_at_utc': current.isoformat(),
+    treatment = {} if available_collateral is None else {
+        'size_treatment': 'RE-1-84h', 'available_collateral': str(_decimal(available_collateral)),
+        'reserve_budget_pusd': str(reserve_budget(available_collateral))}
+    return {**treatment, 'schema_version': SCHEMA_VERSION, 'kind': 'selection', 'created_at_utc': current.isoformat(),
             'target_date': target, 'universe_complete': complete is True,
             'source_records': list(source_records), 'location_tie_order': list(LOCATION_ORDER),
             'rows': sorted(rows, key=lambda r: (r['market_id'], r['condition_id'])),
@@ -63,8 +82,10 @@ def select_table(universe, *, now, complete=True, source_records=()):
             'selected_condition_id': survivors[0]['condition_id'] if survivors and complete else None}
 
 
-def validate_selection(table, *, expected_sha256, condition_id, token_ids, now):
+def validate_selection(table, *, expected_sha256, condition_id, token_ids, now, allow_sized=False):
     current = utc(now)
+    if not allow_sized and 'available_collateral' in table:
+        raise ValueError('sized selection is attended RE-1 only')
     if (table.get('schema_version') != SCHEMA_VERSION or table.get('kind') != 'selection'
             or digest(table) != expected_sha256 or table.get('universe_complete') is not True
             or not 0 <= (current - utc(table['created_at_utc'])).total_seconds() <= 1800
@@ -72,7 +93,8 @@ def validate_selection(table, *, expected_sha256, condition_id, token_ids, now):
         raise ValueError('selection table is stale, changed, incomplete or names another condition')
     original = [{k: v for k, v in row.items() if k not in {'eligible', 'refusal', 'predicted_360_minutes', 'quote'}}
                 for row in table['rows']]
-    rebuilt = select_table(original, now=table['created_at_utc'], complete=True, source_records=table['source_records'])
+    rebuilt = select_table(original, now=table['created_at_utc'], complete=True, source_records=table['source_records'],
+                           available_collateral=table.get('available_collateral'))
     if rebuilt != table:
         raise ValueError('selection ranking does not reproduce the frozen rule')
     selected = next(row for row in table['rows'] if row['condition_id'] == condition_id)
@@ -189,33 +211,40 @@ class PublicBooks:
                     'reward_rate_per_day': str(rate),
                     'tick': str(books[0]['tick_size']), 'post_only_available': True}}
 
-    def selection(self):
+    def selection(self, *, available_collateral=None):
         assert_no_ambient_market_registry_override()
+        if available_collateral is not None:
+            reserve_budget(available_collateral)
         target = utc(self.clock()).date() + timedelta(days=1)
         universe, seen = [], set()
         for market_id in sorted(REGISTRY):
-            slug = event_slug_for_date(target, market_id)
-            event = self.get('https://gamma-api.polymarket.com/events/slug/' + slug)
-            if event.get('slug') != slug or not isinstance(event.get('markets'), list):
-                raise ValueError('configured event response changed')
-            for band in event['markets']:
-                condition = band.get('conditionId')
-                if condition in seen or len(seen) >= 500:
-                    raise ValueError('configured event universe repeats a condition or exceeds its bound')
-                seen.add(condition)
-                reward = self.reward(condition)
-                if reward is None:
-                    continue
-                tokens = json.loads(band['clobTokenIds']) if isinstance(band['clobTokenIds'], str) else band['clobTokenIds']
-                outcomes = json.loads(band['outcomes']) if isinstance(band['outcomes'], str) else band['outcomes']
-                if outcomes != ['Yes', 'No'] or len(tokens) != 2 or len(set(tokens)) != 2:
-                    raise ValueError('event does not bind the exact YES/NO token pair')
-                # The reward thresholds define the preregistered book universe.
-                if (_decimal(reward['rewards_min_size']) > 20 or reward_rate(reward, self.clock()) < 40
-                        or _decimal(reward['rewards_max_spread']) < 3):
-                    continue
-                snapshot = self.snapshot(condition, tokens, reward=reward)
-                universe.append({'market_id': market_id, 'market_timezone': REGISTRY[market_id].timezone,
-                                 'target_date': target.isoformat(), 'condition_id': condition,
-                                 'token_ids': tokens, 'snapshot': snapshot, 'event_slug': slug})
-        return select_table(universe, now=self.clock(), source_records=self.records)
+            targets = [target] if available_collateral is None else [
+                utc(self.clock()).astimezone(ZoneInfo(REGISTRY[market_id].timezone)).date() + timedelta(days=d)
+                for d in range(3)]
+            for target in targets:
+                slug = event_slug_for_date(target, market_id)
+                event = self.get('https://gamma-api.polymarket.com/events/slug/' + slug)
+                if event.get('slug') != slug or not isinstance(event.get('markets'), list):
+                    raise ValueError('configured event response changed')
+                for band in event['markets']:
+                    condition = band.get('conditionId')
+                    if condition in seen or len(seen) >= (500 if available_collateral is None else 1500):
+                        raise ValueError('configured event universe repeats a condition or exceeds its bound')
+                    seen.add(condition)
+                    reward = self.reward(condition)
+                    if reward is None:
+                        continue
+                    tokens = json.loads(band['clobTokenIds']) if isinstance(band['clobTokenIds'], str) else band['clobTokenIds']
+                    outcomes = json.loads(band['outcomes']) if isinstance(band['outcomes'], str) else band['outcomes']
+                    if outcomes != ['Yes', 'No'] or len(tokens) != 2 or len(set(tokens)) != 2:
+                        raise ValueError('event does not bind the exact YES/NO token pair')
+                    # The reward thresholds define the preregistered book universe.
+                    if (_decimal(reward['rewards_min_size']) > (20 if available_collateral is None else 75) or reward_rate(reward, self.clock()) < 40
+                            or _decimal(reward['rewards_max_spread']) < 3):
+                        continue
+                    snapshot = self.snapshot(condition, tokens, reward=reward)
+                    universe.append({'market_id': market_id, 'market_timezone': REGISTRY[market_id].timezone,
+                                     'target_date': target.isoformat(), 'condition_id': condition,
+                                     'token_ids': tokens, 'snapshot': snapshot, 'event_slug': slug})
+        return select_table(universe, now=self.clock(), source_records=self.records,
+                            available_collateral=available_collateral)

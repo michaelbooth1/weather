@@ -178,6 +178,24 @@ def test_corrupt_signed_order_never_posts(change):
     assert calls == []
 
 
+@pytest.mark.parametrize('size', [30, 50, 75])
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_sized_signed_order_binds_both_amounts(size, corrupt):
+    venue, request, signed, _, calls = fixture()
+    venue.size = Decimal(size)
+    request['size'] = str(size)
+    sized = replace(signed, taker_amount=size * 1_000_000 + int(corrupt),
+                    maker_amount=int(Decimal(request['price']) * size * 1_000_000))
+    venue.client.create_limit_order = lambda **_: sized
+    if corrupt:
+        with pytest.raises(RuntimeError, match='signed_order_binding'):
+            venue.submit(request, checkpoint=lambda: None)
+        assert calls == []
+    else:
+        assert venue.submit(request, checkpoint=lambda: None)['ok']
+        assert calls == [('post', sized)]
+
+
 def test_ask_moves_after_signing_refuses_raw_post():
     venue, request, _, book, calls = fixture()
     changed = book.model_copy(update={'asks': (book.asks[0].model_copy(update={'price': Decimal('.33')}),)})

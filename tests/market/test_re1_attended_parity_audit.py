@@ -20,7 +20,7 @@ REFERENCE = ROOT / "docs/roadmap/re1-reference"
 RECORDED = REFERENCE / "re1_selection_2026-09-22_2026-09-21T172047757Z.json"
 
 
-def reference_evaluate(snapshot, own=None):
+def reference_evaluate(snapshot, own=None, *, size=20):
     """Execute the supplied JavaScript itself, with identical public inputs."""
     node = shutil.which("node")
     if node is None:
@@ -31,6 +31,7 @@ def reference_evaluate(snapshot, own=None):
         "terms": {"maxSpread": float(values["reward_max_spread_cents"]),
                   "minSize": float(values["reward_min_size"])},
         "own": own,
+        "size": size,
     }
     code = """
 const fs = require('fs');
@@ -38,7 +39,7 @@ const L = require(process.argv[1]);
 const x = JSON.parse(fs.readFileSync(0, 'utf8'));
 const mid = L.evaluate(x.book, x.terms, null).mid;
 const quote = L.quoteFor(mid, 0.01, 1.5);
-const own = x.own || {yesBid: quote.yesBid, yesAsk: quote.yesAsk, size: 20};
+const own = x.own || {yesBid: quote.yesBid, yesAsk: quote.yesAsk, size: x.size};
 process.stdout.write(JSON.stringify({quote, ...L.evaluate(x.book, x.terms, own)}));
 """
     result = subprocess.run(
