@@ -198,4 +198,6 @@ nor fills at that horizon. Inside the panel, a fill whose own markout at fill ti
 leg-minute (its exposure and all its fills) from the horizon-`h` panel. Removed leg-minutes and fills are counted per
 horizon, event class and date-market, and reported. Each horizon's panel stands alone: a leg-minute missing at +30 can still
 count at +1 and +5. The settlement horizon keeps its existing rule (events without a settlement row leave the settlement
-panel only). `R` and net pull value use the primary 30-minute panel's leg-minutes.
+panel only). `R` is **not** horizon-restricted: it follows the frozen R rule over all panel leg-minutes (Clarifications 3-5
+exclusions only). Net pull value uses the 30-minute panel for both the avoided adverse loss and the lost reward of the same
+leg-minutes.
