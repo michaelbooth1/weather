@@ -262,3 +262,117 @@ RE-1 command starts. A STOP-triggered exit does not authorize a restart.
 The configured-city curve section and final measurement handback remain pending
 the owner's session-1 completion signal and actual collection. No modelled
 dollars or coverage are manufactured during preparation.
+
+## 2026-09-23 — overnight configured-city collection handback
+
+**INCOMPLETE_24H_COLLECTION: both authorized runs stopped on the shared-mutex
+safety gate. Eight complete configured-city samples provide 1.910524 covered
+hours, not a qualified 24-hour capacity curve. No economic GO is supported.**
+
+The owner's overnight instruction authorized this collection after the single
+PR 85 suite exited. That suite passed at the exact requested `0a7531baf` and
+its temporary files were removed before sampling. This section reports the
+configured-city amendment in handoff section 5, never the venue-wide universe.
+Both sampler runs used unchanged implementation
+`0c9437db03adcfa462ebcad11fb6c2a94671ddf1` on
+`codex/reward-capacity-curve-20260922`, `--configured-only`, and
+`--interval-minutes 15`. No code changed and no third run was launched.
+
+### Run outcomes and gaps
+
+| Run | Start ET, September 23 | Deadline ET | Actual stop ET | Responses | Exit |
+| --- | --- | --- | --- | ---: | ---: |
+| 1 | 04:52:45 | September 23 22:52:45 | 08:54:44 | 5,149 | 2 |
+| 2 | 09:07:44 | September 24 03:07:44 | 09:07:44 | 0 | 2 |
+
+Both lifecycle receipts name `live_or_heavy_mutex_busy_or_abandoned`. The
+message does not distinguish a busy mutex from an abandoned one, and no
+specific competing owner is inferred. Run 1's stopped receipt and lock release
+were verified. Before run 2, a read-only process check found no RE-1 or other
+matching heavy wrapper, and the sampler's unchanged `network_lease` context
+successfully acquired/released the shared mutex with no poison marker. Run 2
+then refused at its own action-time gate before its first public request. That
+later refusal was not bypassed. Both processes exited and `sampler.lock`
+is absent. `data/reward_capacity/STOP` is now present; further sampling needs
+new owner authority. No other process was stopped or changed.
+
+Run 1 retained eight complete samples and nine failed cycles: seven duplicate
+conditions in current-rewards pagination, one TLS handshake timeout, and one
+read timeout. Failed cycles and unsampled intervals are missing, never zero or
+interpolated. Successful sample starts were 05:07, 05:37, 06:07, 06:22, 06:37,
+07:07, 08:07 and 08:37 ET; the last finished at 08:47:23. Start-to-start span is
+3.500006 hours. The canonical summary assigns at most one 15-minute cell to
+each complete sample and only its observed duration to the final sample,
+producing **1.910524483611111 covered hours**. The observed target population
+contains 12 configured markets and 24 market-days over two target dates;
+collection itself occurred on one calendar day. These are descriptive support
+counts, not independent daily replication or inferential power.
+
+### Partial-sample modelled portfolios
+
+The following are the existing report module's coverage-weighted **24-hour
+equivalents of the eight sampled snapshots**, not observed daily earnings,
+not a 24-hour availability curve, and never paid rewards. Missing hours are
+excluded, not imputed. The best N selector may find fewer than N eligible bands;
+mean actual selected counts and maximum capital make that shortfall explicit.
+All scenarios preserve the canonical 20-share pricing and scoring rules. The
+20-share parity proof remains the earlier deterministic proof above; no new
+test suite or alternate formula was introduced.
+
+| Shares | Best N | Mean bands selected | Modelled daily equivalent | Mean capital pUSD | Maximum capital pUSD | Maximum one-fill loss pUSD |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20 | 1 | 0.39 | 7.83 | 7.62 | 19.40 | 12.80 |
+| 20 | 3 | 0.52 | 9.48 | 10.15 | 38.80 | 23.20 |
+| 20 | 10 | 0.52 | 9.48 | 10.15 | 38.80 | 23.20 |
+| 50 | 1 | 0.65 | 17.85 | 31.73 | 48.50 | 32.00 |
+| 50 | 3 | 1.18 | 26.60 | 57.12 | 145.50 | 73.50 |
+| 50 | 10 | 1.18 | 26.60 | 57.12 | 145.50 | 73.50 |
+| 100 | 1 | 1.00 | 31.90 | 96.79 | 97.00 | 64.00 |
+| 100 | 3 | 3.00 | 63.39 | 290.31 | 291.00 | 167.00 |
+| 100 | 10 | 4.52 | 77.32 | 437.73 | 484.00 | 278.00 |
+| 200 | 1 | 1.00 | 45.96 | 193.57 | 194.00 | 128.00 |
+| 200 | 3 | 3.00 | 97.42 | 580.36 | 582.00 | 330.00 |
+| 200 | 10 | 7.22 | 151.12 | 1396.87 | 1548.00 | 890.00 |
+
+Sensitivity remains `Q(s)/(C + (n+1)*Q(s)) = h/(1+n*h)`, with displayed
+competition and allocation fixed. The verified JSON and CSVs retain the
+one- and three-equal-competitor scenarios, per-band/hour share, six-hour
+predictions, capital, loss and hourly availability. One-fill losses exclude
+fees and conservatively sum across bands without settlement netting. Nothing
+measures paid rewards, queue priority, fill probability, adverse selection,
+fees, operating costs or realized profit. No confidence interval or hypothesis
+test is claimed; 24 covered hours were not reached.
+
+### Verified evidence and reproduction
+
+After both processes exited, the existing offline command
+`python -m weather.market.reward_capacity_report` completed in 6.89 seconds
+with exit 0. It checked the sampled run's retained raw-response SHA-256 values, reconstructed
+snapshots through the canonical reader, and reproduced the derived sample
+rows before producing the summary. Retained artifacts are in this worktree's
+ignored `data/reward_capacity/`; none was copied into Git or substituted with
+another host's data.
+
+| Artifact, relative to `data/reward_capacity/` | SHA-256 |
+| --- | --- |
+| `capacity_summary.json` | `e401225a4bbc3386d8ba09c35ec066455462e9708cc13b4552364fa267c69d97` |
+| `20260923T085245741798Z/samples.jsonl` | `6cde44379fd0f45518556086c63b7e853efed7cadaca2aac86e668d808f503ce` |
+| `20260923T085245741798Z/lifecycle.jsonl` | `0394867dd714d7f66934f5c77dc29d8a0301ba0aea76ab52bd399bf0cfda31cb` |
+| `20260923T130744870238Z/lifecycle.jsonl` | `e43840b85d895b7f418708bf41e890aa69eb511d44cb74b5e6065c731fabcebf` |
+
+The two `overnight-20260923-runN-start.json` and corresponding `-exit.json`
+receipts retain exact deadlines and process-exit results. The summary also
+writes `hour_of_day_ET.csv`, `band_hour.csv` and `best_bands.csv`.
+Reproduce only the offline verification from this sampler worktree:
+
+```powershell
+& 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe' -m weather.market.reward_capacity_report
+```
+
+This appended Markdown report is roll-free by the delegation contract. No
+production write, Scheduler registration/change, merge, runtime adoption,
+credential or `.env` read, authenticated/account endpoint, order path, live or
+preflight action, excluded-session-worktree access, model change, extra suite
+or third sampler run occurred. The prior raw journals remain unchanged.
+Publication is not claimed: report commits remain local pending explicit
+owner approval after automatic approval review rejected the PR 85 report push.
