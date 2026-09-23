@@ -14,6 +14,7 @@ from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENT
 from weather.market.mm_official_adapter import _plain_sdk_value
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
 from weather.market.re1_evidence import campaign_root, load_prediction, payout_verdict
+from weather.market import re1_transport
 from weather.market.re1_transport import ASSETS, HOST, RPC
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, validate_nonreparse_directory
 
@@ -323,7 +324,8 @@ class PolygonReads:
         payload = dict(jsonrpc='2.0', id=self.count, method=method, params=params)
         raw = json.dumps(payload, separators=(',', ':')).encode()
         self.journal.record('rpc_request', request=payload, url=RPC, sha256=sha(raw), hash_basis='transmitted_json_bytes')
-        request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json', 'Accept': 'application/json'})
+        request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json', 'Accept': 'application/json',
+                                                                'User-Agent': re1_transport._user_agent()})
         with self.opener(request, timeout=10) as response:
             body = response.read(MAX_BYTES + 1)
             self.journal.record('rpc_response', id=self.count, status=response.status, length=len(body), sha256=sha(body))

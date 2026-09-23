@@ -202,7 +202,8 @@ def test_pinned_sdk_reward_readers_and_pagination(monkeypatch):
         http.close()
 
 
-def test_v1_heartbeat_binds_exact_body_and_rotates_id():
+def test_v1_heartbeat_binds_exact_body_and_rotates_id(monkeypatch):
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', lambda: '123456789' + 'a' * 31)
     from weather.market.re1_transport import Re1Heartbeat
     requests = []
     def opener(request, **kwargs):
@@ -222,9 +223,12 @@ def test_v1_heartbeat_binds_exact_body_and_rotates_id():
         expected = base64.urlsafe_b64encode(hmac.new(b'fixture-only-secret', material, hashlib.sha256).digest()).decode()
         assert request.get_header('Poly_signature') == expected
         assert request.full_url == 'https://clob.polymarket.com/v1/heartbeats'
+        # Cloudflare answers 403 to urllib's default agent (owner preflight 2026-09-23T01:21Z).
+        assert request.get_header('User-agent') == 'weather-re1-attended/123456789'
 
 
-def test_rotating_heartbeat_resynchronizes_without_claiming_ack():
+def test_rotating_heartbeat_resynchronizes_without_claiming_ack(monkeypatch):
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', lambda: '123456789' + 'a' * 31)
     from io import BytesIO
     from urllib.error import HTTPError
     from weather.market.re1_transport import Re1Heartbeat

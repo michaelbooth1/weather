@@ -55,7 +55,7 @@ class Re1Heartbeat(OfficialHeartbeatSender):
         signature = build_l2_hmac_signature(secret=self._api_secret, timestamp=timestamp,
                                            method='POST', path=path, body=body)
         request = Request(HOST + path, data=body.encode(), method='POST', headers={
-            'Content-Type': 'application/json', 'Accept': 'application/json',
+            'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': _user_agent(),
             'POLY_ADDRESS': self._signer_address, 'POLY_API_KEY': self._api_key,
             'POLY_PASSPHRASE': self._api_passphrase, 'POLY_SIGNATURE': signature,
             'POLY_TIMESTAMP': str(timestamp)})

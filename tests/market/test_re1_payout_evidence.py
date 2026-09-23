@@ -100,6 +100,7 @@ class RpcFixture:
                     hash='0x' + format(height + 100, '064x'))
     def __call__(self, request, timeout):
         assert request.full_url == collector.RPC and request.method == 'POST' and timeout == 10
+        assert request.get_header('User-agent') == 'weather-re1-attended/123456789'
         body = json.loads(request.data)
         method, params = body['method'], body['params']
         assert method in {'eth_chainId', 'eth_getBlockByNumber', 'eth_getLogs'}
