@@ -2148,3 +2148,67 @@ production write, registration, restart, merge, promotion, real preflight,
 live, cancel-only or collect command occurred. No `.env`, campaign root or
 `scratch/w/re1-session1-20260923` access occurred. Session evidence was not read
 or rewritten. The owner alone preflights the reviewed tip for session 3.
+
+## 2026-09-23 — one full-suite qualification at 1310ca6b
+
+**PASS: 7,360 passed, zero failures, zero errors, 34 skipped, and 991 passing
+subtests.** This is the single full suite explicitly requested after the 84h
+focused handback. No code change or rerun occurred.
+
+The new detached qualification worktree was
+`scratch/w/re1-84h-fullsuite-20260923`, at exact commit
+**`1310ca6bf230f6a520f3ee4ff364943cc3b480f1`**. Its tracked and untracked Git
+status was clean before launch and after the wrapper exited. Only after the
+suite finished was this worktree put on the report-only branch
+**`codex/re1-84h-fullsuite-report-20260923`**.
+
+The repository-owned `scripts/ops/workstation_heavy.ps1` admitted the run with
+its host/principal, shared lease and child-tree containment. The pre-launch
+process check found no RE-1 live process. Pytest started at **11:50:38 ET**,
+reported **3,605.06 seconds (1:00:05)**, and the wrapper's **exit 0** was
+recorded at **12:51:31 ET**. Both the 18:15 start cutoff and the strict 19:00
+finish deadline were met.
+
+| Result | Count |
+| --- | ---: |
+| Passing test cases | 7,360 |
+| Failed test cases | 0 |
+| Error test cases | 0 |
+| Skipped test cases | 34 |
+| JUnit test-case elements | 7,394 |
+| Additional passing subtest outcomes | 991 |
+| Aggregate JUnit tests including subtests | 8,385 |
+
+**Failures by module: none.** Thirteen warnings were emitted: twelve sklearn
+imputation warnings for fixture features without observed values, and one
+NumPy binary-size warning in the cached NetCDF4 source test. They were retained
+as warnings; no failure was suppressed or repaired.
+
+The JUnit XML is outside the repository at
+`C:/pt/re1-84h-1310ca6b-20260923.xml`, SHA-256
+`a01debd21f18e53cfe7d44203c03b7e936ba348b5a11c9a2637afbca685dd9c7`.
+The adjacent `-start.json`, `-exit.json` and `-cleanup.json` receipts retain the
+commit/worktree/arguments, timing and counts, and temporary-directory cleanup.
+JUnit's internal elapsed field is 3,604.967 seconds; its aggregate includes
+the 991 subtests, so they are not counted again as separately collected cases.
+
+`C:/pt` was created/verified before launch. `C:/pt/fs4` was absent then,
+created by this one suite, and deleted after exit after verifying its exact
+absolute path and non-reparse parent/root. Absence was checked after deletion.
+
+Exact invocation, from the new qualification worktree (record of the completed
+run, not authority for another run):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/Users/Michael/Documents/github/weather/scratch/w/re1-84h-fullsuite-20260923/scripts/ops/workstation_heavy.ps1 -Kind pytest -PythonPath C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe -ArgumentsBase64 WyItbSIsInB5dGVzdCIsIi1xIiwiLS1iYXNldGVtcD1DOi9wdC9mczQiLCItLWp1bml0eG1sPUM6L3B0L3JlMS04NGgtMTMxMGNhNmItMjAyNjA5MjMueG1sIl0= -RepoRoot C:/Users/Michael/Documents/github/weather/scratch/w/re1-84h-fullsuite-20260923
+```
+
+Decoded Python arguments: `-m pytest -q --basetemp=C:/pt/fs4
+--junitxml=C:/pt/re1-84h-1310ca6b-20260923.xml`.
+
+The sole changed file is this appended report, roll-free documentation by
+contract. No code, config, dependency or generated artifact changed. No access
+to the protected session worktree or campaign root, agent credential read,
+real preflight/live/cancel-only/collect action, production write, registration,
+restart, merge or runtime adoption occurred. This qualifies the exact tested
+code; the owner's separate session-3 preflight remains required.
