@@ -116,6 +116,13 @@ any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3
 | `NOT_PAID` | paid = 0, legs marked scoring, `P_many >= 2.0` | The model is wrong by more than the payout minimum can explain. No further live work on this thesis without a named mechanism. |
 | `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported. |
 
+**Reward day (owner, from use, 2026-09-22):** the venue's liquidity rewards reset and are paid daily at 20:00
+Eastern, i.e. 00:00 UTC in daylight time - the reward day is the UTC day. Session 1 (started about 01:40Z
+2026-09-23) lies wholly inside reward day 2026-09-23 and its payment is expected at 00:00Z 2026-09-24. A second
+session in the same UTC day adds to the same daily total and the same payment only if it quotes the **same
+condition**; earnings on any other condition that day make `link_reward_payment` stop at
+`other_condition_accruals` (`re1_payout_evidence.py`), so the day cannot be linked.
+
 M2's accrued earnings, if the venue shows them below the payout minimum, are reported beside `k`
 as `k_accrued`. They can sharpen `INCONCLUSIVE`; they cannot turn `NOT_PAID` into a pass.
 
