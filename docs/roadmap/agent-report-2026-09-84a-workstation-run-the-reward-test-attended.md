@@ -1979,3 +1979,62 @@ worktrees; no production write, registration, Scheduler change, restart, merge,
 promotion, model change, dependency change or full-suite interruption. The
 owner alone moves the session worktree, runs preflight and starts session 2 on
 a clean reward day.
+
+## 2026-09-23 — overnight full-suite requalification at 0a7531baf
+
+**PASS at the exact owner-requested commit: zero failures and zero errors.**
+One full repository suite ran on the non-capture workstation in the new detached
+worktree `scratch/w/pr85-fullsuite-20260923-0400`, at
+`0a7531baf007d41ae8d34015bdf9cfaf01c30244`. This qualifies that frozen PR 85
+revision only; it does not qualify the later 84g commits already on this report
+branch. The owner explicitly requested this appended section. Existing report
+content and newer branch work were preserved.
+
+The RE-1 process gate found no matching process before launch. The canonical
+`workstation_heavy.ps1` admitted the single suite with its shared host lease and
+child-tree containment. Pytest began at **04:03:45 ET**, ran **2743.211 seconds**
+(45m43s), and the wrapper exited **0** at **04:49:34 ET**. No suite was rerun.
+
+| JUnit result | Count |
+| --- | ---: |
+| Test-case elements | 7,297 |
+| Passed test-case elements | 7,263 |
+| Skipped test-case elements | 34 |
+| Failures | 0 |
+| Errors | 0 |
+| Aggregate JUnit tests, including subtest accounting | 8,288 |
+| Aggregate passing outcomes, including subtest accounting | 8,254 |
+
+**Failures by module: none.** The XML has no `failure` or `error` nodes.
+Its aggregate count includes 991 additional passing subtest outcomes; these
+are distinguished from the 7,297 test-case elements rather than double-counted
+as separately collected tests.
+
+Retained outside-repository evidence:
+
+- `C:/pt/pr85-0a7531baf-20260923.xml`, SHA-256
+  `8ed4629907fcd32a03b5ffd625b13c36306b78983cdad6f2a54ed446d640e773`.
+- `C:/pt/pr85-0a7531baf-20260923-start.json` binds commit, worktree,
+  arguments and start time; the corresponding `-exit.json` records exit 0.
+- `C:/pt/fs` was removed after exit after validating the exact resolved path;
+  absence was verified. The detached qualification worktree remains clean.
+
+Exact invocation, from the fresh worktree, with the common project interpreter:
+
+```powershell
+$qualificationRepo = (Get-Location).Path
+$qualificationPython = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+New-Item -ItemType Directory -Path C:/pt -Force | Out-Null
+$qualificationArgs = @('-m','pytest','-q','--basetemp=C:/pt/fs','--junitxml=C:/pt/pr85-0a7531baf-20260923.xml')
+$qualificationEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($qualificationArgs | ConvertTo-Json -Compress)))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$qualificationRepo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $qualificationPython -ArgumentsBase64 $qualificationEncoded -RepoRoot $qualificationRepo
+```
+
+This command records the completed one-shot run; it is not authority to rerun it.
+Only this Markdown report is changed, roll-free documentation by the delegation
+contract. No code change, `.env` read, access to either excluded session worktree,
+live/preflight action, order/account probe, production write, Scheduler change,
+merge or runtime adoption occurred. Workstation qualification does not replace
+production-host qualification. The separately authorized 86b public sampler
+starts only after this suite and cleanup have exited; its measurement handback
+belongs to the 86b report.
