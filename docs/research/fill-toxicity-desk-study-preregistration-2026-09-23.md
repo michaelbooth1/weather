@@ -188,3 +188,14 @@ enter E3 (they remain in E2 through the observation triggers).
 is **dropped**: it cannot be observed without a forecast of the remaining rise — that is the T3 estimate mission 89b builds,
 and it may enter a later, separately pre-registered study. Our detection time for the same report is recorded for the
 latency sub-study.
+
+## Clarification 7 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+**Missing markouts are handled per horizon, removing loss and exposure together.** For each non-settlement horizon `h`
+(1, 5, 30 minutes), a leg-minute belongs to the horizon-`h` panel only if a markout midpoint exists within the inherited
+120-second tolerance of both its start + `h` and its end + `h`. Leg-minutes outside the panel contribute neither exposure
+nor fills at that horizon. Inside the panel, a fill whose own markout at fill time + `h` is still missing removes that whole
+leg-minute (its exposure and all its fills) from the horizon-`h` panel. Removed leg-minutes and fills are counted per
+horizon, event class and date-market, and reported. Each horizon's panel stands alone: a leg-minute missing at +30 can still
+count at +1 and +5. The settlement horizon keeps its existing rule (events without a settlement row leave the settlement
+panel only). `R` and net pull value use the primary 30-minute panel's leg-minutes.
