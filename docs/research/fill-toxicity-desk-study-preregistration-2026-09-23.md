@@ -90,3 +90,23 @@ and our `current_captured_at_utc`. If ≥ 70% of the eventual 30-min move is alr
    and label it so.
 6. Same-day 20-share bands are a morning transient. Same-day 100-share bands need about 98 pUSD per quote, outside
    today's envelope. The same-day result informs *mechanism*, not the target book.
+
+## Clarification 1 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+Four points the design left open are fixed here. They bind exactly like the rules above.
+
+1. **Placebo placement.** For every event window of total length `L` (pre + post) anchored at event time `t_e`, the placebo
+   window is `[HH:20, HH:20 + L)` in the same local clock hour `HH` as `t_e`, on the same date and market. A placebo window
+   that overlaps any E1-E5 window on that date and market is dropped; dropped placebos are counted and reported.
+2. **Window sets for the kill rule.** Exactly seven eligible sets: each single class E1, E2, E3, E4, E5; the union E1∪E2∪E3;
+   and the union of all five. "Best" is the set with the highest **point estimate** of net pull value per band-day. The kill
+   rule uses that set's 90% date-clustered **upper** bound of net (reward − adverse loss). Selecting the best of seven
+   favours the thesis, so the kill test is conservative; the selected set and all seven estimates are reported.
+3. **Reward in net pull value.** Lost reward per pulled minute = `rate(t) / 1440 × share_many(t) × k_share`, with
+   **`k_share` = 1.0** for the primary (session 1 measured 0.96-1.09; no constant is fitted). Sensitivities, reported
+   beside it and never replacing it: `k_share` = 0.5, and `share_single` in place of `share_many`. `R` is the frozen R rule,
+   which is the same expression with `k_share` = 1.0.
+4. **Midpoints.** Quote construction uses the **size-adjusted midpoint** of the canonical estimator (levels below the band's
+   reward minimum size excluded), as RE-1 quotes and as the venue scores. Markouts at +1/+5/+30 minutes use the **existing
+   markout tool's midpoint definition**, for comparability with the 2026-09-20 numbers; the size-adjusted midpoint is a
+   reported sensitivity. The settlement markout uses the settled outcome (1 or 0).
