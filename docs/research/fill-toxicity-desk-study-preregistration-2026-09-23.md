@@ -156,3 +156,12 @@ Four points the design left open are fixed here. They bind exactly like the rule
 exclusion or data inclusion is made by the implementer: take the more conservative option (the one that lowers `R` or
 raises measured adverse loss), document it in the report, and continue. Stop only for choices that would change one of
 those.
+
+## Clarification 4 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+A minute whose reward terms are missing or older than 60 minutes (Clarification 3, point 3) is **excluded from the entire
+simulated-quote panel**: no quote is placed, so there are no fills, no markouts, no exposure and no reward in that minute,
+and it enters neither `R`, the concentration ratios, the net pull value nor the kill rule. Legs resting from the previous
+sample are withdrawn at the start of such a minute. Excluded minutes are counted per date-market and per event class and
+reported; if more than 20% of a date-market's expected minutes are excluded this way, that date-market is excluded
+entirely and listed.
