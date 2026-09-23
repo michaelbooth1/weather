@@ -104,6 +104,10 @@ none is wired into this repository yet.
 
 ## Frozen prediction and decision rule
 
+> **Amended 2026-09-23 (owner-approved, before any payment was observable):** see
+> [the interpretation addendum](liquidity-reward-epoch-addendum-2026-09-23.md) — `BELOW_PAYOUT_MINIMUM`, both reward
+> assets, graded adequacy, and a restated stop rule. Every session is reported under both.
+
 `re1_watch.js` accumulates `P_many` and `P_single` = sum over minutes in which both legs are visible
 of `rate(t) / 1440 x share(t)`, and at session end writes them with the journal's SHA-256 - before
 any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3.5 dollars.**
