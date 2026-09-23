@@ -1859,3 +1859,123 @@ access, account/public probe, production write, Windows Scheduler change,
 execution-policy configuration change, execution-worktree access/change,
 repair, dependency installation, focused rerun, second full suite, compileall,
 audit or CI investigation was performed.
+
+## 84g — September 23, 2026: complementary fills and the payout addendum
+
+**PASS — all 255 focused RE-1 tests pass; complementary maker trades end as
+`fill` with proven cleanup, and the frozen and amended payout verdicts are
+reported side by side. No real payout was read and no live action was run.**
+
+Authority: the owner-requested 84g handoff and September 23 payout addendum,
+read with `git show` from fetched handoff commit
+`48ea0144` on `origin/codex/reward-test-attended-handoff-20260921`.
+Implementation stays on `codex/re1-public-reads-ua-20260922`, stacked directly
+on `0a7531baf007d41ae8d34015bdf9cfaf01c30244`, in the existing clean
+`scratch/w/re1-preflight-hardening-20260922` worktree. PR 85 retains its
+existing base, `codex/re1-preflight-hardening-20260922` at `7010a0b585e1d6f31787a34e84bbf11d80939bd3`.
+
+### Confirmed trade shape and failure path
+
+Read-only, allowlisted inspection of session-1 `journal.jsonl` confirms that
+the retained SDK trade uses **`token_id`**, not `asset_id`: top-level
+`trader_side=MAKER`, `outcome=Yes`, `side=BUY`, `price=0.52`, `size=25.57`.
+The two `maker_orders` entries have the complementary NO token, `outcome=No`,
+`side=BUY`, `price=0.48`, and `matched_amount` 20 and **5.57** respectively.
+The 5.57 row's `order_id` equals our NO terminal order; the terminal YES order
+has `size_matched=0`, and the NO order has `size_matched=5.57`; both are cancelled.
+The inspected field names were `token_id`, `outcome`, `side`, `maker_address`,
+`order_id`, `matched_amount`, and `price`. Identities in tests are synthetic;
+no owner, API key, or other credential field was copied into a fixture or report.
+
+Session-1 `user-stream.jsonl` confirms `stream_failed`, `RuntimeError`, at
+2026-09-23 02:30:07.439464 UTC. It contains no failing raw message. Consequently
+the complementary relationship is confirmed, while the exact lost WS payload
+and originating exception remain inferred. At the assigned base,
+`PairStream._normalize_event` passes top-level `asset_id` into
+`normalize_official_user_event`; its maker-row filter requires that same token
+and raises `official maker trade event does not identify the pilot maker order`
+when our maker is on the complement. `OwnerVenue.events` then raises
+`user_stream_invalid_event` for the non-network stream failure. The new fixture
+uses the WS `asset_id` alias and the confirmed complementary relationship;
+the SDK `token_id` alias is covered too.
+
+### Changes
+
+- RE-1 selects maker rows by known order ID, or funder plus either pair token,
+  independently of the top-level token. Unmatched trades for this condition
+  retain a recursively credential-stripped, guard-cleaned payload and original
+  canonical-message SHA-256. Failed normalization retains the cleaned message
+  on `stream_failed`. Other-market trades and other invalid events fail closed.
+- Matched, unmatched and failed-normalization trade signals force REST reads
+  of both active legs, journal `fill`, and end with `HoldEnd('fill')`. Cleanup
+  still runs. The Stage 2 normalizer, quotes, sizes, budgets and money gates
+  are unchanged.
+- Historical prediction bytes stay untouched. `load_prediction` derives
+  elapsed-minute coverage, unchanged minimum size/maximum spread and scoring
+  minutes from the verified journal, without changing its prediction hash.
+  The amended verdict accepts at least 95% sampled minutes and proven cleanup;
+  rate changes remain integrated. `SHORT` is reported below 180 two-sided minutes.
+- Both CLI report paths print `verdict_frozen` and `verdict_amended`, accrual
+  band and flags. The session-1-shaped synthetic case (P_many 0.105, accrual
+  0.12, paid 0, 42 visible minutes) gives frozen `INCONCLUSIVE`, amended
+  `BELOW_PAYOUT_MINIMUM`, `ACCRUED_AS_MODELLED`, and `SHORT`.
+- The frozen linker and shared reconciliation behavior are preserved. The
+  RE-1 amended replay validates account/day, both asset queries, complete
+  coverage, native earnings, unique transaction/log credit identity and the
+  unchanged exact-amount/single-condition rule. USDC.e and pUSD retain their
+  actual asset labels; native distributions live in `reward_distributions`.
+  Incomplete or ambiguous cash evidence stays unknown, never zero.
+- `close_track` only marks adequate `NOT_PAID`; `counts_as_low_accrual_session`
+  identifies adequate low-accrual results for the owner's two-session rule.
+  There is no automatic October 31 closure or campaign aggregation. The owner
+  reviews absent adequate evidence on that date, as the addendum requires.
+
+### Verification and publication
+
+Full focused run: **255 passed, zero failures/errors/skips**, in 139.88 seconds.
+Receipt: `scratch/84g-re1-green.xml`, SHA-256 `c6e4cf817c512ae26ff6c2ce60a20605dea8001f49ed1ffb7524ef383bd2ab8c`.
+After the final adjustment to persist partial payout receipts before interpretation,
+both affected suites passed again: **95 passed in 6.64 seconds**, zero failures
+or skips (`scratch/84g-payout-final.xml`, SHA-256 `a0d1fabeac5ab3ba56af97eb1307434db044c4e64f9f6d58bfb0671a987c4b13`).
+The first regression run exposed superseded single-verdict/asset assumptions;
+the next left only two equivalent-decimal-string assertions. Both are corrected
+and the complete focused run above is green. No full repository suite was run.
+
+Reproduce from the branch root on the assigned workstation, using its canonical
+project interpreter and shared-lock wrapper (create `C:/pt` first):
+
+```powershell
+$re1Repo = (Get-Location).Path
+$re1Python = 'C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe'
+New-Item -ItemType Directory -Path C:/pt -Force | Out-Null
+$re1Args = @('-m','pytest') + @(Get-ChildItem tests/market/test_re1*.py | ForEach-Object { 'tests/market/' + $_.Name }) + @('-q','--basetemp=C:/pt/re184g-d','--junitxml=scratch/84g-re1-green.xml')
+$re1Encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($re1Args | ConvertTo-Json -Compress)))
+& "$re1Repo/scripts/ops/workstation_heavy.ps1" -Kind pytest -PythonPath $re1Python -ArgumentsBase64 $re1Encoded -RepoRoot $re1Repo
+```
+
+Each run used the repository-owned host/principal, shared mutex and child-tree
+Job wrapper. Admission succeeded; no competing full suite or sampler was
+stopped. Task-owned `C:/pt/re184g-*` temporary trees were removed after exit.
+No campaign-root file or execution worktree was written.
+
+Published implementation tip: **`58c2aea3f12c3a964f7f4684f475c3130f81ad9a`** on
+`codex/re1-public-reads-ua-20260922`; its report-only successor is the final
+handback tip. The branch is published without rewriting history.
+
+`roll_verdict.ps1 -Branch codex/re1-public-reads-ua-20260922 -Base 0a7531baf`
+returned **UNDECIDABLE, exit 1: no live closure evidence**. Per-file disposition:
+the five RE-1 Python owners (`re1_attended.py`, `re1_attended_cli.py`,
+`re1_evidence.py`, `re1_payout_evidence.py`, `re1_transport.py`) and three test
+files (`test_re1_addendum.py`, `test_re1_evidence.py`,
+`test_re1_payout_evidence.py`) have no workstation proof of production closure
+membership; none is asserted roll-free. This appended report is roll-free
+documentation by contract. Production must obtain its own current mechanical
+verdict before integration; no merge/adoption occurred here.
+
+Explicit exclusions: no `.env` read, credential access/export, real preflight,
+live, cancel-only or collect command; no public/account/payout probe; no write
+under the campaign root; no access/change to the session-1 or 09-21 execution
+worktrees; no production write, registration, Scheduler change, restart, merge,
+promotion, model change, dependency change or full-suite interruption. The
+owner alone moves the session worktree, runs preflight and starts session 2 on
+a clean reward day.
