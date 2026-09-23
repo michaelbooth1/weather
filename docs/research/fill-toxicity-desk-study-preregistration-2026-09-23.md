@@ -130,3 +130,29 @@ Four points the design left open are fixed here. They bind exactly like the rule
      for filled shares at the fill time.
    - `R`'s denominator is total filled shares under the same rule; the conservative rule is primary, the optimistic one
      a reported sensitivity.
+
+## Clarification 3 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+1. **Sampling clock.** The book sample clock is the canonical estimator's: the first capture in each UTC minute. Legs are
+   (re)placed at each selected sample and rest until the next one; a selected capture less than 30 seconds after the
+   previous one is skipped. Across missing samples a leg keeps resting for at most 5 minutes after the last sample; after
+   that it is withdrawn (no exposure, no fills, no reward) until the next sample.
+2. **Coverage exclusions (per date-market).** Expected span = local 00:00 to the event's local close on the event day, in
+   minutes. **Book coverage** = expected minutes with at least one book capture for the event ÷ expected minutes.
+   **Tape-gap minutes** = expected minutes inside disconnection or gap intervals recorded by the execution tape's own
+   supervisor status/journal; a date-market with no such record for the day is excluded. A date-market is excluded if
+   tape-gap minutes exceed 5% of the span or book coverage is below 90%. Every exclusion is listed with its reason.
+3. **Reward terms over time.** For each minute, rate, reward minimum size and maximum spread come from the latest captured
+   record for that condition at or before the minute: the per-condition reward record where one was captured, otherwise
+   the reward configuration embedded in the captured market snapshot. A record older than 60 minutes is treated as missing.
+   Minutes with missing terms are excluded from `R`'s numerator **and** their fills from its denominator, and are counted.
+4. **Latency statistic.** Per E2/E3 event: `f = (mid(t_detect) − mid(t_obs)) / (mid(t_obs + 30 min) − mid(t_obs))`,
+   signed, using the markout midpoint. `t_obs` is the source `observed_at`, `t_detect` our `current_captured_at_utc`.
+   Events with a 30-minute move under 1 cent in absolute value are excluded and counted. The statistic is the median `f`
+   with a date-clustered 90% bootstrap interval. "A reactive pull is useless" is concluded only if that interval's lower
+   bound is at least 0.70.
+
+**Default rule for any further gap.** An implementation choice that changes no estimand, threshold, horizon, window,
+exclusion or data inclusion is made by the implementer: take the more conservative option (the one that lowers `R` or
+raises measured adverse loss), document it in the report, and continue. Stop only for choices that would change one of
+those.
