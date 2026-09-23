@@ -81,6 +81,13 @@ never pooled across the 2026-07-31 provenance boundary.
 - The 10 pUSD per-band cap makes a two-sided 20-share quote (about 19.60 pUSD) reward-ineligible; the July `NOT_VIABLE_CURRENT_TRACK` leg that rests on this is unchanged. EF §10a, `docs/roadmap/agent-report-2026-07-27-workstation-mm-viability.md`.
 - Whether taker fees — and therefore maker rebates — are non-zero on these markets is open: sampled tape rows on 2026-09-19 carried `fee_rate_bps: "0"`, unverified at scale. [MARKET_MAKING_PLAN.md](../research/MARKET_MAKING_PLAN.md) Part 0.
 - Public reward reads, 2026-09-20: the venue publishes a per-condition reward record with a `market_competitiveness` field never captured here (0 on five of eight same-day bands; not our competing Q-score); same-day bands flip from a 20- to a 100-share minimum during the morning, so same-day 20-share estimates are too high; next-day 20-share bands are contested - modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles. All modelled, none paid. [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), [RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md).
+- **RE-1 session 1, 2026-09-23 (first real reward session; one session, one NYC T+2 band, 42 minutes):** the venue's own
+  accrual (0.117) and reward percentage (6.23% vs our 5.69%/6.51%) sat between our two competition scenarios (`P_many`
+  0.105, `P_single` 0.125) - the share model's scale holds; the YES/NO books mirror (37/42 minutes exact, effect -0.03%).
+  **Competition quadrupled within 40 minutes** (qualifying depth 315 -> 1,399 shares at our levels), so the selection-time
+  projection (2.45 per 6 h) decayed to ~0.18 cents/minute; whether we caused it is not identifiable. Fill: a taker bought
+  25.57 YES at .52 against two NO makers at .48 (20 ahead of our 5.57). Below the 1-dollar minimum: unpaid. Mission 86c
+  (`codex/re1-session1-analysis-20260923` @ `b4b97807c`).
 - A current economics snapshot cannot score historical maker runs; each dated condition has its own identities. EF §8k.
 - International Stage 0/1 software is adopted on master; the 2026-09-06 attended test ran different, unmerged code; Stage 2 has never run. EF §8t, §10f, [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md).
 - Geographic eligibility is recorded as resolved by owner statement (2026-09-19); the operating rule is that the home file-access tunnel is down for a whole live session. [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md).
