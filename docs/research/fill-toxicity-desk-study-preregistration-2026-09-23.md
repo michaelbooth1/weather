@@ -165,3 +165,10 @@ and it enters neither `R`, the concentration ratios, the net pull value nor the 
 sample are withdrawn at the start of such a minute. Excluded minutes are counted per date-market and per event class and
 reported; if more than 20% of a date-market's expected minutes are excluded this way, that date-market is excluded
 entirely and listed.
+
+## Clarification 5 (2026-09-23 afternoon, before any read; raised by mission 89a)
+
+The 20% rule in Clarification 4 counts **band-minutes**, the panel's own unit. For a date-market, the denominator is the sum
+over its panel bands of expected minutes; the numerator is the band-minutes excluded for missing or stale terms. Panel bands
+are the date-market's bands with at least one captured reward record or reward configuration on that date. Missing-term
+exclusions otherwise act band by band (a minute excluded for one band does not remove other bands' same minute).
