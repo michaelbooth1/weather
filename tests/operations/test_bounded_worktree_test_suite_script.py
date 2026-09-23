@@ -80,6 +80,11 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "contained probe exit=" in text
     assert "weather-integration-junit-" in text
     assert '"--junitxml", $junitTempPath' in text
+    # Per-chunk basetemp on a short path, removed without following junctions.
+    assert '@("--basetemp", $chunkBaseTemp)' in text
+    assert 'Join-Path $env:SystemDrive "pt"' in text
+    assert 'rmdir /s /q' in text
+    assert "refusing unsafe pytest basetemp cleanup" in text
     assert "[IO.File]::Move($junitTempPath, $junitPath)" in text
     assert "JUnit temp/evidence paths must share one volume" in text
     assert "Remove-Item -LiteralPath $junitTempPath" in text

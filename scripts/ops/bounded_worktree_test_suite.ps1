@@ -671,10 +671,21 @@ try {
         )) {
             throw "chunk $ordinal JUnit temp/evidence paths must share one volume"
         }
+        # Per-chunk pytest temp root on a short path, removed after the chunk.
+        # Without it pytest keeps its temp trees in %TEMP% (2026-09-23: ~2.6 GB
+        # after 10 chunks pushed the host under this suite's own disk floor).
+        $chunkBaseTempParent = Join-Path $env:SystemDrive "pt"
+        $chunkBaseTemp = Join-Path $chunkBaseTempParent ("bs-{0}-{1:D3}" -f $runTag, $ordinal)
+        if (-not (Test-Path -LiteralPath $chunkBaseTempParent)) {
+            New-Item -ItemType Directory -Path $chunkBaseTempParent -ErrorAction Stop | Out-Null
+        }
+        if (Test-Path -LiteralPath $chunkBaseTemp) {
+            throw "chunk $ordinal pytest basetemp unexpectedly already exists: $chunkBaseTemp"
+        }
         $tokens = @(
             "-m", "pytest", "-q", "-p", "no:cacheprovider",
             "--junitxml", $junitTempPath
-        ) + @($chunks[$index])
+        ) + @("--basetemp", $chunkBaseTemp) + @($chunks[$index])
         $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) starting files=$($chunks[$index].Count) junit=$junitPath"
 
@@ -738,6 +749,21 @@ try {
                     throw "refusing unsafe JUnit temp cleanup: $junitTempPath"
                 }
                 Remove-Item -LiteralPath $junitTempPath -Force -ErrorAction Stop
+            }
+            $chunkTempToRemove = Get-Variable -Name chunkBaseTemp -ValueOnly -ErrorAction SilentlyContinue
+            if ($chunkTempToRemove -and (Test-Path -LiteralPath $chunkTempToRemove)) {
+                $chunkBaseTemp = $chunkTempToRemove
+                $chunkBaseTempItem = Get-Item -LiteralPath $chunkBaseTemp -Force -ErrorAction Stop
+                if (-not $chunkBaseTempItem.PSIsContainer -or
+                    ($chunkBaseTempItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "refusing unsafe pytest basetemp cleanup: $chunkBaseTemp"
+                }
+                # rmdir /s removes junctions inside the tree without following them;
+                # Remove-Item -Recurse on Windows PowerShell 5.1 can follow them.
+                & cmd.exe /d /c "rmdir /s /q `"$chunkBaseTemp`"" | Out-Null
+                if (Test-Path -LiteralPath $chunkBaseTemp) {
+                    Write-SuiteLog "chunk $ordinal pytest basetemp could not be fully removed: $chunkBaseTemp"
+                }
             }
         }
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) exit=$exitCode"

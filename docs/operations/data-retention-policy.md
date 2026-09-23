@@ -14,10 +14,10 @@
   `Get-Volume -DriveLetter C` (free space now); `config\storage_pressure.json`
   on `master` (live capture switch).
 
-Status of related machinery: further archive uploads are **disabled** by owner
-decision, the workstation data mirror is **paused** since 2026-08-12
-([record](mirror-paused-2026-08-12.md)), the taker is **paused**, and backups
-are deprioritized by the owner. Nothing in this file re-arms any of them.
+Status of related machinery: **owner, 2026-09-23: no second disk; off-PC storage (the private Drive cold
+archive) is used as needed** under the verify-before-reclaim gates — see
+[the 2026-09-23 storage plan](storage-plan-2026-09-23.md). The workstation data mirror is **paused** since 2026-08-12
+([record](mirror-paused-2026-08-12.md)), the taker is **paused**, and backups are deprioritized by the owner.
 
 Use the data-retention inventory before pruning local `data/` files. The
 report is read-only and exists to classify ownership, TTL policy, cleanup
