@@ -34,7 +34,7 @@ Target: hold the daily low at **≥ 70 GiB** so the suite (50 GiB floor plus its
 1. **Measure (first night, 00:30-09:00, under the lease):** the read-only storage inventory
    (`weather.operations.storage_recovery_inventory`) attributes bytes and one day's growth by data family. No drain is
    chosen before this exists.
-2. **Stop self-inflicted writes:** `scripts/ops/bounded_worktree_test_suite.ps1` gets a per-chunk `--basetemp` under a
+2. **Stop self-inflicted writes (DONE 2026-09-23, `e1d766417`):** `scripts/ops/bounded_worktree_test_suite.ps1` gets a per-chunk `--basetemp` under a
    short path, deleted after each chunk (roll-free `.ps1`), and removes stale `%TEMP%\pytest-of-*` it created.
 3. **Compress and retain** closed days with the existing attended NTFS lane
    ([cold-snapshot-compression.md](cold-snapshot-compression.md)); no bytes change for readers.

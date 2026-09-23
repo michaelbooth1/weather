@@ -1,5 +1,12 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 23 strategy and status
+
+Owner 2026-09-23: two pillars — forecast from our own information, and maker rewards with quotes pulled around
+information arrival. The plan, kill rules and owner decisions live in
+[the forward plan](../../operations/forward-plan-2026-09-23.md). RE-1 session 1 ran 2026-09-23 under the owner's attended
+exception (see STATE_OF_PLAY); results in the findings digest.
+
 ## September 20 design of the first paid reward epoch (RE-1)
 
 No status change and **no live authority**. The bounded successor that W6 asks for is designed and

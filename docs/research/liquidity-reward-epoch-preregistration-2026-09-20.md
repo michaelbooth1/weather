@@ -2,7 +2,7 @@
 
 Status: **FROZEN BEFORE ANY LIVE ORDER. NOT AUTHORIZED.** This document designs one bounded live
 measurement. It grants no authority: `docs/operations/STATE_OF_PLAY.md` "Current authority" decides
-whether anything may run, and today it says no live trading. International Polymarket only.
+whether anything may run; it records the owner's attended RE-1 exception (2026-09-21). International Polymarket only.
 Parent plan: [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md) W3/W4/W6.
 Safety protocol for any repository-run order: [the live pilot runbook](../operations/INTERNATIONAL_MM_LIVE_PILOT.md).
 
@@ -138,7 +138,9 @@ share before anyone re-reads the markout numbers.
 **Hurdle and stop (owner set both to these defaults on 2026-09-22, before any RE-1 order):** `H` = 1.00 dollar net per day per 100
 deployed across the RE-2 cohort, trading losses included. **If no epoch has returned a paid verdict
 by 2026-10-31 the maker track closes** and the project reverts to cheap capture only, pending an
-owner decision on whether it continues at all.
+owner decision on whether it continues at all. *(Superseded 2026-09-23 by the owner-approved
+[addendum](liquidity-reward-epoch-addendum-2026-09-23.md): the track closes only on an adequate NOT_PAID or
+`k_accrued` < 0.1 in two adequate sessions; 2026-10-31 is an owner review.)*
 
 ## Two ways to execute the same frozen treatment
 

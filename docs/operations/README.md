@@ -106,6 +106,7 @@ contract and a reviewed cleanup manifest.
 | --- | --- |
 | [data-storage-class-contract.md](data-storage-class-contract.md) | Classifying data as `canonical_evidence`, `analysis_projection` or `operator_cache`. |
 | [data-retention-policy.md](data-retention-policy.md) | Planning any inventory or cleanup. |
+| [forward-plan-2026-09-23.md](forward-plan-2026-09-23.md) | Choosing the next mission or checking work against the owner's two-pillar strategy. |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [HISTORY_DATA_DESIGN.md](HISTORY_DATA_DESIGN.md) | Working on Weather Underground history storage or settlement-proxy handling. |
 | [verified-cold-archive.md](verified-cold-archive.md) | Create-only archive objects, verification, restore drill, cleanup-plan contracts. |

@@ -16,22 +16,22 @@ never pooled across the 2026-07-31 provenance boundary.
 ## Where the project stands in 12 lines
 
 1. The goal is a better daily-high forecast from our own information for 12 city markets; the end state is market making on International Polymarket. EF §0, §0c.
-2. Objective order: protect capture and settlement evidence; decide whether International market making pays after every cost; then improve the forecast. EF §0.
+2. Objective order (owner, 2026-09-23): protect capture and settlement evidence; **pillar A** improve the forecast from our own free information; **pillar B** earn liquidity rewards as a maker, pulling quotes around information arrival. See [the forward plan](forward-plan-2026-09-23.md). EF §0.
 3. The model does not beat the market, and the gap is missing information, not calibration. EF §1, §1c.
 4. One change has ever improved a served number: the serving floor, 2026-07-31. EF §3.
 5. No cell out of 114 pre-registered ones shows a quotable model edge. EF §1b.
-6. The declared primary objective (09:00–14:00 local) cannot be measured at any sample size we can reach soon. EF §1b, §5.
+6. The declared primary objective (09:00–14:00 local) has no powered measurement; the old ~504-date requirement rested on a retired effect size and is withdrawn, and no replacement figure is citable. EF §1b, §5.
 7. No profitability result exists: no fill, fee, rebate, reward or P&L has ever been observed on our account. EF §0, §8c.
 8. One attended real-money lifecycle test ran on 2026-09-06 off master with zero fills; it is spent and grants nothing. EF §10f.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.
 11. Historical replay cannot reproduce what production served; do not commission reproduction work. EF §1k.
-12. Owner decisions in force: no live trading, International only, no paid weather APIs, backups deprioritized; **model work unpaused 2026-09-21** (measurement first; a candidate needs a pre-registration before it is scored). Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
+12. Owner decisions in force: no live trading except the attended RE-1 exception (see STATE_OF_PLAY), International only, no paid weather APIs, backups deprioritized; **model work unpaused 2026-09-21** (measurement first; a candidate needs a pre-registration before it is scored). Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
 
 ## Model and forecast: what is established
 
 - The served in-season gap to market mid is **1.423246x [1.2426, 1.6590]**; the older clean-regime 1.24x is a different panel and must not be equated with it. EF §1.
-- The gap is 98.88% resolution and 1.12% reliability: recalibration is bounded at **16.494%** of the gap and is not distinguishable from zero. EF §1c.
+- The gap is information-dominated: recalibration is bounded at **16.494%** of the gap and is not distinguishable from zero (the older 98.88% / 1.12% split is retired). EF §1c.
 - Shrinking toward the market closes the gap by construction; it locates missing information and is never an improvement or an edge. EF §1c, §5.
 - The serving floor moved the served ratio **1.6639 → 1.4980**, crossed CI [−0.3553, −0.0698]; about 2.2% of it landed in the primary window. These numbers are the positive control for any skill tracker. EF §3.
 - The cool bias is real (**−0.64387 C-eq** on the current surface), caused by seasonal training coverage, and is not correctable at serve. EF §2.
@@ -53,7 +53,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - Crossed date × market clustering is mandatory; exchangeable market-day resampling gives intervals that are too narrow and has retracted headline results. EF §5.
 - Report power and MDE with every estimate; a delta not distinguishable from zero is reported in those words. EF §5.
 - Cite the bound, never the point: **16.494%**, not 8.829%. EF §1c.
-- The primary-slice endpoint needs about **504 dates**; the pre-boundary panel has 50. EF §1b, §5.
+- The primary-slice endpoint has no citable date requirement: ~504 rested on a retired effect size, and a re-derived ~39 is conditional on a point estimate whose interval crosses zero. The pre-boundary panel has 50 dates. EF §1b, §5.
 - The panel has a hard MDE floor of about **3.2%** of the gap set by the 12 market clusters, not by dates; improvements below it must be batched. EF §1d.
 - α = 0.0025 per decision is nominal; on the thin tail the delivered rate was short, so quantile `q = 3.1098893` (amendment A1) applies to any future decision on the panel. EF §1i, [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md).
 - The α ledger is binding: 20 decisions, pre-register the row before scoring, never renumber; read the spend from [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md), not from a copy.
@@ -79,7 +79,6 @@ never pooled across the 2026-07-31 provenance boundary.
 - Public execution tape, 30 dates / 377,104 trades (2026-09-20): **taker fee is 0 on every trade, so treat maker rebates as zero**; share-weighted maker markout is +0.19 c/share at 5 minutes and -0.43 c to settlement (rebate excluded). Reward-share estimate from captured books: displayed qualifying competition is thin (median modelled share 0.39 for a 20-share quote) - **unconfirmed until one paid reward epoch; `R` was not frozen before the read, so the pre-registered decision rule was not applied.** [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
 - The configured reward pool is about **2,800 per day same-day and 4,800 all active**, stable on 31 of 31 sampled days 2026-08-15..09-19; it is a shared pool, not income, the share is unmeasured, and the unit is unconfirmed by any paid epoch. EF §10a.
 - The 10 pUSD per-band cap makes a two-sided 20-share quote (about 19.60 pUSD) reward-ineligible; the July `NOT_VIABLE_CURRENT_TRACK` leg that rests on this is unchanged. EF §10a, `docs/roadmap/agent-report-2026-07-27-workstation-mm-viability.md`.
-- Whether taker fees — and therefore maker rebates — are non-zero on these markets is open: sampled tape rows on 2026-09-19 carried `fee_rate_bps: "0"`, unverified at scale. [MARKET_MAKING_PLAN.md](../research/MARKET_MAKING_PLAN.md) Part 0.
 - Public reward reads, 2026-09-20: the venue publishes a per-condition reward record with a `market_competitiveness` field never captured here (0 on five of eight same-day bands; not our competing Q-score); same-day bands flip from a 20- to a 100-share minimum during the morning, so same-day 20-share estimates are too high; next-day 20-share bands are contested - modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles. All modelled, none paid. [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), [RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md).
 - **RE-1 session 1, 2026-09-23 (first real reward session; one session, one NYC T+2 band, 42 minutes):** the venue's own
   accrual (0.117) and reward percentage (6.23% vs our 5.69%/6.51%) sat between our two competition scenarios (`P_many`
