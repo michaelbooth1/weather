@@ -77,7 +77,10 @@ Decided 2026-09-23:
    code tip with a fresh owner preflight; owner later the same day moved session 2 onto the 84h tip `1310ca6bf` (more data is worth the balance).
 5. **One multi-domain market maker** (owner 2026-09-24): weather first, then YouTube view markets and other reward markets.
    Build the shared foundation (venue, market-universe plugins, fair-value/information-clock plugins, one quoting engine,
-   portfolio risk, execution safety) and migrate **before RE-2 or unattended quoting**; mission 90a maps the current code.
+   portfolio risk, execution safety) and migrate **before RE-2 or unattended quoting**. Mission 90a (2026-09-24,
+   `origin/codex/maker-architecture-map-20260924` @ `2cb8a0a0e`) maps the code and gives a gated ten-step migration plus the
+   review checklist every maker handoff must pass; five owner decisions precede the implementation handoff (base, caps,
+   quoting without fair value, emergency-cancel scope, RE-2/unattended criteria).
    The workstation carries implementation and research whenever no RE-1 session is running. **Standing design rule:** new
    maker code (venue, pricing, repricing, risk, execution, evidence) is domain-neutral; weather specifics enter only through a
    market-universe or fair-value/information-clock interface. YouTube has no model ready and no maker logic yet: it is a
