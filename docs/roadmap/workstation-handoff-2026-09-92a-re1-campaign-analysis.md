@@ -29,6 +29,15 @@ Public market data for the same windows may be fetched read-only and throttled (
    existing two-sided depth, a mid-stability window, day-ahead preference), with the evidence for each threshold and what it
    would have excluded among the six sessions.
 
+5. **Amendment (2026-09-24, after a second-opinion review):** (i) map journal folders to sessions — folders are numbered
+   by attempt: attempts 1-9 are sessions 1, 2, none (opening check), 3, 4, 5, 6, 7, 8; (ii) the economic estimand is reward
+   per band-minute at zero versus non-zero competing Q, **net of markout per band-hour**, not fill hazard alone; (iii) say
+   which sessions and bands produced UTC 09-24's ~1.40 accrual, and carry the four held positions (costs above) to their
+   settlements as they resolve; (iv) for any proposed rule, report the reward it would have **retained** as well as what it
+   excludes; (v) on an empty band share is 100% at any size or distance, so model the counterfactual of the smallest
+   size at or above `reward_min_size` quoted at `max_spread - 1c` versus 75 shares at 1.5 c (reward unchanged, fill exposure
+   lower). The copy is read-only input: the script never writes into it.
+
 ## 3. Deliverables and boundaries
 
 Branch `codex/re1-campaign-analysis-20260924` from `origin/master` (push authorized): a small `tools/` script that rebuilds

@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 raised to 10 sessions/20 attempts; session 4 running from ~02:40Z 09-24; disk ~55 GiB).**
+**Last updated: 2026-09-24 America/Toronto (RE-1 8 of 10 sessions used, first UTC day over the 1-dollar minimum, runs paused for analysis; fail-forward rules; disk Red).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -25,7 +25,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
 - Owner 2026-09-23: **no second disk**; off-PC Drive archive as needed ([storage plan](storage-plan-2026-09-23.md)).
 - Owner 2026-09-23 ([forward plan](forward-plan-2026-09-23.md)): `R` frozen as a rule; passive maker-evidence capture approved;
-  payment tests may use any band and size within the 100 pUSD testing wallet (new pre-registration and tip each time).
+  payment tests may use any band and size within the testing wallet (now at most 200; new pre-registration and tip each time).
   Owner 2026-09-21: model work unpaused; pre-register before scoring. Owner 2026-09-19: eligibility resolved; tunnel down live.
 - **Open owner decisions:** the four 80b control-relaxation defaults; whether a Stage 2 grant may precede the Stage 0/1 re-runs.
 
@@ -45,19 +45,18 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
 - **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, maker paper roll, 09:30 Stage-A.
   Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
-- **RE-1 session 1** (2026-09-23 01:47-02:30Z, 42 min, one NYC T+2 band, `0a7531baf`): venue accrual 0.117 against
-  `P_many` 0.105 / `P_single` 0.125; reward % 6.23 against ours 5.69/6.51; YES/NO books mirror (37/42 min); qualifying
-  competition 4x within 40 min. Ended on a partial fill: 5.57 NO at 0.48 via a complementary YES buy that crashed the user
-  stream; cleanup proven; shares held. Below the 1-dollar daily minimum: **unpaid**. EF §10m (owed), digest.
+- **RE-1 session 1** (09-23, 42 min, NYC T+2): accrual 0.117 vs `P_many` 0.105; books mirror; competition 4x in 40 min;
+  partial fill 5.57 NO @0.48; below the 1-dollar minimum, **unpaid**. EF §10m (owed), digest.
 - **RE-1 verdict (provisional):** session 1 frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM` (`k_accrued` ≈ 1.1, `SHORT`); formal from 09-26.
-- **RE-1 sessions 2-3** (2026-09-24 ~02:00-02:15Z, 75 shares, tips on `codex/re1-wallet-200-20260923`, last `f927af42d`;
-  owner raised the wallet guard to 200, fixed reconcile, added a both-legs opening check): session 2 posted YES then `fresh_ask`
-  on NO; one opening check refused before posting; session 3 quoted ~1 min, requoted, then `cancel_not_terminal` because venue
-  order reads lag cancels by <0.5 s (code reads once). No fills, no positions, account empty (cancel-only 02:18Z). Top-ranked
-  bands had zero competition and midpoints moving >=3 c/min. Owner then raised the cap to 10/20 and the read lag was fixed; **session 4 (attempt 5) started
-  ~02:40Z on tip `51975cfcc`** (same band as session 3, 75 shares, 0.36/0.61). Code: `c771cbb42` (84g),
-  `1310ca6bf` (84h, 7,360 passed). Not on master; no live record grants authority (Stage 0/1 09-06: EF §10f). Built, not landed: 88a capture
-  `7953d2608` (PR 87, ~114 MB/day, roll-sensitive), 89a desk-study tool `947d96935`, 89b observation clock `d059cc787`, 87a kit `800bb9b72` (not adopted).
+- **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
+  s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
+  s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
+  10 NO @0.40. **UTC 09-24 accrued about 1.40 (first day over the 1-dollar minimum); payout expected ~20:00 ET.** Held to
+  settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
+  or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
+  Runs paused 09-24 for analysis (92a). **Next tip `a0967b78a`** (audit fixes, 2 s heartbeat, `go <6 hex>` confirmation;
+  owner's focused tests pass). Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
+  landed: 88a capture `7953d2608` (PR 87, roll-sensitive), 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`.
 - **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
   no rollover, per-minute sampling, `Q_min` share. The 86b capacity sampler is PAUSED (mutex, duplicate pagination).
@@ -70,12 +69,13 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
+1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z); 92a campaign analysis; owner decides the
+   next treatment (size/distance on empty bands, selection) before sessions 9-10.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (real run, never `-DryRun`), then the merge-tool byte-restore fix
-   `codex/quiet-merge-crlf-rollback-20260924` @ `95006eaf8` (roll-free; its focused test first).
+   `codex/quiet-merge-crlf-rollback-20260924` @ `30d1faeb5` (roll verdict and its focused test first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a refused on 13 undecodable records (of 77.7 GiB) -> Clarification 9, tool fix 89c, rerun.
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n. Then redeploy the
