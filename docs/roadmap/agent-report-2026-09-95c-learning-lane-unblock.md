@@ -109,3 +109,7 @@ The capture host uses its admitted bounded verification path. Resume from
 `settled_day_analysis_barrier` after adoption to produce both verdicts; preserve
 the original exact target/root arguments and pass `--paper-maker-paused` when
 the owner-paused state applies. No such production run was performed here.
+
+Implementation commit: `f2ac4ed8f51cd2a4a3f9220601d8c125b61ce387`.
+The following report-only commit records that identity. Verify the published
+tip with `git ls-remote --exit-code origin refs/heads/codex/learning-lane-unblock-20260924`.
