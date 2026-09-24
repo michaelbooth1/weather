@@ -54,3 +54,31 @@ Target: hold the daily low at **≥ 70 GiB** so the suite (50 GiB floor plus its
 ## Record
 
 Each night's actions, bytes before/after and receipts go to the item-325 storage record and `STATE_OF_PLAY.md`.
+
+## Step 1 inventory — 2026-09-24 00:39-00:43 (read-only, under the lease)
+
+Stat-only walk of `data/` (no file contents opened, BelowNormal, 3 minutes): **4,441,260 files, 685 GiB logical**; 18.95 GiB
+modified in the last 24 hours. Volume free 54.3 GiB at 00:33.
+
+- **Snapshot event folders' immediate files: ~453 GiB on disk and almost entirely uncompressed** (on-disk ≈ logical).
+  Largest by name: `replay_inputs.jsonl` 78 GiB, `clob_tokens.jsonl` 60, `order_books_summary.csv` 45, `clob_tokens.csv` 41,
+  `order_books_long.csv.gz` 35 (already gzip), `variant_predictions.jsonl` 34, `snapshot_explanations_long.csv` 24,
+  `variant_predictions_long.csv` 23, `order_books.jsonl.gz` 22, `snapshots.jsonl` 21, `components.jsonl` 19.
+- **Compressibility** (gzip level 1, one closed 2026-07-10 folder, read-only): `replay_inputs.jsonl` 9.5x,
+  `order_books_summary.csv` 4.9x, `clob_tokens.csv` 19.7x, `snapshot_explanations_long.csv` 20x. NTFS LZNT1 is weaker than
+  gzip but transparent to readers; even 2-3x on closed days would return well over 100 GiB.
+- `mm_runs/` (paper maker roll) 42 GiB uncompressed, ~0.8 GiB per day, no pruning; `taker_runs/` 9 GiB (taker paused);
+  `backtest/replay_cache` 32 GiB; `forecast_payload_cas` 13 GiB.
+- **The daily slope is not a leak in one family:** capture writes ~0.8 GiB/hour; step reclaims come from the Stage-A chain
+  (09:30-11:55) and a +12.8 GiB step at 21:50-22:05 on 09-23 with no project task running. Windows System Restore holds a
+  shadow copy (5.8 GB used, 18.6 GB maximum; copy #6 created 09-23 12:12); its purges are the likely source of unexplained
+  steps. Deleting or capping restore points is an owner decision (irreversible system change), not a junk sweep.
+- The 05:00 CLOB tiering reclaimed nothing on 09-23 because every closed day's long CSV is already gzip (699/699).
+- The scheduled `data_retention_inventory` report last ran 2026-08-13; its daily refresh step has stopped.
+- Junk outside the project is small: user temp 23 MB, Windows temp 1 MB, update cache 12 MB, Downloads 131 MB, Recycle Bin
+  41 MB. **Worktrees:** 222 registered (33 bound to scheduled tasks); each is ~50 MB, so the 70 clean, merged, >=7-day, untasked
+  candidates without local `data/` are ~3.5 GiB.
+
+**Lever order revised by this measurement:** (a) closed-day NTFS compress-and-retain at scale (the existing lane's 64 MiB/file,
+1 GiB/batch bounds make ~150 GiB take hundreds of attended batches, so mission 91a automates it); (b) compress-on-close at the
+source for the large text families (reader-aware gzip, like the long CSV); (c) prune or gzip `mm_runs`; (d) worktree cleanup.
