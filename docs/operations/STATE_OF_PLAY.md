@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 session 1 ran, unpaid below the minimum; session 2 tonight on `1310ca6bf`; disk Critical).**
+**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 cap of three sessions used 09-24 with ~1 minute of new data; extension is the owner's call; disk Critical).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -50,12 +50,14 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   `P_many` 0.105 / `P_single` 0.125; reward % 6.23 against ours 5.69/6.51; YES/NO books mirror (37/42 min); qualifying
   competition 4x within 40 min. Ended on a partial fill: 5.57 NO at 0.48 via a complementary YES buy that crashed the user
   stream; cleanup proven; shares held. Below the 1-dollar daily minimum: **unpaid**. EF §10m (owed), digest.
-- **RE-1 verdict (provisional):** frozen table `INCONCLUSIVE` (`P_many` < 2); addendum `BELOW_PAYOUT_MINIMUM`, `k_accrued` ≈ 1.1,
-  `SHORT`. Formal verdict after `collect-evidence` (earliest 00:00Z 2026-09-26), printed under both tables.
-- **RE-1 code:** 84g (complementary-fill handling, payout addendum) at `c771cbb42`; 84h size rule on top: **session-2 tip
-  `1310ca6bf`** (full suite 7,360 passed, report `f45fc164b`). Not on master. Built, not landed: 88a capture
-  `7953d2608` (PR 87, ~114 MB/day, roll-sensitive), 89a desk-study tool `947d96935`, 89b observation clock `d059cc787`. The 87a live-path qualification kit
-  (`codex/live-path-qualification-20260923` @ `800bb9b72`) is not adopted.
+- **RE-1 verdict (provisional):** session 1 frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM` (`k_accrued` ≈ 1.1, `SHORT`); formal from 09-26.
+- **RE-1 sessions 2-3** (2026-09-24 ~02:00-02:15Z, 75 shares, tips on `codex/re1-wallet-200-20260923`, last `f927af42d`;
+  owner raised the wallet guard to 200, fixed reconcile, added a both-legs opening check): session 2 posted YES then `fresh_ask`
+  on NO; one opening check refused before posting; session 3 quoted ~1 min, requoted, then `cancel_not_terminal` because venue
+  order reads lag cancels by <0.5 s (code reads once). No fills, no positions, account empty (cancel-only 02:18Z). Top-ranked
+  bands had zero competition and midpoints moving >=3 c/min. **The three-session cap is spent.** Code: `c771cbb42` (84g),
+  `1310ca6bf` (84h, 7,360 passed). Not on master; no live record grants authority (Stage 0/1 09-06: EF §10f). Built, not landed: 88a capture
+  `7953d2608` (PR 87, ~114 MB/day, roll-sensitive), 89a desk-study tool `947d96935`, 89b observation clock `d059cc787`, 87a kit `800bb9b72` (not adopted).
 - **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
   no rollover, per-minute sampling, `Q_min` share. The 86b capacity sampler is PAUSED (mutex, duplicate pagination).
@@ -65,21 +67,19 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   (EF §10l). Layer 1 landed (`29e161e7d`); layer 2 `codex/integrate-2-parser-20260921` @ `abd648c7c` (roll-sensitive) is
   **blocked on disk**; layer 3 `codex/integrate-3-reuse-20260921` @ `cee879c45` follows. No candidate is scored before
   post-fix dates exist; nothing new is served or trained.
-- **Live record:** 2026-09-06 Stage 0/1 (zero fills; EF §10f) and RE-1 session 1; neither on master, neither grants authority.
 
 ## Ordered critical path
 
-1. **RE-1 session 2 tonight on the 84h larger-size tip `1310ca6bf`** (owner 2026-09-23: more data is worth the test balance;
-   size 20/30/50/75 by wallet, reserve <= min(wallet-10, 75); size addendum `docs/research/liquidity-reward-epoch-addendum-2026-09-23b-size.md`
-   on its branch). Owner starts it at or after 20:00 ET after a same-day PASS `preflight`; both verdict tables.
+1. **RE-1 next step (owner decision):** extend (proposed: up to 3 sessions to 09-30, counting only >=30 quoted minutes, selection
+   that avoids moving mids) after a workstation fix for post-cancel read lag with a lagged fake venue and full suite; or stop.
 2. **Disk:** storage-plan step 1 (inventory) inside 00:30-09:00 under the lease; then compress-and-retain and the Drive archive
    until the daily low holds at 70 GiB or more. Everything that lands waits on this.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; run 89a; RE-2 needs a paid verdict.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
-6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n.
-7. Redeploy the hash-pinned watchdog (trough-based disk arithmetic); add a bounded retry to the merge tool's tape pre-check.
+6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n. Then redeploy the
+   hash-pinned watchdog (trough-based disk arithmetic) and add a bounded retry to the merge tool's tape pre-check.
 
 ## Standing decisions
 
