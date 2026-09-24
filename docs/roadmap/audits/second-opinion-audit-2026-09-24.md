@@ -32,3 +32,22 @@ sessions; (3) the plan front-loads a ten-step migration and a long nightly lease
 transport ends without retry); cleanup ordering; `reserve_budget`; the both-legs opening check; the numeric marker sort; the
 addendum's `BELOW_PAYOUT_MINIMUM` fix; fill-toxicity Clarifications 1-9 and the frozen `R` rule; fail-forward row 1 conditions;
 the storage inventory's conclusions.
+
+## Follow-up review (same day, after the fixes)
+
+**Verdict:** the fixes on `a0967b78a` are correct and complete, with no new defect; the confirmation stays bound to the exact
+selection digest at both check sites; the merge-tool byte restore runs only in rollback paths (parsed and exercised on temp
+files: restored the changed file, left the other untouched, logged once). **Main finding (owner decision):** on an empty band
+share is 100% at any size or distance, so 75 shares at 1.5 c buy fill exposure for no extra reward; quote the smallest size at
+or above the reward minimum near the widest qualifying distance there, and 75 shares close in only where competition makes
+size buy share. The four fills are not yet a verdict; their settlement markouts versus the public maker average decide it.
+
+| Finding | Disposition |
+| --- | --- |
+| STATE_OF_PLAY stale (tips, wallet, session numbering) | Rewritten with the attempt-to-session map; 8 of 10 sessions used |
+| 92a missing estimand, mapping, retained-reward view, empty-band counterfactual, read-only clause | Handoff amended (section 2 item 5) |
+| Heartbeat timeout could exceed the retry window (bound 7.99 s) | Cap at 5 s goes into the next RE-1 tip with the treatment change |
+| Tonight: docs are all `docs/**/*.md` (24 files) | Land by the fail-forward light path, then the tool fix via the tool (roll verdict first), then 89a |
+| 89a defaults root at cwd | Runner passes explicit production roots; tip `d3dff0f2b`; hard stop before 08:30 |
+| Merge-tool test is text-only; overwrite behaviour undocumented | Exercised on temp files; runbook note added (`9e3f4eea4`) |
+| `checkpoint=False` reads outlast the 20 s watchdog | Recorded in the next tip's addendum note; no code change |

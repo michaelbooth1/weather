@@ -72,8 +72,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z); 92a campaign analysis; owner decides the
    next treatment (size/distance on empty bands, selection) before sessions 9-10.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (real run, never `-DryRun`), then the merge-tool byte-restore fix
-   `codex/quiet-merge-crlf-rollback-20260924` @ `30d1faeb5` (roll verdict and its focused test first).
+   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
+   `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
