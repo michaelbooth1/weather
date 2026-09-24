@@ -100,7 +100,8 @@ def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None
     validate_nonreparse_directory(root)
     if utc(now).date().isoformat() > LAST_DAY:
         raise RuntimeError('campaign_expired')
-    markers = sorted(root.glob('session-*.attempt.json'))
+    # Numeric order: session-10 must follow session-9 (plain name order put it after session-1).
+    markers = sorted(root.glob('session-*.attempt.json'), key=lambda p: (len(p.name), p.name))
     if len(markers) >= ATTEMPT_CAP:
         raise RuntimeError('attempt_cap')
     sessions = 0
