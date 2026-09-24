@@ -67,3 +67,9 @@ reported.
 heartbeat request (5 s cadence, 8 s limit); session 7 ended `exception` 0.2 s after posting, when the SDK could not decode a
 not-yet-readable order. Heartbeats now go every 2 s (limit unchanged) and an undecodable order read is a transient read under
 each caller's existing retry budget. No treatment, price, size or cap changes.
+
+**Supersession note and campaign worst case, 2026-09-24 (second-opinion audit):** the line above stating the three-session
+cap is unchanged is superseded by the owner's 2026-09-23 raise to ten sessions and twenty attempts. The per-session worst case
+is one full leg (at most 0.79 x 75 pUSD) or the full reserve; the campaign-level bound is the testing wallet itself (at most
+200 pUSD, enforced at every selection), with no top-ups during the campaign unless the owner records one. The live confirmation
+phrase becomes `go` plus the first six characters of the selection digest (owner request; still digest-bound).

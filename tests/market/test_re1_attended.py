@@ -38,6 +38,36 @@ def test_full_360_minute_flow_and_expiry(tmp_path):
         session.run()
 
 
+def test_one_sided_book_at_open_posts_nothing(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    original = venue.snapshot
+    def snapshot(*args, **kwargs):
+        value = original(*args, **kwargs)
+        value['quote_inputs']['no_asks'] = []
+        return value
+    venue.snapshot = snapshot
+    result = session.run(rehearsal_seconds=60)
+    assert result['reason'] == 'one_sided_book_before_post'
+    assert result['post_count'] == 0 and not venue.calls and result['cleanup_ok']
+
+
+def test_cancel_wait_keeps_the_main_loop_alive(tmp_path):
+    from types import SimpleNamespace
+    session, venue, clock = setup(tmp_path)
+    oid = session.submit(0, session.prices[0])
+    ticks = []
+    session.heartbeat_loop = SimpleNamespace(tick=lambda: ticks.append(clock.seconds), stop=lambda: None)
+    real_open, stale, reads = venue.open_orders, venue.open_orders(), {'n': 0}
+    def open_orders():
+        reads['n'] += 1
+        return stale if reads['n'] <= 6 else real_open()
+    venue.open_orders = open_orders
+    session.cancel_leg(oid)
+    assert ticks and oid not in session.active
+    session.cleanup()
+    session.journal.close()
+
+
 def test_second_leg_crossing_at_open_posts_nothing(tmp_path):
     session, venue, clock = setup(tmp_path)
     original = venue.snapshot

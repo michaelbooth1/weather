@@ -94,10 +94,13 @@ def test_chosen_size_prediction_and_held_minute_match_canonical_and_reference(wa
 def test_confirmation_digest_binds_size_reserve_wallet(monkeypatch, change):
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
     original = table()
-    phrase = 'RE1M TUNNEL DOWN ELIGIBLE ATTENDED ' + digest(original)[:12]
+    phrase = 'go ' + digest(original)[:6]
     printed = []
     guard = SimpleNamespace(print=printed.append)
     assert confirmation(original, guard, reader=lambda: phrase)['text'] == phrase
+    assert confirmation(original, guard, reader=lambda: '  GO   ' + digest(original)[:6].upper() + ' ')['text'] == phrase
+    with pytest.raises(RuntimeError, match='confirmation_refused'):
+        confirmation(original, guard, reader=lambda: 'go ' + digest(original)[:5])
     assert printed[0]['size'] == '75'
     assert printed[0]['reserve_pusd'] == original['rows'][0]['quote']['reserve_pusd']
     assert printed[0]['available_collateral'] == '97'

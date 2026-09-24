@@ -20,7 +20,7 @@ from weather.market.mm_stage2_hold import (
 from weather.market.mm_stage2_selection import validate_selection
 from weather.market.mm_official_adapter import _value
 from weather.market.re1_resilience import Freshness, HeartbeatLoop, retry_read, transient
-from weather.market.reward_quote import _decimal as number, _levels
+from weather.market.reward_quote import QuoteRefused, _decimal as number, _levels
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
 from weather.market.re1_sizing import SIZES, reserve_budget, session_caps
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
@@ -164,7 +164,7 @@ class Session:
                                        if self.sized else (ORDER_CAP, BAND_CAP))
         self.selection_sha256 = digest(table)
         if mode == 'live' and (not self.sized or not confirmation or
-                confirmation.get('text') != 'RE1M TUNNEL DOWN ELIGIBLE ATTENDED ' + self.selection_sha256[:12]):
+                confirmation.get('text') != 'go ' + self.selection_sha256[:6]):
             raise RuntimeError('size_confirmation_required')
         self.initial_terms = selected['snapshot']['quote_inputs']
         self.known, self.active = {}, {}
@@ -228,7 +228,11 @@ class Session:
         self.journal.record('opening_market_snapshot', snapshot=snapshot)
         values = snapshot['quote_inputs']
         for price, key in zip(self.prices, ('yes_asks', 'no_asks')):
-            if price >= min((p for p, _ in _levels(values[key])), default=Decimal(0)):
+            try:
+                asks = _levels(values[key])
+            except QuoteRefused:
+                raise HoldEnd('one_sided_book_before_post') from None
+            if price >= min(p for p, _ in asks):
                 raise HoldEnd('fresh_ask_before_post')
 
     def before_post(self, request):
@@ -400,6 +404,8 @@ class Session:
             remaining = self.required('open_orders', self.venue.open_orders)
             if not any(_order_id(row) == oid for row in remaining):
                 break
+            if self.heartbeat_loop is not None:
+                self.heartbeat_loop.tick()  # a two-leg requote may wait 20 s; the main loop is alive, not stalled
             self.clock.sleep(1)
         else:
             raise HoldEnd('cancel_not_terminal')

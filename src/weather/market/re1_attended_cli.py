@@ -57,16 +57,16 @@ def run_rehearsal(args):
 def confirmation(table, guard, *, reader=input):
     if not sys.stdin.isatty(): raise RuntimeError('owner_terminal_required')
     selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
-    phrase = 'RE1M TUNNEL DOWN ELIGIBLE ATTENDED ' + digest(table)[:12]
+    phrase = 'go ' + digest(table)[:6]  # owner 2026-09-24: short phrase, still bound to the exact selection digest
     guard.print({'condition': selected['condition_id'], 'quote': selected['quote'], 'selection_sha256': digest(table),
                  'size': selected['quote']['size'], 'reserve_pusd': selected['quote']['reserve_pusd'],
                  'available_collateral': table.get('available_collateral'),
                  'minutes': 360, 'max_submits': 10, 'max_sessions': MAX_SESSIONS, 'last_date': LAST_DAY})
     guard.print('Dedicated testing wallet: at most 200 pUSD. The full two-sided reserve is at risk; the session capital ceiling is 0.98 times the chosen size, bounded by wallet minus 10 and 75 pUSD. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, and remain within reach for six hours.')
-    guard.print('Type exactly: ' + phrase)
-    typed = reader()
+    guard.print('Type: ' + phrase)
+    typed = ' '.join(str(reader()).lower().split())
     if typed != phrase: raise RuntimeError('owner_confirmation_refused')
-    return {'text': typed, 'at_utc': datetime.now(timezone.utc).isoformat()}
+    return {'text': phrase, 'at_utc': datetime.now(timezone.utc).isoformat()}
 
 
 def run_live():

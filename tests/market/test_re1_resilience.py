@@ -184,6 +184,10 @@ def test_reconcile_records_unreadable_historical_order_but_still_needs_empty_acc
     _, attempt = reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64,
                                  maker=venue.maker, open_orders=venue.open_orders)
     assert attempt['session_number'] == 2
+    def broken(oid): raise ValueError('malformed')
+    venue.order = broken
+    with pytest.raises(ValueError):
+        reconcile_receipt(marker, venue, clock=clock, guard=SecretGuard(), reader=lambda: phrase)
 
 
 def test_one_hung_heartbeat_is_retried_inside_the_stale_limit():

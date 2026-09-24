@@ -238,6 +238,9 @@ def _historical_order(venue, oid):
     try:
         return venue.order(oid)
     except Exception as exc:
+        # Only the known closed-order decode quirk (raw, or mapped to TimeoutError by OwnerVenue.order) is tolerated.
+        if type(exc).__name__ != 'UnexpectedResponseError' and not isinstance(exc, TimeoutError):
+            raise
         return {'order_id': oid, 'read_failed': type(exc).__name__}
 
 
