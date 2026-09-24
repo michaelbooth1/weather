@@ -7,7 +7,7 @@ Status: canonical. Written for LLM agents. Hard cap: 250 lines.
 | **Owns** | One-sentence conclusions of everything the project has established or withdrawn. Nothing else. |
 | **Read when** | Starting any model, evaluation, market-making, settlement or storage task; before citing a number; before proposing a measurement or reopening a question. |
 | **Do not use for** | Today's host or work state ([STATE_OF_PLAY.md](STATE_OF_PLAY.md)); invariants ([AGENT_CONTEXT.md](AGENT_CONTEXT.md)); quoting an interval — open the owning section and its source report first. |
-| **Depth lives in** | **EF** = [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), loaded by section: `Grep` for `^## <id>\.` (or `^### <id>\.` for 10a–10m), then `Read` from that line. **RF** = [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md), entries cited by heading. **HW** = [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md). α budget: [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md). |
+| **Depth lives in** | **EF** = [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), loaded by section: `Grep` for `^## <id>\.` (or `^### <id>\.` for 10a–10n), then `Read` from that line. **RF** = [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md), entries cited by heading. **HW** = [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md). α budget: [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md). |
 | **Next and evidence** | Unanswered: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Audits: [audit index](../roadmap/audits/README.md). Owner decisions by date: [DECISION_LOG.md](DECISION_LOG.md). |
 
 Mission ids such as `-09-56a` are sequence numbers, not calendar dates. Strata: **B** = in-season
@@ -95,6 +95,9 @@ never pooled across the 2026-07-31 provenance boundary.
   on the thinnest bands; only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); ~43.8 held to settlement. On an empty
   band size and closeness buy no reward, only fill exposure; the owner's amendment now requires existing two-sided depth
   (>= max(75, size)) and local T+1/T+2. EF §10m.
+- **Resting buys are not reserved against cash (owner replication 2026-09-24):** 299.00 of resting buys across four unrelated
+  events were accepted on 96.15 cash, contrary to the venue docs; capacity is bounded by resting size, and the risk becomes
+  simultaneous fills beyond cash, whose venue handling is unmeasured. EF §10n.
 - **Observation clock (89b, 2026-09-23, IEM archive 06-01..09-22, 12 stations):** routine METAR minutes are station-specific
   (modal :51 KORD/KLGA, :52 KATL, :53 seven stations, :56 KSFO, :58 KBKF, :00 CYYZ; each >99.8% on its mode), so
   `info_event_calendar.py`'s fixed :52 is wrong for 11 of 12; SPECI 1.9-5.2/day. A clock-and-running-maximum estimator of

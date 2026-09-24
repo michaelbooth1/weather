@@ -196,7 +196,8 @@ what fraction is informed.
   roughly **$3k of working capital**, cycling daily through settlement.
 - Balances are monitored in real time; resting orders must stay backed
   (`max order = balance - sum(openOrderSize - filledAmount)`); intentional
-  abuse of balance checks is a blacklisting offense.
+  abuse of balance checks is a blacklisting offense. **Contradicted in practice 2026-09-24 (EF §10n):** the venue accepted
+  resting buys totalling 299.00 across four unrelated events against 96.15 cash; the aggregate reservation is not enforced.
 - Daily markets mean capital recycles every day: automated post-resolution
   redemption (pUSD) is an operational requirement, not a nicety.
 

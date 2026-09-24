@@ -3368,6 +3368,21 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
 
+### 10n. Resting buy orders are not reserved against cash across the account — owner replication, 2026-09-24
+
+The venue's order-lifecycle documentation states `maxOrderSize = balance - sum(openOrderSize - filledAmount)` across open
+orders. **In practice it is not enforced.** With 96.15 pUSD cash the owner placed resting buys totalling **299.00 across four
+unrelated events** (Chicago 68-69°F Sep 25, 200 YES @0.36; Paris 29°C, 300 YES @0.27; Qingdao 22°C, 200 YES @0.37; Toronto
+20°C, 400 YES @0.18; all "until cancelled", 0 filled), and earlier 167.80 in one negative-risk event; all were accepted. The
+app's "Cash" is the on-chain wallet, which moves only when a fill settles.
+
+- **Consequences:** reward capacity is bounded by resting size and the number of bands, not by cash; the binding risk
+  becomes **simultaneous fills beyond cash**, whose venue handling (fill failure at match, order removal, account
+  consequences) is **unmeasured** (Q-13). RE-1's reserve model (`size x (yes + no) <= min(wallet - 10, 75)`) is therefore a
+  deliberate choice, not a venue constraint.
+- **Caveats:** one account, one day; limits may exist at larger ratios; the behaviour when fills exceed balance is not
+  observed. The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
