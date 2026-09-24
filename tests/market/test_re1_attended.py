@@ -38,6 +38,21 @@ def test_full_360_minute_flow_and_expiry(tmp_path):
         session.run()
 
 
+def test_second_leg_crossing_at_open_posts_nothing(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    original = venue.snapshot
+    def snapshot(*args, **kwargs):
+        value = original(*args, **kwargs)
+        value['quote_inputs']['no_asks'] = [{'price': str(session.prices[1]), 'size': '100'}]
+        return value
+    venue.snapshot = snapshot
+    result = session.run(rehearsal_seconds=60)
+    assert result['reason'] == 'fresh_ask_before_post'
+    assert result['post_count'] == 0 and result['submits'] == 0 and not venue.calls
+    assert result['cleanup_ok'] and not venue.open_orders()
+    assert not list(tmp_path.glob('submit-*.intent.json'))
+
+
 @pytest.mark.parametrize('cause', ['minimum', 'rate', 'one_sided', 'geoblock', 'unreadable_geo',
                                   'heartbeat', 'fill', 'exception', 'interrupt'])
 def test_end_conditions_cancel_every_order(tmp_path, cause):

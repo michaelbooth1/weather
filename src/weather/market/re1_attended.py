@@ -219,6 +219,18 @@ class Session:
             self.journal.record('missing_sample', sample=name, exception_type=type(exc).__name__)
             return None
 
+    def opening_check(self):
+        # Both legs against one fresh book before the first post: a leg that would cross ends the
+        # session with nothing posted, so it does not consume a session (owner 2026-09-23).
+        snapshot = self.required('opening_snapshot', lambda: self.public.snapshot(self.condition, self.tokens, checkpoint=self.control))
+        if snapshot['condition_id'] != self.condition or tuple(snapshot['token_ids']) != self.tokens:
+            raise HoldEnd('fresh_book_scope')
+        self.journal.record('opening_market_snapshot', snapshot=snapshot)
+        values = snapshot['quote_inputs']
+        for price, key in zip(self.prices, ('yes_asks', 'no_asks')):
+            if price >= min((p for p, _ in _levels(values[key])), default=Decimal(0)):
+                raise HoldEnd('fresh_ask_before_post')
+
     def before_post(self, request):
         # Persist before the raw network POST, after signing and all checks.
         write_new(self.directory / f'submit-{self.posts + 1}.intent.json',
@@ -495,6 +507,7 @@ class Session:
             if self.sized:
                 self.band_cap = min(self.band_cap, reserve_budget(balances['available_collateral']))
             self.freshness.started = self.market_time = self.clock.monotonic()
+            self.opening_check()
             self.submit(0, self.prices[0])
             self.submit(1, self.prices[1])
             next_minute = self.clock.monotonic()

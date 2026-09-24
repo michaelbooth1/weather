@@ -48,3 +48,10 @@ Validate wallet readings 97, 60, 40 and 25, confirmation binding, absolute
 ceilings, local-date eligibility and reward minimums, estimator parity, and
 all RE-1 regression suites. The owner must preflight the new reviewed tip for
 session 3. The implementing agent runs no live or collection commands.
+
+**Session 2 and an opening check, 2026-09-23 ~21:55 ET (owner-approved):** session 2 posted its YES order, then the
+existing pre-submit guard refused the NO order (`fresh_ask`: the NO ask had moved to or below 0.62 between selection and
+submit on a zero-competition band). Cleanup was proven, there was no fill and zero sampled minutes, and the code counts it as
+session 2. From tip after `abd8c06e1`, both legs are checked against one fresh book before the first post; if either would
+cross, the session ends `fresh_ask_before_post` with nothing posted (no session consumed). Prices, size and all other rules
+are unchanged.
