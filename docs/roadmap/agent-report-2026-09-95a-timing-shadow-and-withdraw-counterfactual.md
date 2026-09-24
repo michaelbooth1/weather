@@ -8,7 +8,8 @@ evidence for Q-02/Q-06; own-fill avoidance and reward economics remain unidentif
 
 Historical mission evidence, measured 2026-09-24. Answers the
 [95a handoff](workstation-handoff-2026-09-95a-timing-shadow-and-withdraw-counterfactual.md).
-Branch: `codex/timing-shadow-20260924`. Implementation commit: recorded in the final handback below.
+Branch: `codex/timing-shadow-20260924`. Implementation commit:
+**`c59e5240a01ca5b91b6006a4691f28594648ef84`**; this report-only completion commit follows it.
 
 ## Population and policy table
 
@@ -236,3 +237,10 @@ All heavy work held the workstation lease; no RE-1 session was running. **No reg
 production write, restart, master merge, serving change, order, credential/.env read, RE-1
 worktree access or mirror write occurred.** Acceptance and canonical question/findings updates
 belong to the production owner, outside this mission's assigned files.
+
+Final handback verification: the committed implementation's roll tool again returned the same
+UNDECIDABLE result. Post-report canonical docs/backlog checks passed (one additional temporary
+adapter test); compileall and staged whitespace checks passed. The three owned short pytest
+directories were removed after exact absolute-path and reparse-point checks. Raw public research
+caches and measured output remain intact. The final branch tip is the report-only commit following
+the implementation hash above; its push is verified against the exact remote branch ref.
