@@ -33,9 +33,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 - **Production source:** `master` = `origin/master` = `198f7ccbc` (2026-09-23; includes the per-chunk `--basetemp` fix
   `e1d766417`). 41 enabled tasks run from linked worktrees (OPERATIONS_DESIGN "What actually executes"). Before any merge,
-  get `roll_verdict.ps1` and check for a quiet-window marker. **A `prepared` marker has been present since 00:45 09-24:** a
-  roll-free `-DryRun` of the docs branch failed its rollback content check (CRLF->LF on the two generated config files), so
-  merges refuse; HEAD and capture are unaffected. The reconciler covers only documented phases; retirement needs an owner call.
+  get `roll_verdict.ps1` and check for a quiet-window marker. The 00:45 09-24 dry-run marker (CRLF rollback check)
+  was retired 09:14 by owner approval with a receipt; owner 09-24 adopted the fail-forward rules (Operations agent role §6).
 - **Disk (binding):** daily low 51.1 GiB at 04:57 09-24 (Red, 1 GiB above the suite floor). Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
   System Restore holds 5.8 GB (max 18.6): capping it is an owner call. The suite floor is 50 GiB; judge at the ~04:50 low.
@@ -73,7 +72,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more; retire the merge marker (owner call) so landings resume.
+   holds at 70 GiB or more; land this docs branch at 00:30 (real run, never `-DryRun`).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a refused on 13 undecodable records (of 77.7 GiB) -> Clarification 9, tool fix 89c, rerun.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run

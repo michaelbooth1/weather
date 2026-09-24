@@ -225,6 +225,26 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
   [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md)); what is urgent today goes into
   `STATE_OF_PLAY.md`. The hand-kept `OPEN_BACKLOG.md` is dormant.
 
+### Fail forward, not fail closed for the day (owner, 2026-09-24)
+
+One understood, harmless blocker must never stop a night's progress (09-24: a dry-run marker blocked every landing for
+seven hours). These rules bind every production and workstation agent:
+
+1. **Pre-approved recovery for known-safe states.** A guard state listed in
+   [the recovery table](fail-forward-recovery.md) may be cleared by the agent alone, with a receipt that embeds the exact
+   evidence, when every listed condition holds. Anything not listed still stops and goes to the owner (rule 4).
+2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
+   Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
+   or quiet window. Never run the merge tool's `-DryRun` for such a branch (that dry run left the 09-24 marker).
+3. **Lanes do not block each other.** Landing, research runs, disk work and workstation missions are independent lanes;
+   a stall in one never pauses the others. Record the stall and move to the next lane.
+4. **Tell the owner at once.** A blocker that needs the owner is sent immediately as a push notification naming the exact
+   decision needed; the agent then continues other lanes instead of waiting silently until morning.
+5. **The workstation runs overnight too.** Before the owner logs off, queue two or three workstation missions in order so a
+   production stall never idles the workstation.
+6. **Check tools before relying on them overnight.** Run a tool's self-check or read-only mode first; any new failure mode
+   becomes a regression test the same day.
+
 **Overnight/wake agents** are guarded one-shots (S4U works). **Smoke-test before bed**, give bounded
 authority, and remember a spent one-shot flags forever until unregistered.
 

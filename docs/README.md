@@ -32,6 +32,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Unsure about settlement, units, source roles, or floors | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | Asking whether a forecast source or training population is allowed | [Forecast source and training population](operations/forecast-source-and-training-population.md), [the season window](operations/the-season-window-blocks-the-retrain.md) | Canonical decision record |
 | Acting on the production capture host | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical guide |
+| A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
