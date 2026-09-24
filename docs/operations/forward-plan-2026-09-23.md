@@ -78,7 +78,10 @@ Decided 2026-09-23:
 5. **One multi-domain market maker** (owner 2026-09-24): weather first, then YouTube view markets and other reward markets.
    Build the shared foundation (venue, market-universe plugins, fair-value/information-clock plugins, one quoting engine,
    portfolio risk, execution safety) and migrate **before RE-2 or unattended quoting**; mission 90a maps the current code.
-   The workstation carries implementation and research whenever no RE-1 session is running.
+   The workstation carries implementation and research whenever no RE-1 session is running. **Standing design rule:** new
+   maker code (venue, pricing, repricing, risk, execution, evidence) is domain-neutral; weather specifics enter only through a
+   market-universe or fair-value/information-clock interface. YouTube has no model ready and no maker logic yet: it is a
+   future plugin, not an input to current work.
 
 Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
 quoting is wanted at all.

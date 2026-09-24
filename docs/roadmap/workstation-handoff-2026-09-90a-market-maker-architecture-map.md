@@ -23,7 +23,8 @@ Place each responsibility in one of six layers and say what the layer's interfac
 1. **Venue** — one Polymarket adapter: orders, reads, user stream, heartbeat, reward data, closed-order read quirks.
 2. **Market universe (plugin)** — which markets exist, tokens, reward terms, close/settle times; weather is plugin 1.
 3. **Fair value and information clock (plugin)** — a domain's price view and when information arrives (weather: METAR/NBM/
-   band decidedness; YouTube: view-count updates, uploads — to be confirmed with the owner's YouTube work).
+   band decidedness; a future plugin such as YouTube view markets would supply view-count updates or uploads). The YouTube
+   work has no model ready and no maker logic: design the interface so a second domain fits, but do not read or depend on it.
 4. **Quoting engine** — reward scoring, pricing, repricing policy (leave-alone band, size-qualified mid, pull-and-cooldown,
    flicker filter, asymmetric reaction, requote budgets), all domain-neutral with per-plugin parameters.
 5. **Portfolio risk and capital** — one wallet, caps per market, event, domain and in total.
@@ -34,7 +35,8 @@ Place each responsibility in one of six layers and say what the layer's interfac
 `docs/roadmap/agent-report-2026-09-90a-market-maker-architecture-map.md`: verdict first; the module map table; the
 duplication list; the proposed package layout and plugin interfaces (signatures, not code); a migration order where each step
 keeps the RE-1 suites green and is roll-verdict-aware on production; the tests that become the regression net; risks and
-open owner questions (including where the YouTube work lives and how its models would plug in). Push branch
+open owner questions. Also list the rule every new maker change should pass (domain-neutral unless it sits behind a plugin
+interface) as a review checklist the production agent can apply to handoffs. Push branch
 `codex/maker-architecture-map-20260924`; pushing is authorized.
 
 ## 4. Boundaries
