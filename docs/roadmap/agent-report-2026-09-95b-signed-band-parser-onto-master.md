@@ -93,3 +93,8 @@ presentation source, and called the canonical roadmap generator. A separate
 temporary test called `weather.operations.agent_docs_audit.main([])` and
 `weather.reporting.roadmap.roadmap_backlog.main(['--fail-on-lint','--check'])`
 under the same admitted pytest wrapper. Neither adapter is a runtime entrypoint.
+
+Implementation commit: `35e16c633ecdb8f830fd1f26c9518216ff813541`.
+The following report-only commit records this immutable implementation identity;
+the pushed branch tip is returned to the owner and can be verified with
+`git ls-remote --exit-code origin refs/heads/codex/signed-band-parser-20260924`.
