@@ -567,6 +567,8 @@ def test_rollback_rewrites_exact_generated_bytes_before_the_strict_hash_check() 
     merge_rollback = script.index("$finalRollbackHead = (& git rev-parse HEAD).Trim().ToLowerInvariant()")
     assert script.rindex("Restore-GeneratedConfigBytes", 0, merge_rollback) > script.rindex("& git reset --mixed $baselineCommit", 0, merge_rollback)
     assert "[IO.File]::WriteAllBytes($absolutePath, [byte[]]$rollbackContentBytes[$relativePath])" in script
+    helper_body = script[helper:prepared_restore]
+    assert r"$absolutePath = Join-Path $repo ($relativePath -replace '/', '\')" in helper_body
 
 
 def test_preparation_is_journaled_before_config_mutation_and_prepared_binds_tape_identity() -> None:

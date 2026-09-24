@@ -3436,7 +3436,7 @@ function Restore-GeneratedConfigBytes {
     # Rewrite only an allowlisted generated file whose bytes differ from the recorded pre-commit image; the strict
     # SHA-256 comparison that follows still decides success.
     foreach ($relativePath in @($rollbackContentBytes.Keys)) {
-        $absolutePath = Join-Path $repo ($relativePath -replace '/', '')
+        $absolutePath = Join-Path $repo ($relativePath -replace '/', '\')
         $current = if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
             (Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256).Hash.ToLowerInvariant()
         } else { "" }
