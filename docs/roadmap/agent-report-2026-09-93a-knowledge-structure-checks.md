@@ -46,8 +46,8 @@ calendar dates. Same-id report links are possible answers, not acceptance or sup
 - Tests and compilation used `scripts/ops/workstation_heavy.ps1`, the shared lease and Job containment.
   Two initial starts correctly refused a busy lease. The attending RE-1 processes were left untouched;
   verification began only after they exited. No wrapper allowlist or host control was changed.
-- Final publication is gated on another audit CLI test after committing this report and regenerating
-  its index. CI is separate evidence; local focused verification does not claim a full-suite CI pass.
+- The final audit CLI test passed (1 test, 2.93 seconds) after the parent update, committing this
+  report and regenerating its index. CI is separate evidence; this does not claim a full-suite CI pass.
 
 These are deterministic documentation tests, not market estimates: date/market clusters,
 market-days and confidence intervals are not applicable. No model or economics claim was measured.
