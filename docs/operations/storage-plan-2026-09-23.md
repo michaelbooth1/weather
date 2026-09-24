@@ -82,3 +82,6 @@ modified in the last 24 hours. Volume free 54.3 GiB at 00:33.
 **Lever order revised by this measurement:** (a) closed-day NTFS compress-and-retain at scale (the existing lane's 64 MiB/file,
 1 GiB/batch bounds make ~150 GiB take hundreds of attended batches, so mission 91a automates it); (b) compress-on-close at the
 source for the large text families (reader-aware gzip, like the long CSV); (c) prune or gzip `mm_runs`; (d) worktree cleanup.
+
+**Daily low 2026-09-24:** 51.2 GiB at 04:50 (trail), 51.1 GiB at 04:57 — **Red**, 1 GiB above the suite floor. Night slope
+~0.5 GiB/hour (54.3 at 00:33). No reclaim was run: compression waits on mission 91a; restore-point capping is an owner call.

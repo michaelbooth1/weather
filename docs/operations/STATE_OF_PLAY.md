@@ -36,7 +36,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   get `roll_verdict.ps1` and check for a quiet-window marker. **A `prepared` marker has been present since 00:45 09-24:** a
   roll-free `-DryRun` of the docs branch failed its rollback content check (CRLF->LF on the two generated config files), so
   merges refuse; HEAD and capture are unaffected. The reconciler covers only documented phases; retirement needs an owner call.
-- **Disk (binding):** 54.3 GiB free at 00:33 09-24 (Red). Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
+- **Disk (binding):** daily low 51.1 GiB at 04:57 09-24 (Red, 1 GiB above the suite floor). Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
   System Restore holds 5.8 GB (max 18.6): capping it is an owner call. The suite floor is 50 GiB; judge at the ~04:50 low.
 - **Landing path:** fixed pagefile (commit limit 32.5 GB); suite stopped at the disk floor 09-23; restart state in `status.ps1`.
