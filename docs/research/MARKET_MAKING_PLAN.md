@@ -197,7 +197,7 @@ what fraction is informed.
 - Balances are monitored in real time; resting orders must stay backed
   (`max order = balance - sum(openOrderSize - filledAmount)`); intentional
   abuse of balance checks is a blacklisting offense. **Contradicted in practice 2026-09-24 (EF §10n):** the venue accepted
-  resting buys totalling 299.00 across four unrelated events against 96.15 cash; the aggregate reservation is not enforced.
+  resting buys totalling 299.00 across four bands against 96.15 cash: the cash limit applies per market, not across markets.
 - Daily markets mean capital recycles every day: automated post-resolution
   redemption (pUSD) is an operational requirement, not a nicety.
 

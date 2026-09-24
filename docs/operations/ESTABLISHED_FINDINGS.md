@@ -3372,7 +3372,7 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
 
-### 10n. Resting buy orders are not reserved against cash across the account — owner replication, 2026-09-24
+### 10n. Open orders are limited to cash per market, not across markets — owner replication, 2026-09-24
 
 The venue's order-lifecycle documentation states `maxOrderSize = balance - sum(openOrderSize - filledAmount)` across open
 orders. **In practice it is not enforced.** With 96.15 pUSD cash the owner placed resting buys totalling **299.00 across four
@@ -3384,8 +3384,11 @@ app's "Cash" is the on-chain wallet, which moves only when a fill settles.
   becomes **simultaneous fills beyond cash**, whose venue handling (fill failure at match, order removal, account
   consequences) is **unmeasured** (Q-13). RE-1's reserve model (`size x (yes + no) <= min(wallet - 10, 75)`) is therefore a
   deliberate choice, not a venue constraint.
-- **Caveats:** one account, one day; each accepted order was individually below cash, so this shows no aggregation across
-  open orders, not that a single order above cash is accepted; the behaviour when fills exceed balance is not observed, and
+- **The rule (owner, years of platform use, 2026-09-24):** open limit orders **within one market** cannot exceed cash; orders in
+  **different markets are not aggregated**. Every weather band (city, date, range) is its own market, so each band has its
+  own cash-sized allowance; a two-sided quote on one band (YES and NO of the same market) must fit within cash. All six
+  accepted test orders were in distinct markets and each below cash, consistent with this rule.
+- **Caveats:** one account, one day; the behaviour when fills exceed balance is not observed, and
   unsettleable fills at scale may breach the venue's integrity rules (strategy re-audit 2026-09-24). The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
 
 ## Related

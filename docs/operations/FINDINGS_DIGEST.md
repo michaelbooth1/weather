@@ -95,9 +95,9 @@ never pooled across the 2026-07-31 provenance boundary.
   on the thinnest bands; only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); ~43.8 held to settlement. On an empty
   band size and closeness buy no reward, only fill exposure; the owner's amendment now requires existing two-sided depth
   (>= max(75, size)) and local T+1/T+2. EF §10m.
-- **Resting buys are not reserved against cash (owner replication 2026-09-24):** 299.00 of resting buys across four unrelated
-  events were accepted on 96.15 cash, contrary to the venue docs; capacity is bounded by resting size, and the risk becomes
-  simultaneous fills beyond cash, whose venue handling is unmeasured. EF §10n.
+- **Open orders are limited to cash per market, not across markets (owner, replicated 2026-09-24):** 299.00 of resting buys on
+  four bands were accepted on 96.15 cash; each weather band is its own market, so the same cash backs many bands, and the risk
+  becomes simultaneous fills across markets beyond cash, whose venue handling is unmeasured. EF §10n.
 - **Observation clock (89b, 2026-09-23, IEM archive 06-01..09-22, 12 stations):** routine METAR minutes are station-specific
   (modal :51 KORD/KLGA, :52 KATL, :53 seven stations, :56 KSFO, :58 KBKF, :00 CYYZ; each >99.8% on its mode), so
   `info_event_calendar.py`'s fixed :52 is wrong for 11 of 12; SPECI 1.9-5.2/day. A clock-and-running-maximum estimator of
