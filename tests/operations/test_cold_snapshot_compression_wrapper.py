@@ -107,6 +107,7 @@ def wrapper_fixture(tmp_path, request):
     (package.parent / "__init__.py").write_text("")
     (package / "__init__.py").write_text("")
     (package / "cold_snapshot_compression.py").write_text(CHILD)
+    (package / "cold_snapshot_nightly.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
     command("git", "init", str(source))
@@ -117,7 +118,7 @@ def wrapper_fixture(tmp_path, request):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=None, exception=""):
+def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=None, exception="", nightly=False):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -128,6 +129,7 @@ def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=Non
                  "-ExpectedSourceTip", head]
     if exception: arguments += ["-OwnerApprovedException", exception]
     if apply: arguments.append("-Apply")
+    if nightly: arguments.append("-Nightly")
     if verify: arguments.append("-VerifyRetained")
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
@@ -144,6 +146,22 @@ def finish(process):
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
+
+
+def test_nightly_mode_uses_same_bound_wrapper_and_receipt(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success", nightly=True)
+    code, text = finish(process)
+    assert code == 0, text
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+
+
+@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T07:00:00"], indirect=True)
+def test_nightly_rejects_attended_late_window(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success", nightly=True)
+    code, text = finish(process)
+    assert code != 0 and "00:30-04:45" in text
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("mode,success", [("success", True), ("residual_success", True),

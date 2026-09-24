@@ -14,7 +14,8 @@
   `MIN_FREE_DISK_BYTES` constants in
   `src/weather/operations/cold_snapshot_compression.py`.
 
-This lane is attended and unscheduled; nothing runs it automatically.
+The original exact-request lane is attended. The separately registered nightly
+mode below selects its own bounded batches under an expiring approved policy.
 
 This is a compress-and-retain capacity operation. Every source file, logical
 byte, native file identity, and timestamp remains in place. NTFS provides the
@@ -32,6 +33,9 @@ Do not pass either argument; the ordinary overnight window and scheduled-tiering
 apply, and all resource, lease, capture and teardown checks remain mandatory.
 
 ## Selection and approval
+
+The following 30-day/64-MiB contract is unchanged for attended requests.
+Nightly requests use the distinct policy and limits below.
 
 First obtain a completed source-bound
 [metadata inventory](storage-recovery-inventory.md). The same reviewed source
@@ -186,6 +190,101 @@ No cursor is permission to skip failed evidence or count savings twice.
 Eligible and selected allocation totals are candidate capacity. Estimated
 reclaim stays null and actual reclaim stays zero in the plan. Only the
 compression receipts can establish saved bytes.
+
+## Nightly automatic selection
+
+`cold_snapshot_nightly_run.ps1` calls the same guarded compression wrapper with
+`-Nightly`. `register_cold_snapshot_nightly.ps1` registers
+`WeatherColdSnapshotNightly` at 00:30, current-user S4U/Limited, IgnoreNew,
+255-minute Scheduler limit, with no late catch-up. Registration is production
+work after review and guarded integration; it is not performed by workstation tests.
+The wrapper and runner each contain their child tree in a kill-on-close Job;
+the wrapper reserves teardown before 04:45. A busy shared lease refuses.
+
+The nightly policy schema is `cold_snapshot_nightly_policy` (version from the
+central registry). Exact fields: `schema_version`, `production_repo_root`,
+`execution_host_id`, `operation` (`compress_and_retain`), `approved_by`,
+`approved_at_utc`, `expires_at_utc`, and `nightly_budget_bytes`. Approval lasts
+at most 31 days. The approved policy's file and SHA-256 and the reviewed full
+source SHA are frozen into the scheduled action; renewal requires a new
+create-only policy and reviewed re-registration. No policy changes itself.
+
+Selection is oldest built-in event first, strictly older than fourteen local
+calendar days. Only immediate ordinary nonempty JSON/JSONL/CSV files qualify;
+each must also be unchanged for fourteen days. Nested directories, RE-1
+campaigns, mm_runs, payload CAS, settlement roots, links and already-compressed
+files are excluded. The metadata inventory's original CLI still uses thirty
+days; only this separate nightly consumer selects its fourteen-day profile.
+
+Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
+per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
+inventory evidence. The disk reservation is 8 GiB plus two 256 MiB file images
+and 128 MiB evidence headroom. Streaming hashes remain capped at 16 MiB/s and
+use 1 MiB buffers. All resource, host, source, writer-exclusion, identity,
+preimage/postimage and positive-savings requirements remain in force.
+The shared native helper's default remains 64 MiB for all other callers.
+
+Each new attempt contains the approved policy, complete per-folder inventory,
+hash-bound exact batch selections, flushed before/after file journals and
+batch/night/wrapper results. Count only verified allocation differences;
+uncompleted batches can have per-file proofs but receive no aggregate credit.
+Any failure stops expansion. A failed or unfinished prior nightly attempt
+blocks subsequent automatic runs; production must inspect and explicitly
+resolve it through the retained-file verification contract. Never delete or
+rename a failed attempt to clear this interlock. A second scheduled-entrypoint
+attempt on the same local date refuses, so the budget is not reset by a retry.
+
+Production registration, after creating and reviewing the policy and proving
+the exact source tip (all paths absolute):
+
+```powershell
+& .\scripts\ops\register_cold_snapshot_nightly.ps1 `
+  -ProductionRepoRoot $productionRepo `
+  -RequestPath $approvedPolicyPath -RequestSha256 $approvedPolicySha256 `
+  -ExpectedSourceTip $reviewedSourceTip -Apply
+```
+
+The variables must name the actual production root, immutable policy file,
+its hash and reviewed tip. Omitting `-Apply` registers metadata/writer-lock
+validation only. Before registration, perform a bounded dry run with
+`cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory,
+then one bounded low-budget apply; review its complete receipts. Do not invoke
+either production path from the workstation. A policy expiry is an explicit
+stop, not permission to manufacture renewal authority.
+
+## Compress-on-close design and reader compatibility
+
+Use NTFS compression after the day closes, through a future separate close
+queue, rather than renaming these families to gzip. Existing gzip support is
+uneven: the projection registry has gzip alternatives for several CSVs, while
+direct readers still name plain paths. NTFS preserves names and logical bytes
+for every reader, including dynamic path consumers. The native regression
+proves identical SHA-256 and size through ordinary reads of a file over 64 MiB;
+the compression receipt repeats that proof for each real file.
+
+Capture-side integration is **design only**: `SnapshotStore` owns replay,
+snapshots, components, variants and explanation files; `MarketMicrostructureStore`
+owns token and book-summary files. Neither is modified. A close queue must
+prove event close, quiescent writer handles, replay/backfill coordination and
+durable enqueue before releasing a file to the same compressor. It must not
+compress synchronously inside a capture iteration, set inherited directory
+compression, or silently change the nightly fourteen-day protection. A
+separate reviewed close policy and production roll verdict precede that work.
+
+Reader/reference inventory for the proposed unchanged-path format is retained
+in the mission 91a report. Native lossless verification is the compatibility
+contract; a per-reader gzip migration is not claimed.
+
+## mm_runs retention proposal
+
+Keep `market_making_lifecycle_risk` permanent evidence under
+`storage_classes.py` and the [storage-class contract](data-storage-class-contract.md).
+Age alone is not a deletion gate. Propose a separate closed-run NTFS lane,
+admitting only terminal paper runs after writer/replay-reference checks, with
+the same identity/hash receipts. Reclaim via the existing verified off-PC
+archive only after exact-file restore proof and approval. Do not include RE-1,
+live runs, active runs, or incident-referenced evidence in that initial lane.
+This mission changes no mm_runs retention or bytes.
 
 ## Update this file when
 

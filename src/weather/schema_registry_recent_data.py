@@ -7,6 +7,16 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "cold_snapshot_nightly_policy", "cold_snapshot_nightly_policy_v1",
+        "weather.operations.cold_snapshot_nightly", "active",
+        "Expiring host-bound nightly lossless compression budget; no deletion authority.",
+    ),
+    SchemaSpec(
+        "cold_snapshot_nightly_receipt", "cold_snapshot_nightly_receipt_v1",
+        "weather.operations.cold_snapshot_nightly", "active",
+        "Nightly inventory, bounded batches and verified retained-file allocation savings.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",

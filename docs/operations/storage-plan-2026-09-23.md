@@ -36,15 +36,16 @@ Target: hold the daily low at **≥ 70 GiB** so the suite (50 GiB floor plus its
    chosen before this exists.
 2. **Stop self-inflicted writes:** `scripts/ops/bounded_worktree_test_suite.ps1` gets a per-chunk `--basetemp` under a
    short path, deleted after each chunk (roll-free `.ps1`), and removes stale `%TEMP%\pytest-of-*` it created.
-3. **Compress and retain** closed days with the existing attended NTFS lane
-   ([cold-snapshot-compression.md](cold-snapshot-compression.md)); no bytes change for readers.
+3. **Compress and retain** with the [nightly NTFS lane](cold-snapshot-compression.md#nightly-automatic-selection),
+   after production qualification and registration: days strictly older than 14 days, expiring host-bound approval,
+   bounded automatic batches, verified savings and no deletion. The attended exact-request lane remains available.
 4. **Off-PC archive** of old closed event days to the private Drive with the existing staging/transfer lane
    ([production-cold-archive-staging.md](production-cold-archive-staging.md),
    [cold-archive-locations.md](cold-archive-locations.md)), then independent restore verification, then exact-file
    reclaim. Oldest days first; never the current or previous 14 days; never the RE-1 campaign root.
-5. **Stop growth at the source** once step 1 names the largest writer (for example compress-on-close for the largest
-   per-day family), and add a capture-side low-disk brake that stops rebuildable projections before canonical tape
-   (audit D5-01 (c)).
+5. **Stop growth at the source:** the [compress-on-close design](cold-snapshot-compression.md#compress-on-close-design-and-reader-compatibility)
+   uses unchanged-path NTFS after writer quiescence; capture integration remains a separate reviewed change.
+   The same runbook proposes lossless closed-paper-run compression for mm_runs, with no age-only deletion.
 
 ## Record
 
