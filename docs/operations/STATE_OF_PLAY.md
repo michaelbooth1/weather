@@ -75,7 +75,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
    `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a first** (binding data gap: per-minute books and reward terms for T+1/T+2 bands; disk now allows); 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n. Then redeploy the

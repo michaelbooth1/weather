@@ -51,3 +51,20 @@ size buy share. The four fills are not yet a verdict; their settlement markouts 
 | 89a defaults root at cwd | Runner passes explicit production roots; tip `d3dff0f2b`; hard stop before 08:30 |
 | Merge-tool test is text-only; overwrite behaviour undocumented | Exercised on temp files; runbook note added (`9e3f4eea4`) |
 | `checkpoint=False` reads outlast the 20 s watchdog | Recorded in the next tip's addendum note; no code change |
+
+## Inventory review (same day): can held shares earn rewards as resting sells?
+
+**Answer (auditor):** in principle yes — the rewards page makes any resting limit order eligible and scores both sides of a
+market's book; the market-making page calls buying NO at 0.48 "economically equivalent" to selling YES at 0.52 (exact scoring
+equivalence for sells UNVERIFIED; confirm with `/orders-scoring` on a first resting sell). An inventory-backed sell needs no
+fresh pUSD and can only shrink a position. Today only the 75 YES Miami lot is at or above the bands' 20-share minimum; the
+three NO partials cannot score as sells; no lot has its complement, so merge/split does not apply. Expected value is modest
+(~0.25-1 USD per six-hour session at realistic share). RE-1 is BUY-only at every layer (shape, signer binding, fresh-ask
+check, collateral maths, `initial_positions` refusal, fill-ends-session); a sell leg would be a new treatment and an authority
+widening, and it needs the exchange's conditional-token allowance.
+
+**Owner 2026-09-24:** make no changes now; consider and model every option (hold, sell at market, resting reward-earning sell,
+inventory-backed two-sided quoting, merge) and make sure the data to judge them is collected. The binding data gap is
+per-minute both-token books and reward terms for the T+1/T+2 bands we would quote (88a, not yet registered; the RE-0 hourly
+logger stopped 2026-09-22), so 88a qualification and registration is the first roll-sensitive landing. The resting-sell
+behaviour is recorded as a design input for the common maker engine (90a), not an RE-1 change.
