@@ -569,6 +569,7 @@ def test_rollback_rewrites_exact_generated_bytes_before_the_strict_hash_check() 
     assert "[IO.File]::WriteAllBytes($absolutePath, [byte[]]$rollbackContentBytes[$relativePath])" in script
     helper_body = script[helper:prepared_restore]
     assert r"$absolutePath = Join-Path $repo ($relativePath -replace '/', '\')" in helper_body
+    assert "rollback rewrote generated config" in helper_body
 
 
 def test_preparation_is_journaled_before_config_mutation_and_prepared_binds_tape_identity() -> None:
