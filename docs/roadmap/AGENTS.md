@@ -23,13 +23,19 @@ research agent. They preserve direction and results for their specific missions.
 | Pattern | Direction | Meaning |
 | --- | --- | --- |
 | `workstation-handoff-<date><letter>-<slug>.md` | production host → workstation | the mission: what to do, constraints, guardrails, required handback |
-| `agent-report-<date>-workstation-<slug>.md` | workstation → production host | the result: findings, evidence hashes, verdict |
+| `agent-report-<id>-<slug>.md` | workstation → production host | the result: findings, evidence hashes, verdict; reuse the handoff id |
 | `agent-work-order-<date><letter>.md` | operations agent → coding agent | an older single-host work order; historical |
 
 Do not read this log to learn the current state. Its distilled conclusions are in
 [the findings digest](../operations/FINDINGS_DIGEST.md); open a dated file only
 when the digest, a numbered item, or the user's task names it. Adjacent
 `.json`/`.csv`/`.sha256` files are the evidence artifacts a report cites.
+
+[Correspondence index](correspondence-index.md) is generated from filenames,
+H1 titles, citations and Git-added dates. Reports reuse the exact handoff id;
+legacy collisions are listed as multiple possible answers, not inferred matches.
+Name new audits `<scope>-audit-<date>.md` and add their row to
+[the audit index](audits/README.md) in the same commit.
 
 Reading rules:
 
@@ -89,6 +95,20 @@ Run the focused tests:
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests/reporting/test_roadmap_backlog.py -q
 ```
+
+After adding correspondence, commit the source file, then regenerate its index
+so the Git-added date is available (include both commits in the handback):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.reporting.roadmap.correspondence_index
+.\venv\Scripts\python.exe -m weather.reporting.roadmap.correspondence_index --check
+```
+
+`agent_docs_audit` includes both generators' read-only parity checks, audit-row
+coverage, digest EF references, question ids/answer pointers and owner-decision
+dates. Full Git history is required for correspondence parity; a shallow clone
+fails explicitly. Workstation tests and the audit CLI test run through the
+heavy wrapper described in [development](../development.md).
 
 ## Update this file when
 
