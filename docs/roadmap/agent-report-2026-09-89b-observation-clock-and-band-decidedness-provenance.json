@@ -1,0 +1,6110 @@
+{
+  "ambiguous_days": [
+    [
+      "routine",
+      "chicago",
+      "2026-06-10"
+    ],
+    [
+      "routine",
+      "dallas",
+      "2026-09-04"
+    ],
+    [
+      "unknown",
+      "dallas",
+      "2026-09-04"
+    ]
+  ],
+  "clocks": [
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "atlanta",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9982017543859649,
+        "markets": 1,
+        "mde80_normal_approx": 0.0014079464792281897,
+        "mean": 0.999283625730994,
+        "n": 114,
+        "se": 0.0005025508563778518
+      },
+      "routine_count": 2737,
+      "routine_minutes": {
+        "12": 1,
+        "43": 1,
+        "52": 2735
+      },
+      "special_changes": {
+        "1to2": 114,
+        "2to4": 27,
+        "ge4": 34,
+        "lt1": 210
+      },
+      "special_count": 385,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 4.131578947368421,
+        "low": 2.675438596491228,
+        "markets": 1,
+        "mde80_normal_approx": 1.0448261739797713,
+        "mean": 3.3771929824561404,
+        "n": 114,
+        "se": 0.3729390969373827
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 0
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 3
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 21,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 11
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 13
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 14
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 8,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 7,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 6,
+        "1": 17,
+        "10": 17,
+        "11": 22,
+        "12": 18,
+        "13": 14,
+        "14": 24,
+        "15": 22,
+        "16": 31,
+        "17": 17,
+        "18": 11,
+        "19": 18,
+        "2": 7,
+        "20": 12,
+        "21": 8,
+        "22": 3,
+        "23": 7,
+        "3": 16,
+        "4": 14,
+        "5": 13,
+        "6": 11,
+        "7": 25,
+        "8": 19,
+        "9": 33
+      },
+      "station": "KATL",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "austin",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 1.0,
+        "markets": 1,
+        "mde80_normal_approx": 0.0,
+        "mean": 1.0,
+        "n": 114,
+        "se": 0.0
+      },
+      "routine_count": 2723,
+      "routine_minutes": {
+        "53": 2723
+      },
+      "special_changes": {
+        "1to2": 124,
+        "2to4": 37,
+        "ge4": 18,
+        "lt1": 216,
+        "unknown": 1
+      },
+      "special_count": 396,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 4.0701754385964914,
+        "low": 2.912061403508772,
+        "markets": 1,
+        "mde80_normal_approx": 0.8233077820304906,
+        "mean": 3.473684210526316,
+        "n": 114,
+        "se": 0.29387056754372165
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 0
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 25,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 5
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 6
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 6
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 26,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 16,
+          "hour": 7
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 8
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 16,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 10,
+          "hour": 9
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 5,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 13,
+        "1": 16,
+        "10": 22,
+        "11": 13,
+        "12": 6,
+        "13": 4,
+        "14": 3,
+        "15": 10,
+        "16": 6,
+        "17": 13,
+        "18": 10,
+        "19": 14,
+        "2": 21,
+        "20": 4,
+        "21": 3,
+        "22": 2,
+        "23": 4,
+        "3": 26,
+        "4": 32,
+        "5": 33,
+        "6": 36,
+        "7": 35,
+        "8": 32,
+        "9": 38
+      },
+      "station": "KAUS",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "chicago",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.998172514619883,
+        "markets": 1,
+        "mde80_normal_approx": 0.0014479251843398234,
+        "mean": 0.9992690058479533,
+        "n": 114,
+        "se": 0.0005168208110864589
+      },
+      "routine_count": 2735,
+      "routine_minutes": {
+        "51": 2733,
+        "55": 1,
+        "59": 1
+      },
+      "special_changes": {
+        "1to2": 154,
+        "2to4": 23,
+        "ge4": 9,
+        "lt1": 402,
+        "unknown": 1
+      },
+      "special_count": 589,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 6.631578947368421,
+        "low": 3.8506578947368424,
+        "markets": 1,
+        "mde80_normal_approx": 1.988425290268681,
+        "mean": 5.166666666666667,
+        "n": 114,
+        "se": 0.7097463200559255
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 1
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 17,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 5
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 25,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 7
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 17,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 17,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 11
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 13
+        },
+        {
+          "change": "2to4",
+          "count": 5,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 16
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 10,
+          "hour": 22
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 22
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 20,
+        "1": 23,
+        "10": 25,
+        "11": 28,
+        "12": 23,
+        "13": 38,
+        "14": 22,
+        "15": 14,
+        "16": 11,
+        "17": 22,
+        "18": 20,
+        "19": 25,
+        "2": 23,
+        "20": 25,
+        "21": 23,
+        "22": 33,
+        "23": 26,
+        "3": 27,
+        "4": 21,
+        "5": 31,
+        "6": 30,
+        "7": 27,
+        "8": 24,
+        "9": 28
+      },
+      "station": "KORD",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "dallas",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9978070175438598,
+        "markets": 1,
+        "mde80_normal_approx": 0.0014687650457403318,
+        "mean": 0.9992690058479533,
+        "n": 114,
+        "se": 0.0005242593681254753
+      },
+      "routine_count": 2733,
+      "routine_minutes": {
+        "0": 1,
+        "46": 1,
+        "53": 2731
+      },
+      "special_changes": {
+        "1to2": 58,
+        "2to4": 17,
+        "ge4": 8,
+        "lt1": 135,
+        "unknown": 1
+      },
+      "special_count": 219,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 2.6666666666666665,
+        "low": 1.3155701754385967,
+        "markets": 1,
+        "mde80_normal_approx": 0.9827247144438025,
+        "mean": 1.9210526315789473,
+        "n": 114,
+        "se": 0.35077267077520075
+      },
+      "special_hour_change": [
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 7
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 9
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 11
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 2,
+        "1": 5,
+        "10": 9,
+        "11": 14,
+        "12": 9,
+        "13": 8,
+        "14": 5,
+        "15": 4,
+        "16": 5,
+        "17": 3,
+        "18": 8,
+        "19": 8,
+        "2": 8,
+        "20": 3,
+        "21": 2,
+        "22": 2,
+        "23": 3,
+        "3": 7,
+        "4": 11,
+        "5": 18,
+        "6": 19,
+        "7": 29,
+        "8": 20,
+        "9": 17
+      },
+      "station": "KDAL",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "denver",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 0.9996345029239766,
+        "low": 0.9963450292397662,
+        "markets": 1,
+        "mde80_normal_approx": 0.002256912264215601,
+        "mean": 0.9981725146198831,
+        "n": 114,
+        "se": 0.000805579763069532
+      },
+      "routine_count": 2719,
+      "routine_minutes": {
+        "50": 1,
+        "55": 3,
+        "57": 1,
+        "58": 2714
+      },
+      "special_changes": {
+        "1to2": 82,
+        "2to4": 38,
+        "ge4": 37,
+        "lt1": 95
+      },
+      "special_count": 252,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 2.7809210526315775,
+        "low": 1.631359649122807,
+        "markets": 1,
+        "mde80_normal_approx": 0.8263203164738366,
+        "mean": 2.210526315789474,
+        "n": 114,
+        "se": 0.29494585825022723
+      },
+      "special_hour_change": [
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 2
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 7
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 8,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 6,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 7,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 5,
+          "hour": 17
+        },
+        {
+          "change": "ge4",
+          "count": 12,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 17,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 18
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 20
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 22
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 22
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 23
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 3,
+        "1": 0,
+        "10": 0,
+        "11": 1,
+        "12": 3,
+        "13": 7,
+        "14": 18,
+        "15": 29,
+        "16": 31,
+        "17": 45,
+        "18": 24,
+        "19": 20,
+        "2": 3,
+        "20": 20,
+        "21": 7,
+        "22": 11,
+        "23": 5,
+        "3": 2,
+        "4": 1,
+        "5": 7,
+        "6": 2,
+        "7": 7,
+        "8": 4,
+        "9": 2
+      },
+      "station": "KBKF",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "houston",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9982017543859649,
+        "markets": 1,
+        "mde80_normal_approx": 0.0014175804346563668,
+        "mean": 0.9992836257309942,
+        "n": 114,
+        "se": 0.0005059895897545569
+      },
+      "routine_count": 2735,
+      "routine_minutes": {
+        "29": 1,
+        "53": 2733,
+        "58": 1
+      },
+      "special_changes": {
+        "1to2": 69,
+        "2to4": 30,
+        "ge4": 18,
+        "lt1": 177
+      },
+      "special_count": 294,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 3.456140350877193,
+        "low": 1.8070175438596492,
+        "markets": 1,
+        "mde80_normal_approx": 1.2085617659459515,
+        "mean": 2.5789473684210527,
+        "n": 114,
+        "se": 0.43138269772485416
+      },
+      "special_hour_change": [
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 6,
+          "hour": 11
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 13
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 6,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 6,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 4,
+        "1": 6,
+        "10": 25,
+        "11": 22,
+        "12": 22,
+        "13": 28,
+        "14": 23,
+        "15": 15,
+        "16": 19,
+        "17": 8,
+        "18": 7,
+        "19": 6,
+        "2": 5,
+        "20": 7,
+        "21": 2,
+        "22": 2,
+        "23": 3,
+        "3": 8,
+        "4": 12,
+        "5": 9,
+        "6": 16,
+        "7": 11,
+        "8": 16,
+        "9": 18
+      },
+      "station": "KHOU",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "los-angeles",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9989035087719298,
+        "markets": 1,
+        "mde80_normal_approx": 0.001036844146432003,
+        "mean": 0.9996345029239767,
+        "n": 114,
+        "se": 0.00037009000086807645
+      },
+      "routine_count": 2728,
+      "routine_minutes": {
+        "53": 2727,
+        "58": 1
+      },
+      "special_changes": {
+        "1to2": 117,
+        "2to4": 10,
+        "lt1": 275,
+        "unknown": 1
+      },
+      "special_count": 403,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 4.043859649122807,
+        "low": 3.0350877192982457,
+        "markets": 1,
+        "mde80_normal_approx": 0.7264229610746101,
+        "mean": 3.5350877192982457,
+        "n": 114,
+        "se": 0.2592886068941355
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 5
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 13,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 13,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 18
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 21,
+        "1": 15,
+        "10": 28,
+        "11": 11,
+        "12": 13,
+        "13": 11,
+        "14": 1,
+        "15": 3,
+        "16": 5,
+        "17": 4,
+        "18": 11,
+        "19": 14,
+        "2": 20,
+        "20": 16,
+        "21": 21,
+        "22": 29,
+        "23": 16,
+        "3": 18,
+        "4": 21,
+        "5": 24,
+        "6": 27,
+        "7": 24,
+        "8": 26,
+        "9": 24
+      },
+      "station": "KLAX",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "miami",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9989035087719298,
+        "markets": 1,
+        "mde80_normal_approx": 0.001036844146432003,
+        "mean": 0.9996345029239767,
+        "n": 114,
+        "se": 0.00037009000086807645
+      },
+      "routine_count": 2734,
+      "routine_minutes": {
+        "53": 2733,
+        "54": 1
+      },
+      "special_changes": {
+        "1to2": 119,
+        "2to4": 37,
+        "ge4": 34,
+        "lt1": 205,
+        "unknown": 1
+      },
+      "special_count": 396,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 4.131798245614034,
+        "low": 2.8508771929824563,
+        "markets": 1,
+        "mde80_normal_approx": 0.9180597290160707,
+        "mean": 3.473684210526316,
+        "n": 114,
+        "se": 0.32769122252144156
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 1
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 8
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 11
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 6,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 5,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 14,
+          "hour": 13
+        },
+        {
+          "change": "2to4",
+          "count": 8,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 5,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 13
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 12,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "ge4",
+          "count": 5,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 4,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 18
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 5,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 10,
+        "1": 10,
+        "10": 18,
+        "11": 29,
+        "12": 32,
+        "13": 47,
+        "14": 30,
+        "15": 23,
+        "16": 20,
+        "17": 10,
+        "18": 33,
+        "19": 14,
+        "2": 8,
+        "20": 9,
+        "21": 11,
+        "22": 12,
+        "23": 10,
+        "3": 9,
+        "4": 7,
+        "5": 10,
+        "6": 7,
+        "7": 13,
+        "8": 12,
+        "9": 12
+      },
+      "station": "KMIA",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "nyc",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 1.0,
+        "markets": 1,
+        "mde80_normal_approx": 0.0,
+        "mean": 1.0,
+        "n": 114,
+        "se": 0.0
+      },
+      "routine_count": 2733,
+      "routine_minutes": {
+        "51": 2733
+      },
+      "special_changes": {
+        "1to2": 97,
+        "2to4": 16,
+        "ge4": 9,
+        "lt1": 208
+      },
+      "special_count": 330,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 3.710526315789474,
+        "low": 2.175438596491228,
+        "markets": 1,
+        "mde80_normal_approx": 1.1021935477726101,
+        "mean": 2.8947368421052633,
+        "n": 114,
+        "se": 0.39341574377948674
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 1
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 4,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 16
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 20
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "ge4",
+          "count": 2,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 23
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 15,
+        "1": 13,
+        "10": 11,
+        "11": 12,
+        "12": 10,
+        "13": 16,
+        "14": 8,
+        "15": 14,
+        "16": 20,
+        "17": 16,
+        "18": 21,
+        "19": 21,
+        "2": 14,
+        "20": 15,
+        "21": 13,
+        "22": 5,
+        "23": 13,
+        "3": 9,
+        "4": 14,
+        "5": 8,
+        "6": 22,
+        "7": 16,
+        "8": 16,
+        "9": 8
+      },
+      "station": "KLGA",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "san-francisco",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 0.9989035087719298,
+        "markets": 1,
+        "mde80_normal_approx": 0.0010358304850963495,
+        "mean": 0.9996345029239766,
+        "n": 114,
+        "se": 0.00036972818571400255
+      },
+      "routine_count": 2736,
+      "routine_minutes": {
+        "14": 1,
+        "56": 2735
+      },
+      "special_changes": {
+        "1to2": 94,
+        "2to4": 7,
+        "ge4": 1,
+        "lt1": 272
+      },
+      "special_count": 374,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 3.7546052631578934,
+        "low": 2.8157894736842106,
+        "markets": 1,
+        "mde80_normal_approx": 0.6863255502411967,
+        "mean": 3.280701754385965,
+        "n": 114,
+        "se": 0.24497628149671496
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 21,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 32,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 7
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 19,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 21,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 13
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 19
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 7,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 13,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 11,
+        "1": 19,
+        "10": 21,
+        "11": 14,
+        "12": 13,
+        "13": 14,
+        "14": 2,
+        "15": 4,
+        "16": 2,
+        "17": 8,
+        "18": 4,
+        "19": 9,
+        "2": 23,
+        "20": 10,
+        "21": 18,
+        "22": 13,
+        "23": 9,
+        "3": 21,
+        "4": 24,
+        "5": 33,
+        "6": 25,
+        "7": 21,
+        "8": 15,
+        "9": 41
+      },
+      "station": "KSFO",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "seattle",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 1.0,
+        "markets": 1,
+        "mde80_normal_approx": 0.0,
+        "mean": 1.0,
+        "n": 114,
+        "se": 0.0
+      },
+      "routine_count": 2735,
+      "routine_minutes": {
+        "53": 2735
+      },
+      "special_changes": {
+        "1to2": 95,
+        "2to4": 12,
+        "ge4": 1,
+        "lt1": 211,
+        "unknown": 1
+      },
+      "special_count": 320,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 3.543859649122807,
+        "low": 2.2017543859649122,
+        "markets": 1,
+        "mde80_normal_approx": 0.9602237338273726,
+        "mean": 2.807017543859649,
+        "n": 114,
+        "se": 0.34274119568367095
+      },
+      "special_hour_change": [
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 17,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 29,
+          "hour": 7
+        },
+        {
+          "change": "unknown",
+          "count": 1,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 7,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 12,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 11,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 8,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 13
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 4,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 1,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 2,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 3,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 6,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 3,
+        "1": 10,
+        "10": 30,
+        "11": 12,
+        "12": 14,
+        "13": 7,
+        "14": 7,
+        "15": 8,
+        "16": 4,
+        "17": 1,
+        "18": 5,
+        "19": 0,
+        "2": 17,
+        "20": 1,
+        "21": 5,
+        "22": 5,
+        "23": 7,
+        "3": 17,
+        "4": 20,
+        "5": 26,
+        "6": 31,
+        "7": 35,
+        "8": 23,
+        "9": 32
+      },
+      "station": "KSEA",
+      "unit": "F",
+      "unknown_count": 0
+    },
+    {
+      "availability_lag_seconds": null,
+      "days": 114,
+      "market": "toronto",
+      "modal_daily_ci": {
+        "dates": 114,
+        "high": 1.0,
+        "low": 1.0,
+        "markets": 1,
+        "mde80_normal_approx": 0.0,
+        "mean": 1.0,
+        "n": 114,
+        "se": 0.0
+      },
+      "routine_count": 2736,
+      "routine_minutes": {
+        "0": 2736
+      },
+      "special_changes": {
+        "1to2": 100,
+        "2to4": 21,
+        "ge4": 3,
+        "lt1": 317
+      },
+      "special_count": 441,
+      "special_daily_ci": {
+        "dates": 114,
+        "high": 5.228070175438597,
+        "low": 2.6489035087719297,
+        "markets": 1,
+        "mde80_normal_approx": 1.8595946853492367,
+        "mean": 3.8684210526315788,
+        "n": 114,
+        "se": 0.6637616666723432
+      },
+      "special_hour_change": [
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 0
+        },
+        {
+          "change": "lt1",
+          "count": 19,
+          "hour": 0
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 1
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 1
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 2
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 2
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 2
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 3
+        },
+        {
+          "change": "lt1",
+          "count": 22,
+          "hour": 3
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 4
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 4
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 5
+        },
+        {
+          "change": "lt1",
+          "count": 24,
+          "hour": 5
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 6
+        },
+        {
+          "change": "lt1",
+          "count": 20,
+          "hour": 6
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 7
+        },
+        {
+          "change": "lt1",
+          "count": 18,
+          "hour": 7
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 8
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 8
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 8
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 9
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 9
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 9
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 10
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 10
+        },
+        {
+          "change": "lt1",
+          "count": 8,
+          "hour": 10
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 11
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 11
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 11
+        },
+        {
+          "change": "1to2",
+          "count": 4,
+          "hour": 12
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 12
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 12
+        },
+        {
+          "change": "1to2",
+          "count": 9,
+          "hour": 13
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 13
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 14
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 14
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 14
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 15
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 15
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 15
+        },
+        {
+          "change": "lt1",
+          "count": 14,
+          "hour": 15
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 16
+        },
+        {
+          "change": "2to4",
+          "count": 2,
+          "hour": 16
+        },
+        {
+          "change": "lt1",
+          "count": 11,
+          "hour": 16
+        },
+        {
+          "change": "1to2",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "2to4",
+          "count": 3,
+          "hour": 17
+        },
+        {
+          "change": "lt1",
+          "count": 16,
+          "hour": 17
+        },
+        {
+          "change": "1to2",
+          "count": 6,
+          "hour": 18
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "ge4",
+          "count": 1,
+          "hour": 18
+        },
+        {
+          "change": "lt1",
+          "count": 9,
+          "hour": 18
+        },
+        {
+          "change": "1to2",
+          "count": 5,
+          "hour": 19
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 19
+        },
+        {
+          "change": "2to4",
+          "count": 1,
+          "hour": 20
+        },
+        {
+          "change": "lt1",
+          "count": 10,
+          "hour": 20
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 21
+        },
+        {
+          "change": "lt1",
+          "count": 5,
+          "hour": 21
+        },
+        {
+          "change": "1to2",
+          "count": 1,
+          "hour": 22
+        },
+        {
+          "change": "lt1",
+          "count": 15,
+          "hour": 22
+        },
+        {
+          "change": "1to2",
+          "count": 2,
+          "hour": 23
+        },
+        {
+          "change": "lt1",
+          "count": 12,
+          "hour": 23
+        }
+      ],
+      "special_hours": {
+        "0": 23,
+        "1": 14,
+        "10": 12,
+        "11": 24,
+        "12": 16,
+        "13": 21,
+        "14": 18,
+        "15": 22,
+        "16": 18,
+        "17": 22,
+        "18": 17,
+        "19": 20,
+        "2": 20,
+        "20": 11,
+        "21": 6,
+        "22": 16,
+        "23": 14,
+        "3": 25,
+        "4": 14,
+        "5": 30,
+        "6": 25,
+        "7": 22,
+        "8": 16,
+        "9": 15
+      },
+      "station": "CYYZ",
+      "unit": "C",
+      "unknown_count": 0
+    }
+  ],
+  "conflicts": {
+    "routine_temperature_revision": 2,
+    "unknown_temperature_revision": 1
+  },
+  "end": "2026-09-22",
+  "files": {
+    "calibration.csv": "11f6e4c5f82a4d791597ccf6d59e17b07d3104616f979e1f65fa43fc2275d5c7",
+    "curves.csv": "89c612e334c5982146415a7e04ae92ca9970bb358800b4ead8f2d7bc6541b1b2",
+    "heldout_predictions.csv": "eb4ef1ccabafe7b536ebd59b0ce845eed32587d42d24b9cfc3709ee84d187013",
+    "hourly_curves.csv": "cfa7d7c3346d657cabfbb09737f3b7c9f4874a0395f8e372908457bdff5fb76d",
+    "routine_minutes.csv": "62704910687c8ccabe7be33cc8c9283d7acea5a40e5f930d68ec54602562a6e7",
+    "rule_and_asos.csv": "92cad94ba34dc55976966cc46d0d858621b932b0ffc3397ddee15ab2158f1777",
+    "special_hour_change.csv": "761b8252a0d316a57650c0f429508c1726e7bb732b8a23259928b2bfd42ee1ad",
+    "station_days.csv": "40ac62c7756508c2f49de71ec34ed8b4073a21769abc0a844331480534066430"
+  },
+  "provenance": [
+    {
+      "bytes": 1100991,
+      "cache": "01b29f58abb30b4338a5d067035e79a6e9f56eb7d53303d9469e75c58e67a78e.json",
+      "cache_key": "01b29f58abb30b4338a5d067035e79a6e9f56eb7d53303d9469e75c58e67a78e",
+      "fetched_at_utc": "2026-09-22T19:33:44.349886+00:00",
+      "original_metadata_sha256": "4cd698d932dcaa33da4d04443b051521cd7b399bee0cc7a86ca4423f6afcdf59",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "22213bc21bf4a90987fc1c0d0aab4b09baead88f32fff87a1ff728560cf7d186",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 4108677,
+      "cache": "01b6ff033e611a716e7453ce7c1a2d3729dfa271ae825a4e10ad530f519c2693.json",
+      "cache_key": "01b6ff033e611a716e7453ce7c1a2d3729dfa271ae825a4e10ad530f519c2693",
+      "fetched_at_utc": "2026-09-22T19:34:13.286411+00:00",
+      "original_metadata_sha256": "42d3cf63d5a07f2dae2c1cdad856d33e1cb1e6bd59faf242b7ce44f8c9e4afe1",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "fefeee866cf56c60334177d0dc62280befc3be8c704bb286b1d3c115daf77227",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 4261812,
+      "cache": "05ff25da4440412c3a433c5b1324870e78a9cf35bd108f5e4d2d31c18eeb9568.json",
+      "cache_key": "05ff25da4440412c3a433c5b1324870e78a9cf35bd108f5e4d2d31c18eeb9568",
+      "fetched_at_utc": "2026-09-22T19:35:49.668188+00:00",
+      "original_metadata_sha256": "bb63ffd594d0540dc1b7146c6260e5974b5b43d973ea50a2a5416110fc424565",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "bdad6077e988ef75d007016f7c30671000b19396331bd9c989eb5aa94b85262b",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 3658839,
+      "cache": "0a557ba665f68488cf913c0d2ab8cb601d93d18d533e7e6026cc5cb535bba82d.json",
+      "cache_key": "0a557ba665f68488cf913c0d2ab8cb601d93d18d533e7e6026cc5cb535bba82d",
+      "fetched_at_utc": "2026-09-22T19:36:24.329566+00:00",
+      "original_metadata_sha256": "79e787feb59ed837eb1ce00a94583262c63367e83541471111306550f1bf5673",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "c888f9cc5632f1e0a96e52e7dc7310d98d1859d4a9cc5016a157a2bae4cd94ad",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1850777,
+      "cache": "1d33eee95dc45d599e7fc298b6d3396b685d5e4804b4d8b6c7ebd10fcf050301.json",
+      "completed_at_utc": "2026-09-23T17:21:03.134324+00:00",
+      "fetched_at_utc": "2026-09-23T17:21:01.818221+00:00",
+      "sha256": "af30a9a61a853c922e20467e1f7717665d4448be60b8b0d9f395252b53a5a29e",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-01T00%3A00%3A00Z&ets=2026-06-16T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 1037401,
+      "cache": "1fa8362737f725427146a351da8093ec4dc4890e8accef6be7df7d95dda0987e.json",
+      "cache_key": "1fa8362737f725427146a351da8093ec4dc4890e8accef6be7df7d95dda0987e",
+      "fetched_at_utc": "2026-09-22T19:37:02.075249+00:00",
+      "original_metadata_sha256": "ce4e6b38eba00e1b486baed6a172ce83f7cedae3e03278c2ceb12244b1215960",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "f95ad1351369de5e9dc8c2f4a5c3c412cd5d087351f17079545b354ed99886b0",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 3084375,
+      "cache": "2bffbada6501982375ca21c6daa0d99b449d895cadc24676f65e1ed589afbfbf.json",
+      "cache_key": "2bffbada6501982375ca21c6daa0d99b449d895cadc24676f65e1ed589afbfbf",
+      "fetched_at_utc": "2026-09-22T19:37:43.988633+00:00",
+      "original_metadata_sha256": "784c66fc20e39ef9d4a22ee8d2ef6076d4c26fae0290fd6db3ab628c8f269a55",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "7c81832e2c725f696b70d1313baeb935a4293dbb4a9b19c48472582725d52e09",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T05%3A00%3A00%2B00%3A00&ets=2026-09-22T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 113052,
+      "cache": "2f04a70efcc1c825ca515f35203c2eeb9703b9b8e0d1a18590c410184a096421.json",
+      "cache_key": "2f04a70efcc1c825ca515f35203c2eeb9703b9b8e0d1a18590c410184a096421",
+      "fetched_at_utc": "2026-09-22T19:29:37.352483+00:00",
+      "original_metadata_sha256": "805dde345e09a45160c474e56fcf3bf38be320f844fc05d3d03c5bd481b2a86e",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "7b81014be1757a85905d17232080d76e77ae4b476b7dbc203145dadf121eee87",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 1049125,
+      "cache": "362cd95612cfe08c31c53d3db3ba87582916efb11abb0dee3349be9c495443b5.json",
+      "cache_key": "362cd95612cfe08c31c53d3db3ba87582916efb11abb0dee3349be9c495443b5",
+      "fetched_at_utc": "2026-09-22T19:35:21.944787+00:00",
+      "original_metadata_sha256": "aa56cceecd9eb122cf0863899cd1821dda9a32bf0ee0cf12c074142652fc7e29",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "b8b3a5b5f86de40e85c81322e3ce89f8d0ab7d41c43319eacc284223621d5000",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 3169350,
+      "cache": "5b9ebc92a09c0929e4394b491c28990814e158c85244c117864522e3fbde98b7.json",
+      "cache_key": "5b9ebc92a09c0929e4394b491c28990814e158c85244c117864522e3fbde98b7",
+      "fetched_at_utc": "2026-09-22T19:34:47.612064+00:00",
+      "original_metadata_sha256": "a52a0925159bd766650e0c5023a1bb01ca48af806028ebd70792af7c9890bead",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "e6f1d0cb741db8c26ba73335437f5b2234f53f54651cc4471e8263b5a4aa3fa9",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 2311993,
+      "cache": "5ea41aa0129d7ebf7d4da14aec2772ca50e821109ff5e9447152039ea3723aa2.json",
+      "completed_at_utc": "2026-09-23T17:21:53.137262+00:00",
+      "fetched_at_utc": "2026-09-23T17:21:51.129401+00:00",
+      "sha256": "5f7bfc89be8df4b92e676b3879e8e37db8c6eb603f9e4d16c6aa72649225b26e",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-16T00%3A00%3A00Z&ets=2026-07-01T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 41,
+      "cache": "61e224ade16d69cc4fbb5807a4593e256aabb669597201c0c2502438e64cb178.json",
+      "completed_at_utc": "2026-09-23T17:23:29.569380+00:00",
+      "fetched_at_utc": "2026-09-23T17:23:29.168696+00:00",
+      "sha256": "e768ebedeb1f172390d3ea5ffd4101058b98f69df7bb01897377cccc63f60173",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-09-22T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 958856,
+      "cache": "65ed625ceab14bfac15b0a84e65afa95d5d6192d37a495b3a40ebfb4ac337d3e.json",
+      "cache_key": "65ed625ceab14bfac15b0a84e65afa95d5d6192d37a495b3a40ebfb4ac337d3e",
+      "fetched_at_utc": "2026-09-22T19:25:32.480523+00:00",
+      "original_metadata_sha256": "4ad59d994faf877797cd3901f2793ee3e72b4af8cf1fe66c742104629b94fe41",
+      "reused_from": "86a",
+      "sha256": "30c228632b6ebe68af79e4ab473383160f0a7aecdbabaee03526281427572084",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LGA&year1=2026&month1=7&day1=1&hour1=4&minute1=0&year2=2026&month2=7&day2=29&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 1445214,
+      "cache": "67ea43bc1240655da40b9f6d8b3d7b6e97a13c1232507d98aee0a8fc2f028c32.json",
+      "cache_key": "67ea43bc1240655da40b9f6d8b3d7b6e97a13c1232507d98aee0a8fc2f028c32",
+      "fetched_at_utc": "2026-09-22T19:28:07.273817+00:00",
+      "original_metadata_sha256": "1e4d109b83c4782be2842eefd35868dca655ffb983255d562cbd6ddfa3b23737",
+      "reused_from": "86a",
+      "sha256": "360aaeea66de1a88c54c324c7a02dd4d4f40626afe749117cf2aea8ad521a60d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=7&day1=29&hour1=4&minute1=0&year2=2026&month2=8&day2=26&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 3201278,
+      "cache": "69ceb2edb974e9bf4b5ff76c2db1a559f5700399ac617e0ba66a229be4b00e5a.json",
+      "cache_key": "69ceb2edb974e9bf4b5ff76c2db1a559f5700399ac617e0ba66a229be4b00e5a",
+      "fetched_at_utc": "2026-09-22T19:36:07.346113+00:00",
+      "original_metadata_sha256": "434288cfb28d26f3152163bc77ae117ed5c55a93885c22a4b713460fd1c848ad",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "3249b6850e05505d1fb3288f8a03b3993e57e555b6027afaa344ba3669d1f847",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T05%3A00%3A00%2B00%3A00&ets=2026-08-26T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 3058932,
+      "cache": "6a99df3ca06176820515f41ea377ad5b82f3d46ce3aa7e9286c55cd2d2125911.json",
+      "cache_key": "6a99df3ca06176820515f41ea377ad5b82f3d46ce3aa7e9286c55cd2d2125911",
+      "fetched_at_utc": "2026-09-22T19:38:01.028523+00:00",
+      "original_metadata_sha256": "81ba85c1220fa348922698e056a38577dbfe2b84b1c549dbaeb15f5597a3a581",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "e0805f613e2b44aa64ee2c8d6da30773be7891e41fae815c5ea03902d46ed520",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1243216,
+      "cache": "6d41b138ac0c3172f8fe93993511a6bccfb0374f29f0e36b74a813f64a0ed8a5.json",
+      "cache_key": "6d41b138ac0c3172f8fe93993511a6bccfb0374f29f0e36b74a813f64a0ed8a5",
+      "fetched_at_utc": "2026-09-22T19:28:10.982495+00:00",
+      "original_metadata_sha256": "c2498eaf8290781e933b2132134dee176db0c86bb4a033677ad4f64343c0f6df",
+      "reused_from": "86a",
+      "sha256": "380d3b74c4182cd21425a04031f647b28b67fbd88c33eeb66b790775954668d1",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=8&day1=26&hour1=4&minute1=0&year2=2026&month2=9&day2=22&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 1491641,
+      "cache": "6ee18eee90c80fdb9dc2280e513a9742af9f430a5a94fd0f55173651ac8f4111.json",
+      "completed_at_utc": "2026-09-23T17:22:43.081766+00:00",
+      "fetched_at_utc": "2026-09-23T17:22:41.923627+00:00",
+      "sha256": "4fc433947b334d5e3f0447ec24025120df75f7647b5ac3fce7206d02b3bca2b3",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-16T00%3A00%3A00Z&ets=2026-07-01T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 8045,
+      "cache": "72f4f53f5208f7a65c118abc98ffac3a6800f13e6e158d27fcea313ca88e2bc7.json",
+      "completed_at_utc": "2026-09-23T17:22:58.548509+00:00",
+      "fetched_at_utc": "2026-09-23T17:22:58.158681+00:00",
+      "sha256": "61e690b98b72bdaa0d1916e5e01fe00235ce055bb2ac0d0449fc85f44bd9081f",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-09-22T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 1784760,
+      "cache": "7d9c72094a3b8fc3f2f6b4cdbc8ea57f47db5526b2a09083a5c60c9df2a66b7e.json",
+      "completed_at_utc": "2026-09-23T17:22:26.849892+00:00",
+      "fetched_at_utc": "2026-09-23T17:22:24.996999+00:00",
+      "sha256": "adc9ea4c07d7c5f6b6598355dbb060065740e81c5bb4533e4db1a00c4fad4c59",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-16T00%3A00%3A00Z&ets=2026-07-01T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 1168685,
+      "cache": "7f37c8292ca3b52c7ce348389ec323a5cea4612ea3fb741b50e0a246255b7315.json",
+      "cache_key": "7f37c8292ca3b52c7ce348389ec323a5cea4612ea3fb741b50e0a246255b7315",
+      "fetched_at_utc": "2026-09-22T19:28:15.185035+00:00",
+      "original_metadata_sha256": "b6b62da601df4c6d3fb07345359a847059b4ec22349bc491a3bc85e7f76f356e",
+      "reused_from": "86a",
+      "sha256": "7ec3cbbd779037e1134a9a1d44133aa8a388a532db36a69d5671d2c93273d290",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=AUS&year1=2026&month1=7&day1=1&hour1=5&minute1=0&year2=2026&month2=7&day2=29&hour2=5&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 41,
+      "cache": "890a71e53b77be1b46f11b65e0d172348c3ff5bfcdf1ec29904a48d9bb7f69c5.json",
+      "completed_at_utc": "2026-09-23T17:23:45.057039+00:00",
+      "fetched_at_utc": "2026-09-23T17:23:44.648356+00:00",
+      "sha256": "e768ebedeb1f172390d3ea5ffd4101058b98f69df7bb01897377cccc63f60173",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-09-22T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 1853355,
+      "cache": "8d4214fcb98fae5790a53d08b73a816e1123480d22151c4bf5858496deedf42c.json",
+      "completed_at_utc": "2026-09-23T17:22:09.922219+00:00",
+      "fetched_at_utc": "2026-09-23T17:22:08.216158+00:00",
+      "sha256": "023da5438a955cd258f51bb34b4bf7bd91207a9771d6da21ae3603a8a24ceb52",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-16T00%3A00%3A00Z&ets=2026-07-01T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 20170,
+      "cache": "98a7dd1bf1e1f24e5fba094646531f01f4fc238f0b58ba3e22aa5b6ed96572f5.json",
+      "completed_at_utc": "2026-09-23T17:23:14.090520+00:00",
+      "fetched_at_utc": "2026-09-23T17:23:13.625541+00:00",
+      "sha256": "9f5f53d54e2df4c242f8f1cfc6f5d0213e33c142b2b06a3d3d9c003535c792a5",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-09-22T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 1687196,
+      "cache": "a47df755b2d38ec76f79c10c13dfe5b559b2dd481ce4f5953005d3469c089975.json",
+      "completed_at_utc": "2026-09-23T17:21:36.055198+00:00",
+      "fetched_at_utc": "2026-09-23T17:21:34.765585+00:00",
+      "sha256": "9979d57c3b298ae10b8602b54a5c8ac67e6596a6a357c75536d3b2ad52d07c8d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-01T00%3A00%3A00Z&ets=2026-06-16T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 3561772,
+      "cache": "b17bcab0de14dfa8eaa8827ff91b9297f8561a23bd19015a85a5bf765b7bd6eb.json",
+      "cache_key": "b17bcab0de14dfa8eaa8827ff91b9297f8561a23bd19015a85a5bf765b7bd6eb",
+      "fetched_at_utc": "2026-09-22T19:37:26.492368+00:00",
+      "original_metadata_sha256": "1ad393a71ddbd8a85527e9a6957dff778df5e30e58c56bdc57579b3fcec49efd",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "97a7c9f44a67cc55e075b10ec118e78b7f6b779b68816d2f4820fd434d150052",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 2597510,
+      "cache": "b1f1a323f5d79c50fe6c79d8985d0fbabc5ee49d20da6a91dffca7e8cb9ac5d1.json",
+      "completed_at_utc": "2026-09-23T17:20:46.744972+00:00",
+      "fetched_at_utc": "2026-09-23T17:20:45.010698+00:00",
+      "sha256": "46b181a0b003aa08dc03bb6385e54ba8d999cde564827e78cccce7ff87986317",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-01T00%3A00%3A00Z&ets=2026-06-16T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 2093475,
+      "cache": "b97deb60f9389250e8b2e68c5c1e5cd1ddcaf4e6f6b52b80d9470b6c89759e46.json",
+      "completed_at_utc": "2026-09-23T17:21:19.694349+00:00",
+      "fetched_at_utc": "2026-09-23T17:21:18.210219+00:00",
+      "sha256": "4c6a00c179e6e5d33116b747131b9e0c715d051013b5eeaac361ddfd845db634",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-06-01T00%3A00%3A00Z&ets=2026-06-16T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 92262,
+      "cache": "c01ae8e38590229abdea9da049c100ff662766ea9f14ab88dc9134dfca4918be.json",
+      "cache_key": "c01ae8e38590229abdea9da049c100ff662766ea9f14ab88dc9134dfca4918be",
+      "fetched_at_utc": "2026-09-22T19:29:48.768786+00:00",
+      "original_metadata_sha256": "db5c0db19e2010c01138b1aee8e7fe2e1905ad4c6f9ef3d991b8e16d0f4a6bc6",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "428a6d71ece21bc42001514f08a32f780f1bca233fd7996288f49b54a047f94d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 3838502,
+      "cache": "c64f27a294cc405812c2325152c6a5c6aa33b140d6483ca9bb0a462f85498cd9.json",
+      "completed_at_utc": "2026-09-23T17:19:26.790852+00:00",
+      "fetched_at_utc": "2026-09-23T17:19:24.300819+00:00",
+      "sha256": "e22e5d5a75493d310c9f0bc0c705d61a9c12fe37676be8526927d30b0006223b",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-06-01T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 99364,
+      "cache": "da5f6ced342977c4c2bccd782a981226290c5cb71226d84862899f8ac8d6280a.json",
+      "cache_key": "da5f6ced342977c4c2bccd782a981226290c5cb71226d84862899f8ac8d6280a",
+      "fetched_at_utc": "2026-09-22T19:29:43.187453+00:00",
+      "original_metadata_sha256": "361ea0c9b85c8858e5a12c54f6fd9f1f45650e0825b70b39d0c84280ac4938f9",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "7f078fc0218417db56c295809a83b675d9c4334b200c0b62b0f7b5430fe5d46d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 555625,
+      "cache": "e087f7c6360cf07186f8fcbc9388b7117633855e8fa38825fe7e672407584958.json",
+      "completed_at_utc": "2026-09-23T17:20:29.915286+00:00",
+      "fetched_at_utc": "2026-09-23T17:19:41.867164+00:00",
+      "sha256": "7dece55c4d5ee8e17ddbec5c25f8a703be34442e8eb206c15da53737295b017f",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-06-01T00%3A00%3A00Z&ets=2026-09-23T08%3A00%3A00Z"
+    },
+    {
+      "bytes": 2229412,
+      "cache": "e4bd7d783e953ad28a266cab55628676b0f69372a02fce5fe16ddb2ca8e70bf0.json",
+      "cache_key": "e4bd7d783e953ad28a266cab55628676b0f69372a02fce5fe16ddb2ca8e70bf0",
+      "fetched_at_utc": "2026-09-22T19:38:18.262646+00:00",
+      "original_metadata_sha256": "40e24d1905700be5d100814396cb694af5401eea57b0233c589dbcf8894dc1d5",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "139028035516635ea333f6f226ecbb4a120ce9ffe036242c5e2397425e690997",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T07%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 2943059,
+      "cache": "ec992fb6f00252bc0a62ec0553ce301a22c3a0c92110354368817c6894f93d4a.json",
+      "cache_key": "ec992fb6f00252bc0a62ec0553ce301a22c3a0c92110354368817c6894f93d4a",
+      "fetched_at_utc": "2026-09-22T19:34:30.732505+00:00",
+      "original_metadata_sha256": "f2f287eea5276b82490dda26764373a17206235c4b0e22490b6c73627a3902e6",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "a57bfdb36b44299a61ab22d4658e8d5a127b5803502f29995b130f46ac6ed554",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T05%3A00%3A00%2B00%3A00&ets=2026-07-29T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1473119,
+      "cache": "ee542efa375536410931dd944c436a9ceb880d4776de866edd598c941fa8a958.json",
+      "cache_key": "ee542efa375536410931dd944c436a9ceb880d4776de866edd598c941fa8a958",
+      "fetched_at_utc": "2026-09-22T19:28:18.687030+00:00",
+      "original_metadata_sha256": "14706109509de28091de8ea04b79394e9ed725fc2a7025139ec1ac9fadf80368",
+      "reused_from": "86a",
+      "sha256": "2e7dcf2c29dfbd050c1efb9a1bc8cd5ab9883c192766c9eaf04c4c28bee19de6",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=AUS&year1=2026&month1=7&day1=29&hour1=5&minute1=0&year2=2026&month2=8&day2=26&hour2=5&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 2982585,
+      "cache": "f87e3060377536013418ce51d39020a5b5f4029c01c6e197de82537ed8f35b4d.json",
+      "cache_key": "f87e3060377536013418ce51d39020a5b5f4029c01c6e197de82537ed8f35b4d",
+      "fetched_at_utc": "2026-09-22T19:36:44.720390+00:00",
+      "original_metadata_sha256": "a99dea9f5130e62656e0daae0421f958f018d67ec9fa546be40967f690226005",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "99b401bd449ecd107241fe788c3a639540ed6fa368cdaf86698b14096ecf5f73",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T07%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1603336,
+      "cache": "fbf6db3124a98feb4066547fb00ae69ff4f90984afa3ab618c78e5968679960d.json",
+      "cache_key": "fbf6db3124a98feb4066547fb00ae69ff4f90984afa3ab618c78e5968679960d",
+      "fetched_at_utc": "2026-09-22T19:28:03.230870+00:00",
+      "original_metadata_sha256": "4cd313d87a58efd7816d6658571e988d634c47621da753f09a49cf5fe01674db",
+      "reused_from": "86a",
+      "sha256": "2a1b8ab5105575d5aa461d225dab8267f26d271c365b185711779d16f95dbd74",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=7&day1=1&hour1=4&minute1=0&year2=2026&month2=7&day2=29&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 2963718,
+      "cache": "fdbf4913a1e627bae67075dd2c482443a14193a14571bcd8594abafabafd3e33.json",
+      "cache_key": "fdbf4913a1e627bae67075dd2c482443a14193a14571bcd8594abafabafd3e33",
+      "fetched_at_utc": "2026-09-22T19:35:04.902711+00:00",
+      "original_metadata_sha256": "b54d27052d905610319f0ee23efa4c0f5f388604241698f2912c3fbfd7594ac8",
+      "retry_after": null,
+      "reused_from": "86a",
+      "sha256": "25523345e6f89d4f4fe1e52405f16738b1837131d3b43edd5cb314197bf5ba6f",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T07%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    }
+  ],
+  "reuse_check": {
+    "matched_reused": 26978
+  },
+  "scores": [
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.10678561976275243,
+        "low": 0.03328002445371982,
+        "markets": 1,
+        "mde80_normal_approx": 0.0518023302476536,
+        "mean": 0.06662360277800607,
+        "n": 22,
+        "se": 0.01849026636481068
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.03135626265531953,
+        "low": 0.020840065714264364,
+        "markets": 1,
+        "mde80_normal_approx": 0.007535759408271107,
+        "mean": 0.02572707379125354,
+        "n": 22,
+        "se": 0.002689805614031663
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19473317020004471,
+        "low": -0.2101787091884286,
+        "markets": 1,
+        "mde80_normal_approx": 0.011161419923921206,
+        "mean": -0.20307752853992023,
+        "n": 22,
+        "se": 0.003983944861479585
+      },
+      "market": "atlanta"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.18253422405164005,
+        "low": 0.11416564203048267,
+        "markets": 1,
+        "mde80_normal_approx": 0.04826392810380941,
+        "mean": 0.14770174037095973,
+        "n": 21,
+        "se": 0.017227273023918264
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.022852327802303098,
+        "low": 0.013700247998049385,
+        "markets": 1,
+        "mde80_normal_approx": 0.00647356570014721,
+        "mean": 0.017841034747531778,
+        "n": 21,
+        "se": 0.0023106673686990324
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.19824329334123642,
+        "low": -0.21116417269265442,
+        "markets": 1,
+        "mde80_normal_approx": 0.009222209536993407,
+        "mean": -0.2055837789425915,
+        "n": 21,
+        "se": 0.003291765254495077
+      },
+      "market": "austin"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.1948218385546284,
+        "low": 0.07224566315327186,
+        "markets": 1,
+        "mde80_normal_approx": 0.09044010686254647,
+        "mean": 0.13106377787537207,
+        "n": 22,
+        "se": 0.03228159154145719
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.1612583260137607,
+        "low": 0.04443492900014639,
+        "markets": 1,
+        "mde80_normal_approx": 0.08595284909255882,
+        "mean": 0.09490704142878054,
+        "n": 22,
+        "se": 0.03067991472464264
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.10164922355535343,
+        "low": -0.19923448494025042,
+        "markets": 1,
+        "mde80_normal_approx": 0.07120527650026105,
+        "mean": -0.15551896679067218,
+        "n": 22,
+        "se": 0.025415932502948692
+      },
+      "market": "chicago"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.1862990163213702,
+        "low": 0.08142264005606087,
+        "markets": 1,
+        "mde80_normal_approx": 0.07486950577518135,
+        "mean": 0.12931986492911496,
+        "n": 21,
+        "se": 0.026723838440598714
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.02882162179681707,
+        "low": 0.01877207193290472,
+        "markets": 1,
+        "mde80_normal_approx": 0.007265845233459223,
+        "mean": 0.023680532630324873,
+        "n": 21,
+        "se": 0.002593462747522567
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.19847372013263878,
+        "low": -0.20986612869215712,
+        "markets": 1,
+        "mde80_normal_approx": 0.008305170505760583,
+        "mean": -0.20517956347733485,
+        "n": 21,
+        "se": 0.002964438358709517
+      },
+      "market": "dallas"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.1040223923409645,
+        "low": 0.033454630899761216,
+        "markets": 1,
+        "mde80_normal_approx": 0.05090315531426061,
+        "mean": 0.06514536458772159,
+        "n": 21,
+        "se": 0.01816931586031575
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.035393064702869674,
+        "low": 0.020476966755370765,
+        "markets": 1,
+        "mde80_normal_approx": 0.011349290512783584,
+        "mean": 0.026534784407391314,
+        "n": 21,
+        "se": 0.004051003181319098
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.2007443299381695,
+        "low": -0.2142151443025288,
+        "markets": 1,
+        "mde80_normal_approx": 0.009914196193185208,
+        "mean": -0.2078329678667957,
+        "n": 21,
+        "se": 0.003538762204877644
+      },
+      "market": "denver"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.18409264443956466,
+        "low": 0.12367224174108232,
+        "markets": 1,
+        "mde80_normal_approx": 0.042113624362978046,
+        "mean": 0.15265602888791294,
+        "n": 22,
+        "se": 0.015031990420823116
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.05488447274679157,
+        "low": 0.029408517542575518,
+        "markets": 1,
+        "mde80_normal_approx": 0.01846757208303596,
+        "mean": 0.041203093739325625,
+        "n": 22,
+        "se": 0.00659179471838805
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19073625945784087,
+        "low": -0.21197650127937806,
+        "markets": 1,
+        "mde80_normal_approx": 0.015183288460282938,
+        "mean": -0.2016094477973775,
+        "n": 22,
+        "se": 0.005419506160866268
+      },
+      "market": "houston"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.1444254987307783,
+        "low": 0.05377199443042907,
+        "markets": 1,
+        "mde80_normal_approx": 0.06489769687096855,
+        "mean": 0.09417847429140254,
+        "n": 21,
+        "se": 0.02316451201847821
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.057413595508511675,
+        "low": 0.02386449588888628,
+        "markets": 1,
+        "mde80_normal_approx": 0.0244769498794634,
+        "mean": 0.03781708147317055,
+        "n": 21,
+        "se": 0.008736775371024914
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.19132792171102309,
+        "low": -0.22644446745252078,
+        "markets": 1,
+        "mde80_normal_approx": 0.0256432810688455,
+        "mean": -0.21183875194530832,
+        "n": 21,
+        "se": 0.009153084333539941
+      },
+      "market": "los-angeles"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.1113650042087542,
+        "low": 0.02561450251305323,
+        "markets": 1,
+        "mde80_normal_approx": 0.061418876189775484,
+        "mean": 0.06331887717757284,
+        "n": 22,
+        "se": 0.0219227856188519
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.05529507026789633,
+        "low": 0.02917133289415898,
+        "markets": 1,
+        "mde80_normal_approx": 0.01873857384566347,
+        "mean": 0.041040843214756255,
+        "n": 22,
+        "se": 0.006688525787287076
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19001448428898665,
+        "low": -0.21887530516319212,
+        "markets": 1,
+        "mde80_normal_approx": 0.021038573985194944,
+        "mean": -0.20596933522329064,
+        "n": 22,
+        "se": 0.007509485288833147
+      },
+      "market": "miami"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.133912797459295,
+        "low": 0.04457895291772103,
+        "markets": 1,
+        "mde80_normal_approx": 0.06645625931751527,
+        "mean": 0.0870389540679396,
+        "n": 21,
+        "se": 0.023720823571357533
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.16872699562916949,
+        "low": 0.034649758454106276,
+        "markets": 1,
+        "mde80_normal_approx": 0.0983864214022248,
+        "mean": 0.09219979296066252,
+        "n": 21,
+        "se": 0.035117940249223586
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.09940789281834447,
+        "low": -0.2029554527611681,
+        "markets": 1,
+        "mde80_normal_approx": 0.0750428236016567,
+        "mean": -0.15672847722859917,
+        "n": 21,
+        "se": 0.02678570231355536
+      },
+      "market": "nyc"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.09800740009302357,
+        "low": 0.04865592684571532,
+        "markets": 1,
+        "mde80_normal_approx": 0.03547868389912879,
+        "mean": 0.07198757864043576,
+        "n": 22,
+        "se": 0.01266372212276156
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.03453511781121812,
+        "low": 0.02062513542592855,
+        "markets": 1,
+        "mde80_normal_approx": 0.01003557774404837,
+        "mean": 0.026575470535053835,
+        "n": 22,
+        "se": 0.0035820880011594694
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.20670710475437615,
+        "low": -0.22399784840387535,
+        "markets": 1,
+        "mde80_normal_approx": 0.012253351261596716,
+        "mean": -0.2165131402686062,
+        "n": 22,
+        "se": 0.004373697623356909
+      },
+      "market": "san-francisco"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.09487436536230133,
+        "low": 0.040181359192646815,
+        "markets": 1,
+        "mde80_normal_approx": 0.03961785881905509,
+        "mean": 0.06587135988712672,
+        "n": 22,
+        "se": 0.014141154632729545
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.050652715655104534,
+        "low": 0.019198843440362788,
+        "markets": 1,
+        "mde80_normal_approx": 0.022743356128394912,
+        "mean": 0.03303337847055,
+        "n": 22,
+        "se": 0.008117988338233477
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.18042336674078954,
+        "low": -0.2006456991131543,
+        "markets": 1,
+        "mde80_normal_approx": 0.01444113504244406,
+        "mean": -0.19139465165315164,
+        "n": 22,
+        "se": 0.005154602742163071
+      },
+      "market": "seattle"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.08133010615145427,
+        "low": 0.026961263020833334,
+        "markets": 1,
+        "mde80_normal_approx": 0.038471679961471564,
+        "mean": 0.05237612866615111,
+        "n": 22,
+        "se": 0.013732038821199158
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.10722737923898724,
+        "low": 0.032065262144125556,
+        "markets": 1,
+        "mde80_normal_approx": 0.059575300470386505,
+        "mean": 0.05991955232857881,
+        "n": 22,
+        "se": 0.021264741744141384
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.1460168660516734,
+        "low": -0.2104227068990054,
+        "markets": 1,
+        "mde80_normal_approx": 0.049594515762563476,
+        "mean": -0.1866056148679613,
+        "n": 22,
+        "se": 0.017702211508624884
+      },
+      "market": "toronto"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.11992658894350072,
+        "low": 0.06974899542456822,
+        "markets": 12,
+        "mde80_normal_approx": 0.03626262408204388,
+        "mean": 0.09373287316319155,
+        "n": 259,
+        "se": 0.012943540863093904
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.06811175777002507,
+        "low": 0.02891721877191231,
+        "markets": 12,
+        "mde80_normal_approx": 0.027714635274091105,
+        "mean": 0.043445867674838885,
+        "n": 259,
+        "se": 0.009892431208627607
+      },
+      "definition": "all",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.1758042517824122,
+        "low": -0.20701639859932153,
+        "markets": 12,
+        "mde80_normal_approx": 0.021938892913385778,
+        "mean": -0.19562002085627325,
+        "n": 259,
+        "se": 0.007830844129563742
+      },
+      "market": "fleet"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.10012382505215754,
+        "low": 0.038229460458318563,
+        "markets": 1,
+        "mde80_normal_approx": 0.04372237263760727,
+        "mean": 0.06745691002738304,
+        "n": 22,
+        "se": 0.01560621524757541
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.031745368821336335,
+        "low": 0.021016423853260927,
+        "markets": 1,
+        "mde80_normal_approx": 0.007653833954651781,
+        "mean": 0.025881667305460907,
+        "n": 22,
+        "se": 0.002731951011797466
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19432398756855027,
+        "low": -0.21028987423386983,
+        "markets": 1,
+        "mde80_normal_approx": 0.011552473882817512,
+        "mean": -0.20298829112888409,
+        "n": 22,
+        "se": 0.004123527228304366
+      },
+      "market": "atlanta"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.18109739404205805,
+        "low": 0.11174722325599301,
+        "markets": 1,
+        "mde80_normal_approx": 0.048807250094613806,
+        "mean": 0.14646616147357253,
+        "n": 21,
+        "se": 0.01742120577334873
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.021807305836456035,
+        "low": 0.012866970809164482,
+        "markets": 1,
+        "mde80_normal_approx": 0.006385471633376038,
+        "mean": 0.016913648768885924,
+        "n": 21,
+        "se": 0.0022792231701085227
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.19867863633759833,
+        "low": -0.21176630481279043,
+        "markets": 1,
+        "mde80_normal_approx": 0.009333708578766857,
+        "mean": -0.20601953110760465,
+        "n": 21,
+        "se": 0.003331563598931631
+      },
+      "market": "austin"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.191502445957156,
+        "low": 0.06764909969257797,
+        "markets": 1,
+        "mde80_normal_approx": 0.09079561249087015,
+        "mean": 0.12808983555360365,
+        "n": 22,
+        "se": 0.03240848532655274
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.12960010735373048,
+        "low": 0.037801688381398524,
+        "markets": 1,
+        "mde80_normal_approx": 0.06844110051807863,
+        "mean": 0.07403357243936953,
+        "n": 22,
+        "se": 0.02442929059040499
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.12282719019644037,
+        "low": -0.20359106715124356,
+        "markets": 1,
+        "mde80_normal_approx": 0.05941656711984142,
+        "mean": -0.171127108089931,
+        "n": 22,
+        "se": 0.021208083637864583
+      },
+      "market": "chicago"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.18652459046635173,
+        "low": 0.08209046902537516,
+        "markets": 1,
+        "mde80_normal_approx": 0.07474766254077941,
+        "mean": 0.12984045351881318,
+        "n": 21,
+        "se": 0.02668034785150607
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.028920005389867047,
+        "low": 0.0189444736752049,
+        "markets": 1,
+        "mde80_normal_approx": 0.007199802506020613,
+        "mean": 0.02379107634789453,
+        "n": 21,
+        "se": 0.002569889529561898
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.19839540793742555,
+        "low": -0.20967884724543948,
+        "markets": 1,
+        "mde80_normal_approx": 0.008200067005085531,
+        "mean": -0.20506342486064094,
+        "n": 21,
+        "se": 0.00292692283162676
+      },
+      "market": "dallas"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.10092839350414079,
+        "low": 0.03332807647515528,
+        "markets": 1,
+        "mde80_normal_approx": 0.04866887306921325,
+        "mean": 0.06341906055900622,
+        "n": 21,
+        "se": 0.017371813631215465
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.035361024844720486,
+        "low": 0.02039984472049689,
+        "markets": 1,
+        "mde80_normal_approx": 0.011402540780782823,
+        "mean": 0.026507505175983426,
+        "n": 21,
+        "se": 0.004070010272980733
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.20067839139436494,
+        "low": -0.2143953663696102,
+        "markets": 1,
+        "mde80_normal_approx": 0.010038859524251318,
+        "mean": -0.20786462552885046,
+        "n": 21,
+        "se": 0.0035832593961490997
+      },
+      "market": "denver"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.18514123725174447,
+        "low": 0.12389569609134828,
+        "markets": 1,
+        "mde80_normal_approx": 0.04261590185619522,
+        "mean": 0.1532193919875079,
+        "n": 22,
+        "se": 0.015211272792759571
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.05569035768311129,
+        "low": 0.029602303225491632,
+        "markets": 1,
+        "mde80_normal_approx": 0.018933700750625296,
+        "mean": 0.0415917630410384,
+        "n": 22,
+        "se": 0.006758174168555574
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19024991566579472,
+        "low": -0.21148003347908834,
+        "markets": 1,
+        "mde80_normal_approx": 0.01526563819991011,
+        "mean": -0.2012547656782061,
+        "n": 22,
+        "se": 0.005448899985690359
+      },
+      "market": "houston"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.1457889007767614,
+        "low": 0.05512867455633228,
+        "markets": 1,
+        "mde80_normal_approx": 0.06531344727390324,
+        "mean": 0.09548163799580547,
+        "n": 21,
+        "se": 0.023312909506675913
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.08737502337450606,
+        "low": 0.024010152653720265,
+        "markets": 1,
+        "mde80_normal_approx": 0.046892081093601545,
+        "mean": 0.048807928184559514,
+        "n": 21,
+        "se": 0.016737607472016542
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.16416942840015758,
+        "low": -0.22629666862231138,
+        "markets": 1,
+        "mde80_normal_approx": 0.04581962497824877,
+        "mean": -0.20173665338220648,
+        "n": 21,
+        "se": 0.01635480617441775
+      },
+      "market": "los-angeles"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.11140933489484213,
+        "low": 0.02473733103986727,
+        "markets": 1,
+        "mde80_normal_approx": 0.061701792635260384,
+        "mean": 0.0628441419021129,
+        "n": 22,
+        "se": 0.022023769501449308
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.05438491192114381,
+        "low": 0.02913238666861855,
+        "markets": 1,
+        "mde80_normal_approx": 0.01814521309063831,
+        "mean": 0.040814424437612844,
+        "n": 22,
+        "se": 0.006476732256795513
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.19054553622764084,
+        "low": -0.2186354619498917,
+        "markets": 1,
+        "mde80_normal_approx": 0.0203657418439143,
+        "mean": -0.20612357560057626,
+        "n": 22,
+        "se": 0.007269325329780946
+      },
+      "market": "miami"
+    },
+    {
+      "above_brier": {
+        "dates": 21,
+        "high": 0.13640671088617948,
+        "low": 0.04473966720343532,
+        "markets": 1,
+        "mde80_normal_approx": 0.06830212765393312,
+        "mean": 0.08819466809804977,
+        "n": 21,
+        "se": 0.024379685770250254
+      },
+      "brier": {
+        "dates": 21,
+        "high": 0.16525113104823247,
+        "low": 0.032743654627712594,
+        "markets": 1,
+        "mde80_normal_approx": 0.09793705823658475,
+        "mean": 0.087588375124607,
+        "n": 21,
+        "se": 0.034957545058746695
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 21,
+        "high": -0.10678798971804647,
+        "low": -0.20358633140296653,
+        "markets": 1,
+        "mde80_normal_approx": 0.07196994564115647,
+        "mean": -0.162452465968534,
+        "n": 21,
+        "se": 0.025688872658893656
+      },
+      "market": "nyc"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.09776171033935006,
+        "low": 0.049353232768187386,
+        "markets": 1,
+        "mde80_normal_approx": 0.0349713209059697,
+        "mean": 0.07230108639568744,
+        "n": 22,
+        "se": 0.012482624538110259
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.02772563079538712,
+        "low": 0.019450210563445158,
+        "markets": 1,
+        "mde80_normal_approx": 0.00591872442243593,
+        "mean": 0.02325075784225331,
+        "n": 22,
+        "se": 0.002112622937762682
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.2148983834670076,
+        "low": -0.2256588422898483,
+        "markets": 1,
+        "mde80_normal_approx": 0.007760325772636904,
+        "mean": -0.22077903400739346,
+        "n": 22,
+        "se": 0.00276996208332271
+      },
+      "market": "san-francisco"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.0948796067764056,
+        "low": 0.040035012765543096,
+        "markets": 1,
+        "mde80_normal_approx": 0.039692359437591494,
+        "mean": 0.0657572241423173,
+        "n": 22,
+        "se": 0.014167746800967837
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.050579771399169374,
+        "low": 0.019650374708903136,
+        "markets": 1,
+        "mde80_normal_approx": 0.02227366828304346,
+        "mean": 0.0332243007828292,
+        "n": 22,
+        "se": 0.007950338479098894
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.1804754750017427,
+        "low": -0.20047475738287765,
+        "markets": 1,
+        "mde80_normal_approx": 0.014300463945327233,
+        "mean": -0.191349666972343,
+        "n": 22,
+        "se": 0.00510439175661309
+      },
+      "market": "seattle"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.08171434967885376,
+        "low": 0.027138653414461245,
+        "markets": 1,
+        "mde80_normal_approx": 0.038717032893412155,
+        "mean": 0.05268593007103168,
+        "n": 22,
+        "se": 0.013819614824890119
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.10748732600103111,
+        "low": 0.03246879833304691,
+        "markets": 1,
+        "mde80_normal_approx": 0.05957283544023992,
+        "mean": 0.06022118634358709,
+        "n": 22,
+        "se": 0.021263861879011962
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.14597609483301824,
+        "low": -0.21033229268106393,
+        "markets": 1,
+        "mde80_normal_approx": 0.04955381487506934,
+        "mean": -0.18652080827175344,
+        "n": 22,
+        "se": 0.0176876837789368
+      },
+      "market": "toronto"
+    },
+    {
+      "above_brier": {
+        "dates": 22,
+        "high": 0.11925988814236299,
+        "low": 0.0699054652002987,
+        "markets": 12,
+        "mde80_normal_approx": 0.036266860914068104,
+        "mean": 0.09360324732163074,
+        "n": 259,
+        "se": 0.012945053153222481
+      },
+      "brier": {
+        "dates": 22,
+        "high": 0.06178365250608927,
+        "low": 0.02888093928771113,
+        "markets": 12,
+        "mde80_normal_approx": 0.024142520028548668,
+        "mean": 0.041907984532308366,
+        "n": 259,
+        "se": 0.008617404350567057
+      },
+      "definition": "hourly",
+      "delta_brier": {
+        "dates": 22,
+        "high": -0.18086641955066557,
+        "low": -0.2076213429172503,
+        "markets": 12,
+        "mde80_normal_approx": 0.018821355091908146,
+        "mean": -0.19694603170766214,
+        "n": 259,
+        "se": 0.006718073633605134
+      },
+      "market": "fleet"
+    }
+  ],
+  "split": "2026-09-01",
+  "start": "2026-06-01",
+  "training": [
+    {
+      "band_uppers": [
+        87,
+        91,
+        93
+      ],
+      "brier": 0.04137186543714444,
+      "constant_p": 0.3676192725555031,
+      "definition": "all",
+      "market": "atlanta",
+      "n": 8468
+    },
+    {
+      "band_uppers": [
+        87,
+        90,
+        93
+      ],
+      "brier": 0.04124685634480188,
+      "constant_p": 0.36980410893454374,
+      "definition": "hourly",
+      "market": "atlanta",
+      "n": 8372
+    },
+    {
+      "band_uppers": [
+        93,
+        97,
+        100
+      ],
+      "brier": 0.027299896923387187,
+      "constant_p": 0.33978309095390685,
+      "definition": "all",
+      "market": "austin",
+      "n": 8114
+    },
+    {
+      "band_uppers": [
+        93,
+        97,
+        100
+      ],
+      "brier": 0.027246900826446277,
+      "constant_p": 0.3404150197628458,
+      "definition": "hourly",
+      "market": "austin",
+      "n": 8096
+    },
+    {
+      "band_uppers": [
+        78,
+        81,
+        85
+      ],
+      "brier": 0.06099871547848426,
+      "constant_p": 0.4046242774566474,
+      "definition": "all",
+      "market": "chicago",
+      "n": 8304
+    },
+    {
+      "band_uppers": [
+        78,
+        81,
+        85
+      ],
+      "brier": 0.06061728395061728,
+      "constant_p": 0.4043478260869565,
+      "definition": "hourly",
+      "market": "chicago",
+      "n": 8280
+    },
+    {
+      "band_uppers": [
+        94,
+        98,
+        100
+      ],
+      "brier": 0.03356390235207821,
+      "constant_p": 0.3411836485661989,
+      "definition": "all",
+      "market": "dallas",
+      "n": 8195
+    },
+    {
+      "band_uppers": [
+        94,
+        98,
+        100
+      ],
+      "brier": 0.03382703018325549,
+      "constant_p": 0.341403162055336,
+      "definition": "hourly",
+      "market": "dallas",
+      "n": 8096
+    },
+    {
+      "band_uppers": [
+        87,
+        92,
+        94
+      ],
+      "brier": 0.03647910572053436,
+      "constant_p": 0.38232533190291,
+      "definition": "all",
+      "market": "denver",
+      "n": 7457
+    },
+    {
+      "band_uppers": [
+        87,
+        92,
+        94
+      ],
+      "brier": 0.03627717391304348,
+      "constant_p": 0.3826086956521739,
+      "definition": "hourly",
+      "market": "denver",
+      "n": 7360
+    },
+    {
+      "band_uppers": [
+        91,
+        93,
+        96
+      ],
+      "brier": 0.05046603634412928,
+      "constant_p": 0.4091732045866023,
+      "definition": "all",
+      "market": "houston",
+      "n": 8285
+    },
+    {
+      "band_uppers": [
+        91,
+        93,
+        96
+      ],
+      "brier": 0.05081052066559313,
+      "constant_p": 0.4067632850241546,
+      "definition": "hourly",
+      "market": "houston",
+      "n": 8280
+    },
+    {
+      "band_uppers": [
+        72,
+        76,
+        79
+      ],
+      "brier": 0.036585258616141314,
+      "constant_p": 0.48311066296949834,
+      "definition": "all",
+      "market": "los-angeles",
+      "n": 7934
+    },
+    {
+      "band_uppers": [
+        71,
+        76,
+        79
+      ],
+      "brier": 0.036535612669598136,
+      "constant_p": 0.4828109201213347,
+      "definition": "hourly",
+      "market": "los-angeles",
+      "n": 7912
+    },
+    {
+      "band_uppers": [
+        91,
+        92,
+        93
+      ],
+      "brier": 0.03921805237118378,
+      "constant_p": 0.4493785447085797,
+      "definition": "all",
+      "market": "miami",
+      "n": 8287
+    },
+    {
+      "band_uppers": [
+        90,
+        92,
+        93
+      ],
+      "brier": 0.04052066559312936,
+      "constant_p": 0.4449275362318841,
+      "definition": "hourly",
+      "market": "miami",
+      "n": 8280
+    },
+    {
+      "band_uppers": [
+        80,
+        83,
+        87
+      ],
+      "brier": 0.05419714939837846,
+      "constant_p": 0.3817327388842029,
+      "definition": "all",
+      "market": "nyc",
+      "n": 8299
+    },
+    {
+      "band_uppers": [
+        80,
+        83,
+        87
+      ],
+      "brier": 0.05071390230810521,
+      "constant_p": 0.38164251207729466,
+      "definition": "hourly",
+      "market": "nyc",
+      "n": 8280
+    },
+    {
+      "band_uppers": [
+        68,
+        70,
+        72
+      ],
+      "brier": 0.029863726385568126,
+      "constant_p": 0.4359216426717017,
+      "definition": "all",
+      "market": "san-francisco",
+      "n": 8474
+    },
+    {
+      "band_uppers": [
+        67,
+        70,
+        72
+      ],
+      "brier": 0.029370533909473234,
+      "constant_p": 0.4376493072145246,
+      "definition": "hourly",
+      "market": "san-francisco",
+      "n": 8372
+    },
+    {
+      "band_uppers": [
+        71,
+        75,
+        81
+      ],
+      "brier": 0.03888076103001477,
+      "constant_p": 0.3472238805970149,
+      "definition": "all",
+      "market": "seattle",
+      "n": 8375
+    },
+    {
+      "band_uppers": [
+        71,
+        75,
+        81
+      ],
+      "brier": 0.04513212539968393,
+      "constant_p": 0.35403726708074534,
+      "definition": "hourly",
+      "market": "seattle",
+      "n": 8372
+    },
+    {
+      "band_uppers": [
+        24,
+        26,
+        28
+      ],
+      "brier": 0.07026819470699433,
+      "constant_p": 0.4279891304347826,
+      "definition": "all",
+      "market": "toronto",
+      "n": 8832
+    },
+    {
+      "band_uppers": [
+        24,
+        26,
+        28
+      ],
+      "brier": 0.07033711405166981,
+      "constant_p": 0.427536231884058,
+      "definition": "hourly",
+      "market": "toronto",
+      "n": 8832
+    }
+  ]
+}
