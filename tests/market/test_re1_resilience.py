@@ -99,7 +99,7 @@ def test_heartbeat_daemon_and_main_stall_stop():
     for value in range(1, 26):
         clock.seconds = value
         beat.step()
-    assert sends == [0, 5, 10, 15]
+    assert sends == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
     assert beat.failure == 'main_loop_stalled'
     # The production path really creates and owns a daemon, not a loop callback.
     beat = HeartbeatLoop(Clock(), lambda: {'status': 'ok'}, SimpleNamespace(record=lambda *a, **k: None), threaded=True)
@@ -184,6 +184,23 @@ def test_reconcile_records_unreadable_historical_order_but_still_needs_empty_acc
     _, attempt = reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64,
                                  maker=venue.maker, open_orders=venue.open_orders)
     assert attempt['session_number'] == 2
+
+
+def test_one_hung_heartbeat_is_retried_inside_the_stale_limit():
+    clock, calls = Clock(), []
+    def send():
+        calls.append(clock.seconds)
+        if len(calls) == 3:
+            clock.seconds += 4  # one request hangs, then fails
+            raise TimeoutError()
+        return {'status': 'ok'}
+    beat = HeartbeatLoop(clock, send, SimpleNamespace(record=lambda *a, **k: None), threaded=False)
+    beat.start()
+    for _ in range(300):
+        beat.tick()
+        beat.step()
+        clock.seconds += .1
+    assert beat.failure is None and len(calls) >= 10
 
 
 def test_latency_table_uses_nearest_rank_p95():

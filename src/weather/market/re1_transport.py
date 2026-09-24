@@ -394,7 +394,15 @@ class OwnerVenue:
         return new
 
     def open_orders(self): return self.adapter.open_orders()
-    def order(self, oid): return self.adapter.get_order(oid)
+    def order(self, oid):
+        try:
+            return self.adapter.get_order(oid)
+        except Exception as exc:
+            # Order reads lag posts and cancels by under a second, and the SDK then rejects the reply (09-24
+            # sessions 3 and 7). Report it as a transient read so each caller's bounded retry budget applies.
+            if type(exc).__name__ == 'UnexpectedResponseError':
+                raise TimeoutError('order_read_undecodable') from exc
+            raise
     def trades(self):
         return bounded_rows(self.client.list_account_trades(market=self.condition))
     def positions(self):

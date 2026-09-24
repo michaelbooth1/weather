@@ -13,6 +13,18 @@ from tests.market.test_mm_stage2_rewards import sdk_fixture
 from weather.market.re1_transport import OwnerVenue, bounded_rows
 
 
+def test_undecodable_order_read_is_transient_and_other_errors_are_not():
+    class UnexpectedResponseError(Exception):
+        pass
+    def lagging(order_id): raise UnexpectedResponseError('not yet readable')
+    def broken(order_id): raise ValueError('malformed')
+    with pytest.raises(TimeoutError, match='order_read_undecodable'):
+        OwnerVenue.order(SimpleNamespace(adapter=SimpleNamespace(get_order=lagging)), 'x')
+    with pytest.raises(ValueError):
+        OwnerVenue.order(SimpleNamespace(adapter=SimpleNamespace(get_order=broken)), 'x')
+    assert OwnerVenue.order(SimpleNamespace(adapter=SimpleNamespace(get_order=lambda order_id: {'id': order_id})), 'x') == {'id': 'x'}
+
+
 @pytest.fixture(autouse=True)
 def clear_user_agent_cache():
     from weather.market.re1_transport import _user_agent

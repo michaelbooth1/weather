@@ -62,3 +62,8 @@ owner-started, the same per-session reserve ceiling (at most 75 pUSD). The owner
 agent-drafted default, not an owner requirement. The post-cancel open-order check (and cleanup's) now re-reads for up to ten
 seconds, because venue order reads trail an acknowledged cancel by under a second. Verdict rules are unchanged; every session is
 reported.
+
+**Execution robustness, 2026-09-24 (owner-approved fail-forward):** session 5 ended `heartbeat_stale` after one hung
+heartbeat request (5 s cadence, 8 s limit); session 7 ended `exception` 0.2 s after posting, when the SDK could not decode a
+not-yet-readable order. Heartbeats now go every 2 s (limit unchanged) and an undecodable order read is a transient read under
+each caller's existing retry budget. No treatment, price, size or cap changes.

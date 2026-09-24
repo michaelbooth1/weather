@@ -116,7 +116,8 @@ class HeartbeatLoop:
             elif at - (self.last_ack if self.last_ack is not None else self.started) >= 8:
                 self.failure = 'heartbeat_stale'
             else:
-                self.last_ack, self.next_send = at, now + 5
+                # Every 2 s (was 5): one hung request can be retried inside the 8 s stale limit (session 5, 09-24).
+                self.last_ack, self.next_send = at, now + 2
         except Exception as exc:
             if not transient(exc):
                 self.failure = 'heartbeat_failed'
