@@ -209,3 +209,18 @@ the net-pull-value panel only if **both** of its leg-minutes are in the 30-minut
 whole quote-minute (both legs' losses and its joint reward) leaves the net-pull-value panel, and is counted. Its lost reward
 is the canonical joint reward of that quote-minute, never recomputed for one leg and never split between legs. The
 concentration ratios keep the leg-minute unit of Clarification 7; `R` keeps the frozen R rule.
+
+## Clarification 9 (2026-09-24 01:15 ET, before any scoring output; raised by the first production run)
+
+The first production run (tip `947d96935`, 2026-09-24 00:48) refused before producing any estimate: a record in
+`highest-temperature-in-seattle-on-august-16-2026/replay_inputs.jsonl` (line 123) is not valid JSON. A read-only scan of all
+3,317 dry-run inputs (77.7 GiB) found **13 undecodable records in 13 files**: 11 zero-byte (NUL) blocks in
+`order_books.jsonl.gz` on event days 2026-09-02/03 (one per market, consistent with a single interrupted write), one record
+with an invalid control character, and the Seattle record. No other record failed.
+
+**Rule:** a record that cannot be decoded (JSON error, NUL block, invalid control character, truncated line) is a
+**capture defect, not data**. It is skipped; the interval from the last valid record before it to the next valid record
+after it in the same file is a **coverage gap** for that market-date under the Clarification 3/4 coverage rules (its minutes
+leave the panel and count toward the 20% band-minute rule), and each such record is counted in the exclusions table by
+file, line and market-date. The run still refuses if more than 1% of a file's records fail, if a settlement-ledger row fails,
+or if a failing record cannot be located to a market-date. No estimand, threshold or other exclusion changes.
