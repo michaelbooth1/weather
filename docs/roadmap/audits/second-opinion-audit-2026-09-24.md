@@ -78,3 +78,9 @@ observation. RE-1's reserve model matches the venue rule. The capital-efficiency
 on mutually exclusive bands: a multi-band NO basket still needs full cash but its worst-case loss is far below the sum of
 reserves. Recorded as Q-12; balance-allowance semantics mid-session and venue treatment of unbacked resting orders are
 UNVERIFIED. No code change (owner: model options first).
+
+**Correction (owner evidence, same day):** the owner placed two manual resting buys totalling 167.80 with 96.15 cash, both
+accepted (screenshot values: 150 YES @0.62 = 93.00 and 110 NO @0.68 = 74.80, "Until cancelled"), and the running RE-1
+session stopped when it saw foreign open orders. The documented aggregate reservation was **not enforced** in this case; the
+review's conclusion that cash is reserved across open orders is withdrawn pending replication (Q-13). Whether both orders
+sit in one negative-risk event (possible joint netting) and what the venue does when fills exceed balance remain open.
