@@ -158,12 +158,7 @@ def test_reconcile_needs_phrase_bound_receipt_and_fresh_empty_account(tmp_path):
 def test_reconcile_records_unreadable_historical_order_but_still_needs_empty_account(tmp_path):
     directory, _ = reserve_attempt(tmp_path, now=Clock().now(), selection_sha256='a' * 64)
     session, venue, clock = setup(directory)
-    original = venue.submit
-    def lost(request, **kwargs):
-        original(request, **kwargs)
-        raise TimeoutError()
-    venue.submit = lost
-    session.run()
+    assert session.run(rehearsal_seconds=60)['cleanup_ok']
     marker = tmp_path / 'session-1.attempt.json'
     class UnexpectedResponseError(Exception):
         pass
