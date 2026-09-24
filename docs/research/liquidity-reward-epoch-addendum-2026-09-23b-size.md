@@ -55,3 +55,10 @@ submit on a zero-competition band). Cleanup was proven, there was no fill and ze
 session 2. From tip after `abd8c06e1`, both legs are checked against one fresh book before the first post; if either would
 cross, the session ends `fresh_ask_before_post` with nothing posted (no session consumed). Prices, size and all other rules
 are unchanged.
+
+**Owner amendment, 2026-09-23 ~22:40 ET (after session 3 ended `cancel_not_terminal` with no fill):** the campaign cap is
+raised from three sessions and six attempts to **ten sessions and twenty attempts**, still none after 2026-09-30, every session
+owner-started, the same per-session reserve ceiling (at most 75 pUSD). The owner noted the original three-session cap was an
+agent-drafted default, not an owner requirement. The post-cancel open-order check (and cleanup's) now re-reads for up to ten
+seconds, because venue order reads trail an acknowledged cancel by under a second. Verdict rules are unchanged; every session is
+reported.

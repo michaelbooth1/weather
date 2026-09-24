@@ -9,7 +9,7 @@ import sys
 
 from weather.market.mm_stage2_hold import digest, write_new
 from weather.market.mm_stage2_rehearsal import ReplayClock
-from weather.market.re1_attended import Session, SecretGuard, LAST_DAY
+from weather.market.re1_attended import Session, SecretGuard, LAST_DAY, MAX_SESSIONS
 from weather.market.re1_evidence import campaign_root, live_mutex, reserve_attempt, load_prediction, payout_verdict
 from weather.market.re1_rehearsal import RehearsalVenue, WallClock, Re1PublicBooks
 from weather.market.re1_sizing import session_caps
@@ -28,7 +28,7 @@ def parser():
     modes.add_parser('cancel-only')
     modes.add_parser('preflight')
     reconcile = modes.add_parser('reconcile')
-    reconcile.add_argument('attempt', type=int, choices=range(1, 7))
+    reconcile.add_argument('attempt', type=int, choices=range(1, 21))
     collect = modes.add_parser('collect-payout')
     collect.add_argument('prediction', type=Path)
     collect.add_argument('--payment-evidence', type=Path, help='independently reconciled distribution/wallet evidence; absent means payment unverified')
@@ -61,7 +61,7 @@ def confirmation(table, guard, *, reader=input):
     guard.print({'condition': selected['condition_id'], 'quote': selected['quote'], 'selection_sha256': digest(table),
                  'size': selected['quote']['size'], 'reserve_pusd': selected['quote']['reserve_pusd'],
                  'available_collateral': table.get('available_collateral'),
-                 'minutes': 360, 'max_submits': 10, 'max_sessions': 3, 'last_date': LAST_DAY})
+                 'minutes': 360, 'max_submits': 10, 'max_sessions': MAX_SESSIONS, 'last_date': LAST_DAY})
     guard.print('Dedicated testing wallet: at most 200 pUSD. The full two-sided reserve is at risk; the session capital ceiling is 0.98 times the chosen size, bounded by wallet minus 10 and 75 pUSD. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, and remain within reach for six hours.')
     guard.print('Type exactly: ' + phrase)
     typed = reader()

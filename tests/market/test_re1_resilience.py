@@ -109,13 +109,13 @@ def test_heartbeat_daemon_and_main_stall_stop():
     assert not beat.thread.is_alive()
 
 
-def test_zero_post_attempt_does_not_consume_session_and_six_marker_cap(tmp_path):
+def test_zero_post_attempt_does_not_consume_session_and_twenty_marker_cap(tmp_path):
     now = Clock().now()
-    for i in range(1, 7):
+    for i in range(1, 21):
         directory, marker = reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)
         assert marker['number'] == i and marker['session_number'] == 1
         assert not attempt_state(tmp_path / f'session-{i}.attempt.json', now=now)['submitted']
-    with pytest.raises(RuntimeError, match='six_attempt_cap'):
+    with pytest.raises(RuntimeError, match='attempt_cap'):
         reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)
 
 

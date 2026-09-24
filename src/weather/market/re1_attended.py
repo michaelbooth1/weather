@@ -31,7 +31,7 @@ ORDER_CAP = Decimal('15.8')
 BAND_CAP = Decimal('19.6')
 MAX_SUBMITS = 10
 MAX_REQUOTES = 4
-MAX_SESSIONS = 3
+MAX_SESSIONS = 10  # owner 2026-09-23 22:40 ET: 10 sessions, 20 attempts, none after 2026-09-30
 SECONDS = 21600
 LAST_DAY = '2026-09-30'
 
@@ -395,8 +395,13 @@ class Session:
             self.fill_seen = True
             raise HoldEnd('fill')
         self.check_fills(canceling=oid)  # includes fills racing cancellation
-        remaining = self.required('open_orders', self.venue.open_orders)
-        if any(_order_id(row) == oid for row in remaining):
+        # Venue order reads trail an acknowledged cancel by a fraction of a second (session 3).
+        for _ in range(10):
+            remaining = self.required('open_orders', self.venue.open_orders)
+            if not any(_order_id(row) == oid for row in remaining):
+                break
+            self.clock.sleep(1)
+        else:
             raise HoldEnd('cancel_not_terminal')
         del self.active[oid]
 
@@ -449,9 +454,13 @@ class Session:
             acknowledged = False
         empty = False
         try:
-            rows = recover('cleanup_open_orders', self.venue.open_orders)
-            retain('cleanup_open_orders', rows=rows)
-            empty = rows == []
+            for _ in range(10):  # the same read lag as cancel_leg
+                rows = recover('cleanup_open_orders', self.venue.open_orders)
+                retain('cleanup_open_orders', rows=rows)
+                empty = rows == []
+                if empty:
+                    break
+                self.clock.sleep(1)
         except BaseException:
             pass
         # Cancellation and deadline races can fill after the last loop poll.

@@ -91,6 +91,9 @@ def attempt_state(marker, *, now):
             'intent_sha256': [hashlib.sha256(validate_regular_nonreparse_file(p).read_bytes()).hexdigest() for p in intents]}
 
 
+ATTEMPT_CAP = 20  # owner 2026-09-23 22:40 ET
+
+
 def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -98,8 +101,8 @@ def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None
     if utc(now).date().isoformat() > LAST_DAY:
         raise RuntimeError('campaign_expired')
     markers = sorted(root.glob('session-*.attempt.json'))
-    if len(markers) >= 6:
-        raise RuntimeError('six_attempt_cap')
+    if len(markers) >= ATTEMPT_CAP:
+        raise RuntimeError('attempt_cap')
     sessions = 0
     for i, marker in enumerate(markers, 1):
         validate_regular_nonreparse_file(marker)
@@ -120,7 +123,7 @@ def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None
             if not valid or open_orders is None or open_orders() != []:
                 raise RuntimeError('prior_attempt_needs_owner_reconciliation')
     if sessions >= MAX_SESSIONS:
-        raise RuntimeError('three_session_cap')
+        raise RuntimeError('session_cap')
     number_ = len(markers) + 1
     row = {'number': number_, 'session_number': sessions + 1, 'protocol': 'RE-1M-attended-84c',
            'created_at_utc': utc(now).isoformat(), 'selection_sha256': selection_sha256}

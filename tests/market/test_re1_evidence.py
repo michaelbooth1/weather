@@ -27,14 +27,14 @@ def test_prediction_replay_and_tamper_refusal(tmp_path):
         load_prediction(prediction, now=now)
 
 
-def test_three_persistent_sessions_and_fourth_refused(tmp_path):
-    for i in range(1, 4):
+def test_ten_persistent_sessions_and_eleventh_refused(tmp_path):
+    for i in range(1, 11):
         clock_time = __import__('tests.market.stage2_fakes', fromlist=['Clock']).Clock().now() + timedelta(seconds=2)
         directory, marker = reserve_attempt(tmp_path, now=clock_time, selection_sha256='a' * 64)
         session, _, clock = setup(directory)
         session.run(rehearsal_seconds=1)
         assert marker['number'] == i
-    with pytest.raises(RuntimeError, match='three_session_cap'):
+    with pytest.raises(RuntimeError, match='session_cap'):
         reserve_attempt(tmp_path, now=clock.now(), selection_sha256='a' * 64)
 
 

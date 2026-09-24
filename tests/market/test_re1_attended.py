@@ -135,7 +135,7 @@ def test_single_submit_boundary_refuses_hard_limit(tmp_path, monkeypatch, change
     if change == 'utc_day': session.end += timedelta(days=1)
     if change == 'duration': session.end += timedelta(seconds=1)
     if change == 'too_late': clock.seconds = 21600 - 179
-    if change == 'session_four': session.mode, session.attempt = 'live', {'number': 4}
+    if change == 'session_four': session.mode, session.attempt = 'live', {'number': 11}
     if change == 'proxy': monkeypatch.setenv('HTTPS_PROXY', 'http://example.invalid')
     if change == 'minimum_not_twenty': venue.memory.public_input['quote_inputs']['reward_min_size'] = '19'
     count = len(venue.calls)
@@ -145,6 +145,43 @@ def test_single_submit_boundary_refuses_hard_limit(tmp_path, monkeypatch, change
     assert len(venue.calls) == count
     session.cleanup(); session.journal.close()
     assert not venue.open_orders()
+
+
+def test_cancel_read_lag_is_waited_out_on_requote_and_cleanup(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    original = venue.snapshot
+    def snapshot(*args, **kwargs):
+        # One 3c move after the first minute forces one requote.
+        shift = Decimal('.03') if clock.seconds >= 60 else Decimal(0)
+        value = original(*args, **kwargs)
+        raw = venue.memory.public_input['quote_inputs']
+        for side in ('yes', 'no'):
+            delta = shift if side == 'yes' else -shift
+            for direction in ('bids', 'asks'):
+                name = side + '_' + direction
+                value['quote_inputs'][name] = [dict(r, price=str(Decimal(r['price']) + delta)) for r in raw[name]]
+        return value
+    venue.snapshot = snapshot
+    real_open, real_cancel, real_cancel_all = venue.open_orders, venue.cancel, venue.cancel_all
+    lag = {'rows': None, 'left': 0, 'served': 0}
+    def lagging(fn):
+        # After a cancel, the next two open-order reads still show the pre-cancel rows.
+        def wrapped(*args, **kwargs):
+            if not lag['left']:
+                lag['rows'], lag['left'] = real_open(), 2
+            return fn(*args, **kwargs)
+        return wrapped
+    def open_orders():
+        if lag['left']:
+            lag['left'] -= 1
+            lag['served'] += 1
+            return lag['rows']
+        return real_open()
+    venue.cancel, venue.cancel_all, venue.open_orders = lagging(real_cancel), lagging(real_cancel_all), open_orders
+    result = session.run(rehearsal_seconds=180)
+    assert result['requotes'] >= 1 and lag['served'] >= 4
+    assert result['reason'] == 'fixed_end' and result['cleanup_ok']
+    assert not real_open()
 
 
 def test_requotes_legs_outside_window_instead_of_hold_lane_stop(tmp_path):
