@@ -17,14 +17,14 @@ one-shot tasks, sweep CRITICALs not in `status.ps1` flags, no reward-capture fre
 
 | # | Sev | Finding | Disposition |
 | --- | --- | --- | --- |
-| 1 | Critical | True daily low 43.2 GiB; System Restore oscillation | Docs corrected (`6abbb3e5b`); **owner decision:** cap or disable System Protection on C: |
+| 1 | Critical | True daily low 43.2 GiB; System Restore oscillation | Docs corrected (`6abbb3e5b`); **owner approved 09-24:** shadow storage capped at 2 GB (+10.7 GiB, one restore point kept) |
 | 2 | High | Learning lane blocked by maker gates since 08-13 | Agent: reorder so learning/retention/scoreboard do not sit behind maker gates (roll verdict first); owner: paper-evidence rescore semantics |
 | 3 | High | No reward-capture freshness; sweep CRITICALs not flags | Agent: roll-free `.ps1` changes to `staleness_sweep.ps1` and `status.ps1` |
-| 4 | High | Defender no exclusions; Search indexes the repo (1.46 GB index) | **Owner decision:** Search exclusion recommended; Defender exclusion is a security trade-off |
+| 4 | High | Defender no exclusions; Search indexes the repo (1.46 GB index) | **Owner approved 09-24:** Windows Search disabled and index removed (+1.7 GB); Defender excludes `data\` |
 | 5 | Medium | ~110 spent one-shot tasks; noise | Agent: unregister with a receipt (role §4 task authority) |
 | 6 | Medium | Boot recovery runs from a month-old worktree while the merge tool changed | Agent: choose the authoritative tip and re-register after a read-only check |
 | 7 | Medium | Signed band parser not on master; bad item citation | Agent: rebase onto its own roll-verdicted branch; fix the citation |
-| 8 | Medium | Paper maker roll writes ~0.8 GiB/day while BLOCKed daily; finalize re-revises all history daily | **Owner decision** on the paper roll; agent on the finalize fix |
+| 8 | Medium | Paper maker roll writes ~0.8 GiB/day while BLOCKed daily; finalize re-revises all history daily | **Owner 09-24: paper roll paused** (retiring the old maker; tasks disabled, receipt in `data/alerts`); agent on the finalize fix |
 | 9 | Medium | Console logs and watchdog log grow unrotated; 4.6 GB rotated archives | Agent: bounded rotation (roll-free where possible); archive the rotated files |
 | 10 | Medium | status.ps1 ignores retirement receipts; EF §10b trough model stale; doc transaction overdue | Agent |
 | 11 | Low (unverified) | Market-informed overlay variants flagged `active_for_headline` | Agent: trace one headline read before citing any headline figure |

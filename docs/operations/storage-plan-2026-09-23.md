@@ -91,3 +91,6 @@ source for the large text families (reader-aware gzip, like the long CSV); (c) p
 trough is no longer at ~04:50: the large reclaim steps are System Restore purges (shadow storage 15.4 GB used of 18.6 GB, three
 restore points), and the 05:00 CLOB tiering reclaims nothing because every closed day is already gzip. Judge the band from the
 trail's 24 h minimum, not a fixed clock time.
+
+**Owner actions 2026-09-24 ~12:45:** shadow storage capped at 2 GB (45.7 -> 56.4 GiB free), Windows Search disabled and its
+1.7 GB index removed (-> 58.0 GiB), Defender exclusion on `data\`, paper maker roll paused (~0.8 GiB/day stops).

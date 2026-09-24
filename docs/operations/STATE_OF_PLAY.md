@@ -35,15 +35,15 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   `e1d766417`). 41 enabled tasks run from linked worktrees (OPERATIONS_DESIGN "What actually executes"). Before any merge,
   get `roll_verdict.ps1` and check for a quiet-window marker. The 00:45 09-24 dry-run marker (CRLF rollback check)
   was retired 09:14 by owner approval with a receipt; owner 09-24 adopted the fail-forward rules (Operations agent role §6).
-- **Disk (binding):** **Critical** — true 24 h low 43.2 GiB (21:50 09-23), 45.7 GiB at 12:35 09-24. The low moved to the
-  evening: System Restore holds 15.4 of 18.6 GB and purges in 12-13 GiB steps (owner decision to cap it). Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
+- **Disk (binding):** true 24 h low 43.2 GiB (21:50 09-23). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
+  Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
   System Restore holds 5.8 GB (max 18.6): capping it is an owner call. The suite floor is 50 GiB; judge at the ~04:50 low.
 - **Host:** commit limit 32.5 GB (42% used 09-24); settlement repair per date via `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, never `chain_recovery_run.ps1`.
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
 - **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
-- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, maker paper roll, 09:30 Stage-A.
+- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A. **Paper maker roll PAUSED 09-24** (owner: retiring the old maker; both tasks disabled).
   Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
 - **RE-1 session 1** (09-23, 42 min, NYC T+2): accrual 0.117 vs `P_many` 0.105; books mirror; competition 4x in 40 min;
   partial fill 5.57 NO @0.48; below the 1-dollar minimum, **unpaid**. EF §10m (owed), digest.
