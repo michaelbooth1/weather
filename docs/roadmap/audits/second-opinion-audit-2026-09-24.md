@@ -68,3 +68,13 @@ inventory-backed two-sided quoting, merge) and make sure the data to judge them 
 per-minute both-token books and reward terms for the T+1/T+2 bands we would quote (88a, not yet registered; the RE-0 hourly
 logger stopped 2026-09-22), so 88a qualification and registration is the first roll-sensitive landing. The resting-sell
 behaviour is recorded as a design input for the common maker engine (90a), not an RE-1 change.
+
+## Cash reservation review (same day)
+
+**Answer (auditor):** Polymarket's order-lifecycle documentation (fetched 2026-09-24) reserves cash at placement across all
+open buys (`maxOrderSize = balance - sum(openOrderSize - filledAmount)`); pUSD moves on-chain only at atomic settlement, so
+the wallet balance does not drop while orders rest, which likely explains the owner's "cash is taken only on fill"
+observation. RE-1's reserve model matches the venue rule. The capital-efficiency lever the docs do support is negative risk
+on mutually exclusive bands: a multi-band NO basket still needs full cash but its worst-case loss is far below the sum of
+reserves. Recorded as Q-12; balance-allowance semantics mid-session and venue treatment of unbacked resting orders are
+UNVERIFIED. No code change (owner: model options first).
