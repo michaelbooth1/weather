@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,7 @@ FILES = ('prediction.json', 'selection.json', 'journal.jsonl', 'user-stream.json
 # minutes, NOT actual publication timestamps. No dependency on unmerged code.
 STATIONS = {'nyc': ('KLGA', 51), 'miami': ('KMIA', 53), 'atlanta': ('KATL', 52),
             'chicago': ('KORD', 51), 'los-angeles': ('KLAX', 53), 'san-francisco': ('KSFO', 56)}
+SESSION_MAP = {1: 1, 2: 2, 3: None, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 
 
 def stamp(value):
@@ -66,6 +68,62 @@ def book_features(snapshot, adjusted=None):
                  if abs(float(x['price']) - center) <= distance + 1e-9)
              for levels in (bids, asks)]
     return {'mid': mid, 'spread': ask - bid, 'bid_depth': depth[0], 'ask_depth': depth[1]}
+
+
+def counterfactual(mid, tick, maximum, minimum, size, distance, competition):
+    """Fixed-book model, matching reward_share_estimate's quadratic/Q_min.
+
+    Two backed BUYs snap away from a held adjusted midpoint. This cannot model
+    queue priority, changed maker competition, future fills, or actual payment.
+    """
+    mid, tick, maximum, minimum, size, distance = map(
+        lambda x: Decimal(str(x)), (mid, tick, maximum, minimum, size, distance))
+    prices = [((m - distance / 100) / tick).to_integral_value(rounding=ROUND_FLOOR) * tick
+              for m in (mid, 1 - mid)]
+    distances = [abs(m - p) * 100 for m, p in zip((mid, 1-mid), prices)]
+    scores = [size * ((maximum-d)/maximum)**2 if d < maximum and size >= minimum and p > 0 else Decimal(0)
+              for d, p in zip(distances, prices)]
+    own = max(min(scores), max(scores)/3) if Decimal('.1') <= mid <= Decimal('.9') else min(scores)
+    own = float(own)
+    return {'size': float(size), 'yes_buy': float(prices[0]), 'no_buy': float(prices[1]),
+            'own_Q': own, 'share_many': own/(own+competition) if own else 0,
+            'reserve': float(size*sum(prices)), 'worst_one_leg_cost': float(size*max(prices)),
+            'share_if_competing_Q10': own/(own+10) if own else 0}
+
+
+def settle(positions, out, fetch):
+    """Four bounded public resolution reads; no campaign or account access."""
+    if any('analysis-copy' in p.name for p in (out.resolve(), *out.resolve().parents)):
+        raise ValueError('outputs must be outside evidence copy')
+    if not isinstance(positions, list) or not 1 <= len(positions) <= 20:
+        raise ValueError('position count bound')
+    cache = PublicCache(out / 'public', fetch)
+    rows = []
+    for p in positions:
+        if not re.fullmatch(r'0x[0-9a-fA-F]{64}', p['condition']) or not re.fullmatch(r'\d{1,100}', p['token']):
+            raise ValueError('invalid public market identity')
+        if not (math.isfinite(p['size']) and math.isfinite(p['entry_cost']) and
+                0 < p['size'] and 0 <= p['entry_cost'] <= p['size']):
+            raise ValueError('invalid held position size or cost')
+        response = cache.get('https://clob.polymarket.com/markets/' + p['condition'])
+        market = response.get('payload', {})
+        tokens = market.get('tokens', [])
+        bound = (market.get('condition_id') == p['condition'] and len(tokens) == 2 and
+                 len({t.get('token_id') for t in tokens}) == 2 and
+                 any(t.get('token_id') == p['token'] and t.get('outcome') == p['outcome'] for t in tokens))
+        winners = [t for t in tokens if t.get('winner') is True]
+        resolved = bound and market.get('closed') is True and len(winners) == 1
+        payoff = p['size'] * float(winners[0]['token_id'] == p['token']) if resolved else None
+        rows.append({'attempt': p['attempt'], 'session_number': p['session_number'], 'market': p['market'],
+                     'outcome': p['outcome'], 'size': p['size'], 'entry_cost': p['entry_cost'],
+                     'observed_at': response.get('fetched_at'), 'resolved': resolved,
+                     'winning_outcome': winners[0]['outcome'] if resolved else None,
+                     'settlement_payoff': payoff, 'settlement_PnL': payoff-p['entry_cost'] if payoff is not None else None,
+                     'status': response.get('error', 'identity_mismatch' if not bound else 'resolved' if resolved else 'unresolved'),
+                     'basis': 'venue_resolution_payoff_not_wallet_redemption'})
+    write_table(out, 'settlements', rows)
+    (out / 'settlements.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
+    return rows
 
 
 class PublicCache:
@@ -120,7 +178,7 @@ def analyze(root, out, fetch=False):
                      key=lambda p: int(p.name.split('-')[1]))
     if not 1 <= len(folders) <= 20:
         raise ValueError('session-count bound')
-    sessions, minutes, accrual, fills, books, manifest, checkpoints = [], [], [], [], [], [], []
+    sessions, minutes, accrual, fills, books, manifest, checkpoints, counterfactuals = [], [], [], [], [], [], [], []
     for folder in folders:
         inputs = {}
         for name in FILES:
@@ -149,6 +207,18 @@ def analyze(root, out, fetch=False):
                 'posts': pred['post_count'], 'stop': pred['reason'], 'fill_seen': pred['fill_seen'],
                 'evidence_complete': pred['evidence_complete'], 'cleanup_ok': pred['cleanup_ok'],
                 'reward_day': pred['reward_day'], 'condition_prefix': short(condition)}
+        if int(folder.name.split('-')[1]) not in SESSION_MAP:
+            raise ValueError('new attempt needs an explicit session mapping')
+        base['session_number'] = SESSION_MAP[int(folder.name.split('-')[1])]
+        qi = snapshot['quote_inputs']
+        for label, size, distance in [('75_at_1.5c', 75, 1.5),
+                                      ('minimum_at_max_minus_1c', float(qi['reward_min_size']),
+                                       float(qi['reward_max_spread_cents']) - 1)]:
+            cf = counterfactual(quote['adjusted_mid'], qi['tick'], qi['reward_max_spread_cents'],
+                                qi['reward_min_size'], size, distance, quote['competing_q_many'])
+            counterfactuals.append({'attempt': folder.name, 'session_number': base['session_number'], 'policy': label,
+                                   'competing_Q_pick': quote['competing_q_many'], **cf,
+                                   'reward_per_minute_fixed_book': float(qi['reward_rate_per_day'])/1440*cf['share_many']})
         local_minutes = []
         trades = {}
         for row in journal:
@@ -301,7 +371,10 @@ def analyze(root, out, fetch=False):
         thresholds.append({'rule': label, 'keep': ', '.join(s['session'] for s in accepted),
                            'exclude': ', '.join(s['session'] for s in sessions if not predicate(s)),
                            'fill_sessions_kept': sum(s['fill_seen'] for s in accepted),
-                           'minute_samples_kept': sum(s['minutes'] for s in accepted)})
+                           'minute_samples_kept': sum(s['minutes'] for s in accepted),
+                           'observed_reward_increment_retained': sum(s.get('venue_observed_delta', 0) for s in accepted),
+                           'September24_reward_increment_retained': sum(s.get('venue_observed_delta', 0) for s in accepted
+                                                                         if s['reward_day'] == '2026-09-24')})
     safe_fills = [{k:v for k,v in f.items() if k not in ('condition', 'trade_id', 'transaction', 'token', 'yes_token')}
                   for f in fills]
     daily = {}
@@ -309,10 +382,42 @@ def analyze(root, out, fetch=False):
         key = (a['reward_day'], a['condition_prefix'])
         if key not in daily or stamp(a['utc']) > stamp(daily[key]['utc']):
             daily[key] = a
+    economics = []
+    for label, group in [('Q_pick_zero', [s for s in sessions if s['Q_pick'] == 0]),
+                         ('Q_pick_positive', [s for s in sessions if s['Q_pick'] > 0])]:
+        ids = {s['session'] for s in group}
+        exposure = sum(s['minutes'] for s in group)
+        reward = sum(s.get('venue_observed_delta', 0) for s in group)
+        group_fills = [f for f in fills if f['session'] in ids]
+        for horizon in (5, 30, 120):
+            marks = [r['sampled_price_markout_total'] for r in markouts if r['session'] in ids
+                     and r['horizon_minutes'] == horizon]
+            complete = len(marks) == len(group_fills) and all(m is not None for m in marks)
+            marked = sum(marks) if complete else None
+            economics.append({'group': label, 'attempts': len(group), 'minute_bearing_attempts': sum(s['minutes'] > 0 for s in group),
+                              'recorded_band_minutes': exposure, 'fills': len(group_fills),
+                              'observed_reward_increment': reward, 'reward_per_recorded_band_minute': reward/exposure if exposure else None,
+                              'horizon_minutes': horizon, 'markout_total': marked,
+                              'reward_plus_markout_per_recorded_band_hour': (reward+marked)*60/exposure
+                              if exposure and marked is not None else None})
+    minute_support = [{'recorded_competition': label, 'minute_samples': sum(
+        (math.isclose(m['share_many'], 1.0, abs_tol=1e-12) if label == 'zero' else
+         not math.isclose(m['share_many'], 1.0, abs_tol=1e-12)) for m in minutes)}
+        for label in ('zero', 'positive')]
+    mapping = [{'attempt_directory': s['session'], 'session_number': s['session_number'],
+                'market': s['market'], 'band': s['band'], 'reward_day': s['reward_day'],
+                'observed_reward_increment': s.get('venue_observed_delta', 0)} for s in sessions]
+    positions = [{'attempt': f['session'], 'session_number': SESSION_MAP[int(f['session'].split('-')[1])],
+                  'market': f['market'], 'condition': f['condition'], 'token': f['token'], 'outcome': f['outcome'],
+                  'size': f['size'], 'entry_cost': f['price']*f['size']} for f in fills]
+    (out / 'positions.json').write_text(json.dumps(positions, indent=2), encoding='utf-8')
+    settlements = settle(positions, out, fetch)
     tables = {'sessions': sessions, 'minutes': minutes, 'accrual': accrual, 'fills': safe_fills,
               'share_checkpoints': checkpoints, 'price_path': public_paths, 'markouts': markouts,
               'information_clock': clocks, 'publications': publications, 'latest_condition_accrual': list(daily.values()),
-              'thresholds': thresholds, 'input_manifest': manifest}
+              'thresholds': thresholds, 'input_manifest': manifest, 'attempt_session_map': mapping,
+              'counterfactuals': counterfactuals, 'economics': economics, 'settlements': settlements,
+              'minute_competition_support': minute_support}
     for name, rows in tables.items():
         write_table(out, name, rows)
     # Recheck every source: report never silently accepts a moving copy.
@@ -342,14 +447,28 @@ def analyze(root, out, fetch=False):
         sections += ['| ' + ' | '.join(fmt(r.get(k)) for k in fields) + ' |' for r in rows]
         sections += ['']
     (out / 'tables.md').write_text('\n'.join(sections), encoding='utf-8')
+    amendment = []
+    for name in ('attempt_session_map', 'minute_competition_support', 'economics', 'thresholds', 'counterfactuals', 'settlements'):
+        rows = tables[name]
+        fields = list(rows[0])
+        amendment += ['## '+name, '', '| '+' | '.join(fields)+' |', '| '+' | '.join('---' for _ in fields)+' |']
+        amendment += ['| '+' | '.join(fmt(r.get(k)) for k in fields)+' |' for r in rows]
+        amendment += ['']
+    (out / 'amendment_tables.md').write_text('\n'.join(amendment), encoding='utf-8')
     print(json.dumps({'sessions': len(sessions), 'fills': len(fills), 'minute_samples': len(minutes),
                       'output': str(out), 'public_cache_files': len(list(cache.root.glob('*.json')))}))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--copy-root', type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--copy-root', type=Path)
+    source.add_argument('--positions', type=Path, help='bounded public-identity manifest for settlement-only follow-up')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--fetch-public', action='store_true')
     args = parser.parse_args()
-    analyze(args.copy_root, args.output, args.fetch_public)
+    if args.positions:
+        rows = settle(read(args.positions), args.output, args.fetch_public)
+        print(json.dumps({'positions': len(rows), 'resolved': sum(r['resolved'] for r in rows), 'output': str(args.output)}))
+    else:
+        analyze(args.copy_root, args.output, args.fetch_public)
