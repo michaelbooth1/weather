@@ -3086,6 +3086,12 @@ instrument at different sawtooth phases.
   `claude/audit-rollfree-fixes-20260919` and is **not adopted**. Current numbers:
   [STATE_OF_PLAY.md](STATE_OF_PLAY.md) and `status.ps1`, never this section.
 
+- **Correction 2026-09-24:** the ~04:50 trough no longer holds. Every closed day's long CSV is already gzip, so the 05:00
+  tiering reclaims nothing (09-23, 09-24); the large reclaim steps were System Restore shadow-copy purges (15.4 of 18.6 GB
+  on 09-24, three restore points), which moved the low to the evening: **43.2 GiB at 21:50 on 09-23**. The owner capped
+  shadow storage at 2 GB and disabled Windows Search on 09-24 (+12.3 GiB). Judge the band from the free-space trail's
+  24-hour minimum, not a clock time ([storage plan](storage-plan-2026-09-23.md); host audit 2026-09-24).
+
 ### 10c. The venue's declared resolution source moved from WU to `weather.gov` timeseries
 
 Around the **2026-08-23** event (verified in git history for Atlanta and Toronto) the venue's
@@ -3336,6 +3342,31 @@ for lack of live closure evidence, so production must run its own). Handback **P
   mission's ownership** (tool inventory entry, the admission test's exact-name set, the storage-class registration),
   and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
   ownership and asks for three stacked, individually green integration branches.
+
+### 10m. RE-1 live reward sessions 1-8 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
+
+Owner-attended sessions on the testing wallet (sized treatment, 75 shares at ±1.5 c from session 4 on). Journal folders are
+numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check refused), 3, 4, 5, 6, 7, 8.
+
+- **The reward model is right in scale.** Minute-integrated modelled reward matched the venue's accrual records: session 1
+  0.117 accrued vs `P_many`/`P_single` 0.105/0.125; session 4 increment 0.438 vs 0.352/0.447; session 5 0.376 vs 0.330/0.347.
+  UTC 2026-09-24 was the first day over the 1-dollar minimum (owner saw ~1.40; captured condition balances sum 1.63 at
+  different times; payment unverified until `collect-evidence`).
+- **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
+  session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
+  empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
+- **Fills came on the thinnest bands.** Four fills in six sampled sessions, at 1.8, 12.3, 42.0 and 87.2 minutes: 5.57 NO
+  @0.48 (NYC), **75 YES @0.35 (Miami 90-91°F Sep 25; marked -8.5 c/share at +5 and +30 minutes, ~-6.4; the 00Z GFS
+  published 36 minutes before)**, 18.41 NO @0.59, 10 NO @0.40; four distinct takers. Only Miami looks informed at short
+  horizons; all four are held to settlement (~43.8 cost). On an empty band share is 100% at any size or distance, so 75
+  shares at 1.5 c bought fill exposure for no extra reward.
+- **Execution defects found live and fixed:** venue order reads trail posts and cancels by under a second (the SDK then
+  fails to decode); one hung heartbeat at a 5 s cadence tripped the 8 s stale limit; a zero-byte-safe reconcile was needed
+  for closed orders. Fixed on `codex/re1-wallet-200-20260923` through `6b5fde587`, which also carries the owner's selection
+  amendment (local T+1/T+2 and at least max(75, size) displayed depth each side within max spread).
+- **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference. Settlement markouts pending.
+  Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
+  `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
 
 ## Related
 

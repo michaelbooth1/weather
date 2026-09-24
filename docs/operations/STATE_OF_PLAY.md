@@ -46,7 +46,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A. **Paper maker roll PAUSED 09-24** (owner: retiring the old maker; both tasks disabled).
   Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
 - **RE-1 session 1** (09-23, 42 min, NYC T+2): accrual 0.117 vs `P_many` 0.105; books mirror; competition 4x in 40 min;
-  partial fill 5.57 NO @0.48; below the 1-dollar minimum, **unpaid**. EF §10m (owed), digest.
+  partial fill 5.57 NO @0.48; below the 1-dollar minimum, **unpaid**. EF §10m, digest.
 - **RE-1 verdict (provisional):** session 1 frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM` (`k_accrued` ≈ 1.1, `SHORT`); formal from 09-26.
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
@@ -78,7 +78,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a first** (binding data gap: per-minute books and reward terms for T+1/T+2 bands; disk now allows); 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
-6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10m/§10n. Then redeploy the
+6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10n. Then redeploy the
    hash-pinned watchdog (trough-based disk arithmetic) and add a bounded retry to the merge tool's tape pre-check.
 
 ## Standing decisions

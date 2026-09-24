@@ -211,6 +211,7 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
    section is mandatory. A mission that cannot fail is a mission that will confirm whatever it was
    sent to find.
 6. **Exact branch name** and **exact report path**.
+7. **The open-question ids it serves** ([OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)), or "none".
 
 Write the falsification section honestly. Several missions in this project produced their most
 valuable output by falsifying their own premise.
@@ -227,6 +228,9 @@ valuable output by falsifying their own premise.
 5. **Exact reproduction commands**, with paths that exist on the host that will run them — not
    workstation-local scratch paths.
 6. **Commit hash and branch.**
+
+Accepting a handback updates the rows of every open question it served in the same commit (answered results also go
+to the findings digest and established findings).
 
 ---
 

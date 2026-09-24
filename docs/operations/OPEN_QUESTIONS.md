@@ -1,0 +1,27 @@
+# Open questions
+
+- **Owns:** the register of unanswered research and economics questions: what is known so far, the data that would answer
+  each, whether that data is being collected, and which mission owns it.
+- **Read when:** choosing what to analyse next, writing a handoff (name the question ids it serves), or accepting a
+  handback (update the row it answered).
+- **Do not use for:** answered results (the [findings digest](FINDINGS_DIGEST.md) and established findings), ordering and
+  kill rules (the [forward plan](forward-plan-2026-09-23.md)), today's state (STATE_OF_PLAY), or owner decisions (the
+  [decision log](DECISION_LOG.md)).
+
+Rules: ids are never renumbered or reused. A question is falsifiable. When answered, set status `ANSWERED -> EF §x` (the
+result moves to the digest and established findings); when abandoned, `CLOSED -> RF §x` or a one-line reason. Every handoff
+names the ids it serves; accepting its handback updates those rows in the same commit. Keep this file under ~150 lines.
+
+| Id | Question | Pillar | Evidence so far | Data needed | Collected? | Owner | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Q-01 | On bands with real competition, does reward exceed fill losses per band-day? | B | 8 sessions; share halves in 2-4 min; 4 fills on thin bands; ~1.40 accrued one day (EF §10m) | sessions under the depth rule; settlement markouts of the 4 fills; many band-days of competition | partial: journals yes; per-minute books for T+1/T+2 no (88a) | RE-1 sessions 9-10; 88a; 92a follow-up | OPEN |
+| Q-02 | Are fill losses concentrated around information events (METAR, NBM/GFS/HRRR publication, band decided), so that pulling quotes pays? | B | pre-registered desk study with Clarifications 1-10; first run refused on 13 undecodable records | public trades, books, reward terms, trigger clock, settlements (same-day tape) | yes (same-day); T+1/T+2 needs 88a | 89a (rerun on `d3dff0f2b`) | OPEN |
+| Q-03 | Does the venue actually pay in proportion to modelled accrual (k) once over the 1-dollar minimum? | B | accrual matches model in scale; first day over 1 USD on 2026-09-24 | payout records and wallet credits via `collect-evidence` | yes (owner-run, from 00:00Z next day) | RE-1 | OPEN |
+| Q-04 | Do resting SELL orders on held inventory score like the complementary BUY? | B | docs make any resting order eligible; exact equivalence unstated (inventory review 2026-09-24) | `/orders-scoring` on a first resting sell; accrual vs `P_single` | no (needs a sell treatment) | maker engine design (90a) | OPEN |
+| Q-05 | Which band features at pick time predict a quick fill or a durable share (depth, competing Q, mid stability, day-ahead, time of day)? | B | 92a: depth >= 75 each side and Q >= 10 give the same partition on 9 attempts; no inference | per-minute books and reward terms across many bands and days | no (88a) | 88a + 92a follow-up | OPEN |
+| Q-06 | How fast do other makers react to a new rewarded quote, and do their pulls mark information arrival? | B | share halves 2-4 min after posting in every session | per-minute depth by level across bands; trigger clock | partial (88a needed) | 88a | OPEN |
+| Q-07 | Do timing outputs (station observation clock T1, band-decided probability T3) beat a clock-only baseline as a withdraw signal? | A->B | 89b: station METAR minutes; decidedness Brier 0.042 held out | forward shadow of T1/T3 vs markouts | yes (observations); markouts via 89a | forward plan item 6 | OPEN |
+| Q-08 | Does the repaired NBM guidance close the morning gap to the market? | A | raw NBM beats served model by ~0.012-0.015 Brier in the morning but still 1.15-1.22x market; not confirmable at any season length (EF §10h, §10j) | post-repair forward dates | no until layer 2 lands | NBM layers 2-3 | OPEN |
+| Q-09 | What settlement source does the venue use for exact degrees since ~2026-08-23 (WRH "Hourly Data" vs WU), and does it change any band? | ops | band agreement 921/921 before, 359/360 after (EF §10c); exact degrees unmeasured (86a UNDECIDABLE) | WRH page captures at settlement | partial | settlement hardening (forward plan item 10) | OPEN |
+| Q-10 | Where does production disk go day to day once System Restore is capped, and does closed-day compression hold the low above 70 GiB? | ops | 453 GiB snapshot text uncompressed, 5-20x compressible; low 43.2 GiB 09-23; +12.3 GiB 09-24 | disk trail 24 h minimum; 91a verified savings | yes (trail) | 91a | OPEN |
+| Q-11 | Is the learning lane (daily_learning, model-vs-market scoreboard) correct once it runs again after 42 days blocked? | A | barrier blocked by maker gates since 2026-08-13 (host audit) | a run after the reorder | no | host-audit disposition | OPEN |
