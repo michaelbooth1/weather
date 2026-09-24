@@ -3364,6 +3364,10 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   fails to decode); one hung heartbeat at a 5 s cadence tripped the 8 s stale limit; a zero-byte-safe reconcile was needed
   for closed orders. Fixed on `codex/re1-wallet-200-20260923` through `6b5fde587`, which also carries the owner's selection
   amendment (local T+1/T+2 and at least max(75, size) displayed depth each side within max spread).
+- **Session 9 (attempt 10, first under the depth rule, 2026-09-24):** a contested band (selected share 54%) ran 38 minutes
+  with no fill and no requote, `P_many` 0.369 (~1 c/minute); it ended `exception` (RuntimeError) because the owner's
+  deliberate manual test orders appeared on the account — correct refusal, generic label (to be named `foreign_open_order`).
+  UTC 09-24 rewards reached ~1.99 before its last minutes.
 - **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference. Settlement markouts pending.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
