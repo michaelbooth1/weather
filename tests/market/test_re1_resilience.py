@@ -155,6 +155,42 @@ def test_reconcile_needs_phrase_bound_receipt_and_fresh_empty_account(tmp_path):
     assert attempt['session_number'] == 2
 
 
+def test_reconcile_records_unreadable_historical_order_but_still_needs_empty_account(tmp_path):
+    directory, _ = reserve_attempt(tmp_path, now=Clock().now(), selection_sha256='a' * 64)
+    session, venue, clock = setup(directory)
+    original = venue.submit
+    def lost(request, **kwargs):
+        original(request, **kwargs)
+        raise TimeoutError()
+    venue.submit = lost
+    session.run()
+    marker = tmp_path / 'session-1.attempt.json'
+    class UnexpectedResponseError(Exception):
+        pass
+    def closed(oid): raise UnexpectedResponseError('closed order')
+    venue.order = closed
+    from weather.market.mm_stage2_hold import digest
+    state = attempt_state(marker, now=clock.now())
+    assert state['order_ids']
+    phrase = 'RE1M RECONCILE ' + digest(state)[:12]
+    empty = venue.open_orders
+    venue.open_orders = lambda: [{'id': 'resting'}]
+    with pytest.raises(RuntimeError, match='reconciliation_requires_empty_account'):
+        reconcile_receipt(marker, venue, clock=clock, guard=SecretGuard(), reader=lambda: phrase)
+    def broken(): raise TimeoutError()
+    venue.open_orders = broken
+    with pytest.raises(TimeoutError):
+        reconcile_receipt(marker, venue, clock=clock, guard=SecretGuard(), reader=lambda: phrase)
+    assert not (directory / 'reconciliation.json').exists()
+    venue.open_orders = empty
+    receipt = reconcile_receipt(marker, venue, clock=clock, guard=SecretGuard(), reader=lambda: phrase)
+    assert receipt['orders'] == [{'order_id': oid, 'read_failed': 'UnexpectedResponseError'}
+                                 for oid in state['order_ids']]
+    _, attempt = reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64,
+                                 maker=venue.maker, open_orders=venue.open_orders)
+    assert attempt['session_number'] == 2
+
+
 def test_latency_table_uses_nearest_rank_p95():
     assert latency(range(1, 21)) == dict(min=1, median=10.5, p95=19, max=20, count=20)
 

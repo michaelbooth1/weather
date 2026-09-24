@@ -232,11 +232,20 @@ def clean_preflight(root, *, now, commit):
     return row
 
 
+def _historical_order(venue, oid):
+    # Closed orders can come back in a shape the SDK rejects. A per-order read is evidence only;
+    # the empty-account reads and the owner phrase decide, so record the failure type instead.
+    try:
+        return venue.order(oid)
+    except Exception as exc:
+        return {'order_id': oid, 'read_failed': type(exc).__name__}
+
+
 def reconcile_receipt(marker, venue, *, clock, guard, reader=input):
     state = attempt_state(marker, now=clock.now())
     directory = marker.parent / f"session-{state['number']}"
     initial = {'open_orders': venue.open_orders(), 'positions': venue.positions(),
-               'orders': [venue.order(oid) for oid in state['order_ids']]}
+               'orders': [_historical_order(venue, oid) for oid in state['order_ids']]}
     guard.print({'attempt_state': state, **initial})
     if initial['open_orders'] != []:
         raise RuntimeError('reconciliation_requires_empty_account')
