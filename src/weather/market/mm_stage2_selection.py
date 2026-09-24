@@ -18,6 +18,7 @@ from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, public_quote, utc
 from weather.market.reward_quote import QuoteRefused, _decimal
 from weather.market.re1_sizing import reserve_budget, sized_quote
+from weather.market.reward_quote import _levels as _book_levels
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, assert_no_ambient_market_registry_override
 
 
@@ -45,12 +46,13 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
             if (band['market_id'] not in REGISTRY
                     or band['market_timezone'] != REGISTRY[band['market_id']].timezone):
                 raise QuoteRefused('not_configured_tomorrow_event')
+            # Owner 2026-09-24 (92a): sized sessions quote local T+1/T+2 only, never the local event day.
             dates = [target] if available_collateral is None else [
                 (current.astimezone(ZoneInfo(band['market_timezone'])).date() + timedelta(days=d)).isoformat()
-                for d in range(3)]
+                for d in range(1, 3)]
             if band['target_date'] not in dates:
                 raise QuoteRefused('not_configured_tomorrow_event' if available_collateral is None
-                                   else 'not_configured_local_day_0_1_2')
+                                   else 'not_configured_local_day_1_2')
             if available_collateral is None:
                 quote = public_quote(band['snapshot'], now=observed, condition_id=condition, token_ids=band['token_ids'])
             else:
@@ -58,6 +60,17 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                         list(band['snapshot'].get('token_ids', ())) != list(band['token_ids'])):
                     raise QuoteRefused('public_scope_or_freshness')
                 quote = sized_quote(band['snapshot'], available_collateral)
+                # Owner 2026-09-24 (92a): require existing displayed YES-book depth of at least max(75, size) on each
+                # side within the reward max spread of the adjusted midpoint; an empty book pays the same reward at
+                # any size, so size there buys only fill exposure.
+                inputs = band['snapshot']['quote_inputs']
+                reach = _decimal(inputs['reward_max_spread_cents']) / 100
+                need = max(Decimal(75), _decimal(quote.size))
+                mid = _decimal(quote.adjusted_mid)
+                bid_depth = sum((s for p, s in _book_levels(inputs['yes_bids']) if mid - reach <= p <= mid), Decimal(0))
+                ask_depth = sum((s for p, s in _book_levels(inputs['yes_asks']) if mid <= p <= mid + reach), Decimal(0))
+                if min(bid_depth, ask_depth) < need:
+                    raise QuoteRefused('thin_book_depth')
             predicted = quote.predicted_per_minute_many * 360
             row.update(quote={k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(quote).items()},
                        predicted_360_minutes=predicted)

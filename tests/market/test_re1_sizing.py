@@ -63,7 +63,24 @@ def test_local_dates_and_reward_minimum(offset, minimum):
     now = datetime(2026, 9, 23, 1, tzinfo=timezone.utc)
     day = (datetime(2026, 9, 22) + timedelta(days=offset)).date().isoformat()
     result = table(now=now, day=day, minimum=minimum)
-    assert (result['selected_condition_id'] is not None) == (0 <= offset <= 2 and int(minimum) <= 75)
+    assert (result['selected_condition_id'] is not None) == (1 <= offset <= 2 and int(minimum) <= 75)
+
+
+def test_thin_displayed_depth_refuses_and_depth_counts_only_within_reach():
+    thin = band()
+    thin['snapshot']['quote_inputs']['yes_asks'] = [{'price': '.35', 'size': '40'}, {'price': '.60', 'size': '500'}]
+    result = select_table([thin], now=Clock().now(), available_collateral='97')
+    assert result['selected_condition_id'] is None and result['rows'][0]['refusal'] == 'thin_book_depth'
+    deep = band()
+    deep['snapshot']['quote_inputs']['yes_asks'] = [{'price': '.35', 'size': '40'}, {'price': '.36', 'size': '40'}]
+    assert select_table([deep], now=Clock().now(), available_collateral='97')['selected_condition_id'] == CONDITION
+
+
+def test_local_event_day_is_refused_for_sized_sessions():
+    now = datetime(2026, 9, 23, 1, tzinfo=timezone.utc)  # still Sep 22 in Los Angeles
+    result = table(now=now, day='2026-09-22')
+    assert result['selected_condition_id'] is None
+    assert result['rows'][0]['refusal'] == 'not_configured_local_day_1_2'
 
 
 def test_minimum_exceeding_affordable_size_refuses():

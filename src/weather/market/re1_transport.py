@@ -313,7 +313,8 @@ class OwnerVenue:
         self.readers = RewardsReaders(client, purpose='explicit_post_session_collect' if readonly else 'sealed_stage2_scoring')
         self.sender = Re1Heartbeat(signer_address=client.signer, api_key=fields['API_KEY'],
             api_secret=fields['API_SECRET'], api_passphrase=fields['API_PASSPHRASE'],
-            timeout_seconds=self.timeouts.get('heartbeat', 2))
+            # Capped at 5 s so one hung request still leaves a retry inside the 8 s stale limit (2026-09-24 review).
+            timeout_seconds=min(self.timeouts.get('heartbeat', 2), 5))
         self.stream_args = None
         self.stream_number = 0
         self.directory = directory

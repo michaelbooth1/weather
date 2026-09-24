@@ -73,3 +73,17 @@ cap is unchanged is superseded by the owner's 2026-09-23 raise to ten sessions a
 is one full leg (at most 0.79 x 75 pUSD) or the full reserve; the campaign-level bound is the testing wallet itself (at most
 200 pUSD, enforced at every selection), with no top-ups during the campaign unless the owner records one. The live confirmation
 phrase becomes `go` plus the first six characters of the selection digest (owner request; still digest-bound).
+
+**Selection amendment, 2026-09-24 (owner: "go with it", after the 92a campaign analysis and a second-opinion review):** for the
+remaining sessions a sized band is eligible only if (1) its event is local **T+1 or T+2** (never the local event day), and
+(2) the YES book already shows at least **max(75, chosen size)** displayed shares on **each** side within the reward maximum
+spread of the adjusted midpoint (the NO book is not added; it mirrors the same sides). Rationale: on an empty band share is
+100% at any size or distance, so 75 shares at 1.5 c bought only fill exposure; our share halved within 2-4 minutes of posting
+in every session as other makers arrived, and three of four fills came on thin bands. Size, distance, ranking, caps, the
+fill-ends-session rule and the verdict tables are unchanged. The ten-minute pre-pick midpoint/depth window proposed by 92a is
+supplied by the passive capture (88a) once registered, not by delaying the attended session. 75 is an exploratory boundary
+(six sessions of evidence), not an estimated optimum.
+
+**Note (2026-09-24 follow-up review):** reads with `checkpoint=False` (`cancel`, `cancel_order_read`, `fill_order`,
+`initial_*`) retry up to 30 s, longer than the 20 s main-loop watchdog, so a persistently failing venue during a cancel ends
+`main_loop_stalled` rather than `cancel_stale`; outcome (cleanup) unchanged. The heartbeat request timeout is capped at 5 s.
