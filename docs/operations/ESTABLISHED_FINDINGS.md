@@ -3384,8 +3384,9 @@ app's "Cash" is the on-chain wallet, which moves only when a fill settles.
   becomes **simultaneous fills beyond cash**, whose venue handling (fill failure at match, order removal, account
   consequences) is **unmeasured** (Q-13). RE-1's reserve model (`size x (yes + no) <= min(wallet - 10, 75)`) is therefore a
   deliberate choice, not a venue constraint.
-- **Caveats:** one account, one day; limits may exist at larger ratios; the behaviour when fills exceed balance is not
-  observed. The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
+- **Caveats:** one account, one day; each accepted order was individually below cash, so this shows no aggregation across
+  open orders, not that a single order above cash is accepted; the behaviour when fills exceed balance is not observed, and
+  unsettleable fills at scale may breach the venue's integrity rules (strategy re-audit 2026-09-24). The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
 
 ## Related
 

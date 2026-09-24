@@ -84,3 +84,21 @@ accepted (screenshot values: 150 YES @0.62 = 93.00 and 110 NO @0.68 = 74.80, "Un
 session stopped when it saw foreign open orders. The documented aggregate reservation was **not enforced** in this case; the
 review's conclusion that cash is reserved across open orders is withdrawn pending replication (Q-13). Whether both orders
 sit in one negative-risk event (possible joint netting) and what the venue does when fills exceed balance remain open.
+
+## Strategy re-audit after EF §10n (same day)
+
+**Verdict (auditor):** §10n raises the upside if the maker thesis is true (roughly 2-3x at a defensible over-commitment ratio)
+and leaves the probability it is true unchanged: the thesis is toxicity-limited, not capital-limited. All six accepted owner
+orders were individually below cash, so the evidence shows **no aggregation across open orders**; a single order larger than
+cash is untested. At scale, unsettleable fills risk the venue's integrity rules ("fictitious/disruptive" conduct; an
+`address banned` error exists); the "blacklisting offense" sentence in MARKET_MAKING_PLAN is UNVERIFIED in current docs.
+Guards any over-committed design needs: global ratio cap set from data, per-event and per-information-cluster caps,
+cancel-the-whole-book on first fill, scheduled pulls around clock events, balance read before every post.
+
+**Proposed 7 days:** verify the 09-24 payout; an owner-run zero-harm over-balance test (far-from-mid buys, then withdraw cash
+below their sum and watch whether the venue cancels them; one single order above cash; never provoke an unbacked fill); land
+and register 88a; one long adequate RE-1 session (contested T+1 band, started right after a scheduled information event,
+>= 180 minutes unless filled); 89a rerun; an owner-run resting sell on the Miami lot (Q-04). Deprioritised: the 90a migration
+beyond its caps, NBM layers 2-3, T1/T3. **Falsifiers:** 09-24 pays under half of accrual; contested share at 180 min under 5%;
+89a `PULL_NOT_THE_LEVER`; most T+1/T+2 fills arriving in the same minute across three or more bands.
+**Dispositions:** owner decisions pending (the withdraw test; the long-session design); recorded in OPEN_QUESTIONS Q-13.
