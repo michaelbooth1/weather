@@ -75,6 +75,10 @@ Decided 2026-09-23:
 4. **Payment tests may use any band and any size**, within the dedicated testing wallet: **100 pUSD total, all of it for
    testing** (end date stays; the owner raised the session cap to ten sessions and twenty attempts at ~22:40 ET the same day). A size or selection change is a new dated pre-registration and a new
    code tip with a fresh owner preflight; owner later the same day moved session 2 onto the 84h tip `1310ca6bf` (more data is worth the balance).
+5. **One multi-domain market maker** (owner 2026-09-24): weather first, then YouTube view markets and other reward markets.
+   Build the shared foundation (venue, market-universe plugins, fair-value/information-clock plugins, one quoting engine,
+   portfolio risk, execution safety) and migrate **before RE-2 or unattended quoting**; mission 90a maps the current code.
+   The workstation carries implementation and research whenever no RE-1 session is running.
 
 Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
 quoting is wanted at all.
