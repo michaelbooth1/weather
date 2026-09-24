@@ -3442,6 +3442,7 @@ function Restore-GeneratedConfigBytes {
         } else { "" }
         if ($current -ne [string]$rollbackContentSha256[$relativePath]) {
             [IO.File]::WriteAllBytes($absolutePath, [byte[]]$rollbackContentBytes[$relativePath])
+            Note "rollback rewrote generated config $relativePath to its recorded pre-commit bytes (was sha256 $current)"
         }
     }
 }
