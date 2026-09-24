@@ -92,3 +92,64 @@ Per-file production roll verdict is **not measured on this workstation**. Produc
 | This report | Markdown is roll-free by the standing contract |
 
 No real execution/book/weather tape was read; no `.env`, credentials, RE-1 worktree or campaign root was accessed. No production writes, registration, Scheduler changes, live orders, worker restarts, master merge, or runtime adoption occurred. The worktree and topic history are retained for review. Pushing this branch is authorized and does not adopt it on production.
+
+## 2026-09-24 — mission 89c, Clarification 9
+
+**PASS — synthetic verification of undecodable-record exclusions; no production scoring performed.**
+
+Implementation tip: `f4f5cfad18d4f2a82b25f94d1c9a7f3d8052671e`, on
+`codex/fill-toxicity-desk-study-20260923`, continuing `947d96935` without rewriting history.
+Authority: Clarification 9 at `7014b637e228228fab763a7febea82c8852b6809`.
+The owner additionally answered in this workstation session: **Use event-day boundaries for missing neighbours**.
+Thus a damaged first/last record extends to local day start/close respectively.
+
+JSON decoding failures (including NUL blocks, control characters, truncated JSON and invalid encoding)
+are counted by physical line and skipped. Event-folder identity locates the market-date; undecodable
+shared/outside-folder records refuse rather than borrowing the current event's identity. Each damaged
+interval spans its nearest decoded neighbours, with the owner-approved boundary rule above. A decoded
+neighbour without an interpretable time cannot locate the interval and refuses. Failures identify file
+and line. More than 1% of nonblank records refuses; exactly 1% passes. Every undecodable settlement-ledger
+row refuses, regardless of fraction. Existing size/schema refusals remain intact.
+
+Any overlapping minute becomes dark, removes book coverage, and leaves the simulated quote panel.
+The union with missing-term band-minutes supplies the unchanged 20% exclusion rule, without double
+counting; the union with journal gaps supplies the unchanged 5% tape-gap rule. No exposure, fills or
+reward survives a damaged minute. Public-fill cuts also omit damaged minutes. Per-record exclusions
+are in each JSON event's `record_exclusions`; admitted staging also emits `record_exclusion` audit rows.
+Weather defects found during the station-minute prepass remain reported even if the event is excluded
+before main staging. No statistical estimator or decision threshold changed.
+
+Verification: **161 passed, 2 deselected in 36.26 seconds** across the study, execution markout,
+reward estimator and import-architecture tests; the two existing large controls were not repeated.
+Focused compileall passed. `git diff --check` passed. Synthetic controls include gzip NUL blocks,
+truncation/control characters, first/last records, exact/over-1%, ledger and unlocatable refusal,
+overlapping coverage gaps, combined band-minute accounting, withdrawal, end-to-end exclusion and
+prepass reporting. There are no empirical date/market clusters or measured trading estimates.
+
+Exact verification payload (from the reviewed checkout, through the repository workstation wrapper):
+
+```powershell
+$studyRepo = (Get-Location).Path
+$studyRoot = Split-Path -Parent ((git rev-parse --path-format=absolute --git-common-dir).Trim())
+$studyArgs = @('-m','pytest','tests/market/test_fill_toxicity_desk_study.py',
+  'tests/market/test_execution_tape_markout.py','tests/market/test_reward_share_estimate.py',
+  'tests/operations/test_import_architecture.py','-q','-k','not large and not hundred',
+  '--basetemp',(Join-Path $studyRoot 'scratch/t89c-final'))
+$studyEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(
+  (ConvertTo-Json -Compress -InputObject $studyArgs)))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ops/workstation_heavy.ps1 `
+  -Kind pytest -PythonPath (Join-Path $studyRoot 'venv/Scripts/python.exe') `
+  -ArgumentsBase64 $studyEncoded -RepoRoot $studyRepo
+```
+
+A fresh local process-identity check returned `RE1_PROCESS_COUNT=0` before every heavy invocation.
+The first wrapper invocation refused its lease; no test ran and nothing was bypassed. The unchanged
+wrapper subsequently admitted verification under Windows PowerShell. No RE-1 worktree/campaign,
+credentials, real tape, mirror or production host was accessed. No registration, production write,
+restart, merge, venue action or runtime adoption occurred. Production reproduction remains the
+admitted command above, using a new output namespace.
+
+Per-file roll disposition: `fill_toxicity_inputs.py`, `fill_toxicity_desk_study.py` and the matching test
+require the production tool's retained-closure verdict; this Markdown report is roll-free. No closure
+verdict is inferred on the workstation. Production runs
+`scripts/ops/roll_verdict.ps1 -Branch codex/fill-toxicity-desk-study-20260923` before integration.
