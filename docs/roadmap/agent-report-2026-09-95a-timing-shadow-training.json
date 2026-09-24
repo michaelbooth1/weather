@@ -1,0 +1,144 @@
+{
+  "conflicts": {
+    "routine_temperature_revision": 2,
+    "unknown_temperature_revision": 1
+  },
+  "reuse": {
+    "matched_reused": 26978
+  },
+  "source_response_count": 38,
+  "stations": [
+    {
+      "city": "atlanta",
+      "complete_training_dates": 72,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 72,
+      "modal_minute": 52,
+      "station": "KATL",
+      "training_constant_brier": 0.23376530082382319,
+      "training_decidedness_brier": 0.043520195920558245
+    },
+    {
+      "city": "austin",
+      "complete_training_dates": 69,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 69,
+      "modal_minute": 53,
+      "station": "KAUS",
+      "training_constant_brier": 0.22665092757037827,
+      "training_decidedness_brier": 0.02893071422700748
+    },
+    {
+      "city": "chicago",
+      "complete_training_dates": 71,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 71,
+      "modal_minute": 51,
+      "station": "KORD",
+      "training_constant_brier": 0.24009773918143434,
+      "training_decidedness_brier": 0.06416946258075092
+    },
+    {
+      "city": "dallas",
+      "complete_training_dates": 69,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 69,
+      "modal_minute": 53,
+      "station": "KDAL",
+      "training_constant_brier": 0.2258742960784477,
+      "training_decidedness_brier": 0.03647388656018557
+    },
+    {
+      "city": "denver",
+      "complete_training_dates": 65,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 65,
+      "modal_minute": 58,
+      "station": "KBKF",
+      "training_constant_brier": 0.23542286999026857,
+      "training_decidedness_brier": 0.03556470285567275
+    },
+    {
+      "city": "houston",
+      "complete_training_dates": 71,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 71,
+      "modal_minute": 53,
+      "station": "KHOU",
+      "training_constant_brier": 0.24371120891862533,
+      "training_decidedness_brier": 0.05592403163623505
+    },
+    {
+      "city": "los-angeles",
+      "complete_training_dates": 68,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 68,
+      "modal_minute": 53,
+      "station": "KLAX",
+      "training_constant_brier": 0.2497019740844186,
+      "training_decidedness_brier": 0.03412253648262373
+    },
+    {
+      "city": "miami",
+      "complete_training_dates": 72,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 72,
+      "modal_minute": 53,
+      "station": "KMIA",
+      "training_constant_brier": 0.2464260396975425,
+      "training_decidedness_brier": 0.035334473966720334
+    },
+    {
+      "city": "nyc",
+      "complete_training_dates": 71,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 71,
+      "modal_minute": 51,
+      "station": "KLGA",
+      "training_constant_brier": 0.23639127022311188,
+      "training_decidedness_brier": 0.050490327143510184
+    },
+    {
+      "city": "san-francisco",
+      "complete_training_dates": 72,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 72,
+      "modal_minute": 56,
+      "station": "KSFO",
+      "training_constant_brier": 0.24628017865061025,
+      "training_decidedness_brier": 0.030033883521202374
+    },
+    {
+      "city": "seattle",
+      "complete_training_dates": 72,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 72,
+      "modal_minute": 53,
+      "station": "KSEA",
+      "training_constant_brier": 0.23070987654320985,
+      "training_decidedness_brier": 0.04944981213097155
+    },
+    {
+      "city": "toronto",
+      "complete_training_dates": 73,
+      "fit_before": "2026-08-13",
+      "matches_89b_modal": true,
+      "minimum_quarter_n": 73,
+      "modal_minute": 0,
+      "station": "CYYZ",
+      "training_constant_brier": 0.24627008142032067,
+      "training_decidedness_brier": 0.08048727090761247
+    }
+  ]
+}

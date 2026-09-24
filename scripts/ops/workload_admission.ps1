@@ -617,6 +617,7 @@ function Get-WeatherWorkstationOfflineModule {
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",
         "tools.cross_band_fill_clustering_20260924",
+        "tools.timing_shadow_20260924",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",

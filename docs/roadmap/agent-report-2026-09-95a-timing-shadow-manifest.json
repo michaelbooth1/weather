@@ -1,0 +1,31 @@
+{
+  "artifacts": {
+    "cache_inventory.json": "f7233582f8b00a9f5a38ec2bcf71e232efcb77df0271636f320cf331ac91f9f0",
+    "date_market_cells.csv": "0399614f0057da73c9e281526549f923d00a385fbdc27907053544998f423c96",
+    "policy_strata.csv": "3312b08e13646affbefdd8ed0c62aab9c5b674c0c1f8fba03b085ec527331564",
+    "policy_summary.csv": "ea83dc0c2688cdf99407fd616742685c6000cd497274356c24904aa10760c513",
+    "shadow_rows.csv.gz": "409148ad7f9c74c7b10d0f43d170a187de9c6d47628f6b19d96b03913e4fa7ef",
+    "training.json": "29bb21067b01e2d64ce3d9e86932c1cdd4ea3639ad0453ad10a35d829c3c39a3"
+  },
+  "bands": 5280,
+  "best_descriptive_policy_under_half_time": "metar_2",
+  "best_lift_vs_all_fixed_clocks": 1.1816277962874822,
+  "code": {
+    "src\\weather\\market\\timing_shadow.py": "90b0832511ce74d904c0168b76d9097233143222566b6363911fa8707ae8563f",
+    "tools\\timing_shadow_20260924.py": "7aedf72da6f43b8ad506a9f9bb6b736496a860abaeb3ef52fb2f87edf01946ed"
+  },
+  "event_days": 480,
+  "fit_before": "2026-08-13",
+  "identification": "public print proxies; retrospective valid-time observations and model LastModified; no own fills",
+  "market_clusters": 12,
+  "object_proxies": 1190,
+  "panel_end": "2026-09-23",
+  "panel_start": "2026-08-15",
+  "rejected_94a": {
+    "outside_T0_T2": 4410
+  },
+  "shadow_date": "2026-09-22",
+  "shadow_rows": 190080,
+  "target_date_clusters": 40,
+  "trade_rows": 838712
+}

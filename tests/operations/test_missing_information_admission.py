@@ -16,10 +16,10 @@ def test_only_exact_research_module_added_to_admission():
     modules = re.findall(r'"([A-Za-z0-9_.-]+)"', body)
     assert [m for m in modules if not m.startswith("weather.")] == [
         MODULE, "tools.research.morning_guidance.run", "tools.research.nbm_target_trace.run",
-        "tools.cross_band_fill_clustering_20260924"]
+        "tools.cross_band_fill_clustering_20260924", "tools.timing_shadow_20260924"]
 
 
-@pytest.mark.parametrize("module", [MODULE, "tools.cross_band_fill_clustering_20260924"])
+@pytest.mark.parametrize("module", [MODULE, "tools.cross_band_fill_clustering_20260924", "tools.timing_shadow_20260924"])
 def test_hook_recognizes_research_work_as_heavy_and_rejects_direct_launch(module):
     spec = importlib.util.spec_from_file_location("mi_host_hook", ROOT / ".codex/hooks/pre_tool_use_host_load.py")
     hook = importlib.util.module_from_spec(spec)

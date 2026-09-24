@@ -330,7 +330,7 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     assert all(
         module.startswith("weather.")
         or module in {"tools.research.missing_information.run", "tools.research.morning_guidance.run",
-                      "tools.research.nbm_target_trace.run", "tools.cross_band_fill_clustering_20260924"}
+                      "tools.research.nbm_target_trace.run", "tools.cross_band_fill_clustering_20260924", "tools.timing_shadow_20260924"}
         for module in modules
     )
 
