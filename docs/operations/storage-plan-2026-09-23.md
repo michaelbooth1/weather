@@ -85,3 +85,9 @@ source for the large text families (reader-aware gzip, like the long CSV); (c) p
 
 **Daily low 2026-09-24:** 51.2 GiB at 04:50 (trail), 51.1 GiB at 04:57 — **Red**, 1 GiB above the suite floor. Night slope
 ~0.5 GiB/hour (54.3 at 00:33). No reclaim was run: compression waits on mission 91a; restore-point capping is an owner call.
+
+**Correction 2026-09-24 12:35 (second-opinion audit, verified):** the 51.1 GiB "daily low" above was the 04:57 reading, not the
+24 h minimum. The trail's true low was **43.2 GiB at 21:50 on 09-23**; free space was 45.7 GiB at 12:35 on 09-24 (Critical). The
+trough is no longer at ~04:50: the large reclaim steps are System Restore purges (shadow storage 15.4 GB used of 18.6 GB, three
+restore points), and the 05:00 CLOB tiering reclaims nothing because every closed day is already gzip. Judge the band from the
+trail's 24 h minimum, not a fixed clock time.
