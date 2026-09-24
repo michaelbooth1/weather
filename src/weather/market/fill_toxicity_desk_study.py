@@ -1,6 +1,6 @@
 """Offline, synthetic-tested fill-toxicity desk study; never places orders.
 
-Frozen authority: mission 89a and Clarifications 1-8 at c203ff8d2. A dry run
+Frozen authority: mission 89a and Clarifications 1-9 at 7014b637e. A dry run
 stats exact named inputs and reads no tape content. Normal runs stream one
 event-date through a disk-backed sort, writing only beneath --output-dir.
 """
@@ -34,7 +34,7 @@ from weather.paths import data_path
 
 START_DATE = date(2026, 8, 15)
 FREEZE_DATE = date(2026, 9, 23)
-FROZEN_REF = "c203ff8d23538b57a2558b70bb01945e6003f1be"
+FROZEN_REF = "7014b637e228228fab763a7febea82c8852b6809"
 REPORT_NAME = "fill_toxicity_desk_study"
 EXTRA_GROUPS = ("PLACEBO", "E2_DETECTED", "E123_DETECTED")
 GROUPS = ("TOTAL", *WINDOW_SETS, *EXTRA_GROUPS, "OUTSIDE")
@@ -105,7 +105,7 @@ def inventory(plan):
 def read_settlement(path, slug):
     selected = None
     if Path(path).is_file():
-        for row in inputs.json_lines(path):
+        for row in inputs.json_lines(path, settlement=True):
             if row.get("event_slug") == slug:
                 selected = current_ledger_label([selected, row] if selected else [row], slug)
     return selected
@@ -123,8 +123,9 @@ def settlement_mark(label, band):
     return value, "WU_FALLBACK" if value is not None else "missing_settlement_value"
 
 
-def panel_terms(db, event, windows):
+def panel_terms(db, event, windows, *, defect_minutes=()):
     bands, missing_counts = [], defaultdict(int)
+    excluded_counts, defect_counts = defaultdict(int), defaultdict(int)
     raw_bands = list(db.execute("""SELECT t.condition_id,b.token,b.no_token,b.label,b.kind,b.lo,b.hi
         FROM (SELECT DISTINCT condition_id FROM terms WHERE at>=? AND at<?) t
         LEFT JOIN bands b ON b.condition_id=t.condition_id ORDER BY t.condition_id""", (event["start"], event["end"])))
@@ -142,7 +143,13 @@ def panel_terms(db, event, windows):
         band["terms"] = {}
         for minute in range(int(event["start"]), int(event["end"]), 60):
             terms = inputs.terms_at(db, condition, minute)
-            band["terms"][minute] = terms
+            damaged = minute in defect_minutes
+            band["terms"][minute] = None if damaged else terms
+            for target, excluded in ((excluded_counts, damaged or terms is None), (defect_counts, damaged)):
+                if excluded:
+                    target["TOTAL"] += 1
+                    for group in membership(windows, minute, condition):
+                        target[group] += 1
             if terms is None:
                 missing_counts["TOTAL"] += 1
                 for group in membership(windows, minute, condition):
@@ -150,6 +157,9 @@ def panel_terms(db, event, windows):
         bands.append(band)
     expected = len(bands) * int((event["end"] - event["start"]) / 60)
     return bands, {"expected_band_minutes": expected, "missing_term_band_minutes": dict(missing_counts),
+                   "capture_defect_band_minutes": dict(defect_counts),
+                   "excluded_band_minutes": dict(excluded_counts),
+                   "excluded_band_minute_fraction": excluded_counts["TOTAL"] / expected if expected else None,
                    "missing_term_fraction": missing_counts["TOTAL"] / expected if expected else None}
 
 
@@ -231,12 +241,14 @@ def process_band(db, event, band, windows, label, audit):
     return cells, {**diagnostics, "settlement_source": settlement_source}
 
 
-def public_markouts(db, event, band, windows, label, public):
+def public_markouts(db, event, band, windows, label, public, *, defect_minutes=()):
     payoff, _ = settlement_mark(label, band)
     for token, complement in ((band["token"], False), (band["no_token"], True)):
         if not token:
             continue
         for at, price, shares, side in db.execute("SELECT at,price,size,side FROM trades WHERE token=? ORDER BY at,seq", (token,)):
+            if math.floor(at / 60) * 60 in defect_minutes:
+                continue
             reference = inputs.midpoint(db, token, at, before=True)
             side = side or base.maker_side_from_quote_rule(price, reference)
             if side is None:
@@ -272,7 +284,7 @@ def _latency(db, event, band, windows, latency, counters):
         latency[window.kind][event["date"]].append((detected - observed) / (later - observed))
 
 
-def station_modes(plan, output):
+def station_modes(plan, output, *, defect_collectors=None):
     """Measure E1 from unique captured reports, over the named frozen panel dates."""
     counts = defaultdict(Counter)
     for event in plan:
@@ -282,7 +294,10 @@ def station_modes(plan, output):
             db = inputs.open_store(Path(scratch) / "observations.sqlite")
             try:
                 spec = REGISTRY[event["market"]]
-                inputs.stage_weather(db, event["weather"], [], spec, event["start"], event["end"])
+                defects = inputs.CaptureDefects(event)
+                if defect_collectors is not None:
+                    defect_collectors[event["slug"]] = defects
+                inputs.stage_weather(db, event["weather"], [], spec, event["start"], event["end"], reader=defects.read)
                 for at, in db.execute("SELECT DISTINCT at FROM observations WHERE routine=1"):
                     counts[spec.icao][datetime.fromtimestamp(at, timezone.utc).minute] += 1
             finally:
@@ -358,10 +373,13 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
     latency = {key: defaultdict(list) for key in ("E2", "E3")}
     tracemalloc.start()
     try:
-        modes, mode_counts = station_modes(plan, output)
+        defect_collectors = {}
+        modes, mode_counts = station_modes(plan, output, defect_collectors=defect_collectors)
         with gzip.open(output / "intermediates.jsonl.gz", "wt", encoding="utf-8") as audit:
             for event in sorted(plan, key=lambda e: (e["date"], e["market"])):
                 note = {"event": event["slug"], "date": event["date"], "market": event["market"], "exclusions": []}
+                defects = defect_collectors.pop(event["slug"], None) or inputs.CaptureDefects(event)
+                note["record_exclusions"] = defects.rows
                 events.append(note)
                 if not event["trades"] and not event["gaps"] and not Path(event["status"]).is_file():
                     note["exclusions"].append("not_on_execution_tape")
@@ -369,7 +387,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                 if not event["summary"]:
                     note["exclusions"].append("book_coverage_below_90_percent_no_summary")
                     continue
-                quality = inputs.coverage(event["summary"], event["gaps"], event["status"], event["start"], event["end"], target_date=event["date"])
+                quality = inputs.coverage(event["summary"], event["gaps"], event["status"], event["start"], event["end"], target_date=event["date"], defects=defects)
                 note.update(quality)
                 if note["exclusions"]:
                     continue
@@ -379,27 +397,35 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                     db = inputs.open_store(Path(scratch) / "sort.sqlite")
                     try:
                         spec = REGISTRY[event["market"]]
-                        inputs.stage_terms(db, event["rewards"], event["start"], event["end"])
-                        inputs.stage_weather(db, event["weather"], event["triggers"], spec, event["start"], event["end"])
+                        inputs.stage_terms(db, event["rewards"], event["start"], event["end"], reader=defects.read)
+                        inputs.stage_weather(db, event["weather"], event["triggers"], spec, event["start"], event["end"], reader=defects.read)
                         if not db.execute("SELECT 1 FROM terms WHERE at>=? AND at<? LIMIT 1",
                                           (event["start"], event["end"])).fetchone():
                             note["exclusions"].append("no_panel_bands_with_captured_reward_terms")
                             continue
                         inputs.stage_iem(db, event.get("iem", []), spec, event["start"], event["end"])
-                        inputs.stage_books(db, event["book"], counters)
+                        inputs.stage_books(db, event["book"], counters, reader=defects.read)
+                        inputs.stage_trades(db, event["trades"], event["start"], event["end"], counters, reader=defects.read)
+                        note.update(inputs.coverage(event["summary"], event["gaps"], event["status"],
+                            event["start"], event["end"], target_date=event["date"], defects=defects))
+                        note["undecodable_records"] = len(defects.rows)
+                        for row in defects.rows:
+                            _write_audit(audit, {"type": "record_exclusion", **row})
+                        if note["exclusions"]:
+                            continue
                         windows, window_notes = inputs.windows_for_event(db, spec, event["start"], event["end"],
                             station_minute=modes.get(spec.icao),
                             reconstruct_triggers=event.get("reconstruct_e2", False) or not event["triggers"])
                         note.update(window_notes)
-                        bands, term_notes = panel_terms(db, event, windows)
+                        bands, term_notes = panel_terms(db, event, windows, defect_minutes=defects.minutes)
                         note.update(term_notes)
                         if not bands:
                             note["exclusions"].append("no_panel_bands_with_captured_reward_terms")
                             continue
-                        if term_notes["missing_term_fraction"] > .20:
-                            note["exclusions"].append("missing_terms_above_20_percent_of_band_minutes")
+                        if term_notes["excluded_band_minute_fraction"] > .20:
+                            note["exclusions"].append("missing_terms_or_capture_defects_above_20_percent_of_band_minutes"
+                                if defects.minutes else "missing_terms_above_20_percent_of_band_minutes")
                             continue
-                        inputs.stage_trades(db, event["trades"], event["start"], event["end"], counters)
                         label = read_settlement(event["ledger"], event["slug"])
                         note["bands"] = []
                         for window in windows:
@@ -410,7 +436,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                             identity = (event["date"], event["market"])
                             for key, values in cells.items():
                                 totals.add(key, identity, values)
-                            public_markouts(db, event, band, windows, label, public)
+                            public_markouts(db, event, band, windows, label, public, defect_minutes=defects.minutes)
                             _latency(db, event, band, windows, latency, counters)
                     finally:
                         db.close()

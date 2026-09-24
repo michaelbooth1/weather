@@ -26,24 +26,88 @@ from weather.units import c_to_native, f_to_native, round_half_up
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
 
+class CaptureDefects:
+    """Event-local defects; shared files cannot attribute an undecodable row."""
+
+    def __init__(self, event):
+        self.event = event
+        self.rows = []
+        self.seen = set()
+        self.minutes = set()
+
+    def read(self, path):
+        return json_lines(path, defects=self)
+
+    def first_line(self, path):
+        return next(row["line"] for row in self.rows if row["file"] == str(path))
+
+    def add(self, path, lines, before, after):
+        event = self.event
+        if not Path(path).resolve().is_relative_to(Path(event["folder"]).resolve()):
+            raise StudyError(f"undecodable unlocatable record: {path}:{lines[0]}")
+        def when(row, boundary):
+            if row is None:
+                return boundary
+            for field in ("captured_at_utc", "current_captured_at_utc", "trade_time_utc",
+                          "disconnected_at_utc", "verified_at_utc"):
+                value = epoch(row.get(field))
+                if value is not None:
+                    return value
+            value = markout._finite(row.get("timestamp"))
+            return value / 1000 if value is not None else None
+        a, b = when(before, event["start"]), when(after, event["end"])
+        if a is None or b is None or b < a:
+            raise StudyError(f"undecodable record has unlocatable interval: {path}:{lines[0]}")
+        for line in lines:
+            if (str(path), line) in self.seen:
+                continue
+            self.seen.add((str(path), line))
+            self.rows.append({"reason": "undecodable_record", "file": str(path), "line": line,
+                              "market": event["market"], "date": event["date"],
+                              "gap_start": a, "gap_end": b})
+        lo = max(int(event["start"]), math.floor(a / 60) * 60)
+        hi = min(int(event["end"]), math.ceil(b / 60) * 60)
+        self.minutes.update(range(lo, hi, 60))
+
+
 def epoch(value):
     parsed = markout.parse_utc(value)
     return parsed.timestamp() if parsed else None
 
 
-def json_lines(path):
+def json_lines(path, *, defects=None, settlement=False):
     """Bound individual records, including decompressed records; never truncate."""
     path = Path(path)
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rb") as handle:
+        total, failed, previous, pending = 0, 0, None, []
+        line_number = 0
         while line := handle.readline(MAX_LINE_BYTES + 1):
+            line_number += 1
             if len(line) > MAX_LINE_BYTES:
-                raise StudyError(f"record exceeds {MAX_LINE_BYTES} bytes: {path}")
+                raise StudyError(f"record exceeds {MAX_LINE_BYTES} bytes: {path}:{line_number}")
             if line.strip():
-                row = json.loads(line)
+                total += 1
+                try:
+                    row = json.loads(line)
+                except (ValueError, UnicodeError):
+                    if settlement or defects is None:
+                        reason = "settlement-ledger row" if settlement else "unlocatable record"
+                        raise StudyError(f"undecodable {reason}: {path}:{line_number}") from None
+                    failed += 1
+                    pending.append(line_number)
+                    continue
                 if not isinstance(row, dict):
-                    raise StudyError(f"expected JSON object: {path}")
+                    raise StudyError(f"expected JSON object: {path}:{line_number}")
+                if pending:
+                    defects.add(path, pending, previous, row)
+                    pending = []
+                previous = row
                 yield row
+        if pending:
+            defects.add(path, pending, previous, None)
+        if failed * 100 > total:
+            raise StudyError(f"over 1% undecodable records: {path}:{defects.first_line(path)} ({failed}/{total})")
 
 
 def open_store(path):
@@ -117,7 +181,7 @@ def term_rows(row, captured=None, priority=0):
            "condition_record" if priority == 0 else "embedded_config")
 
 
-def stage_terms(db, paths, start, end):
+def stage_terms(db, paths, start, end, *, reader=json_lines):
     for path in paths:
         if Path(path).suffix == ".json":
             if Path(path).stat().st_size > MAX_LINE_BYTES:
@@ -125,7 +189,7 @@ def stage_terms(db, paths, start, end):
             with open(path, encoding="utf-8-sig") as handle:
                 rows = [json.load(handle)]
         else:
-            rows = json_lines(path)
+            rows = reader(path)
         for row in rows:
             for terms in term_rows(row):
                 if start - 3600 <= terms[1] < end:
@@ -133,8 +197,8 @@ def stage_terms(db, paths, start, end):
     db.commit()
 
 
-def stage_books(db, path, counters):
-    for raw in json_lines(path):
+def stage_books(db, path, counters, *, reader=json_lines):
+    for raw in reader(path):
         malformed_before = counters.get("malformed_levels", 0)
         sample = rewards.sample_from_raw_record(raw, counters)
         if sample is None:
@@ -180,9 +244,9 @@ def stage_books(db, path, counters):
     db.commit()
 
 
-def stage_trades(db, paths, start, end, counters):
+def stage_trades(db, paths, start, end, counters, *, reader=json_lines):
     for path in paths:
-        for raw in json_lines(path):
+        for raw in reader(path):
             trade, reason = markout.parse_trade_line(json.dumps(raw))
             if trade is None:
                 raise StudyError(f"invalid execution record: {reason}")
@@ -217,7 +281,7 @@ def midpoint(db, token, at, *, adjusted=False, before=False):
     return row[1] if row and abs(row[0] - at) <= markout.DEFAULT_TOLERANCE_SECONDS else None
 
 
-def coverage(summary, gaps, status, start, end, *, target_date=None):
+def coverage(summary, gaps, status, start, end, *, target_date=None, defects=None):
     expected = int(math.ceil((end - start) / 60))
     covered = bytearray(expected)
     opener = gzip.open if Path(summary).suffix == ".gz" else open
@@ -228,7 +292,7 @@ def coverage(summary, gaps, status, start, end, *, target_date=None):
                 covered[int((at - start) // 60)] = 1
     intervals, has_record = {}, False
     for path in gaps:
-        for row in json_lines(path):
+        for row in (defects.read(path) if defects is not None else json_lines(path)):
             a = epoch(row.get("disconnected_at_utc"))
             b = epoch(row.get("reconnected_at_utc"))
             if a is None:
@@ -253,6 +317,11 @@ def coverage(summary, gaps, status, start, end, *, target_date=None):
             if a is not None:
                 intervals.setdefault(gap.get("gap_id"), (a, end))
     dark = bytearray(expected)
+    if defects is not None:
+        for minute in defects.minutes:
+            if start <= minute < end:
+                dark[int((minute - start) // 60)] = 1
+                covered[int((minute - start) // 60)] = 0
     for a, b in intervals.values():
         if b > start and a < end:
             # Any overlap makes a minute dark: conservative sub-minute convention.
@@ -285,10 +354,10 @@ def _temperature(row, native_unit):
     return None
 
 
-def stage_weather(db, paths, triggers, spec, start, end):
+def stage_weather(db, paths, triggers, spec, start, end, *, reader=json_lines):
     """Normalized sources in native captured replay inputs; never model replay."""
     for path in paths:
-        for row in json_lines(path):
+        for row in reader(path):
             captured = epoch(row.get("captured_at_utc"))
             if captured is None:
                 raise StudyError("snapshot capture time missing")
@@ -325,7 +394,7 @@ def stage_weather(db, paths, triggers, spec, start, end):
                 if start - 3600 <= terms[1] < end:
                     db.execute("INSERT INTO terms VALUES (?,?,?,?,?,?,?)", terms)
     for path in triggers:
-        for row in json_lines(path):
+        for row in reader(path):
             nested = (row.get("trigger_context") or {}).get("triggers") or row.get("triggers") or [row]
             for trigger in nested:
                 if trigger.get("market_id") not in (None, spec.id):

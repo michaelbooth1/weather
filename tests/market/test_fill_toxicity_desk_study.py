@@ -43,6 +43,117 @@ def test_import_is_isolated_worktree():
     assert Path(study.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[2])
 
 
+@pytest.mark.parametrize("bad", [b"\0" * 200, b'{"captured_at_utc":', b'{"bad":"\x01"}'])
+def test_undecodable_gzip_records_are_counted_and_make_gaps(tmp_path, bad):
+    event = {"folder": str(tmp_path), "market": "nyc", "date": "2026-08-15", "start": 0, "end": 6000}
+    path = tmp_path / "order_books.jsonl.gz"
+    with gzip.open(path, "wb") as handle:
+        for minute in range(100):
+            handle.write((bad if minute == 50 else json.dumps({"captured_at_utc": iso(minute * 60)}).encode()) + b"\n")
+    defects = source.CaptureDefects(event)
+    assert len(list(defects.read(path))) == 99  # Exactly 1% is allowed.
+    assert defects.minutes == {49 * 60, 50 * 60}
+    assert defects.rows == [{"reason": "undecodable_record", "file": str(path), "line": 51,
+        "market": "nyc", "date": "2026-08-15", "gap_start": 49 * 60, "gap_end": 51 * 60}]
+
+
+def test_undecodable_fraction_refuses_with_file_and_line(tmp_path):
+    path = tmp_path / "rows.jsonl"
+    path.write_bytes(b'{}\nBROKEN\n')
+    defects = source.CaptureDefects({"folder": str(tmp_path), "market": "nyc", "date": "2026-08-15", "start": 0, "end": 6000})
+    # Timestamped valid neighbour lets the fraction gate be the refusing gate.
+    path.write_bytes(json.dumps({"captured_at_utc": iso(0)}).encode() + b'\nBROKEN\n')
+    with pytest.raises(StudyError, match=r"over 1%.*rows.jsonl:2"):
+        list(defects.read(path))
+
+
+def test_undecodable_ledger_always_refuses(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    path.write_bytes(b'{}\n' * 200 + b'BROKEN\n')
+    with pytest.raises(StudyError, match=r"settlement-ledger row.*ledger.jsonl:201"):
+        study.read_settlement(path, "example")
+
+
+def test_undecodable_shared_file_is_unlocatable(tmp_path):
+    folder = tmp_path / "event"
+    folder.mkdir()
+    path = tmp_path / "shared.jsonl"
+    path.write_bytes(b'BROKEN\n')
+    defects = source.CaptureDefects({"folder": str(folder), "market": "nyc", "date": "2026-08-15", "start": 0, "end": 6000})
+    with pytest.raises(StudyError, match=r"unlocatable record.*shared.jsonl:1"):
+        list(defects.read(path))
+
+
+@pytest.mark.parametrize("bad_index", [0, 99])
+def test_boundary_defects_extend_to_event_boundary(tmp_path, bad_index):
+    event = {"folder": str(tmp_path), "market": "nyc", "date": "2026-08-15", "start": 0, "end": 6000}
+    path = tmp_path / "rows.jsonl"
+    with path.open("wb") as handle:
+        for minute in range(100):
+            handle.write((b'BROKEN' if minute == bad_index else json.dumps({"captured_at_utc": iso(minute * 60)}).encode()) + b'\n')
+    defects = source.CaptureDefects(event)
+    list(defects.read(path))
+    assert defects.rows[0]["gap_start"] == (0 if bad_index == 0 else 5880)
+    assert defects.rows[0]["gap_end"] == (60 if bad_index == 0 else 6000)
+
+
+def test_defect_minutes_union_with_missing_terms_and_withdraw_quotes(tmp_path):
+    db = source.open_store(tmp_path / "db.sqlite")
+    try:
+        db.execute("INSERT INTO bands VALUES ('b','yes',NULL,'x','eq',78,79)")
+        db.execute("INSERT INTO terms VALUES ('b',60,1440,10,5,0,'condition_record')")
+        bands, counts = study.panel_terms(db, {"start": 0, "end": 180}, [], defect_minutes={0, 60})
+        assert counts["missing_term_band_minutes"]["TOTAL"] == 1
+        assert counts["capture_defect_band_minutes"]["TOTAL"] == 2
+        assert counts["excluded_band_minutes"]["TOTAL"] == 2
+        assert counts["excluded_band_minute_fraction"] == pytest.approx(2 / 3)
+        exposures, fills, _ = run([book(0), book(60), book(120)], [Print(90, .47, 2)],
+                                  terms=bands[0]["terms"].get, end=180)
+        assert fills == []
+        assert sum(row[2] for row in exposures) == 40
+    finally:
+        db.close()
+
+
+def test_corrupt_book_end_to_end_excludes_exposure_and_reports_record(tmp_path):
+    event = synthetic_event(tmp_path)
+    path = Path(event["book"])
+    lines = path.read_bytes().splitlines(keepends=True)
+    lines[740] = b'\0\0\0\n'
+    path.write_bytes(b''.join(lines))
+    report = study.run_study([event], tmp_path / "output", replicates=2)
+    note = report["events"][0]
+    assert note["undecodable_records"] == 1
+    assert note["record_exclusions"][0]["line"] == 741
+    assert note["tape_gap_minutes"] == 2
+    assert note["book_minutes"] == 1438
+    assert note["capture_defect_band_minutes"]["TOTAL"] == 2
+    assert report["R"]["d1.5_conservative/midrange"]["sufficient_statistics"]["total"]["filled_shares"] == 0
+
+
+def test_capture_gap_union_counts_overlap_once_and_applies_five_percent(tmp_path):
+    event = synthetic_event(tmp_path)
+    defects = source.CaptureDefects(event)
+    a = event["start"]
+    defects.add(event["book"], [2, 3], {"captured_at_utc": iso(a)}, {"captured_at_utc": iso(a + 73 * 60)})
+    gaps = Path(event["folder"]) / "gaps.jsonl"
+    write_rows(gaps, [{"gap_id": "overlap", "disconnected_at_utc": iso(a), "reconnected_at_utc": iso(a + 60)}])
+    quality = source.coverage(event["summary"], [gaps], event["status"], a, event["end"], defects=defects)
+    assert quality["tape_gap_minutes"] == 73
+    assert quality["book_minutes"] == 1440 - 73
+    assert "tape_gap_minutes_above_5_percent" in quality["exclusions"]
+
+
+def test_prepass_defects_survive_early_event_exclusion(tmp_path):
+    event = synthetic_event(tmp_path)
+    path = Path(event["weather"][0])
+    rows = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(b''.join(rows * 5) + b'BROKEN\n')
+    event["summary"] = None
+    report = study.run_study([event], tmp_path / "output", replicates=2)
+    assert report["events"][0]["record_exclusions"][0]["line"] == 121
+
+
 @pytest.mark.parametrize("price,rule,filled", [(.47, "conservative", True), (.48, "conservative", False),
     (.48, "optimistic", True), (.47, "optimistic", True), (.49, "optimistic", False),
     (.53, "conservative", True), (.52, "optimistic", True), (.52, "conservative", False)])
