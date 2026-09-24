@@ -51,6 +51,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "tools.research.missing_information.run",
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",
+        "tools.cross_band_fill_clustering_20260924",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",
