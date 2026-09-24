@@ -73,7 +73,7 @@ Decided 2026-09-23:
 2. **Passive maker-evidence capture approved** (item 4 above; sized for the disk, brakes on the storage bands).
 3. **K2's dollars-per-band-day floor is deferred** until the capture and sessions give data; K2 is inactive until set.
 4. **Payment tests may use any band and any size**, within the dedicated testing wallet: **100 pUSD total, all of it for
-   testing** (the RE-1 session cap and end date stay). A size or selection change is a new dated pre-registration and a new
+   testing** (end date stays; the owner raised the session cap to ten sessions and twenty attempts at ~22:40 ET the same day). A size or selection change is a new dated pre-registration and a new
    code tip with a fresh owner preflight; owner later the same day moved session 2 onto the 84h tip `1310ca6bf` (more data is worth the balance).
 
 Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended

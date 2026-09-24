@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 cap of three sessions used 09-24 with ~1 minute of new data; extension is the owner's call; disk Critical).**
+**Last updated: 2026-09-23 America/Toronto (owner strategy recorded; RE-1 raised to 10 sessions/20 attempts; session 4 running from ~02:40Z 09-24; disk ~55 GiB).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -18,8 +18,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 - Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
-- Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most three
-  sessions, none after 2026-09-30, worst case the per-session reserve (at most 75 pUSD, 84h); outside the sealed lane and changes nothing in it (mission 84a).
+- Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **ten
+  sessions and twenty attempts** (owner 2026-09-23 22:40 ET; the original three was an agent default), none after 2026-09-30, worst case the per-session reserve (at most 75 pUSD, 84h); outside the sealed lane and changes nothing in it (mission 84a).
 - Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
 - Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
   either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
@@ -55,7 +55,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   owner raised the wallet guard to 200, fixed reconcile, added a both-legs opening check): session 2 posted YES then `fresh_ask`
   on NO; one opening check refused before posting; session 3 quoted ~1 min, requoted, then `cancel_not_terminal` because venue
   order reads lag cancels by <0.5 s (code reads once). No fills, no positions, account empty (cancel-only 02:18Z). Top-ranked
-  bands had zero competition and midpoints moving >=3 c/min. **The three-session cap is spent.** Code: `c771cbb42` (84g),
+  bands had zero competition and midpoints moving >=3 c/min. Owner then raised the cap to 10/20 and the read lag was fixed; **session 4 (attempt 5) started
+  ~02:40Z on tip `51975cfcc`** (same band as session 3, 75 shares, 0.36/0.61). Code: `c771cbb42` (84g),
   `1310ca6bf` (84h, 7,360 passed). Not on master; no live record grants authority (Stage 0/1 09-06: EF §10f). Built, not landed: 88a capture
   `7953d2608` (PR 87, ~114 MB/day, roll-sensitive), 89a desk-study tool `947d96935`, 89b observation clock `d059cc787`, 87a kit `800bb9b72` (not adopted).
 - **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
@@ -70,8 +71,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1 next step (owner decision):** extend (proposed: up to 3 sessions to 09-30, counting only >=30 quoted minutes, selection
-   that avoids moving mids) after a workstation fix for post-cancel read lag with a lagged fake venue and full suite; or stop.
+1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
 2. **Disk:** storage-plan step 1 (inventory) inside 00:30-09:00 under the lease; then compress-and-retain and the Drive archive
    until the daily low holds at 70 GiB or more. Everything that lands waits on this.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
