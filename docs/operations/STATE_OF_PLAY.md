@@ -69,8 +69,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z); 92a campaign analysis; owner approved the
-   selection amendment (`6b5fde587`); tests and preflight before sessions 9-10.
+1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z). Session 10 (last) as a long session on
+   `6b5fde587`: start ~:55 past the hour (after the :51-:53 METAR cluster), not within 30 min before 12Z GFS (~15:30Z), a contested local T+1 band, aim >= 180 min.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
    `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path.

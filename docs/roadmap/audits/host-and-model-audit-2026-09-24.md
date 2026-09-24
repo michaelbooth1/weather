@@ -21,7 +21,7 @@ one-shot tasks, sweep CRITICALs not in `status.ps1` flags, no reward-capture fre
 | 2 | High | Learning lane blocked by maker gates since 08-13 | Agent: reorder so learning/retention/scoreboard do not sit behind maker gates (roll verdict first); owner: paper-evidence rescore semantics |
 | 3 | High | No reward-capture freshness; sweep CRITICALs not flags | Agent: roll-free `.ps1` changes to `staleness_sweep.ps1` and `status.ps1` |
 | 4 | High | Defender no exclusions; Search indexes the repo (1.46 GB index) | **Owner approved 09-24:** Windows Search disabled and index removed (+1.7 GB); Defender excludes `data\` |
-| 5 | Medium | ~110 spent one-shot tasks; noise | Agent: unregister with a receipt (role §4 task authority) |
+| 5 | Medium | ~110 spent one-shot tasks; noise | **Done 09-24:** 172 unreferenced spent one-shots unregistered, XML backups and receipt in `data/alerts/unregistered-tasks-20260924/`; 7 referenced by code kept; 81 tasks remain, core fleet verified |
 | 6 | Medium | Boot recovery runs from a month-old worktree while the merge tool changed | Agent: choose the authoritative tip and re-register after a read-only check |
 | 7 | Medium | Signed band parser not on master; bad item citation | Agent: rebase onto its own roll-verdicted branch; fix the citation |
 | 8 | Medium | Paper maker roll writes ~0.8 GiB/day while BLOCKed daily; finalize re-revises all history daily | **Owner 09-24: paper roll paused** (retiring the old maker; tasks disabled, receipt in `data/alerts`); agent on the finalize fix |
