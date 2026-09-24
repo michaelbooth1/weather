@@ -1,0 +1,65 @@
+{
+  "scope": "95d public-page feasibility observations, read on 2026-09-24; not settlement labels or a latency qualification",
+  "reads": [
+    {
+      "city": "Taipei",
+      "station": "RCSS",
+      "url": "https://www.wunderground.com/history/daily/tw/taipei/RCSS",
+      "access": "Public page readable without login through web reader",
+      "observation_date_displayed": "2026-09-24",
+      "latest_time_displayed": "17:00",
+      "native_unit": "C",
+      "observation_table_present": true,
+      "note": "Airport identity and half-hour/hourly temperature rows visible. Page access proves feasibility, not continuous timeliness or finalization."
+    },
+    {
+      "city": "Jinan",
+      "station": "ZSJN",
+      "url": "https://www.wunderground.com/history/daily/cn/jinan/ZSJN",
+      "access": "Public page readable without login through web reader",
+      "observation_date_displayed": "2026-09-24",
+      "latest_time_displayed": "17:00",
+      "native_unit": "C",
+      "observation_table_present": true,
+      "note": "Hourly temperature rows were visible. No assertion that the cached page was current to the fetch minute, final, or complete. The explicit dated URL failed in the web reader."
+    },
+    {
+      "city": "Zhengzhou",
+      "station": "ZHCC",
+      "url": "https://www.wunderground.com/history/daily/cn/zhengzhou/ZHCC",
+      "access": "Public page readable without login through web reader",
+      "observation_date_displayed": "2026-09-24",
+      "latest_time_displayed": "17:00",
+      "native_unit": "C",
+      "observation_table_present": true,
+      "note": "Hourly temperature rows were visible. Daily Observations, not the separate high/low summary, is the market-rule authority. Timeliness and finalization remain station qualification checks."
+    },
+    {
+      "city": "Paris",
+      "station": "LFPB",
+      "url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+      "access": "Public page readable, but web reader returned an older September 16 page",
+      "note": "Availability of WU fallback does not validate current primary NOAA timeseries or justify treating a cached page as current."
+    },
+    {
+      "city": "Qingdao",
+      "station": "ZSQD",
+      "url": "https://www.wunderground.com/history/daily/cn/qingdao/ZSQD",
+      "access": "Public page readable with September 24 observations",
+      "note": "Current Gamma rules name NOAA timeseries as primary. WU availability does not eliminate the source migration."
+    },
+    {
+      "city": "Hong Kong",
+      "url": "https://www.weather.gov.hk/en/cis/climat.htm",
+      "access": "Web-reader request failed",
+      "note": "Exact Daily Extract adapter and one-decimal rule need separate validation; no source-read success claimed."
+    }
+  ],
+  "forecast_documentation": "https://open-meteo.com/en/docs",
+  "forecast_live_probe_evidence": "forecast_probes.json",
+  "api_documentation": [
+    "https://docs.polymarket.com/api-reference/events/list-events-keyset-pagination",
+    "https://docs.polymarket.com/api-reference/search/search-markets-events-and-profiles",
+    "https://docs.polymarket.com/api-reference/rewards/get-raw-rewards-for-a-specific-market"
+  ]
+}

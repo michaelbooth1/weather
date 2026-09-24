@@ -1,0 +1,85 @@
+{
+  "status": "PROPOSAL ONLY; no config write or runtime adoption",
+  "proposals": [
+    {
+      "location_id": "jinan",
+      "city": "Jinan",
+      "station": "ZSJN",
+      "timezone": "Asia/Shanghai",
+      "unit": "C",
+      "source": "WU Daily Observations",
+      "source_urls": [
+        "https://www.wunderground.com/history/daily/cn/jinan/ZSJN"
+      ],
+      "coordinates": {
+        "lat": 36.856,
+        "lon": 117.206,
+        "elevation_m": 22
+      },
+      "registry_action": "Location already exists in config/locations.json. Propose an explicit MarketSpec/capture selection referencing this location; do not duplicate location or hand-edit generated events.",
+      "market_type": "daily_high_temperature",
+      "cutoff": "Local calendar date; Daily Observations maximum, first following-date print freezes revisions; next-day 23:59 ET missing-data fallback is lowest bracket.",
+      "proposed_external_registry_row": {
+        "id": "jinan",
+        "city_label": "Jinan",
+        "slug_prefix": "highest-temperature-in-jinan-on",
+        "timezone": "Asia/Shanghai",
+        "display_unit": "C",
+        "wu_history_id": "ZSJN:9:CN",
+        "icao": "ZSJN",
+        "lat": 36.856,
+        "lon": 117.206,
+        "sources": [
+          "wu_history",
+          "wu_current",
+          "metar",
+          "weather_forecast",
+          "open_meteo"
+        ],
+        "leading_obs": "metar",
+        "coastal": false,
+        "resolution_source": "wu_history"
+      }
+    },
+    {
+      "location_id": "taipei",
+      "city": "Taipei",
+      "station": "RCSS",
+      "timezone": "Asia/Taipei",
+      "unit": "C",
+      "source": "WU Daily Observations",
+      "source_urls": [
+        "https://www.wunderground.com/history/daily/tw/taipei/RCSS"
+      ],
+      "coordinates": {
+        "lat": 25.069,
+        "lon": 121.552,
+        "elevation_m": 8
+      },
+      "registry_action": "Location already exists in config/locations.json. Propose an explicit MarketSpec/capture selection referencing this location; do not duplicate location or hand-edit generated events.",
+      "market_type": "daily_high_temperature",
+      "cutoff": "Local calendar date; Daily Observations maximum, first following-date print freezes revisions; next-day 23:59 ET missing-data fallback is lowest bracket.",
+      "proposed_external_registry_row": {
+        "id": "taipei",
+        "city_label": "Taipei",
+        "slug_prefix": "highest-temperature-in-taipei-on",
+        "timezone": "Asia/Taipei",
+        "display_unit": "C",
+        "wu_history_id": "RCSS:9:TW",
+        "icao": "RCSS",
+        "lat": 25.069,
+        "lon": 121.552,
+        "sources": [
+          "wu_history",
+          "wu_current",
+          "metar",
+          "weather_forecast",
+          "open_meteo"
+        ],
+        "leading_obs": "metar",
+        "coastal": false,
+        "resolution_source": "wu_history"
+      }
+    }
+  ]
+}
