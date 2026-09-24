@@ -38,6 +38,12 @@ are on `codex/reward-test-attended-handoff-20260921` at `cc028cda` in
 The three-session cap, no session after 2026-09-30, hurdle and RE-2 conditions
 remain unchanged. This treatment tests payment feasibility, not profitability.
 
+**Owner amendment, 2026-09-23 20:40 ET (before session 2, after a preflight refused `testing_wallet_cap`):** the
+testing wallet holds more than 100 pUSD for future testing. The wallet-reading guard is raised from 100 to
+200 pUSD. Nothing else changes: the size ladder, `min(available_collateral − 10, 75)` reserve rule, 75-share and
+75-pUSD ceilings, and the per-session worst case (the full two-sided reserve, at most 75 pUSD) are as above. Session 2
+runs on the resulting tip (the owner moved session 2 onto this treatment earlier on 2026-09-23).
+
 Validate wallet readings 97, 60, 40 and 25, confirmation binding, absolute
 ceilings, local-date eligibility and reward minimums, estimator parity, and
 all RE-1 regression suites. The owner must preflight the new reviewed tip for

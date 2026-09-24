@@ -32,7 +32,8 @@ def table(wallet='97', **kwargs):
     return select_table([band(**kwargs)], now=kwargs.get('now') or Clock().now(), available_collateral=wallet)
 
 
-@pytest.mark.parametrize('wallet,size', [('97', 75), ('60', 50), ('40', 30), ('30', 20), ('25', None)])
+@pytest.mark.parametrize('wallet,size', [('200', 75), ('150', 75), ('97', 75), ('60', 50), ('40', 30), ('30', 20),
+                                         ('25', None)])
 def test_largest_affordable_size(wallet, size):
     result = table(wallet)
     row = result['rows'][0]
@@ -49,7 +50,7 @@ def test_largest_affordable_size(wallet, size):
                        now=Clock().now(), allow_sized=True)
 
 
-@pytest.mark.parametrize('wallet', ['101', '-1', 'NaN', 'Infinity', True])
+@pytest.mark.parametrize('wallet', ['200.000001', '201', '-1', 'NaN', 'Infinity', True])
 def test_invalid_wallet_refused(wallet):
     with pytest.raises(QuoteRefused):
         table(wallet)

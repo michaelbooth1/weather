@@ -62,7 +62,7 @@ def confirmation(table, guard, *, reader=input):
                  'size': selected['quote']['size'], 'reserve_pusd': selected['quote']['reserve_pusd'],
                  'available_collateral': table.get('available_collateral'),
                  'minutes': 360, 'max_submits': 10, 'max_sessions': 3, 'last_date': LAST_DAY})
-    guard.print('Dedicated testing wallet: at most 100 pUSD. The full two-sided reserve is at risk; the session capital ceiling is 0.98 times the chosen size, bounded by wallet minus 10 and 75 pUSD. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, and remain within reach for six hours.')
+    guard.print('Dedicated testing wallet: at most 200 pUSD. The full two-sided reserve is at risk; the session capital ceiling is 0.98 times the chosen size, bounded by wallet minus 10 and 75 pUSD. Check the tunnel is down, geography is eligible, no open orders or rewarded activity today, and remain within reach for six hours.')
     guard.print('Type exactly: ' + phrase)
     typed = reader()
     if typed != phrase: raise RuntimeError('owner_confirmation_refused')

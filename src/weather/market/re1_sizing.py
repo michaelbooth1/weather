@@ -8,7 +8,8 @@ SIZES = (Decimal(20), Decimal(30), Decimal(50), Decimal(75))
 
 def reserve_budget(available_collateral):
     wallet = _decimal(available_collateral)
-    if not 0 <= wallet <= 100:
+    # Owner 2026-09-23: the testing wallet may hold up to 200 pUSD; the reserve ceiling stays 75.
+    if not 0 <= wallet <= 200:
         raise QuoteRefused('testing_wallet_cap')
     return min(wallet - 10, Decimal(75))
 
