@@ -224,3 +224,10 @@ after it in the same file is a **coverage gap** for that market-date under the C
 leave the panel and count toward the 20% band-minute rule), and each such record is counted in the exclusions table by
 file, line and market-date. The run still refuses if more than 1% of a file's records fail, if a settlement-ledger row fails,
 or if a failing record cannot be located to a market-date. No estimand, threshold or other exclusion changes.
+
+## Clarification 10 (2026-09-24, before any scoring output; recorded from the 89c handback)
+
+For an undecodable record under Clarification 9, when there is no valid record before it (or after it) in the same file, the
+missing neighbour is replaced by the **event-day boundary** (the start or end of that market-date's window). The owner
+answered this in the 89c workstation session; it is recorded here so the rule lives in the pre-registration, not only in the
+report. A decoded neighbour without an interpretable time still refuses the run.

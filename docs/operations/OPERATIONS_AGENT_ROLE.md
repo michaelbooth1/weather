@@ -235,9 +235,12 @@ seven hours). These rules bind every production and workstation agent:
    evidence, when every listed condition holds. Anything not listed still stops and goes to the owner (rule 4).
 2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
    Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
-   or quiet window. Never run the merge tool's `-DryRun` for such a branch (that dry run left the 09-24 marker).
+   or quiet window. The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
+   diff is only `docs/**/*.md`, and names the published commit. Never run the merge tool's `-DryRun` for such a branch (that
+   dry run left the 09-24 marker).
 3. **Lanes do not block each other.** Landing, research runs, disk work and workstation missions are independent lanes;
-   a stall in one never pauses the others. Record the stall and move to the next lane.
+   a stall in one never pauses the others. Record the stall and move to the next lane. This never licenses parallel heavy
+   work on the capture host: heavy jobs stay serial under the shared lease.
 4. **Tell the owner at once.** A blocker that needs the owner is sent immediately as a push notification naming the exact
    decision needed; the agent then continues other lanes instead of waiting silently until morning.
 5. **The workstation runs overnight too.** Before the owner logs off, queue two or three workstation missions in order so a

@@ -19,7 +19,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
 - Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **ten
-  sessions and twenty attempts** (owner 2026-09-23 22:40 ET; the original three was an agent default), none after 2026-09-30, worst case the per-session reserve (at most 75 pUSD, 84h); outside the sealed lane and changes nothing in it (mission 84a).
+  sessions and twenty attempts** (owner 2026-09-23 22:40 ET; the original three was an agent default), none after 2026-09-30, worst case one session's reserve (at most 75 pUSD); campaign bound = the testing wallet (at most 200, no top-ups); outside the sealed lane and changes nothing in it (mission 84a).
 - Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
 - Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
   either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
@@ -43,8 +43,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
 - **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
-- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, maker paper roll, 09:30 Stage-A, RE-0 poll (to 09-30).
-  Training DISABLED; mirror and taker PAUSED. The deployed watchdog is newer than master: never re-register it from master.
+- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, maker paper roll, 09:30 Stage-A.
+  Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
 - **RE-1 session 1** (2026-09-23 01:47-02:30Z, 42 min, one NYC T+2 band, `0a7531baf`): venue accrual 0.117 against
   `P_many` 0.105 / `P_single` 0.125; reward % 6.23 against ours 5.69/6.51; YES/NO books mirror (37/42 min); qualifying
   competition 4x within 40 min. Ended on a partial fill: 5.57 NO at 0.48 via a complementary YES buy that crashed the user
@@ -72,7 +72,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more; at 00:30 land this docs branch (real run, never `-DryRun`), then the merge-tool byte-restore fix
+   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (real run, never `-DryRun`), then the merge-tool byte-restore fix
    `codex/quiet-merge-crlf-rollback-20260924` @ `95006eaf8` (roll-free; its focused test first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a refused on 13 undecodable records (of 77.7 GiB) -> Clarification 9, tool fix 89c, rerun.
