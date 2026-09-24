@@ -33,14 +33,14 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 - **Production source:** `master` = `origin/master` = `198f7ccbc` (2026-09-23; includes the per-chunk `--basetemp` fix
   `e1d766417`). 41 enabled tasks run from linked worktrees (OPERATIONS_DESIGN "What actually executes"). Before any merge,
-  get `roll_verdict.ps1` and check for a quiet-window marker.
-- **Disk (binding):** 46.4 GiB free at 17:36 on 2026-09-23, falling 10-13 GiB/day: **Critical** in the storage plan. The
-  bounded suite and roll-sensitive landings refuse below 50 GiB. Judge at the ~04:50 daily low. Plan step 2 is done; step 1
-  (inventory by data family) is owed.
-- **Landing path:** fixed 16-32 GB pagefile (commit limit 32.5 GB; ~22,000 MB = reverted). Suite passed 09-21, stopped at the
-  disk floor after chunk 10 on 09-23. Windows restart state: verify in `status.ps1` (the 09-21 owner action expired).
-- **Settlement:** repair per date with `settlement_backfill_one.ps1 -TargetDate <d> -Refetch -RepoRoot <repo>`, never
-  `chain_recovery_run.ps1`. The alarm looks back 14 days only. No hole was known on 09-21; verify with `status.ps1`.
+  get `roll_verdict.ps1` and check for a quiet-window marker. **A `prepared` marker has been present since 00:45 09-24:** a
+  roll-free `-DryRun` of the docs branch failed its rollback content check (CRLF->LF on the two generated config files), so
+  merges refuse; HEAD and capture are unaffected. The reconciler covers only documented phases; retirement needs an owner call.
+- **Disk (binding):** 54.3 GiB free at 00:33 09-24 (Red). Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
+  ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
+  System Restore holds 5.8 GB (max 18.6): capping it is an owner call. The suite floor is 50 GiB; judge at the ~04:50 low.
+- **Landing path:** fixed pagefile (commit limit 32.5 GB); suite stopped at the disk floor 09-23; restart state in `status.ps1`.
+- **Settlement:** repair per date with `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, never `chain_recovery_run.ps1`.
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
 - **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
@@ -72,8 +72,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 ## Ordered critical path
 
 1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
-2. **Disk:** storage-plan step 1 (inventory) inside 00:30-09:00 under the lease; then compress-and-retain and the Drive archive
-   until the daily low holds at 70 GiB or more. Everything that lands waits on this.
+2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
+   holds at 70 GiB or more; retire the merge marker (owner call) so landings resume.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; run 89a; RE-2 needs a paid verdict.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
