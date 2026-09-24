@@ -54,8 +54,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   10 NO @0.40. **UTC 09-24 accrued about 1.40 (first day over the 1-dollar minimum); payout expected ~20:00 ET.** Held to
   settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
-  Runs paused 09-24 for analysis (92a). **Next tip `a0967b78a`** (audit fixes, 2 s heartbeat, `go <6 hex>` confirmation;
-  owner's focused tests pass). Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
+  Runs paused 09-24; 92a analysis done (`7f98359`). **Next tip `6b5fde587`**: owner-approved selection amendment (local T+1/T+2,
+  >= max(75, size) displayed depth each side within max spread), audit fixes, 2 s heartbeat, `go <6 hex>` confirmation. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
   landed: 88a capture `7953d2608` (PR 87, roll-sensitive), 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`.
 - **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
@@ -69,8 +69,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z); 92a campaign analysis; owner decides the
-   next treatment (size/distance on empty bands, selection) before sessions 9-10.
+1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z); 92a campaign analysis; owner approved the
+   selection amendment (`6b5fde587`); tests and preflight before sessions 9-10.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
    `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path.
