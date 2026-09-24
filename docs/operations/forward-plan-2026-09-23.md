@@ -86,5 +86,6 @@ Decided 2026-09-23:
    market-universe or fair-value/information-clock interface. YouTube has no model ready and no maker logic yet: it is a
    future plugin, not an input to current work.
 
-Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
+Decided 2026-09-24: RE-1 and the maker migration are judged by the owner as results arrive — no pre-registered pooled
+verdict rule and no migration gates (second-opinion audit findings 2 and 11 declined). Still open: the two-tier ship rule and closing the α ledger as historical; later, RE-2 authorization and whether unattended
 quoting is wanted at all.

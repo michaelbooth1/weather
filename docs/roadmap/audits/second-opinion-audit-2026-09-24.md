@@ -14,8 +14,8 @@ sessions; (3) the plan front-loads a ten-step migration and a long nightly lease
 
 | # | Sev | Finding | Disposition |
 | --- | --- | --- | --- |
-| 1 | High | Selection ranks empty books first; fills follow (sessions 4, 6 and 8 filled on low-competition bands) | **Owner decision:** pause posting and pre-register a competition floor plus a mid-stability filter |
-| 2 | High | Amended verdicts per session, no pooled rule; stop rule cannot fire if no session is adequate | **Owner decision:** pre-register pooled `k`, consequences per amended verdict, an interim fill-rate stop, before 09-26 collection |
+| 1 | High | Selection ranks empty books first; fills follow (sessions 4, 6 and 8 filled on low-competition bands) **Owner 2026-09-24:** runs paused after session 6 for fixes and analysis; selection change pending that analysis |
+| 2 | High | Amended verdicts per session, no pooled rule; stop rule cannot fire if no session is adequate **Owner 2026-09-24: declined** — no pre-registered pooled verdicts; the owner judges RE-1 results as they come |
 | 3 | Medium | Reconcile swallowed every read error | Fixed in `a0967b78a` (only the decode quirk tolerated) |
 | 4 | Medium | Cancel re-read waits did not tick the heartbeat main loop (two-leg requote could stall 20 s); one-sided book at open surfaced as `exception` | Fixed in `a0967b78a` with tests (verified in code before fixing) |
 | 5 | Medium | Campaign-level worst case unstated | Recorded: wallet at most 200, no top-ups (addendum, STATE_OF_PLAY) |
@@ -24,7 +24,7 @@ sessions; (3) the plan front-loads a ten-step migration and a long nightly lease
 | 8 | Medium | Fail-forward rule 2 lacked tip/HEAD binding; rule 3 could be read as allowing parallel heavy work | Both rules tightened (Operations agent role §6) |
 | 9 | Low-Med | Byte-restore rewrote silently | Logs each rewrite (`5479af6fc`, test `30d1faeb5`) |
 | 10 | Low-Med | Settlement hardening last; reward capture gap before 88a | STATE_OF_PLAY records the RE-0 gap (logger stopped 09-22 20:42Z; the "poll to 09-30" line was wrong); sequencing change is an owner call |
-| 11 | Low-Med | Ten-step migration before any paid epoch | **Owner decision:** gate migration step 4 onward on a paid or accrued-as-modelled verdict |
+| 11 | Low-Med | Ten-step migration before any paid epoch **Owner 2026-09-24: declined** — no migration gates; the owner sequences the migration by judgement |
 | 12 | Low | RE-0 logger stopped | Confirmed; see 10 |
 | 13 | Low | 2 s heartbeat triples POSTs; rate limit unverified | Watch next journal for 429 |
 
