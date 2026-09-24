@@ -72,7 +72,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 1. **RE-1:** verify session 4 and the 09-24 payout (~20:00 ET); workstation full suite on `51975cfcc`; propose a selection amendment.
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more; land this docs branch at 00:30 (real run, never `-DryRun`).
+   holds at 70 GiB or more; at 00:30 land this docs branch (real run, never `-DryRun`), then the merge-tool byte-restore fix
+   `codex/quiet-merge-crlf-rollback-20260924` @ `95006eaf8` (roll-free; its focused test first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): land/register 88a once disk allows; 89a refused on 13 undecodable records (of 77.7 GiB) -> Clarification 9, tool fix 89c, rerun.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
