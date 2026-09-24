@@ -683,6 +683,22 @@ action) are suppressed. Missing current-run gate receipts and target-mismatched
 barrier receipts fail promotion closed. A blocked settled-day barrier therefore
 still yields a completed, critical Stage-A manifest, and Stage B runs in
 gap-aware learning mode while carrying the exact promotion blocker forward.
+`data_retention_inventory`, `daily_learning` and
+`market_beating_objective_scoreboard` admit work only with a current, target-bound
+settlement verdict. The barrier's `learning_status` depends on WU restoration,
+label finalization, settlement-source audit, the existing observed-floor policy,
+replay-status repair and settled-day freshness/countability. Maker/economics,
+taker and model-report readiness remain in its aggregate `status` for promotion;
+their blocks do not suppress these three settlement-valid learning producers.
+Missing, stale, generic-error and legacy blocked barrier receipts remain closed
+until the barrier reruns. Each producer still applies its own input-quality
+checks; admission does not claim successful learning or available maker evidence.
+
+Pass `--paper-maker-paused` only for an explicit owner-paused paper maker. Its
+score step then reports `NOT_APPLICABLE` with `counts_toward_maker_readiness=false`
+without reading old runs or launching a scoring child. The setting is carried
+in resume commands. Absence of run files does not imply a pause, and neither
+this flag nor learning admission changes live-readiness or exchange gates.
 Every learning result declares whether target coverage comes from its own
 corpus, named dependencies, or is not applicable, and records the requested
 target, observed corpus dates, inclusion, staleness, and gap reason without
