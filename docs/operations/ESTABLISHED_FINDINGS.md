@@ -3369,6 +3369,9 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   with no fill and no requote, `P_many` 0.369 (~1 c/minute); it ended `exception` (RuntimeError) because the owner's
   deliberate manual test orders appeared on the account — correct refusal, generic label (to be named `foreign_open_order`).
   UTC 09-24 rewards reached ~1.99 before its last minutes.
+- **Session 11 (attempt 12, depth rule, 2026-09-25 01:12-02:23Z):** contested Chicago 68-69°F Sep 25 band (selected share 0.56,
+  ~14% at 20 min), 72 minutes, `P_many` 0.383, no requote; a burst of five taker trades then filled the YES leg in full (75 @0.43,
+  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app).
 - **Settlements (owner portfolio, 2026-09-25 ~00:30Z):** Atlanta 72-73°F Sep 24 NO (18.41 @0.59) won, +7.54; NYC 66-67°F Sep 24
   NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
   **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks

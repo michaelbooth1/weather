@@ -51,7 +51,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
-  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); **s11 running since ~22:00 ET on `d90d0a6e6`** (Chicago 68-69°F Sep 25, start share 0.56, ~14% at 20 min); **11 of 30 used**. Held to
+  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); s11 (`d90d0a6e6`, Chicago 68-69°F Sep 25, start share 0.56): 72 min, `P_many` 0.38, then a five-trade sweep filled **75 YES @0.43**; reconcile 12 owed; **11 of 30 used**; live paused until the owner resumes. Held to
   settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
   92a analysis done (`7f98359`). Current tip `d90d0a6e6` carries the owner-approved selection amendment (local T+1/T+2,
