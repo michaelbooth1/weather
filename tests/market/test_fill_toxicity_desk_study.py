@@ -12,6 +12,8 @@ import pytest
 
 from weather.market import fill_toxicity_desk_study as study
 from weather.market import fill_toxicity_inputs as source
+from weather.market import fill_toxicity_reward_inputs as maker_rewards
+from weather.market.maker_evidence_store import EvidenceStore, encoded
 from weather.market import fill_toxicity_statistics as stats
 from weather.market.fill_toxicity_panels import MinutePanels
 from weather.market.fill_toxicity_model import (
@@ -352,6 +354,157 @@ def write_rows(path, rows):
 
 def iso(at):
     return datetime.fromtimestamp(at, timezone.utc).isoformat()
+
+
+MAKER_CONDITION = "0x" + "a" * 64
+
+
+def synthetic_maker_rewards(root, slug, times, *, sealed=True, rates=None, query=""):
+    """88a's real writer, documented production response shape, invented values."""
+    clock = [datetime.fromtimestamp(times[0], timezone.utc)]
+    store = EvidenceStore(root, clock=lambda: clock[0])
+    body = encoded({"count": 1, "limit": 100, "next_cursor": "LTE=", "data": [{
+        "condition_id": MAKER_CONDITION, "market_slug": "synthetic-78-79", "event_slug": slug,
+        "tokens": [{"token_id": "1", "outcome": "Yes", "price": .5},
+                   {"token_id": "2", "outcome": "No", "price": .5}],
+        "rewards_config": [{"asset_address": "0x" + "b" * 40, "start_date": "2026-08-15",
+                            "end_date": "2026-08-16", "id": "synthetic", "rate_per_day": 1440,
+                            "total_rewards": 1440, "total_days": 1}],
+        "rewards_max_spread": 4.5, "rewards_min_size": 100}]})
+    for index, at in enumerate(times):
+        clock[0] = datetime.fromtimestamp(at, timezone.utc)
+        if rates is not None:
+            value = json.loads(body)
+            value["data"][0]["rewards_config"][0]["rate_per_day"] = rates[index]
+            body = encoded(value)
+        store.record("rewards", body, change_key="rewards:" + MAKER_CONDITION,
+                     metadata={"http_status": 200, "latency_seconds": .01,
+                               "request_sha256": "c" * 64,
+                               "url": "https://clob.polymarket.com/rewards/markets/" + MAKER_CONDITION + query})
+    if sealed:
+        store.seal()
+    # Use gzip even for an unsealed test segment to prove the seal is required.
+    for path in root.glob("*/*/*"):
+        if path.suffix in (".jsonl", ".json"):
+            path.with_suffix(path.suffix + ".gz").write_bytes(gzip.compress(path.read_bytes()))
+    return sorted(root.glob("*/*/reward-*.jsonl.gz"))
+
+
+def test_maker_reward_unwrap_and_unchanged_minute_uses_new_capture(tmp_path):
+    start = ts("2026-08-15T04:00:00Z")
+    paths = synthetic_maker_rewards(tmp_path / "maker", "synthetic", [start, start + 60])
+    raw = list(source.json_lines(paths[0]))
+    assert raw[0]["body_stored"] is True
+    assert raw[1]["body_stored"] is False
+    assert raw[1]["payload_ref"] == {"file": paths[0].name.removesuffix(".gz"), "offset": 0}
+    db = source.open_store(tmp_path / "terms.sqlite")
+    try:
+        maker_rewards.stage_rewards(db, paths, "synthetic", start, start + 7200)
+        assert db.execute("SELECT COUNT(*) FROM terms").fetchone()[0] == 2
+        terms = source.terms_at(db, MAKER_CONDITION, start + 3660)
+        assert terms.captured == start + 60  # Exactly 60 minutes old remains fresh.
+        assert (terms.rate, terms.minimum, terms.spread) == (1440, 100, 4.5)
+        assert source.terms_at(db, MAKER_CONDITION, start - 60) is None
+        assert source.terms_at(db, MAKER_CONDITION, start + 3720) is None
+    finally:
+        db.close()
+
+
+def test_maker_reward_planning_is_metadata_only_and_ignores_unsealed(tmp_path, monkeypatch):
+    start = ts("2026-08-15T04:00:00Z")
+    root = tmp_path / "maker"
+    paths = synthetic_maker_rewards(root, "synthetic", [start - 3600, start])
+    synthetic_maker_rewards(tmp_path / "active", "synthetic", [start], sealed=False)
+    # A completed segment from an irrelevant hour must not be included.
+    synthetic_maker_rewards(root, "synthetic", [start + 7200])
+    monkeypatch.setattr(gzip, "open", lambda *a, **k: pytest.fail("planning opened content"))
+    assert maker_rewards.plan_rewards(root, start, start + 3600) == list(map(str, paths))
+    assert maker_rewards.plan_rewards(tmp_path / "active", start, start + 3600) == []
+    plan = study.input_plan(tmp_path / "snapshots", tmp_path / "settlements", max_dates=1,
+                            maker_evidence_root=root)
+    event = next(row for row in plan if row["market"] == "nyc")
+    assert set(map(str, paths)) <= set(event["maker_rewards"])
+    inventory = {row["path"] for row in study.inventory([event])}
+    assert str(paths[0].resolve()) in inventory
+    assert str((paths[0].parent / "manifest.json.gz").resolve()) in inventory
+
+
+def test_maker_reward_nonzero_uncompressed_reference_and_pagination(tmp_path):
+    start = ts("2026-08-15T04:00:00Z")
+    path, = synthetic_maker_rewards(tmp_path / "maker", "synthetic", [start, start + 60, start + 120],
+                                    rates=[1440, 720, 720], query="?next_cursor=c3ludGhldGlj")
+    raw = list(source.json_lines(path))
+    assert raw[2]["payload_ref"]["offset"] == raw[1]["offset"] > 0
+    rows = list(maker_rewards.reward_rows(path, "synthetic", start, start + 3600))
+    assert [row["rewards_config"][0]["rate_per_day"] for row in rows] == [1440, 720, 720]
+    assert [source.epoch(row["captured_at_utc"]) for row in rows] == [start, start + 60, start + 120]
+
+
+def test_maker_rewards_reject_direct_unsealed_input(tmp_path):
+    start = ts("2026-08-15T04:00:00Z")
+    paths = synthetic_maker_rewards(tmp_path / "maker", "synthetic", [start], sealed=False)
+    with pytest.raises(StudyError, match="unsealed"):
+        list(maker_rewards.reward_rows(paths[0], "synthetic", start, start + 3600))
+
+
+def test_maker_rewards_do_not_mix_events(tmp_path):
+    start = ts("2026-08-15T04:00:00Z")
+    path, = synthetic_maker_rewards(tmp_path / "maker", "other-event", [start])
+    assert list(maker_rewards.reward_rows(path, "synthetic", start, start + 3600)) == []
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda rows: rows[1]["payload_ref"].update(file="../escape.jsonl"), "payload reference"),
+    (lambda rows: rows[1]["payload_ref"].update(offset=1), "record|offset"),
+    (lambda rows: rows[1].update(content_sha256="0" * 64), "reference mismatch"),
+    (lambda rows: rows[0].update(body_utf8="broken"), "undecodable"),
+    (lambda rows: rows[0].update(url="https://clob.polymarket.com/rewards/markets/0x" + "d" * 64), "condition mismatch"),
+])
+def test_maker_reward_bad_reference_or_body_refuses(tmp_path, mutation, reason):
+    start = ts("2026-08-15T04:00:00Z")
+    path, = synthetic_maker_rewards(tmp_path / "maker", "synthetic", [start, start + 60])
+    rows = list(source.json_lines(path))
+    mutation(rows)
+    # Repair offsets and seal after mutation to exercise the payload/shape gate.
+    raw = b""
+    for row in rows:
+        row["offset"] = len(raw)
+        raw += encoded(row) + b"\n"
+    path.write_bytes(gzip.compress(raw))
+    import hashlib
+    manifest = path.parent / "manifest.json.gz"
+    info = json.loads(gzip.decompress(manifest.read_bytes()))
+    info["files"][path.name.removesuffix(".gz")].update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+    manifest.write_bytes(gzip.compress(encoded(info)))
+    with pytest.raises(StudyError, match=reason):
+        list(maker_rewards.reward_rows(path, "synthetic", start, start + 3600))
+
+
+def test_maker_reward_sealed_hash_and_decompressed_line_bound(tmp_path, monkeypatch):
+    start = ts("2026-08-15T04:00:00Z")
+    path, = synthetic_maker_rewards(tmp_path / "maker", "synthetic", [start])
+    manifest = path.parent / "manifest.json.gz"
+    info = json.loads(gzip.decompress(manifest.read_bytes()))
+    info["files"][path.name.removesuffix(".gz")]["sha256"] = "0" * 64
+    manifest.write_bytes(gzip.compress(encoded(info)))
+    with pytest.raises(StudyError, match="sealed file integrity"):
+        list(maker_rewards.reward_rows(path, "synthetic", start, start + 3600))
+    monkeypatch.setattr(maker_rewards, "MAX_LINE_BYTES", 100)
+    with pytest.raises(StudyError, match="oversized"):
+        list(maker_rewards.reward_rows(path, "synthetic", start, start + 3600))
+
+
+def test_maker_reward_only_event_end_to_end(tmp_path):
+    event = synthetic_event(tmp_path)
+    event["rewards"] = []
+    path = Path(event["book"])
+    path.write_text(path.read_text().replace('"b"', json.dumps(MAKER_CONDITION)), encoding="utf-8")
+    event["maker_rewards"] = list(map(str, synthetic_maker_rewards(tmp_path / "maker", event["slug"],
+        [event["start"] + minute * 60 for minute in range(1440)])))
+    result = study.run_study([event], tmp_path / "output", replicates=2)
+    assert result["events"][0]["exclusions"] == []
+    assert result["events"][0]["missing_term_fraction"] == 0
+    assert result["events"][0]["bands"][0]["condition"] == MAKER_CONDITION
 
 
 def synthetic_event(tmp_path):

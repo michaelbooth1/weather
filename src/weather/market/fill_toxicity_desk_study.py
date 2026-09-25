@@ -1,6 +1,6 @@
 """Offline, synthetic-tested fill-toxicity desk study; never places orders.
 
-Frozen authority: mission 89a and Clarifications 1-10 at 69de822df. A dry run
+Frozen authority: mission 89a and Clarifications 1-11 at d81c184b. A dry run
 stats exact named inputs and reads no tape content. Normal runs stream one
 event-date through a disk-backed sort, writing only beneath --output-dir.
 """
@@ -23,6 +23,7 @@ from pathlib import Path
 from weather.backtesting.settlement_ledger import clean_temperature_label, current_ledger_label
 from weather.market import execution_tape_markout as base
 from weather.market import fill_toxicity_inputs as inputs
+from weather.market import fill_toxicity_reward_inputs as reward_inputs
 from weather.market import fill_toxicity_statistics as stats
 from weather.market.fill_toxicity_panels import MinutePanels
 from weather.market.fill_toxicity_model import (
@@ -34,7 +35,7 @@ from weather.paths import data_path
 
 START_DATE = date(2026, 8, 15)
 FREEZE_DATE = date(2026, 9, 23)
-FROZEN_REF = "69de822dfebad16d8114cd7a7484e71db3f6932b"
+FROZEN_REF = "d81c184b36e7889cbeb4853947b97302ad0358d1"
 REPORT_NAME = "fill_toxicity_desk_study"
 EXTRA_GROUPS = ("PLACEBO", "E2_DETECTED", "E123_DETECTED")
 GROUPS = ("TOTAL", *WINDOW_SETS, *EXTRA_GROUPS, "OUTSIDE")
@@ -44,12 +45,15 @@ def _existing(folder, names):
     return [folder / name for name in names if (folder / name).is_file()]
 
 
-def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, now=None):
-    """Generate event names from the registry; only list their execution_tape dirs."""
+def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, now=None,
+               maker_evidence_root=None):
+    """Generate frozen events; list event inputs and sealed reward-hour metadata."""
     if not 1 <= max_dates <= (FREEZE_DATE - START_DATE).days + 1:
         raise StudyError("max-dates must be within the frozen date range")
     now = now or datetime.now(timezone.utc)
     supplements = supplements or {}
+    maker_evidence_root = (Path(maker_evidence_root) if maker_evidence_root is not None
+                           else Path(snapshots_root).parent / "maker_evidence")
     plan = []
     for offset in range(max_dates):
         day = START_DATE + timedelta(days=offset)
@@ -78,6 +82,7 @@ def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, 
                      "trades": list(map(str, trades)), "gaps": list(map(str, gaps)),
                      "status": str(tape / "status.json"), "weather": list(map(str, weather)),
                      "rewards": list(map(str, rewards)),
+                     "maker_rewards": reward_inputs.plan_rewards(maker_evidence_root, start, end),
                      "triggers": [str(Path(snapshots_root) / "observation_triggers.jsonl")]
                          if (Path(snapshots_root) / "observation_triggers.jsonl").is_file() else [],
                      "ledger": str(Path(settlement_root) / market / "ledger.jsonl"), "iem": [],
@@ -93,12 +98,16 @@ def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, 
 def inventory(plan):
     found = {}
     for event in plan:
-        for name in ("book", "summary", "status", "ledger", "trades", "gaps", "weather", "rewards", "triggers", "iem"):
+        for name in ("book", "summary", "status", "ledger", "trades", "gaps", "weather", "rewards", "maker_rewards", "triggers", "iem"):
             values = event.get(name) if isinstance(event.get(name), list) else [event.get(name)]
             for value in values:
                 if value:
                     path = Path(value).resolve()
                     found[str(path)] = path.stat().st_size if path.is_file() else None
+                    if name == "maker_rewards":
+                        seal = reward_inputs.manifest_path(path.parent)
+                        if seal:
+                            found[str(seal.resolve())] = seal.stat().st_size
     return [{"path": path, "bytes": size} for path, size in sorted(found.items())]
 
 
@@ -398,6 +407,8 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                     try:
                         spec = REGISTRY[event["market"]]
                         inputs.stage_terms(db, event["rewards"], event["start"], event["end"], reader=defects.read)
+                        reward_inputs.stage_rewards(db, event.get("maker_rewards", []), event["slug"],
+                                                    event["start"], event["end"])
                         inputs.stage_weather(db, event["weather"], event["triggers"], spec, event["start"], event["end"], reader=defects.read)
                         if not db.execute("SELECT 1 FROM terms WHERE at>=? AND at<? LIMIT 1",
                                           (event["start"], event["end"])).fetchone():
@@ -515,6 +526,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshots-root", type=Path, default=data_path("snapshots"))
     parser.add_argument("--settlement-root", type=Path, default=data_path("settlements"))
+    parser.add_argument("--maker-evidence-root", type=Path,
+                        help="sealed 88a segments (default: maker_evidence beside snapshots root)")
     parser.add_argument("--support-manifest", type=Path, help="JSON map of event slugs to exact additional captured input paths; no data precomputation")
     parser.add_argument("--max-dates", type=int, default=(FREEZE_DATE - START_DATE).days + 1)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -523,7 +536,8 @@ def main(argv=None):
     try:
         base.ensure_output_dir_allowed(args.output_dir)
         supplements = json.loads(args.support_manifest.read_text(encoding="utf-8-sig")) if args.support_manifest else None
-        plan = input_plan(args.snapshots_root, args.settlement_root, max_dates=args.max_dates, supplements=supplements)
+        plan = input_plan(args.snapshots_root, args.settlement_root, max_dates=args.max_dates,
+                          supplements=supplements, maker_evidence_root=args.maker_evidence_root)
         if args.dry_run:
             print(json.dumps({"dry_run": True, "frozen_ref": FROZEN_REF, "events": plan, "inputs": inventory(plan)}, indent=2))
             return 0
