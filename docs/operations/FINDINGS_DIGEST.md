@@ -90,8 +90,8 @@ never pooled across the 2026-07-31 provenance boundary.
   25.57 YES at .52 against two NO makers at .48 (20 ahead of our 5.57). Below the 1-dollar minimum: unpaid. Mission 86c
   (`codex/re1-session1-analysis-20260923` @ `b4b97807c`).
 - **RE-1 sessions 2-8, 2026-09-24 (75 shares, attempts numbered separately from sessions):** minute-integrated modelled reward
-  again matched accrual (0.438 vs 0.352/0.447; 0.376 vs 0.330/0.347); the first UTC day over the 1-dollar minimum (~1.40,
-  payment unverified). **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Four fills, all
+  again matched accrual (0.438 vs 0.352/0.447; 0.376 vs 0.330/0.347); **the first paid day: UTC 09-24 paid +2.13 vs ~2.03
+  modelled, k ≈ 1.05**. **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Four fills, all
   on the thinnest bands; only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); ~43.8 held to settlement. On an empty
   band size and closeness buy no reward, only fill exposure; the owner's amendment now requires existing two-sided depth
   (>= max(75, size)) and local T+1/T+2. EF §10m.

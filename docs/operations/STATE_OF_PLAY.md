@@ -51,7 +51,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
-  10 NO @0.40. **UTC 09-24 accrued ~1.99 (first day over the 1-dollar minimum); payout expected ~20:00 ET.** s9 (depth rule): 38 min, no fill, stopped by owner test orders; **9 of 10 used**. Held to
+  10 NO @0.40. **UTC 09-24 PAID +2.13 pUSD liquidity reward (owner, ~20:00 ET): first paid day; sum of modelled `P_many` ≈ 2.03 → k ≈ 1.05.** s9 (depth rule): 38 min, no fill, stopped by owner test orders; **9 of 10 used**. Held to
   settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
   Runs paused 09-24; 92a analysis done (`7f98359`). **Next tip `6b5fde587`**: owner-approved selection amendment (local T+1/T+2,

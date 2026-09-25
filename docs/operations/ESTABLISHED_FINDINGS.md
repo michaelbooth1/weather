@@ -3350,8 +3350,9 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
 
 - **The reward model is right in scale.** Minute-integrated modelled reward matched the venue's accrual records: session 1
   0.117 accrued vs `P_many`/`P_single` 0.105/0.125; session 4 increment 0.438 vs 0.352/0.447; session 5 0.376 vs 0.330/0.347.
-  UTC 2026-09-24 was the first day over the 1-dollar minimum (owner saw ~1.40; captured condition balances sum 1.63 at
-  different times; payment unverified until `collect-evidence`).
+  **UTC 2026-09-24 paid +2.13 pUSD** (owner-observed liquidity-reward credit ~00:00Z 09-25) against a sum of modelled
+  `P_many` of about 2.03 over that day's sessions (0.352, 0.330, 0, 0.106, 0.872, 0.369): **k ≈ 1.05**, the first paid day;
+  formal per-session verdicts from `collect-evidence` pending.
 - **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
   session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
   empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
