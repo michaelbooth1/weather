@@ -39,7 +39,8 @@ Re-check held lots at ~10:30-11:00 local of the target day, once daytime METARs 
 
 ## Wallet reader
 
-Worth building as a small keyless script on the workstation first; an MCP wrapper can come later. Public GETs only: data-api
+**Superseded the same day by the owner:** authenticated read-only reader with a LAN API (handoff 100a, revised; DECISION_LOG).
+Original recommendation: a small keyless script on the workstation first; an MCP wrapper later. Public GETs only: data-api
 positions, trades and activity by the public address; gamma metadata and reward terms; public CLOB books; the pUSD balance via a
 public Polygon RPC. Open orders and reward earnings need the L2 key, which also signs orders, so they stay in the app. Risks:
 credential creep (no `.env`, no `py-clob-client`, allowlisted hosts, GET only), rate limits shared with a live session, positions

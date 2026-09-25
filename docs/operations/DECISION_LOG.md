@@ -31,3 +31,4 @@ row that names the old one.
 | 2026-09-24 | System Restore capped at 2 GB; Windows Search disabled; Defender excludes `data\`; paper maker roll paused (retiring the old maker) | production host | storage plan; host audit | — |
 | 2026-09-24 | Model and consider all inventory options (holding, selling, resting sells, merge); no code change now | research | inventory review | — |
 | 2026-09-24 | RE-1 raised by 20 sessions (10 -> 30); attempt cap 60 (agent default, two per session) | none after 2026-09-30 | 23b addendum (on the RE-1 branch); tip `622e25bfb` | 10 sessions / 20 attempts |
+| 2026-09-25 | Wallet reader is authenticated but read-only (L2 key from the workstation `.env`, never the private key; GET allowlist, no cancel/order/heartbeat) and served on the home LAN to the production PC only (token + IP allowlist + firewall); the owner starts it | workstation, RE-1 | handoff 100a (revised) | keyless public reader |
