@@ -3369,7 +3369,11 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   with no fill and no requote, `P_many` 0.369 (~1 c/minute); it ended `exception` (RuntimeError) because the owner's
   deliberate manual test orders appeared on the account — correct refusal, generic label (to be named `foreign_open_order`).
   UTC 09-24 rewards reached ~1.99 before its last minutes.
-- **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference. Settlement markouts pending.
+- **Settlements (owner portfolio, 2026-09-25 ~00:30Z):** Atlanta 72-73°F Sep 24 NO (18.41 @0.59) won, +7.54; NYC 66-67°F Sep 24
+  NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
+  **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks
+  were not a reliable guide. Three binary outcomes are noise, not evidence that fills are benign.
+- **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
 
