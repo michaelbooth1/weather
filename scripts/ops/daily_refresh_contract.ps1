@@ -110,7 +110,12 @@ function Get-DailyRefreshChildTokens {
             "--skip-fleet-runtime-identity-replay",
             # Stage A already produced current trading evidence. Avoid the
             # observability tail's duplicate all-run MM/taker enumeration.
-            "--skip-fleet-trading-replay"
+            "--skip-fleet-trading-replay",
+            # Owner paused the paper maker 2026-09-24 (both tasks disabled). Without
+            # this explicit flag 95c's settlement-only learning lane stays coupled to
+            # maker readiness and the learning artifacts never refresh. Remove it when
+            # the paper maker is resumed.
+            "--paper-maker-paused"
         )
         $producerSlaSeconds = 14400
     } else {

@@ -81,6 +81,7 @@ def _expected_child_tokens(
             "--skip-fleet-trust-replay",
             "--skip-fleet-runtime-identity-replay",
             "--skip-fleet-trading-replay",
+            "--paper-maker-paused",
         ]
         producer_sla = "14400"
     else:
@@ -201,6 +202,7 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
     assert '"--skip-fleet-trust-replay"' in contract
     assert '"--skip-fleet-runtime-identity-replay"' in contract
     assert '"--skip-fleet-trading-replay"' in contract
+    assert '"--paper-maker-paused"' in contract
     stage_b_settings = registration.split(
         "$stageBSettings = New-ScheduledTaskSettingsSet", 1
     )[1].split("Register-ScheduledTask", 1)[0]
@@ -240,6 +242,7 @@ def test_daily_refresh_parser_accepts_delegated_child_contract():
         "--skip-fleet-trust-replay",
         "--skip-fleet-runtime-identity-replay",
         "--skip-fleet-trading-replay",
+        "--paper-maker-paused",
         "--scheduler-invocation-topology",
         "delegated_child",
         "--scheduler-task-name",
@@ -258,6 +261,7 @@ def test_daily_refresh_parser_accepts_delegated_child_contract():
 
     assert args.scheduler_invocation_topology == "delegated_child"
     assert args.disable_stage_trigger is True
+    assert args.paper_maker_paused is True
     assert args.skip_historical_audits is True
     assert args.skip_fleet_trust_replay is True
     assert args.skip_fleet_runtime_identity_replay is True
