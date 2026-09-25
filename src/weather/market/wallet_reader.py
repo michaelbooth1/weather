@@ -49,26 +49,27 @@ def rows(value):
     return value
 
 
-def portfolio_summary(balance, positions, orders, campaign_capital):
+def portfolio_summary(balance, positions, orders, campaign_capital, *, resolved=(), inventory_complete=True):
     """Equity less owner-confirmed net contributions, never recent-trade P&L.
 
 Campaign capital = initial equity + subsequent deposits - withdrawals. A
 dedicated campaign wallet is required. Reward accrual is not added to cash.
 """
-    cash = number(balance["cash_pusd"])
-    complete = all(p.get("mark_value_pusd") is not None and p.get("unrealized_pnl_pusd") is not None
-                   for p in positions)
-    marked = sum((number(p["mark_value_pusd"]) for p in positions), Decimal(0)) if complete else None
-    unrealized = sum((number(p["unrealized_pnl_pusd"]) for p in positions), Decimal(0)) if complete else None
-    campaign = cash + marked - number(campaign_capital) if complete and campaign_capital is not None else None
-    bleed = cash < 60 or campaign is not None and campaign < -40
-    return dict(cash_pusd=str(cash), positions=positions, open_orders=orders,
+    cash = number(balance["cash_pusd"]) if balance is not None else None
+    holdings = [*positions, *resolved]
+    complete = inventory_complete and all(p.get("mark_value_pusd") is not None and p.get("unrealized_pnl_pusd") is not None
+                                          for p in holdings)
+    marked = sum((number(p["mark_value_pusd"]) for p in holdings), Decimal(0)) if complete else None
+    unrealized = sum((number(p["unrealized_pnl_pusd"]) for p in holdings), Decimal(0)) if complete else None
+    campaign = cash + marked - number(campaign_capital) if complete and cash is not None and campaign_capital is not None else None
+    bleed = cash is not None and cash < 60 or campaign is not None and campaign < -40
+    return dict(cash_pusd=str(cash) if cash is not None else None, positions=positions, open_orders=orders,
                 marked_positions_pusd=str(marked) if marked is not None else None,
                 unrealized_pnl_pusd=str(unrealized) if unrealized is not None else None,
                 campaign_pnl_pusd=str(campaign) if campaign is not None else None,
                 campaign_net_contributions_pusd=str(campaign_capital) if campaign_capital is not None else None,
-                status="BLEED_LIMIT" if bleed else "INCOMPLETE" if campaign is None else "OBSERVED",
-                mark_basis="two_sided_mid_not_liquidation_value", cache_seconds=30,
+                status="BLEED_LIMIT" if bleed else "INCOMPLETE" if campaign is None or orders is None else "OBSERVED",
+                mark_basis="live_two_sided_mid_resolved_terminal_last_price", cache_seconds=30,
                 captured_at_utc=datetime.now(timezone.utc).isoformat())
 
 
@@ -121,7 +122,7 @@ class WalletReader:
             raise ReaderError("order_account_mismatch")
         return result
 
-    def positions(self):
+    def _position_rows(self):
         result, tokens = [], set()
         for page in range(5):
             chunk = rows(self.get(DATA, "/positions", user=self.funder, sizeThreshold=0,
@@ -134,22 +135,123 @@ class WalletReader:
                         or token in tokens):
                     raise ReaderError("position_identity_unreadable")
                 tokens.add(token)
-                if number(row.get("size")) < 0:
-                    raise ReaderError("position_size_unreadable")
+                if number(row.get("size")) < 0 or not 0 <= number(row.get("avgPrice")) <= 1:
+                    raise ReaderError("position_numeric_data_unreadable")
                 result.append(row)
             if len(chunk) < 100:
-                return [self.mark_position(r) for r in result]
+                return result
         raise ReaderError("positions_incomplete")
 
-    def mark_position(self, row):
+    @staticmethod
+    def _position_shell(row):
         size, average = number(row["size"]), number(row.get("avgPrice"))
         if not 0 <= average <= 1:
             raise ReaderError("position_price_unreadable")
-        result = dict(token_id=row["asset"], condition_id=row["conditionId"], title=row.get("title"),
+        return dict(token_id=row["asset"], condition_id=row["conditionId"], title=row.get("title"),
                       outcome=row.get("outcome"), size=str(size), avg_price=str(average),
                       bid=None, ask=None, mid=None, mark_value_pusd=None,
                       unrealized_pnl_pusd=None, reward_min_size=None, reward_max_spread_cents=None,
                       reward_terms=None, errors=[])
+
+    def _inventory(self):
+        """Discover first, classify in a single batch, then reserve live reads."""
+        payload = dict(positions=[], resolved_positions=[], unclassified_positions=[], errors={},
+                       inventory_complete=False, plan={})
+        try:
+            holdings = self._position_rows()
+        except ReaderError:
+            payload["errors"]["positions"] = "positions_unavailable"
+            return payload
+        payload["inventory_complete"] = True
+        metadata = {}
+        conditions = sorted({r["conditionId"].lower() for r in holdings})
+        if conditions:
+            try:
+                batch = rows(self.get(GAMMA, "/markets", condition_ids=conditions, limit=len(conditions)))
+                for market in batch:
+                    key = str(market.get("conditionId", "")).lower()
+                    if key not in conditions or key in metadata:
+                        raise ReaderError("metadata_identity_unreadable")
+                    metadata[key] = market
+            except ReaderError:
+                metadata = {}
+                payload["errors"]["metadata"] = "classification_metadata_unavailable"
+        live = []
+        for row in holdings:
+            market = metadata.get(row["conditionId"].lower(), {})
+            result = self._position_shell(row)
+            last = None
+            try:
+                last = number(row.get("curPrice"))
+                if not 0 <= last <= 1:
+                    last = None
+            except ReaderError:
+                pass
+            # An expired date or a zero price alone does not prove resolution.
+            # Gamma may still mark an overdue market active. Missing/conflicting
+            # metadata stays unknown unless the venue says it is redeemable.
+            result.update(redeemable=row.get("redeemable") is True,
+                          last_price=str(last) if last is not None else None, end_date=row.get("endDate"))
+            if row.get("redeemable") is True or market.get("closed") is True:
+                result["classification"] = "resolved"
+                result["classification_basis"] = "redeemable" if row.get("redeemable") is True else "gamma_closed"
+                if last in (Decimal(0), Decimal(1)):
+                    result.update(mark_value_pusd=str(number(row["size"]) * last),
+                                  unrealized_pnl_pusd=str(number(row["size"]) * (last - number(row["avgPrice"]))))
+                else:
+                    result["errors"].append("resolved_value_unavailable")
+                payload["resolved_positions"].append(result)
+            elif market.get("closed") is False and market.get("active") is True:
+                live.append((row, market, result, number(row["size"]) * (last if last is not None else number(row["avgPrice"]))))
+            else:
+                result.update(classification="unknown", errors=["classification_unavailable"])
+                payload["unclassified_positions"].append(result)
+                payload["inventory_complete"] = False
+        # Prioritize the largest reported value, deterministic token tie-break.
+        # Cached upstream reads cost zero; even failures are isolated by key.
+        available = self.transport.remaining()
+        planned = []
+        for row, market, result, value in sorted(live, key=lambda item: (-item[3], item[0]["asset"])):
+            calls = [(CLOB, "/book", {"token_id": row["asset"]}),
+                     (CLOB, "/rewards/markets/" + row["conditionId"], {})]
+            cost = sum(self.transport.request_cost(*call) for call in calls)
+            admitted = cost <= available
+            if admitted:
+                available -= cost
+            planned.append((row, market, result, admitted))
+        payload["plan"] = dict(live_positions=len(live), resolved_positions=len(payload["resolved_positions"]),
+                               planned_live_positions=sum(int(p[3]) for p in planned),
+                               deferred_live_positions=sum(int(not p[3]) for p in planned))
+        for row, market, result, admitted in planned:
+            if not admitted:
+                result.update(classification="live", errors=["budget_deferred"])
+            else:
+                result = self.mark_position(row, market, result)
+            payload["positions"].append(result)
+        payload["plan"]["deferred_live_positions"] = sum(
+            "budget_deferred" in p["errors"] for p in payload["positions"])
+        return payload
+
+    @staticmethod
+    def _visible_inventory(payload, include_resolved):
+        result = dict(payload)
+        result["resolved_count"] = len(payload["resolved_positions"])
+        if not include_resolved:
+            result.pop("resolved_positions")
+        result["status"] = "PARTIAL" if (payload["errors"] or payload["unclassified_positions"]
+                                         or any(p["errors"] for p in [*payload["positions"], *payload["resolved_positions"]])) else "OBSERVED"
+        return result
+
+    def positions(self, *, include_resolved=False):
+        with self.transport.composite() as plan:
+            payload = self._inventory()
+            payload["plan"].update(max_gets=plan["max_gets"], used_gets=plan["used_gets"])
+            return self._visible_inventory(payload, include_resolved)
+
+    def mark_position(self, row, metadata, result):
+        size, average = number(row["size"]), number(row["avgPrice"])
+        result.update(classification="live", reward_min_size=metadata.get("rewardsMinSize"),
+                      reward_max_spread_cents=metadata.get("rewardsMaxSpread"))
         try:
             book = self.get(CLOB, "/book", token_id=row["asset"])
             if (book.get("asset_id", book.get("token_id")) != row["asset"]
@@ -173,17 +275,14 @@ class WalletReader:
             mid = (bid + ask) / 2
             result.update(mid=str(mid), mark_value_pusd=str(size * mid),
                           unrealized_pnl_pusd=str(size * (mid - average)))
-        except (ReaderError, AttributeError, TypeError):
-            result["errors"].append("book_mark_unavailable")
+        except (ReaderError, AttributeError, TypeError) as exc:
+            result["errors"].append("budget_deferred" if str(exc) == "upstream_minute_budget" else "book_mark_unavailable")
         try:
-            metadata = rows(self.get(GAMMA, "/markets", condition_ids=row["conditionId"], limit=2))
-            if len(metadata) != 1 or str(metadata[0].get("conditionId", "")).lower() != row["conditionId"].lower():
-                raise ReaderError("metadata_identity_unreadable")
-            result.update(reward_min_size=metadata[0].get("rewardsMinSize"),
-                          reward_max_spread_cents=metadata[0].get("rewardsMaxSpread"))
             result["reward_terms"] = self.get(CLOB, "/rewards/markets/" + row["conditionId"])
-        except ReaderError:
-            result["errors"].append("reward_terms_unavailable")
+        except ReaderError as exc:
+            error = "budget_deferred" if str(exc) == "upstream_minute_budget" else "reward_terms_unavailable"
+            if error not in result["errors"]:
+                result["errors"].append(error)
         return result
 
     def trades(self, since):
@@ -205,9 +304,28 @@ class WalletReader:
                 "percentages": self.get(CLOB, "/rewards/user/percentages", signature_type=self.signature_type),
                 "payment_verified": False}
 
-    def summary(self):
-        balance, orders, positions = self.balance(), self.open_orders(), self.positions()
-        return portfolio_summary(balance, positions, orders, self.campaign_capital)
+    def summary(self, *, include_resolved=False):
+        with self.transport.composite() as plan:
+            errors, balance, orders = {}, None, None
+            try:
+                balance = self.balance()
+            except ReaderError:
+                errors["cash"] = "balance_unavailable"
+            try:
+                orders = self.open_orders()
+            except ReaderError:
+                errors["open_orders"] = "open_orders_unavailable"
+            inventory = self._inventory()
+            result = portfolio_summary(balance, inventory["positions"], orders, self.campaign_capital,
+                                       resolved=inventory["resolved_positions"],
+                                       inventory_complete=inventory["inventory_complete"])
+            result.update(errors={**errors, **inventory["errors"]},
+                          unclassified_positions=inventory["unclassified_positions"],
+                          resolved_count=len(inventory["resolved_positions"]),
+                          plan={**inventory["plan"], "max_gets": plan["max_gets"], "used_gets": plan["used_gets"]})
+            if include_resolved:
+                result["resolved_positions"] = inventory["resolved_positions"]
+            return result
 
 
 def main(argv=None):

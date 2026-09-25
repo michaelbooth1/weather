@@ -62,20 +62,25 @@ The owner creates ignored `config/local/wallet_reader_client.json` on the client
 checkout containing `{"url":"http://192.168.1.20:8765","token":"<owner token>"}`.
 Do not commit it. This bearer token is separate from the venue's L2 credentials.
 The client refuses public/DNS URLs, redirects and extra config fields, uses no
-ambient proxy, and sends only these fixed GET routes with a five-second timeout:
+ambient proxy, and sends only these fixed GET routes. The default timeout is
+20 seconds; `--timeout` accepts 5 through 120 seconds:
 
 ```powershell
 & $python -m weather.market.wallet_reader_client summary
 & $python -m weather.market.wallet_reader_client open-orders
 & $python -m weather.market.wallet_reader_client positions
+& $python -m weather.market.wallet_reader_client positions --include-resolved --timeout 20
 & $python -m weather.market.wallet_reader_client trades --since 1790294400
 & $python -m weather.market.wallet_reader_client rewards --date 2026-09-25
 ```
 
 The server also supports `/health` and `/balance` with the same authentication.
 `/health` proves the server responds, not venue access. No query parameters are
-accepted except `since` on trades and `date` on rewards. Defaults are the last
-24 hours and the current UTC day. Unknown paths and methods never reach upstream.
+accepted except `since` on trades, `date` on rewards, and `include_resolved=true`
+or `false` on summary/positions. Defaults are the last 24 hours, the current UTC
+day, and hidden resolved rows. Unknown paths and methods never reach upstream.
+Client failures retain `wallet_reader_client_failed` and add a safe `reason`:
+`timeout`, `http_<status>`, `refused`, or `config`; raw exceptions stay suppressed.
 
 ## Data, bounds, and interpretation
 
@@ -86,13 +91,25 @@ It attaches L2 HMAC headers only to private CLOB read paths. Public CLOB books,
 market reward configuration, data-api positions/trades/activity and Gamma metadata
 receive no auth headers. Redirects, proxies, arbitrary URLs and retries are absent.
 
-Each successful or failed upstream read is cached for 30 seconds. The entire
-server shares a lock and a rolling cap of 30 network attempts per 60 seconds.
+Each successful upstream read is cached for 30 seconds; failures for 10 seconds,
+only under their own host/path/query key. There is no composite-response cache.
+The entire server shares a lock and a rolling cap of 30 attempts per 60 seconds.
 Each attempt has a four-second socket timeout and a two-million-byte response
 limit; cursor walks stop after five pages and explicitly refuse incomplete data.
-The service is serial, so concurrent clients do not multiply the budget. Cold
-composite routes can exceed the client's five-second timeout: retry after the
-current read finishes; its results remain cached. No network polling runs by itself.
+The service is serial, so concurrent clients do not multiply the budget.
+Summary/positions admit at most 24 new GETs within the remaining minute budget,
+with a 16-second planning deadline; each socket timeout is clipped to the time
+remaining. No new socket opens after that deadline. This bounds fan-out, not
+an absolute wall-clock guarantee for DNS, a trickling body, disk I/O, or a queued
+LAN request. No network polling runs by itself.
+
+Summary reads cash and orders first. Inventory discovery uses bounded pages and
+one Gamma condition-ID batch, then plans book/reward calls for live positions
+in descending reported value (size times last price, falling back to entry price).
+Cached reads cost no network budget. Positions that do not fit carry
+`budget_deferred`; other fields remain available. Summary field failures use
+an `errors` map, missing values are null, and position failures remain on each row.
+The `plan` object reports admitted/used GETs and planned/deferred live rows.
 
 Each upstream attempt and completion appends to
 `data/wallet_reader/<UTC-date>.jsonl`: registered schema, UTC time, GET, host,
@@ -103,14 +120,25 @@ residual secrets; the reader also strips other participants' `owner` API-key fie
 
 Summary cash is CLOB collateral balance divided by one million; it is not a
 fresh allowance update. Open orders must match the configured funder. Positions
-must match the funder and unique token IDs. Best bid/ask are taken across all
+must match the funder and unique token IDs. A redeemable position or Gamma
+`closed=true` is resolved; Gamma `closed=false, active=true` establishes live.
+An expired end date or zero last price alone does not establish resolution.
+Uncertain rows remain in `unclassified_positions` and prevent aggregate P&L.
+Resolved positions never request books or rewards. They carry size, redeemable
+status and last price in a separate `resolved_positions` list, shown only with
+`--include-resolved`; `resolved_count` is always present. The `/positions` response
+is an object with these lists, errors, status and plan, rather than a bare list.
+Best bid/ask for live positions are taken across all
 positive-size levels; mark is the two-sided midpoint, **not executable proceeds**.
 Missing/one-sided/crossed books leave marks and aggregate P&L unavailable. Gamma
 provides reward size/spread, and public CLOB supplies current market reward terms.
 Missing reward terms are flagged separately from missing marks.
 
-Unrealized P&L is size times (midpoint minus average entry price), before any
-unrepresented fees. Campaign P&L is cash plus marked inventory minus the explicit
+Live unrealized P&L is size times (midpoint minus average entry price), before any
+unrepresented fees. Resolved holdings use last price only when terminal (0 or 1);
+otherwise their value and aggregate P&L remain unknown. Resolved value participates
+in equity even when its rows are hidden; it is not cash or proof of redemption.
+Campaign P&L is cash plus marked inventory minus the explicit
 net contribution baseline, which includes paid rewards already in cash and does
 not add unverified reward accrual. It is meaningful only for a dedicated campaign
 wallet with a reconciled baseline; unrelated holdings/transfers invalidate that

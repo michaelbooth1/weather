@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -35,6 +36,10 @@ ALLOWED = {
 }
 AUTH_PATHS = frozenset(p for (h, p) in ALLOWED if h == CLOB and p != "/book")
 MAX_BODY = 2_000_000
+SUCCESS_TTL = 30
+FAILURE_TTL = 10
+COMPOSITE_SECONDS = 16
+COMPOSITE_GETS = 24  # Leave room for independent balance/order reads.
 
 
 def check_request(method, host, path, params):
@@ -46,9 +51,13 @@ def check_request(method, host, path, params):
         keys = set()
     if keys is None or not isinstance(params, dict) or not set(params) <= keys:
         raise ReaderError("upstream_request_refused")
-    if any(not isinstance(v, (str, int)) or isinstance(v, bool) or len(str(v)) > 256
-           or any(ord(c) < 32 for c in str(v)) for v in params.values()):
-        raise ReaderError("upstream_query_refused")
+    for key, value in params.items():
+        if host == GAMMA and path == "/markets" and key == "condition_ids" and isinstance(value, (list, tuple)):
+            if not 1 <= len(value) <= 500 or any(not isinstance(v, str) or not CONDITION.fullmatch(v) for v in value):
+                raise ReaderError("upstream_query_refused")
+        elif (not isinstance(value, (str, int)) or isinstance(value, bool) or len(str(value)) > 256
+              or any(ord(c) < 32 for c in str(value))):
+            raise ReaderError("upstream_query_refused")
     if path == "/balance-allowance" and params.get("asset_type") != "COLLATERAL":
         raise ReaderError("upstream_query_refused")
 
@@ -71,6 +80,48 @@ class ReadTransport:
         self.clock, self.wall_clock = clock, wall_clock
         self.cache, self.calls = {}, deque()
         self.lock = threading.RLock()
+        self._plan = None
+
+    def _expire(self):
+        now = self.clock()
+        self.cache = {k: v for k, v in self.cache.items()
+                      if now - v[0] < (FAILURE_TTL if v[2] else SUCCESS_TTL)}
+        while self.calls and now - self.calls[0] >= 60:
+            self.calls.popleft()
+
+    def remaining(self):
+        with self.lock:
+            self._expire()
+            budget = 30 - len(self.calls)
+            if self._plan is not None:
+                budget = min(budget, self._plan["max_gets"] - self._plan["used_gets"])
+                if self.clock() >= self._plan["deadline"]:
+                    return 0
+            return max(0, budget)
+
+    @contextmanager
+    def composite(self):
+        """One serial response owns a bounded plan, never a composite cache."""
+        with self.lock:
+            if self._plan is not None:
+                raise ReaderError("nested_composite_refused")
+            self._plan = dict(max_gets=min(COMPOSITE_GETS, self.remaining()), used_gets=0,
+                              deadline=self.clock() + COMPOSITE_SECONDS)
+            try:
+                yield self._plan
+            finally:
+                self._plan = None
+
+    @staticmethod
+    def _url(host, path, params):
+        query = urlencode(sorted(params.items()), doseq=True)
+        return host + path + ("?" + query if query else "")
+
+    def request_cost(self, host, path, params):
+        check_request("GET", host, path, params)
+        with self.lock:
+            self._expire()
+            return int(self._url(host, path, params) not in self.cache)
 
     def _record(self, path, host, status, raw, event):
         now = datetime.fromtimestamp(self.wall_clock(), timezone.utc)
@@ -89,20 +140,18 @@ class ReadTransport:
         for key in ("user", "maker_address"):
             if key in params and params[key].lower() != self.fields["FUNDER_ADDRESS"].lower():
                 raise ReaderError("account_scope_refused")
-        query = urlencode(sorted(params.items()))
-        url = host + path + ("?" + query if query else "")
+        url = self._url(host, path, params)
         with self.lock:
             now = self.clock()
-            self.cache = {k: v for k, v in self.cache.items() if now - v[0] < 30}
+            self._expire()
             if url in self.cache:
                 _, result, failed = self.cache[url]
                 if failed:
                     raise ReaderError("upstream_unavailable_cached")
                 return deepcopy(result)
-            while self.calls and now - self.calls[0] >= 60:
-                self.calls.popleft()
-            if len(self.calls) >= 30:
+            if self.remaining() <= 0:
                 raise ReaderError("upstream_minute_budget")
+            timeout = min(4, self._plan["deadline"] - now) if self._plan is not None else 4
             headers = {"Accept": "application/json", "User-Agent": "weather-wallet-reader"}
             if host == CLOB and path in AUTH_PATHS:
                 stamp = str(int(self.wall_clock()))
@@ -117,9 +166,11 @@ class ReadTransport:
             # Log intent first: disk failure must prevent an unjournaled read.
             self._record(path, host, None, None, "attempt")
             self.calls.append(now)
+            if self._plan is not None:
+                self._plan["used_gets"] += 1
             status, raw, result, failed = None, None, None, True
             try:
-                with self.opener.open(request, timeout=4) as response:
+                with self.opener.open(request, timeout=timeout) as response:
                     status = response.status
                     raw = response.read(MAX_BODY + 1)
                     if response.geturl() != url or status != 200 or len(raw) > MAX_BODY:

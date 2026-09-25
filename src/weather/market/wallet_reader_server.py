@@ -30,11 +30,16 @@ def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
         if parts.scheme or parts.netloc or parts.fragment or parts.path not in ROUTES:
             return 404, {"error": "not_found"}
         query = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
-        allowed = {"since"} if parts.path == "/trades" else {"date"} if parts.path == "/rewards" else set()
+        allowed = ({"since"} if parts.path == "/trades" else {"date"} if parts.path == "/rewards"
+                   else {"include_resolved"} if parts.path in {"/positions", "/summary"} else set())
         if not set(query) <= allowed or any(len(v) != 1 for v in query.values()):
+            return 400, {"error": "invalid_query"}
+        if query.get("include_resolved", ["false"])[0] not in {"true", "false"}:
             return 400, {"error": "invalid_query"}
         if parts.path == "/health":
             value = {"status": "ok", "upstream_checked": False}
+        elif parts.path in {"/summary", "/positions"}:
+            value = getattr(reader, parts.path[1:])(include_resolved=query.get("include_resolved", ["false"])[0] == "true")
         elif parts.path == "/trades":
             since = query.get("since", [str(int(datetime.now(timezone.utc).timestamp()) - 86400)])[0]
             from weather.market.wallet_reader import valid_since
