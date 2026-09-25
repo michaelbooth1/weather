@@ -25,7 +25,7 @@ Purpose: the first **adequate** session (>= 180 two-sided minutes, >= 95% sample
 | --- | --- | --- | --- | --- |
 | S0 | Land and register 88a capture | Q-05, Q-06 | none to RE-1 | approved 2026-09-23 |
 | S1 | Zero-harm over-balance test (far-from-mid buys above cash, then withdraw cash; one order above cash) | Q-13 | none (manual) | owner action |
-| S2 | Resting SELL on a held lot (Miami 75 YES before it resolves, else the next lot) | Q-04 | none (manual) | **placed 09-25: Chicago 68-69 YES 75 @0.37** (Miami was sold instead) |
+| S2 | Resting SELL on a held lot (Miami 75 YES before it resolves, else the next lot) | Q-04 | none (manual) | placed 09-25 (Chicago 68-69 YES 75 @0.37), withdrawn unfilled by the owner; still to run |
 | S3 | Contested-band campaign, 6-8 x 6 h, local T+1, depth rule, sizes alternating 20/75 | Q-01, Q-05 | constants (caps, dates, size schedule) | new owner authorization + dated pre-registration |
 | S4 | Multi-band NO basket, one negRisk event, 3 adjacent bands, 20 shares | Q-12 | new order shape on the 90a engine | RE-2 + pre-registration |
 | S5 | Taipei capture, then one T+1 session (deep book: 75 shares buy a tiny share) | Q-14 | config | owner (config) + RE-2 |

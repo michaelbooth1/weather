@@ -51,7 +51,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
-  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; 09-25 Miami YES market-sold (~0.18), Chicago 68-69 YES resting sell 75 @0.37 (cancel before any RE-1 session). s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); s11 (`d90d0a6e6`, Chicago 68-69°F Sep 25, start share 0.56): 72 min, `P_many` 0.38, then a five-trade sweep filled **75 YES @0.43**; reconcile 12 owed; **11 of 30 used**. Inventory policy and bleed limit
+  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; 09-25 Miami YES sold 75 @0.18 (+12.95 net, lot -13.30); Chicago 68-69 YES resting sell withdrawn by the owner, held to settlement. s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); s11 (`d90d0a6e6`, Chicago 68-69°F Sep 25, start share 0.56): 72 min, `P_many` 0.38, then a five-trade sweep filled **75 YES @0.43**; reconcile 12 owed; **11 of 30 used**. Inventory policy and bleed limit
   (cash < 60 or campaign P&L < -40: no new sessions): [positions review](../roadmap/audits/positions-review-2026-09-25.md). Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
   92a analysis done (`7f98359`). Current tip `d90d0a6e6` carries the owner-approved selection amendment (local T+1/T+2,
@@ -75,7 +75,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
    parser (roll-sensitive, bounded suite first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 89a cannot read 88a's output yet: adapter + Clarification 11 first ([post-night audit](../roadmap/audits/post-night-audit-2026-09-25.md)).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 88a->89a adapter + Clarification 11 built (100b, `d2dcd3035`, roll-free, not needed on master); **owner approved Clarification 12: panel B 09-25..10-08, scored once after 10-08** (selector: handoff 100c).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
