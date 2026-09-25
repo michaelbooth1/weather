@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-25 05:15 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a INCONCLUSIVE; RE-1 11 of 30).**
+**Last updated: 2026-09-25 10:45 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a INCONCLUSIVE; RE-1 11 of 30).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -31,7 +31,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` = `fcb27f0a8` (2026-09-25 night, no marker left). Landed that night: docs
+- **Production source:** `master` = `origin/master` (docs-only commits after `fcb27f0a8`; no marker left). Landed that night: docs
   `ccd143a6b` (light path, receipt), merge-tool byte restore `e0c5d2d4e`, **88a** `c79b6da0d` (tip `e99de4fe4`: +hook allowlist
   line, +`pytest.ini` `tmp_path_retention_policy = failed`: clone-heavy tests held ~7 GiB per chunk and tripped the 50 GiB floor
   twice), 93a `491a05837`, 95c `a555f3229`, 94b `d77c7c16c`, status UTC fix `fcb27f0a8`. Get `roll_verdict.ps1` before any merge.
@@ -75,7 +75,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
    parser (roll-sensitive, bounded suite first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`); rerun on 10+ dates of 88a data.
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 89a cannot read 88a's output yet: adapter + Clarification 11 first ([post-night audit](../roadmap/audits/post-night-audit-2026-09-25.md)).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
