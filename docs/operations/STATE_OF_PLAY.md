@@ -1,95 +1,95 @@
 # State of play
 
-**Last updated: 2026-09-21 America/Toronto (the reliability stack qualified on the host and merged; master published; workstation missions 79a, 80a, 80b, 81a, 82a, 83a, 83b, 83c, 83d, 84b and 84c handed back).**
+**Last updated: 2026-09-25 10:45 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a INCONCLUSIVE; RE-1 11 of 30).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the current decision and
-> current truth. Numbered items and retained receipts own evidence. `status.ps1` flags this file
-> when its declared date is more than 3 days old; rewrite or re-attest it then, whatever else stalled.
+> **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
+> current decisions and current truth. `status.ps1` flags it when its declared date is more than 3 days old. Live readings
+> (free space, commit, capture health) come from `status.ps1` and `Get-Volume -DriveLetter C`, not from this file.
 
-**Objectives, in order:** (1) protect capture and settlement evidence; (2) reliable unattended
-execution; (3) the maker-economics decision in
-[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), on the way back to an
-owner-attended live test. **No market edge or profitable maker opportunity is proved.**
+## Objectives (owner, 2026-09-23)
+
+Precondition: protect capture and settlement evidence. **A. Forecast:** as good as our own free information allows (NBM
+repair first). **B. Maker/rewards:** liquidity rewards with quotes **pulled around information arrival** (new airport
+observations, NBM/forecast updates) to avoid informed fills; B does not need a forecast that beats the market. No edge and no
+paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forward-plan-2026-09-23.md); [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md) owns B's history.
 
 ## Current authority
 
-Owner, 2026-09-19: full implementation authority to get back to live testing; **no live trading is authorized except the one item below**. Heavy work stays inside 00:30-09:00 under the shared lease.
-Owner, 2026-09-21: the first paid reward test (RE-1, pre-registered) is approved and moved up; it runs from the
-workstation as an **attended script the owner starts personally**, worst case 20-30 dollars accepted, at most three
-sessions, none after 2026-09-30 (mission `2026-09-84a`; the script must be confirmed by the owner in the workstation
-session before it can sign). This is a one-off exception outside the sealed lane and changes nothing in it.
-**Owner, 2026-09-22: RE-1 capital is a learning budget.** Trading losses inside the envelope are reported as cost of
-learning, never a reason to stop or skip a session; a fill is data (shares held to settlement, markout kept).
-Geographic eligibility is resolved by owner statement (the 2026-09-06 Ontario readings were a tunnel to the owner's
-home PC; the execution PC is eligible and never moves; tunnel down during live) — [runbook](INTERNATIONAL_MM_LIVE_PILOT.md), item 67.
-
-Owner, 2026-09-23: **no second disk**; off-PC storage (the private Drive cold archive) is used as needed, under its existing
-verify-before-reclaim gates. Plan: [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md). Owner, 2026-09-21: **model work is unpaused**, and shortening the path to a live test is a priority.
-Five workstation missions were handed back and verified on 2026-09-21: `2026-09-79a` (what the
-market knows that we do not — complete, descriptive; EF §10h), `2026-09-80a` (place-and-hold Stage 2
-build — PARTIAL / NO-GO, stopped correctly on two errors in its handoff; EF §10i) `2026-09-81a` (NO-GO, EF §10j), `2026-09-82a` (the NBM parser reads the wrong period after 13Z; EF §10k) and
-`2026-09-83a` (the versioned parser repair, PARTIAL; EF §10l). `2026-09-80b` then finished the inert Stage 2 build (PASS, full suite clean; Maker candidate row).
-`2026-09-83c` stacked three integration branches (`-09-83b` built both parts, PARTIAL, EF §10l): layer 1
-`codex/integrate-1-research-20260921` @ `c04200081` (the research stack), layer 2 `codex/integrate-2-parser-20260921`
-@ `abd648c7c` and layer 3 `codex/integrate-3-reuse-20260921` @ `cee879c45`. After `2026-09-83d` bound the 82a trace
-to parser version 1 (396 of 396 retained rows reproduce), all three pass the workstation full suite with zero failures
-and are ready for host qualification. `2026-09-84b`/`84c` delivered the attended reward-test script, fit for a six-hour run (per-fact freshness budgets,
-heartbeat daemon, SDK-model reply tests, owner-run `preflight` and `reconcile`; `codex/reward-test-attended-20260921`
-@ `7e6e1709c`, PR 78, full suite clean, seeded 2%-failure six-hour rehearsal reached its end). 84c also disabled the
-pinned SDK's silent API-key creation. **The owner's first real `preflight` runs (2026-09-22) found four defects on that
-tip: no `-ExecutionPolicy Bypass` on the host-identity spawn, `python-dotenv` undeclared, Cloudflare 403 on every
-plain-urllib public read (no `User-Agent`), and the accrual read paging the whole reward-market universe past the
-50-page budget; `84d` (`7010a0b58`) fixes the first two, `84e` (`c190fb10b`) the User-Agent, `84f` the paginator.
-Session tip: `475a626e4` (84f accepted 2026-09-22); `live` needs a same-day PASS on it.** None grants live authority.
+- Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
+  00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
+- Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **thirty
+  sessions and sixty attempts** (owner raised 3->10 on 09-23 and +20 on 09-24; attempts are an agent default), none after 2026-09-30, worst case one session's reserve (at most 75 pUSD); campaign bound = the testing wallet (at most 200, no top-ups); outside the sealed lane and changes nothing in it (mission 84a).
+- Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
+- Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
+  either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
+- Owner 2026-09-23: **no second disk**; off-PC Drive archive as needed ([storage plan](storage-plan-2026-09-23.md)).
+- Owner 2026-09-23 ([forward plan](forward-plan-2026-09-23.md)): `R` frozen as a rule; passive maker-evidence capture approved;
+  payment tests may use any band and size within the testing wallet (now at most 200; new pre-registration and tip each time).
+  Owner 2026-09-21: model work unpaused; pre-register before scoring. Owner 2026-09-19: eligibility resolved; tunnel down live.
+- **Open owner decisions:** the four 80b control-relaxation defaults; whether a Stage 2 grant may precede the Stage 0/1 re-runs.
 
 ## Current truth
 
-| Area | Verified state / remaining limit |
-| --- | --- |
-| Production source | Local `master` = `origin/master` = `29e161e7d` (2026-09-22 01:16). The reliability-stack marker (`documented_unpublished`, 2026-09-21) was retired at 00:47 by `scripts/ops/reconcile_ordinary_quiet_merge.ps1` after its five tests, a dry run and Git-proved publication (receipt `data/alerts/quiet_window_merge_reconciliations/ordinary-64d8f787…json`, history row `reconciled_published`). Four guarded merges then landed and were published by `WeatherOneShotPush` under an interactive logon: docs-night results `08f0fe8de`, the ordinary-merge reconciler `6cf037514`, the roll-verdict merge-tree fix `3ed12bacf` (a branch with several merge bases made `git` warn on stderr, which the Stop preference turned into an abort before any merge; the changed set is now the diff to the `merge-tree` result), and integration layer 1 `29e161e7d` (190 files, no importable source). No marker exists. 41 enabled scheduled tasks still execute from linked worktrees, not this checkout (see OPERATIONS_DESIGN "What actually executes"). |
-| Disk | 2026-09-19: duplicate Git LFS model pickles in 152 linked worktrees were replaced by pointers under a dated owner waiver (36.9 -> 89.2 GiB free). `write_order_books_long_csv=false` has been LIVE since 2026-09-20 00:49:06 local; long CSVs for event days open at that moment stop there. Free space is a daily **sawtooth** whose low is ~04:50; judge headroom at the low. |
-| Landing path | **Open again.** The owner set a fixed 16-32 GB pagefile on 2026-09-20 (commit limit 22.0 -> 32.5 GB; never leave it system-managed on this host - if `commit_total_mb` reads ~22,000 it has reverted). On 2026-09-21 the bounded host suite passed **21 of 21 chunks** for the first time (peak commit ~41% against the 66% ceiling; ~54 min, of which ~40 min is the merge-tool test chunk). Two test-only fixes were needed: lease-acquisition tests now skip when an outer job owns the host-global mutex (the suite runner holds it for its whole run; run directly they pass, 39/0), and one audit-record line carried the paid provider's literal API host. Known defect: `quiet_window_merge.ps1` reads execution-tape status once with no retry, so a read that races the 10 s heartbeat rewrite aborts the merge (it did once; the unchanged retry passed). **Windows Update:** KB5129195 is staged and a restart is pending; active hours were moved to 23:00-17:00 so an automatic restart can only happen 17:00-23:00. **Owner action: one deliberate restart before 17:00 on 2026-09-21** (best 08:50-09:20), then restart the two public-read node loops. The merge tool and the lease refuse outside 00:30-09:00; pass `-RepoRoot` explicitly to ops scripts launched with `powershell -File`. |
-| Memory guard | The kill path of `memory_commit_guard.ps1` was inert 2026-08-23 -> 2026-09-20 00:38 (`$pid` assigned to the constant `$PID`). Fixed on master: the guard now really terminates out-of-window pytest/scan trees. |
-| Settlement | Fifteen dates have been backfilled 12/12 from the authoritative daily summary: ten on 2026-09-20 and **08-17, 08-28, 08-29, 08-30, 08-31 on 2026-09-21** (~27 min each, labels file intact). **No known unsettled date remains** apart from the current day until the 09:30 chain runs. The alarm looks back only 14 days, so older holes vanish from the briefing unsettled. Repair is per date: `settlement_backfill_one.ps1 -TargetDate <d> -Refetch -RepoRoot <repo>`, never `chain_recovery_run.ps1` directly. The chain is single-shot; its 70% commit gate is measured against the live commit limit (see Landing path). |
-| Capture | Healthy: three workers, no capture gap on 2026-09-19. Worker health does not prove settled, countable dates. |
-| Armed recurring work | Capture/safety supervisors, 05:00 projection and 06:00 raw-tape tiering, configuration/economics refreshes, the maker paper roll, staleness/countability reports and the 09:30 Stage-A chain. **Nightly training is DISABLED**; archive uploads resume per the 09-23 disk plan below; the data mirror is PAUSED since 2026-08-12; the taker track is PAUSED. A scheduled time is not completion. The deployed watchdog is newer than `master` (hash-pinned parameters master lacks): never re-register it from master. |
-| Maker economics | Configured liquidity-reward pool ~2,800/day same-day, ~4,800/day with T+1/T+2 (31 of 31 sampled days), against the ~$16/day the July verdict used. First desk measurements, 2026-09-20 (item 330): **taker fee is 0 on 377,104 of 377,104 public trades, so treat maker rebates as zero - rewards are the whole thesis**; share-weighted maker markout +0.19 c/share at 5 minutes, -0.43 c to settlement (30 date clusters); modelled reward share from captured books is large because displayed qualifying competition is thin - too good to take at face value. Nothing here is confirmable without one paid reward epoch at minimum size (live; needs the owner, and a band cap of ~25 pUSD instead of 10). Public reads on 2026-09-20 cut the estimate: same-day bands flip from a 20- to a 100-share minimum during the morning, and next-day 20-share bands are contested (modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles = roughly 0.5-6 per band per day). **The first paid reward epoch is designed and frozen ([RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md)); RE-1M - the owner places two orders by hand - comes first and needs only owner decisions** (target 2026-09-24, next-day Los Angeles band). Both study tools are on master. |
-| Live record | An owner-attended International Stage 0/1 test ran 2026-09-06 from the portable PC on unmerged branch code: three 0.005 pUSD post-only orders, cancelled, zero fills. It is spent and grants nothing. The code that ran is not on master. |
-| Maker candidate | PR 55 is reconciled onto the reliability lineage as `codex/maker-reconcile-20260920` @ `0fc25f40b` (roll-sensitive, not yet host-qualified; now carries the two host-suite test fixes). Mission 80a delivered a pure reward-aware pricer and an inert hash-bound Stage 2 envelope, and no execution path (EF §10i). **Mission `2026-09-80b` finished the inert build on `codex/stage2-hold-build-20260921` @ `88aa7e43a`, which contains the maker-reconcile branch, so production qualifies that one branch** (workstation full suite zero failures; trial merges with master and the three forecast branches are conflict-free; roll-sensitive, production verdict owed). It is built to the corrected rules: explicit cancel primary with the 10-15 s dead-man as backstop; a PROPOSED RE-1A addendum counting cumulative two-sided minutes per UTC reward day (120-minute sessions, four a day, three reward days); and default dispositions for the four 09-06 relaxations - fresh dedicated wallet, one typed confirmation per sealed session, receipt age stays unlimited, fee check unchanged. **All of these await the owner's ratification**; the build stays inert until two dated grants exist (owner draft: `docs/operations/stage2-hold-owner-authorization-draft.md` on that branch). Open owner question: a grant commit changes the bound Git tip, so the four attended Stage 0/1 predecessor runs must be repeated after it unless the owner approves granting before the first set. |
-| Forecast lead | `-09-79a` (EF §10h): the gap to the market is already 1.44-1.48x in the morning, and unfitted NBM-percentile band probabilities beat the served model there by ~0.012-0.015 Brier in both strata while still trailing the market at 1.15-1.22x. It is a lead on the guidance-present rows only (24.6-38.3% fill, none after 10:00). Mission `2026-09-81a` (EF §10j, pre-registration frozen before scoring): on every morning row the gain halves to about -0.0067 Brier and fails the frozen minimum-effect rule; **NO-GO for a confirmation this season**, and none is possible at this effect size because 11 market clusters cap power near 40%. Most guidance is discarded as below the observed floor (fill 73% at 06:00, ~7% at 09:00). **`-09-82a` (EF §10k) found why: 13Z and 19Z NBM bulletins hold no maximum for the current local date, and the parser took their first value - tomorrow morning's minimum - so the floor rightly discarded it; confirmed live on production.** A live, promotion-blocked shadow variant consumes those columns (the served model does not), so mission `2026-09-83a` built a versioned repair with replay parity on `codex/nbm-target-fix-20260921` (PARTIAL, EF §10l; roll-sensitive, needs a quiet window). After 12Z the newest bulletin holding today's maximum is 07Z, so later guidance is old by construction. **Production downloads the ~35 MB national bulletin on almost every market pass (24.9 GB in 15 hours on 2026-09-21); `-09-83b` built the finished repair and fail-open reuse (unlanded); mission `2026-09-83c` stacked them as three integration branches (all three ready for host qualification after `-09-83d`), which production qualifies and lands one layer per quiet window.** No candidate is scored until dates exist that were captured after the fix. Branches `codex/missing-information-checks-20260921`, `codex/morning-guidance-candidate-20260921` and `codex/nbm-target-trace-20260921` are ROLL-FREE and unmerged. Nothing is served or trained. |
-| Settlement source | The venue's declared resolution source moved from Weather Underground to weather.gov timeseries around 2026-08-23 (same stations; band agreement 921/921 before; 2026-09-22 ledger: 359/360 after, no post-switch day unlabelled). Current Rules resolve on the page's "Hourly Data" (86a, UNDECIDABLE on exact degrees). Master still hard-codes WU; no gate detects a source change. |
-| Documentation | Restructured 2026-09-19 for agent use: conditional routing in `AGENTS.md`, `CLAUDE.md` entry point, findings digest, complete operations index, and audit checks for line budgets, index reachability, retired claims and this file's age. |
+- **Production source:** `master` = `origin/master` (docs-only commits after `fcb27f0a8`; no marker left). Landed that night: docs
+  `ccd143a6b` (light path, receipt), merge-tool byte restore `e0c5d2d4e`, **88a** `c79b6da0d` (tip `e99de4fe4`: +hook allowlist
+  line, +`pytest.ini` `tmp_path_retention_policy = failed`: clone-heavy tests held ~7 GiB per chunk and tripped the 50 GiB floor
+  twice), 93a `491a05837`, 95c `a555f3229`, 94b `d77c7c16c`, status UTC fix `fcb27f0a8`. Get `roll_verdict.ps1` before any merge.
+- **Disk (binding):** 24 h trail low 45.7 GiB (12:35 09-24); night 09-25 low 50.5 (01:35, suite temp, fixed). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
+  Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
+  ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
+  The suite floor is 50 GiB. Production clock offset -0.17 s (W32Time not syncing; Manual start).
+- **Host:** commit limit 32.5 GB (42% used 09-24); settlement repair per date via `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, never `chain_recovery_run.ps1`.
+- **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
+  band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
+- **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
+- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A. **`WeatherMakerEvidenceCapture` registered
+  2026-09-25 02:34** (88a, public data only, every minute, `data\maker_evidence\status.json` CAPTURING, 0 failed cycles; watch its disk).
+  **Paper maker roll PAUSED 09-24** (owner: retiring the old maker; both tasks disabled).
+  Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
+- **RE-1 verdict (provisional):** session 1 (09-23, unpaid; EF §10m) frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM`; formal from 09-26.
+- **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
+  s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
+  s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
+  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; 09-25 Miami YES market-sold (~0.18), Chicago 68-69 YES resting sell 75 @0.37 (cancel before any RE-1 session). s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); s11 (`d90d0a6e6`, Chicago 68-69°F Sep 25, start share 0.56): 72 min, `P_many` 0.38, then a five-trade sweep filled **75 YES @0.43**; reconcile 12 owed; **11 of 30 used**. Inventory policy and bleed limit
+  (cash < 60 or campaign P&L < -40: no new sessions): [positions review](../roadmap/audits/positions-review-2026-09-25.md). Fills came on the least-contested bands; on an empty band share is 100% at any size
+  or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
+  92a analysis done (`7f98359`). Current tip `d90d0a6e6` carries the owner-approved selection amendment (local T+1/T+2,
+  >= max(75, size) displayed depth each side within max spread), audit and read-lag fixes, 2 s heartbeat, `go <6 hex>`. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
+  landed: 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`, 95b signed band parser (roll-sensitive).
+- **Maker economics:** weather takers pay `0.05 x p(1-p)` per share, makers 0; 25% of taker fees fund maker rebates (EF §10o). Configured
+  pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
+  no rollover, per-minute sampling, `Q_min` share. The 86b capacity sampler is PAUSED (mutex, duplicate pagination).
+- **Maker candidate:** `codex/stage2-hold-build-20260921` @ `88aa7e43a` (contains the maker reconcile): inert, roll-sensitive,
+  not host-qualified; adoption needs the owner's disposition of four control relaxations. It lacks the RE-1 fixes.
+- **Forecast:** after 13Z the NBM parser read tomorrow's minimum (EF §10k); the versioned repair and bulletin reuse are built
+  (EF §10l). Layer 1 landed (`29e161e7d`); layer 2 `codex/integrate-2-parser-20260921` @ `abd648c7c` (roll-sensitive) is
+  **blocked on disk**; layer 3 `codex/integrate-3-reuse-20260921` @ `cee879c45` follows. No candidate is scored before
+  post-fix dates exist; nothing new is served or trained.
 
-## Ordered non-live critical path
+## Ordered critical path
 
-1. **RE-1 session 1 ran ~01:47-02:30Z 2026-09-23 on `0a7531baf`, ended on a FILL:** 42 min, `P_many` 0.105, venue showed
-   0.12 earned (below the 1-dollar daily minimum, not paid); 5.57 NO filled at 0.48 by a complementary YES buy that crashed
-   the user stream (cleanup proven). **84g fixed it (ACCEPTED 09-23, 255 focused): session-2 tip `c771cbb42`**, fresh
-   preflight, clean UTC reward day (earliest 00:00Z 09-24 = 20:00 ET 09-23). Verdicts: frozen table (owner 09-22,
-   `H` = 1.00 net/day per 100) and the [09-23 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md)
-   side by side; the track closes only on adequate NOT_PAID. Freeze `R` before any markout read.
-2. `codex/stage2-hold-build-20260921` merges cleanly with the new master (local trial `dbf2f065f`, 2026-09-22) and is
-   **ROLL-SENSITIVE** by the production tool (66 importable, 7 roll incl. `time.py`, `units.py` across all four
-   closures): qualify on the host in a quiet window; adopt only after the owner disposes of the four control relaxations.
-3. After that: an owner-attended Stage 0/1 re-run on landed code and a dated owner Stage 2 authorization. **Owner:
-   ratify or change the 80b defaults** (Maker candidate row). Earliest repository-run live session about 2026-10-01.
-4. NBM census done (EF §10k: 27,473 rows over 14 days, **every** 12Z/13Z/19Z pick is a 12Z minimum); layer 1 landed. Land
-   layer 2 (`codex/integrate-2-parser-20260921` @ `abd648c7c`, ROLL-SENSITIVE: `feature_store`, `model_features`,
-   `model_sources`, `nbm_probabilistic_tmax`, `schema_registry_data`) then 3, one per 01:00-04:00 window, host-qualified. **09-23
-   00:40: bounded suite passed chunks 1-10/22, then stopped at its 50 GiB disk floor** (the wrapper passes no `--basetemp`, so
-   pytest kept ~2.6 GB in `%TEMP%\pytest-of-micha`; deleted). Blocked on disk: fix the wrapper's temp handling or free space first.
-5. Redeploy the hash-pinned watchdog (trough-based disk arithmetic); bounded retry for the merge tool's tape pre-check.
+1. **RE-1:** session 11 end and its share path; `collect-evidence` for attempts 5-11 from 20:00 ET 09-25 (UTC 09-26) on `d90d0a6e6`; next
+   sessions per the [live testing plan](live-testing-plan-2026-09-25.md) (accept share 0.15-0.70, start :59-:05, aim >= 180 min).
+2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
+   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
+   parser (roll-sensitive, bounded suite first).
+3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 89a cannot read 88a's output yet: adapter + Clarification 11 first ([post-night audit](../roadmap/audits/post-night-audit-2026-09-25.md)).
+5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
+   on landed code. Earliest repository-run live session about 2026-10-01.
+6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
+   hash-pinned watchdog (trough-based disk arithmetic) and add a bounded retry to the merge tool's tape pre-check.
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources. Model work is unpaused (owner, 2026-09-21): measurement first, and any candidate needs a pre-registration before it is scored.
-- Streak contiguity is a diagnostic, not an objective. Backups are deprioritized by the owner.
-- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture. Worktrees: `GIT_LFS_SKIP_SMUDGE=1`; pytest: `--basetemp`, deleted.
-- Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay,
-  release binding and evidence retention remain mandatory.
+- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic, not an objective.
+- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture. Worktrees: `GIT_LFS_SKIP_SMUDGE=1`;
+  pytest: `--basetemp`, then delete it.
+- Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay, release binding and
+  evidence retention remain mandatory.
 
 ## Update this file when
 
-Rewrite after an owner decision, an actual source adoption, a measured storage or settlement outcome,
-an economic-feasibility result, or when `status.ps1` flags its age.
+Rewrite (never append) after an owner decision, an actual source adoption, a measured storage or settlement outcome, an
+economic-feasibility result, an RE-1 session or verdict, or when `status.ps1` flags its age. Move history to the owning item.

@@ -152,6 +152,25 @@ The detailed owner/import contract is
 Use [development.md](../development.md) for the verification matrix and
 [the root agent instructions](../../AGENTS.md) for task workflow.
 
+## Glossary
+
+Terms are shorthand for the linked owner's contract, not additional authority.
+
+| Term | Meaning | Owner |
+| --- | --- | --- |
+| B / C strata | Separate in-season / out-of-season pre-boundary evaluation panels; never pool them or cross the provenance boundary. | [Findings digest](FINDINGS_DIGEST.md) |
+| Mission id | A correspondence sequence label, not a calendar date; reports reuse their handoff's id. | [Roadmap guide](../roadmap/AGENTS.md) |
+| Roll-sensitive / roll-free | Whether adopting changed source can restart a capture worker through its loaded import closure; obtain the script's verdict. | [Delegation contract §3](DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it) |
+| `promotion_countable` | The evidence-admission flag required for promotion counting; a complete quality grade alone is insufficient. | [Evidence and model claims](#evidence-and-model-claims) |
+| pUSD | The International venue's dollar-denominated collateral unit; balances and caps retain their explicit unit. | [Live pilot](INTERNATIONAL_MM_LIVE_PILOT.md) |
+| T+1 / T+2 | Target market-local settlement dates one / two days after the reference market-local date. | [Reward pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md) |
+| `P_many` / `P_single` | Reward predictions integrated over observed two-sided minutes under the many-maker / single-maker share assumptions. | [Reward pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md) |
+| `k_accrued` | Venue-reported reward accrual divided by `P_many`; accrual is not proof of payment. | [Reward addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) |
+| EF / RF / HW | Established findings / retracted claims and false leads / how we get things wrong. | [Digest routing](FINDINGS_DIGEST.md) |
+| Lease | Exclusive workload admission held through complete child-tree cleanup; not trading authority. | [Host load policy](HOST_LOAD_POLICY.md) |
+| Quiet window | The bounded integration window for a roll-sensitive change, subject to the guarded merge checks. | [Delegation contract §3](DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it) |
+| Attempt / session | A launch attempt can fail before a live session begins; retain and report both counts independently. | [RE-1 findings](ESTABLISHED_FINDINGS.md) |
+
 ## Update this file when
 
 Update when durable domain, settlement, unit, evidence, storage, release, or

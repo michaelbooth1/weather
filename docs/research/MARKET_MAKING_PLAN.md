@@ -142,7 +142,8 @@ Whether they are a business is **open**, and turns on these unknowns:
 - **Maker markout / adverse selection.** What resting quotes in these markets
   lose to informed flow per filled share is unmeasured. Rewards pay for
   resting time; losses accrue per fill.
-- **Whether taker fees - and therefore maker rebates - are non-zero here.**
+- **Whether taker fees - and therefore maker rebates - are non-zero here.** **Answered 2026-09-24 (EF §10o): yes — taker
+  `0.05 x p(1-p)`, maker 0, 25% of taker fees fund maker rebates; the zero reading below was a missing field.**
   Sampled public execution-tape rows on 2026-09-19 carried
   `fee_rate_bps: "0"`. UNVERIFIED at scale; if it holds, income stream 2
   below is zero on these markets and the rebate sizing in this document does
@@ -196,7 +197,8 @@ what fraction is informed.
   roughly **$3k of working capital**, cycling daily through settlement.
 - Balances are monitored in real time; resting orders must stay backed
   (`max order = balance - sum(openOrderSize - filledAmount)`); intentional
-  abuse of balance checks is a blacklisting offense.
+  abuse of balance checks is a blacklisting offense. **Contradicted in practice 2026-09-24 (EF §10n):** the venue accepted
+  resting buys totalling 299.00 across four bands against 96.15 cash: the cash limit applies per market, not across markets.
 - Daily markets mean capital recycles every day: automated post-resolution
   redemption (pUSD) is an operational requirement, not a nicety.
 

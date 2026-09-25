@@ -25,6 +25,88 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+function Get-WeatherSweepFlags {
+    param([string]$Path, [datetime]$Now = (Get-Date))
+    try {
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        if ($item.Length -gt 1MB) { throw "snapshot exceeds 1 MiB" }
+        $text = [IO.File]::ReadAllText($item.FullName)
+        $generated = [regex]::Match($text, '(?m)^Generated (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\.')
+        $summary = [regex]::Match($text, '\*\*Verdict: (OK|WARN|CRITICAL)\*\* - (\d+) critical,')
+        if (-not $generated.Success -or -not $summary.Success) { throw "snapshot header is unreadable" }
+        $age = ($Now - [datetime]::ParseExact($generated.Groups[1].Value, 'yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture)).TotalHours
+        if ($age -lt -0.1 -or $age -gt 48) { "STALENESS_SWEEP: snapshot timestamp is outside its 48-hour freshness bound" }
+        $rows = [regex]::Matches($text, '(?m)^\| \*\*CRITICAL\*\* \| `([^`]+)` \| ([^\r\n]+)\|\s*$')
+        if ($rows.Count -ne [int]$summary.Groups[2].Value -or
+            (($rows.Count -gt 0) -ne ($summary.Groups[1].Value -eq 'CRITICAL'))) {
+            throw "critical rows disagree with the snapshot verdict/count"
+        }
+        foreach ($row in $rows) {
+            "STALENESS_SWEEP CRITICAL [$($row.Groups[1].Value)]: $($row.Groups[2].Value.Trim())"
+        }
+    }
+    catch { "STALENESS_SWEEP: cannot read latest findings ($($_.Exception.Message))" }
+}
+
+function Find-WeatherQuietMergeRetirement {
+    param([string]$Directory, [object]$Report, [string]$ActiveMarkerPath,
+          [datetimeoffset]$Now = [datetimeoffset]::Now)
+    # This only retires a historical alarm. It grants no merge/publication authority,
+    # never clears an active marker, and never changes the incident-specific gates.
+    if (Test-Path -LiteralPath $ActiveMarkerPath) { return $null }
+    try { $reportedAt = [datetimeoffset]::Parse([string]$Report.ts) } catch { return $null }
+    foreach ($file in @(Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+        if ($file.Name -notmatch '^(owner-approved-retire-|agent-retire-)' -or $file.Length -gt 2MB) { continue }
+        try {
+            $receipt = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json -ErrorAction Stop
+            $owner = [string]$receipt.schema -ceq 'owner_approved_marker_retirement_v0' -and
+                -not [string]::IsNullOrWhiteSpace([string]$receipt.approval)
+            $agent = [string]$receipt.schema -ceq 'agent_marker_retirement_v0'
+            if (-not ($owner -or $agent) -or $receipt.conditions_ok -isnot [bool] -or
+                -not $receipt.conditions_ok -or $receipt.merge_head_present -isnot [bool] -or
+                $receipt.merge_head_present -or $null -eq $receipt.PSObject.Properties['dirty_tracked'] -or
+                ($null -ne $receipt.PSObject.Properties['dry_run'] -and
+                    ($receipt.dry_run -isnot [bool] -or $receipt.dry_run))) { continue }
+            $at = [datetimeoffset]::Parse([string]$receipt.at)
+            if ($at -le $reportedAt -or $at -gt $Now) { continue }
+            # Windows PowerShell can serialize Get-Content's decorated string as
+            # {value, PSPath, ...}; support the actual owner receipt as well as plain text.
+            $raw = if ($receipt.marker_bytes -is [string]) { [string]$receipt.marker_bytes }
+                   else { [string]$receipt.marker_bytes.value }
+            $hash = [string]$receipt.marker_sha256
+            if (-not $raw -or $hash -notmatch '^[0-9a-fA-F]{64}$') { continue }
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try { $actual = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($raw))) -replace '-', '') }
+            finally { $sha.Dispose() }
+            if ($actual -ine $hash) { continue }
+            $marker = $raw | ConvertFrom-Json -ErrorAction Stop
+            if ([string]$marker.schema -cne 'quiet_window_merge_in_progress_v0.1' -or
+                [string]$marker.operation_mode -notin @('', 'ordinary_synchronized_merge_v0.1') -or
+                [string]$marker.phase -notin @('prepared', 'preparing') -or $marker.merge_commit -or
+                [string]$receipt.head -notmatch '^[0-9a-f]{40}$' -or
+                [string]$receipt.head -cne [string]$marker.baseline_commit -or
+                @($receipt.dirty_tracked | Where-Object { $_ -notin @('config/locations.json', 'config/location_market_events.json') }).Count) { continue }
+            if ($agent -and ([string]$receipt.origin_master -cne [string]$receipt.head -or
+                $receipt.capture_healthy -isnot [bool] -or -not $receipt.capture_healthy)) { continue }
+            # Reports before marker_sha256 existed must correlate the embedded,
+            # hash-verified marker to the exact attempt, including its pre-merge commit.
+            $sameAttempt = $true
+            foreach ($key in @('repo_root', 'branch', 'expected_tip', 'expected_baseline', 'baseline_commit', 'pre_merge_commit')) {
+                if (-not [string]$Report.$key -or [string]$Report.$key -cne [string]$marker.$key) { $sameAttempt = $false }
+            }
+            if (-not $sameAttempt) { continue }
+            if ($Report.marker_sha256) {
+                if ([string]$Report.marker_sha256 -ine $hash) { continue }
+            } else {
+                $delta = ($reportedAt - [datetimeoffset]::Parse([string]$marker.updated_at)).TotalSeconds
+                if ($delta -lt 0 -or $delta -gt 300) { continue }
+            }
+            return [pscustomobject]@{ path = $file.FullName; marker_sha256 = $hash.ToLowerInvariant(); at = $receipt.at }
+        } catch { continue }
+    }
+    return $null
+}
+
 function Get-WeatherIntegrationValidatedEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
@@ -3572,6 +3654,8 @@ $expDisabled = @(
     # docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md
     "WeatherModelMarketDisagreementAnalysis",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
+    # Owner 2026-09-24: the paper maker roll is paused while the old maker is retired (DECISION_LOG).
+    "WeatherMarketMakingDailyRoll", "WeatherMarketMakingDailyRollSupervisor",
     "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
     # Legacy host-local queue drivers lack immutable expected-tip bindings. They stay off
     # until the repository-owned exact-tip queue replaces them. The -09-69a suite is also
@@ -4451,6 +4535,7 @@ if (([string]$reconciliationPublication.classification -ceq "ordinary") -and
     }
 }
 $qw = $null
+$qwRetirement = $null
 if (Test-Path $qwf) {
     try {
         $qw = Get-Content $qwf -Raw | ConvertFrom-Json
@@ -4464,7 +4549,12 @@ if (Test-Path $qwf) {
         $ordinaryReport = [string]$qw.operation_mode -cne
             "production_baseline_reconciliation_v0.1"
         if ($ordinaryReport -and $qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
-            $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
+            $qwRetirement = Find-WeatherQuietMergeRetirement `
+                -Directory (Join-Path $repo 'data\alerts\quiet_window_merge_reconciliations') `
+                -Report $qw -ActiveMarkerPath $quietMarkerPath
+            if ($null -eq $qwRetirement) {
+                $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
+            }
         }
         elseif ($ordinaryReport -and $qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
@@ -4535,6 +4625,31 @@ if ([string]$reconciliationPublication.classification -cne "ordinary") {
     $warns = $protectedWarns
 }
 
+# Independent passive maker evidence. Optional until explicitly registered;
+# read only its bounded atomic cache, never enumerate its journals.
+$makerEvidence = $null
+$makerEvidencePath = Join-Path $repo "data\maker_evidence\status.json"
+$makerEvidenceTask = Get-ScheduledTask -TaskName "WeatherMakerEvidenceCapture" -ErrorAction SilentlyContinue
+if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
+    try {
+        $makerFile = Get-Item -LiteralPath $makerEvidencePath -ErrorAction Stop
+        if ($makerFile.Length -gt 262144) { throw "status exceeds byte bound" }
+        $makerEvidence = Get-Content -LiteralPath $makerEvidencePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        # [datetime] turns "+00:00" into local time (ages read 4-5 h stale); DateTimeOffset keeps UTC.
+        $makerAge = ((Get-Date).ToUniversalTime() - [DateTimeOffset]::Parse([string]$makerEvidence.updated_at_utc).UtcDateTime).TotalSeconds
+        if ($makerEvidenceTask -and [string]$makerEvidenceTask.State -ne "Disabled" -and
+            ($makerAge -gt 180 -or [string]$makerEvidence.state -ne "CAPTURING")) {
+            $flags.Add("MAKER_EVIDENCE: $($makerEvidence.state), status age $([int]$makerAge)s")
+        }
+    }
+    catch { $flags.Add("MAKER_EVIDENCE: status unreadable or missing") }
+}
+
+# ---- sweep findings (its nonzero task exit is a verdict, not a task failure) ----
+foreach ($sweepFlag in @(Get-WeatherSweepFlags -Path (Join-Path $repo 'data\alerts\STALENESS_SWEEP.md'))) {
+    $flags.Add($sweepFlag)
+}
+
 # ---- verdict ----
 $verdict = if ($flags.Count -gt 0) { "ATTENTION" } else { "OK" }
 $exitCode = if ($flags.Count -gt 0) { 2 } else { 0 }
@@ -4562,6 +4677,7 @@ if ($Json) {
         }
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
+        maker_evidence = $makerEvidence
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
             delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48
@@ -4590,7 +4706,7 @@ if ($Json) {
             restore_identical = $(if ($restore) { $restore.verified_identical } else { $null })
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
-        merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
+        merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }); retirement = $qwRetirement }
         documentation = $documentationTransaction
         integration_attempts = @($integrationAttemptState | ForEach-Object {
                 @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
@@ -4708,6 +4824,10 @@ else {
         $(if ($documentationTransaction.due_at_local) { " (due $($documentationTransaction.due_at_local))" } else { "" })
 }
 Write-Output ("  DOCS      : {0}" -f $documentationStr)
+if ($makerEvidence) {
+    Write-Output ("  MAKER     : {0}, {1} bands, disk {2}, stream capped={3}" -f `
+        $makerEvidence.state, $makerEvidence.universe_size, $makerEvidence.disk_band, $makerEvidence.stream_capped)
+}
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
 if ($upcoming.Count -gt 0) {
     Write-Output "  ARMED     : (scheduled, not yet run)"

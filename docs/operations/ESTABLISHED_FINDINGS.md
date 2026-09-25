@@ -3086,6 +3086,12 @@ instrument at different sawtooth phases.
   `claude/audit-rollfree-fixes-20260919` and is **not adopted**. Current numbers:
   [STATE_OF_PLAY.md](STATE_OF_PLAY.md) and `status.ps1`, never this section.
 
+- **Correction 2026-09-24:** the ~04:50 trough no longer holds. Every closed day's long CSV is already gzip, so the 05:00
+  tiering reclaims nothing (09-23, 09-24); the large reclaim steps were System Restore shadow-copy purges (15.4 of 18.6 GB
+  on 09-24, three restore points), which moved the low to the evening: **43.2 GiB at 21:50 on 09-23**. The owner capped
+  shadow storage at 2 GB and disabled Windows Search on 09-24 (+12.3 GiB). Judge the band from the free-space trail's
+  24-hour minimum, not a clock time ([storage plan](storage-plan-2026-09-23.md); host audit 2026-09-24).
+
 ### 10c. The venue's declared resolution source moved from WU to `weather.gov` timeseries
 
 Around the **2026-08-23** event (verified in git history for Atlanta and Toronto) the venue's
@@ -3336,6 +3342,82 @@ for lack of live closure evidence, so production must run its own). Handback **P
   mission's ownership** (tool inventory entry, the admission test's exact-name set, the storage-class registration),
   and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
   ownership and asks for three stacked, individually green integration branches.
+
+### 10m. RE-1 live reward sessions 1-9 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
+
+Owner-attended sessions on the testing wallet (sized treatment, 75 shares at ±1.5 c from session 4 on). Journal folders are
+numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check refused), 3, 4, 5, 6, 7, 8.
+
+- **The reward model is right in scale.** Minute-integrated modelled reward matched the venue's accrual records: session 1
+  0.117 accrued vs `P_many`/`P_single` 0.105/0.125; session 4 increment 0.438 vs 0.352/0.447; session 5 0.376 vs 0.330/0.347.
+  **UTC 2026-09-24 paid +2.13 pUSD** (owner-observed liquidity-reward credit ~00:00Z 09-25) against a sum of modelled
+  `P_many` of about 2.03 over that day's sessions (0.352, 0.330, 0, 0.106, 0.872, 0.369): **k ≈ 1.05**, the first paid day;
+  formal per-session verdicts from `collect-evidence` pending.
+- **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
+  session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
+  empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
+- **Fills came on the thinnest bands.** Four fills in six sampled sessions, at 1.8, 12.3, 42.0 and 87.2 minutes: 5.57 NO
+  @0.48 (NYC), **75 YES @0.35 (Miami 90-91°F Sep 25; marked -8.5 c/share at +5 and +30 minutes, ~-6.4; the 00Z GFS
+  published 36 minutes before)**, 18.41 NO @0.59, 10 NO @0.40; four distinct takers. Only Miami looks informed at short
+  horizons; all four are held to settlement (~43.8 cost). On an empty band share is 100% at any size or distance, so 75
+  shares at 1.5 c bought fill exposure for no extra reward.
+- **Execution defects found live and fixed:** venue order reads trail posts and cancels by under a second (the SDK then
+  fails to decode); one hung heartbeat at a 5 s cadence tripped the 8 s stale limit; a zero-byte-safe reconcile was needed
+  for closed orders. Fixed on `codex/re1-wallet-200-20260923` through `6b5fde587`, which also carries the owner's selection
+  amendment (local T+1/T+2 and at least max(75, size) displayed depth each side within max spread).
+- **Session 9 (attempt 10, first under the depth rule, 2026-09-24):** a contested band (selected share 54%) ran 38 minutes
+  with no fill and no requote, `P_many` 0.369 (~1 c/minute); it ended `exception` (RuntimeError) because the owner's
+  deliberate manual test orders appeared on the account — correct refusal, generic label (to be named `foreign_open_order`).
+  UTC 09-24 rewards reached ~1.99 before its last minutes.
+- **Session 11 (attempt 12, depth rule, 2026-09-25 01:12-02:23Z):** contested Chicago 68-69°F Sep 25 band (selected share 0.56,
+  ~14% at 20 min), 72 minutes, `P_many` 0.383, no requote; a burst of five taker trades then filled the YES leg in full (75 @0.43,
+  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app).
+- **Settlements (owner portfolio, 2026-09-25 ~00:30Z):** Atlanta 72-73°F Sep 24 NO (18.41 @0.59) won, +7.54; NYC 66-67°F Sep 24
+  NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
+  **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks
+  were not a reliable guide. Three binary outcomes are noise, not evidence that fills are benign.
+- **Inventory decisions (2026-09-25 ~11:10 ET, owner-placed on the [positions review](../roadmap/audits/positions-review-2026-09-25.md)):**
+  Miami 90-91°F Sep 25 YES **market-sold** into a bid that fell 0.23→0.18 in five minutes (every forecast 86-87°F, running high
+  81°F; exact proceeds to reconcile from the wallet). Chicago 68-69°F Sep 25 YES: **resting maker sell 75 @0.37 GTC** (first S2 /
+  Q-04 test; the bid side held only ~20 shares within 6 c). Neither earns rewards: `rewardsMinSize` was 100 on both same-day
+  bands, above the 75-share lot. An open resting sell makes RE-1 refuse to start (`foreign_open_order`); cancel it first.
+- **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
+  Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
+  `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
+
+### 10n. Open orders are limited to cash per market, not across markets — owner replication, 2026-09-24
+
+The venue's order-lifecycle documentation states `maxOrderSize = balance - sum(openOrderSize - filledAmount)` across open
+orders. **In practice it is not enforced.** With 96.15 pUSD cash the owner placed resting buys totalling **299.00 across four
+unrelated events** (Chicago 68-69°F Sep 25, 200 YES @0.36; Paris 29°C, 300 YES @0.27; Qingdao 22°C, 200 YES @0.37; Toronto
+20°C, 400 YES @0.18; all "until cancelled", 0 filled), and earlier 167.80 in one negative-risk event; all were accepted. The
+app's "Cash" is the on-chain wallet, which moves only when a fill settles.
+
+- **Consequences:** reward capacity is bounded by resting size and the number of bands, not by cash; the binding risk
+  becomes **simultaneous fills beyond cash**, whose venue handling (fill failure at match, order removal, account
+  consequences) is **unmeasured** (Q-13). RE-1's reserve model (`size x (yes + no) <= min(wallet - 10, 75)`) is therefore a
+  deliberate choice, not a venue constraint.
+- **The rule (owner, years of platform use, 2026-09-24):** open limit orders **within one market** cannot exceed cash; orders in
+  **different markets are not aggregated**. Every weather band (city, date, range) is its own market, so each band has its
+  own cash-sized allowance; a two-sided quote on one band (YES and NO of the same market) must fit within cash. All six
+  accepted test orders were in distinct markets and each below cash, consistent with this rule.
+- **Caveats:** one account, one day; the behaviour when fills exceed balance is not observed, and
+  unsettleable fills at scale may breach the venue's integrity rules (strategy re-audit 2026-09-24). The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
+
+### 10o. Weather takers pay fees and makers earn fee-funded rebates — mission 95e, 2026-09-24
+
+Retires the "taker fee 0, therefore maker rebates zero" reading of the 2026-09-20 public tape. All 418 active bands of the 12
+configured daily-high families and Taipei carry the weather fee schedule: taker fee **`shares x 0.05 x p x (1 - p)`** pUSD
+(1.25 pUSD per 100 shares at 0.50, 2.5% of notional), **maker fee zero**; the category was introduced 2026-03-30 and on-chain
+taker charges are shown on every date 2026-09-20..24 for every family. Gamma configures a **25% weather maker-rebate
+allocation**, paid daily in pUSD (1-dollar minimum) by filled maker liquidity weighted by the fee curve — a second revenue
+stream distinct from liquidity rewards, not a guaranteed payment to us. Optional builder fees can add charges to either side.
+
+- **Consequences:** fills now carry a rebate share as well as markout risk; our own taker exits would pay the fee; an informed
+  taker pays ~1.25 c/share at mid to hit us. The earlier zeros were probably a missing field read as zero (the old evidence
+  was not re-read).
+- **Evidence:** `origin/codex/weather-fee-check-20260924` @ `64cd786c9` (fee schedule, changelog, dated on-chain samples);
+  [fees](https://docs.polymarket.com/trading/fees), [maker rebates](https://docs.polymarket.com/programs/maker-rebates).
 
 ## Related
 

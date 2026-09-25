@@ -103,6 +103,7 @@ from weather.operations.daily_refresh_lanes import (
     settlement_barrier_blocker as _settlement_barrier_blocker,
     step_lane as _step_lane,
 )
+from weather.operations.daily_refresh_registry import SETTLEMENT_GATED_LEARNING_STEPS
 from weather.operations.producer_provenance import (
     build_invocation_proof,
     build_lock_proof,
@@ -1369,7 +1370,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 "promotion_refresh",
                 "daily_learning",
                 "daily_flow_analysis",
-            }:
+            } | SETTLEMENT_GATED_LEARNING_STEPS:
                 setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
             if name in STAGE_A_ISOLATED_STEPS:
                 setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
@@ -1377,6 +1378,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             if (
                 name in STAGE_A_ISOLATED_STEPS
                 and runner is default_runners_by_name.get(name)
+                and not (name == "maker_paper_score" and getattr(args, "paper_maker_paused", False))
             ):
                 step_runner = lambda step_args, step_name=name: _run_isolated_stage_a_step(
                     step_args,

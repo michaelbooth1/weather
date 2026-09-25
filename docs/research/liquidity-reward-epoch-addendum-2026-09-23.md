@@ -49,6 +49,9 @@ verdict exists by 2026-10-31, the owner reviews the track; it does not close aut
 
 ## Implementation
 
+**Status:** implemented by mission 84g on `c771cbb42` (accepted 2026-09-23; 255 focused tests); `collect-payout` prints
+`verdict_frozen` and `verdict_amended` side by side.
+
 `payout_verdict` and `link_reward_payment` are amended before the first `collect-payout` / `collect-evidence` run for
 session 1 (earliest 00:00Z 2026-09-26 under the reconciler's D+3 rule), with the frozen-table result printed beside the
 amended one. Nothing in the live quoting path changes. The hurdle `H` and every RE-2 condition are unchanged.
@@ -62,6 +65,6 @@ per-day total not stated); the epoch is the UTC day, paid about midnight UTC (20
 API `asset_address` is authoritative); the book is sampled once a minute at a random offset and share = our `Q_min` over all
 makers' `Q_min`, summed over the day (the model RE-1 uses); `Q_one` = YES bids + NO asks, `Q_two` = YES asks + NO bids,
 single-sided liquidity scores at 1/c (c = 3) only with the midpoint in [0.10, 0.90], two-sided required outside it; an order
-must be live for an undocumented minimum duration before it scores. Open: whether the public YES book already contains
-mirrored NO orders (mission 86c question 1). Consequence for session 1: its 0.12 earned is below the minimum and will not
+must be live for an undocumented minimum duration before it scores. Answered by mission 86c: the YES and NO books mirror (37 of 42 minutes exact;
+recomputing from both changed `P_many` by -0.03%). Consequence for session 1: its 0.12 earned is below the minimum and will not
 be paid; it is judged on `k_accrued` under this addendum.

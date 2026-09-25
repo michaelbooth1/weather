@@ -4439,7 +4439,9 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_market_beating_objective_scoreboard_step_writes_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
-            args = _args(tmp)
+            args = _args(tmp, settled_analysis_target_date="2026-06-17")
+            args._daily_refresh_steps_so_far = [{"name": "settled_day_analysis_barrier", "status": "ok",
+                                               "result": {"status": "PASS", "target_date": "2026-06-17"}}]
             backtest = Path(args.backtest_root)
             backtest.mkdir(parents=True)
             artifacts = {
@@ -5239,6 +5241,9 @@ class TestDailyRefresh(unittest.TestCase):
             snapshot.parent.mkdir(parents=True)
             snapshot.write_text("x" * 16, encoding="utf-8")
             args = _args(tmp, data_root=str(data_root), data_retention_min_free_bytes=0)
+            args.settled_analysis_target_date = "2026-06-17"
+            args._daily_refresh_steps_so_far = [{"name": "settled_day_analysis_barrier", "status": "ok",
+                                               "result": {"status": "PASS", "target_date": "2026-06-17"}}]
 
             result = run_data_retention_inventory_step(args)
             json_exists = Path(result["json_out"]).exists()

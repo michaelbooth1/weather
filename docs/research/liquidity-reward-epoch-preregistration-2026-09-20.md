@@ -2,7 +2,7 @@
 
 Status: **FROZEN BEFORE ANY LIVE ORDER. NOT AUTHORIZED.** This document designs one bounded live
 measurement. It grants no authority: `docs/operations/STATE_OF_PLAY.md` "Current authority" decides
-whether anything may run, and today it says no live trading. International Polymarket only.
+whether anything may run; it records the owner's attended RE-1 exception (2026-09-21). International Polymarket only.
 Parent plan: [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md) W3/W4/W6.
 Safety protocol for any repository-run order: [the live pilot runbook](../operations/INTERNATIONAL_MM_LIVE_PILOT.md).
 
@@ -118,7 +118,7 @@ any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3
 | `PAID_AS_MODELLED` | `k >= 0.5` | The desk model stands, scaled by `k`. Go to RE-2. |
 | `PAID_DILUTED` | `0.1 <= k < 0.5` | Rescale the desk model by `k`; RE-2 only if the rescaled economics clear `H`. |
 | `NOT_PAID` | paid = 0, legs marked scoring, `P_many >= 2.0` | The model is wrong by more than the payout minimum can explain. No further live work on this thesis without a named mechanism. |
-| `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported. |
+| `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported (superseded: 10 sessions/20 attempts on 2026-09-23, 30/60 on 2026-09-24; DECISION_LOG). |
 
 **Reward day (owner, from use, 2026-09-22):** the venue's liquidity rewards reset and are paid daily at 20:00
 Eastern, i.e. 00:00 UTC in daylight time - the reward day is the UTC day. Session 1 (started about 01:40Z
@@ -138,7 +138,9 @@ share before anyone re-reads the markout numbers.
 **Hurdle and stop (owner set both to these defaults on 2026-09-22, before any RE-1 order):** `H` = 1.00 dollar net per day per 100
 deployed across the RE-2 cohort, trading losses included. **If no epoch has returned a paid verdict
 by 2026-10-31 the maker track closes** and the project reverts to cheap capture only, pending an
-owner decision on whether it continues at all.
+owner decision on whether it continues at all. *(Superseded 2026-09-23 by the owner-approved
+[addendum](liquidity-reward-epoch-addendum-2026-09-23.md): the track closes only on an adequate NOT_PAID or
+`k_accrued` < 0.1 in two adequate sessions; 2026-10-31 is an owner review.)*
 
 ## Two ways to execute the same frozen treatment
 

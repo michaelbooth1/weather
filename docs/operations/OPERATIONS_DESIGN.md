@@ -50,6 +50,16 @@ read-only International public execution tape is an auxiliary fourth producer:
 | :--- | :--- | :--- | :--- |
 | Public executions | `WeatherExecutionTapeSupervisor` | `python -m weather.operations.execution_tape_supervisor ensure --market all --stale-after-seconds 180` | Retain received-time `last_trade_price` observations, connection gaps, and exact subscription seeds for counterfactual price paths. It is not an own-account fill or P&L source. |
 
+The separately registered `WeatherMakerEvidenceCapture` runs
+`python -m weather.market.maker_evidence_capture` directly, with a kernel writer
+lock and Scheduler IgnoreNew, rather than an `ensure` supervisor. Its
+[owning contract](passive-maker-evidence-capture.md) defines minute T+0/T+1/T+2
+books and reward records, capped extra-condition window updates, continuous public trades, disk
+brakes and `data/maker_evidence/status.json`. It does not enter streak grading
+or the existing capture recovery contract. The registrar is
+`scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
+remain explicit production actions.
+
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
 not itself the long-running capture process. A healthy/no-op or successful
@@ -683,6 +693,22 @@ action) are suppressed. Missing current-run gate receipts and target-mismatched
 barrier receipts fail promotion closed. A blocked settled-day barrier therefore
 still yields a completed, critical Stage-A manifest, and Stage B runs in
 gap-aware learning mode while carrying the exact promotion blocker forward.
+`data_retention_inventory`, `daily_learning` and
+`market_beating_objective_scoreboard` admit work only with a current, target-bound
+settlement verdict. The barrier's `learning_status` depends on WU restoration,
+label finalization, settlement-source audit, the existing observed-floor policy,
+replay-status repair and settled-day freshness/countability. Maker/economics,
+taker and model-report readiness remain in its aggregate `status` for promotion;
+their blocks do not suppress these three settlement-valid learning producers.
+Missing, stale, generic-error and legacy blocked barrier receipts remain closed
+until the barrier reruns. Each producer still applies its own input-quality
+checks; admission does not claim successful learning or available maker evidence.
+
+Pass `--paper-maker-paused` only for an explicit owner-paused paper maker. Its
+score step then reports `NOT_APPLICABLE` with `counts_toward_maker_readiness=false`
+without reading old runs or launching a scoring child. The setting is carried
+in resume commands. Absence of run files does not imply a pause, and neither
+this flag nor learning admission changes live-readiness or exchange gates.
 Every learning result declares whether target coverage comes from its own
 corpus, named dependencies, or is not applicable, and records the requested
 target, observed corpus dates, inclusion, staleness, and gap reason without

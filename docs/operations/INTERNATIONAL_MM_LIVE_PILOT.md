@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Current authority** | **NO live trading is authorized.** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
+| **Current authority** | **NO live trading is authorized except the owner's attended RE-1 exception (at most thirty sessions and sixty attempts, owner 2026-09-24; none after 2026-09-30; see STATE_OF_PLAY).** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
 | **Owns** | The staged protocol for a bounded International Polymarket live test: envelope and caps, prerequisites, Stage 0–3 procedure, SDK decision, stop conditions. |
 | **Read when** | You are changing live-path code or its tests, preparing or reviewing an attended session, or checking what a live claim must prove. Load one section (table below), not the file. |
 | **Do not use for** | Whether trading is allowed today (`STATE_OF_PLAY.md`); attempt history (item 67); the maker economics plan and gates ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)); provisioning or moving the second PC ([`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md)); the economics claim rule ([preregistration](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md)). |

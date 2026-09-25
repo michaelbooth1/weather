@@ -386,6 +386,10 @@ def _budget_admitted_start(selected_inputs, max_input_bytes):
 
 
 def run_maker_paper_score_step(args):
+    if getattr(args, "paper_maker_paused", False):
+        return {"status": "NOT_APPLICABLE", "reason": "paper_maker_paused",
+                "target_date": settled_analysis_target_date(args).isoformat(),
+                "counts_toward_maker_readiness": False}
     if getattr(args, "skip_maker_paper_score", False):
         return {"status": "SKIPPED", "reason": "skip_maker_paper_score"}
     backtest_root = Path(args.backtest_root)

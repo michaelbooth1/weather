@@ -1,5 +1,12 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## September 23 strategy and status
+
+Owner 2026-09-23: two pillars — forecast from our own information, and maker rewards with quotes pulled around
+information arrival. The plan, kill rules and owner decisions live in
+[the forward plan](../../operations/forward-plan-2026-09-23.md). RE-1 session 1 ran 2026-09-23 under the owner's attended
+exception (see STATE_OF_PLAY); results in the findings digest.
+
 ## September 20 design of the first paid reward epoch (RE-1)
 
 No status change and **no live authority**. The bounded successor that W6 asks for is designed and
@@ -88,7 +95,7 @@ dates. The numbers below are descriptive estimates, not a decision.
 
 - **Markout, 30 most recent closed dates: 377,104 public trades, 30 date clusters.**
   The aggressor side is recorded on every trade (quote-rule agreement 93.3%).
-  **`fee_rate_bps` is 0 on 377,104 of 377,104 trades: treat the maker rebate on these
+  **(Retired 2026-09-24 by EF §10o: weather takers pay `0.05 x p(1-p)` and 25% funds maker rebates; the zero below was likely a missing field.)** `fee_rate_bps` is 0 on 377,104 of 377,104 trades: treat the maker rebate on these
   markets as zero until a paid rebate is observed.** Share-weighted maker markout
   per filled share, rebate excluded: **+0.375 c at 1 minute, +0.192 c at 5 minutes,
   +0.096 c at 30 minutes, -0.432 c to settlement** (23 clusters with settlement).

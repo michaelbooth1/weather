@@ -73,6 +73,20 @@ CONTRACTS_BY_CLASS = {contract.name: contract for contract in STORAGE_CLASS_CONT
 
 ARTIFACT_FAMILIES = (
     ArtifactFamilyClassification(
+        "passive_maker_evidence", "market", CANONICAL_EVIDENCE,
+        ("maker_evidence/*/*.jsonl", "maker_evidence/*/*.jsonl.gz",
+         "maker_evidence/*/*/manifest.json", "maker_evidence/*/*/manifest.json.gz"),
+        "permanent_public_maker_evidence", "not rebuildable at the captured instant",
+        "canonical_evidence_review_gate", True,
+        notes="UTC-day/hour public journals and sealed file manifests; verified gzip preserves bytes.",
+    ),
+    ArtifactFamilyClassification(
+        "passive_maker_status", "market", OPERATOR_CACHE,
+        ("maker_evidence/status.json", "maker_evidence/extra_conditions.json"),
+        "operator_current_state", "append-only maker evidence journals",
+        "operator_cache_ttl_or_manifest", False,
+    ),
+    ArtifactFamilyClassification(
         "shared_forecast_payload_cas",
         "collection/sources",
         CANONICAL_EVIDENCE,
