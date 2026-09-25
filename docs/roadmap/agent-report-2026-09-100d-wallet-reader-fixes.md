@@ -138,3 +138,58 @@ The existing reader was not probed or restarted. The owner restarts `serve` on
 the new tip after review; the production agent owns adoption. All 100a allowlisted
 GET-only, public-header isolation, SecretGuard, LAN/IP/token, journal and
 account-identity safety controls remain in force.
+
+## Addendum A — bounded Gamma classification (2026-09-25)
+
+**IMPLEMENTED; fixture verification PASS. No real-account run, actual `.env`
+access or reader restart in this addendum.**
+
+Answers [Addendum A on origin/master](https://github.com/michaelbooth1/weather/blob/5700260f/docs/roadmap/workstation-handoff-2026-09-100d-wallet-reader-fixes.md#addendum-a-2026-09-25-1250-et-after-the-first-live-read-on-e57c9ee12).
+The owner explicitly requested appending this result to the existing report;
+the historical sections above are preserved unchanged. Base:
+`e57c9ee129d795fd7c8017e29669cd6ce3a3e473`; verified implementation:
+`954f106b7f84f437140524b26400ccca039af688`, on
+`codex/wallet-public-reader-20260925`. The following report commit is part of the
+handback; the branch-tip lookup command above resolves the final pushed tip.
+
+This corrects the original all-holdings Gamma batch: redeemable rows now require
+no Gamma lookup, and remaining distinct condition IDs are sent in chunks of at
+most 20, with `limit` equal to chunk size. Each chunk is validated in isolation
+before its metadata is retained. An HTTP failure, unexpected condition ID or
+duplicate condition invalidates only that chunk, preserving successful chunks
+both before and after it. Its affected rows retain `classification_unavailable`;
+the existing aggregate metadata error and partial-result contract remain intact.
+The existing total request/time budget still applies to every chunk.
+
+| Fixture | Result |
+| --- | --- |
+| 104 holdings, 103 redeemable and one live | One Gamma GET for exactly one ID (`limit=1`); the live row marks successfully; seven summary GETs total. |
+| 45 non-redeemable holdings | Three Gamma GETs with 20, 20 and five IDs and matching limits; all 45 classify live; marking stays within the 24-GET composite budget. |
+| Middle chunk fails: HTTP 414, foreign ID or duplicate ID | Only its 20 conditions remain unknown; the other 25 classify live, and unknown rows request no books. |
+| 104 redeemable holdings | Two position pages only; zero Gamma, book or reward GETs. |
+
+**160 focused tests passed** (the same reader/schema/import command above),
+including six new addendum cases and all existing safety regressions.
+Compilation (`compileall -q app src tests`) and `git diff --check` passed.
+**29 documentation tests passed**, including the appended report's repository
+audit and generated-index parity. Reproduction commands are above.
+All verification uses synthetic fixtures
+through the unchanged workstation admission wrapper; no statistical inference
+or live-network latency claim is made. The production observation in the
+handoff was supplied evidence, not re-measured here.
+
+Per-file roll disposition: `src/weather/market/wallet_reader.py` and
+`tests/market/test_wallet_reader.py` have no available production closure evidence;
+`docs/operations/wallet-reader.md` and this report are documentation, roll-free
+class. Re-running `roll_verdict.ps1 -Branch codex/wallet-public-reader-20260925
+-Base origin/master` returned exit 1, **UNDECIDABLE: no live closure evidence**,
+with the same four absent status files. The full branch's inherited schema
+registration remains additive-only and roll-sensitive; production must re-derive
+the verdict and perform its guarded integration.
+
+No transport allowlist, credential loader, signing/import boundary, SecretGuard,
+LAN/IP/token check, journal schema, firewall or scheduling behavior changed.
+No real account or credential file was accessed, no private key was loaded, no
+reader/account endpoint was probed, and no service restart, registration,
+production write or master merge occurred during this addendum. The running
+reader was left untouched; adoption of the new tip remains a separate step.
