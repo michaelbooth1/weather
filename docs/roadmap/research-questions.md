@@ -1,3 +1,6 @@
+> **HISTORICAL (2026-06-30).** Superseded by [the open-questions register](../operations/OPEN_QUESTIONS.md), which owns
+> unanswered questions, their data and owners. Surviving questions from this list belong there as new rows.
+
 # Research Questions
 
 - Does WU final high usually equal disabled paid-provider max-since-7 once history settles?

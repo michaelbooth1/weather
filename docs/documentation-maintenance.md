@@ -18,7 +18,10 @@ changing inventories, metrics, versions, or operational state.
 
 | Knowledge | Canonical owner |
 | --- | --- |
-| What is happening now; closed decisions; answered questions | `docs/operations/STATE_OF_PLAY.md` (rewritten, never appended; the only dated canonical file) |
+| What is happening now; decisions in force; answered questions | `docs/operations/STATE_OF_PLAY.md` (rewritten, never appended; the only dated canonical file) |
+| Dated history of owner decisions | `docs/operations/DECISION_LOG.md` (append-only; a row in the same commit as the STATE_OF_PLAY change) |
+| Unanswered research questions, the data that would answer them, owning mission | `docs/operations/OPEN_QUESTIONS.md` (ids never reused; handoffs name ids, handbacks update rows) |
+| The list of audits, their status and dispositions | `docs/roadmap/audits/README.md` (a row for every audit, added in the audit's commit) |
 | Product purpose, setup, dashboard, operator commands | `README.md` |
 | Repository-wide agent rules and task routing | root `AGENTS.md` |
 | Claude Code entry point | root `CLAUDE.md` — an `@AGENTS.md` import plus Claude-only harness notes; never a second rule set |

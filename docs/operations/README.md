@@ -106,7 +106,12 @@ contract and a reviewed cleanup manifest.
 | --- | --- |
 | [data-storage-class-contract.md](data-storage-class-contract.md) | Classifying data as `canonical_evidence`, `analysis_projection` or `operator_cache`. |
 | [data-retention-policy.md](data-retention-policy.md) | Planning any inventory or cleanup. |
+| [forward-plan-2026-09-23.md](forward-plan-2026-09-23.md) | Choosing the next mission or checking work against the owner's two-pillar strategy. |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
+| [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
+| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | Choosing what to analyse next; naming the question ids a handoff serves; updating rows on handback. |
+| [DECISION_LOG.md](DECISION_LOG.md) | When and why the owner decided something, or whether a decision was superseded. |
+| [fail-forward-recovery.md](fail-forward-recovery.md) | A guard, marker or lock blocks work and you must decide whether to clear it or stop. |
 | [HISTORY_DATA_DESIGN.md](HISTORY_DATA_DESIGN.md) | Working on Weather Underground history storage or settlement-proxy handling. |
 | [verified-cold-archive.md](verified-cold-archive.md) | Create-only archive objects, verification, restore drill, cleanup-plan contracts. |
 | [cold-archive-locations.md](cold-archive-locations.md) | Finding an archived object's original path, cloud object ID, recovery proof or restore cache. |

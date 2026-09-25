@@ -32,6 +32,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Unsure about settlement, units, source roles, or floors | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | Asking whether a forecast source or training population is allowed | [Forecast source and training population](operations/forecast-source-and-training-population.md), [the season window](operations/the-season-window-blocks-the-retrain.md) | Canonical decision record |
 | Acting on the production capture host | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical guide |
+| A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
@@ -61,7 +62,7 @@ Read the one that owns the thing you are changing.
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |
 | Closed market-day archives | [Closed market-day archive contract](operations/closed-market-day-parquet-archive-contract.md) |
 | Cold archive and restore | [Verified cold archive](operations/verified-cold-archive.md), [Production cold-archive staging](operations/production-cold-archive-staging.md), [Cold archive locations and restore cache](operations/cold-archive-locations.md), [Cold snapshot NTFS compression](operations/cold-snapshot-compression.md) |
-| Bounded storage recovery | [Storage recovery inventory](operations/storage-recovery-inventory.md), [One-night retained-file recovery](operations/storage-recovery-night.md), [Replay-cache compression](operations/replay-cache-compression.md) |
+| Bounded storage recovery | [Storage plan](operations/storage-plan-2026-09-23.md), [Storage recovery inventory](operations/storage-recovery-inventory.md), [One-night retained-file recovery](operations/storage-recovery-night.md), [Replay-cache compression](operations/replay-cache-compression.md) |
 | Workstation disk or the production mirror | [Workstation disk and mirror scope](operations/workstation-disk-and-mirror-scope.md) |
 | WU history layer (Toronto foundation, CYYZ recovery) | [History data design](operations/HISTORY_DATA_DESIGN.md) |
 
@@ -77,7 +78,8 @@ how to interpret and update those sources; it does not copy volatile values.
 | `roadmap/workstation-handoff-*`, `roadmap/agent-report-*`, `roadmap/agent-work-order-*` | The append-only decision log between hosts, with its evidence artifacts | Only when the digest, an item, or your task names a specific file. Filename dates are mission labels, not calendar dates; see [the roadmap agent guide](roadmap/AGENTS.md) |
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
-| `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding |
+| `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current
 state. To count it, run `git ls-files docs/roadmap`; do not copy the number into
