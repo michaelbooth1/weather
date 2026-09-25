@@ -1,0 +1,330 @@
+{
+  "families": [
+    {
+      "city": "Atlanta",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 722,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Austin",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 676,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Chicago",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 776,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Dallas",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 769,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Denver",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 766,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Houston",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 644,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Los Angeles",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 799,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Miami",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 738,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "NYC",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 697,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "San Francisco",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 744,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Seattle",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 800,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Taipei",
+      "active_events": 2,
+      "active_bands": 22,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 700,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    },
+    {
+      "city": "Toronto",
+      "active_events": 3,
+      "active_bands": 33,
+      "gamma_fee_fields": [
+        "{\"feeSchedule\": {\"exponent\": 1, \"rate\": 0.05, \"rebateRate\": 0.25, \"takerOnly\": true}, \"feeType\": \"weather_fees\", \"feesEnabled\": true, \"makerBaseFee\": 1000, \"takerBaseFee\": 1000}"
+      ],
+      "clob_base_fees": [
+        1000
+      ],
+      "public_trade_sample_rows": 654,
+      "trade_days": [
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-22",
+        "2026-09-23",
+        "2026-09-24"
+      ],
+      "rows_with_any_fee_field": 0,
+      "chain_transactions": 5
+    }
+  ],
+  "active_events": 38,
+  "active_bands": 418,
+  "clob_no_controls": 13,
+  "trade_control_pages": 26,
+  "trade_control_rows": 260,
+  "trade_control_rows_with_fee_fields": 0,
+  "historical_and_open_gamma_markets": 1133,
+  "public_trade_sample_rows": 9485,
+  "trade_pages": 103,
+  "trade_pages_with_more": 97,
+  "public_trade_field_names": [
+    "bio",
+    "condition_id",
+    "event_slug",
+    "icon",
+    "name",
+    "outcome",
+    "outcome_index",
+    "price",
+    "profile_image",
+    "profile_image_optimized",
+    "proxy_wallet",
+    "pseudonym",
+    "side",
+    "size",
+    "slug",
+    "timestamp",
+    "title",
+    "token_id",
+    "transaction_hash"
+  ],
+  "trade_rows_with_fee_fields": 0,
+  "trade_first_utc": "2026-09-20T00:00:04+00:00",
+  "trade_last_utc": "2026-09-24T23:57:48+00:00",
+  "chain_transactions": 65,
+  "chain_taker_fills": 65,
+  "chain_maker_fills": 180,
+  "chain_condition_clusters": 61,
+  "chain_utc_date_clusters": 5,
+  "chain_condition_utc_date_cells": 65,
+  "chain_positive_taker_fees": 65,
+  "chain_positive_maker_fees": 0,
+  "chain_takers_within_00001_of_platform_curve": 61,
+  "chain_takers_exact_floor5_platform_curve": 61,
+  "chain_excess_fee_orders": 4,
+  "chain_excess_orders_with_nonzero_builder": 4,
+  "chain_fee_total_pusd": "9.71270",
+  "chain_first_utc": 1789863009,
+  "chain_last_utc": 1790294217,
+  "max_absolute_aggregate_formula_difference": "0.06186354372733865119651921680",
+  "max_absolute_maker_leg_formula_difference": "0.52679395",
+  "fee_fetch_first": "2026-09-24T23:46:51.179578+00:00",
+  "fee_fetch_last": "2026-09-24T23:56:48.486693+00:00"
+}

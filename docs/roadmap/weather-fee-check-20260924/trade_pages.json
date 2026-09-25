@@ -1,0 +1,1753 @@
+[
+  {
+    "city": "Atlanta",
+    "event_id": "1037131",
+    "event_slug": "highest-temperature-in-atlanta-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037131&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:49.537049+00:00",
+    "status": 200,
+    "sha256": "07f5c0b64e46baed53f8330a1545a67a5e3fe114de8805200e6e1d0fb21fb09b",
+    "returned_rows": 100,
+    "rows_since_cutoff": 22,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1NjE4MSwic3EiOiI5NDEwMDc0NTAwMDMxMDU2NjAiLCJkIjoxMDB9fSwic2lnIjoiM2Y1MjQzMTZhYzA0ZGQ5MTk1NjczMTExOGE1YzUxYmQifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1041822",
+    "event_slug": "highest-temperature-in-atlanta-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041822&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:52.703472+00:00",
+    "status": 200,
+    "sha256": "2da7e08f0b99d5b65f8b2e8907b605dd328c4bebb217045ff4a0e7b16a498b3c",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0MjA4NSwic3EiOiI5NDE1ODAwODAwMDQ3MDQ0NTAiLCJkIjoxMDB9fSwic2lnIjoiNDg4ODI0ZjdlYmE0Mjc3MGZhZTVlYzdmZTI5NzE2YjYifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1046926",
+    "event_slug": "highest-temperature-in-atlanta-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046926&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:53.756906+00:00",
+    "status": 200,
+    "sha256": "a623705938ac09f337f683e72901cae5861f9177c59595a2461b89d11a574595",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNzcwNCwic3EiOiI5NDIxNTA3NjAwMDcyMDY2MDAiLCJkIjoxMDB9fSwic2lnIjoiOTAzZWE5NDQwNTViNzlkYTY0OTAyNzZmMTA1ZjBjODIifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1051964",
+    "event_slug": "highest-temperature-in-atlanta-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1051964&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:54.808947+00:00",
+    "status": 200,
+    "sha256": "1f7dd0a84e4d7cf9a88b23dcbf05f5ccd28f67edf680ffd8046ee8bfe2036a79",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExMDE5Mywic3EiOiI5NDI3MDA2MTAwMDI4MDM4MjAiLCJkIjoxMDB9fSwic2lnIjoiZjU3NjY1N2MzMDNkMWEyNDQxZGM3ZTViNjlkM2E4ZWMifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1057577",
+    "event_slug": "highest-temperature-in-atlanta-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057577&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:55.863409+00:00",
+    "status": 200,
+    "sha256": "ecc332d5cedaf3dadb90ddc384f73fe03485a9a23a651c81ec337a8c7544390c",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5NzI1Niwic3EiOiI5NDMyODA4NjAwMDQ3MDY4NzAiLCJkIjoxMDB9fSwic2lnIjoiOTA1MTQ4NTI2NDJiNGMxOWEyMDMyYTRhOGUyOTk2NGMifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1062923",
+    "event_slug": "highest-temperature-in-atlanta-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062923&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:56.914043+00:00",
+    "status": 200,
+    "sha256": "ad57ffd8b8eeae016247ea8be131418659b6f494d27004970508c3e961b5f346",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4ODAxMiwic3EiOiI5NDM4ODU4MTAwMDMzMDM1NzAiLCJkIjoxMDB9fSwic2lnIjoiNmQwNDQ4MzY3MjIyOWU5NmFiZjRiYmU2ODU1NzVkODEifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1067907",
+    "event_slug": "highest-temperature-in-atlanta-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1067907&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:57.967409+00:00",
+    "status": 200,
+    "sha256": "cf7c7578add70616e67b70a0811dd491becd701b038e65d3a0555e08622087ab",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4ODUxMSwic3EiOiI5NDM4ODkxNDAwMTAzMjAwMDAiLCJkIjoxMDB9fSwic2lnIjoiN2M1YjI4ZDk4YzA2MzdhNmQyODQwNDk4OTNjNzZiNzcifQ"
+    }
+  },
+  {
+    "city": "Atlanta",
+    "event_id": "1073166",
+    "event_slug": "highest-temperature-in-atlanta-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073166&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:56:59.017583+00:00",
+    "status": 200,
+    "sha256": "56831dad61ae74c00a56af4269f117f8e3de352f9374b74b0a6c0f35b71bf345",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIzNzU5NSwic3EiOiI5NDM1NDk3NDAwMDY4MDgwNDAiLCJkIjoxMDB9fSwic2lnIjoiNzVmYWZjOGQ0ZGZiNWVmYTExODkwODA1ZmFlOGIwZWQifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1036960",
+    "event_slug": "highest-temperature-in-austin-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1036960&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:00.068830+00:00",
+    "status": 200,
+    "sha256": "b7e81f60388e12af655f50341ffc4de5743ec5f2b1fefdcea019768960036bce",
+    "returned_rows": 100,
+    "rows_since_cutoff": 9,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1MTMyNCwic3EiOiI5NDA5NzUxMTAwMDIyMDMyNzAiLCJkIjoxMDB9fSwic2lnIjoiMGY4YjNiY2YyODliZjVkYzlkM2JjMmFlN2NiZmNlYzgifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1042007",
+    "event_slug": "highest-temperature-in-austin-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042007&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:03.224628+00:00",
+    "status": 200,
+    "sha256": "9f589ba1db432e209c18ef97561183ae0b6756a0634cfabf20d73106cff17024",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0NDM5NCwic3EiOiI5NDE1OTU0NzAwMDM4MDUyMjAiLCJkIjoxMDB9fSwic2lnIjoiODgzZmI0YWM1YWU2Y2U2NGJhNDA0Y2ZkNzVhNDFhYzIifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1046929",
+    "event_slug": "highest-temperature-in-austin-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046929&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:04.284080+00:00",
+    "status": 200,
+    "sha256": "8078b18fbc8a098ce3e838e84de660e5aa28104e0f856696f292164ffee7f8f8",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyOTM4Nywic3EiOiI5NDIxNjE5ODAwMDQ2MDM4ODAiLCJkIjoxMDB9fSwic2lnIjoiMjAzMjUyMjZjODA4ZjBhMWQ2M2RjY2NiNmI2YzVkMDMifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1052143",
+    "event_slug": "highest-temperature-in-austin-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052143&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:05.335950+00:00",
+    "status": 200,
+    "sha256": "5fbd23f2ec40e6102036adf8c664cad6ed5e74894e953cb03bd4109ed0b594fd",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExMTYyMCwic3EiOiI5NDI3MTAxMDAwMDM0MDM4MDAiLCJkIjoxMDB9fSwic2lnIjoiYjIzZmM0ZDQ0N2ZkZWFmN2FmNzg4M2Q3YjM2Mjc4YmUifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1057580",
+    "event_slug": "highest-temperature-in-austin-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057580&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:06.390694+00:00",
+    "status": 200,
+    "sha256": "b67145cab76273b2a93cb3f42b123faebcaf75388e1f8b6e0c0859fdd703d573",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5NzkwMywic3EiOiI5NDMyODUxNzAwMDUwMDY3MzAiLCJkIjoxMDB9fSwic2lnIjoiZmU1MDI2ZWQ3YjVmNWFmNmFiMzc5NjU4YmNmMTg5YjIifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1062925",
+    "event_slug": "highest-temperature-in-austin-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062925&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:07.441728+00:00",
+    "status": 200,
+    "sha256": "01ddc01a27f8d62262c4ec91f98d1547380661aacf68cfb1068aa3bae47efeb6",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4Njg5Nywic3EiOiI5NDM4NzgzODAwMDMzMDM3NjAiLCJkIjoxMDB9fSwic2lnIjoiNzMzZjdiNzcxYTc3YTNkZThlNTk4NmVmZDE5NGFjMTIifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1068079",
+    "event_slug": "highest-temperature-in-austin-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068079&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:08.492279+00:00",
+    "status": 200,
+    "sha256": "81a286092746e9d02b355bb66b23c901e7e6a657e1cfb4344772058f1a53d366",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI1ODU0Miwic3EiOiI5NDM2ODkzNDAwMDQ3MDQ4ODAiLCJkIjoxMDB9fSwic2lnIjoiMWJjNWRlOTdhZTc3NDZiMzA1MDQ0ZDdlZThkMzI0N2YifQ"
+    }
+  },
+  {
+    "city": "Austin",
+    "event_id": "1073169",
+    "event_slug": "highest-temperature-in-austin-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073169&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:09.549648+00:00",
+    "status": 200,
+    "sha256": "9b7f9b891971e01aff04900b3c21507cd2a2e4b63bcee482944cdc3487a920a7",
+    "returned_rows": 67,
+    "rows_since_cutoff": 67,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1036959",
+    "event_slug": "highest-temperature-in-chicago-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1036959&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:10.601109+00:00",
+    "status": 200,
+    "sha256": "a0401b056e864ed18c80b92e384fc61cc362d085553816f21610af00b2612453",
+    "returned_rows": 100,
+    "rows_since_cutoff": 94,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1OTY5MSwic3EiOiI5NDEwMzA4NTAwMDM4MDQ3MDAiLCJkIjoxMDB9fSwic2lnIjoiNDUzMGY2Njg3Yjc5MWUzMDQ5NTJjNDZlNjYzNjg5ZGYifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1041824",
+    "event_slug": "highest-temperature-in-chicago-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041824&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:13.773947+00:00",
+    "status": 200,
+    "sha256": "20d5d95bea250201d19925bba2ece4c50f1446f2560b36ccde25cb113e6d1d2e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTkyNTY2NSwic3EiOiI5NDE0NzA2MjAwMDYxMDU2NTAiLCJkIjoxMDB9fSwic2lnIjoiZjUxZDdiZDM0NjdmNTExYWY1OGZmZTEzN2M2MjBhYTUifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1046928",
+    "event_slug": "highest-temperature-in-chicago-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046928&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:14.835022+00:00",
+    "status": 200,
+    "sha256": "9de703b633a922e7dedf1350eeaa7ae4cbeda9e023ee4bb4e9a800922617d859",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAxNDkwOSwic3EiOiI5NDIwNjU0NjAwMDA1MDA2ODAiLCJkIjoxMDB9fSwic2lnIjoiMTJlMWQyOGZjNDNlNjFkZDQ2ZDliNTFkMDBmNmNmMzMifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1052142",
+    "event_slug": "highest-temperature-in-chicago-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052142&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:15.886969+00:00",
+    "status": 200,
+    "sha256": "5368d99837f303030a42c1dbb77494698af0015601aa15cbf8d81866c8d0e82a",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDEzNDEyNiwic3EiOiI5NDI4NjAxMzAwMDM0MDM3MzAiLCJkIjoxMDB9fSwic2lnIjoiYjQxM2JhNmRmNTgxNzhmZTEyMGNhZmFmNTQ3ODQyYmIifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1057579",
+    "event_slug": "highest-temperature-in-chicago-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057579&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:16.939271+00:00",
+    "status": 200,
+    "sha256": "2e8af1d2345dd05a678fa52a47a57eb6af678d826b7202db8e55264ca7ba3308",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE4OTU2Nywic3EiOiI5NDMyMjk2MDAwMDI3MDM5MTAiLCJkIjoxMDB9fSwic2lnIjoiYWI0YWJkMjQ4ZDIxZWQ0ZWE4MWY1YjQxZWNmOWZjYzAifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1062773",
+    "event_slug": "highest-temperature-in-chicago-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062773&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:17.990346+00:00",
+    "status": 200,
+    "sha256": "0866d31ac4c2ee6f375a0291250fbf96d28efd45405af5848cb92237f474a824",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NDE3OSwic3EiOiI5NDM4NjAyNjAwMDE2MDE1NDAiLCJkIjoxMDB9fSwic2lnIjoiYzUwZDFkN2JjYmRiOGNhODQ0ZDU2NWM0NWVhMjEyMGUifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1068078",
+    "event_slug": "highest-temperature-in-chicago-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068078&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:19.052049+00:00",
+    "status": 200,
+    "sha256": "3437ce00e9271d48a396dff4ce03445bd799145d2d9e483aeff08d8161e6500e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NjQ5NCwic3EiOiI5NDM4NzU2OTAwMDM4MDQ0NzAiLCJkIjoxMDB9fSwic2lnIjoiMWU0ZWUzMjZjNmE5ODAyMTQ4NzIxM2NlZjM3MWI2ZTMifQ"
+    }
+  },
+  {
+    "city": "Chicago",
+    "event_id": "1073168",
+    "event_slug": "highest-temperature-in-chicago-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073168&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:20.107200+00:00",
+    "status": 200,
+    "sha256": "bd1663dc3c4f52f38164ac4ae78ff3a905816d5e217ed03394ddad3a7801bac5",
+    "returned_rows": 82,
+    "rows_since_cutoff": 82,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1036958",
+    "event_slug": "highest-temperature-in-dallas-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1036958&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:21.161252+00:00",
+    "status": 200,
+    "sha256": "c0d18d4c27ca4c4860ee24d51ae5947ea0ba82d0e8e0c754ab6c3b69c3bc3619",
+    "returned_rows": 100,
+    "rows_since_cutoff": 69,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1OTg1Niwic3EiOiI5NDEwMzE5NTAwMDM0MDIxMzAiLCJkIjoxMDB9fSwic2lnIjoiNjQwOGEyYWE5Zjk2MzJlMGIwMTc2ZjhiZTkyYjE0YWQifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1042006",
+    "event_slug": "highest-temperature-in-dallas-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042006&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:24.315423+00:00",
+    "status": 200,
+    "sha256": "ba96dec040611e8577ec2eb7919dc91f58e6ce08f94bb4bc1ae4315f031701ed",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0MjAzNywic3EiOiI5NDE1Nzk3NjAwMDk3MDY4NDAiLCJkIjoxMDB9fSwic2lnIjoiOWQ0NDZmNGU1YTgwN2RkZjFkMWI2OTY3MDA0YjY2MzIifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1046726",
+    "event_slug": "highest-temperature-in-dallas-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046726&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:25.366669+00:00",
+    "status": 200,
+    "sha256": "d660712bc90d01269d9d6c755b065ad8bd1698e59cea3887b391e3a89d1c1b0e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAzMDU1MSwic3EiOiI5NDIxNjk3NDAwMDQ1MDQxNDAiLCJkIjoxMDB9fSwic2lnIjoiMzFlMjVlODgxMTc0YmMyODdkMTBkOGYyMGEwZWFjYWEifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1052140",
+    "event_slug": "highest-temperature-in-dallas-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052140&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:26.427689+00:00",
+    "status": 200,
+    "sha256": "50fb0f30aad8f6c5b3bce890f2dea7f6d10ef3b2750cbeb8dec4e011e6333e8e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExNjg3Nywic3EiOiI5NDI3NDUxNDAwMDU3MDU5NTAiLCJkIjoxMDB9fSwic2lnIjoiM2ExMGI4MGI4OTQ1MjI4NzAwZDBmYjdjYTRlM2RjZDUifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1057576",
+    "event_slug": "highest-temperature-in-dallas-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057576&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:27.485142+00:00",
+    "status": 200,
+    "sha256": "3ba4479d3b9ac1d4bca44f5e50ff7079ec9c946fd56a7cdc3e81139555be0964",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5NjkzOCwic3EiOiI5NDMyNzg3NDAwMDMzMDM1MzAiLCJkIjoxMDB9fSwic2lnIjoiZDI5NmYyZDUyM2M1NTYzYjQ4YmMyZGEzZDIzZDU0YzkifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1062922",
+    "event_slug": "highest-temperature-in-dallas-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062922&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:28.536431+00:00",
+    "status": 200,
+    "sha256": "65a254927b60140b51a1e4107a91f44bbd383e73c5249a8d43e91a8f37d981d2",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4ODgzMSwic3EiOiI5NDM4OTEyNzAwMDYwMDU2NDAiLCJkIjoxMDB9fSwic2lnIjoiY2MwOTk4ZGY5NTllODNjODAwNWQ4MGUwNzgxYzhlZmYifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1068077",
+    "event_slug": "highest-temperature-in-dallas-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068077&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:29.601499+00:00",
+    "status": 200,
+    "sha256": "8592a2b85a8dbcb9c1b084406e2748957cddeb2d350ddc215ec64d067e16afa5",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4MDMyMywic3EiOiI5NDM4MzQ1NTAwMDc3MTQ0NzAiLCJkIjoxMDB9fSwic2lnIjoiZmEyY2M1NTE1YTM1NTZlNTZmOGM4MTE1Nzc2ZDJkZDcifQ"
+    }
+  },
+  {
+    "city": "Dallas",
+    "event_id": "1073165",
+    "event_slug": "highest-temperature-in-dallas-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073165&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:30.652862+00:00",
+    "status": 200,
+    "sha256": "3cd896b2adb31bd9242f034a3d9d60141fd7395c51f07a64b5689faa787cba98",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI0NDA1Nywic3EiOiI5NDM1OTI4MjAwMDY4MDYxOTAiLCJkIjoxMDB9fSwic2lnIjoiN2FlNDVjYTg2NWJjMjQ3YWRkYTcyNzFhNzUyNjk3ZDIifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1037133",
+    "event_slug": "highest-temperature-in-denver-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037133&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:31.702750+00:00",
+    "status": 200,
+    "sha256": "68c0aaec99bf545629436f2d86a824848c523c6827e0566cf750142df91ebadc",
+    "returned_rows": 100,
+    "rows_since_cutoff": 66,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1OTMyMywic3EiOiI5NDEwMjg0MDAwMDQyMDQ2NjAiLCJkIjoxMDB9fSwic2lnIjoiM2VhOTFhZjJiMDFmYzBjZmY0ZTY1M2RmNzkyMTVmNGYifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1041825",
+    "event_slug": "highest-temperature-in-denver-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041825&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:34.860512+00:00",
+    "status": 200,
+    "sha256": "15bd7f8ed42580008aeb1c87731f8265042893735fdd4484721fce242b4a261d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0ODkwMywic3EiOiI5NDE2MjU1MzAwMDczMDgyNTAiLCJkIjoxMDB9fSwic2lnIjoiYTJhNzJkNWUyNzY5YTEwMzAxYzAzNGRkMzg2MDdjZGIifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1046727",
+    "event_slug": "highest-temperature-in-denver-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046727&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:35.910379+00:00",
+    "status": 200,
+    "sha256": "e5288a17933d64a938c1b9d2b0063e7219ed5273335d74661a9bf4572de2c800",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAzMTMyOCwic3EiOiI5NDIxNzQ5MjAwMDU5MDgwODAiLCJkIjoxMDB9fSwic2lnIjoiZmQ3ZjE4YjNkNTVkODg4MTE0NTdhMDBjNDcyM2RiNDMifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1051965",
+    "event_slug": "highest-temperature-in-denver-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1051965&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:36.962255+00:00",
+    "status": 200,
+    "sha256": "465f67a212b0ff660217fcfb39ce7f96f9e8b33c5a062fe27cb508efdfadd8ea",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExMjQ5Miwic3EiOiI5NDI3MTU5MTAwMDI5MDIzMTAiLCJkIjoxMDB9fSwic2lnIjoiOTBiYWE5NDdlODBkMGU0MGNjNTRmODg3MzFmYTY2N2UifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1057581",
+    "event_slug": "highest-temperature-in-denver-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057581&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:38.020445+00:00",
+    "status": 200,
+    "sha256": "d17aee5b1b6a8cc1b0cc76872a1c4afd0d5ee1b617c38796ee2ddf33dd1b9ad3",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5OTcwNywic3EiOiI5NDMyOTcyMDAwMDE4MDIxMzAiLCJkIjoxMDB9fSwic2lnIjoiZDkyNDczZDJlMGIwMzQyNjQ2Y2ExM2YyOTNiZWUyZmYifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1062774",
+    "event_slug": "highest-temperature-in-denver-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062774&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:39.071826+00:00",
+    "status": 200,
+    "sha256": "c8dbf52326bfff5b0ccb9088813bc694418b0ddd6a0393c7369c4948378a56bb",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4MTIyMCwic3EiOiI5NDM4NDA1MzAwMDQ3MDQ4NjAiLCJkIjoxMDB9fSwic2lnIjoiOWUwNWIzNWFiNjRmMjMxOTVmMzg3ZGY0OTJkNmM2NjIifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1068080",
+    "event_slug": "highest-temperature-in-denver-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068080&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:40.128381+00:00",
+    "status": 200,
+    "sha256": "002eae8a4dd4c8910acc708842a9ca1aa38d0f68563d311b77712adadad26c13",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NDI1Niwic3EiOiI5NDM4NjA3NzAwMDg5MjM1NTAiLCJkIjoxMDB9fSwic2lnIjoiNGNhNTEyYWFlZDMyM2NiZjU0NzE3MzA0YmEyMTFiOGQifQ"
+    }
+  },
+  {
+    "city": "Denver",
+    "event_id": "1073170",
+    "event_slug": "highest-temperature-in-denver-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073170&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:41.179967+00:00",
+    "status": 200,
+    "sha256": "d298f4b27c28fe278de6774fc1d885973c6b1172a53bd7ebf2c6e6a258ac2e89",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3NTg5MCwic3EiOiI5NDM4MDUwMDAwMDE3MDE0NjAiLCJkIjoxMDB9fSwic2lnIjoiNGQzYzNjNzVmNmZhM2QwZjRkOTE1OWEyNjFkMTkyMzQifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1036961",
+    "event_slug": "highest-temperature-in-houston-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1036961&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:42.236973+00:00",
+    "status": 200,
+    "sha256": "75c1ca34b70d6c2fb008adb01d419d267e594956d147237bc25d4370529c38cf",
+    "returned_rows": 100,
+    "rows_since_cutoff": 11,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1Njg3Nywic3EiOiI5NDEwMTIwOTAwMDY2MDg1ODAiLCJkIjoxMDB9fSwic2lnIjoiOTQxZmI3MDFlYjJhM2JlYWJjNTVlY2Q3NGE4NDQ5OTAifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1042008",
+    "event_slug": "highest-temperature-in-houston-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042008&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:45.391914+00:00",
+    "status": 200,
+    "sha256": "3770d76bf7c95b8b1021c7ad6dc7652f0c890f7c2eb7251e27ccd9196a187960",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0MjI5Miwic3EiOiI5NDE1ODE0NjAwMDQwMDUyNjAiLCJkIjoxMDB9fSwic2lnIjoiMWMwZWJhMzUyOTZmOTM1YWI0YmI2ZDExN2FiMGE4NjQifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1046728",
+    "event_slug": "highest-temperature-in-houston-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046728&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:46.442314+00:00",
+    "status": 200,
+    "sha256": "7c0d1f45a89b27dad3e33c49d9d6ff68b31bcd7e8a9c6092f6b2635425b60073",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNTM3OCwic3EiOiI5NDIxMzUyNTAwMDU1MDU4ODAiLCJkIjoxMDB9fSwic2lnIjoiYzkxOWY2ZThiOWQwNjZjYmZhODFkOWQ3MzY3MGM0ZGMifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1052144",
+    "event_slug": "highest-temperature-in-houston-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052144&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:47.501444+00:00",
+    "status": 200,
+    "sha256": "e21e06818855fc501bc37bd03c9742abe3744b61b4a85767892081f102947236",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExNDI4Miwic3EiOiI5NDI3Mjc4NDAwMDQ1MDU1NTAiLCJkIjoxMDB9fSwic2lnIjoiZGM4MGNmNTY5YTQ3ZDU0M2ZjN2JkYTdjYjA4YTRlMzgifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1057582",
+    "event_slug": "highest-temperature-in-houston-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057582&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:48.552451+00:00",
+    "status": 200,
+    "sha256": "42ad0f22d2d3f75b8200560963834ff462f5ae48b1cf1cc682dd7139b45f5560",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5OTQ5Niwic3EiOiI5NDMyOTU3OTAwMDE3MDE0OTAiLCJkIjoxMDB9fSwic2lnIjoiYjBjOGUzMDY3YTNmZjRmZWQzNGEwNzdiNmE0YjBiZWQifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1062926",
+    "event_slug": "highest-temperature-in-houston-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062926&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:49.606681+00:00",
+    "status": 200,
+    "sha256": "035ee6ab9e9bb7beec7bec080a5c62670db547a879cfc218099f347fef3513cf",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3OTczOSwic3EiOiI5NDM4MzA2NjAwMDQ3MDU5ODAiLCJkIjoxMDB9fSwic2lnIjoiYjk4MjhjZGUxZTAzMGRmMDk3MGRjZDJiZTlkMTY4ODEifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1067909",
+    "event_slug": "highest-temperature-in-houston-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1067909&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:50.663831+00:00",
+    "status": 200,
+    "sha256": "7d4abb7de496accf97863d7feae0c29dfdfd0dada4fc829c9fe5beb876b98026",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4ODUxMCwic3EiOiI5NDM4ODkxMzAwMTExMjMxNTAiLCJkIjoxMDB9fSwic2lnIjoiMTIwNTQ0Nzc4OGRhYjNmM2VkN2FkYWYxZDhkNWRlZDAifQ"
+    }
+  },
+  {
+    "city": "Houston",
+    "event_id": "1073171",
+    "event_slug": "highest-temperature-in-houston-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073171&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:51.719564+00:00",
+    "status": 200,
+    "sha256": "f3a6c49b16940ba87b1630ec00a11eb60a53c1fc0061c4b03d9a355cbc20a127",
+    "returned_rows": 33,
+    "rows_since_cutoff": 33,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1037819",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037819&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:52.770033+00:00",
+    "status": 200,
+    "sha256": "8ee983f78995737ae096cfe0dbc7ddcbebc70bdcfe58f86ed05cd27f721f3903",
+    "returned_rows": 100,
+    "rows_since_cutoff": 99,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg2MjMzNCwic3EiOiI5NDEwNDg0NzAwMDQxMDQxNTAiLCJkIjoxMDB9fSwic2lnIjoiNWI2NjdjMTg3ZTgwM2I1ODVmYTdjODg2MTM1MjYzMDIifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1042702",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042702&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:55.936874+00:00",
+    "status": 200,
+    "sha256": "92c64c6a63bc71ddcff569a0c724cb8e4a957e9003ec6268050f4fec51e87293",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0MDA5OCwic3EiOiI5NDE1NjY4MzAwMDE4MDE4NTAiLCJkIjoxMDB9fSwic2lnIjoiMTg4MzU1ZDYwMDdhY2JjODNjYTU2NmM2ZjcyNWJmZDUifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1047613",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1047613&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:56.987433+00:00",
+    "status": 200,
+    "sha256": "fc3d56c615a41b51193f61af1ebb567bf77b581061be7a21a0ec19cc93755114",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAzOTE4OCwic3EiOiI5NDIyMjczMjAwMDQ2MDQzNDAiLCJkIjoxMDB9fSwic2lnIjoiMzdmYzcwZGJiZGZiYWM3MDhkMWZmNWFjNWNhYjkyMDYifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1053082",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1053082&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:58.038275+00:00",
+    "status": 200,
+    "sha256": "729b3a505e6b9b5e45593089e8b54a8b7154ecdd14e70a589af141e4e7dbcc27",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExMjA1NSwic3EiOiI5NDI3MTMwMDAwMDE2MDIzNTAiLCJkIjoxMDB9fSwic2lnIjoiZGI1NTIxNzk1MDUwZDVkMmU4NjhmNjk1NGI5YTE0NTAifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1058346",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1058346&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:57:59.099373+00:00",
+    "status": 200,
+    "sha256": "54b16e6c6339700c759363348d1464748a5357610bcf9babe3735b118c928670",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIwNDQ4Miwic3EiOiI5NDMzMjkwMzAwMDUyMDI3MjAiLCJkIjoxMDB9fSwic2lnIjoiMGExODU3ZDdiZDViNGNlMjIzNzdjZDllMmZjMzk2ZTQifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1063682",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1063682&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:00.161992+00:00",
+    "status": 200,
+    "sha256": "a71e90f6dd1b588d62c27044b84980d463fc5c92a8e9a1b14b95f9693daccef3",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NjkyOSwic3EiOiI5NDM4Nzg1OTAwMDQ1MDU2MDAiLCJkIjoxMDB9fSwic2lnIjoiZjc3ODNmNmY1ZTdmODEwZjQwYWZjZTEyZmEyYzRiYmMifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1068817",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068817&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:01.213356+00:00",
+    "status": 200,
+    "sha256": "1e0eac8f2c23eadca7d3dad2ff6e979193e3f98e6d44dd3ec5d3d814947ce535",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4Mzc4OCwic3EiOiI5NDM4NTc2NTAwMDIyMDE2MTAiLCJkIjoxMDB9fSwic2lnIjoiM2U2NmVmOTY2NTc2M2MzNzk4YjVkZTE4ZjlhMGVjMTEifQ"
+    }
+  },
+  {
+    "city": "Los Angeles",
+    "event_id": "1073811",
+    "event_slug": "highest-temperature-in-los-angeles-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073811&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:02.264118+00:00",
+    "status": 200,
+    "sha256": "f59ceee194d343b281383c44da43e0ff4b7c01b2c3e47c14e17a715990c0956a",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3NzA1OSwic3EiOiI5NDM4MTI3OTAwMDUzMDg0ODAiLCJkIjoxMDB9fSwic2lnIjoiMmYxZWU5YWE3YzBiNjhmZmJlMDA3NmNlODY2MjU2MDEifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1037132",
+    "event_slug": "highest-temperature-in-miami-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037132&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:03.315708+00:00",
+    "status": 200,
+    "sha256": "5c2742d24dc023db734226d07952c5f778aad417f93b5bc7b5c946745d8542bd",
+    "returned_rows": 100,
+    "rows_since_cutoff": 38,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1MDgxOSwic3EiOiI5NDA5NzE3NDAwMDI3MDM1NDAiLCJkIjoxMDB9fSwic2lnIjoiYjE0NGU1NmZlYzQxNzZhYjVmOWMwYzIwNTcxNjljOWEifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1041823",
+    "event_slug": "highest-temperature-in-miami-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041823&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:06.477203+00:00",
+    "status": 200,
+    "sha256": "611dd6b53101678f05b51d4517395089d72878c35844a4418425a39fab351f35",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTkzMDA3Niwic3EiOiI5NDE1MDAwMjAwMDIxMDI1NTAiLCJkIjoxMDB9fSwic2lnIjoiYjhmNjU1ZWNlMDc3MGFhYTMxNGRmNGEzNmE0MGRiNWQifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1046927",
+    "event_slug": "highest-temperature-in-miami-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046927&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:07.537886+00:00",
+    "status": 200,
+    "sha256": "94aaab421e77c579371e12fa1a347d1d753de5ecf432f85f1530f2f581bb5559",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNDIzMywic3EiOiI5NDIxMjc2MjAwMDIxMDIwMjAiLCJkIjoxMDB9fSwic2lnIjoiNTNkZjMxODRjMWMyN2FiYTNmNTc0OWI5OGQyNjA4NTIifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1052141",
+    "event_slug": "highest-temperature-in-miami-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052141&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:08.588943+00:00",
+    "status": 200,
+    "sha256": "55892e964a1391be0c40d00b9e9ad28cbdcab778fd918eb24f5297665b7f66ad",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExNDAzOSwic3EiOiI5NDI3MjYyMjAwMDM3MDM2ODAiLCJkIjoxMDB9fSwic2lnIjoiMWFhZWUwYTA2YzJkM2E4ZWMyYTQzYWEzYmQ0MmM3MjgifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1057578",
+    "event_slug": "highest-temperature-in-miami-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057578&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:09.639963+00:00",
+    "status": 200,
+    "sha256": "5ccdb8e219d3402c0f6f9b5e1604fe63049a8d3458d8d44bf435373285e8db3e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIwMDEzMiwic3EiOiI5NDMzMDAwMzAwMDQ2MDQ4NzAiLCJkIjoxMDB9fSwic2lnIjoiZGNjZjkxMjI0M2Y2MjExNzhhNjUxMjgzNGE5ZTRjNmEifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1062924",
+    "event_slug": "highest-temperature-in-miami-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062924&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:10.690763+00:00",
+    "status": 200,
+    "sha256": "15ac014d685e1d6e3daff2eef9e56fe288b2e77d4414af8113208a06995b6a39",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NTUyOSwic3EiOiI5NDM4NjkyNjAwMDMwMDMwNjAiLCJkIjoxMDB9fSwic2lnIjoiZjQ0NzY0MGM5MzUyMzI2ZWJjYTRmMzcwOWQ0MjY5ZDAifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1067908",
+    "event_slug": "highest-temperature-in-miami-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1067908&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:11.742486+00:00",
+    "status": 200,
+    "sha256": "91d5f6708dd1c56c843c416d4944fa2651fb810f598cae6c05fce786cccf5807",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4Nzg3OCwic3EiOiI5NDM4ODQ5MjAwMDQyMDcxNjAiLCJkIjoxMDB9fSwic2lnIjoiNGZjZWYzOWY3NGY0YWRiY2U3ZDc3ZTAyMjhiNThjMGYifQ"
+    }
+  },
+  {
+    "city": "Miami",
+    "event_id": "1073167",
+    "event_slug": "highest-temperature-in-miami-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073167&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:12.797688+00:00",
+    "status": 200,
+    "sha256": "5d29a774d0ebef4b921cd9054a0996d1c6b8500c44d830b4c94dc4a0c7c12ce2",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI1NTQzOSwic3EiOiI5NDM2Njg2NzAwMDY4MDc4MDAiLCJkIjoxMDB9fSwic2lnIjoiZWQ1ZTY1Mjk0YTc4MmRjYTJlMmEwMzc1NjhmZjBhNDYifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1037130",
+    "event_slug": "highest-temperature-in-nyc-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037130&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:13.848556+00:00",
+    "status": 200,
+    "sha256": "b00eafe619700d3dcba67aa04a1c4dcba4c3be7a0035b76f34d6e560b432257d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 47,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1NTQyNCwic3EiOiI5NDEwMDI0MDAwMDMwMDIzNDAiLCJkIjoxMDB9fSwic2lnIjoiYTZiYjljMGY2OWIwODk1ZjAzODI2OGU3ODUxN2E0YTMifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1041821",
+    "event_slug": "highest-temperature-in-nyc-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041821&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:17.017816+00:00",
+    "status": 200,
+    "sha256": "4acff707779a6cf1d50c6e7deb534bcf5e311759d8b6ceb598a241f77593816b",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk1NDY2Niwic3EiOiI5NDE2NjM5NTAwMDMwMDI2NTAiLCJkIjoxMDB9fSwic2lnIjoiOTI3NTVjMTg3ZDZlZDIxMDAwM2ExMmUzYmExZGVhODQifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1046925",
+    "event_slug": "highest-temperature-in-nyc-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046925&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:18.068424+00:00",
+    "status": 200,
+    "sha256": "24b5b61abfaa533502a50c102f7b9da89cce70330d3e3f81833de1a4142e6805",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNTAwOSwic3EiOiI5NDIxMzI3OTAwMDE5MDEzODAiLCJkIjoxMDB9fSwic2lnIjoiY2ZiYmY4NzRjNjQ0ODQwYzAxNjI3ZTIwNDdiODRhNWMifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1052139",
+    "event_slug": "highest-temperature-in-nyc-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1052139&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:19.119972+00:00",
+    "status": 200,
+    "sha256": "5d6ef63d681e8d29b8e1eeca3138a16da9705fd7df6c23f8acd934aafcf7516b",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDEwNzM4OSwic3EiOiI5NDI2ODE5MzAwMDQ2MDQ1MzAiLCJkIjoxMDB9fSwic2lnIjoiODI3NzMwODk0OWM2Y2YzYTIyZWE3YTQwMWM0YWM1YWQifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1057575",
+    "event_slug": "highest-temperature-in-nyc-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057575&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:20.176056+00:00",
+    "status": 200,
+    "sha256": "dc8253689a9ab72045b6d147120e6e0a17090a72f77edc613377df95539f72d6",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5MzIyMywic3EiOiI5NDMyNTM5NzAwMDI5MDE2OTAiLCJkIjoxMDB9fSwic2lnIjoiZjg2YmI4N2MwNzJiMWZkMjI1YmE0NmQzYjA2OTc4M2EifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1062921",
+    "event_slug": "highest-temperature-in-nyc-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062921&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:21.227624+00:00",
+    "status": 200,
+    "sha256": "cbf140bf0bf36df00ba2cd1af67d77653a80aae8bf4cbe860585b119f96f51c8",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4MTE1Miwic3EiOiI5NDM4NDAwODAwMDkwMTAzMTAiLCJkIjoxMDB9fSwic2lnIjoiNWI4OGU0ZDEzYjVhZjRhNjg1MTM4MjBkZmNlNTYyMmIifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1067906",
+    "event_slug": "highest-temperature-in-nyc-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1067906&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:22.282899+00:00",
+    "status": 200,
+    "sha256": "562050084534e9e805978adea88c0ab84a620f5325c0089ae2d4022d8c0947cf",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3NjkxMywic3EiOiI5NDM4MTE4MjAwMDYxMTAxMjAiLCJkIjoxMDB9fSwic2lnIjoiMDkwYmYyMWU2NDRhMzlkZTA1ODRhY2Q2MWIxZjJlZTYifQ"
+    }
+  },
+  {
+    "city": "NYC",
+    "event_id": "1073164",
+    "event_slug": "highest-temperature-in-nyc-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073164&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:23.333549+00:00",
+    "status": 200,
+    "sha256": "778fb7dd7144fb7e361463e21d29c5b173c2a0669327617d2665d3ab26d2ffa0",
+    "returned_rows": 50,
+    "rows_since_cutoff": 50,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1037820",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037820&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:24.397051+00:00",
+    "status": 200,
+    "sha256": "2b982a00c0434f33254ac650b6ec4e94dfdc7ffac0739df392e961515af3d269",
+    "returned_rows": 100,
+    "rows_since_cutoff": 83,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1ODg4NSwic3EiOiI5NDEwMjU0ODAwMDUyMDcyNTAiLCJkIjoxMDB9fSwic2lnIjoiYmUxNmZmNGU1ZmZmYzMxOGRiMzY5NThhOGViMTAwOTUifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1042703",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042703&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:27.558574+00:00",
+    "status": 200,
+    "sha256": "3b1c95017753a4c0c516f49db3783d4a05c402bbe9adf12520794c81eb827b0a",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0NTExNywic3EiOiI5NDE2MDAyOTAwMDQ2MDU3NzAiLCJkIjoxMDB9fSwic2lnIjoiN2U3ZmU5YzY0ZjA0YjhhY2E5NWIxNTczMjUzZTljY2YifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1047614",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1047614&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:28.614182+00:00",
+    "status": 200,
+    "sha256": "38af74bfa546b6dfc000ce88a6f73a2f545ad6ed5a1378b9580ce273c4a99c2d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNzkxNCwic3EiOiI5NDIxNTIxNjAwMDU0MDg1MTAiLCJkIjoxMDB9fSwic2lnIjoiMWRkMjgyYWVlNWUzZjU3MTY0NWJhM2MxYzVmNmYwYTAifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1053083",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1053083&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:29.665345+00:00",
+    "status": 200,
+    "sha256": "ab8bc8f7d06bd01dde63963f3a5d547f5488815d6c7e629ea658823b91286561",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExNDAzOSwic3EiOiI5NDI3MjYyMjAwMDMzMDMyNzAiLCJkIjoxMDB9fSwic2lnIjoiMmFjZDI1YzRjZGM5ZmM2MGJjZWFjM2Y2OGRkMGRhMjMifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1058347",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1058347&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:30.715869+00:00",
+    "status": 200,
+    "sha256": "fc0ae2ac01c35f3e539f5bc4c7a065373e90527a0ab8e351bdb63d98f72383ec",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIxMDEzNywic3EiOiI5NDMzNjY3MzAwMDQ1MDMxMTAiLCJkIjoxMDB9fSwic2lnIjoiMjk1MzcxYmUwMjc5NWI3MGNiODFkZWY2YWZmNDVhNDMifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1063683",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1063683&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:31.766971+00:00",
+    "status": 200,
+    "sha256": "39ba9995658b34d8419a430be629d95052bb0c236eda4deb09e33dc8374e08c1",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4NTIwMSwic3EiOiI5NDM4NjcwNzAwMDQ0MDQzNzAiLCJkIjoxMDB9fSwic2lnIjoiYzI0NGVkMThmZTgyY2M2YWQxOWY4MjE4OTA4ZTRjN2EifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1068818",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068818&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:32.817398+00:00",
+    "status": 200,
+    "sha256": "3b6d3d3508c632d90a6684013848864cc1573eac4aed8e1c97c1806060a8c1f5",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI2MDQ4MSwic3EiOiI5NDM3MDIyNzAwMDM1MDM2MTAiLCJkIjoxMDB9fSwic2lnIjoiNTdkNGM1YzQxZTBjYTFhMjJhNDY1MmFhM2U3OTZlYWUifQ"
+    }
+  },
+  {
+    "city": "San Francisco",
+    "event_id": "1073812",
+    "event_slug": "highest-temperature-in-san-francisco-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073812&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:33.870762+00:00",
+    "status": 200,
+    "sha256": "be642b2c18e5d1e0a5c0140251cd9a44d669db10931118f51c851f4c69db479d",
+    "returned_rows": 61,
+    "rows_since_cutoff": 61,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1037818",
+    "event_slug": "highest-temperature-in-seattle-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1037818&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:34.929665+00:00",
+    "status": 200,
+    "sha256": "3bc376436d537cee8d7c6ed9efa8d9811ab5c548f1f054253ed9b0b37a1162b1",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg3MzYzMCwic3EiOiI5NDExMjM3ODAwMDUzMDY3NzAiLCJkIjoxMDB9fSwic2lnIjoiMWFjMGM4ZWJjYzA1MjQ1MzY2YWE2MDFjMzYxMzlhZmIifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1042701",
+    "event_slug": "highest-temperature-in-seattle-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042701&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:38.098798+00:00",
+    "status": 200,
+    "sha256": "f39a1ebeedab406fa564fafbe2e92549836d1b47b9a29bc03e2b9d3597b55f22",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk0NzQ2MSwic3EiOiI5NDE2MTU5MjAwMDYzMDU4OTAiLCJkIjoxMDB9fSwic2lnIjoiYmVjZjgzZmZmZTAzYzUxZTcyZTgyM2IzZTE5NTBiYmIifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1047612",
+    "event_slug": "highest-temperature-in-seattle-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1047612&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:39.157808+00:00",
+    "status": 200,
+    "sha256": "6a61ad945436a3bac66341de46a7a809a5d961dddd5fcb7f7d0db250cc802dd0",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAzNTEzMSwic3EiOiI5NDIyMDAyNzAwMDUwMDMwNTAiLCJkIjoxMDB9fSwic2lnIjoiYmNjZWUyZTZhMDdhMDliMTcwNzVkYTRkMTI1NmUwZmIifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1053081",
+    "event_slug": "highest-temperature-in-seattle-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1053081&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:40.208483+00:00",
+    "status": 200,
+    "sha256": "356edb2ce167e8f191b79919c679bd017744b72e84bb29699221836712c49641",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExOTEyNCwic3EiOiI5NDI3NjAxMjAwMDUyMDkyNTAiLCJkIjoxMDB9fSwic2lnIjoiNmVmMjJlNzhkYTViMjNhMGYxMWQyMjEzYjRiNjc5M2MifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1058345",
+    "event_slug": "highest-temperature-in-seattle-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1058345&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:41.263861+00:00",
+    "status": 200,
+    "sha256": "344ef7ec79d8820e706890ac384e7baef82fbcf1c80e64ab833c20d9f88ae4ea",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIwNDAyMCwic3EiOiI5NDMzMjU5NTAwMDYwMDk1NzAiLCJkIjoxMDB9fSwic2lnIjoiMTBhYzZjZGQxNDlmZWU5NGVlOWNjMDllNTM5ZmRhYWIifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1063681",
+    "event_slug": "highest-temperature-in-seattle-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1063681&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:42.320090+00:00",
+    "status": 200,
+    "sha256": "c6b356e5549c295fe70d98e0630f99b43c6a3204136925a52170f9950dbdecb6",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4Njg2MCwic3EiOiI5NDM4NzgxMzAwMDIxMDE5NDAiLCJkIjoxMDB9fSwic2lnIjoiNzRmZWY5YmI3NThiMjJmOWI1ZTc1ZWZkYWI1OGQ0YTIifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1068816",
+    "event_slug": "highest-temperature-in-seattle-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1068816&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:43.381071+00:00",
+    "status": 200,
+    "sha256": "32d1a2622d3f96ca43131d4036b9cbc54b96980b03c7ec85e601fa47547c14d9",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3ODIxOCwic3EiOiI5NDM4MjA1MjAwMDM0MDM4MzAiLCJkIjoxMDB9fSwic2lnIjoiZTdkMzExOTkxOWE2NGVhMGNhYTUwZWQxMmI1OGVjMGQifQ"
+    }
+  },
+  {
+    "city": "Seattle",
+    "event_id": "1073810",
+    "event_slug": "highest-temperature-in-seattle-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1073810&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:44.434720+00:00",
+    "status": 200,
+    "sha256": "856253d17c4959c30ab037bc972888d232153c960c8d5c82777cacd7de34d213",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI2OTg0NCwic3EiOiI5NDM3NjQ2OTAwMDI5MDQwNTAiLCJkIjoxMDB9fSwic2lnIjoiZWMyYTQ1M2Y5NmMzOTIyYWM5YzdmNTJmZjBlOGQ5ZjUifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1041486",
+    "event_slug": "highest-temperature-in-taipei-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1041486&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:45.490126+00:00",
+    "status": 200,
+    "sha256": "4e638b9976a9710dc50b2e7338fdc59da6cfeff3146d834586a4bddab3c64429",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg4OTQ4MCwic3EiOiI5NDEyMjk0MjAwMDcyMDg2MTAiLCJkIjoxMDB9fSwic2lnIjoiNGRlOTc4MDIyYmI3YTYwMWJjYWFmZDU0NTNlYTU4ZjYifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1046414",
+    "event_slug": "highest-temperature-in-taipei-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1046414&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:48.647677+00:00",
+    "status": 200,
+    "sha256": "bd51f5b23cc163a45f483286fae0389ecf73a9360e880c7e8a0d18f8220e8b05",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTk3ODIyOSwic3EiOiI5NDE4MjA5NzAwMDY0MDYxMzAiLCJkIjoxMDB9fSwic2lnIjoiYzQ3YzJhOGIwMDdiZDQyNjk5YTk4ZWQxMzc4OWEzZWEifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1051562",
+    "event_slug": "highest-temperature-in-taipei-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1051562&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:49.702116+00:00",
+    "status": 200,
+    "sha256": "3a2881705d9f382c5baadaac413b2c68f7e9a81c62c4f8180f5d46b7e3314db7",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDA2MjkwNiwic3EiOiI5NDIzODU0MjAwMDcyMDc3NjAiLCJkIjoxMDB9fSwic2lnIjoiYTkyMjQ1MGZjZGUzZjk2Mzc3N2RmMzUyNDMxZTU5NGQifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1057054",
+    "event_slug": "highest-temperature-in-taipei-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1057054&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:50.753025+00:00",
+    "status": 200,
+    "sha256": "86d454e0638b8bf67c9a74895361cdc4f142f25eba315ee68d7ee40089ff456e",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE0NzM0Miwic3EiOiI5NDI5NDgyNDAwMDc5MDc4NzAiLCJkIjoxMDB9fSwic2lnIjoiNzAzNDE3ODJiYzMyZDEwZTU2MzliZjI5NDc1NDliMTUifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1062446",
+    "event_slug": "highest-temperature-in-taipei-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1062446&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:51.804057+00:00",
+    "status": 200,
+    "sha256": "bb31aeb656cb65d12c950a6764c5de71ddf4be5374c8c5e3bdb415c9b91a907d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIzNDQ1Nywic3EiOiI5NDM1Mjg4MjAwMDQ5MDU4OTAiLCJkIjoxMDB9fSwic2lnIjoiZDQ2Zjg4MmE5NTI0MDRlMTgxZjVlM2I5ZGEzYjhmN2EifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1067590",
+    "event_slug": "highest-temperature-in-taipei-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1067590&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:52.855161+00:00",
+    "status": 200,
+    "sha256": "caf9f26b944968cbcc249f5517246bab739bdc192f5b216315f980dba81d540a",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI4ODAyNSwic3EiOiI5NDM4ODU5MDAwMDMxMDM3MTAiLCJkIjoxMDB9fSwic2lnIjoiNDI5NGM5ZTA0ZWEyNGUyMzYyZGM3YThlMjAyNjk1YzAifQ"
+    }
+  },
+  {
+    "city": "Taipei",
+    "event_id": "1072667",
+    "event_slug": "highest-temperature-in-taipei-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1072667&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:53.905966+00:00",
+    "status": 200,
+    "sha256": "fb263da3c20862af94f21ee0718fac7120148398b427de044e12f824b5b8109b",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDIzNjgzMCwic3EiOiI5NDM1NDQ2NDAwMDQ2MDQ3NDAiLCJkIjoxMDB9fSwic2lnIjoiMmJlM2U1ZTYyM2YxMzM2ZjNhMjE1YjEyOTA3ZGIwMTIifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1038086",
+    "event_slug": "highest-temperature-in-toronto-on-september-19-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1038086&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:54.961853+00:00",
+    "status": 200,
+    "sha256": "56b7d8fb47a1396884e5afaf6f91213449dd1cdf1f74b3f756a768a7ad93899d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 32,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTg1MzQ5OCwic3EiOiI5NDA5ODk1OTAwMDQwMTEzNDAiLCJkIjoxMDB9fSwic2lnIjoiZjI1MzY0YTkxMmJmZmJiMTdhYjI2MzViYjlkOGIwMTYifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1042933",
+    "event_slug": "highest-temperature-in-toronto-on-september-20-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1042933&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:58.120104+00:00",
+    "status": 200,
+    "sha256": "2962e62ce82e307182064bc02f16ce71aaeaa4ef93d67fa694822f5911490dac",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc4OTkzNTY2NCwic3EiOiI5NDE1MzcyNzAwMDE3MDExMDAiLCJkIjoxMDB9fSwic2lnIjoiMTk0YjlmZmZiNmZiNmRlMTcwZDcxZmRkZTllNzgzYzMifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1047792",
+    "event_slug": "highest-temperature-in-toronto-on-september-21-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1047792&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:58:59.170471+00:00",
+    "status": 200,
+    "sha256": "7e87d91d7e7fd168ba691455b5a74023bb872c36344056982193ad19e5e93d7a",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDAyNzgyMCwic3EiOiI5NDIxNTE1MzAwMDM2MDQ4NDAiLCJkIjoxMDB9fSwic2lnIjoiNWUxZTY4NDNhYmNjM2M5NGRmMTUxZjNjYTYyYzYwYWQifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1053300",
+    "event_slug": "highest-temperature-in-toronto-on-september-22-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1053300&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:59:00.221476+00:00",
+    "status": 200,
+    "sha256": "c4ece27a155b1bb604fb2442e9fe38e1f567829610621fce4a07fc41d3e0628d",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDExMDk4MSwic3EiOiI5NDI3MDU4NDAwMDQ3MDMyNDAiLCJkIjoxMDB9fSwic2lnIjoiMGIwMTJjNzYyNDBiMzQzOWZhNmU2ZDI2Yzc2Njg4MGYifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1058665",
+    "event_slug": "highest-temperature-in-toronto-on-september-23-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1058665&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:59:01.272285+00:00",
+    "status": 200,
+    "sha256": "98205625a3c88a1218fa6b5a4202cb20ff9e30e1cfe4cc76b6509ab8439e633f",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDE5ODQwNSwic3EiOiI5NDMyODg1MjAwMDQyMDQ1NjAiLCJkIjoxMDB9fSwic2lnIjoiMTAxNDA5M2Y1YjI2ZmFkZGNkNzE2ZmNjN2VmMmMzM2IifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1063906",
+    "event_slug": "highest-temperature-in-toronto-on-september-24-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1063906&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:59:02.334565+00:00",
+    "status": 200,
+    "sha256": "4a16b1e971c8f37f25fec9c646e51863c07f488bbc05a022e1cd6975070ab6a1",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3NjEyMywic3EiOiI5NDM4MDY1NTAwMDI2MDI4ODAiLCJkIjoxMDB9fSwic2lnIjoiMDZlZjdiNDA1MDAwZDA2Mjk2OTQ5YTA5YTUxNDg0M2EifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1069090",
+    "event_slug": "highest-temperature-in-toronto-on-september-25-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1069090&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:59:03.391264+00:00",
+    "status": 200,
+    "sha256": "42776415df6182ed072bce7069cf04014af8cc466738cf0262ca1ca0273a4c91",
+    "returned_rows": 100,
+    "rows_since_cutoff": 100,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": true,
+      "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJ0cmFkZXMiLCJwYXJhbXMiOnsibCI6MTAwLCJ0cyI6MTc5MDI3MDE4Nywic3EiOiI5NDM3NjY5ODAwMDMxMDQxNDAiLCJkIjoxMDB9fSwic2lnIjoiODdjMTVmOTYzMGZjOTMwM2RjOTBiMjE5MTc0MGE3NGMifQ"
+    }
+  },
+  {
+    "city": "Toronto",
+    "event_id": "1074017",
+    "event_slug": "highest-temperature-in-toronto-on-september-26-2026",
+    "url": "https://data-api.polymarket.com/v2/trades?event_id=1074017&limit=100&taker_only=true",
+    "retrieved_at": "2026-09-24T23:59:04.441903+00:00",
+    "status": 200,
+    "sha256": "4687b2e77e205550a2558ce6ec50ed0010287ea68dd0d1243b4505910bb1c38b",
+    "returned_rows": 22,
+    "rows_since_cutoff": 22,
+    "pagination": {
+      "limit": 100,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  }
+]

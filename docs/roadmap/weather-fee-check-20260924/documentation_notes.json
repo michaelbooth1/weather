@@ -1,0 +1,63 @@
+{
+  "read_dates_utc": ["2026-09-24", "2026-09-25"],
+  "scope": "Primary public documentation; announced dates are not per-condition first-paid-fee timestamps.",
+  "sources": [
+    {
+      "url": "https://docs.polymarket.com/programs/builders/fees",
+      "observations": [
+        "Builder fees are additive flat percentages of notional, separate from platform fees.",
+        "Default builder rates are zero; documented limits are 100 bps taker and 50 bps maker.",
+        "OrderFilled includes the signed builder code. A nonzero code alone does not establish a nonzero fee profile.",
+        "Historical builder profiles were not fetched. Four observed excess taker charges are compatible with additive builder fees under separately truncated five-decimal components."
+      ]
+    },
+    {
+      "url": "https://docs.polymarket.com/changelog/predictions",
+      "observations": [
+        "March 30, 2026 Fee Structure V2 entry includes Weather among fee-enabled categories.",
+        "March 31, 2026 REST API Fee Fields Update directs fee calculations to the market feeSchedule object.",
+        "April 28, 2026 CLOB V2 production migration follows an April 17 announcement of match-time fees and removal of feeRateBps from signed orders.",
+        "September 4, 2026 introduces Data API v2; v1 remains frozen. No September weather-fee activation is listed in the observed changelog."
+      ]
+    },
+    {
+      "url": "https://docs.polymarket.com/trading/fees",
+      "observations": [
+        "Weather coefficient is 0.05, maker fee is zero, maker rebate percentage is 25%.",
+        "Fee formula is shares times coefficient times price times one minus price; the 100-share weather table peaks at 1.25 at price 0.50.",
+        "The documentation describes five-decimal fee precision. Actual transaction comparisons retain rounding differences."
+      ]
+    },
+    {
+      "url": "https://docs.polymarket.com/market-data/market-details",
+      "observations": [
+        "feesEnabled identifies current activation; feeSchedule carries rate, exponent, takerOnly and rebateRate.",
+        "takerOnly=true means the maker is not charged. These fields do not establish historical activation timestamps."
+      ]
+    },
+    {
+      "url": "https://docs.polymarket.com/programs/maker-rebates",
+      "observations": [
+        "Weather rebates use fee-curve weights and a 25% allocation of collected taker fees.",
+        "Eligibility requires filled maker liquidity; allocation is per market, with daily pUSD payment and a one-pUSD accrued rebate minimum.",
+        "A configured rebate allocation does not prove an individual maker's payment."
+      ]
+    },
+    {
+      "url": "https://data-api.polymarket.com/v2/openapi.json",
+      "observations": [
+        "Trade schema has no fee or rebate property. Absence must not be coerced to zero.",
+        "Event/condition trade queries ignore start/end bounds; timestamp filtering is local in this study.",
+        "taker_only defaults to true; false includes maker-side rows."
+      ]
+    },
+    {
+      "url": "https://docs.polymarket.com/resources/contracts",
+      "observations": [
+        "Polygon CTF Exchange is 0xE111180000d2663C0091e4f400237545B87B996B.",
+        "Polygon Neg Risk CTF Exchange is 0xe2222d279d744050d28e00520010520000310F59.",
+        "pUSD collateral token is 0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "interpretation": "Inferred compatibility with documented additive builder fees, assuming separate truncation to five decimals. Historical builder fee profiles were not fetched; these are not verified profile rates.",
+  "outliers": [
+    {
+      "city": "Atlanta",
+      "trade_day": "2026-09-20",
+      "transaction_hash": "0x5e34698e205b7d0e664f919f28f116b7697c1dd9148e6944e1c41b75015294ae",
+      "builder": "0x495e9c00a8e1bcdceeb2599694efcf5560d92709f11a24d010be0339417e50ca",
+      "fee_pusd": "0.00016",
+      "platform_formula_unrounded_pusd": "0.00010695",
+      "notional_pusd": "0.0069",
+      "compatible_builder_bps_under_separate_floor5": [
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100
+      ]
+    },
+    {
+      "city": "Austin",
+      "trade_day": "2026-09-23",
+      "transaction_hash": "0xfed68b76fdc377fe894628e22590bafea7627ef17b08e8ba0dab17749a82f237",
+      "builder": "0x4898df15ec6590495dc6c0fedf951ade3e64001d47f9caf44a64e86fc11959df",
+      "fee_pusd": "0.12533",
+      "platform_formula_unrounded_pusd": "0.06346645627266134880348078320",
+      "notional_pusd": "12.3756",
+      "compatible_builder_bps_under_separate_floor5": [
+        50
+      ]
+    },
+    {
+      "city": "Denver",
+      "trade_day": "2026-09-24",
+      "transaction_hash": "0xcefd6e2acfedb1b95449a061b4128d7fad7e47aa9ac6d486cbd228d7c339df65",
+      "builder": "0x4898df15ec6590495dc6c0fedf951ade3e64001d47f9caf44a64e86fc11959df",
+      "fee_pusd": "0.0378",
+      "platform_formula_unrounded_pusd": "0.031500",
+      "notional_pusd": "1.26",
+      "compatible_builder_bps_under_separate_floor5": [
+        50
+      ]
+    },
+    {
+      "city": "Taipei",
+      "trade_day": "2026-09-20",
+      "transaction_hash": "0xfdf864ec908387d85f898108a271ba898397c8b6303dd9c620f29916b88e60b1",
+      "builder": "0x599ec9d1f6a89b4c910c5eb8c91fa9656f22907a734a3e333d6d01ae3a17b92a",
+      "fee_pusd": "0.06336",
+      "platform_formula_unrounded_pusd": "0.005498505",
+      "notional_pusd": "5.7879",
+      "compatible_builder_bps_under_separate_floor5": [
+        100
+      ]
+    }
+  ]
+}

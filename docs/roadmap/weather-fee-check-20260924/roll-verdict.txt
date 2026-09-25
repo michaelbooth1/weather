@@ -1,0 +1,12 @@
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/roll_verdict.ps1 -Branch codex/weather-fee-check-20260924 -Base origin/master
+Exit code: 1
+UNDECIDABLE: no live closure evidence
+  missing closure evidence: data\snapshots\loop_supervisor_status.json
+  missing closure evidence: data\snapshots\clob_loop_supervisor_status.json
+  missing closure evidence: data\snapshots\observation_trigger_supervisor_status.json
+  missing closure evidence: data\snapshots\clob_enrichment_status.json
+
+Workstation observation. No production closure files were fetched.
+The task's files are additive under docs/, categorically roll-free under
+DELEGATION_CONTRACT section 3. This is not a closure-derived roll verdict.
+Production must run the same repository-owned verdict before integration.
