@@ -30,3 +30,4 @@ row that names the old one.
 | 2026-09-24 | Short confirmation `go <6 hex>` | RE-1 | tip `a0967b78a` | long phrase |
 | 2026-09-24 | System Restore capped at 2 GB; Windows Search disabled; Defender excludes `data\`; paper maker roll paused (retiring the old maker) | production host | storage plan; host audit | — |
 | 2026-09-24 | Model and consider all inventory options (holding, selling, resting sells, merge); no code change now | research | inventory review | — |
+| 2026-09-24 | RE-1 raised by 20 sessions (10 -> 30); attempt cap 60 (agent default, two per session) | none after 2026-09-30 | 23b addendum; tip `622e25bfb` | 10 sessions / 20 attempts |

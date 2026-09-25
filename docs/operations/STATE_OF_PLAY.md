@@ -18,8 +18,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 - Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
-- Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **ten
-  sessions and twenty attempts** (owner 2026-09-23 22:40 ET; the original three was an agent default), none after 2026-09-30, worst case one session's reserve (at most 75 pUSD); campaign bound = the testing wallet (at most 200, no top-ups); outside the sealed lane and changes nothing in it (mission 84a).
+- Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **thirty
+  sessions and sixty attempts** (owner raised 3->10 on 09-23 and +20 on 09-24; attempts are an agent default), none after 2026-09-30, worst case one session's reserve (at most 75 pUSD); campaign bound = the testing wallet (at most 200, no top-ups); outside the sealed lane and changes nothing in it (mission 84a).
 - Owner 2026-09-22: RE-1 capital is a learning budget (losses reported, a fill is data); `H` = 1.00 net/day per 100 deployed.
 - Owner 2026-09-23: [RE-1 addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) (`BELOW_PAYOUT_MINIMUM` on `k_accrued`,
   either asset, graded adequacy); closes only on adequate `NOT_PAID` or `k_accrued` < 0.1 twice; 10-31 is an owner review.
@@ -51,7 +51,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
-  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; **9 of 10 used**. Held to
+  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; **10 of 30 used** (s10 lost to post read lag, fixed `10fa052a0`); next tip `622e25bfb`. Held to
   settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
   Runs paused 09-24; 92a analysis done (`7f98359`). **Next tip `6b5fde587`**: owner-approved selection amendment (local T+1/T+2,
