@@ -40,6 +40,7 @@ changing inventories, metrics, versions, or operational state.
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
+| Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | Current work | generated roadmap active backlog |
 | Item status/scope/evidence | numbered roadmap item file |
 | Exact versions, counts, hashes, and active state | code, config, manifests, generated reports |
