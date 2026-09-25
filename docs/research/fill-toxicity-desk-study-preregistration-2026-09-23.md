@@ -255,3 +255,26 @@ Shared malformed evidence that cannot be located to a market-date still refuses 
 snapshot root. `--dry-run` lists files and sizes without opening journal or manifest content.
 Mission 100b verifies only synthetic fixtures; the production agent owns the later leased rerun
 after about ten UTC dates of capture (earliest approximately 2026-10-05).
+
+## Clarification 12 (2026-09-25, owner-approved; before any panel-B read or scoring)
+
+**A second, separately frozen panel.** Panel A (2026-08-15 to 2026-09-23) keeps its recorded result,
+`INCONCLUSIVE` / `UNDERPOWERED` with 0 of 480 events admitted (run at `2ac227d08`, 2026-09-25): those dates have
+no captured per-condition reward terms and never will. It is not rerun and is not pooled with panel B.
+
+**Panel B = every closed same-day event date from 2026-09-25 to 2026-10-08 inclusive (14 dates), all 12 markets.**
+The window is fixed now and does not move for any result. Panel B is scored **once**, after the 2026-10-08
+events have settled and been captured, by the production agent under the lease. Every rule above applies
+unchanged: design, event classes and windows, estimands and horizons, exclusions, Clarifications 1-11
+(including 88a terms under Clarification 11 and the 60-minute freshness rule), inference with at least ten
+date clusters, and the kill rule. The first panel-B minutes on 2026-09-25 before 88a's capture began
+(06:34Z) have no fresh terms and are excluded by the existing rules, not by a new rule.
+
+**Declared caveat (no rule change):** RE-1's own quotes during the panel sit on T+1/T+2 bands and end
+before those bands become same-day, so they are not simulated here. Any of our own fills on the public
+tape are counted like any other print. If fewer than ten panel-B dates survive the exclusions, the
+result is `INCONCLUSIVE` / `UNDERPOWERED` under the existing rule; no extension is authorized by this
+clarification.
+
+Implementation (mission 100c): a panel selector whose default stays panel A, panel B's dates as frozen
+constants, and `FROZEN_REF` bound to the commit that records this clarification.
