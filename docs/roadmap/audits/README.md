@@ -15,6 +15,7 @@ citations).
 
 | Audit | Added | Scope | Verdict (one line) | Open | Dispositions | Status |
 | --- | --- | --- | --- | --- | --- | --- |
+| [positions-review-2026-09-25](positions-review-2026-09-25.md) | 2026-09-25 | open RE-1 lots: hold/sell/rest EV, inventory policy, wallet reader | sell Miami, rest Chicago @0.37; policy + bleed limit; reader as a keyless script | wallet reader (100a) | inside the file; owner placed both orders | OPEN |
 | [post-night-audit-2026-09-25](post-night-audit-2026-09-25.md) | 2026-09-25 | night landings, 88a/89a data path, disk, next moves | landings sound; 89a cannot read 88a output yet; disk tight for tonight | adapter, canon repair, two-band owner decision | inside the file | OPEN |
 | [pre-night-audit-2026-09-24](pre-night-audit-2026-09-24.md) | 2026-09-24 | RE-1 code, landing plan, host, docs, 89a readiness | all areas GO or fixed | leftovers for owner review | inside the file | DISPOSED |
 | [host-and-model-audit-2026-09-24](host-and-model-audit-2026-09-24.md) | 2026-09-24 | host, model, logging, RAM, storage, fleet, settlement, repo | capture healthy, instruments mislead; true disk low 43.2 GiB; learning lane dead since 08-13 | learning-lane reorder, monitoring flags, spent one-shots, boot-recovery tip, signed band parser, log rotation | inside the file; owner host actions 09-24 | OPEN |
