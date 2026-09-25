@@ -398,3 +398,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-95d | handoff | [Workstation handoff 2026-09-95d — the full Polymarket weather-market universe, triaged](workstation-handoff-2026-09-95d-weather-market-universe.md) | 2026-09-24 | none in tree | 10a, 10m, 10n | — |
 | 2026-09-100a | handoff | [Workstation handoff 2026-09-100a — authenticated read-only wallet reader with a LAN API](workstation-handoff-2026-09-100a-wallet-public-reader.md) | 2026-09-25 | none in tree | — | — |
 | 2026-09-100b | handoff | [Workstation handoff 2026-09-100b — 88a reward terms into the 89a desk study](workstation-handoff-2026-09-100b-maker-evidence-terms-adapter.md) | 2026-09-25 | none in tree | — | — |
+| 2026-09-100c | handoff | [Workstation handoff 2026-09-100c — 89a panel B selector (Clarification 12)](workstation-handoff-2026-09-100c-fill-toxicity-panel-b.md) | uncommitted | none in tree | — | — |
