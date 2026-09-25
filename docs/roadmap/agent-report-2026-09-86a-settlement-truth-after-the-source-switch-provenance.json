@@ -1,0 +1,1192 @@
+{
+  "config_sha256": "bf61ebc48ab807367bc2675420925acdb0c0a71c0cef253c46c9169ec108ce88",
+  "disagreements_sha256": "bd2e1d0a373f03171a5ec45bc2cbbc65c2f52716f84a0e3eaa4979b1b7278a6f",
+  "instrument_commit": "1ead63e75802831d82a78844e0d4cd8c96372230",
+  "labels": {
+    "bytes": 1157402,
+    "sha256": "73054e9d1f831fc3062d9a033ffb3ce0bf6e78ea19b138bd5001a0426e3fee13"
+  },
+  "recovery": [
+    {
+      "all_24_hours_represented": 44,
+      "candidate": "asos",
+      "historically_missing": 156,
+      "observed_max_available": 106,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    },
+    {
+      "all_24_hours_represented": 153,
+      "candidate": "metar",
+      "historically_missing": 156,
+      "observed_max_available": 156,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    },
+    {
+      "all_24_hours_represented": 153,
+      "candidate": "metar_with_6h",
+      "historically_missing": 156,
+      "observed_max_available": 156,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    },
+    {
+      "all_24_hours_represented": 152,
+      "candidate": "metar_hourly",
+      "historically_missing": 156,
+      "observed_max_available": 156,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    },
+    {
+      "all_24_hours_represented": 0,
+      "candidate": "nws",
+      "historically_missing": 156,
+      "observed_max_available": 0,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    },
+    {
+      "all_24_hours_represented": 0,
+      "candidate": "nws_hourly",
+      "historically_missing": 156,
+      "observed_max_available": 0,
+      "venue_pairs": 0,
+      "verified_recovery": null
+    }
+  ],
+  "requests": [
+    {
+      "bytes": 1100991,
+      "cache_key": "01b29f58abb30b4338a5d067035e79a6e9f56eb7d53303d9469e75c58e67a78e",
+      "fetched_at_utc": "2026-09-22T19:33:44.349886+00:00",
+      "retry_after": null,
+      "sha256": "22213bc21bf4a90987fc1c0d0aab4b09baead88f32fff87a1ff728560cf7d186",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 4108677,
+      "cache_key": "01b6ff033e611a716e7453ce7c1a2d3729dfa271ae825a4e10ad530f519c2693",
+      "fetched_at_utc": "2026-09-22T19:34:13.286411+00:00",
+      "retry_after": null,
+      "sha256": "fefeee866cf56c60334177d0dc62280befc3be8c704bb286b1d3c115daf77227",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 4261812,
+      "cache_key": "05ff25da4440412c3a433c5b1324870e78a9cf35bd108f5e4d2d31c18eeb9568",
+      "fetched_at_utc": "2026-09-22T19:35:49.668188+00:00",
+      "retry_after": null,
+      "sha256": "bdad6077e988ef75d007016f7c30671000b19396331bd9c989eb5aa94b85262b",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 2030694,
+      "cache_key": "0a11067782ec844bb4fd30e134ae8f69c458638063c83369c6ef74feb3c92d33",
+      "fetched_at_utc": "2026-09-22T19:27:20.041163+00:00",
+      "sha256": "96d9186e1fe9bcab26cfb4c269250e4d3917394f2e285c1793a8d5fb3b8aef76",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNDozNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 3658839,
+      "cache_key": "0a557ba665f68488cf913c0d2ab8cb601d93d18d533e7e6026cc5cb535bba82d",
+      "fetched_at_utc": "2026-09-22T19:36:24.329566+00:00",
+      "retry_after": null,
+      "sha256": "c888f9cc5632f1e0a96e52e7dc7310d98d1859d4a9cc5016a157a2bae4cd94ad",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1932847,
+      "cache_key": "0f4b66ac148d927e9ab080d1bf99b90631fb0c86426b8d9b750f8d3536c88ee3",
+      "fetched_at_utc": "2026-09-22T19:31:57.032890+00:00",
+      "retry_after": null,
+      "sha256": "b17b383b8ef1b039630e5fa70b81ea07e74acec5a5db945639befbff48c943d3",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMDozNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "11dc3a1a998d32afbb6dd8164464da4ce5a1290e973b59288f662792b6e9ae4a",
+      "fetched_at_utc": "2026-09-22T19:32:02.444232+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2023410,
+      "cache_key": "1bfd94c276657898551b0501a0accae7b02f47ec49b82b5f710ca0cb66b019f5",
+      "fetched_at_utc": "2026-09-22T19:32:32.234795+00:00",
+      "retry_after": null,
+      "sha256": "9150ea4d7fd7777d32a31788cf01b230d1ae94047e478c3a8d9e4c468830401c",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNzowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "1cc3b7f0cfc9cc549d16ce5ad3090b63198702186cbcdfd5129c471db29286d1",
+      "fetched_at_utc": "2026-09-22T19:32:48.819604+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/CYYZ/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxOTowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1037401,
+      "cache_key": "1fa8362737f725427146a351da8093ec4dc4890e8accef6be7df7d95dda0987e",
+      "fetched_at_utc": "2026-09-22T19:37:02.075249+00:00",
+      "retry_after": null,
+      "sha256": "f95ad1351369de5e9dc8c2f4a5c3c412cd5d087351f17079545b354ed99886b0",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 2127713,
+      "cache_key": "20309459f48ca037a0f8034430261fb00aa55d2ee6358bf384cde710d9e2e8b7",
+      "fetched_at_utc": "2026-09-22T19:31:43.419119+00:00",
+      "retry_after": null,
+      "sha256": "a23b69517751bb55a3673fe478c00a958f03b4e112e24e3811e9eca37e4eebc3",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNjoxMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1948540,
+      "cache_key": "22d041037f62b241741d2ba31f2df66c369371e92fde3bbbc8f17ef4435c4b05",
+      "fetched_at_utc": "2026-09-22T19:32:06.750904+00:00",
+      "retry_after": null,
+      "sha256": "63f87920257328484c564f27516c29cbffd5cfedc431e76ca19dd3c66e6730e4",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KHOU/observations?start=2026-07-01T05%3A00%3A00%2B00%3A00&end=2026-09-22T05%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 2052337,
+      "cache_key": "240b5369706a358976e6f47e783b5df0333453f7f1056be8218cafdab2be117f",
+      "fetched_at_utc": "2026-09-22T19:32:26.158865+00:00",
+      "retry_after": null,
+      "sha256": "da4cf0e2da4afe317e10b38a7b0d5b61f4d34e38927c8452d279fab0bd8b13cc",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KMIA/observations?cursor=eyJzIjoiMjAyNi0wOS0xOFQyMzo0MDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "282f92ba5f2bb057fd14684e5a2558b76fb49d659c2ced337b8f8768f2269136",
+      "fetched_at_utc": "2026-09-22T19:31:51.708343+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "2b4e0114d19c994f3caef8c9dcc76d1bc8a2a58a7cab72b2570962568208b77a",
+      "fetched_at_utc": "2026-09-22T19:32:37.951566+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1NjowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 3084375,
+      "cache_key": "2bffbada6501982375ca21c6daa0d99b449d895cadc24676f65e1ed589afbfbf",
+      "fetched_at_utc": "2026-09-22T19:37:43.988633+00:00",
+      "retry_after": null,
+      "sha256": "7c81832e2c725f696b70d1313baeb935a4293dbb4a9b19c48472582725d52e09",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T05%3A00%3A00%2B00%3A00&ets=2026-09-22T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 113052,
+      "cache_key": "2f04a70efcc1c825ca515f35203c2eeb9703b9b8e0d1a18590c410184a096421",
+      "fetched_at_utc": "2026-09-22T19:29:37.352483+00:00",
+      "retry_after": null,
+      "sha256": "7b81014be1757a85905d17232080d76e77ae4b476b7dbc203145dadf121eee87",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "2f36647c685a20517b5a01b86571b53503da35dc57e02279fd0999284d668f6c",
+      "fetched_at_utc": "2026-09-22T19:32:05.654960+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KBKF/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1ODowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1972124,
+      "cache_key": "30778bdfa6b9d001ec4b59229c4b2a844be5c7177118489b6044019368673427",
+      "fetched_at_utc": "2026-09-22T19:31:26.077736+00:00",
+      "retry_after": null,
+      "sha256": "62871f6a8c80f9adf9321e0fa4fea556f9c8e0ab999b3b58870a00f83e12a30b",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KATL/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxMzo1MjowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1632777,
+      "cache_key": "3222b73d56d0d65ee2652b514aab99c258b8fe8b7b673dcda870d8939b921920",
+      "fetched_at_utc": "2026-09-22T19:32:44.141990+00:00",
+      "retry_after": null,
+      "sha256": "3e31176b2d0f788f0bd6dac15ed1ee718267b7e14eedf6d3e9c5f39ce0dd87ab",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSEA/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwNTowNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1962474,
+      "cache_key": "32d22e901d62ba28e794e6a60ebd806444bf9ecd798231b59aebea6efedd5ce6",
+      "fetched_at_utc": "2026-09-22T19:32:18.235247+00:00",
+      "retry_after": null,
+      "sha256": "1154408692bd0090a91d886e82998a8dd61b16f38a3e98ed41e8b57e0510e070",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLAX/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMjo1MDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2082138,
+      "cache_key": "362608924b8b0e5ff2cb32a7dffa436a43997fe969773526d5ccad3dd2db2f39",
+      "fetched_at_utc": "2026-09-22T19:27:17.613220+00:00",
+      "sha256": "ccc16698e40468c3bcfc5e47abcff81af6ad7021e9be92e59626372f6a72b159",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?start=2026-07-01T04%3A00%3A00%2B00%3A00&end=2026-09-22T04%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1049125,
+      "cache_key": "362cd95612cfe08c31c53d3db3ba87582916efb11abb0dee3349be9c495443b5",
+      "fetched_at_utc": "2026-09-22T19:35:21.944787+00:00",
+      "retry_after": null,
+      "sha256": "b8b3a5b5f86de40e85c81322e3ce89f8d0ab7d41c43319eacc284223621d5000",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4&station=KATL&station=KAUS&station=KORD&station=KDAL&station=KBKF&station=KHOU&station=KLAX&station=KMIA&station=KLGA&station=KSFO&station=KSEA&station=CYYZ&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 50,
+      "cache_key": "439c861edf900e74e1ad75f69b2187f81f3eafe2f1fbfe89b4902fe11ba17ccf",
+      "fetched_at_utc": "2026-09-22T19:28:09.629843+00:00",
+      "sha256": "98eec07de802c62f17ce0e478e53300f6101b45a61af4b19244f149dc33be024",
+      "status": 429,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T04%3A00%3A00%2B00%3A00&data=tmpc&data=max_tmpf_6hr&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 2127811,
+      "cache_key": "47775acb0b77c32299d136845b0c01d10a32ee226a4c0302f982cb624e817fae",
+      "fetched_at_utc": "2026-09-22T19:31:40.880703+00:00",
+      "retry_after": null,
+      "sha256": "21c731f8c7d022f7ce37ffa87fad3d91248bb684275648e384295951ac33e4cb",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?start=2026-07-01T05%3A00%3A00%2B00%3A00&end=2026-09-22T05%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 355681,
+      "cache_key": "4932a36263d33b377fa06bc463df1e67b19278765c6a610d47ff24ac668d1bac",
+      "fetched_at_utc": "2026-09-22T19:31:50.340973+00:00",
+      "retry_after": null,
+      "sha256": "c8fad3845df6a9e2b286f626479750c75edcbf885e2a6b81e3e54c1707f2efc9",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?cursor=eyJzIjoiMjAyNi0wOS0xNlQwMjowNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1981114,
+      "cache_key": "537132444f1d7105c02fbc0bd78a7f36a503be7b3a4b31a365e21bc5dbc40fdf",
+      "fetched_at_utc": "2026-09-22T19:31:52.816395+00:00",
+      "retry_after": null,
+      "sha256": "262afa3ac1fbb897d804ee3cecbc514718d4d94fdb44d01a9dee256339a3ce90",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?start=2026-07-01T05%3A00%3A00%2B00%3A00&end=2026-09-22T05%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 2021132,
+      "cache_key": "5746af152ac5b42869cda6b5459c6dbac7e7a4110575e55128c1cdde4ebe70f9",
+      "fetched_at_utc": "2026-09-22T19:31:45.780832+00:00",
+      "retry_after": null,
+      "sha256": "e1b45a6da7358af2cb5de19d42c282c63b9ecab0c17cd6249ecf6f9ce223778c",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwNDozNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1991528,
+      "cache_key": "59be23af01e1edc49ceaeb21463167dc0f84ff860d9873b6718e92f376903ab5",
+      "fetched_at_utc": "2026-09-22T19:32:10.576922+00:00",
+      "retry_after": null,
+      "sha256": "e4b89ef05c0020c4f0284d2fbf399e308c1b85e88cb61f5606c224606b34f0aa",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KHOU/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMDowNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 3169350,
+      "cache_key": "5b9ebc92a09c0929e4394b491c28990814e158c85244c117864522e3fbde98b7",
+      "fetched_at_utc": "2026-09-22T19:34:47.612064+00:00",
+      "retry_after": null,
+      "sha256": "e6f1d0cb741db8c26ba73335437f5b2234f53f54651cc4471e8263b5a4aa3fa9",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1922543,
+      "cache_key": "62d624c6fab2efd66dd2aa370eb764dc4669cf197b6393e714195b6089dace75",
+      "fetched_at_utc": "2026-09-22T19:31:55.074893+00:00",
+      "retry_after": null,
+      "sha256": "3bed661f2ed4597815a6564a6dba147f0abc3b90728489dbd5dfa70b1e1bde5e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNTowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 755913,
+      "cache_key": "6378d273cd5ffb2310a3dcea5af600f1f0d006145c0897ab5d5883eb740c1ff0",
+      "fetched_at_utc": "2026-09-22T19:32:03.538890+00:00",
+      "retry_after": null,
+      "sha256": "5bd0241c88cf47e85643363a8d98a307092339e6b95be4e20bd289ca31fbacb0",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KBKF/observations?start=2026-07-01T06%3A00%3A00%2B00%3A00&end=2026-09-22T06%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 24679,
+      "cache_key": "64bf5035d7836acbc920ae467ff0b44edc6fbb6f1bf5f7427abc4065d883337a",
+      "fetched_at_utc": "2026-09-22T19:32:01.141907+00:00",
+      "retry_after": null,
+      "sha256": "7b2dcb2f78cd54536f455a46674cab8c6ebdae515d89c805b497a108ae7c3181",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxOTo0NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 958856,
+      "cache_key": "65ed625ceab14bfac15b0a84e65afa95d5d6192d37a495b3a40ebfb4ac337d3e",
+      "fetched_at_utc": "2026-09-22T19:25:32.480523+00:00",
+      "sha256": "30c228632b6ebe68af79e4ab473383160f0a7aecdbabaee03526281427572084",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LGA&year1=2026&month1=7&day1=1&hour1=4&minute1=0&year2=2026&month2=7&day2=29&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 1445214,
+      "cache_key": "67ea43bc1240655da40b9f6d8b3d7b6e97a13c1232507d98aee0a8fc2f028c32",
+      "fetched_at_utc": "2026-09-22T19:28:07.273817+00:00",
+      "sha256": "360aaeea66de1a88c54c324c7a02dd4d4f40626afe749117cf2aea8ad521a60d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=7&day1=29&hour1=4&minute1=0&year2=2026&month2=8&day2=26&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 3201278,
+      "cache_key": "69ceb2edb974e9bf4b5ff76c2db1a559f5700399ac617e0ba66a229be4b00e5a",
+      "fetched_at_utc": "2026-09-22T19:36:07.346113+00:00",
+      "retry_after": null,
+      "sha256": "3249b6850e05505d1fb3288f8a03b3993e57e555b6027afaa344ba3669d1f847",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T05%3A00%3A00%2B00%3A00&ets=2026-08-26T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 3058932,
+      "cache_key": "6a99df3ca06176820515f41ea377ad5b82f3d46ce3aa7e9286c55cd2d2125911",
+      "fetched_at_utc": "2026-09-22T19:38:01.028523+00:00",
+      "retry_after": null,
+      "sha256": "e0805f613e2b44aa64ee2c8d6da30773be7891e41fae815c5ea03902d46ed520",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=LAX%2CMIA%2CLGA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1243216,
+      "cache_key": "6d41b138ac0c3172f8fe93993511a6bccfb0374f29f0e36b74a813f64a0ed8a5",
+      "fetched_at_utc": "2026-09-22T19:28:10.982495+00:00",
+      "sha256": "380d3b74c4182cd21425a04031f647b28b67fbd88c33eeb66b790775954668d1",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=8&day1=26&hour1=4&minute1=0&year2=2026&month2=9&day2=22&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 50,
+      "cache_key": "70a80b4c09270b735c4aa953c5286ce70ac3119cb5d8daf015631f59a3a8e81b",
+      "fetched_at_utc": "2026-09-22T19:29:54.357775+00:00",
+      "retry_after": null,
+      "sha256": "98eec07de802c62f17ce0e478e53300f6101b45a61af4b19244f149dc33be024",
+      "status": 429,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KAUS&sts=2026-07-01T05%3A00%3A00%2B00%3A00&ets=2026-07-29T05%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 2019588,
+      "cache_key": "71096857bfc8e86ecce24c1a8a1d4686aee8274aca8ef7e6b6b5bda00da42845",
+      "fetched_at_utc": "2026-09-22T19:32:33.683050+00:00",
+      "retry_after": null,
+      "sha256": "ca0610f61e578071329e6d7aba82c8f377e4ecfbae0895507973f521dffbd418",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMzowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "738e02056b084d5d0517d67148d49abfb3c18189b23cb64cd881f405b72b3e4d",
+      "fetched_at_utc": "2026-09-22T19:32:13.560948+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KHOU/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 677741,
+      "cache_key": "74d129b51d10435977b5cc2e0da49153e9e04a2377827e51b1bcc4c275cf8ccf",
+      "fetched_at_utc": "2026-09-22T19:32:46.795597+00:00",
+      "retry_after": null,
+      "sha256": "389687350b9f0b93c2ba47c499996d98d734ab6b8783d6f4456903483019e074",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/CYYZ/observations?start=2026-07-01T04%3A00%3A00%2B00%3A00&end=2026-09-22T04%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1944092,
+      "cache_key": "774128da34c40fc2ee30553cf0075b7529cde22166485644411a4503244bd2f1",
+      "fetched_at_utc": "2026-09-22T19:32:39.060369+00:00",
+      "retry_after": null,
+      "sha256": "ac3329a33837db2006c6e934f729c8a25e14dc8b443aa1e166f2096072569904",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSEA/observations?start=2026-07-01T07%3A00%3A00%2B00%3A00&end=2026-09-22T07%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 189244,
+      "cache_key": "7952087615e39fb0e5dded4f34a902634304657b689c9584cf831f7d79f1a93e",
+      "fetched_at_utc": "2026-09-22T19:32:36.715041+00:00",
+      "retry_after": null,
+      "sha256": "6af8571258802015e6e53a0749bc504e0b0e6c45fceaa9f748f258b9cb095325",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQyMzowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1978401,
+      "cache_key": "7a36a1f2f8f8428d3aa21ec5cecde2e50d43253075225c7ec78a3e2fb03cba9e",
+      "fetched_at_utc": "2026-09-22T19:31:35.622896+00:00",
+      "retry_after": null,
+      "sha256": "1f8cfcc661af99e3cf35063c338e9427771a057fb074cd9d1b4430e724dc4839",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMDowNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 19864,
+      "cache_key": "7b585ea85abdfe253103403209a56c8e879369c1b06a0ef070848ad2a7bdfcca",
+      "fetched_at_utc": "2026-09-22T19:28:13.346138+00:00",
+      "sha256": "c4ace6643e7f9264041f7cff3c4558770ff619cd440f2ad8295d035b90e303aa",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T04%3A00%3A00%2B00%3A00&data=tmpc&data=max_tmpf_6hr&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "7e9a97653524a51efd9a46c40db18aa679dd08ed8907f2e59c570e286a1ea1de",
+      "fetched_at_utc": "2026-09-22T19:32:21.237476+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLAX/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1168685,
+      "cache_key": "7f37c8292ca3b52c7ce348389ec323a5cea4612ea3fb741b50e0a246255b7315",
+      "fetched_at_utc": "2026-09-22T19:28:15.185035+00:00",
+      "sha256": "7ec3cbbd779037e1134a9a1d44133aa8a388a532db36a69d5671d2c93273d290",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=AUS&year1=2026&month1=7&day1=1&hour1=5&minute1=0&year2=2026&month2=7&day2=29&hour2=5&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 1929984,
+      "cache_key": "828407ac1cd3bd89a14e0798b0bc151217f224033e5e596f2d57c2bda0e1b581",
+      "fetched_at_utc": "2026-09-22T19:31:59.003890+00:00",
+      "retry_after": null,
+      "sha256": "1ab8c2f828eb83e46c2028367d81445ec047ac3134c05f14f489ac84a3595ead",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KDAL/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QxMDoxMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1992183,
+      "cache_key": "876ac1c82138045e28575c38aefeddbbdd1d692a4034ff56209d3d27d1271d11",
+      "fetched_at_utc": "2026-09-22T19:31:28.981755+00:00",
+      "retry_after": null,
+      "sha256": "b39c85f4d47e26fab0ef5a190f99ea4ddc6519e3361b8466334649d5c9e8325a",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KATL/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOTowNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 20566,
+      "cache_key": "8c2b1e800e04f933f383d04f0b8cb081ef4d4e7bbbedee0481238f808fb08b41",
+      "fetched_at_utc": "2026-09-22T19:25:47.394441+00:00",
+      "sha256": "5a7bf61087b7bb1d17e0f3233a4c3b532c76b775c25b7719c6bd57037412345b",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KLGA&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T04%3A00%3A00%2B00%3A00&data=tmpc&data=max_tmpf_6hr&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 2000139,
+      "cache_key": "99bb3134e311e41f0718ac765a044819c21edab3e3e0bd8e155774a6caea9d53",
+      "fetched_at_utc": "2026-09-22T19:32:19.782469+00:00",
+      "retry_after": null,
+      "sha256": "1464658e4d2498a1befbd6e6f1cdad18e85064d197df4d744d8869cfa668dd13",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLAX/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOTo0NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1945390,
+      "cache_key": "9ee5d1b4be2a3ef7764e8d0b050a5b17237615d4077f1ffa120f504627df582d",
+      "fetched_at_utc": "2026-09-22T19:31:34.137676+00:00",
+      "retry_after": null,
+      "sha256": "cd7aa98b30146bd2dcc77d2f54591306f29c1d32e00875dc5ad5c9268a4fd80f",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNDozNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 32482,
+      "cache_key": "a5602420683ce446d7ab84c662705b2393c5fe9413af8ffe9659dea55124b698",
+      "fetched_at_utc": "2026-09-22T19:31:38.627787+00:00",
+      "retry_after": null,
+      "sha256": "63b0299e7b9980a06737e51dc3965bde6d0e8d944af4c9095bec75453a1c9b4c",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxOTo1MDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2025900,
+      "cache_key": "a5cc6a9e6ee8eb084b348901d4c1b7b87013cd732c322064085729f94e3c26bf",
+      "fetched_at_utc": "2026-09-22T19:32:35.220184+00:00",
+      "retry_after": null,
+      "sha256": "6954fb893ccf64a9e7067f291d5c87f8c4bad1e6bf8e23f0bdecc6a496921ee5",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QxMzowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1929373,
+      "cache_key": "aa90e6462a4e5c861c8558aa3ee3b122eda76a3d9e7efaa43655c54223bd8a22",
+      "fetched_at_utc": "2026-09-22T19:27:23.935257+00:00",
+      "sha256": "06d1991021c805e1b7b77075fef12bc32df7a73c99474444bf0aea25c185ea1f",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOTo1NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "aeaf46405fc35414e2e4619241bb4f1ac6613c7c15c9ba249a8bfe244ec95ea3",
+      "fetched_at_utc": "2026-09-22T19:32:45.499305+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSEA/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 3561772,
+      "cache_key": "b17bcab0de14dfa8eaa8827ff91b9297f8561a23bd19015a85a5bf765b7bd6eb",
+      "fetched_at_utc": "2026-09-22T19:37:26.492368+00:00",
+      "retry_after": null,
+      "sha256": "97a7c9f44a67cc55e075b10ec118e78b7f6b779b68816d2f4820fd434d150052",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL%2CAUS%2CORD&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T05%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1933269,
+      "cache_key": "b1f05322f18ca94184a7efa51905f732ee92092b96637cda63e8936a89642cae",
+      "fetched_at_utc": "2026-09-22T19:32:42.781589+00:00",
+      "retry_after": null,
+      "sha256": "87b2cf865cbd21dceb70a10371732581c5e18fcdbde62a9e138b0d8cebf37254",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSEA/observations?cursor=eyJzIjoiMjAyNi0wOS0xOFQyMTo1NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1935541,
+      "cache_key": "b6c2fd9c01f7b981cea34b8a01e6bd928880c0ae1ded37a6d31905b5a847be14",
+      "fetched_at_utc": "2026-09-22T19:32:09.108365+00:00",
+      "retry_after": null,
+      "sha256": "0bc8dbb0b3eb34c89d4d3d1b8c50b12df8cea883790a036fb5557fbec48a08aa",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KHOU/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNDozNTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1277933,
+      "cache_key": "b7fb547b8ee9744f80bbf73fc43949d7e494b29546e71ea62a0453d0053373d7",
+      "fetched_at_utc": "2026-09-22T19:25:48.292331+00:00",
+      "sha256": "dfd021349e382ce4f41663055a566d20fe40c42c254b6fdb63bbf279cd8ecd78",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?start=2026-09-21T04%3A00%3A00%2B00%3A00&end=2026-09-22T04%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1931263,
+      "cache_key": "bb898d5a0c3f93a169d4af2f4597f1a253589605d7589f15d98f736eca424e87",
+      "fetched_at_utc": "2026-09-22T19:31:27.501137+00:00",
+      "retry_after": null,
+      "sha256": "b643bd01f7063d5d596e87aded2d8ef7335cb5bfdc3b82ef241e0397c2b5e836",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KATL/observations?cursor=eyJzIjoiMjAyNi0wOS0xOFQyMzo0NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 92262,
+      "cache_key": "c01ae8e38590229abdea9da049c100ff662766ea9f14ab88dc9134dfca4918be",
+      "fetched_at_utc": "2026-09-22T19:29:48.768786+00:00",
+      "retry_after": null,
+      "sha256": "428a6d71ece21bc42001514f08a32f780f1bca233fd7996288f49b54a047f94d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-08-26T04%3A00%3A00%2B00%3A00&ets=2026-09-22T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 50,
+      "cache_key": "c4e24837193649b544c48b4b086009e5827e673ae915bfd0839a6d8b2cd616cf",
+      "fetched_at_utc": "2026-09-22T19:28:17.326355+00:00",
+      "sha256": "98eec07de802c62f17ce0e478e53300f6101b45a61af4b19244f149dc33be024",
+      "status": 429,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KAUS&sts=2026-07-01T05%3A00%3A00%2B00%3A00&ets=2026-07-29T05%3A00%3A00%2B00%3A00&data=tmpc&data=max_tmpf_6hr&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 1996343,
+      "cache_key": "c87a8ad2aa627383a1d6e8525fcddb87d01da6abd706f9bfe8d1563200fe5986",
+      "fetched_at_utc": "2026-09-22T19:32:14.652372+00:00",
+      "retry_after": null,
+      "sha256": "bf78018c64ea61e9a7f50e0450fa57cd9fc7864214898d134159de57774a41cc",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLAX/observations?start=2026-07-01T07%3A00%3A00%2B00%3A00&end=2026-09-22T07%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1992951,
+      "cache_key": "cca2c5f8ddb86e2d0bb8be617e53b493586433f91b4d4d1816bcdedd45c75837",
+      "fetched_at_utc": "2026-09-22T19:32:24.670988+00:00",
+      "retry_after": null,
+      "sha256": "3c2324a45ad0ac8e7d7890ee4a5a25bf482266d34b5c5ddb939c5029ab21c084",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KMIA/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxMzo1NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 54800,
+      "cache_key": "d1b873cf9c79caa91f398d0d2af97f7f829a48366a39b84d1945d7efb293d9fa",
+      "fetched_at_utc": "2026-09-22T19:25:49.328359+00:00",
+      "sha256": "b7a3c7f0f01a40283220894bb223900714e6f9c4b37bb1735eb2b97f335fd88e",
+      "status": 200,
+      "url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-nyc-on-september-22-2026"
+    },
+    {
+      "bytes": 16969,
+      "cache_key": "d498b00fef48234b5f912e92ed8aa32c20183424c52f809eadafb53433ebf77d",
+      "fetched_at_utc": "2026-09-22T19:27:25.936146+00:00",
+      "sha256": "9259146c2c0ef86c9c5129890e4e85e596cb33b4ec471e482726ffbcf1744543",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxOTozMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "d70100fa977fc7c2dc0b75fc335af211832fd499f730fb56eafc4e2cc4f0ff53",
+      "fetched_at_utc": "2026-09-22T19:32:29.042517+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KMIA/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1997258,
+      "cache_key": "d9d3cf67d936e7920ffe0df2fcd4d34b0dafd569dbeb1b4ba419f320929e18d1",
+      "fetched_at_utc": "2026-09-22T19:32:27.623526+00:00",
+      "retry_after": null,
+      "sha256": "0dd07d9f37eb3d21c506e224715caa0d05bb1076a54712cef036bc268bf59e73",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KMIA/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOToxMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 99364,
+      "cache_key": "da5f6ced342977c4c2bccd782a981226290c5cb71226d84862899f8ac8d6280a",
+      "fetched_at_utc": "2026-09-22T19:29:43.187453+00:00",
+      "retry_after": null,
+      "sha256": "7f078fc0218417db56c295809a83b675d9c4334b200c0b62b0f7b5430fe5d46d",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-29T04%3A00%3A00%2B00%3A00&ets=2026-08-26T04%3A00%3A00%2B00%3A00&data=tmpc&data=metar&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 21700,
+      "cache_key": "dd0c82e16be6c17c3edba0e452185fa84d525fb317985df9928142a332632e3f",
+      "fetched_at_utc": "2026-09-22T19:28:05.561857+00:00",
+      "sha256": "b20857a13d938480731143f47c9e73747a59e9dbff8fe9ad2871702de662b406",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=KATL&sts=2026-07-01T04%3A00%3A00%2B00%3A00&ets=2026-07-29T04%3A00%3A00%2B00%3A00&data=tmpc&data=max_tmpf_6hr&tz=Etc%2FUTC&format=onlycomma&latlon=no&missing=M&report_type=3&report_type=4"
+    },
+    {
+      "bytes": 1951518,
+      "cache_key": "df4d82ce17004a5b6707a1216a7a96a5fec7ff90a1af2c4ccc0da15e7c1b97f8",
+      "fetched_at_utc": "2026-09-22T19:31:31.624282+00:00",
+      "retry_after": null,
+      "sha256": "3ea2e7da033c71ddc3ffcbed2394ef466ab42112a5e9af79c2c13ae5386ebf41",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?start=2026-07-01T05%3A00%3A00%2B00%3A00&end=2026-09-22T05%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1952253,
+      "cache_key": "e028ce0c2cc288d32d0ea16acc3a29e0285048210b5a0d6ebdc463cc4e864378",
+      "fetched_at_utc": "2026-09-22T19:31:23.836371+00:00",
+      "retry_after": null,
+      "sha256": "cd8d09a42614f29dab06a0f325cf918ee19085531eba8c8c236bb3e8f2014b5c",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KATL/observations?start=2026-07-01T04%3A00%3A00%2B00%3A00&end=2026-09-22T04%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 2023183,
+      "cache_key": "e40f4bb67452a2bdc3a72ec93fa6205f08a57891da6679e7e990f79b8f7cadd5",
+      "fetched_at_utc": "2026-09-22T19:32:30.132366+00:00",
+      "retry_after": null,
+      "sha256": "0968f48619d04788ffadfb8f096e185ddac23b27ebb5562c4c8088cfd1c46e65",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSFO/observations?start=2026-07-01T07%3A00%3A00%2B00%3A00&end=2026-09-22T07%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 2229412,
+      "cache_key": "e4bd7d783e953ad28a266cab55628676b0f69372a02fce5fe16ddb2ca8e70bf0",
+      "fetched_at_utc": "2026-09-22T19:38:18.262646+00:00",
+      "retry_after": null,
+      "sha256": "139028035516635ea333f6f226ecbb4a120ce9ffe036242c5e2397425e690997",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-08-26T07%3A00%3A00%2B00%3A00&ets=2026-09-22T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "e9122f0cea327fa3a0e4f8e03df0b4f190e3eb65f073fa49a055bf23985cd41c",
+      "fetched_at_utc": "2026-09-22T19:31:39.779620+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MzowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "ea99f4ba7ed31d99f0af1fccefe48e1487a568ca85b69266855cdcfd14bf75d0",
+      "fetched_at_utc": "2026-09-22T19:31:30.531664+00:00",
+      "retry_after": null,
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KATL/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MjowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 106,
+      "cache_key": "eb30f451cc01e04c23854db4c11100415b906aa713e08e9426f52b6423cf0753",
+      "fetched_at_utc": "2026-09-22T19:27:27.083875+00:00",
+      "sha256": "a59a1df06b9b1bd3629d880e75e40784a40d5c9c7be28a87a9bd4c48ad39169e",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?cursor=eyJzIjoiMjAyNi0wOS0xNVQxODo1MTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2022704,
+      "cache_key": "ebe64fc723cc4e52013e5e2e0f35a76084b661b3c3da7c9e0c68b3ff7c7a6ca4",
+      "fetched_at_utc": "2026-09-22T19:27:21.977608+00:00",
+      "sha256": "f12b7a77092516097ef309571c9a49af3f2d9386ee1cc2c9446e6ec97c4d15da",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLGA/observations?cursor=eyJzIjoiMjAyNi0wOS0xOVQwMDoxMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2943059,
+      "cache_key": "ec992fb6f00252bc0a62ec0553ce301a22c3a0c92110354368817c6894f93d4a",
+      "fetched_at_utc": "2026-09-22T19:34:30.732505+00:00",
+      "retry_after": null,
+      "sha256": "a57bfdb36b44299a61ab22d4658e8d5a127b5803502f29995b130f46ac6ed554",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=DAL%2CBKF%2CHOU&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T05%3A00%3A00%2B00%3A00&ets=2026-07-29T06%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1966202,
+      "cache_key": "ecc64290348332fa9721eb5af452ec0015ec9686be4a50a2f43ffb8b7a0dd831",
+      "fetched_at_utc": "2026-09-22T19:32:16.854977+00:00",
+      "retry_after": null,
+      "sha256": "9f3b9d0f5c18a481a4d211b1f7a23c89c17f57531e0d3ab58a7178ba3d246a0b",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KLAX/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxNjo1NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1473119,
+      "cache_key": "ee542efa375536410931dd944c436a9ceb880d4776de866edd598c941fa8a958",
+      "fetched_at_utc": "2026-09-22T19:28:18.687030+00:00",
+      "sha256": "2e7dcf2c29dfbd050c1efb9a1bc8cd5ab9883c192766c9eaf04c4c28bee19de6",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=AUS&year1=2026&month1=7&day1=29&hour1=5&minute1=0&year2=2026&month2=8&day2=26&hour2=5&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 2084044,
+      "cache_key": "f454d58e49f9aee249dd431880d60bf4bfdf95fc0ba95f7f4c594b3a7d49fab4",
+      "fetched_at_utc": "2026-09-22T19:31:47.967685+00:00",
+      "retry_after": null,
+      "sha256": "f33c2bbcbaa14fa0197e4a7a97ebd92ed3d938fe4f6c649904715ba00a2c02d0",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KORD/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QxNTowMDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1978270,
+      "cache_key": "f7bfb0f36b37f91e96cb2549a25360ac125ca6e304ddd5680f4e415791dd5ec0",
+      "fetched_at_utc": "2026-09-22T19:32:12.159551+00:00",
+      "retry_after": null,
+      "sha256": "baf5ad4124c6b9f24bbccd81a24b001b65ccc839c6c415d4b81cad2105b95518",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KHOU/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOTo0NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2982585,
+      "cache_key": "f87e3060377536013418ce51d39020a5b5f4029c01c6e197de82537ed8f35b4d",
+      "fetched_at_utc": "2026-09-22T19:36:44.720390+00:00",
+      "retry_after": null,
+      "sha256": "99b401bd449ecd107241fe788c3a639540ed6fa368cdaf86698b14096ecf5f73",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-29T07%3A00%3A00%2B00%3A00&ets=2026-08-26T07%3A00%3A00%2B00%3A00"
+    },
+    {
+      "bytes": 1947823,
+      "cache_key": "fa7d7a22b2acad5a939a9c5cc5c5aec949b2292fd110b46ba42366efd950ddd1",
+      "fetched_at_utc": "2026-09-22T19:32:41.341068+00:00",
+      "retry_after": null,
+      "sha256": "6206bb031eca430814f7f25600f32e76506bb31388abd0947dcbaba495369a8a",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KSEA/observations?cursor=eyJzIjoiMjAyNi0wOS0yMFQxMzo1NTowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 1969422,
+      "cache_key": "fa8fa682d25dc0d224b656f0fde809d280ea98f6e3289ceefef710017d482f2a",
+      "fetched_at_utc": "2026-09-22T19:31:37.142299+00:00",
+      "retry_after": null,
+      "sha256": "f0a6c1e3938905a5ae084615c82c4172f1de8427006e3414c00e54b39076e856",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KAUS/observations?cursor=eyJzIjoiMjAyNi0wOS0xN1QwOTo1MDowMCswMDowMCJ9"
+    },
+    {
+      "bytes": 2062573,
+      "cache_key": "fb33167ba9f8cc30235dd936e1f2197cd94dea2dfbdfd0006348d8c0686b0db6",
+      "fetched_at_utc": "2026-09-22T19:32:22.412827+00:00",
+      "retry_after": null,
+      "sha256": "7169c7ec97f8db6cfe40a0bad3f1b79b80b1318315b1e4590cb34c35e891867a",
+      "status": 200,
+      "url": "https://api.weather.gov/stations/KMIA/observations?start=2026-07-01T04%3A00%3A00%2B00%3A00&end=2026-09-22T04%3A00%3A00%2B00%3A00&limit=500"
+    },
+    {
+      "bytes": 1603336,
+      "cache_key": "fbf6db3124a98feb4066547fb00ae69ff4f90984afa3ab618c78e5968679960d",
+      "fetched_at_utc": "2026-09-22T19:28:03.230870+00:00",
+      "sha256": "2a1b8ab5105575d5aa461d225dab8267f26d271c365b185711779d16f95dbd74",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=ATL&year1=2026&month1=7&day1=1&hour1=4&minute1=0&year2=2026&month2=7&day2=29&hour2=4&minute2=0&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no"
+    },
+    {
+      "bytes": 2963718,
+      "cache_key": "fdbf4913a1e627bae67075dd2c482443a14193a14571bcd8594abafabafd3e33",
+      "fetched_at_utc": "2026-09-22T19:35:04.902711+00:00",
+      "retry_after": null,
+      "sha256": "25523345e6f89d4f4fe1e52405f16738b1837131d3b43edd5cb314197bf5ba6f",
+      "status": 200,
+      "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py?station=SFO%2CSEA&tz=Etc%2FUTC&format=onlycomma&vars=tmpf&sample=1min&what=download&delim=comma&gis=no&sts=2026-07-01T07%3A00%3A00%2B00%3A00&ets=2026-07-29T07%3A00%3A00%2B00%3A00"
+    }
+  ],
+  "script_sha256": "5f3050ae09429f79f36214a5575c9c88c8fc4235734d0457fe708ed2ba0384f3",
+  "station_days_sha256": "ea62c491825f133ab5dc5172824c985f1f042bc636ff5edea6a5aabe38f4fe91",
+  "tables": [
+    {
+      "available": 480,
+      "band_matches": 480,
+      "band_pairs": 480,
+      "candidate": "wu",
+      "date_clusters": 40,
+      "market_clusters": 12,
+      "paired_band_delta": {
+        "date_clusters": 40,
+        "delta": 0.0,
+        "draws": 2000,
+        "exploratory_95_ci": [
+          0.0,
+          0.0
+        ],
+        "market_clusters": 12,
+        "pairs": 480,
+        "seed": 860922
+      },
+      "potential_days": 636,
+      "signed_difference_counts": {
+        "C:+0": 40,
+        "F:+0": 440
+      },
+      "stratum": "pre",
+      "wu_exact_matches": 480,
+      "wu_pairs": 480
+    },
+    {
+      "available": 504,
+      "band_matches": 125,
+      "band_pairs": 399,
+      "candidate": "asos",
+      "date_clusters": 42,
+      "market_clusters": 10,
+      "paired_band_delta": {
+        "date_clusters": 40,
+        "delta": -0.6842105263157895,
+        "draws": 2000,
+        "exploratory_95_ci": [
+          -0.7806239658025372,
+          -0.5839793281653747
+        ],
+        "market_clusters": 10,
+        "pairs": 380,
+        "seed": 860922
+      },
+      "potential_days": 636,
+      "signed_difference_counts": {
+        "F:+0": 31,
+        "F:+1": 163,
+        "F:+2": 110,
+        "F:+3": 19,
+        "F:+4": 3,
+        "F:+5": 1,
+        "F:-1": 2,
+        "F:-10": 4,
+        "F:-11": 3,
+        "F:-12": 3,
+        "F:-13": 2,
+        "F:-14": 1,
+        "F:-15": 1,
+        "F:-19": 2,
+        "F:-2": 4,
+        "F:-3": 2,
+        "F:-4": 2,
+        "F:-5": 4,
+        "F:-6": 8,
+        "F:-7": 3,
+        "F:-8": 8,
+        "F:-9": 4
+      },
+      "stratum": "pre",
+      "wu_exact_matches": 31,
+      "wu_pairs": 380
+    },
+    {
+      "available": 636,
+      "band_matches": 504,
+      "band_pairs": 504,
+      "candidate": "metar",
+      "date_clusters": 42,
+      "market_clusters": 12,
+      "paired_band_delta": {
+        "date_clusters": 40,
+        "delta": 0.0,
+        "draws": 2000,
+        "exploratory_95_ci": [
+          0.0,
+          0.0
+        ],
+        "market_clusters": 12,
+        "pairs": 480,
+        "seed": 860922
+      },
+      "potential_days": 636,
+      "signed_difference_counts": {
+        "C:+0": 40,
+        "F:+0": 440
+      },
+      "stratum": "pre",
+      "wu_exact_matches": 480,
+      "wu_pairs": 480
+    },
+    {
+      "available": 636,
+      "band_matches": 320,
+      "band_pairs": 504,
+      "candidate": "metar_with_6h",
+      "date_clusters": 42,
+      "market_clusters": 12,
+      "paired_band_delta": {
+        "date_clusters": 40,
+        "delta": -0.36875,
+        "draws": 2000,
+        "exploratory_95_ci": [
+          -0.46875,
+          -0.26875
+        ],
+        "market_clusters": 12,
+        "pairs": 480,
+        "seed": 860922
+      },
+      "potential_days": 636,
+      "signed_difference_counts": {
+        "C:+0": 40,
+        "F:+0": 142,
+        "F:+1": 234,
+        "F:+2": 57,
+        "F:+3": 7
+      },
+      "stratum": "pre",
+      "wu_exact_matches": 182,
+      "wu_pairs": 480
+    },
+    {
+      "available": 636,
+      "band_matches": 497,
+      "band_pairs": 504,
+      "candidate": "metar_hourly",
+      "date_clusters": 42,
+      "market_clusters": 12,
+      "paired_band_delta": {
+        "date_clusters": 40,
+        "delta": -0.0125,
+        "draws": 2000,
+        "exploratory_95_ci": [
+          -0.03125,
+          0.0
+        ],
+        "market_clusters": 12,
+        "pairs": 480,
+        "seed": 860922
+      },
+      "potential_days": 636,
+      "signed_difference_counts": {
+        "C:+0": 39,
+        "C:-1": 1,
+        "F:+0": 432,
+        "F:-1": 4,
+        "F:-2": 4
+      },
+      "stratum": "pre",
+      "wu_exact_matches": 471,
+      "wu_pairs": 480
+    },
+    {
+      "available": 0,
+      "band_matches": 0,
+      "band_pairs": 0,
+      "candidate": "nws",
+      "date_clusters": 0,
+      "market_clusters": 0,
+      "paired_band_delta": null,
+      "potential_days": 636,
+      "signed_difference_counts": {},
+      "stratum": "pre",
+      "wu_exact_matches": 0,
+      "wu_pairs": 0
+    },
+    {
+      "available": 0,
+      "band_matches": 0,
+      "band_pairs": 0,
+      "candidate": "nws_hourly",
+      "date_clusters": 0,
+      "market_clusters": 0,
+      "paired_band_delta": null,
+      "potential_days": 636,
+      "signed_difference_counts": {},
+      "stratum": "pre",
+      "wu_exact_matches": 0,
+      "wu_pairs": 0
+    },
+    {
+      "available": 1,
+      "band_matches": 0,
+      "band_pairs": 1,
+      "candidate": "wu",
+      "date_clusters": 1,
+      "market_clusters": 1,
+      "paired_band_delta": {
+        "date_clusters": 1,
+        "market_clusters": 1,
+        "pairs": 1,
+        "reason": "insufficient crossed clusters; no uncertainty estimate"
+      },
+      "potential_days": 360,
+      "signed_difference_counts": {
+        "F:+0": 1
+      },
+      "stratum": "post",
+      "wu_exact_matches": 1,
+      "wu_pairs": 1
+    },
+    {
+      "available": 265,
+      "band_matches": 1,
+      "band_pairs": 1,
+      "candidate": "asos",
+      "date_clusters": 1,
+      "market_clusters": 1,
+      "paired_band_delta": {
+        "date_clusters": 1,
+        "market_clusters": 1,
+        "pairs": 1,
+        "reason": "insufficient crossed clusters; no uncertainty estimate"
+      },
+      "potential_days": 360,
+      "signed_difference_counts": {
+        "F:+1": 1
+      },
+      "stratum": "post",
+      "wu_exact_matches": 0,
+      "wu_pairs": 1
+    },
+    {
+      "available": 360,
+      "band_matches": 0,
+      "band_pairs": 1,
+      "candidate": "metar",
+      "date_clusters": 1,
+      "market_clusters": 1,
+      "paired_band_delta": {
+        "date_clusters": 1,
+        "market_clusters": 1,
+        "pairs": 1,
+        "reason": "insufficient crossed clusters; no uncertainty estimate"
+      },
+      "potential_days": 360,
+      "signed_difference_counts": {
+        "F:+0": 1
+      },
+      "stratum": "post",
+      "wu_exact_matches": 1,
+      "wu_pairs": 1
+    },
+    {
+      "available": 360,
+      "band_matches": 1,
+      "band_pairs": 1,
+      "candidate": "metar_with_6h",
+      "date_clusters": 1,
+      "market_clusters": 1,
+      "paired_band_delta": {
+        "date_clusters": 1,
+        "market_clusters": 1,
+        "pairs": 1,
+        "reason": "insufficient crossed clusters; no uncertainty estimate"
+      },
+      "potential_days": 360,
+      "signed_difference_counts": {
+        "F:+1": 1
+      },
+      "stratum": "post",
+      "wu_exact_matches": 0,
+      "wu_pairs": 1
+    },
+    {
+      "available": 360,
+      "band_matches": 0,
+      "band_pairs": 1,
+      "candidate": "metar_hourly",
+      "date_clusters": 1,
+      "market_clusters": 1,
+      "paired_band_delta": {
+        "date_clusters": 1,
+        "market_clusters": 1,
+        "pairs": 1,
+        "reason": "insufficient crossed clusters; no uncertainty estimate"
+      },
+      "potential_days": 360,
+      "signed_difference_counts": {
+        "F:+0": 1
+      },
+      "stratum": "post",
+      "wu_exact_matches": 1,
+      "wu_pairs": 1
+    },
+    {
+      "available": 84,
+      "band_matches": 0,
+      "band_pairs": 0,
+      "candidate": "nws",
+      "date_clusters": 0,
+      "market_clusters": 0,
+      "paired_band_delta": null,
+      "potential_days": 360,
+      "signed_difference_counts": {},
+      "stratum": "post",
+      "wu_exact_matches": 0,
+      "wu_pairs": 0
+    },
+    {
+      "available": 84,
+      "band_matches": 0,
+      "band_pairs": 0,
+      "candidate": "nws_hourly",
+      "date_clusters": 0,
+      "market_clusters": 0,
+      "paired_band_delta": null,
+      "potential_days": 360,
+      "signed_difference_counts": {},
+      "stratum": "post",
+      "wu_exact_matches": 0,
+      "wu_pairs": 0
+    }
+  ]
+}
