@@ -173,6 +173,32 @@ digest could not answer:
 Alert lines also carry their age, since a two-day-old `AT_RISK` was rendering as a current
 alarm.
 
+`status.ps1` imports the **CRITICAL table rows** from `data/alerts/STALENESS_SWEEP.md`
+into flags (exit 2). A missing, malformed, oversized (>1 MiB), future-dated, or more than
+48-hour-old snapshot also flags; WARN rows alone do not change the status verdict.
+The sweep watches `WeatherMakerEvidenceCapture` even before registration: absent or disabled
+means CRITICAL. Once registered, it reads successful reward-record timestamps under
+`data/maker_evidence/<UTC date>/<hour>-*/reward-*.jsonl`, not the producer heartbeat.
+The newest record warns after 5 minutes and is critical after 15. Reads cover the current and
+previous two UTC hours, capped at 32 segments, 512 files, and a 32 KiB suffix per file; no
+readable record in that horizon or exceeding a bound is critical. This is producer freshness,
+not proof of complete band coverage or valid reward economics.
+
+The historical `rollback_recovery_failed` alarm clears when the active marker is absent and
+a later valid owner/agent retirement receipt in `data/alerts/quiet_window_merge_reconciliations/`
+matches the hash-verified marker and exact attempt. The read-only consumer accepts
+`owner_approved_marker_retirement_v0` (nonempty `approval`) or `agent_marker_retirement_v0`;
+both require `at`, `head`, `merge_head_present: false`, `dirty_tracked`, `conditions_ok: true`,
+`marker_sha256`, and UTF-8 `marker_bytes` (plain string or PowerShell's `{value: ...}` wrapper).
+Agent receipts additionally attest `origin_master == head` and `capture_healthy: true`.
+Only prepared/preparing ordinary markers without a merge commit qualify; see the
+[fail-forward recovery table](../operations/fail-forward-recovery.md) for clearance authority.
+Reports without a marker hash use exact root/branch/tip/baseline/pre-merge-commit identity and
+a marker timestamp within five minutes before the report. Hash-bearing reports must also match
+the receipt hash. JSON output retains the original stage and exposes `merge.retirement`.
+This suppresses one historical alarm only; it does not authorize another merge or alter any
+active-marker/publication gate.
+
 ## Overnight alerting (WeatherHostHealthWatchdog)
 
 `status.ps1` answers "what is wrong right now" for a human who is looking.
@@ -195,10 +221,14 @@ Outputs, all under `data/alerts/`:
 - `host_health_latest.json` — current state, always rewritten;
 - `host_health_alerts.jsonl` — append-only, written on **state change**, on any `CRITICAL`,
   or every 6h as a heartbeat, so a standing condition does not spam the log and silence is
-  distinguishable from a dead watchdog;
+  distinguishable from a dead watchdog. Before an append would exceed 16 MiB, the file is
+  renamed to `host_health_alerts.<UTC timestamp>.<unique id>.jsonl`; no archive is deleted or
+  overwritten. An exclusive `.append.lock` handle serializes rotation and append. A failed
+  rotation exits 2 without appending to the large file or advancing dedup/heartbeat state;
 - `MORNING_BRIEFING.md` — regenerated every run: what is open now, each item's severity *and the
   window in which it can be acted on*, standing notes, and a 24h timeline. **Read this first
-  after being away.**
+  after being away.** It reads bounded tails (400 rows / 1 MiB each) from the active file
+  and newest archive, filters to 24 hours, and explicitly labels that coverage as incomplete.
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
 
