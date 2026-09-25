@@ -109,7 +109,7 @@ def test_heartbeat_daemon_and_main_stall_stop():
     assert not beat.thread.is_alive()
 
 
-def test_zero_post_attempt_does_not_consume_session_and_twenty_marker_cap(tmp_path):
+def test_zero_post_attempt_does_not_consume_session_and_sixty_marker_cap(tmp_path):
     now = Clock().now()
     for i in range(1, 61):
         directory, marker = reserve_attempt(tmp_path, now=now, selection_sha256='a' * 64)

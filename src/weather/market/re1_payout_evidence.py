@@ -690,7 +690,7 @@ def collect_evidence(venue, prediction, *, clock=now_utc, opener=urlopen):
 
 
 def attempt_folder_ok(name):
-    # Attempt folders session-1..session-ATTEMPT_CAP (the cap was raised from 6 to 20 on 2026-09-23).
+    # Attempt folders session-1..session-ATTEMPT_CAP (raised from 6 to 20 on 2026-09-23 and to 60 on 2026-09-24).
     match = re.fullmatch(r'session-([1-9][0-9]*)', name)
     return bool(match) and int(match.group(1)) <= ATTEMPT_CAP
 

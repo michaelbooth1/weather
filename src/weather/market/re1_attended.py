@@ -207,9 +207,17 @@ class Session:
         self.journal.record(name + '_response', response=result)
         return result
 
+    def _alive(self):
+        # Waits and retries mean the main loop is alive: keep its watchdog signal fresh (a transient read stall could
+        # otherwise outlast the 20 s limit), and in replay (non-threaded) also pump the heartbeat step as live does.
+        if self.heartbeat_loop is not None:
+            self.heartbeat_loop.tick()
+            if not self.heartbeat_loop.threaded:
+                self.heartbeat_loop.step()
+
     def required(self, name, fn, *, checkpoint=True, **request):
         return retry_read(name, lambda: self.call(name, fn, **request), clock=self.clock,
-                          journal=self.journal, checkpoint=self.control if checkpoint else lambda: None)
+                          journal=self.journal, checkpoint=self.control if checkpoint else self._alive)
 
     def sample(self, name, fn):
         try:
@@ -350,8 +358,7 @@ class Session:
             listed = {_order_id(row) for row in rows} if isinstance(rows, list) else None
             if listed is None or listed == set(expected) or not listed < set(expected):
                 break
-            if self.heartbeat_loop is not None:
-                self.heartbeat_loop.tick()
+            self._alive()
             self.clock.sleep(1)
             rows = self.required('open_orders', self.venue.open_orders)
         _exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
@@ -414,8 +421,7 @@ class Session:
             remaining = self.required('open_orders', self.venue.open_orders)
             if not any(_order_id(row) == oid for row in remaining):
                 break
-            if self.heartbeat_loop is not None:
-                self.heartbeat_loop.tick()  # a two-leg requote may wait 20 s; the main loop is alive, not stalled
+            self._alive()  # a two-leg requote may wait 20 s; the main loop is alive, not stalled
             self.clock.sleep(1)
         else:
             raise HoldEnd('cancel_not_terminal')
