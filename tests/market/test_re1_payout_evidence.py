@@ -549,5 +549,6 @@ def test_activity_query_started_before_cash_end_cannot_claim_full_coverage_after
 
 
 def test_evidence_accepts_every_attempt_folder_up_to_the_cap():
-    assert all(collector.attempt_folder_ok(f'session-{n}') for n in (1, 6, 7, 10, 20))
-    assert not any(collector.attempt_folder_ok(name) for name in ('session-0', 'session-01', 'session-21', 'session-x', 'sessions-3'))
+    cap = collector.ATTEMPT_CAP
+    assert all(collector.attempt_folder_ok(f'session-{n}') for n in (1, 6, 7, 10, 20, cap))
+    assert not any(collector.attempt_folder_ok(name) for name in ('session-0', 'session-01', f'session-{cap + 1}', 'session-x', 'sessions-3'))
