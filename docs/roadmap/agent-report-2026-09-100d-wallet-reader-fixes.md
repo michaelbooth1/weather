@@ -193,3 +193,72 @@ No real account or credential file was accessed, no private key was loaded, no
 reader/account endpoint was probed, and no service restart, registration,
 production write or master merge occurred during this addendum. The running
 reader was left untouched; adoption of the new tip remains a separate step.
+
+## 100e — separate live and resolved P&L (2026-09-25)
+
+**IMPLEMENTED; fixture verification PASS. No production run, real-account read,
+actual `.env` access or reader restart in 100e.**
+
+Answers [handoff 100e at the fetched master commit](https://github.com/michaelbooth1/weather/blob/9f7e5f68f57f0cfee8b45b342f1e16c0e0e341e2/docs/roadmap/workstation-handoff-2026-09-100e-wallet-reader-pnl-split.md).
+The owner explicitly requested this append to the existing 100d report; all
+historical sections above are preserved. The branch was reset as requested to
+`4ac1571859a389efede818a8c4d148d4f194cd22`. Verified implementation:
+`6681444fa01ffe01da7b5c3803c1b439951ff9e2`, on
+`codex/wallet-public-reader-20260925`. The following report commit is part of the
+handback; the branch-tip lookup command above resolves the final pushed tip.
+
+This supersedes 100d's inclusion of resolved marked value in summary equity.
+`marked_positions_pusd` and `unrealized_pnl_pusd` now sum live positions only;
+`mark_basis` is `live_two_sided_mid`. The separate informational
+`resolved_pnl_vs_cost_pusd` sums resolved terminal value minus cost, with
+`resolved_count` reported regardless of row visibility. A missing resolved
+valuation makes only that resolved total unknown; an empty resolved list gives
+zero. Incomplete live inventory or live marks still prevents live/campaign totals.
+
+Campaign P&L is cash plus live marked value minus the explicit contribution
+baseline. The [runbook](../operations/wallet-reader.md) tells the owner to pass
+equity at the **2026-09-22 campaign start**, adjusted for later deposits and
+withdrawals and reconciled on the same cash-plus-live-marks basis. Historical
+resolved dust stays outside both sides; lifetime lot costs are not a campaign
+baseline. Without capital, campaign P&L remains unknown. `BLEED_LIMIT` still
+uses only cash < 60 or campaign P&L < -40, with both thresholds unchanged.
+
+| Synthetic fixture | Observed result |
+| --- | --- |
+| One live lot: 10 shares at cost 0.70, bid 0.40 / ask 0.60; 103 resolved lots, each 100 shares at cost 0.90 | Live mark 5.0 and live unrealized -2.0, regardless of historical resolved outcome. |
+| All 103 resolved lots terminate at 0 / at 1 | Separate resolved P&L -9270.0 / +1030.0; `resolved_count=103`; neither alters live/campaign totals or status. |
+| Cash 70; capital omitted / 85 / 115 / 115.01 | Campaign null / -10.0 / -40.0 / -40.01; status INCOMPLETE / OBSERVED / OBSERVED / BLEED_LIMIT, for both resolved outcomes. |
+| Hide / show resolved rows | Same totals, seven fake GETs across both calls, one live book request; cached visibility change adds no reads. |
+| Unknown resolved value with complete live marks | Resolved P&L null; live and campaign totals remain available. |
+| Incomplete discovery or missing live mark | Live/campaign totals remain null, even with separately available resolved P&L. |
+| Empty resolved list; cash 59; capital omitted | Resolved P&L 0, count 0; campaign null; cash independently triggers BLEED_LIMIT. |
+
+**172 focused tests passed**: reader, schema registry and import architecture,
+including all prior 100a/100d safety regressions and 12 added 100e cases.
+**29 documentation tests passed**, including the appended report's repository
+audit, correspondence-index parity and roadmap-backlog checks.
+Focused compilation of `wallet_reader.py` and its test file passed, as did
+`git diff --check`. All pytest/compilation ran through the unchanged
+`workstation_heavy.ps1` admission wrapper. An initial compile invocation supplied
+the wrong workload kind and was rejected before execution; the corrected
+`-Kind compileall` invocation passed. The reproduction commands above cover the
+same test modules and a broader compilation set. Fixtures use synthetic account
+identifiers and temporary synthetic credential files; socket connect/bind are
+prohibited by the test suite. No statistical or live-network claim is made.
+
+Per-file roll disposition: `src/weather/market/wallet_reader.py` and
+`tests/market/test_wallet_reader.py` have no available production closure evidence;
+`docs/operations/wallet-reader.md` and this report are documentation, roll-free
+class. `roll_verdict.ps1 -Branch codex/wallet-public-reader-20260925 -Base
+origin/master` returned exit 1, **UNDECIDABLE: no live closure evidence**, with
+the same four missing status files listed above. The full branch retains the
+inherited additive-only schema registration and its guarded production-adoption
+requirements; no workstation roll-free verdict is claimed.
+
+Classification, budgets, transport allowlists, credential selection, signing
+boundaries, SecretGuard, LAN/IP/token/origin checks, public-header isolation,
+journaling and account-identity controls are unchanged. No production or mirror
+evidence, actual `.env`, real account or reader endpoint was accessed; no private
+key was loaded, service started/restarted, firewall/Scheduler state changed,
+order mutated, production write performed or master merge made. **The owner
+restarts `serve` after reviewing the pushed tip.**
