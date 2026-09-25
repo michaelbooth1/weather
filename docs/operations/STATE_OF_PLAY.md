@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-24 22:30 America/Toronto (RE-1 11 of 30 sessions used, session 11 running on `d90d0a6e6`; first paid day +2.13; disk ~58 GiB).**
+**Last updated: 2026-09-25 03:15 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a running; RE-1 11 of 30).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -31,10 +31,10 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` = `198f7ccbc` (2026-09-23; includes the per-chunk `--basetemp` fix
-  `e1d766417`). 41 enabled tasks run from linked worktrees (OPERATIONS_DESIGN "What actually executes"). Before any merge,
-  get `roll_verdict.ps1` and check for a quiet-window marker. The 00:45 09-24 dry-run marker (CRLF rollback check)
-  was retired 09:14 by owner approval with a receipt; owner 09-24 adopted the fail-forward rules (Operations agent role §6).
+- **Production source:** `master` = `origin/master` = `fcb27f0a8` (2026-09-25 night, no marker left). Landed that night: docs
+  `ccd143a6b` (light path, receipt), merge-tool byte restore `e0c5d2d4e`, **88a** `c79b6da0d` (tip `e99de4fe4`: +hook allowlist
+  line, +`pytest.ini` `tmp_path_retention_policy = failed`: clone-heavy tests held ~7 GiB per chunk and tripped the 50 GiB floor
+  twice), 93a `491a05837`, 95c `a555f3229`, 94b `d77c7c16c`, status UTC fix `fcb27f0a8`. Get `roll_verdict.ps1` before any merge.
 - **Disk (binding):** true 24 h low 43.2 GiB (21:50 09-23). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
   Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
@@ -43,11 +43,11 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
 - **Capture:** health in `status.ps1`; it does not prove settled dates; T+1/T+2 reward bands have no canonical tape (D8-01).
-- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A. **Paper maker roll PAUSED 09-24** (owner: retiring the old maker; both tasks disabled).
+- **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A. **`WeatherMakerEvidenceCapture` registered
+  2026-09-25 02:34** (88a, public data only, every minute, `data\maker_evidence\status.json` CAPTURING, 0 failed cycles; watch its disk).
+  **Paper maker roll PAUSED 09-24** (owner: retiring the old maker; both tasks disabled).
   Training DISABLED; mirror and taker PAUSED. **No RE-0 reward capture since 2026-09-22 20:42Z** (the hourly logger was a session process, not a task). The deployed watchdog is newer than master: never re-register it from master.
-- **RE-1 session 1** (09-23, 42 min, NYC T+2): accrual 0.117 vs `P_many` 0.105; books mirror; competition 4x in 40 min;
-  partial fill 5.57 NO @0.48; below the 1-dollar minimum, **unpaid**. EF §10m, digest.
-- **RE-1 verdict (provisional):** session 1 frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM` (`k_accrued` ≈ 1.1, `SHORT`); formal from 09-26.
+- **RE-1 verdict (provisional):** session 1 (09-23, unpaid; EF §10m) frozen `INCONCLUSIVE`, addendum `BELOW_PAYOUT_MINIMUM`; formal from 09-26.
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
@@ -56,7 +56,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
   92a analysis done (`7f98359`). Current tip `d90d0a6e6` carries the owner-approved selection amendment (local T+1/T+2,
   >= max(75, size) displayed depth each side within max spread), audit and read-lag fixes, 2 s heartbeat, `go <6 hex>`. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
-  landed: 88a capture `7953d2608` (PR 87, roll-sensitive), 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`.
+  landed: 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`, 95b signed band parser (roll-sensitive).
 - **Maker economics:** weather takers pay `0.05 x p(1-p)` per share, makers 0; 25% of taker fees fund maker rebates (EF §10o). Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
   no rollover, per-minute sampling, `Q_min` share. The 86b capacity sampler is PAUSED (mutex, duplicate pagination).
@@ -72,10 +72,10 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 1. **RE-1:** session 11 end and its share path; `collect-evidence` for attempts 5-11 from 20:00 ET 09-25 (UTC 09-26) on `d90d0a6e6`; next
    sessions per the [live testing plan](live-testing-plan-2026-09-25.md) (accept share 0.15-0.70, start :59-:05, aim >= 180 min).
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
-   `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path. Order: start 88a's suite early; 93a `265b5150f`, 95c `cb759b2b9`; 88a 01:00-04:00 + register; 94b re-tipped on master after 88a; 89a `1a5dd82f9` last (tiering skip accepted); 95b next night.
+   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
+   parser (roll-sensitive, bounded suite first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a first** (binding data gap: per-minute books and reward terms for T+1/T+2 bands; disk now allows); 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25; per-minute books and reward terms for T+1/T+2 bands); 89a fill-toxicity run started 03:06 09-25 on `1a5dd82f9` (deadline 08:45; verdict in the morning summary).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
