@@ -3376,6 +3376,11 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
   **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks
   were not a reliable guide. Three binary outcomes are noise, not evidence that fills are benign.
+- **Inventory decisions (2026-09-25 ~11:10 ET, owner-placed on the [positions review](../roadmap/audits/positions-review-2026-09-25.md)):**
+  Miami 90-91°F Sep 25 YES **market-sold** into a bid that fell 0.23→0.18 in five minutes (every forecast 86-87°F, running high
+  81°F; exact proceeds to reconcile from the wallet). Chicago 68-69°F Sep 25 YES: **resting maker sell 75 @0.37 GTC** (first S2 /
+  Q-04 test; the bid side held only ~20 shares within 6 c). Neither earns rewards: `rewardsMinSize` was 100 on both same-day
+  bands, above the 75-share lot. An open resting sell makes RE-1 refuse to start (`foreign_open_order`); cancel it first.
 - **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
