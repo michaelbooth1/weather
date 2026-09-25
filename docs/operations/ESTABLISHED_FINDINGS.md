@@ -3383,6 +3383,10 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   bands, above the 75-share lot. An open resting sell makes RE-1 refuse to start (`foreign_open_order`); cancel it first.
   Wallet reader (100a, first live read 12:20 ET): Miami fill confirmed **75 @0.18 as taker, 12.9465 received** (fee ~0.55 at
   0.05·p(1−p), consistent with EF §10o); lot result −13.30. The owner withdrew the Chicago sell unfilled; 75 YES held to settlement.
+- **Reward terms change intraday (2026-09-25):** Chicago 68-69°F Sep 25 `rewards_min_size` read 100 (rate 73/day) at 15:01Z and
+  **20** (rate 65-67/day) at ~17:05Z on both gamma and CLOB `/rewards/markets/<id>`. The "neither earns rewards" line above
+  held only for the morning. CLOB `/rewards/markets` is authoritative (RE-1 reads it; 88a captures it per minute); read it at
+  decision time, never from an earlier snapshot.
 - **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
