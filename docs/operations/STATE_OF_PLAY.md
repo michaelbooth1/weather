@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-25 03:15 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a running; RE-1 11 of 30).**
+**Last updated: 2026-09-25 05:15 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a INCONCLUSIVE; RE-1 11 of 30).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -35,7 +35,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   `ccd143a6b` (light path, receipt), merge-tool byte restore `e0c5d2d4e`, **88a** `c79b6da0d` (tip `e99de4fe4`: +hook allowlist
   line, +`pytest.ini` `tmp_path_retention_policy = failed`: clone-heavy tests held ~7 GiB per chunk and tripped the 50 GiB floor
   twice), 93a `491a05837`, 95c `a555f3229`, 94b `d77c7c16c`, status UTC fix `fcb27f0a8`. Get `roll_verdict.ps1` before any merge.
-- **Disk (binding):** true 24 h low 43.2 GiB (21:50 09-23). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
+- **Disk (binding):** 24 h trail low 45.7 GiB (12:35 09-24); night 09-25 low 50.5 (01:35, suite temp, fixed). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
   Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
   The suite floor is 50 GiB. Production clock offset -0.17 s (W32Time not syncing; Manual start).
@@ -75,7 +75,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
    parser (roll-sensitive, bounded suite first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25; per-minute books and reward terms for T+1/T+2 bands); 89a fill-toxicity run started 03:06 09-25 on `1a5dd82f9` (deadline 08:45; verdict in the morning summary).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`); rerun on 10+ dates of 88a data.
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
