@@ -7,6 +7,9 @@ belong to the attended trading runbooks; this service cannot submit or cancel.
 
 ## Owner setup
 
+Install the pinned project requirements before starting; `python-dotenv` is a
+direct runtime dependency of the credential loader, not an optional SDK extra.
+
 The owner supplies existing L2 credentials in the **common Git checkout's** `.env`.
 The reader selects only `POLYMM_API_KEY`, `POLYMM_API_SECRET`,
 `POLYMM_API_PASSPHRASE`, `POLYMM_WALLET_ADDRESS` (L2 signer address),
