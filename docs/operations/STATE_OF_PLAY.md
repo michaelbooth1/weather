@@ -57,7 +57,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   Runs paused 09-24; 92a analysis done (`7f98359`). **Next tip `6b5fde587`**: owner-approved selection amendment (local T+1/T+2,
   >= max(75, size) displayed depth each side within max spread), audit fixes, 2 s heartbeat, `go <6 hex>` confirmation. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
   landed: 88a capture `7953d2608` (PR 87, roll-sensitive), 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`.
-- **Maker economics:** taker fee 0 on 377,104/377,104 public trades, so rebates are zero and rewards are the thesis. Configured
+- **Maker economics:** weather takers pay `0.05 x p(1-p)` per share, makers 0; 25% of taker fees fund maker rebates (EF §10o). Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
   no rollover, per-minute sampling, `Q_min` share. The 86b capacity sampler is PAUSED (mutex, duplicate pagination).
 - **Maker candidate:** `codex/stage2-hold-build-20260921` @ `88aa7e43a` (contains the maker reconcile): inert, roll-sensitive,
@@ -78,7 +78,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a first** (binding data gap: per-minute books and reward terms for T+1/T+2 bands; disk now allows); 89a rerun tonight on `d3dff0f2b` (Clarifications 9-10).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
-6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", zero-fee amendment, EF §10n. Then redeploy the
+6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
    hash-pinned watchdog (trough-based disk arithmetic) and add a bounded retry to the merge tool's tape pre-check.
 
 ## Standing decisions

@@ -3391,6 +3391,21 @@ app's "Cash" is the on-chain wallet, which moves only when a fill settles.
 - **Caveats:** one account, one day; the behaviour when fills exceed balance is not observed, and
   unsettleable fills at scale may breach the venue's integrity rules (strategy re-audit 2026-09-24). The earlier review's "reserved at placement" conclusion is withdrawn (second-opinion audit record).
 
+### 10o. Weather takers pay fees and makers earn fee-funded rebates — mission 95e, 2026-09-24
+
+Retires the "taker fee 0, therefore maker rebates zero" reading of the 2026-09-20 public tape. All 418 active bands of the 12
+configured daily-high families and Taipei carry the weather fee schedule: taker fee **`shares x 0.05 x p x (1 - p)`** pUSD
+(1.25 pUSD per 100 shares at 0.50, 2.5% of notional), **maker fee zero**; the category was introduced 2026-03-30 and on-chain
+taker charges are shown on every date 2026-09-20..24 for every family. Gamma configures a **25% weather maker-rebate
+allocation**, paid daily in pUSD (1-dollar minimum) by filled maker liquidity weighted by the fee curve — a second revenue
+stream distinct from liquidity rewards, not a guaranteed payment to us. Optional builder fees can add charges to either side.
+
+- **Consequences:** fills now carry a rebate share as well as markout risk; our own taker exits would pay the fee; an informed
+  taker pays ~1.25 c/share at mid to hit us. The earlier zeros were probably a missing field read as zero (the old evidence
+  was not re-read).
+- **Evidence:** `origin/codex/weather-fee-check-20260924` @ `64cd786c9` (fee schedule, changelog, dated on-chain samples);
+  [fees](https://docs.polymarket.com/trading/fees), [maker rebates](https://docs.polymarket.com/programs/maker-rebates).
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first

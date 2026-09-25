@@ -19,7 +19,7 @@
 - The venue's reward split follows the formula we model: RE-1 session 1 accrued 0.117 against 0.105/0.125 predicted, and
   the venue's own percentage sat within ~10% of ours; YES and NO books mirror (mission 86c, digest).
 - Competition is the binding variable: qualifying depth at our levels grew 4x in 40 minutes; selection-time projections decay.
-- Taker fee is 0 on the public tape; public maker markouts are +0.19 c/share at 5 minutes and -0.43 c to settlement (same-day
+- Taker fee was read as 0 on the public tape (retired 2026-09-24: takers pay `0.05 x p(1-p)`, makers 0, 25% maker rebates; EF §10o); public maker markouts are +0.19 c/share at 5 minutes and -0.43 c to settlement (same-day
   events only, 2026-09-20; `R` not frozen then). **The thesis depends on the rare large informed fill, not the average.**
 - The forecast still trails the market (1.44-1.48x morning, higher afternoon); raw NBM beats the served model on morning
   rows; the NBM parser repair (layers 2-3) is built and blocked on disk.
