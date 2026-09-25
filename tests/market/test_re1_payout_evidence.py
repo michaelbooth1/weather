@@ -546,3 +546,8 @@ def test_activity_query_started_before_cash_end_cannot_claim_full_coverage_after
     assert source['candidate_pagination_complete'] and not source['complete']
     assert evidence['payout_diagnostics']['linkage_rule_outcome'] == 'activity_coverage_incomplete'
     assert outcome(evidence)['paid'] is None and outcome(evidence)['verdict'] == 'INCONCLUSIVE'
+
+
+def test_evidence_accepts_every_attempt_folder_up_to_the_cap():
+    assert all(collector.attempt_folder_ok(f'session-{n}') for n in (1, 6, 7, 10, 20))
+    assert not any(collector.attempt_folder_ok(name) for name in ('session-0', 'session-01', 'session-21', 'session-x', 'sessions-3'))

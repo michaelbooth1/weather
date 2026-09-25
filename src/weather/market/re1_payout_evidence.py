@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENTIVE_EVIDENCE_SCHEMA
 from weather.market.mm_official_adapter import _plain_sdk_value
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
-from weather.market.re1_evidence import campaign_root, load_prediction, payout_verdict
+from weather.market.re1_evidence import ATTEMPT_CAP, campaign_root, load_prediction, payout_verdict
 from weather.market import re1_transport
 from weather.market.re1_transport import ASSETS, HOST, RPC
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, validate_nonreparse_directory
@@ -689,11 +689,17 @@ def collect_evidence(venue, prediction, *, clock=now_utc, opener=urlopen):
     return venue.guard.clean(evidence)
 
 
+def attempt_folder_ok(name):
+    # Attempt folders session-1..session-ATTEMPT_CAP (the cap was raised from 6 to 20 on 2026-09-23).
+    match = re.fullmatch(r'session-([1-9][0-9]*)', name)
+    return bool(match) and int(match.group(1)) <= ATTEMPT_CAP
+
+
 def run_collect_evidence(args):
     path = args.prediction.absolute()
     root = validate_nonreparse_directory(campaign_root())
     require(path.name == 'prediction.json' and path.parent.parent == root and
-            re.fullmatch(r'session-[1-6]', path.parent.name), 'prediction_outside_campaign')
+            attempt_folder_ok(path.parent.name), 'prediction_outside_campaign')
     validate_nonreparse_directory(path.parent)
     prediction = load_prediction(path, now=now_utc())
     require(prediction['mode'] == 'live', 'rehearsal_is_not_payout_evidence')
