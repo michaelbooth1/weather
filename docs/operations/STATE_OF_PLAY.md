@@ -70,7 +70,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 ## Ordered critical path
 
 1. **Informed maker foundation (owner 2026-09-25):** model -> fair value -> domain-neutral maker core with plugins (weather now,
-   YouTube views next); design by subagent, then phased build. RE-1 paused; owner may still run `collect-evidence` (attempts 5-11).
+   YouTube views next); [design](informed-maker-design-2026-09-25.md) (phases 0-4), owner decisions pending. RE-1 paused; owner may still run `collect-evidence` (attempts 5-11).
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Tonight: pause-flag tests + land, doc closeout, then 95b if >= 52 GiB;
    wallet reader stays on its branch (served from the workstation) until a later window.
