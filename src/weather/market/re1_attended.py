@@ -31,7 +31,7 @@ ORDER_CAP = Decimal('15.8')
 BAND_CAP = Decimal('19.6')
 MAX_SUBMITS = 10
 MAX_REQUOTES = 4
-MAX_SESSIONS = 10  # owner 2026-09-23 22:40 ET: 10 sessions, 20 attempts, none after 2026-09-30
+MAX_SESSIONS = 30  # owner 2026-09-24 ~20:55 ET: raised by 20 (was 10); none after 2026-09-30
 SECONDS = 21600
 LAST_DAY = '2026-09-30'
 

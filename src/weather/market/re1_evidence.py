@@ -91,7 +91,7 @@ def attempt_state(marker, *, now):
             'intent_sha256': [hashlib.sha256(validate_regular_nonreparse_file(p).read_bytes()).hexdigest() for p in intents]}
 
 
-ATTEMPT_CAP = 20  # owner 2026-09-23 22:40 ET
+ATTEMPT_CAP = 60  # agent default keeping two attempts per session when the owner raised sessions to 30 (2026-09-24)
 
 
 def reserve_attempt(root, *, now, selection_sha256, open_orders=None, maker=None):

@@ -183,7 +183,7 @@ def test_single_submit_boundary_refuses_hard_limit(tmp_path, monkeypatch, change
     if change == 'utc_day': session.end += timedelta(days=1)
     if change == 'duration': session.end += timedelta(seconds=1)
     if change == 'too_late': clock.seconds = 21600 - 179
-    if change == 'session_four': session.mode, session.attempt = 'live', {'number': 11}
+    if change == 'session_four': session.mode, session.attempt = 'live', {'number': 31}
     if change == 'proxy': monkeypatch.setenv('HTTPS_PROXY', 'http://example.invalid')
     if change == 'minimum_not_twenty': venue.memory.public_input['quote_inputs']['reward_min_size'] = '19'
     count = len(venue.calls)

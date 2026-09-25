@@ -87,3 +87,8 @@ supplied by the passive capture (88a) once registered, not by delaying the atten
 **Note (2026-09-24 follow-up review):** reads with `checkpoint=False` (`cancel`, `cancel_order_read`, `fill_order`,
 `initial_*`) retry up to 30 s, longer than the 20 s main-loop watchdog, so a persistently failing venue during a cancel ends
 `main_loop_stalled` rather than `cancel_stale`; outcome (cleanup) unchanged. The heartbeat request timeout is capped at 5 s.
+
+**Owner amendment, 2026-09-24 ~20:55 ET:** the RE-1 session cap is raised by 20, from ten to **thirty sessions**, still none
+after 2026-09-30, every session owner-started, same per-session reserve ceiling and wallet bound. The attempt cap becomes
+**sixty** (an agent default keeping two attempts per session; the owner may change it). Context: the tenth session was
+consumed by a venue read lag right after posting (fixed in `10fa052a0`).

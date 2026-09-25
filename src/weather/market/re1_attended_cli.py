@@ -10,7 +10,7 @@ import sys
 from weather.market.mm_stage2_hold import digest, write_new
 from weather.market.mm_stage2_rehearsal import ReplayClock
 from weather.market.re1_attended import Session, SecretGuard, LAST_DAY, MAX_SESSIONS
-from weather.market.re1_evidence import campaign_root, live_mutex, reserve_attempt, load_prediction, payout_verdict
+from weather.market.re1_evidence import campaign_root, live_mutex, reserve_attempt, load_prediction, payout_verdict, ATTEMPT_CAP
 from weather.market.re1_rehearsal import RehearsalVenue, WallClock, Re1PublicBooks
 from weather.market.re1_sizing import session_caps
 
@@ -28,7 +28,7 @@ def parser():
     modes.add_parser('cancel-only')
     modes.add_parser('preflight')
     reconcile = modes.add_parser('reconcile')
-    reconcile.add_argument('attempt', type=int, choices=range(1, 21))
+    reconcile.add_argument('attempt', type=int, choices=range(1, ATTEMPT_CAP + 1))
     collect = modes.add_parser('collect-payout')
     collect.add_argument('prediction', type=Path)
     collect.add_argument('--payment-evidence', type=Path, help='independently reconciled distribution/wallet evidence; absent means payment unverified')

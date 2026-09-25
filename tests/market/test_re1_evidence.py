@@ -28,7 +28,7 @@ def test_prediction_replay_and_tamper_refusal(tmp_path):
 
 
 def test_ten_persistent_sessions_and_eleventh_refused(tmp_path):
-    for i in range(1, 11):
+    for i in range(1, 31):
         clock_time = __import__('tests.market.stage2_fakes', fromlist=['Clock']).Clock().now() + timedelta(seconds=2)
         directory, marker = reserve_attempt(tmp_path, now=clock_time, selection_sha256='a' * 64)
         session, _, clock = setup(directory)
