@@ -692,15 +692,74 @@ def test_resolution_is_not_inferred_from_expired_date_or_zero_price(tmp_path, gu
     assert not any(urlsplit(req.full_url).path == "/book" for req, _ in t.opener.calls)
 
 
-def test_resolved_winner_value_is_retained_when_hidden(tmp_path, guard):
+def test_resolved_winner_pnl_is_separate_when_hidden(tmp_path, guard):
     holdings, _, respond = inventory_fixture(live=0, resolved=1)
     holdings[0].update(curPrice=1, size=5)
     t = wire(tmp_path, guard, FakeOpener(respond))
     reader = core.WalletReader(t, signature_type=2, campaign_capital=100)
     result = reader.summary()
-    assert result["marked_positions_pusd"] == "5" and result["campaign_pnl_pusd"] == "-25"
+    assert result["marked_positions_pusd"] == "0" and result["campaign_pnl_pusd"] == "-30"
+    assert result["unrealized_pnl_pusd"] == "0"
+    assert result["resolved_pnl_vs_cost_pusd"] == "3.0" and result["resolved_count"] == 1
     assert "resolved_positions" not in result
     assert reader.positions(include_resolved=True)["resolved_positions"][0]["size"] == "5"
+
+
+@pytest.mark.parametrize("capital,campaign,status", [
+    (None, None, "INCOMPLETE"), ("85", "-10.0", "OBSERVED"),
+    ("115", "-40.0", "OBSERVED"), ("115.01", "-40.01", "BLEED_LIMIT"),
+])
+@pytest.mark.parametrize("terminal,resolved_pnl", [(0, "-9270.0"), (1, "1030.0")])
+def test_100e_one_live_103_resolved_pnl_split(tmp_path, guard, capital, campaign, status, terminal, resolved_pnl):
+    holdings, _, respond = inventory_fixture(live=1, resolved=103)
+    for row in holdings[:-1]:
+        row.update(size=100, avgPrice=.9, curPrice=terminal)
+    holdings[-1].update(size=10, avgPrice=.7)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    reader = core.WalletReader(t, signature_type=2, campaign_capital=capital)
+    for include_resolved in (False, True):
+        result = reader.summary(include_resolved=include_resolved)
+        assert result["cash_pusd"] == "70"
+        assert result["marked_positions_pusd"] == "5.0"
+        assert result["unrealized_pnl_pusd"] == "-2.0"
+        assert result["resolved_pnl_vs_cost_pusd"] == resolved_pnl
+        assert result["resolved_count"] == 103
+        assert result["campaign_pnl_pusd"] == campaign
+        assert result["status"] == status
+        assert result["mark_basis"] == "live_two_sided_mid"
+        assert ("resolved_positions" in result) is include_resolved
+        assert result["plan"]["deferred_live_positions"] == 0
+    assert len(t.opener.calls) == 7  # Visibility does not add reads; resolved rows stay unenriched.
+    assert sum(urlsplit(req.full_url).path == "/book" for req, _ in t.opener.calls) == 1
+
+
+def test_100e_unknown_resolved_value_does_not_hide_live_pnl():
+    live = [{"mark_value_pusd": "5", "unrealized_pnl_pusd": "-2"}]
+    resolved = [{"mark_value_pusd": None, "unrealized_pnl_pusd": None}]
+    result = core.portfolio_summary({"cash_pusd": "70"}, live, [], "85", resolved=resolved)
+    assert result["marked_positions_pusd"] == "5"
+    assert result["unrealized_pnl_pusd"] == "-2"
+    assert result["resolved_pnl_vs_cost_pusd"] is None and result["resolved_count"] == 1
+    assert result["campaign_pnl_pusd"] == "-10" and result["status"] == "OBSERVED"
+
+
+@pytest.mark.parametrize("complete,live", [
+    (False, [{"mark_value_pusd": "5", "unrealized_pnl_pusd": "-2"}]),
+    (True, [{"mark_value_pusd": None, "unrealized_pnl_pusd": None}]),
+])
+def test_100e_incomplete_live_inventory_still_blocks_campaign(complete, live):
+    result = core.portfolio_summary({"cash_pusd": "70"}, live, [], "85",
+        resolved=[{"mark_value_pusd": "1000", "unrealized_pnl_pusd": "900"}], inventory_complete=complete)
+    assert result["marked_positions_pusd"] is None
+    assert result["unrealized_pnl_pusd"] is None
+    assert result["campaign_pnl_pusd"] is None and result["status"] == "INCOMPLETE"
+    assert result["resolved_pnl_vs_cost_pusd"] == "900" and result["resolved_count"] == 1
+
+
+def test_100e_empty_resolved_list_is_zero_and_cash_limit_is_independent():
+    result = core.portfolio_summary({"cash_pusd": "59"}, [], [], None)
+    assert result["resolved_pnl_vs_cost_pusd"] == "0" and result["resolved_count"] == 0
+    assert result["campaign_pnl_pusd"] is None and result["status"] == "BLEED_LIMIT"
 
 
 def test_gamma_closed_and_nonterminal_value_remain_explicit(tmp_path, guard):

@@ -34,6 +34,10 @@ actual two LAN IPs for the illustrative RFC1918 addresses below:
 
 Optionally add `--campaign-capital <net-contributed-pUSD>` only after reconciling
 the dedicated campaign wallet's initial equity plus deposits minus withdrawals.
+For RE-1, the owner should pass equity at the **2026-09-22 campaign start**,
+adjusted for subsequent deposits and withdrawals. Reconcile that starting equity
+on the same cash-plus-live-marks basis used now, keeping historical resolved dust
+outside both sides so it cancels; do not use lifetime cost basis or lifetime deposits.
 No wallet cap is assumed to be starting capital. Without this value campaign P&L
 is `null`/`INCOMPLETE`, although cash below the limit still yields `BLEED_LIMIT`.
 Use Ctrl+C to stop. There is no Scheduler registration or background installer.
@@ -126,22 +130,28 @@ fresh allowance update. Open orders must match the configured funder. Positions
 must match the funder and unique token IDs. A redeemable position or Gamma
 `closed=true` is resolved; Gamma `closed=false, active=true` establishes live.
 An expired end date or zero last price alone does not establish resolution.
-Uncertain rows remain in `unclassified_positions` and prevent aggregate P&L.
+Uncertain rows remain in `unclassified_positions` and prevent live and campaign totals.
 Resolved positions never request books or rewards. They carry size, redeemable
 status and last price in a separate `resolved_positions` list, shown only with
 `--include-resolved`; `resolved_count` is always present. The `/positions` response
 is an object with these lists, errors, status and plan, rather than a bare list.
 Best bid/ask for live positions are taken across all
 positive-size levels; mark is the two-sided midpoint, **not executable proceeds**.
-Missing/one-sided/crossed books leave marks and aggregate P&L unavailable. Gamma
+Missing/one-sided/crossed books leave live marks and campaign P&L unavailable. Gamma
 provides reward size/spread, and public CLOB supplies current market reward terms.
 Missing reward terms are flagged separately from missing marks.
 
-Live unrealized P&L is size times (midpoint minus average entry price), before any
-unrepresented fees. Resolved holdings use last price only when terminal (0 or 1);
-otherwise their value and aggregate P&L remain unknown. Resolved value participates
-in equity even when its rows are hidden; it is not cash or proof of redemption.
-Campaign P&L is cash plus marked inventory minus the explicit
+Summary `marked_positions_pusd` and `unrealized_pnl_pusd` cover **live positions
+only**. Live unrealized P&L is size times (midpoint minus average entry price),
+before any unrepresented fees. `mark_basis` is `live_two_sided_mid`.
+Resolved holdings use last price only when terminal (0 or 1). Their separate
+`resolved_pnl_vs_cost_pusd` sums terminal marked value minus cost; it is `null`
+if any resolved value is unavailable and zero for an empty resolved list.
+`resolved_count` and this informational total remain visible even when resolved
+rows are hidden. Neither resolved value nor resolved P&L enters the live totals,
+campaign P&L or bleed check. Missing resolved value alone does not invalidate live
+totals. This informational comparison is not a realized-P&L ledger or proof of redemption.
+Campaign P&L is cash plus **live** marked inventory minus the explicit
 net contribution baseline, which includes paid rewards already in cash and does
 not add unverified reward accrual. It is meaningful only for a dedicated campaign
 wallet with a reconciled baseline; unrelated holdings/transfers invalidate that

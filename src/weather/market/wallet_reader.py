@@ -52,26 +52,29 @@ def rows(value):
 
 
 def portfolio_summary(balance, positions, orders, campaign_capital, *, resolved=(), inventory_complete=True):
-    """Equity less owner-confirmed net contributions, never recent-trade P&L.
+    """Live equity less owner-confirmed net contributions; resolved P&L is separate.
 
 Campaign capital = initial equity + subsequent deposits - withdrawals. A
 dedicated campaign wallet is required. Reward accrual is not added to cash.
 """
     cash = number(balance["cash_pusd"]) if balance is not None else None
-    holdings = [*positions, *resolved]
     complete = inventory_complete and all(p.get("mark_value_pusd") is not None and p.get("unrealized_pnl_pusd") is not None
-                                          for p in holdings)
-    marked = sum((number(p["mark_value_pusd"]) for p in holdings), Decimal(0)) if complete else None
-    unrealized = sum((number(p["unrealized_pnl_pusd"]) for p in holdings), Decimal(0)) if complete else None
+                                          for p in positions)
+    marked = sum((number(p["mark_value_pusd"]) for p in positions), Decimal(0)) if complete else None
+    unrealized = sum((number(p["unrealized_pnl_pusd"]) for p in positions), Decimal(0)) if complete else None
+    resolved_pnl = (sum((number(p["unrealized_pnl_pusd"]) for p in resolved), Decimal(0))
+                    if all(p.get("unrealized_pnl_pusd") is not None for p in resolved) else None)
     campaign = cash + marked - number(campaign_capital) if complete and cash is not None and campaign_capital is not None else None
     bleed = cash is not None and cash < 60 or campaign is not None and campaign < -40
     return dict(cash_pusd=str(cash) if cash is not None else None, positions=positions, open_orders=orders,
                 marked_positions_pusd=str(marked) if marked is not None else None,
                 unrealized_pnl_pusd=str(unrealized) if unrealized is not None else None,
+                resolved_pnl_vs_cost_pusd=str(resolved_pnl) if resolved_pnl is not None else None,
+                resolved_count=len(resolved),
                 campaign_pnl_pusd=str(campaign) if campaign is not None else None,
                 campaign_net_contributions_pusd=str(campaign_capital) if campaign_capital is not None else None,
                 status="BLEED_LIMIT" if bleed else "INCOMPLETE" if campaign is None or orders is None else "OBSERVED",
-                mark_basis="live_two_sided_mid_resolved_terminal_last_price", cache_seconds=30,
+                mark_basis="live_two_sided_mid", cache_seconds=30,
                 captured_at_utc=datetime.now(timezone.utc).isoformat())
 
 
@@ -326,7 +329,6 @@ class WalletReader:
                                        inventory_complete=inventory["inventory_complete"])
             result.update(errors={**errors, **inventory["errors"]},
                           unclassified_positions=inventory["unclassified_positions"],
-                          resolved_count=len(inventory["resolved_positions"]),
                           plan={**inventory["plan"], "max_gets": plan["max_gets"], "used_gets": plan["used_gets"]})
             if include_resolved:
                 result["resolved_positions"] = inventory["resolved_positions"]
@@ -342,7 +344,7 @@ def main(argv=None):
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--signature-type", type=int, choices=(2, 3), required=True,
                        help="Owner-confirmed existing wallet type: 2 Safe, 3 deposit wallet")
-    serve.add_argument("--campaign-capital", help="Dedicated campaign wallet net contributed pUSD; omit for unknown P&L")
+    serve.add_argument("--campaign-capital", help="Campaign-start equity plus net deposits/withdrawals in pUSD; omit for unknown P&L")
     args = parser.parse_args(argv)
     try:
         lan_ip(args.bind)
