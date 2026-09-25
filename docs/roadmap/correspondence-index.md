@@ -400,3 +400,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-100b | handoff | [Workstation handoff 2026-09-100b — 88a reward terms into the 89a desk study](workstation-handoff-2026-09-100b-maker-evidence-terms-adapter.md) | 2026-09-25 | none in tree | — | — |
 | 2026-09-100c | handoff | [Workstation handoff 2026-09-100c — 89a panel B selector (Clarification 12)](workstation-handoff-2026-09-100c-fill-toxicity-panel-b.md) | 2026-09-25 | none in tree | — | — |
 | 2026-09-100d | handoff | [Workstation handoff 2026-09-100d — wallet reader fixes from the first live use](workstation-handoff-2026-09-100d-wallet-reader-fixes.md) | 2026-09-25 | none in tree | — | — |
+| 2026-09-100e | handoff | [Workstation handoff 2026-09-100e — wallet reader P&amp;L split](workstation-handoff-2026-09-100e-wallet-reader-pnl-split.md) | uncommitted | none in tree | — | — |

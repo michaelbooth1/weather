@@ -35,10 +35,10 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
   `ccd143a6b` (light path, receipt), merge-tool byte restore `e0c5d2d4e`, **88a** `c79b6da0d` (tip `e99de4fe4`: +hook allowlist
   line, +`pytest.ini` `tmp_path_retention_policy = failed`: clone-heavy tests held ~7 GiB per chunk and tripped the 50 GiB floor
   twice), 93a `491a05837`, 95c `a555f3229`, 94b `d77c7c16c`, status UTC fix `fcb27f0a8`. Get `roll_verdict.ps1` before any merge.
-- **Disk (binding):** 24 h trail low 45.7 GiB (12:35 09-24); night 09-25 low 50.5 (01:35, suite temp, fixed). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
+- **Disk (binding):** 09-25 lows 50.5 (01:35, suite temp, fixed) and 44.3 (11:20 transient); 88a stops itself < 50 GiB (stopped 11:16-11:21); 13:20 reclaim of 09-03 transfer bundles -> 57.7. Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
   Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
-  The suite floor is 50 GiB. Production clock offset -0.17 s (W32Time not syncing; Manual start).
+  The suite floor is 50 GiB. W32Time Automatic and syncing since 09-25 10:51.
 - **Host:** commit limit 32.5 GB (42% used 09-24); settlement repair per date via `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, never `chain_recovery_run.ps1`.
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
@@ -72,10 +72,10 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 1. **RE-1:** session 11 end and its share path; `collect-evidence` for attempts 5-11 from 20:00 ET 09-25 (UTC 09-26) on `d90d0a6e6`; next
    sessions per the [live testing plan](live-testing-plan-2026-09-25.md) (accept share 0.15-0.70, start :59-:05, aim >= 180 min).
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
-   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
-   parser (roll-sensitive, bounded suite first).
+   holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Tonight: pause-flag tests + land, doc closeout, then 95b if >= 52 GiB;
+   wallet reader stays on its branch (served from the workstation) until a later window.
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 88a->89a adapter + Clarification 11 built (100b, `d2dcd3035`, roll-free, not needed on master); **owner approved Clarification 12: panel B 09-25..10-08, scored once after 10-08** (selector: handoff 100c).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 88a->89a adapter + Clarification 11 built (100b, `d2dcd3035`, roll-free, not needed on master); **owner approved Clarification 12: panel B 09-25..10-08, scored once after 10-08** selector built and verified (100c, `2b37cae88`).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
