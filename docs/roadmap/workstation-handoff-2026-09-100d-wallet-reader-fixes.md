@@ -41,3 +41,16 @@ cache TTL ≤ 10 s; client reason codes; cold composite latency bounded by the p
 No real account run by the agent (the owner restarts `serve` on the new tip). No `.env`. Report:
 `docs/roadmap/agent-report-2026-09-100d-wallet-reader-fixes.md` (verdict first, tests, the tip). Push is authorized. The
 production agent lands the final tip (roll-sensitive: schema registry) in the next quiet window after the bounded suite.
+
+## Addendum A (2026-09-25 12:50 ET, after the first live read on `e57c9ee12`)
+
+The fixes work: `/summary` answered in 1.6 s, 103 dust positions were classified `resolved` from data-api `redeemable`
+with 5 upstream GETs. One defect remains: the live Chicago 68-69°F Sep 25 YES came back `classification: unknown`,
+unmarked, with `errors.metadata = classification_metadata_unavailable`. The single gamma read sends **all ~104
+condition ids** as repeated `condition_ids` parameters (~8 KB of query string); the same query for that one condition
+returns 200 from the production PC, so the batch itself fails (probably URL length or a server cap).
+
+Fix on the same branch: query gamma **only for holdings not already `redeemable`**, in chunks of at most 20 ids
+(`limit` = chunk size); a failed chunk marks only its own conditions `classification_unavailable` and never the rest.
+Tests: 104 holdings with 103 redeemable issue one gamma GET for one id; 45 non-redeemable issue three chunked GETs; a
+failed chunk leaves the other chunks classified. Report as an addendum to the 100d report.
