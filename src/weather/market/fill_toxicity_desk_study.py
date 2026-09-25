@@ -1,6 +1,6 @@
 """Offline, synthetic-tested fill-toxicity desk study; never places orders.
 
-Frozen authority: mission 89a and Clarifications 1-9 at 7014b637e. A dry run
+Frozen authority: mission 89a and Clarifications 1-10 at 69de822df. A dry run
 stats exact named inputs and reads no tape content. Normal runs stream one
 event-date through a disk-backed sort, writing only beneath --output-dir.
 """
@@ -34,7 +34,7 @@ from weather.paths import data_path
 
 START_DATE = date(2026, 8, 15)
 FREEZE_DATE = date(2026, 9, 23)
-FROZEN_REF = "7014b637e228228fab763a7febea82c8852b6809"
+FROZEN_REF = "69de822dfebad16d8114cd7a7484e71db3f6932b"
 REPORT_NAME = "fill_toxicity_desk_study"
 EXTRA_GROUPS = ("PLACEBO", "E2_DETECTED", "E123_DETECTED")
 GROUPS = ("TOTAL", *WINDOW_SETS, *EXTRA_GROUPS, "OUTSIDE")
