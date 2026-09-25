@@ -15,6 +15,7 @@ citations).
 
 | Audit | Added | Scope | Verdict (one line) | Open | Dispositions | Status |
 | --- | --- | --- | --- | --- | --- | --- |
+| [post-night-audit-2026-09-25](post-night-audit-2026-09-25.md) | 2026-09-25 | night landings, 88a/89a data path, disk, next moves | landings sound; 89a cannot read 88a output yet; disk tight for tonight | adapter, canon repair, two-band owner decision | inside the file | OPEN |
 | [pre-night-audit-2026-09-24](pre-night-audit-2026-09-24.md) | 2026-09-24 | RE-1 code, landing plan, host, docs, 89a readiness | all areas GO or fixed | leftovers for owner review | inside the file | DISPOSED |
 | [host-and-model-audit-2026-09-24](host-and-model-audit-2026-09-24.md) | 2026-09-24 | host, model, logging, RAM, storage, fleet, settlement, repo | capture healthy, instruments mislead; true disk low 43.2 GiB; learning lane dead since 08-13 | learning-lane reorder, monitoring flags, spent one-shots, boot-recovery tip, signed band parser, log rotation | inside the file; owner host actions 09-24 | OPEN |
 | [second-opinion-audit-2026-09-24](second-opinion-audit-2026-09-24.md) | 2026-09-24 | RE-1 code, pre-registrations, ops fixes, handbacks, plan; follow-up; inventory review | safety envelope intact; selection chose empty books; fixes verified; resting sells a design input | owner: withdraw test (S1), resting-sell test (S2) not yet run | inside the file; EF §10m-§10o | OPEN |
