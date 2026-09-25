@@ -24,6 +24,9 @@ from weather.units import c_to_native, f_to_native, round_half_up
 
 
 MAX_LINE_BYTES = 16 * 1024 * 1024
+# Production order-book summaries carry wide JSON cells; csv defaults to 131,072 characters per field
+# (89a run 2026-09-25 died on it). Reading capacity only: no row is added, dropped or reinterpreted.
+csv.field_size_limit(MAX_LINE_BYTES)
 
 
 class CaptureDefects:

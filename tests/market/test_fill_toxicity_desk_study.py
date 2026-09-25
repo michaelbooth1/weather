@@ -454,6 +454,16 @@ def test_gap_and_coverage_thresholds(tmp_path):
     assert result["exclusions"] == ["no_execution_gap_or_status_record"]
 
 
+def test_coverage_reads_summary_rows_with_wide_cells(tmp_path):
+    event = synthetic_event(tmp_path)
+    with Path(event["summary"]).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["captured_at_utc", "book_json"])
+        writer.writeheader()
+        writer.writerows({"captured_at_utc": iso(event["start"] + 60 * minute), "book_json": "x" * 200_000 if minute == 0 else ""} for minute in range(1440))
+    result = source.coverage(event["summary"], [], None, event["start"], event["end"])
+    assert result["exclusions"] == ["no_execution_gap_or_status_record"]
+
+
 def test_disk_sorted_duplicate_collapse_and_complement(tmp_path):
     path = tmp_path / "trades.jsonl"
     rows = [{"asset_id": "y", "timestamp": "3000", "price": ".4", "size": "2", "side": "SELL", "transaction_hash": "x"},
