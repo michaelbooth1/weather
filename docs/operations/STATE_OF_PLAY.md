@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-25 10:45 America/Toronto (night landings: docs, merge-tool fix, 88a + capture registered, 93a, 95c, 94b; 89a INCONCLUSIVE; RE-1 11 of 30).**
+**Last updated: 2026-09-25 14:40 America/Toronto (ALL LIVE TRADING PAUSED by the owner to build the informed, domain-neutral maker; RE-1 11 of 30 used).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -16,7 +16,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Current authority
 
-- Owner 2026-09-19: implementation authority toward live testing. **No live trading except RE-1.** Heavy work only
+- Owner 2026-09-19: implementation authority toward live testing. **No live trading (owner 2026-09-25: all live trading paused, incl. RE-1, while the informed maker is built).** Heavy work only
   00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)).
 - Owner 2026-09-21: **RE-1** approved as an **attended workstation script the owner starts personally**, at most **thirty
   sessions and sixty attempts** (owner raised 3->10 on 09-23 and +20 on 09-24; attempts are an agent default), none after 2026-09-30, worst case one session's reserve (at most 75 pUSD); campaign bound = the testing wallet (at most 200, no top-ups); outside the sealed lane and changes nothing in it (mission 84a).
@@ -69,8 +69,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1:** session 11 end and its share path; `collect-evidence` for attempts 5-11 from 20:00 ET 09-25 (UTC 09-26) on `d90d0a6e6`; next
-   sessions per the [live testing plan](live-testing-plan-2026-09-25.md) (accept share 0.15-0.70, start :59-:05, aim >= 180 min).
+1. **Informed maker foundation (owner 2026-09-25):** model -> fair value -> domain-neutral maker core with plugins (weather now,
+   YouTube views next); design by subagent, then phased build. RE-1 paused; owner may still run `collect-evidence` (attempts 5-11).
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Tonight: pause-flag tests + land, doc closeout, then 95b if >= 52 GiB;
    wallet reader stays on its branch (served from the workstation) until a later window.
