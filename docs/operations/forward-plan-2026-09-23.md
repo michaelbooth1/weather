@@ -28,7 +28,7 @@
 
 ## Next 30 days, in order
 
-1. **Finish RE-1** (sessions 2-3 by 09-30 on the 84h size tip `1310ca6bf`; formal verdicts under both tables from 09-26). A
+1. **Finish RE-1** (now 30 sessions / 60 attempts by 09-30 on the current tip; formal verdicts from 09-26). Originally: a
    full six-hour session at session-1 competition accrues about 0.64, still below the 1-dollar minimum; a payment test may
    need a less contested band or a larger size (owner decision).
 2. **Disk** ([storage plan](storage-plan-2026-09-23.md)): inventory by data family, compress-and-retain, Drive archive until
@@ -48,13 +48,13 @@
    (measured METAR minutes; NBM 01/07/13/19Z); T3, the probability a band is already decided. Evaluate against a clock-only
    baseline, then as a pre-registered withdraw-policy counterfactual (markout avoided versus reward minutes lost).
 7. **Statistics canon repair:** date-clustered inference with markets fixed for decisions (the crossed design as a
-   sensitivity); retire the 98.88/1.12 citations and the ~504-date requirement (neither 504 nor 39 is citable); zero-fee
+   sensitivity); retire the 98.88/1.12 citations and the ~504-date requirement (neither 504 nor 39 is citable); fee (EF §10o)
    amendment; two-tier ship rule (owner decision).
 8. **Forecast candidates in forward shadow:** a zero-parameter baseline board (raw NBM with the observed floor, all day, plus
    a rolling per-market centre correction), then a pooled guidance-anchored residual model with state-dependent spread.
 9. **Live-path qualification kit** (mission 87a) adopted after RE-1, with PR 85's execution modules under their own roll
    verdict.
-10. **Settlement hardening:** land the signed band parser (item 335, `016e1c92c`) before Toronto's first sub-zero high; add a
+10. **Settlement hardening:** land the signed band parser (`016e1c92c`, rebased as 95b `codex/signed-band-parser-20260924`) before Toronto's first sub-zero high; add a
     resolution-source change alarm.
 
 ## Kill rules
@@ -73,7 +73,7 @@ Decided 2026-09-23:
 2. **Passive maker-evidence capture approved** (item 4 above; sized for the disk, brakes on the storage bands).
 3. **K2's dollars-per-band-day floor is deferred** until the capture and sessions give data; K2 is inactive until set.
 4. **Payment tests may use any band and any size**, within the dedicated testing wallet: **100 pUSD total, all of it for
-   testing** (end date stays; the owner raised the session cap to ten sessions and twenty attempts at ~22:40 ET the same day). A size or selection change is a new dated pre-registration and a new
+   testing** (later: wallet guard 200; cap 10 sessions/20 attempts on 09-23, then 30/60 on 09-24; end date stays; DECISION_LOG). A size or selection change is a new dated pre-registration and a new
    code tip with a fresh owner preflight; owner later the same day moved session 2 onto the 84h tip `1310ca6bf` (more data is worth the balance).
 5. **One multi-domain market maker** (owner 2026-09-24): weather first, then YouTube view markets and other reward markets.
    Build the shared foundation (venue, market-universe plugins, fair-value/information-clock plugins, one quoting engine,

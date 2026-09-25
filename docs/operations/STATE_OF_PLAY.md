@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-24 America/Toronto (RE-1 8 of 10 sessions used, first UTC day over the 1-dollar minimum, runs paused for analysis; fail-forward rules; disk Red).**
+**Last updated: 2026-09-24 22:30 America/Toronto (RE-1 11 of 30 sessions used, session 11 running on `d90d0a6e6`; first paid day +2.13; disk ~58 GiB).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -38,7 +38,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **Disk (binding):** true 24 h low 43.2 GiB (21:50 09-23). Owner 09-24 ~12:45: System Restore capped at 2 GB (+10.7 GiB),
   Windows Search disabled and its index removed (+1.7), Defender excludes `data\`: **58.0 GiB free at 12:50** (Red). Judge from the trail's 24 h minimum. Step 1 inventory done ([storage plan](storage-plan-2026-09-23.md)):
   ~453 GiB of snapshot-folder text is **uncompressed** and compresses 5-20x; mission 91a automates closed-day compression.
-  System Restore holds 5.8 GB (max 18.6): capping it is an owner call. The suite floor is 50 GiB; judge at the ~04:50 low.
+  The suite floor is 50 GiB. Production clock offset -0.17 s (W32Time not syncing; Manual start).
 - **Host:** commit limit 32.5 GB (42% used 09-24); settlement repair per date via `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`, never `chain_recovery_run.ps1`.
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23 (same stations);
   band agreement 921/921 before and 359/360 after; exact degrees undecided (86a). Master hard-codes WU; no gate detects a switch. EF §10c.
@@ -51,11 +51,11 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 - **RE-1 sessions 2-8** (2026-09-24; journal folders are numbered by attempt: attempts 1-9 = sessions 1,2,-,3,4,5,6,7,8):
   s2 `fresh_ask`; s3 ~1 min `cancel_not_terminal` (read lag); s4 Miami 90-91 Sep 25, 88 min, **full fill 75 YES @0.35**;
   s5 56 min `heartbeat_stale`; s6 0 min decode `exception`; s7 ~2 min, fill 18.41 NO @0.59; s8 13 min (`P_many` 0.87), fill
-  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; **10 of 30 used** (s10 lost to post read lag, fixed `10fa052a0`); next tip `622e25bfb`. Held to
+  10 NO @0.40. **UTC 09-24 PAID +2.13 (k ≈ 1.05 vs ~2.03 modelled).** Held lots: 3 settled +6.43 net; Miami YES open (marked +6.75). s9 (depth rule): 38 min, no fill, stopped by owner test orders; s10 lost to post read lag (fixed `10fa052a0`); **s11 running since ~22:00 ET on `d90d0a6e6`** (Chicago 68-69°F Sep 25, start share 0.56, ~14% at 20 min); **11 of 30 used**. Held to
   settlement: ~43.8 USD across four bands. Fills came on the least-contested bands; on an empty band share is 100% at any size
   or distance, so 75 shares at 1.5 c bought fill exposure for no extra reward (second-opinion audit, owner decision pending).
-  Runs paused 09-24; 92a analysis done (`7f98359`). **Next tip `6b5fde587`**: owner-approved selection amendment (local T+1/T+2,
-  >= max(75, size) displayed depth each side within max spread), audit fixes, 2 s heartbeat, `go <6 hex>` confirmation. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
+  92a analysis done (`7f98359`). Current tip `d90d0a6e6` carries the owner-approved selection amendment (local T+1/T+2,
+  >= max(75, size) displayed depth each side within max spread), audit and read-lag fixes, 2 s heartbeat, `go <6 hex>`. Earlier code: `c771cbb42` (84g), `1310ca6bf` (84h, 7,360 passed). Not on master. Built, not
   landed: 88a capture `7953d2608` (PR 87, roll-sensitive), 89a+89c `d3dff0f2b`, 89b `d059cc787`, 90a report `2cb8a0a0e`.
 - **Maker economics:** weather takers pay `0.05 x p(1-p)` per share, makers 0; 25% of taker fees fund maker rebates (EF §10o). Configured
   pool ~2,800/day same-day, ~4,800 all active (EF §10a). Venue docs: pUSD since 2026-04-28, 1-dollar minimum per UTC day,
@@ -69,8 +69,8 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
 
 ## Ordered critical path
 
-1. **RE-1:** verify the 09-24 payout (~20:00 ET; `collect-evidence` from 00:00Z). Session 10 (last) as a long session on
-   `6b5fde587`: start ~:55 past the hour (after the :51-:53 METAR cluster), not within 30 min before 12Z GFS (~15:30Z), a contested local T+1 band, aim >= 180 min.
+1. **RE-1:** session 11 end and its share path; `collect-evidence` for attempts 5-11 from 20:00 ET 09-25 (UTC 09-26) on `d90d0a6e6`; next
+   sessions per the [live testing plan](live-testing-plan-2026-09-25.md) (accept share 0.15-0.70, start :59-:05, aim >= 180 min).
 2. **Disk:** mission 91a (closed-day NTFS compress-and-retain at scale, then compress-on-close at source) until the daily low
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours); at 00:30 land this docs branch (fail-forward light path, never `-DryRun`), then the merge-tool byte-restore fix
    `codex/quiet-merge-crlf-rollback-20260924` @ `9e3f4eea4` (roll verdict and its focused test first); docs land first by the light path. Also tonight: 93a `265b5150f`, 95c `cb759b2b9` (roll-free), 94b `29c0818c4` after 88a; 95b `2c40077a2` is roll-sensitive (next night).

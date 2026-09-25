@@ -3343,7 +3343,7 @@ for lack of live closure evidence, so production must run its own). Handback **P
   and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
   ownership and asks for three stacked, individually green integration branches.
 
-### 10m. RE-1 live reward sessions 1-8 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
+### 10m. RE-1 live reward sessions 1-9 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
 
 Owner-attended sessions on the testing wallet (sized treatment, 75 shares at ±1.5 c from session 4 on). Journal folders are
 numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check refused), 3, 4, 5, 6, 7, 8.

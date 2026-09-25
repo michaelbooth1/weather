@@ -1,12 +1,12 @@
 # Live testing plan — 2026-09-25
 
-- **Owns:** the reviewed plan for the last RE-1 session and the staged live experiments after RE-1.
+- **Owns:** the reviewed plan for the next adequate RE-1 sessions and the staged live experiments after RE-1.
 - **Read when:** preparing the last RE-1 session or proposing RE-2 experiments.
 - **Do not use for:** authority (STATE_OF_PLAY "Current authority" and the decision log own it); measured results (EF §10m-§10o).
 
 Designed by a read-only second-opinion agent on 2026-09-24 and reviewed by the production agent against tip `03c8fd028`.
 
-## Last RE-1 session (session 10 of 10), no code change
+## Next adequate RE-1 session (cap now 30; session 10 was lost to post read lag, fixed in `10fa052a0`)
 
 Purpose: the first **adequate** session (>= 180 two-sided minutes, >= 95% sampled) on a contested local T+1 band: share path at
 10/30/90/180/360 minutes, fill hazard over hours, a formal `k`/`k_accrued`, requote count, heartbeat 429s.

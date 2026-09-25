@@ -118,7 +118,7 @@ any payout can be known. Planning value from the 2026-09-20 dry runs: **2.4 to 3
 | `PAID_AS_MODELLED` | `k >= 0.5` | The desk model stands, scaled by `k`. Go to RE-2. |
 | `PAID_DILUTED` | `0.1 <= k < 0.5` | Rescale the desk model by `k`; RE-2 only if the rescaled economics clear `H`. |
 | `NOT_PAID` | paid = 0, legs marked scoring, `P_many >= 2.0` | The model is wrong by more than the payout minimum can explain. No further live work on this thesis without a named mechanism. |
-| `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported. |
+| `INCONCLUSIVE` | anything else: `P_many < 2.0` with no payment, legs never marked scoring, under 180 visible two-sided minutes, reward settings changed mid-session, evidence incomplete | One re-run per named cause. RE-1 is capped at **three sessions in total**, every one reported (superseded: 10 sessions/20 attempts on 2026-09-23, 30/60 on 2026-09-24; DECISION_LOG). |
 
 **Reward day (owner, from use, 2026-09-22):** the venue's liquidity rewards reset and are paid daily at 20:00
 Eastern, i.e. 00:00 UTC in daylight time - the reward day is the UTC day. Session 1 (started about 01:40Z
