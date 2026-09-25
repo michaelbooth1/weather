@@ -75,7 +75,7 @@ paid reward is proved. Plan, kill rules and owner decisions: [forward plan](forw
    holds at 70 GiB or more (91a is not registered until its nightly run is bounded, so it cannot hold the lease for hours). Next night: 95b signed band
    parser (roll-sensitive, bounded suite first).
 3. **NBM layer 2, then 3:** one per 01:00-04:00 quiet window, host-qualified by the bounded suite, once disk allows.
-4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 89a cannot read 88a's output yet: adapter + Clarification 11 first ([post-night audit](../roadmap/audits/post-night-audit-2026-09-25.md)).
+4. **Pillar B evidence** ([forward plan](forward-plan-2026-09-23.md) 4-6): **88a capture is live** (09-25). **89a `INCONCLUSIVE`/`UNDERPOWERED`: 0 of 480 events admitted, all `no_panel_bands_with_captured_reward_terms`** (tip `2ac227d08`). 88a->89a adapter + Clarification 11 built (100b, `d2dcd3035`, roll-free, not needed on master); **rerun needs an owner date-range decision** (frozen panel 08-15..09-23 has no 88a data).
 5. **Stage 2 hold build:** host qualification in a quiet window; owner disposes of the 80b defaults; attended Stage 0/1 re-run
    on landed code. Earliest repository-run live session about 2026-10-01.
 6. **Canon repair (roll-free):** retire 98.88/1.12, qualify "~504 dates", EF §10o done. Then redeploy the
