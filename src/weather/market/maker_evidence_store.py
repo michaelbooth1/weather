@@ -47,7 +47,9 @@ def atomic_json(path, value):
 
 def disk_band(free_bytes):
     gib = free_bytes / 1024**3
-    return "critical" if gib < 50 else "red" if gib < 60 else "amber" if gib < 75 else "green"
+    # Critical is 40 GiB, below the bounded suite's 50 GiB floor (owner 2026-09-25): capture keeps
+    # running on nights when a suite cannot. Red (< 60) still stops the raw update channel.
+    return "critical" if gib < 40 else "red" if gib < 60 else "amber" if gib < 75 else "green"
 
 
 def inline_body(raw):

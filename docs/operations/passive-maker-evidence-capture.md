@@ -118,7 +118,8 @@ These journals are `canonical_evidence` in
 reviewed archive/reclaim gate as other original public evidence.
 
 Before each cycle the worker checks actual free space on its output volume.
-Red stops the raw update channel; Critical stops all capture and writes status.
+Red (< 60 GiB) stops the raw update channel; Critical (< 40 GiB, owner 2026-09-25: below the bounded suite's 50 GiB
+floor so capture outlives nights when a suite cannot run) stops all capture and writes status.
 Windows process priority is IDLE (Scheduler
 priority 10); buffers, reply sizes and universe size are bounded. The worker is
 independent of snapshot/CLOB supervisors and never calls them.
