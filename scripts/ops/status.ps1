@@ -3654,6 +3654,8 @@ $expDisabled = @(
     # docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md
     "WeatherModelMarketDisagreementAnalysis",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
+    # Owner 2026-09-24: the paper maker roll is paused while the old maker is retired (DECISION_LOG).
+    "WeatherMarketMakingDailyRoll", "WeatherMarketMakingDailyRollSupervisor",
     "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
     # Legacy host-local queue drivers lack immutable expected-tip bindings. They stay off
     # until the repository-owned exact-tip queue replaces them. The -09-69a suite is also
