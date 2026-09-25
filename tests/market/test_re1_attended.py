@@ -68,6 +68,24 @@ def test_cancel_wait_keeps_the_main_loop_alive(tmp_path):
     session.journal.close()
 
 
+def test_post_read_lag_is_waited_out_but_foreign_orders_still_stop(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    real_open, reads = venue.open_orders, {'n': 0}
+    first = session.submit(0, session.prices[0])
+    def lagging():
+        reads['n'] += 1
+        return [] if reads['n'] <= 2 else real_open()
+    venue.open_orders = lagging
+    second = session.submit(1, session.prices[1])
+    assert first and second and reads['n'] >= 3
+    venue.open_orders = lambda: real_open() + [{'id': 'foreign', 'order_id': 'foreign'}]
+    session.prices = list(session.prices)
+    with pytest.raises(HoldEnd, match='unexpected_open_orders'):
+        session.submit(0, session.prices[0])
+    session.cleanup()
+    session.journal.close()
+
+
 def test_second_leg_crossing_at_open_posts_nothing(tmp_path):
     session, venue, clock = setup(tmp_path)
     original = venue.snapshot

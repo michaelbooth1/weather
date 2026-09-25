@@ -344,6 +344,16 @@ class Session:
             raise HoldEnd('capital_cap')
         expected = {oid: (self.tokens[i], p, size) for oid, (i, p) in self.active.items()}
         rows = self.required('open_orders', self.venue.open_orders)
+        # Venue order reads trail a post by about a second (2026-09-25, attempt 11). If every listed order is ours and only
+        # some of our just-posted orders are not yet listed, re-read for up to 10 s; any foreign order still fails at once.
+        for _ in range(10):
+            listed = {_order_id(row) for row in rows} if isinstance(rows, list) else None
+            if listed is None or listed == set(expected) or not listed < set(expected):
+                break
+            if self.heartbeat_loop is not None:
+                self.heartbeat_loop.tick()
+            self.clock.sleep(1)
+            rows = self.required('open_orders', self.venue.open_orders)
         _exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
         if len(rows) >= 2 or any(i == leg for i, _ in self.active.values()):
             raise HoldEnd('open_order_cap')
