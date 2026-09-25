@@ -61,6 +61,9 @@ verification depth.
 
 ## Runtime operations
 
+For the independent public maker collector, its task and retention, read
+[passive-maker-evidence-capture.md](passive-maker-evidence-capture.md).
+
 | Document | Read when |
 | --- | --- |
 | [OPERATIONS_DESIGN.md](OPERATIONS_DESIGN.md) | Touching capture supervision, status files, the dashboard, or restart guidance. |

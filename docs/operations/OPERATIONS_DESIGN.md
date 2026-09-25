@@ -50,6 +50,16 @@ read-only International public execution tape is an auxiliary fourth producer:
 | :--- | :--- | :--- | :--- |
 | Public executions | `WeatherExecutionTapeSupervisor` | `python -m weather.operations.execution_tape_supervisor ensure --market all --stale-after-seconds 180` | Retain received-time `last_trade_price` observations, connection gaps, and exact subscription seeds for counterfactual price paths. It is not an own-account fill or P&L source. |
 
+The separately registered `WeatherMakerEvidenceCapture` runs
+`python -m weather.market.maker_evidence_capture` directly, with a kernel writer
+lock and Scheduler IgnoreNew, rather than an `ensure` supervisor. Its
+[owning contract](passive-maker-evidence-capture.md) defines minute T+0/T+1/T+2
+books and reward records, capped extra-condition window updates, continuous public trades, disk
+brakes and `data/maker_evidence/status.json`. It does not enter streak grading
+or the existing capture recovery contract. The registrar is
+`scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
+remain explicit production actions.
+
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
 not itself the long-running capture process. A healthy/no-op or successful
