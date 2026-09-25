@@ -90,6 +90,9 @@ $mergeCommit = $null
 $baselineCommit = $null
 $preMerge = $null
 $rollbackContentSha256 = [ordered]@{}
+# Exact pre-commit bytes of the generated config files. The drift commit normalizes line endings, so a rollback that
+# restores them from Git can leave the same JSON with different bytes (2026-09-24); rollback writes these back first.
+$rollbackContentBytes = @{}
 $captureRecoveryProved = $false
 $reconciliationStagedSafetyCaptureRecoveryProved = $false
 $reconciliationStagedSafetyCaptureRecoveryAt = $null
@@ -3422,16 +3425,33 @@ foreach ($relativePath in $autoRefreshed) {
     $absolutePath = Join-Path $repo ($relativePath -replace '/', '\')
     if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
         $rollbackContentSha256[$relativePath] = (Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $rollbackContentBytes[$relativePath] = [IO.File]::ReadAllBytes($absolutePath)
     }
 }
 if ($rollbackContentSha256.Count -ne $autoRefreshed.Count) {
     Fail "both fleet-generated config files must exist before merge preparation"
 }
 
+function Restore-GeneratedConfigBytes {
+    # Rewrite only an allowlisted generated file whose bytes differ from the recorded pre-commit image; the strict
+    # SHA-256 comparison that follows still decides success.
+    foreach ($relativePath in @($rollbackContentBytes.Keys)) {
+        $absolutePath = Join-Path $repo ($relativePath -replace '/', '\')
+        $current = if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
+            (Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        } else { "" }
+        if ($current -ne [string]$rollbackContentSha256[$relativePath]) {
+            [IO.File]::WriteAllBytes($absolutePath, [byte[]]$rollbackContentBytes[$relativePath])
+            Note "rollback rewrote generated config $relativePath to its recorded pre-commit bytes (was sha256 $current)"
+        }
+    }
+}
+
 function Restore-PreparedBaseline {
     $resetExit = Invoke-GitAllowingNativeStderr {
         & git reset --mixed $baselineCommit | Out-Null
     }
+    Restore-GeneratedConfigBytes
     $actualHead = (& git rev-parse HEAD).Trim().ToLowerInvariant()
     $tracked = @(& git status --porcelain | Where-Object { $_ -and $_ -notmatch '^\?\?' })
     $unexpectedPaths = @($tracked | Where-Object {
@@ -3660,6 +3680,7 @@ function Invoke-RollbackAndProve {
             exit 4
         }
     }
+    Restore-GeneratedConfigBytes
     $finalRollbackHead = (& git rev-parse HEAD).Trim().ToLowerInvariant()
     $finalTracked = @(& git status --porcelain | Where-Object { $_ -and $_ -notmatch '^\?\?' })
     $unexpectedRollbackPaths = @($finalTracked | Where-Object {

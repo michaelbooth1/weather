@@ -21,12 +21,13 @@ row that names the old one.
 | 2026-09-23 | `R` frozen as a rule; passive maker-evidence capture approved; K2 floor deferred | research | forward plan decisions 1-3 | — |
 | 2026-09-23 | Payment tests may use any band and size within the testing wallet | RE-1 | forward plan decision 4; 84h | — |
 | 2026-09-23 | Production PC belongs to the agent; non-project files may be deleted | standing | storage plan | — |
-| 2026-09-23 | Testing-wallet guard raised from 100 to 200 pUSD | RE-1 | 23b addendum | wallet at most 100 |
-| 2026-09-23 | RE-1 cap raised from 3 sessions/6 attempts (an agent default) to 10 sessions/20 attempts | none after 2026-09-30 | 23b addendum | 3-session cap |
+| 2026-09-23 | Testing-wallet guard raised from 100 to 200 pUSD | RE-1 | 23b addendum (on the RE-1 branch) | wallet at most 100 |
+| 2026-09-23 | RE-1 cap raised from 3 sessions/6 attempts (an agent default) to 10 sessions/20 attempts | none after 2026-09-30 | 23b addendum (on the RE-1 branch) | 3-session cap |
 | 2026-09-24 | One multi-domain market maker; new maker code domain-neutral behind plugins | strategy | forward plan decision 5 | — |
 | 2026-09-24 | Fail-forward rules and the pre-approved recovery table; production PC in bypass permissions | operations | Operations agent role §6 | — |
 | 2026-09-24 | No pre-registered pooled RE-1 verdict and no migration gates; the owner judges | RE-1, migration | second-opinion audit | — |
-| 2026-09-24 | RE-1 selection amendment: local T+1/T+2 and at least max(75, size) displayed depth each side | sessions 9-10 | 23b addendum; tip `6b5fde587` | empty-band selection |
+| 2026-09-24 | RE-1 selection amendment: local T+1/T+2 and at least max(75, size) displayed depth each side | sessions 9-30 | 23b addendum (on the RE-1 branch); tip `6b5fde587` | empty-band selection |
 | 2026-09-24 | Short confirmation `go <6 hex>` | RE-1 | tip `a0967b78a` | long phrase |
 | 2026-09-24 | System Restore capped at 2 GB; Windows Search disabled; Defender excludes `data\`; paper maker roll paused (retiring the old maker) | production host | storage plan; host audit | — |
 | 2026-09-24 | Model and consider all inventory options (holding, selling, resting sells, merge); no code change now | research | inventory review | — |
+| 2026-09-24 | RE-1 raised by 20 sessions (10 -> 30); attempt cap 60 (agent default, two per session) | none after 2026-09-30 | 23b addendum (on the RE-1 branch); tip `622e25bfb` | 10 sessions / 20 attempts |

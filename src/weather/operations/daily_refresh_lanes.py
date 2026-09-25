@@ -268,7 +268,7 @@ def promotion_lane_outcome_blocker(
     return {}
 
 
-def settlement_barrier_blocker(steps, *, target_date=""):
+def settlement_barrier_blocker(steps, *, target_date="", learning_only=False):
     barrier = _latest_step_by_name(steps, "settled_day_analysis_barrier")
     if not barrier:
         return {
@@ -280,10 +280,17 @@ def settlement_barrier_blocker(steps, *, target_date=""):
             "expected_target_date": _date_text(target_date),
         }
     result = barrier.get("result") or {}
-    result_status = str(result.get("status") or "").upper()
+    status_value = result.get("learning_status", result.get("status")) if learning_only else result.get("status")
+    result_status = str(status_value or "").upper()
     observed_target = _date_text(result.get("target_date"))
     expected_target = _date_text(target_date)
-    if barrier.get("status") != "ok" or result_status != "PASS":
+    # A typed barrier exception retains both verdicts. A generic execution
+    # failure cannot be rescued by a passing field in a partial payload.
+    receipt_ok = barrier.get("status") == "ok" or (
+        learning_only and barrier.get("status") == "error"
+        and barrier.get("root_cause_class") == "settled_day_analysis_barrier"
+    )
+    if not receipt_ok or result_status != "PASS":
         return _blocker_record(barrier, result)
     if expected_target and observed_target != expected_target:
         blocker = _blocker_record(barrier, result)
@@ -311,21 +318,18 @@ def chain_target_settlement_coverage(args, steps):
     """Return authoritative chain-level target settlement coverage."""
     barrier = _latest_step_by_name(steps, "settled_day_analysis_barrier")
     barrier_result = barrier.get("result") or {}
-    barrier_status = str(barrier_result.get("status") or "").upper()
+    barrier_status = str(barrier_result.get("learning_status", barrier_result.get("status")) or "").upper()
     target_date = _date_text(
         getattr(args, "settled_analysis_target_date", "")
         or barrier_result.get("target_date")
     )
-    barrier_target = _date_text(barrier_result.get("target_date"))
     promotion_blocker = promotion_lane_outcome_blocker(
         steps,
         target_date=target_date,
     )
     if (
         barrier
-        and barrier.get("status") == "ok"
-        and barrier_status == "PASS"
-        and (not target_date or barrier_target == target_date)
+        and not settlement_barrier_blocker(steps, target_date=target_date, learning_only=True)
     ):
         coverage_status = "COMPLETE"
         target_included = True

@@ -1,0 +1,320 @@
+{
+  "mission": "2026-09-88a",
+  "verdict": "PARTIAL_STORAGE_TARGET_MISSED_AND_PRODUCTION_QUALIFICATION_PENDING",
+  "implementation_tip": "bc53822a2289114b6c2f94b4624514fbf23a304f",
+  "capture_root_relative": "scratch/maker-evidence-88a-acceptance-20260923",
+  "started_at_utc": "2026-09-23T16:38:25.7627680Z",
+  "finished_at_utc": "2026-09-23T17:08:27.8112090Z",
+  "terminal_state": "COMPLETED",
+  "universe_size": 120,
+  "last_shortages": [
+    {
+      "available": 2,
+      "city": "chicago",
+      "day_ahead": 0
+    }
+  ],
+  "source_sha256": {
+    "weather.cold_archive_locations": "6f6e1a45d66020c0357866b27a60bf0bd4e6f80ae0476b18cecccf684c73e9a6",
+    "weather.io": "8d958652cb6ae6d62939a543a0a13ae55a687eeebc89d85af51c6da1492a57a0",
+    "weather.market": "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d",
+    "weather.market.maker_evidence_capture": "5703390bfa66093bb7a69f2cef09369321b4c07dc283246e17bdd068e57d5dd0",
+    "weather.market.maker_evidence_public": "fd06953fd148c0b6eb6191b57de7fd23da6a41f0f37629ebbf5425a74f4bed47",
+    "weather.market.maker_evidence_store": "ed9cc8d995d6db9c095d60eea143c5ec04bc2cad9cc256d84cc2e6faadcd346f",
+    "weather.market.maker_evidence_stream": "3d22069ab124e8528da6767c5c9e83994e280e1cbff3ad985fd87b305a13c452",
+    "weather.market.market_config": "80b8115524c22fc0942bbcef2e94010a8a9f56d8b853807ad815876f51c14da0",
+    "weather.market.market_microstructure_constants": "7cd6f6c8829075082df35bf0cfeba8acf3871c55582631ea21dab4be54ebec5e",
+    "weather.market.market_registry": "b738b28616ee3a69b9f8c8e46e976345caebc39524be290bd18fe74e576050a0",
+    "weather.market.reward_share_estimate": "bb027ebb821af2fe4b2897e31d7d8750bc8d8d50786433d2d6dd48ace9a3df30",
+    "weather.paths": "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947",
+    "weather.schema_registry": "d5f733bd04819c2b9e716fa15d010e6f0d2ba4e633ebebcd9c89540275803e53",
+    "weather.schema_registry_data": "776f1849ee6aa2c756d37437e52f230f730cc04c9e2f2c1dca3f5c51bda46a73",
+    "weather.schema_registry_recent_data": "815a41247d72d17e227c174c3fa3c1159d86190dfb99c945a6479baaa4103150",
+    "weather.schema_registry_types": "c11ec55405796ed119f62f9c417584cb841e092780b5aba8f8143bf4277962bd"
+  },
+  "file_count": 612,
+  "manifest_file": {
+    "bytes": 168786388,
+    "sha256": "62cab9bfa7c44ea6c90b7d44e69d1f181189dd23b9c0d23232ccbde76af1c724",
+    "gzip_level_6_bytes": 18531600
+  },
+  "full_inspection_sha256": "59f10d3a6b736b982628731059fdfbb846e7f16c306d8232694f21d420c21f16",
+  "inspection": {
+    "day": "2026-09-23",
+    "elapsed_seconds": 1802.048441,
+    "cycles": 30,
+    "failed_cycles": 0,
+    "http": {
+      "errors": 3,
+      "latency_bucket_counts": [
+        28,
+        47,
+        3539,
+        153,
+        63,
+        4,
+        9
+      ],
+      "latency_bucket_upper_seconds": [
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        null
+      ],
+      "latency_max_seconds": 5.0310000000026776,
+      "latency_mean_seconds": 0.16182071298461911,
+      "requests": 3843,
+      "response_bytes": 88117614
+    },
+    "stream": {
+      "connections": 0,
+      "errors": 0,
+      "last_event_utc": "2026-09-23T13:08:25.811627-04:00",
+      "messages": 279984,
+      "received_bytes": 186606627,
+      "tokens": 0,
+      "trades": 0
+    },
+    "trades": {
+      "connections": 0,
+      "errors": 0,
+      "last_event_utc": "2026-09-23T13:08:26.895497-04:00",
+      "messages": 295735,
+      "received_bytes": 196272600,
+      "tokens": 0,
+      "trades": 386
+    },
+    "manifest_rows_verified": 284922,
+    "canonical_only_references": 0,
+    "discovery_projection_responses": 90,
+    "counts_by_kind": {
+      "discovery": 90,
+      "ranking_books": 60,
+      "rewards": 3600,
+      "universe": 360,
+      "books": 90,
+      "stream_lifecycle": 348,
+      "stream": 279984,
+      "trades": 386,
+      "request_error": 3,
+      "run_summary": 1
+    },
+    "bodies_stored_by_kind": {
+      "discovery": 17,
+      "ranking_books": 60,
+      "rewards": 1613,
+      "universe": 360,
+      "books": 90,
+      "stream_lifecycle": 348,
+      "stream": 279984,
+      "trades": 386,
+      "request_error": 3,
+      "run_summary": 1
+    },
+    "response_bytes_by_kind": {
+      "discovery": 59371018,
+      "ranking_books": 10106520,
+      "rewards": 3628254,
+      "universe": 2064945,
+      "books": 15011822,
+      "stream_lifecycle": 2245984,
+      "stream": 186606627,
+      "trades": 149814,
+      "request_error": 441,
+      "run_summary": 2892
+    },
+    "response_bytes_by_utc_minute": {
+      "2026-09-23T16:38": 4510422,
+      "2026-09-23T16:39": 6199855,
+      "2026-09-23T16:40": 8120127,
+      "2026-09-23T16:41": 7662399,
+      "2026-09-23T16:42": 7902820,
+      "2026-09-23T16:43": 7591876,
+      "2026-09-23T16:44": 8805161,
+      "2026-09-23T16:45": 8911045,
+      "2026-09-23T16:46": 7851731,
+      "2026-09-23T16:47": 7210334,
+      "2026-09-23T16:48": 7691148,
+      "2026-09-23T16:49": 8738629,
+      "2026-09-23T16:50": 7815141,
+      "2026-09-23T16:51": 8771060,
+      "2026-09-23T16:52": 8234100,
+      "2026-09-23T16:53": 9248130,
+      "2026-09-23T16:54": 9373069,
+      "2026-09-23T16:55": 9152069,
+      "2026-09-23T16:56": 9247561,
+      "2026-09-23T16:57": 8653266,
+      "2026-09-23T16:58": 9285632,
+      "2026-09-23T16:59": 10586160,
+      "2026-09-23T17:00": 12350085,
+      "2026-09-23T17:01": 12985484,
+      "2026-09-23T17:02": 13677481,
+      "2026-09-23T17:03": 10955120,
+      "2026-09-23T17:04": 12779881,
+      "2026-09-23T17:05": 9868742,
+      "2026-09-23T17:06": 11103473,
+      "2026-09-23T17:07": 10858422,
+      "2026-09-23T17:08": 3047894
+    },
+    "journal_bytes": 473648468,
+    "gzip_level_6_bytes": 46392957,
+    "journal_bytes_per_minute": 15770335.265920857,
+    "uncapped_journal_bytes_per_day_extrapolated": 22709282782.926033,
+    "uncapped_gzip_bytes_per_day_extrapolated": 2224330597.115175,
+    "manifest_gzip_bytes_by_kind": {
+      "discovery": 5200,
+      "ranking_books": 5441,
+      "rewards": 573540,
+      "universe": 25195,
+      "books": 10540,
+      "stream_lifecycle": 23192,
+      "stream": 17745603,
+      "trades": 26429,
+      "request_error": 434,
+      "run_summary": 279
+    },
+    "default_cap_gzip_bytes_per_day_extrapolated": 298018846.51386887,
+    "cap_projection_basis": "Observed per-family gzip ratio; separate manifest-kind compression; stationary traffic and 300 MB raw cap assumed",
+    "extrapolation_is_not_a_full_day_measurement": true
+  },
+  "family_metrics": [
+    {
+      "family": "books.jsonl",
+      "files": 1,
+      "journal_bytes": 1020394.0,
+      "gzip_level_6_bytes": 227365.0
+    },
+    {
+      "family": "discovery.jsonl",
+      "files": 1,
+      "journal_bytes": 1574665.0,
+      "gzip_level_6_bytes": 422255.0
+    },
+    {
+      "family": "manifest.jsonl",
+      "files": 1,
+      "journal_bytes": 168786388.0,
+      "gzip_level_6_bytes": 18531600.0
+    },
+    {
+      "family": "ranking_books.jsonl",
+      "files": 1,
+      "journal_bytes": 691998.0,
+      "gzip_level_6_bytes": 47921.0
+    },
+    {
+      "family": "request_error.jsonl",
+      "files": 1,
+      "journal_bytes": 696.0,
+      "gzip_level_6_bytes": 371.0
+    },
+    {
+      "family": "rewards",
+      "files": 142,
+      "journal_bytes": 2238996.0,
+      "gzip_level_6_bytes": 208103.0
+    },
+    {
+      "family": "run_summary.jsonl",
+      "files": 1,
+      "journal_bytes": 3893.0,
+      "gzip_level_6_bytes": 2211.0
+    },
+    {
+      "family": "stream_lifecycle.jsonl",
+      "files": 1,
+      "journal_bytes": 3007882.0,
+      "gzip_level_6_bytes": 1159248.0
+    },
+    {
+      "family": "stream.jsonl",
+      "files": 1,
+      "journal_bytes": 19189144.0,
+      "gzip_level_6_bytes": 2789651.0
+    },
+    {
+      "family": "token_books",
+      "files": 308,
+      "journal_bytes": 33930313.0,
+      "gzip_level_6_bytes": 1709877.0
+    },
+    {
+      "family": "trades.jsonl",
+      "files": 1,
+      "journal_bytes": 214478.0,
+      "gzip_level_6_bytes": 45376.0
+    },
+    {
+      "family": "universe",
+      "files": 12,
+      "journal_bytes": 2766884.0,
+      "gzip_level_6_bytes": 332909.0
+    },
+    {
+      "family": "updates",
+      "files": 141,
+      "journal_bytes": 240222737.0,
+      "gzip_level_6_bytes": 20916070.0
+    }
+  ],
+  "resource_samples": [
+    {
+      "peak_working_set_bytes": 66027520,
+      "elapsed_seconds": 720.0310000000027,
+      "priority": "Idle",
+      "working_set_bytes": 64675840,
+      "ws_errors": 0,
+      "update_bytes": 55949886,
+      "sampled_at_utc": "2026-09-23T16:50:48.0338726Z",
+      "http_errors": 3,
+      "trades": 106,
+      "cycles": 12,
+      "failed_cycles": 0
+    },
+    {
+      "update_bytes": 108500793,
+      "peak_working_set_bytes": 66351104,
+      "http_errors": 3,
+      "elapsed_seconds": 1251.4530000000086,
+      "sampled_at_utc": "2026-09-23T16:59:19.245789Z",
+      "failed_cycles": 0,
+      "working_set_bytes": 62345216,
+      "trades": 270,
+      "ws_errors": 0,
+      "cycles": 21,
+      "priority": "Idle"
+    },
+    {
+      "update_bytes": 168025875,
+      "priority": "Idle",
+      "failed_cycles": 0,
+      "cycles": 28,
+      "elapsed_seconds": 1656.5,
+      "http_errors": 3,
+      "ws_errors": 0,
+      "trades": 345,
+      "peak_working_set_bytes": 67227648,
+      "sampled_at_utc": "2026-09-23T17:06:06.54104Z",
+      "working_set_bytes": 62681088
+    }
+  ],
+  "initial_capture_comparison": {
+    "manifest_rows_verified": 288177,
+    "journal_bytes": 504909098,
+    "gzip_level_6_bytes": 68631545,
+    "default_cap_gzip_bytes_per_day_extrapolated": 965072541.7081476
+  },
+  "verification": {
+    "pytest_passed": 115,
+    "subtests_passed": 40,
+    "compileall": "PASS",
+    "docs_audit": "PASS",
+    "roadmap_backlog": "PASS",
+    "powershell_parse": "PASS",
+    "roll_verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE",
+    "existing_tape_discard_baseline": "UNAVAILABLE_NOT_SUBSTITUTED"
+  }
+}

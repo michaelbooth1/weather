@@ -19,6 +19,10 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from weather.paths import REPO_ROOT
+from weather.operations.knowledge_structure_audit import (
+    knowledge_structure_errors,
+    visible_text as _markdown_outside_fenced_code,
+)
 
 
 REQUIRED_FILES = (
@@ -38,6 +42,8 @@ REQUIRED_FILES = (
     "docs/operations/DELEGATION_CONTRACT.md",
     "docs/operations/ESTABLISHED_FINDINGS.md",
     "docs/operations/FINDINGS_DIGEST.md",
+    "docs/operations/OPEN_QUESTIONS.md",
+    "docs/operations/DECISION_LOG.md",
     "docs/operations/HOST_LOAD_POLICY.md",
     "docs/operations/OPERATIONS_AGENT_ROLE.md",
     "docs/operations/README.md",
@@ -45,6 +51,8 @@ REQUIRED_FILES = (
     "docs/operations/STATE_OF_PLAY.md",
     "docs/roadmap/AGENTS.md",
     "docs/roadmap/active-backlog.md",
+    "docs/roadmap/correspondence-index.md",
+    "docs/roadmap/audits/README.md",
     "scripts/ops/AGENTS.md",
     "src/weather/AGENTS.md",
     "src/weather/backtesting/AGENTS.md",
@@ -262,45 +270,7 @@ def _is_immutable_record(path: Path) -> bool:
     """
     if path.parent.name != "roadmap":
         return False
-    return path.name.startswith(("agent-report-", "workstation-handoff-"))
-
-
-def _markdown_outside_fenced_code(text: str) -> str:
-    """Blank fenced code while preserving all prose and line boundaries.
-
-    PowerShell casts such as ``[string](...)`` have Markdown-link syntax but
-    are executable examples, not links. Link auditing fenced code therefore
-    produces false missing-file findings. Supporting both CommonMark fence
-    characters and longer closing fences keeps the scanner deterministic
-    without trying to parse the rest of Markdown.
-    """
-    fence: tuple[str, int] | None = None
-    visible: list[str] = []
-    for line in text.splitlines(keepends=True):
-        body = line.rstrip("\r\n")
-        indent = len(body) - len(body.lstrip(" "))
-        candidate = body[indent:] if indent <= 3 else ""
-        marker = candidate[:1]
-        run_length = 0
-        if marker in {"`", "~"}:
-            run_length = len(candidate) - len(candidate.lstrip(marker))
-
-        if fence is None:
-            if run_length >= 3:
-                fence = (marker, run_length)
-                visible.append("\n" if line.endswith(("\n", "\r")) else "")
-            else:
-                visible.append(line)
-            continue
-
-        if (
-            marker == fence[0]
-            and run_length >= fence[1]
-            and not candidate[run_length:].strip()
-        ):
-            fence = None
-        visible.append("\n" if line.endswith(("\n", "\r")) else "")
-    return "".join(visible)
+    return path.name.startswith(("agent-report-", "workstation-handoff-", "agent-work-order-"))
 
 
 def broken_local_links(repo_root: Path, paths: list[Path] | None = None) -> list[str]:
@@ -563,6 +533,7 @@ def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
     errors.extend(line_budget_errors(repo_root))
     errors.extend(unindexed_operations_docs(repo_root))
     errors.extend(retired_claim_errors(repo_root, current_paths))
+    errors.extend(knowledge_structure_errors(repo_root))
 
     return sorted(set(errors))
 

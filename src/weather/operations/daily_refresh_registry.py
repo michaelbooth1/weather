@@ -7,6 +7,16 @@ LANE_PROMOTION = "promotion"
 LANE_LEARNING = "learning"
 LANE_CHOICES = (LANE_PROMOTION, LANE_LEARNING)
 
+# These consumers need valid settlement inputs, independently of trading
+# readiness. Their own artifact-quality checks still apply after admission.
+SETTLEMENT_GATED_LEARNING_STEPS = frozenset({
+    "data_retention_inventory", "daily_learning", "market_beating_objective_scoreboard",
+})
+SETTLEMENT_TRUTH_STEPS = frozenset({
+    "public_wu_settlement_restore", "market_day_labels_finalize",
+    "settlement_source_audit", "observed_floor_safety_monitor", "replay_status_backfill",
+})
+
 # Keep both axes beside the canonical registry. The lane says whether a step
 # can keep running for evidence/learning when target-day promotion is blocked.
 # The boolean says whether its current-run receipt is required before the
@@ -126,7 +136,6 @@ STEP_LEARNING_COVERAGE_DEPENDENCIES = {
     "market_beating_objective_scoreboard": (
         "proper_scoring_reliability_scorecard",
         "winner_rank_parity",
-        "trading_evidence",
     ),
     "daily_flow_analysis": (
         "daily_learning",

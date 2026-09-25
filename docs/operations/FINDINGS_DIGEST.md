@@ -7,7 +7,7 @@ Status: canonical. Written for LLM agents. Hard cap: 250 lines.
 | **Owns** | One-sentence conclusions of everything the project has established or withdrawn. Nothing else. |
 | **Read when** | Starting any model, evaluation, market-making, settlement or storage task; before citing a number; before proposing a measurement or reopening a question. |
 | **Do not use for** | Today's host or work state ([STATE_OF_PLAY.md](STATE_OF_PLAY.md)); invariants ([AGENT_CONTEXT.md](AGENT_CONTEXT.md)); quoting an interval — open the owning section and its source report first. |
-| **Depth lives in** | **EF** = [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), loaded by section: `Grep` for `^## <id>\.` (or `^### <id>\.` for 10a–10n), then `Read` from that line. **RF** = [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md), entries cited by heading. **HW** = [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md). α budget: [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md). |
+| **Depth lives in** | **EF** = [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), loaded by section: `Grep` for `^## <id>\.` (or `^### <id>\.` for 10a–10o), then `Read` from that line. **RF** = [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md), entries cited by heading. **HW** = [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md). α budget: [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md). |
 | **Next and evidence** | Unanswered: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Audits: [audit index](../roadmap/audits/README.md). Owner decisions by date: [DECISION_LOG.md](DECISION_LOG.md). |
 
 Mission ids such as `-09-56a` are sequence numbers, not calendar dates. Strata: **B** = in-season
@@ -22,7 +22,7 @@ never pooled across the 2026-07-31 provenance boundary.
 4. One change has ever improved a served number: the serving floor, 2026-07-31. EF §3.
 5. No cell out of 114 pre-registered ones shows a quotable model edge. EF §1b.
 6. The declared primary objective (09:00–14:00 local) has no powered measurement; the old ~504-date requirement rested on a retired effect size and is withdrawn, and no replacement figure is citable. EF §1b, §5.
-7. No profitability result exists: no fill, fee, rebate, reward or P&L has ever been observed on our account. EF §0, §8c.
+7. No profitability result exists yet: RE-1 has four fills, one paid reward day (+2.13 vs ~2.03 modelled) and three settled lots (net +6.43) — far too little to judge. EF §10m.
 8. One attended real-money lifecycle test ran on 2026-09-06 off master with zero fills; it is spent and grants nothing. EF §10f.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.
@@ -78,8 +78,8 @@ never pooled across the 2026-07-31 provenance boundary.
 - A zero-edge maker breaks even across a wide scenario range, and viability is dominated by the informed-fill fraction `f`, which is **unidentified**, not underpowered. EF §1b.
 - Executions cannot be reconstructed from book capture; public execution capture (pilot 2026-08-10, supervised since 2026-08-15) gives price paths and counterfactual markouts only. EF §1b, §8c.
 - Only authoritative own-account events, balances and payout receipts prove realized economics. EF §8c, RF "Forward public execution capture is the only route".
-- Public execution tape, 30 dates / 377,104 trades (2026-09-20): **taker fee is 0 on every trade, so treat maker rebates as zero**; share-weighted maker markout is +0.19 c/share at 5 minutes and -0.43 c to settlement (rebate excluded). Reward-share estimate from captured books: displayed qualifying competition is thin (median modelled share 0.39 for a 20-share quote) - **unconfirmed until one paid reward epoch; `R` was not frozen before the read, so the pre-registered decision rule was not applied.** [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
-- The configured reward pool is about **2,800 per day same-day and 4,800 all active**, stable on 31 of 31 sampled days 2026-08-15..09-19; it is a shared pool, not income, the share is unmeasured, and the unit is unconfirmed by any paid epoch. EF §10a.
+- Public execution tape, 30 dates / 377,104 trades (2026-09-20): ~~taker fee 0 on every trade, so rebates zero~~ **(retired 2026-09-24: weather takers pay `shares x 0.05 x p(1-p)` since 2026-03-30, makers pay 0, and 25% of weather taker fees fund maker rebates by filled liquidity; the old zeros were likely a missing field; EF §10o)**; share-weighted maker markout is +0.19 c/share at 5 minutes and -0.43 c to settlement (rebate excluded). Reward-share estimate from captured books: displayed qualifying competition is thin (median modelled share 0.39 for a 20-share quote) - **unconfirmed until one paid reward epoch; `R` was not frozen before the read, so the pre-registered decision rule was not applied.** [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+- The configured reward pool is about **2,800 per day same-day and 4,800 all active**, stable on 31 of 31 sampled days 2026-08-15..09-19; it is a shared pool, not income; the unit is confirmed by the first paid day (09-24, EF §10m). EF §10a.
 - The 10 pUSD per-band cap makes a two-sided 20-share quote (about 19.60 pUSD) reward-ineligible; the July `NOT_VIABLE_CURRENT_TRACK` leg that rests on this is unchanged. EF §10a, `docs/roadmap/agent-report-2026-07-27-workstation-mm-viability.md`.
 - Public reward reads, 2026-09-20: the venue publishes a per-condition reward record with a `market_competitiveness` field never captured here (0 on five of eight same-day bands; not our competing Q-score); same-day bands flip from a 20- to a 100-share minimum during the morning, so same-day 20-share estimates are too high; next-day 20-share bands are contested - modelled share 0.01-0.10 in ten of twelve cities, 0.18-0.34 only in Los Angeles. All modelled, none paid. [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md), [RE-1 pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md).
 - **RE-1 session 1, 2026-09-23 (first real reward session; one session, one NYC T+2 band, 42 minutes):** the venue's own
@@ -90,8 +90,8 @@ never pooled across the 2026-07-31 provenance boundary.
   25.57 YES at .52 against two NO makers at .48 (20 ahead of our 5.57). Below the 1-dollar minimum: unpaid. Mission 86c
   (`codex/re1-session1-analysis-20260923` @ `b4b97807c`).
 - **RE-1 sessions 2-8, 2026-09-24 (75 shares, attempts numbered separately from sessions):** minute-integrated modelled reward
-  again matched accrual (0.438 vs 0.352/0.447; 0.376 vs 0.330/0.347); the first UTC day over the 1-dollar minimum (~1.40,
-  payment unverified). **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Four fills, all
+  again matched accrual (0.438 vs 0.352/0.447; 0.376 vs 0.330/0.347); **the first paid day: UTC 09-24 paid +2.13 vs ~2.03
+  modelled, k ≈ 1.05**. **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Four fills, all
   on the thinnest bands; only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); ~43.8 held to settlement. On an empty
   band size and closeness buy no reward, only fill exposure; the owner's amendment now requires existing two-sided depth
   (>= max(75, size)) and local T+1/T+2. EF §10m.

@@ -551,6 +551,27 @@ def test_rollback_restores_synchronized_baseline_and_preserves_generated_bytes()
     assert "every affected producer re-adopted the rollback" in script
 
 
+def test_rollback_rewrites_exact_generated_bytes_before_the_strict_hash_check() -> None:
+    # 2026-09-24: the drift commit normalized CRLF to LF, so a rollback restored the same JSON with different bytes and
+    # the strict check failed, leaving a prepared marker. The exact pre-commit bytes are recorded and written back first.
+    script = _script_text()
+
+    record = script.index("$rollbackContentBytes[$relativePath] = [IO.File]::ReadAllBytes($absolutePath)")
+    git_add = script.index("& git add -- $autoRefreshed")
+    assert record < git_add
+    helper = script.index("function Restore-GeneratedConfigBytes")
+    prepared_restore = script.index("function Restore-PreparedBaseline")
+    assert helper < prepared_restore
+    body = script[prepared_restore:script.index("function Stop-AfterPreparationFailure")]
+    assert body.index("& git reset --mixed $baselineCommit") < body.index("Restore-GeneratedConfigBytes") < body.index("$contentMismatch")
+    merge_rollback = script.index("$finalRollbackHead = (& git rev-parse HEAD).Trim().ToLowerInvariant()")
+    assert script.rindex("Restore-GeneratedConfigBytes", 0, merge_rollback) > script.rindex("& git reset --mixed $baselineCommit", 0, merge_rollback)
+    assert "[IO.File]::WriteAllBytes($absolutePath, [byte[]]$rollbackContentBytes[$relativePath])" in script
+    helper_body = script[helper:prepared_restore]
+    assert r"$absolutePath = Join-Path $repo ($relativePath -replace '/', '\')" in helper_body
+    assert "rollback rewrote generated config" in helper_body
+
+
 def test_preparation_is_journaled_before_config_mutation_and_prepared_binds_tape_identity() -> None:
     script = _script_text()
 
