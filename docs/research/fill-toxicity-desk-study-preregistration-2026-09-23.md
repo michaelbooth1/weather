@@ -231,3 +231,27 @@ For an undecodable record under Clarification 9, when there is no valid record b
 missing neighbour is replaced by the **event-day boundary** (the start or end of that market-date's window). The owner
 answered this in the 89c workstation session; it is recorded here so the rule lives in the pre-registration, not only in the
 report. A decoded neighbour without an interpretable time still refuses the run.
+
+## Clarification 11 (2026-09-25, mission 100b; before any 88a-backed scoring)
+
+**Data inclusion changes:** captured per-condition reward terms may also come from 88a's sealed
+`data/maker_evidence/<UTC-day>/<hh>-<seg>/reward-<hash>.jsonl.gz` journals. Decode each response's
+`body_utf8` JSON `data[]`, match its `event_slug` and condition identity, and resolve `payload_ref`
+against the named file's **uncompressed** byte offset within the sealed segment. A deduplicated
+unchanged response is a new observation at its own outer `captured_at_utc`, not at the stored body's
+older capture time. Never read an unsealed segment.
+
+These are per-condition captured records under Clarification 3.3, with the same precedence and the
+same at-or-before-minute, **60-minute freshness** rule. Rate, minimum size and maximum spread feed
+the existing terms parser; no daily snapshot fallback is added. All analysis, panel exclusions,
+estimands, thresholds, horizons, windows and the frozen date range remain unchanged. This addition
+does not authorize scoring later dates: 88a began after the frozen panel ended, so a future rerun
+needs a separately recorded date-range decision as well as sufficient captured dates.
+
+Implementation plans overlapping UTC-hour reward files (including the one-hour lookback) and their
+seals, streams bounded gzip records into each event's SQLite store, and filters by event/condition.
+Shared malformed evidence that cannot be located to a market-date still refuses under Clarification 9.
+`--maker-evidence-root` selects an offline capture root; by default it is `maker_evidence` beside the
+snapshot root. `--dry-run` lists files and sizes without opening journal or manifest content.
+Mission 100b verifies only synthetic fixtures; the production agent owns the later leased rerun
+after about ten UTC dates of capture (earliest approximately 2026-10-05).
