@@ -485,8 +485,11 @@ def inventory_fixture(live=4, resolved=100):
             offset = int(query["offset"][0])
             return holdings[offset:offset + 100]
         if parts.path == "/markets":
-            assert set(query["condition_ids"]) == {p["conditionId"] for p in holdings}
-            return markets
+            requested = query["condition_ids"]
+            assert 1 <= len(requested) <= 20
+            assert query["limit"] == [str(len(requested))]
+            assert set(requested) <= {p["conditionId"] for p in holdings if not p["redeemable"]}
+            return [m for m in markets if m["conditionId"] in requested]
         if parts.path == "/balance-allowance":
             return {"balance": "70000000"}
         if parts.path == "/data/orders":
@@ -521,6 +524,68 @@ def test_104_positions_only_four_live_books_and_one_metadata_batch(tmp_path, gua
     assert "resolved_positions" not in hidden and hidden["resolved_count"] == 100
     assert hidden["campaign_pnl_pusd"] == result["campaign_pnl_pusd"]
     assert len(t.opener.calls) == 13  # Per-read cache, no new upstream calls.
+
+
+def test_103_redeemable_positions_leave_one_gamma_condition(tmp_path, guard):
+    holdings, _, respond = inventory_fixture(live=1, resolved=103)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    result = core.WalletReader(t, signature_type=2, campaign_capital=200).summary(include_resolved=True)
+    gamma = [parse_qs(urlsplit(req.full_url).query) for req, _ in t.opener.calls
+             if urlsplit(req.full_url).path == "/markets"]
+    assert gamma == [{"condition_ids": [holdings[-1]["conditionId"]], "limit": ["1"]}]
+    assert len(result["resolved_positions"]) == 103 and len(result["positions"]) == 1
+    assert result["positions"][0]["mid"] == "0.5" and result["positions"][0]["errors"] == []
+    assert result["unclassified_positions"] == [] and result["errors"] == {}
+    assert result["plan"]["used_gets"] == 7
+
+
+def test_45_non_redeemable_positions_use_three_gamma_chunks(tmp_path, guard):
+    holdings, _, respond = inventory_fixture(live=45, resolved=0)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    result = core.WalletReader(t, signature_type=2).positions()
+    gamma = [parse_qs(urlsplit(req.full_url).query) for req, _ in t.opener.calls
+             if urlsplit(req.full_url).path == "/markets"]
+    assert [len(q["condition_ids"]) for q in gamma] == [20, 20, 5]
+    assert [q["limit"] for q in gamma] == [["20"], ["20"], ["5"]]
+    assert [cid for q in gamma for cid in q["condition_ids"]] == [p["conditionId"] for p in holdings]
+    assert len(result["positions"]) == 45 and result["unclassified_positions"] == []
+    assert all(p["classification"] == "live" for p in result["positions"])
+    assert result["plan"]["used_gets"] <= 24
+
+
+@pytest.mark.parametrize("failure", ["http", "foreign_condition", "duplicate_condition"])
+def test_failed_middle_gamma_chunk_preserves_successful_peers(tmp_path, guard, failure):
+    holdings, _, respond = inventory_fixture(live=45, resolved=0)
+    failed_ids = {p["conditionId"] for p in holdings[20:40]}
+    def endpoint(req):
+        parts = urlsplit(req.full_url)
+        if parts.path == "/markets" and parse_qs(parts.query)["condition_ids"][0] in failed_ids:
+            if failure == "http":
+                raise HTTPError(req.full_url, 414, "fixture query refused", {}, io.BytesIO(b"fixture"))
+            batch = respond(req)
+            # Even valid early rows from a malformed chunk must not leak into classification.
+            return batch + [dict(batch[0], conditionId=holdings[0]["conditionId"])] if failure == "foreign_condition" else batch + [batch[0]]
+        return respond(req)
+    t = wire(tmp_path, guard, FakeOpener(endpoint))
+    result = core.WalletReader(t, signature_type=2).positions()
+    assert {p["condition_id"] for p in result["unclassified_positions"]} == failed_ids
+    assert all(p["errors"] == ["classification_unavailable"] for p in result["unclassified_positions"])
+    assert {p["condition_id"] for p in result["positions"]} == {p["conditionId"] for p in holdings} - failed_ids
+    assert result["errors"] == {"metadata": "classification_metadata_unavailable"}
+    assert result["status"] == "PARTIAL"
+    assert sum(urlsplit(req.full_url).path == "/markets" for req, _ in t.opener.calls) == 3
+    failed_tokens = {p["asset"] for p in holdings[20:40]}
+    assert all(parse_qs(urlsplit(req.full_url).query)["token_id"][0] not in failed_tokens
+               for req, _ in t.opener.calls if urlsplit(req.full_url).path == "/book")
+
+
+def test_all_redeemable_positions_need_no_gamma_or_book_calls(tmp_path, guard):
+    _, _, respond = inventory_fixture(live=0, resolved=104)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    result = core.WalletReader(t, signature_type=2).positions(include_resolved=True)
+    assert len(result["resolved_positions"]) == 104 and result["positions"] == []
+    assert result["status"] == "OBSERVED"
+    assert [urlsplit(req.full_url).path for req, _ in t.opener.calls] == ["/positions", "/positions"]
 
 
 def test_overflow_prioritizes_value_and_returns_partial_inventory(tmp_path, guard):

@@ -104,7 +104,10 @@ an absolute wall-clock guarantee for DNS, a trickling body, disk I/O, or a queue
 LAN request. No network polling runs by itself.
 
 Summary reads cash and orders first. Inventory discovery uses bounded pages and
-one Gamma condition-ID batch, then plans book/reward calls for live positions
+Gamma only for holdings not already redeemable, in batches of at most 20 distinct
+condition IDs (`limit` equals batch size). A failed or malformed batch leaves
+only its own conditions unclassified; successful batches are retained. It then
+plans book/reward calls for live positions
 in descending reported value (size times last price, falling back to entry price).
 Cached reads cost no network budget. Positions that do not fit carry
 `budget_deferred`; other fields remain available. Summary field failures use

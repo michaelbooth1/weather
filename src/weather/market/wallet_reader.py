@@ -15,6 +15,8 @@ from weather.market.wallet_reader_security import (
 )
 from weather.market.wallet_reader_transport import ReadTransport
 
+GAMMA_CHUNK_SIZE = 20
+
 
 def number(value):
     try:
@@ -154,7 +156,7 @@ class WalletReader:
                       reward_terms=None, errors=[])
 
     def _inventory(self):
-        """Discover first, classify in a single batch, then reserve live reads."""
+        """Classify non-redeemable holdings in bounded chunks, then plan reads."""
         payload = dict(positions=[], resolved_positions=[], unclassified_positions=[], errors={},
                        inventory_complete=False, plan={})
         try:
@@ -164,17 +166,20 @@ class WalletReader:
             return payload
         payload["inventory_complete"] = True
         metadata = {}
-        conditions = sorted({r["conditionId"].lower() for r in holdings})
-        if conditions:
+        conditions = sorted({r["conditionId"].lower() for r in holdings if r.get("redeemable") is not True})
+        for start in range(0, len(conditions), GAMMA_CHUNK_SIZE):
+            chunk = conditions[start:start + GAMMA_CHUNK_SIZE]
             try:
-                batch = rows(self.get(GAMMA, "/markets", condition_ids=conditions, limit=len(conditions)))
+                batch = rows(self.get(GAMMA, "/markets", condition_ids=chunk, limit=len(chunk)))
+                chunk_metadata = {}
                 for market in batch:
                     key = str(market.get("conditionId", "")).lower()
-                    if key not in conditions or key in metadata:
+                    if key not in chunk or key in chunk_metadata:
                         raise ReaderError("metadata_identity_unreadable")
-                    metadata[key] = market
+                    chunk_metadata[key] = market
+                # Publish only a fully validated chunk; retain successful peers.
+                metadata.update(chunk_metadata)
             except ReaderError:
-                metadata = {}
                 payload["errors"]["metadata"] = "classification_metadata_unavailable"
         live = []
         for row in holdings:
