@@ -799,3 +799,128 @@ def test_large_synthetic_date_end_to_end_profile(tmp_path):
     assert result["R"]["d1.5_conservative/midrange"]["sufficient_statistics"]["total"]["filled_shares"] > 1000
     print(json.dumps({"synthetic_large_date": {"trades": 100000, "book_samples": 1440,
         "seconds": round(time.monotonic() - started, 3), **resources}}))
+
+
+def test_frozen_panel_defaults_ranges_and_authority(tmp_path):
+    from datetime import date
+    assert study.PANELS == {"A": (date(2026, 8, 15), date(2026, 9, 23)),
+                            "B": (date(2026, 9, 25), date(2026, 10, 8))}
+    assert study.FROZEN_REF == "0df1264910a36b75d01474f63f86b71920e22541"
+    after = datetime(2026, 10, 10, tzinfo=timezone.utc)
+    default = study.input_plan(tmp_path / "snapshots", tmp_path / "settlements", now=after)
+    explicit = study.input_plan(tmp_path / "snapshots", tmp_path / "settlements", panel="A", now=after)
+    panel_b = study.input_plan(tmp_path / "snapshots", tmp_path / "settlements", panel="B", now=after)
+    assert default == explicit
+    assert len(default) == 40 * 12
+    assert len(panel_b) == 14 * 12
+    assert {row["date"] for row in default}.isdisjoint({row["date"] for row in panel_b})
+    assert min(row["date"] for row in panel_b) == "2026-09-25"
+    assert max(row["date"] for row in panel_b) == "2026-10-08"
+    assert len({row["date"] for row in panel_b}) == 14
+    assert all(row["panel"] == "A" for row in default)
+    assert all(row["panel"] == "B" for row in panel_b)
+
+
+@pytest.mark.parametrize("panel,maximum", [("A", 40), ("B", 14)])
+def test_max_dates_is_bounded_by_selected_panel(tmp_path, panel, maximum):
+    for invalid in (0, -1, maximum + 1):
+        with pytest.raises(StudyError, match="max-dates"):
+            study.input_plan(tmp_path, tmp_path / "settlements", panel=panel, max_dates=invalid)
+    assert len(study.input_plan(tmp_path, tmp_path / "settlements", panel=panel, max_dates=1,
+                                now=datetime(2026, 10, 10, tzinfo=timezone.utc))) == 12
+
+
+def test_panel_b_cli_dry_run_plans_all_dates_before_window(tmp_path, monkeypatch, capsys):
+    class BeforeWindow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 24, tzinfo=timezone.utc)
+    monkeypatch.setattr(study, "datetime", BeforeWindow)
+    monkeypatch.setattr(study, "run_study", lambda *a, **k: pytest.fail("dry run attempted scoring"))
+    assert study.main(["--panel", "B", "--dry-run", "--snapshots-root", str(tmp_path / "snapshots"),
+                       "--settlement-root", str(tmp_path / "settlements"),
+                       "--output-dir", str(tmp_path / "output")]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert (result["panel"], result["panel_start"], result["panel_end"]) == ("B", "2026-09-25", "2026-10-08")
+    assert len(result["events"]) == 168
+    assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize("now", ["2026-09-24T00:00:00Z", "2026-09-26T12:00:00Z", "2026-10-09T06:59:59Z"])
+def test_panel_b_scoring_waits_for_full_window_even_with_max_dates_one(tmp_path, monkeypatch, now):
+    plan = study.input_plan(tmp_path / "snapshots", tmp_path / "settlements", panel="B", max_dates=1)
+    monkeypatch.setattr(study, "inventory", lambda *a: pytest.fail("early scoring reached input inventory"))
+    with pytest.raises(StudyError, match="every frozen panel-B date is closed"):
+        study.run_study(plan, tmp_path / "output", panel="B", now=datetime.fromisoformat(now.replace("Z", "+00:00")))
+    assert not (tmp_path / "output").exists()
+
+
+def test_panel_b_cli_refuses_before_reading_support_manifest(tmp_path, monkeypatch, capsys):
+    class BeforeClose(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 9, 6, 59, 59, tzinfo=timezone.utc)
+    monkeypatch.setattr(study, "datetime", BeforeClose)
+    assert study.main(["--panel", "B", "--max-dates", "1", "--support-manifest", str(tmp_path / "absent.json"),
+                       "--output-dir", str(tmp_path / "output")]) == 2
+    assert "every frozen panel-B date is closed" in capsys.readouterr().out
+    assert not (tmp_path / "output").exists()
+
+
+def test_panel_b_empty_result_at_exact_full_window_close_still_identifies_panel(tmp_path):
+    result = study.run_study([], tmp_path / "output", panel="B",
+                             now=datetime(2026, 10, 9, 7, tzinfo=timezone.utc), replicates=2)
+    assert result["decision"]["verdict"] == "INCONCLUSIVE"
+    with gzip.open(tmp_path / "output" / "intermediates.jsonl.gz", "rt") as handle:
+        header = json.loads(next(handle))
+    assert header["type"] == "study_panel"
+    assert header["panel"] == result["panel"] == "B"
+
+
+@pytest.mark.parametrize("panel", ["A", "B"])
+def test_panel_report_and_every_intermediate_identify_one_panel(tmp_path, panel):
+    event = synthetic_event(tmp_path)
+    if panel == "B":
+        delta = ts("2026-09-25T04:00:00Z") - event["start"]
+        event.update(date="2026-09-25", start=event["start"] + delta, end=event["end"] + delta,
+                     slug="highest-temperature-in-nyc-on-september-25-2026")
+        for path in Path(event["folder"]).rglob("*"):
+            if path.is_file():
+                value = path.read_text(encoding="utf-8").replace("2026-08-15", "2026-09-25").replace("2026-08-16", "2026-09-26")
+                value = value.replace("highest-temperature-in-nyc-on-august-15-2026", event["slug"])
+                path.write_text(value, encoding="utf-8")
+        trades = list(source.json_lines(event["trades"][0]))
+        for row in trades:
+            row["timestamp"] = str(int(row["timestamp"]) + int(delta * 1000))
+        write_rows(Path(event["trades"][0]), trades)
+    kwargs = {"panel": panel} if panel == "B" else {}  # Exercise the unchanged A default.
+    result = study.run_study([event], tmp_path / "output", replicates=2,
+                             now=datetime(2026, 10, 10, tzinfo=timezone.utc), **kwargs)
+    assert result["events"][0]["exclusions"] == []
+    expected = study.panel_metadata(panel)
+    saved = json.loads((tmp_path / "output" / (study.REPORT_NAME + ".json")).read_text())
+    markdown = (tmp_path / "output" / (study.REPORT_NAME + ".md")).read_text(encoding="utf-8")
+    for key, value in expected.items():
+        assert saved[key] == result[key] == value
+        assert f"{key}: `{value}`" in markdown
+    types = set()
+    with gzip.open(tmp_path / "output" / "intermediates.jsonl.gz", "rt") as handle:
+        for line in handle:
+            row = json.loads(line)
+            types.add(row["type"])
+            assert all(row[key] == value for key, value in expected.items())
+    assert {"study_panel", "window", "quote", "exposure", "fill"} <= types
+
+
+@pytest.mark.parametrize("panel,mutation", [
+    ("B", {}), ("A", {"panel": "B"}),
+    ("A", {"date": "2026-09-25"}), ("A", {"end": 0}),
+])
+def test_cross_panel_or_misdated_plan_refuses_before_reading(tmp_path, monkeypatch, panel, mutation):
+    event = synthetic_event(tmp_path)
+    event.update(mutation)
+    monkeypatch.setattr(study, "inventory", lambda *a: pytest.fail("invalid plan reached input inventory"))
+    with pytest.raises(StudyError, match="panel"):
+        study.run_study([event], tmp_path / "output", panel=panel,
+                         now=datetime(2026, 10, 10, tzinfo=timezone.utc))
+    assert not (tmp_path / "output").exists()

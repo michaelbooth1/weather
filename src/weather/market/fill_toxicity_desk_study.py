@@ -1,6 +1,6 @@
 """Offline, synthetic-tested fill-toxicity desk study; never places orders.
 
-Frozen authority: mission 89a and Clarifications 1-11 at d81c184b. A dry run
+Frozen authority: mission 89a and Clarifications 1-12 at 0df126491. A dry run
 stats exact named inputs and reads no tape content. Normal runs stream one
 event-date through a disk-backed sort, writing only beneath --output-dir.
 """
@@ -33,9 +33,9 @@ from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
 
 
-START_DATE = date(2026, 8, 15)
-FREEZE_DATE = date(2026, 9, 23)
-FROZEN_REF = "d81c184b36e7889cbeb4853947b97302ad0358d1"
+PANELS = {"A": (date(2026, 8, 15), date(2026, 9, 23)),
+          "B": (date(2026, 9, 25), date(2026, 10, 8))}
+FROZEN_REF = "0df1264910a36b75d01474f63f86b71920e22541"
 REPORT_NAME = "fill_toxicity_desk_study"
 EXTRA_GROUPS = ("PLACEBO", "E2_DETECTED", "E123_DETECTED")
 GROUPS = ("TOTAL", *WINDOW_SETS, *EXTRA_GROUPS, "OUTSIDE")
@@ -45,10 +45,32 @@ def _existing(folder, names):
     return [folder / name for name in names if (folder / name).is_file()]
 
 
-def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, now=None,
-               maker_evidence_root=None):
+def panel_metadata(panel):
+    if panel not in PANELS:
+        raise StudyError("panel must be A or B")
+    start, end = PANELS[panel]
+    return {"panel": panel, "panel_start": start.isoformat(), "panel_end": end.isoformat()}
+
+
+def require_closed_panel(panel, now=None):
+    """B's complete frozen window must close, even for a bounded subset run."""
+    panel_metadata(panel)
+    if panel == "B":
+        now = now or datetime.now(timezone.utc)
+        next_day = PANELS[panel][1] + timedelta(days=1)
+        if any(datetime.combine(next_day, time(), spec.tz).timestamp() > now.timestamp()
+               for spec in REGISTRY.values()):
+            raise StudyError("panel B cannot be scored before every frozen panel-B date is closed")
+
+
+def input_plan(snapshots_root, settlement_root, *, max_dates=None, supplements=None, now=None,
+               maker_evidence_root=None, panel="A"):
     """Generate frozen events; list event inputs and sealed reward-hour metadata."""
-    if not 1 <= max_dates <= (FREEZE_DATE - START_DATE).days + 1:
+    metadata = panel_metadata(panel)
+    first, last = PANELS[panel]
+    days = (last - first).days + 1
+    max_dates = days if max_dates is None else max_dates
+    if not 1 <= max_dates <= days:
         raise StudyError("max-dates must be within the frozen date range")
     now = now or datetime.now(timezone.utc)
     supplements = supplements or {}
@@ -56,13 +78,14 @@ def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, 
                            else Path(snapshots_root).parent / "maker_evidence")
     plan = []
     for offset in range(max_dates):
-        day = START_DATE + timedelta(days=offset)
+        day = first + timedelta(days=offset)
         for market, spec in sorted(REGISTRY.items()):
             slug = f"{spec.slug_prefix}-{day.strftime('%B').lower()}-{day.day}-{day.year}"
             folder = Path(snapshots_root) / slug
             start = datetime.combine(day, time(), spec.tz).timestamp()
             end = datetime.combine(day + timedelta(days=1), time(), spec.tz).timestamp()
-            if end > now.timestamp():
+            # B may be planned before it closes; scoring has a separate full-window gate.
+            if panel == "A" and end > now.timestamp():
                 continue
             extra = supplements.get(slug, {})
             book_candidates = _existing(folder, ("order_books.jsonl", "order_books.jsonl.gz"))
@@ -75,7 +98,7 @@ def input_plan(snapshots_root, settlement_root, *, max_dates, supplements=None, 
             # Never read both a projection and its compressed canonical equivalent.
             weather = weather[:1]
             rewards = _existing(folder, ("reward_records.jsonl", "rewards.jsonl", "snapshots.jsonl"))
-            entry = {"date": day.isoformat(), "market": market, "slug": slug,
+            entry = {**metadata, "date": day.isoformat(), "market": market, "slug": slug,
                      "start": start, "end": end, "folder": str(folder),
                      "book": str(book_candidates[0]) if book_candidates else None,
                      "summary": str(summary_candidates[0]) if summary_candidates else None,
@@ -172,8 +195,9 @@ def panel_terms(db, event, windows, *, defect_minutes=()):
                    "missing_term_fraction": missing_counts["TOTAL"] / expected if expected else None}
 
 
-def _write_audit(handle, row):
-    handle.write(json.dumps(row, sort_keys=True, allow_nan=False, default=str) + "\n")
+def _write_audit(handle, row, *, panel="A"):
+    handle.write(json.dumps({**row, **panel_metadata(panel)}, sort_keys=True,
+                           allow_nan=False, default=str) + "\n")
 
 
 def process_band(db, event, band, windows, label, audit):
@@ -193,7 +217,7 @@ def process_band(db, event, band, windows, label, audit):
 
             def record(row):
                 _write_audit(audit, {"event": event["slug"], "date": event["date"], "market": event["market"],
-                    "band": condition, "scenario": scenario, **row})
+                    "band": condition, "scenario": scenario, **row}, panel=event.get("panel", "A"))
                 if row["type"].startswith("removed_"):
                     for field in ("leg_minutes_by_group", "fills_by_group", "quote_minutes_by_group"):
                         for group, count in row.get(field, {}).items():
@@ -210,7 +234,7 @@ def process_band(db, event, band, windows, label, audit):
                 _write_audit(audit, {"event": event["slug"], "band": condition, "scenario": scenario,
                     "type": "exposure", "start": a, "end": b, "share_minutes": share_minutes,
                     "reward_many": many, "reward_single": single, "groups": sorted(groups), "population": population,
-                    "remaining_sizes": remaining})
+                    "remaining_sizes": remaining}, panel=event.get("panel", "A"))
                 for group in {"TOTAL", *groups}:
                     target = cell(population, False, "R", group)
                     target["exposure"] += share_minutes
@@ -227,11 +251,11 @@ def process_band(db, event, band, windows, label, audit):
                 _write_audit(audit, {"event": event["slug"], "band": condition, "scenario": scenario,
                     "type": "fill", "at": at, "shares": shares, "price": price, "side": side,
                     "groups": sorted(groups), "population": population, "markouts": marks,
-                    "settlement_source": settlement_source})
+                    "settlement_source": settlement_source}, panel=event.get("panel", "A"))
 
             def quote_record(at, values):
                 _write_audit(audit, {"event": event["slug"], "band": condition, "scenario": scenario,
-                                    "type": "quote", "at": at, **values})
+                                    "type": "quote", "at": at, **values}, panel=event.get("panel", "A"))
 
             simulate(inputs.iter_books(db, condition), inputs.iter_prints(db, token, band["no_token"]),
                      start=event["start"], end=event["end"], terms_at=band["terms"].get,
@@ -371,8 +395,21 @@ def process_peak_bytes():
     return int(counters.peak)
 
 
-def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES):
+def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES, panel="A", now=None):
     output = base.ensure_output_dir_allowed(output_dir).resolve()
+    metadata = panel_metadata(panel)
+    require_closed_panel(panel, now)
+    first, last = PANELS[panel]
+    # Validate even caller-built plans before any tape read or output creation.
+    for event in plan:
+        day = date.fromisoformat(event["date"])
+        if not first <= day <= last or event.get("panel", panel) != panel:
+            raise StudyError("event does not belong to the selected frozen panel; panels cannot be pooled")
+        spec = REGISTRY[event["market"]]
+        if (event["start"] != datetime.combine(day, time(), spec.tz).timestamp()
+                or event["end"] != datetime.combine(day + timedelta(days=1), time(), spec.tz).timestamp()):
+            raise StudyError("event time bounds do not match its frozen panel date")
+    plan = [{**event, **metadata} for event in plan]
     if output.exists() and any(output.iterdir()):
         raise StudyError("output directory must be new or empty; prior evidence is immutable")
     output.mkdir(parents=True, exist_ok=True)
@@ -385,6 +422,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
         defect_collectors = {}
         modes, mode_counts = station_modes(plan, output, defect_collectors=defect_collectors)
         with gzip.open(output / "intermediates.jsonl.gz", "wt", encoding="utf-8") as audit:
+            _write_audit(audit, {"type": "study_panel", "frozen_ref": FROZEN_REF}, panel=panel)
             for event in sorted(plan, key=lambda e: (e["date"], e["market"])):
                 note = {"event": event["slug"], "date": event["date"], "market": event["market"], "exclusions": []}
                 defects = defect_collectors.pop(event["slug"], None) or inputs.CaptureDefects(event)
@@ -421,7 +459,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                             event["start"], event["end"], target_date=event["date"], defects=defects))
                         note["undecodable_records"] = len(defects.rows)
                         for row in defects.rows:
-                            _write_audit(audit, {"type": "record_exclusion", **row})
+                            _write_audit(audit, {"type": "record_exclusion", **row}, panel=panel)
                         if note["exclusions"]:
                             continue
                         windows, window_notes = inputs.windows_for_event(db, spec, event["start"], event["end"],
@@ -440,7 +478,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
                         label = read_settlement(event["ledger"], event["slug"])
                         note["bands"] = []
                         for window in windows:
-                            _write_audit(audit, {"type": "window", "event": event["slug"], **vars(window)})
+                            _write_audit(audit, {"type": "window", "event": event["slug"], **vars(window)}, panel=panel)
                         for band in bands:
                             cells, band_notes = process_band(db, event, band, windows, label, audit)
                             note["bands"].append({"condition": band["condition"], **band_notes})
@@ -482,7 +520,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
         decision = stats.decision(primary) if primary else {"verdict": "INCONCLUSIVE", "reason": "UNDERPOWERED"}
         kill_sets = {name: results[primary_prefix + name] for name in WINDOW_SETS if primary_prefix + name in results}
         peak = tracemalloc.get_traced_memory()[1]
-        report = {"report_kind": REPORT_NAME, "revision": 1, "frozen_ref": FROZEN_REF,
+        report = {"report_kind": REPORT_NAME, "revision": 1, "frozen_ref": FROZEN_REF, **metadata,
                   "primary": primary_prefix + "E123", "decision": decision,
                   "kill": stats.kill_decision(kill_sets), "results": results, "R": reward_results, "events": events,
                   "inputs": inventories, "counters": dict(counters), "station_report_minute_counts": mode_counts,
@@ -513,6 +551,7 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
         (output / (REPORT_NAME + ".md")).write_text(
             f"# Fill-toxicity desk study\n\n**{decision['verdict']} — {decision['reason']}**\n\n"
             f"Frozen authority: `{FROZEN_REF}`. Kill rule: `{report['kill']['verdict']}`.\n\n"
+            f"panel: `{panel}`; panel_start: `{metadata['panel_start']}`; panel_end: `{metadata['panel_end']}`.\n\n"
             f"Peak traced Python allocation: {peak:,} bytes. Inputs, exclusions, every estimate and its interval "
             f"are in `{REPORT_NAME}.json`; streaming intermediates are in `intermediates.jsonl.gz`.\n\n"
             + "\n".join("- " + note for note in report["caveats"]) + "\n", encoding="utf-8")
@@ -524,25 +563,31 @@ def run_study(plan, output_dir, *, replicates=base.DEFAULT_BOOTSTRAP_REPLICATES)
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--panel", choices=tuple(PANELS), default="A",
+                        help="separately frozen study panel (default: A); B scores only after all its dates close")
     parser.add_argument("--snapshots-root", type=Path, default=data_path("snapshots"))
     parser.add_argument("--settlement-root", type=Path, default=data_path("settlements"))
     parser.add_argument("--maker-evidence-root", type=Path,
                         help="sealed 88a segments (default: maker_evidence beside snapshots root)")
     parser.add_argument("--support-manifest", type=Path, help="JSON map of event slugs to exact additional captured input paths; no data precomputation")
-    parser.add_argument("--max-dates", type=int, default=(FREEZE_DATE - START_DATE).days + 1)
+    parser.add_argument("--max-dates", type=int, help="limit dates within the selected panel (default: its full range)")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true", help="list exact inputs and sizes without reading tape content")
     args = parser.parse_args(argv)
     try:
         base.ensure_output_dir_allowed(args.output_dir)
+        if not args.dry_run:
+            require_closed_panel(args.panel)
         supplements = json.loads(args.support_manifest.read_text(encoding="utf-8-sig")) if args.support_manifest else None
         plan = input_plan(args.snapshots_root, args.settlement_root, max_dates=args.max_dates,
-                          supplements=supplements, maker_evidence_root=args.maker_evidence_root)
+                          supplements=supplements, maker_evidence_root=args.maker_evidence_root, panel=args.panel)
         if args.dry_run:
-            print(json.dumps({"dry_run": True, "frozen_ref": FROZEN_REF, "events": plan, "inputs": inventory(plan)}, indent=2))
+            print(json.dumps({"dry_run": True, "frozen_ref": FROZEN_REF, **panel_metadata(args.panel),
+                              "events": plan, "inputs": inventory(plan)}, indent=2))
             return 0
-        result = run_study(plan, args.output_dir)
-        print(json.dumps({"decision": result["decision"], "kill": result["kill"], "resources": result["resources"]}))
+        result = run_study(plan, args.output_dir, panel=args.panel)
+        print(json.dumps({**panel_metadata(args.panel), "decision": result["decision"],
+                          "kill": result["kill"], "resources": result["resources"]}))
         return 0
     except (StudyError, base.MarkoutError, OSError, ValueError) as exc:
         print(f"REFUSED: {exc}")
