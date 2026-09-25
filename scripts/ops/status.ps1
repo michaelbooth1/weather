@@ -4635,7 +4635,8 @@ if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
         $makerFile = Get-Item -LiteralPath $makerEvidencePath -ErrorAction Stop
         if ($makerFile.Length -gt 262144) { throw "status exceeds byte bound" }
         $makerEvidence = Get-Content -LiteralPath $makerEvidencePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $makerAge = ((Get-Date).ToUniversalTime() - [datetime]$makerEvidence.updated_at_utc).TotalSeconds
+        # [datetime] turns "+00:00" into local time (ages read 4-5 h stale); DateTimeOffset keeps UTC.
+        $makerAge = ((Get-Date).ToUniversalTime() - [DateTimeOffset]::Parse([string]$makerEvidence.updated_at_utc).UtcDateTime).TotalSeconds
         if ($makerEvidenceTask -and [string]$makerEvidenceTask.State -ne "Disabled" -and
             ($makerAge -gt 180 -or [string]$makerEvidence.state -ne "CAPTURING")) {
             $flags.Add("MAKER_EVIDENCE: $($makerEvidence.state), status age $([int]$makerAge)s")

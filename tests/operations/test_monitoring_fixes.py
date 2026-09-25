@@ -167,3 +167,24 @@ try { Add-WeatherWatchdogLog -Path $path -Line '{}' -MaxBytes 512 } finally { $h
 """, tmp_path)
     assert result.returncode != 0
     assert log.read_bytes() == b"x" * 1024
+
+
+def test_maker_evidence_age_is_utc_not_local(tmp_path):
+    # 2026-09-25: [datetime] parsed "+00:00" as local time, so a fresh status read 14,404 s old.
+    line = next(
+        row.strip()
+        for row in (ROOT / "scripts" / "ops" / "status.ps1").read_text(encoding="utf-8-sig").splitlines()
+        if row.strip().startswith("$makerAge = ")
+    )
+    runner = tmp_path / "age.ps1"
+    runner.write_text(
+        "$makerEvidence=[pscustomobject]@{updated_at_utc=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffff+00:00')}\n"
+        + line
+        + "\n[Console]::Out.Write([int]$makerAge)\n",
+        encoding="utf-8-sig",
+    )
+    out = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(runner)],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert abs(int(out)) < 60
