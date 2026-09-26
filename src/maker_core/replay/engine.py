@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import heapq
 
-from maker_core.contracts import OutcomeView
+from maker_core.contracts import OutcomeView, Unavailable
 from maker_core.evidence.journal import digest
 from maker_core.quoting.policy import (DecisionInputs, ExposureLimit, Portfolio, QuoteDecision, QuoteLeg,
                                        _event_active, blind_re1, decide, informed_v0)
@@ -36,9 +36,10 @@ class ReplayConfig:
     max_book_gap_seconds: int = 60
     max_events: int = 500_000
     fill_bound: str = "strictly_through"
+    clock_pulls: tuple = ()  # Predeclared (condition_id, from, until) UTC windows.
 
     def __post_init__(self):
-        if self.policy not in ("informed-v0", "blind_re1"):
+        if self.policy not in ("informed-v0", "blind_re1", "no_quote", "clock_only"):
             raise BundleError("unsupported_replay_policy")
         if self.fill_bound not in BOUNDS:
             raise BundleError("unknown_fill_bound")
@@ -49,6 +50,11 @@ class ReplayConfig:
             raise BundleError("invalid_engine_limit")
         if self.hazard_per_minute is not None:
             number(self.hazard_per_minute, maximum=D(1))
+        if len(self.clock_pulls) > 2000:
+            raise BundleError("clock_window_cap")
+        for cid, start, end in self.clock_pulls:
+            if not isinstance(cid, str) or start.tzinfo is None or end.tzinfo is None or start >= end:
+                raise BundleError("invalid_clock_window")
 
 
 @dataclass(frozen=True)
@@ -116,7 +122,7 @@ class ReplayEngine:
         if not bundles or len(bundles) > 366 or len({b.day for b in bundles}) != len(bundles):
             raise BundleError("duplicate_or_unbounded_days")
         self.bundles, self.config, self.check = tuple(sorted(bundles, key=lambda b: b.day)), config, check
-        self.profile = informed_v0 if config.policy == "informed-v0" else blind_re1
+        self.profile = blind_re1 if config.policy == "blind_re1" else informed_v0
         self.states, self.conditions, self.windows = {}, {}, defaultdict(list)
         self.records, self.heap, self.pending = defaultdict(list), [], set()
         self.decisions, self.spans, self.fills, self.exclusions, self.books = [], [], [], [], []
@@ -145,6 +151,11 @@ class ReplayEngine:
                 self.schedule(record.captured_at)
         if sum(len(b.records) for b in bundles) > config.max_events:
             raise BundleError("engine_event_cap")
+        for cid, start, end in config.clock_pulls:
+            if cid not in self.states:
+                raise BundleError("unknown_clock_condition")
+            self.schedule(start)
+            self.schedule(end)
 
     def schedule(self, at):
         if at > self.horizon:
@@ -245,16 +256,17 @@ class ReplayEngine:
         elif row.kind == "book":
             self.books.append((at, row.condition_id, value))
             self.schedule(at + timedelta(seconds=self.config.max_book_gap_seconds))
-        elif row.kind == "outcome_view" and isinstance(value, OutcomeView):
+        elif row.kind == "outcome_view" and isinstance(value, OutcomeView) and self.config.policy == "informed-v0":
             if at < value.valid_until_utc <= self.end:
                 self.schedule(value.valid_until_utc)
         elif row.kind == "terms":
             expiry = value.as_of_utc + timedelta(hours=1) + EPSILON
             if at < expiry <= self.end:
                 self.schedule(expiry)
-        elif row.kind == "info_event":
+        elif row.kind == "info_event" and self.config.policy == "informed-v0":
             for event in value:
-                if (event.decided or {}).get(row.condition_id, 0) >= .5 and _event_active(event, at):
+                if (self.config.policy == "informed-v0" and
+                        (event.decided or {}).get(row.condition_id, 0) >= .5 and _event_active(event, at)):
                     state.decided = True
                 boundaries = []
                 if event.scheduled_at_utc is not None:
@@ -333,12 +345,19 @@ class ReplayEngine:
         if not state.covered:
             self.pull(cid, at, why)
             return
+        if self.config.policy == "no_quote":
+            self.pull(cid, at, "BASELINE_NO_QUOTE")
+            return
+        if self.config.policy == "clock_only" and any(
+                key == cid and start <= at < end for key, start, end in self.config.clock_pulls):
+            self.pull(cid, at, "CLOCK_ONLY_PULL")
+            return
         if state.last_fill == at:
             return  # Never recreate the sibling at the fill instant.
         if self.ended or cid in self.settlements or state.decided:
             self.pull(cid, at, "SESSION_ENDED" if self.ended else "SETTLED" if cid in self.settlements else "DECIDED")
             return
-        events = state.latest["info_event"]
+        events = state.latest["info_event"] if self.config.policy == "informed-v0" else ()
         if any((e.decided or {}).get(cid, 0) >= .5 and _event_active(e, at) for e in events):
             state.decided = True
             self.pull(cid, at, "DECIDED")
@@ -362,7 +381,9 @@ class ReplayEngine:
             return tuple((price, size + additions.get(price, D(0))) for price, size in levels)
         book = replace(book, yes_bids=add_own(book.yes_bids, "YES"),
                        yes_asks=add_own(book.yes_asks, "NO", True))
-        value = DecisionInputs(desc.market, at, book, state.latest["terms"], state.latest["outcome_view"],
+        fair_value = (state.latest["outcome_view"] if self.config.policy == "informed-v0"
+                      else Unavailable("clock/blind baseline", at))
+        value = DecisionInputs(desc.market, at, book, state.latest["terms"], fair_value,
                                self.portfolio(cid), desc.horizon_days, events, self.profile,
                                self.config.hazard_per_minute, existing=state.legs,
                                last_requote_at=state.last_quote, previous_fair_value=state.previous_fair_value)
@@ -414,8 +435,10 @@ class ReplayEngine:
             for row in rows:
                 if row.kind != "trade":
                     self.ingest(row, at)
-            for cid in sorted(self.states):
-                self.tick(cid, at)
+            if (self.config.policy == "informed-v0" or not rows or
+                    any(r.kind not in ("info_event", "outcome_view", "plugin_input") for r in rows)):
+                for cid in sorted(self.states):
+                    self.tick(cid, at)
             previous = at
         hashes = {b.day.isoformat(): dict(b.input_hashes) for b in self.bundles}
         return ReplayResult(self.config, tuple(self.decisions), tuple(self.spans), tuple(self.fills),

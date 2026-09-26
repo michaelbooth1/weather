@@ -169,3 +169,21 @@ The scorer includes pull fraction, quote/requote counts and event-window fills.
 Admitted engine/fill/score suite: **21 passed**. Pure copied markout/rebate logic is
 differentially checked against the existing owner module. New score module and
 engine changes: production closure UNDECIDABLE; tests are test-only, docs roll-free.
+
+## Continuation item 4 — baselines and available parity (2026-09-26)
+
+**Baseline implementation PASS; full-session RE-1 parity remains UNAVAILABLE.**
+Item 3 was pushed as `23ce28ee`. No-quote uses the same coverage denominator.
+Blind RE-1 ignores plugin probability/events and retains one-band/first-fill-end
+behavior. All 12 frozen selection-price fixtures and eight available first-minute
+quote pairs pass through the event engine. The full-trace comparator checks every
+field and terminal event; no full-session journal was fabricated to supply it.
+
+Clock-only uses unavailable fair value, shared informed quoting safety, and fixed
+UTC prefix pull windows. A bounded duration search matches aggregate pulled
+fraction within one covered minute, using exposure only. This is an ex-post
+descriptive control, not a deployable prediction. Unattainable matches report
+UNMATCHED and cannot support an inferential clock comparison. No move or economic
+outcome selects its schedule. Admitted replay regression suite: **36 passed**.
+New baselines/parity modules and engine changes: closure UNDECIDABLE; tests
+test-only; docs roll-free. Full-session parity remains an adoption limitation.

@@ -150,6 +150,17 @@ Reports must distinguish all such limitations from passed checks and retain the 
 
 ### Scoring
 
+Baselines are `no_quote`, `blind_re1`, and `clock_only`. Clock-only runs shared
+informed quoting safety with unavailable fair value and no information events.
+Its UTC active-interval prefix windows are predeclared for each replay. A bounded
+12-step duration search matches aggregate pulled fraction to within one covered
+minute; exposure alone selects the schedule. This retrospective matching is
+descriptive, not a deployable policy. Additional safety/cash pulls may prevent a
+match; such results report UNMATCHED and are excluded from clock inference.
+Full-trace parity compares every journal field and terminal event. The available
+Phase 0 kit proves 12 selection and eight first-minute quote pairs only; no full
+RE-1 session journal is available under this fixture-only authorization.
+
 `replay.score.score(result)` produces per-policy, per-condition, UTC-day rows.
 Reward accrual uses contemporaneous share and terms, with k=1 and k=0.5. Maker fees
 are zero; the nominal rebate is `shares * .25 * .05 * p * (1-p)` (EF §10o), not a
