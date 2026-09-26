@@ -31,7 +31,7 @@ never absence of event and wallet caps. Plugins import only
 | `UniverseSnapshot` | Tuple of descriptors, query `as_of_utc`, source hashes |
 | `OutcomeView` | Condition, probability and probability-unit stdev (positive, or zero for p=0 or p=1), optional sibling distribution, input timestamp/expiry, input hash/model/grade; no market-price fields |
 | `Unavailable` | Reason and UTC query time; never a guessed probability |
-| `InfoEvent` | Scheduled/observed/detected times, affected conditions, severity, optional decided probabilities, action hint |
+| `InfoEvent` | At least one scheduled/observed/detected reference time, affected conditions, severity, optional decided probabilities, action hint |
 | `SettlementFact` | Condition, resolved YES payout fraction, captured UTC time, source hashes, reconciliation status |
 | `Pending` | Reason and UTC query time; never an inferred settlement |
 
@@ -48,7 +48,10 @@ The pre-tag additions are trailing and defaulted:
   Nested probabilities are marginals, not partition `joint` mass.
 - `InfoEvent.active_until_utc=None`: optional UTC expiry, at or after the detected
   time, otherwise observed time, otherwise scheduled time. A reference is required.
-  Expiry is inclusive; absent expiry preserves the original event lifetime.
+  Expiry is inclusive; a timestamp-free event is invalid even without expiry.
+  Detected events, or observed events without detection, remain active from that
+  reference time until expiry or caller removal. Detection takes precedence when
+  present, so a future detection is not made active by an earlier observation.
 - `Unavailable.kind="missing_input"`: alternatives `out_of_scope`, `corrupt`,
   `decided` distinguish why a probability is not supplied.
 - `SettlementFact.resolved_value=None`: optional domain-native text, not a payout override.
@@ -88,8 +91,8 @@ absolute value, so offsets never silently increase available capital.
 
 `informed_v0` implements the design's freshness, pull/decided, qualified-mid,
 width/asymmetry, depth, size, positive-net and portfolio screens. Scheduled events
-are active from -3 to +10 minutes; detected events remain active until explicit
-expiry or, without expiry, caller removal on captured fresh evidence. Only
+are active from -3 to +10 minutes; detected and observed-only events remain active
+until explicit expiry or, without expiry, caller removal on captured fresh evidence. Only
 `action_hint="pull"` triggers a pull, independent of the domain's event kind.
 `Profile.eligible_horizons` owns eligibility (`informed_v0`: 1 and 2;
 `blind_re1`: unrestricted). Expired or future views refuse quoting;
@@ -109,8 +112,13 @@ size-cap, touch, depth, share and net safety checks still precede HOLD.
 The design leaves stale variance and grade trust constants unspecified. Phase 0
 uses an explicitly exposed conservative offline default of 0.01 probability
 units of added sigma per hour (quadrature), grade size ceilings 30/50/75 for
-none/shadow/scored, and no leg tightening for unscored probabilities. These are
-not fitted results or live caps. Numeric caps remain required inputs. The caller
+none/shadow/scored. Per the owner's MAK-1 decision, grade `none` uses the same
+clipped width and size on both legs, with zero fair-value skew and no leg omission.
+An eligible quote has both YES and NO legs; otherwise the normal safety/economic
+gates may refuse the whole quote. Existing one-sided, unequal-size or asymmetric
+legs are cancelled with `UNCALIBRATED_ASYMMETRY` before cooldown or HOLD. Shadow
+and scored grades retain their asymmetry rule. These are not fitted results or
+live caps. Numeric caps remain required inputs. The caller
 must supply a finite per-band-minute trade hazard bound; no hazard means no quote.
 The adverse settlement loss floor is 0.0043 probability units per filled share.
 Net uses hazard times adverse loss times size, with no rebate credit. Its unit

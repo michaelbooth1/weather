@@ -51,8 +51,10 @@ def test_settlement_resolved_text(inputs):
 
 @pytest.mark.parametrize("reference", ["scheduled_at_utc", "observed_at_utc", "detected_at_utc"])
 def test_event_expiry_validation(inputs, reference):
-    event = InfoEvent("poll", None, None, None, ("heads",), 1, None, "pull")
-    event = replace(event, **{reference: inputs.now}, active_until_utc=inputs.now)
+    times = dict.fromkeys(("scheduled_at_utc", "observed_at_utc", "detected_at_utc"))
+    times[reference] = inputs.now
+    event = InfoEvent("poll", **times, affects=("heads",), severity=1, decided=None,
+                      action_hint="pull", active_until_utc=inputs.now)
     assert decide(replace(inputs, events=(event,))).reasons == ("INFO_PULL",)
     for expiry in (inputs.now-timedelta(seconds=1), inputs.now.replace(tzinfo=None)):
         with pytest.raises(ValueError):

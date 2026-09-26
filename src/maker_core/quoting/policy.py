@@ -32,7 +32,7 @@ class Profile:
     first_fill_ends: bool = False
     max_bands: int | None = None
     stale_sigma_per_hour: float = 0.01
-    # Unscored probabilities cannot tighten a leg or justify the largest sizes.
+    # Unscored probabilities cannot skew/drop a leg or justify the largest sizes.
     # These are conservative offline defaults, not empirically fitted parameters.
     grade_size_caps: tuple[int, int, int] = (30, 50, 75)
     eligible_horizons: tuple[int, ...] | None = (1, 2)
@@ -173,7 +173,7 @@ def _event_active(event, now):
         return False
     if event.detected_at_utc is not None:
         return event.detected_at_utc <= now  # Caller retains unresolved detected events.
-    if event.active_until_utc is not None and event.observed_at_utc is not None:
+    if event.observed_at_utc is not None:
         return event.observed_at_utc <= now
     return (event.scheduled_at_utc is not None
             and event.scheduled_at_utc - timedelta(minutes=3) <= now
@@ -263,15 +263,14 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
         age_hours = (i.now - view.as_of_utc).total_seconds() / 3600
         sigma_eff = math.hypot(view.stdev, age_hours * p.stale_sigma_per_hour)
         width = max(width, D(str(sigma_eff * 100)))
-        skew = D(str(view.p_yes)) - mid
+        if view.calibration_grade != "none":
+            skew = D(str(view.p_yes)) - mid
         size_cap = p.grade_size_caps[("none", "shadow", "scored").index(view.calibration_grade)]
     if p.informed:
         width = max(width, *(D(str(e.severity)) * t.max_spread_cents for e in active
                              if e.action_hint in ("widen", "recentre")), p.d_lo_cents)
     width = min(max(width, p.d_lo_cents), maximum_width)
     distances = (width - D(".5") * skew * 100, width + D(".5") * skew * 100)
-    if view and view.calibration_grade == "none":
-        distances = tuple(max(width, d) for d in distances)
 
     def external_levels(rows, outcome):
         own = {}
@@ -308,6 +307,12 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
     def eligible(legs):
         if not legs or not _fits(legs, portfolio):
             return "CASH_OR_CAP"
+        if view and view.calibration_grade == "none":
+            sides = {leg.outcome: leg for leg in legs}
+            if (len(legs) != 2 or set(sides) != {"YES", "NO"}
+                    or sides["YES"].size != sides["NO"].size
+                    or mid - sides["YES"].price != 1 - mid - sides["NO"].price):
+                return "UNCALIBRATED_ASYMMETRY"
         for leg in legs:
             if leg.outcome not in ("YES", "NO") or leg.size not in p.sizes or leg.size < max(t.min_size, i.market.min_order_size):
                 return "SIZE_BELOW_MINIMUM"
