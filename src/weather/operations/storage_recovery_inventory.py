@@ -75,7 +75,9 @@ def event_date(slug: str) -> date:
         raise InventoryRefused("invalid event date") from exc
 
 
-def validate_folders(folders, *, as_of: date):
+def validate_folders(folders, *, as_of: date, min_age_days=30):
+    if min_age_days not in (14, 30):
+        raise InventoryRefused("unsupported cold-day age")
     if not isinstance(folders, list) or not 1 <= len(folders) <= MAX_FOLDERS:
         raise InventoryRefused("name one to twelve exact folders")
     seen = set()
@@ -94,8 +96,9 @@ def validate_folders(folders, *, as_of: date):
             target = None  # Root files only; never includes replay_cache again.
         else:
             raise InventoryRefused("folder is outside the recovery inventory contract")
-        if target is not None and target >= as_of - timedelta(days=30):
-            raise InventoryRefused("event is inside the thirty-day hot window")
+        if target is not None and target >= as_of - timedelta(days=min_age_days):
+            raise InventoryRefused("event is inside the thirty-day hot window" if min_age_days == 30
+                                   else "event is inside the fourteen-day hot window")
         if name.casefold() in seen:
             raise InventoryRefused("duplicate folder")
         seen.add(name.casefold())
@@ -200,11 +203,11 @@ def validate_scope(scope):
 
 def inventory(data_root, folders, *, as_of, guard: Callable[[], None],
               limits=Limits(), allocation=native_allocation, clock=time.monotonic,
-              traversal_scope="recursive"):
+              traversal_scope="recursive", min_age_days=30):
     """Inventory exact selections; partial or drifted selections supply no budget."""
     traversal_scope = validate_scope(traversal_scope)
     limits.validate()
-    selected = validate_folders(folders, as_of=as_of)
+    selected = validate_folders(folders, as_of=as_of, min_age_days=min_age_days)
     guard()
     root = validate_root(data_root)
     started = clock()
