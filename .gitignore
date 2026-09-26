@@ -48,3 +48,4 @@ Thumbs.db
 
 # Machine-local secrets (e.g. wallet reader client token); never commit.
 config/local/
+.claude/settings.local.json
