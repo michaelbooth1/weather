@@ -38,7 +38,8 @@ class Profile:
     eligible_horizons: tuple[int, ...] | None = (1, 2)
 
 
-informed_v0 = Profile("informed_v0", True)
+# The profile *name* avoids the `<name>_v<N>` shape the schema-registry literal audit reserves for schema versions.
+informed_v0 = Profile("informed-v0", True)
 blind_re1 = Profile("blind_re1", False, first_fill_ends=True, max_bands=1, eligible_horizons=None)
 
 
@@ -194,7 +195,7 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
         return QuoteDecision(action or ("CANCEL" if i.existing else "NO_QUOTE"),
                              tuple(legs), (reason,), h, p.name, mid, share, net)
 
-    if p.name not in ("informed_v0", "blind_re1") or p.informed != (p.name == "informed_v0"):
+    if p.name not in ("informed-v0", "blind_re1") or p.informed != (p.name == "informed-v0"):
         return result("UNSUPPORTED_PROFILE")
     if i.fill_seen:
         return result("FIRST_FILL_ENDS" if p.first_fill_ends else "FILL_CANCEL_SIBLING",
