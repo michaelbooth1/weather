@@ -16,6 +16,7 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
+from weather.cold_archive_locations import load_location, resolve_local_path
 from typing import Any
 
 from weather.collection.live_variant_predictions import (
@@ -234,6 +235,8 @@ def _require_regular_fresh_file(
     max_age_hours: float,
     role: str,
 ) -> int:
+    logical_path = path
+    path = resolve_local_path(path)
     if not path.exists() or not path.is_file() or path.is_symlink():
         code = "captured_inputs_missing" if role == "captured inputs" else f"{role.replace(' ', '_')}_missing"
         raise _block(
@@ -248,6 +251,11 @@ def _require_regular_fresh_file(
         )
     stat = path.stat()
     modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    if path != logical_path:
+        location = load_location(logical_path)
+        if location is None:
+            raise ValueError("resolved parity source lacks archive provenance")
+        modified = datetime.fromtimestamp(int(location.member["mtime_ns"]) / 1e9, tz=timezone.utc)
     age_hours = (now - modified).total_seconds() / 3600.0
     if age_hours < -(FUTURE_CLOCK_SKEW_MINUTES / 60.0):
         raise _block(
@@ -271,6 +279,7 @@ def _require_regular_fresh_file(
 
 
 def _read_rows_strict(path: Path, *, role: str, max_rows: int) -> list[dict[str, Any]]:
+    path = resolve_local_path(path)
     suffix = path.suffix.casefold()
     rows: list[dict[str, Any]] = []
     if suffix in {".jsonl", ".ndjson"}:
@@ -939,7 +948,7 @@ def _verify_bundle_files_unchanged(
             mismatches.append("active_release_pointer")
         for role, path in bundle.artifact_paths.items():
             expected = str(bundle.artifact_hashes.get(role) or "")
-            if not expected or sha256_file(path) != expected:
+            if not expected or sha256_file(resolve_local_path(path)) != expected:
                 mismatches.append(str(role))
     except OSError as exc:
         raise _block(
@@ -1114,7 +1123,7 @@ def generate_captured_input_parity_evidence(
         pointer_path=pointer,
         releases_root=releases,
     )
-    source_hashes = {path: sha256_file(path) for path in source_paths}
+    source_hashes = {path: sha256_file(resolve_local_path(path)) for path in source_paths}
 
     raw_captured = _read_rows_strict(
         captured_path,
@@ -1327,7 +1336,7 @@ def generate_captured_input_parity_evidence(
     changed_sources = [
         str(path)
         for path, expected_sha256 in source_hashes.items()
-        if sha256_file(path) != expected_sha256
+        if sha256_file(resolve_local_path(path)) != expected_sha256
     ]
     if changed_sources:
         raise _block(

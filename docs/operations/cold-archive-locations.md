@@ -26,6 +26,21 @@ changes their storage location; it must not remove them from discovery or turn
 an unavailable tape into an empty research population. The implementation lives
 in `weather.cold_archive_locations` and `weather.operations.cold_archive_catalog`.
 
+The [storage-family grouping](production-cold-archive-staging.md#owner-approved-storage-families)
+also supports root snapshot diagnostic rotations, maker-run quote CSVs and
+nested raw-price files. Their markers remain adjacent to each original file
+under `.cold_archive/`; the catalog uses the same original path identity at any
+supported depth. A raw-price subtree may have up to 16,384 members, while other
+archives retain the 256-member bound. Catalog records remain byte-bounded.
+
+Variant tape discovery unions physical files and catalogued logical names.
+Scorecard and captured-input parity readers resolve verified cache members;
+missing archived payloads raise `ArchivedInputRequired` rather than disappearing
+from the population. Parity freshness uses the original member timestamp, so a
+new restore cannot make stale evidence fresh. Maker run discovery/scoring and
+raw-price response reads also follow these locations. Adopt these consumers
+before reclaim; retain the original raw-price hash-reference manifest.
+
 ## Where to find data
 
 | Local path | Purpose |
@@ -71,6 +86,8 @@ historical Markdown snapshot is a fresh presence check.
 1. Plan whole-file chunks with `--chunk-grouping market_day_file_family_v1`.
    Each chunk contains one event folder and file family. CSV and gzip halves
    remain independent members; a byte bound may split a family further.
+   For the four storage families, use `owner_storage_families_v1` instead;
+   its complete raw-price subtree is never split.
 2. Stage, encrypt and upload through the existing admitted paths in
    [Production cold-archive staging](production-cold-archive-staging.md).
    An upload receipt commits all four cloud object identities. Publish its
@@ -232,6 +249,11 @@ It requires a closed market day, final settled/countability disposition, and
 clear barriers, queues, point-in-time windows and protected release/replay
 inputs, each supported by bounded hash-bound evidence. An operator must
 actually review those controls; synthetic PASS flags are not production proof.
+For root diagnostic rotations only, replace `market_day_closed` and
+`settlement_final` with `rotated_logs_closed` (`closed=true`,
+`active_writer=false`, PASS and exact supporting evidence). Diagnostics have
+no settlement day. All four protected-reference checks, the five-minute review
+expiry, native exclusive pins and source hash checks remain required.
 A catalog-bound independent complete restore must have finished within
 24 hours. Custody evidence binds verified workstation copies of the catalog
 entry and restore record and the owner's confirmation that recovery keys are

@@ -20,6 +20,9 @@ import tarfile
 import time
 from typing import Callable, Mapping
 
+from weather.cold_archive_locations import member_limit, MAX_PRICE_MEMBERS
+from weather.operations.cold_archive_families import FAMILY_ORDER, family_group
+
 from weather.operations.ntfs_file_compression import (
     LockedNtfsFile, PinnedNtfsDirectory, _FileInformation,
     _StandardInformation, _ticks, FILETIME_EPOCH, COMPRESSED,
@@ -30,11 +33,12 @@ MIB = 1024**2
 MAX_CHUNK_BYTES = 1024 * MIB
 MAX_MEMBERS = 256
 MAX_METADATA_BYTES = 16 * MIB
-MAX_FILES = 10000
+MAX_FILES = MAX_PRICE_MEMBERS
 FORMAT = "production_sorted_ustar_gzip_level1_v1"
 LEGACY_GROUPING = "sorted_whole_files_v1"
 SELECTIVE_GROUPING = "market_day_file_family_v1"
-CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING)
+STORAGE_GROUPING = "owner_storage_families_v1"
+CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING, STORAGE_GROUPING)
 RETENTION = {"source_retained": True, "cleanup_eligible": False,
              "deletion_authorized": False, "upload_performed": False,
              "restore_performed": False, "consumer_closure_proved": False}
@@ -172,6 +176,8 @@ def _rows(files):
 def _chunks(rows, limit, grouping=LEGACY_GROUPING):
     if grouping not in CHUNK_GROUPINGS:
         raise ArchiveStageError("unknown chunk grouping")
+    if grouping == STORAGE_GROUPING:
+        return _storage_chunks(rows, limit)
     chunks, members, total, previous_group = [], [], 0, None
     for row in rows:
         # Preserve each original representation. CSV and gzip halves share a
@@ -194,6 +200,59 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING):
         chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                        "files": members, "logical_bytes": total})
     return chunks
+
+
+def _storage_chunks(rows, limit):
+    groups = {}
+    for row in rows:
+        key = family_group(_relative(row["path"]))
+        groups.setdefault(key, []).append(row)
+    chunks = []
+    for (family, _scope), members in sorted(groups.items(), key=lambda pair: (FAMILY_ORDER.index(pair[0][0]), pair[0][1])):
+        members = sorted(members, key=lambda row: row["path"])
+        if family == "price_history_raw":
+            total = sum(row["size_bytes"] for row in members)
+            if len(members) > MAX_PRICE_MEMBERS or total > limit:
+                raise ArchiveStageError("raw-price event subtree exceeds one-tar bounds; never split")
+            grouped = [{"files": members, "logical_bytes": total}]
+        else:
+            grouped = _chunks(members, limit, LEGACY_GROUPING)
+        for chunk in grouped:
+            chunks.append({**chunk, "chunk_id": f"chunk-{len(chunks):05d}"})
+    return chunks
+
+
+def archive_byte_bound(files):
+    """Include per-member USTAR overhead when one subtree has many tiny files."""
+    payload = sum(row["size_bytes"] for row in files)
+    return payload + payload // 100 + 2 * MIB + max(0, len(files) - MAX_MEMBERS) * 1024
+
+
+def _complete_price_subtree(root, files, guard):
+    """One raw-price tar must include the whole regular-file subtree, not a slice."""
+    family, scope = family_group(files[0]["path"])
+    if family != "price_history_raw":
+        return
+    expected = {row["path"] for row in files}
+    found, visited, pending = set(), 0, [root / scope]
+    while pending:
+        directory = _safe_path(pending.pop(), directory=True)
+        for path in directory.iterdir():
+            guard.admit()
+            visited += 1
+            if visited > 2 * MAX_PRICE_MEMBERS:
+                raise ArchiveStageError("raw-price subtree traversal bound exceeded")
+            if path.is_dir():
+                _safe_path(path, directory=True)
+                if path.name != ".cold_archive":
+                    pending.append(path)
+            else:
+                _safe_path(path)
+                found.add(path.relative_to(root).as_posix())
+                if len(found) > MAX_PRICE_MEMBERS:
+                    raise ArchiveStageError("raw-price subtree member bound exceeded")
+    if found != expected:
+        raise ArchiveStageError("raw-price selection is not the complete event subtree")
 
 
 def plan_selection(selection_path, expected_selection_sha256, output_path, *,
@@ -344,11 +403,10 @@ def verify_archive(archive_path, manifest, *, admission, deadline_monotonic):
     canonical = _rows(files)
     if canonical != [{k: row[k] for k in canonical[0]} for row in files]:
         raise ArchiveStageError("member inventory must be canonical and ordered")
-    if len(files) > MAX_MEMBERS or sum(r["size_bytes"] for r in files) > MAX_CHUNK_BYTES:
+    if len(files) > member_limit(files) or sum(r["size_bytes"] for r in files) > MAX_CHUNK_BYTES:
         raise ArchiveStageError("archive bounds exceeded")
     path = _safe_path(archive_path)
-    maximum = sum(r["size_bytes"] for r in files)
-    maximum += maximum // 100 + 2 * MIB
+    maximum = archive_byte_bound(files)
     if path.stat().st_size > maximum:
         raise ArchiveStageError("archive object exceeds byte bound")
     count, digest = _hash(path, guard)
@@ -421,7 +479,7 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
     if (not attempt.is_absolute() or ".." in attempt.parts
             or attempt == root or root in attempt.parents or attempt in root.parents):
         raise ArchiveStageError("attempt and production source must be disjoint")
-    bound = chunk["logical_bytes"] + chunk["logical_bytes"] // 100 + 2 * MIB
+    bound = archive_byte_bound(chunk["files"])
     if shutil.disk_usage(parent).free < reserve + bound:
         raise ArchiveStageError("insufficient disk for bounded staging and reserve")
     with ExitStack() as stack:
@@ -434,6 +492,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
         _write(attempt / "claim.json", _seal(dict(receipt), "receipt_hash"))
         try:
             records = []
+            if grouping == STORAGE_GROUPING:
+                _complete_price_subtree(root, chunk["files"], guard)
             archive_path = attempt / "archive.tar.gz"
             with archive_path.open("xb") as raw:
                 writer = _Writer(raw, guard, bound, attempt, reserve)
@@ -471,6 +531,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
                               "archive_bytes": count, "archive_sha256": digest,
                               "source_proof": "native_pinned_bytes_during_staging",
                               **RETENTION}, "manifest_hash")
+            if grouping == STORAGE_GROUPING:
+                _complete_price_subtree(root, chunk["files"], guard)
             verification = verify_archive(archive_path, manifest, admission=admission,
                                           deadline_monotonic=deadline_monotonic)
             guard.admit()

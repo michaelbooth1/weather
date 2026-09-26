@@ -25,7 +25,7 @@ from weather.operations import bulk_cold_archive_crypt as bridge
 from weather.schema_registry import schema_version
 
 MIB = 1024**2
-MAX_CIPHERTEXT_BYTES = archive.MAX_CHUNK_BYTES + archive.MAX_CHUNK_BYTES // 100 + 4 * MIB
+MAX_CIPHERTEXT_BYTES = bridge.MAX_CIPHER_BYTES
 MAX_CLIENT_OUTPUT = 65536
 MAX_CONFIG_BYTES = MIB
 REMOTE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}")

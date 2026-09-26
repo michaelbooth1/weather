@@ -13,6 +13,12 @@
 Every durable data or log artifact should be classified as exactly one storage
 class before a writer adds a new file family under `data/`.
 
+Maker-run `quote_intents_long.csv` and `model_variant_quote_intents_long.csv`
+are canonical captured decision evidence despite their long-table filenames.
+They share the maker lifecycle retention contract; offloading their local bytes
+requires the [verified archive reclaim chain](cold-archive-locations.md#original-source-reclaim),
+including its protected EF 8bb date exclusion.
+
 ## Storage Classes
 
 | Storage class | Purpose | Examples | Retention and deletion gate |

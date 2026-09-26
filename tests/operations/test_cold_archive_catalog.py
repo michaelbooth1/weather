@@ -58,12 +58,20 @@ def corpus(tmp_path, monkeypatch, request):
     monkeypatch.setattr(bridge, "_file_pin", FixturePin)
     monkeypatch.setattr(archive, "_directory_pin", lambda path: nullcontext())
     root = tmp_path / "data"
-    day = root / "snapshots" / "highest-temperature-in-toronto-on-june-15-2026"
-    day.mkdir(parents=True)
     contents = getattr(request, "param", {"order_books_long.csv": b"a,b\n" + b"1,2\n" * 8,
                 "order_books_long.csv.gz": gzip.compress(b"a,b\n" + b"1,2\n" * 8)})
+    relative = "snapshots/highest-temperature-in-toronto-on-june-15-2026"
+    grouping = archive.SELECTIVE_GROUPING
+    timestamps = []
+    if isinstance(contents, tuple):
+        relative, contents, *timestamps = contents
+        grouping = archive.STORAGE_GROUPING
+    day = root / relative
+    day.mkdir(parents=True)
     for name, content in contents.items():
         (day / name).write_bytes(content)
+        if timestamps:
+            os.utime(day / name, (timestamps[0], timestamps[0]))
     rows = [{"path": path.relative_to(root).as_posix(), **metadata(path)}
             for path in sorted(day.iterdir())]
     selection = {"schema_version": schema_version("large_archive_candidate_selection"),
@@ -74,7 +82,7 @@ def corpus(tmp_path, monkeypatch, request):
     selection_path, plan_path = tmp_path / "selection.json", tmp_path / "plan.json"
     selection_path.write_text(json.dumps(selection))
     archive.plan_selection(selection_path, sha(selection_path), plan_path,
-                           chunk_grouping=archive.SELECTIVE_GROUPING)
+                           chunk_grouping=grouping)
     admission = lambda: True
     deadline = time.monotonic() + 30
     stage_directory = tmp_path / "scratch" / "production_cold_archive" / "fixture-stage-a1" / "stage"

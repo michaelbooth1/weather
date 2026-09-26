@@ -21,6 +21,7 @@ import tempfile
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.cold_archive_locations import discover_sources, resolve_local_path
 from typing import Any, Iterable, Mapping, Sequence
 
 from weather.backtesting.settlement_io import load_market_day_label, resolve_outcome
@@ -1944,7 +1945,8 @@ def _read_json_rows(path: Path) -> list[dict[str, Any]]:
 
 def read_rows(path: str | Path) -> list[dict[str, Any]]:
     """Read CSV, JSONL, or JSON prediction rows with source provenance."""
-    path = Path(path)
+    logical_path = Path(path)
+    path = resolve_local_path(logical_path)
     suffix = path.suffix.lower()
     if suffix == ".csv":
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -1963,13 +1965,17 @@ def read_rows(path: str | Path) -> list[dict[str, Any]]:
     else:
         raise ValueError(f"unsupported prediction row format: {path}")
     for number, row in enumerate(rows, start=2 if suffix == ".csv" else 1):
-        row["_source_path"] = str(path)
+        row["_source_path"] = str(logical_path)
         row["_row_number"] = number
     return rows
 
 
 def discover_tapes(snapshots_root: str | Path) -> list[Path]:
-    return sorted(Path(snapshots_root).glob("*/variant_predictions_long.csv"))
+    by_folder = {}
+    for name in ("variant_predictions_long.csv", "variant_predictions.jsonl"):
+        for path in discover_sources(snapshots_root, "*/" + name):
+            by_folder.setdefault(path.parent, path)
+    return sorted(by_folder.values())
 
 
 def read_label_csv(path: str | Path | None) -> dict[tuple[str, str], dict[str, Any]]:
@@ -2753,7 +2759,7 @@ def compare_replay_to_served(
 
 def _prediction_path_sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with resolve_local_path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()

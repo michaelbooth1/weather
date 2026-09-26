@@ -16,6 +16,8 @@ import time
 from zoneinfo import ZoneInfo
 
 from weather.operations import production_cold_archive_stage as stage
+from weather.cold_archive_locations import CatalogIntegrityError
+from weather.operations.cold_archive_families import validate_cold_source
 from weather.operations import storage_recovery_inventory as metadata
 from weather.operations.ntfs_file_compression import PinnedNtfsDirectory
 from weather.operations.replay_cache_compression import _utc, read_bounded_json, write_receipt
@@ -88,21 +90,22 @@ def validate_chunk(plan, chunk_id, production_root, now):
         raise ValueError("chunk identity is missing or ambiguous")
     chunk = matches[0]
     files = chunk.get("files")
-    if not isinstance(files, list) or not 1 <= len(files) <= 256:
-        raise ValueError("chunk must contain one to 256 whole files")
+    if not isinstance(files, list) or not files or not all(isinstance(row, dict) for row in files):
+        raise ValueError("invalid chunk file list")
+    try:
+        limit = stage.member_limit(files)
+    except (CatalogIntegrityError, KeyError, TypeError) as exc:
+        raise ValueError("invalid chunk family bound") from exc
+    if len(files) > limit:
+        raise ValueError("chunk exceeds its whole-file family bound")
     logical = 0
     today = now.astimezone(ZoneInfo("America/Toronto")).date()
     for row in files:
         name = row.get("path")
         if not isinstance(name, str):
             raise ValueError("source path missing")
-        parts = PurePosixPath(name).parts
-        if (len(parts) != 3 or parts[0] != "snapshots" or
-                PurePosixPath(name).as_posix() != name or "\\" in name or ":" in name or
-                any(part in (".", "..") for part in parts)):
-            raise ValueError("only exact immediate market-day source files are supported")
-        if metadata.event_date(parts[1]) >= today - timedelta(days=30):
-            raise ValueError("source event is inside the thirty-day hot window")
+        stage._relative(name)
+        validate_cold_source(name, today, extended=plan.get("chunk_grouping") == stage.STORAGE_GROUPING)
         size = row.get("size_bytes")
         if type(size) is not int or not 0 <= size <= MAX_CHUNK_BYTES:
             raise ValueError("source file exceeds the whole-file chunk bound")

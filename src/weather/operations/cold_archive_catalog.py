@@ -115,9 +115,7 @@ def _validated_upload(proofs, source_root):
              and os.path.normcase(str(source_root)) == os.path.normcase(manifest["source_root"]),
              "catalog production source identity mismatch")
     for row in manifest["files"]:
-        parts = locations.relative_path(row["path"]).parts
-        _require(len(parts) == 3 and parts[0] == "snapshots",
-                 "catalog supports exact immediate snapshot source files")
+        locations.source_layout(row["path"])
     archive_id = locations.archive_id(crypt.get("archive_id"))
     cipher = transfer.validate_crypt_receipt(
         crypt, plan_sha256=manifest["plan_sha256"], archive_id=archive_id,
@@ -192,15 +190,29 @@ def publish_upload(*, source_root, production_manifest, production_manifest_sha2
         _guard(admission, deadline_monotonic)
         entry_path = entry_dir / "upload.json"
         entry, digest = _write_record(entry_path, entry)
+        stack.enter_context(bridge._file_pin(entry_path))
+        locations.read_record(entry_path, digest)
         for path, marker, row in zip(sources, markers, manifest["files"]):
             _guard(admission, deadline_monotonic)
             _write_record(marker, {
                 "schema_version": schema_version("cold_archive_location"),
                 "source_path": row["path"], "archive_id": bound["archive_id"],
                 "entry_sha256": digest, "sha256": row["sha256"], "size_bytes": row["size_bytes"]})
-            _require(locations.load_location(path).entry_sha256 == digest, "location readback mismatch")
+            _check_marker(path, row, entry, digest)
         return {"status": "UPLOADED", "entry_path": str(entry_path), "entry_sha256": digest,
                 "files": len(markers), "cleanup_eligible": False}
+
+
+def _check_marker(source, row, entry, digest):
+    """Check one small marker against an already verified, pinned archive entry."""
+    parts = locations.relative_path(row["path"]).parts
+    _require(tuple(Path(source).parts[-len(parts):]) == parts, "archive location source differs")
+    marker, _ = locations.read_record(locations.marker_path(source))
+    expected = locations.sealed({"schema_version": schema_version("cold_archive_location"),
+        "source_path": row["path"], "archive_id": entry["archive_id"], "entry_sha256": digest,
+        "sha256": row["sha256"], "size_bytes": row["size_bytes"]})
+    _require(marker == expected, "archive location marker differs from pinned entry")
+    return True
 
 
 def _entry(path, digest):
@@ -310,6 +322,8 @@ def import_locations(*, entry_path, entry_sha256, local_source_root,
         else:
             _, copied_sha = _write_record(output_entry, entry)
             _require(copied_sha == digest, "imported entry bytes differ")
+        stack.enter_context(bridge._file_pin(output_entry))
+        locations.read_record(output_entry, digest)
         for source, row in zip(sources, entry["files"]):
             _guard(admission, deadline_monotonic)
             _mkdir(source.parent)
@@ -317,14 +331,14 @@ def import_locations(*, entry_path, entry_sha256, local_source_root,
             _mkdir(marker.parent)
             stack.enter_context(archive._directory_pin(marker.parent))
             if marker.exists():
-                _require(locations.load_location(source).entry_sha256 == digest,
+                _require(_check_marker(source, row, entry, digest),
                          "recovery cannot replace another location")
                 continue
             _write_record(marker, {
                 "schema_version": schema_version("cold_archive_location"),
                 "source_path": row["path"], "archive_id": entry["archive_id"],
                 "entry_sha256": digest, "sha256": row["sha256"], "size_bytes": row["size_bytes"]})
-            _require(locations.load_location(source).entry_sha256 == digest, "import readback differs")
+            _check_marker(source, row, entry, digest)
         return {"status": "IMPORTED_LOCATIONS", "entry_path": str(output_entry),
                 "entry_sha256": digest, "local_source_root": str(root),
                 "original_source_root": entry["source_root"], "cleanup_eligible": False}
@@ -348,7 +362,7 @@ def cache_usage(root):
         directory = locations.safe_path(pending.pop(), directory=True)
         for path in directory.iterdir():
             visited += 1
-            _require(visited <= 10000, "managed restore cache entry bound exceeded")
+            _require(visited <= 4 * locations.MAX_PRICE_MEMBERS, "managed restore cache entry bound exceeded")
             if path.is_dir():
                 locations.safe_path(path, directory=True)
                 pending.append(path)
@@ -466,7 +480,7 @@ def repair_locations(*, entry_path, entry_sha256, admission, deadline_monotonic)
             _mkdir(marker.parent)
             stack.enter_context(archive._directory_pin(marker.parent))
             if marker.exists():
-                _require(locations.load_location(source).entry_sha256 == digest,
+                _require(_check_marker(source, row, entry, digest),
                          "repair cannot replace another archive location")
             else:
                 pending.append((source, marker, row))
@@ -476,7 +490,7 @@ def repair_locations(*, entry_path, entry_sha256, admission, deadline_monotonic)
                 "schema_version": schema_version("cold_archive_location"),
                 "source_path": row["path"], "archive_id": entry["archive_id"],
                 "entry_sha256": digest, "sha256": row["sha256"], "size_bytes": row["size_bytes"]})
-            _require(locations.load_location(source).entry_sha256 == digest, "repair readback differs")
+            _check_marker(source, row, entry, digest)
         return {"status": "PASS", "entry_sha256": digest, "markers_created": len(pending),
                 "cleanup_eligible": False}
 

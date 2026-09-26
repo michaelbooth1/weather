@@ -258,6 +258,8 @@ ARTIFACT_FAMILIES = (
         "market",
         CANONICAL_EVIDENCE,
         (
+            "mm_runs/*/*/quote_intents_long.csv",
+            "mm_runs/*/*/model_variant_quote_intents_long.csv",
             "mm_runs/**/*.jsonl",
             "mm_runs/**/*order*",
             "mm_runs/**/*lifecycle*",

@@ -25,7 +25,8 @@ from weather.paths import DATA_ROOT, REPO_ROOT
 from weather.schema_registry import schema_version
 
 TOOL = "weather.operations.bulk_cold_archive_crypt"
-MAX_ARCHIVE_BYTES = core.MAX_CHUNK_BYTES + core.MAX_CHUNK_BYTES // 100 + 2 * core.MIB
+MAX_ARCHIVE_BYTES = (core.MAX_CHUNK_BYTES + core.MAX_CHUNK_BYTES // 100 + 2 * core.MIB
+                     + (core.MAX_PRICE_MEMBERS - core.MAX_MEMBERS) * 1024)
 MAX_CIPHER_BYTES = MAX_ARCHIVE_BYTES + 2 * core.MIB
 DEADLINE_SECONDS = 600
 RETENTION = {"source_retained": True, "cleanup_eligible": False,
@@ -108,7 +109,7 @@ def validate_production_evidence(manifest, receipt, plan_sha):
              "evidence_schema_invalid")
     _require(manifest.get("format") == core.FORMAT, "production_format_invalid")
     rows = core._rows(manifest.get("files"))
-    _require(len(rows) <= core.MAX_MEMBERS
+    _require(len(rows) <= core.member_limit(rows)
              and sum(r["size_bytes"] for r in rows) <= core.MAX_CHUNK_BYTES,
              "production_chunk_unbounded")
     _require(rows == [{k: r[k] for k in rows[0]} for r in manifest["files"]],
@@ -116,8 +117,7 @@ def validate_production_evidence(manifest, receipt, plan_sha):
     for row in manifest["files"]:
         core._require_sha256(row.get("sha256"))
     core._require_sha256(manifest.get("archive_sha256"))
-    maximum = sum(r["size_bytes"] for r in rows)
-    maximum += maximum // 100 + 2 * core.MIB
+    maximum = core.archive_byte_bound(rows)
     _require(type(manifest.get("archive_bytes")) is int
              and 0 < manifest["archive_bytes"] <= maximum, "production_archive_unbounded")
     _require(re.fullmatch(r"chunk-[0-9]{5}", str(manifest.get("chunk_id"))) is not None,

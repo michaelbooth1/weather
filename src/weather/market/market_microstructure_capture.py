@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.cold_archive_locations import resolve_local_path
 
 from weather.paths import data_path
 
@@ -564,7 +565,7 @@ def read_price_history_raw_response(record, root=None):
     if not path.is_absolute():
         path = Path(root or ".") / path
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(resolve_local_path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
 

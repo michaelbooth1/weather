@@ -7,6 +7,7 @@ import json
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.cold_archive_locations import discover_sources
 from typing import Any
 
 from weather.io import read_csv_rows_with_diagnostics, read_json, write_json_atomic
@@ -78,7 +79,7 @@ def _resolve_run_folder(runs_root: Path, value: str | Path) -> Path:
 def _iter_run_folders(runs_root: Path, run_folders: list[str] | None = None) -> list[Path]:
     if run_folders is not None:
         return sorted(_resolve_run_folder(runs_root, value) for value in run_folders)
-    return sorted(path.parent for path in runs_root.glob("*/*/quote_intents_long.csv"))
+    return sorted(path.parent for path in discover_sources(runs_root, "*/*/quote_intents_long.csv"))
 
 
 def quoteability_from_runs(

@@ -20,6 +20,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.cold_archive_locations import discover_sources, resolve_local_path
 from typing import Any, Iterable, Iterator, Mapping
 
 from weather.io import (
@@ -189,7 +190,7 @@ def _paths(run_folder: str | Path) -> dict[str, dict[str, Path]]:
     folder = Path(run_folder)
     return {
         kind: {
-            "canonical": folder / _CANONICAL_FILENAMES[kind],
+            "canonical": resolve_local_path(folder / _CANONICAL_FILENAMES[kind]),
             "projection": folder / _PROJECTION_FILENAMES[kind],
         }
         for kind in _KINDS
@@ -589,8 +590,7 @@ def discover_run_folders(runs_root: str | Path) -> list[Path]:
     root = Path(runs_root)
     return sorted(
         path.parent
-        for path in root.glob(f"*/*/{BASE_CANONICAL_FILENAME}")
-        if path.is_file()
+        for path in discover_sources(root, f"*/*/{BASE_CANONICAL_FILENAME}")
     )
 
 

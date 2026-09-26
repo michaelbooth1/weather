@@ -14,6 +14,7 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from weather.cold_archive_locations import discover_sources, load_location, resolve_local_path
 from zoneinfo import ZoneInfo
 
 from weather.market.market_making_evidence import (
@@ -66,11 +67,11 @@ def iter_quote_tapes(runs_root, *, include_quarantine=False):
     """Yield canonical quote tapes, optionally including retired runs."""
     for _, day_dir in iter_day_dirs(runs_root):
         if include_quarantine:
-            yield from sorted(day_dir.rglob(QUOTE_TAPE_NAME))
+            yield from discover_sources(day_dir, "**/" + QUOTE_TAPE_NAME)
             continue
         for run_dir in iter_run_dirs(day_dir):
             path = run_dir / QUOTE_TAPE_NAME
-            if path.is_file():
+            if path.is_file() or load_location(path) is not None:
                 yield path
 
 
@@ -173,7 +174,7 @@ def build_input_age_postmortem(
         files += 1
         model_threshold, book_threshold = _read_thresholds(path.parent)
         seen = set()
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        with resolve_local_path(path).open("r", encoding="utf-8-sig", newline="") as handle:
             for row in csv.DictReader(handle):
                 generated_at = row.get("generated_at_utc")
                 market = str(row.get("market_id") or "").strip()

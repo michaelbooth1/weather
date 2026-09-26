@@ -62,6 +62,11 @@ def reclaim_args(corpus, monkeypatch, *, native=False, target=TARGET):
     for name in checks:
         if name.endswith("_clear"):
             checks[name]["open_references"] = []
+    if all(locations.source_layout(row["path"])[0] == "rotated_diagnostics" for row in entry["files"]):
+        checks.pop("market_day_closed")
+        checks.pop("settlement_final")
+        checks["rotated_logs_closed"] = {"status": "PASS", "closed": True,
+                                          "active_writer": False, "evidence": [proof]}
     review = record(corpus.tmp / "source-review.json", {
         "schema_version": schema_version("cold_archive_source_review"), "status": "PASS",
         "archive_id": entry["archive_id"], "entry_sha256": corpus.entry_sha,
@@ -272,10 +277,12 @@ def test_target_stops_at_whole_file_and_refuses_further_reclaim(corpus, monkeypa
         subject.reclaim_chunk(**args)
 
 
-def approved_plan(tmp_path, kind="primary", target=TARGET):
+def approved_plan(tmp_path, kind="primary", target=TARGET, *, relative=None, grouping=archive.SELECTIVE_GROUPING):
     root = tmp_path / "data"
     row = {"path": "snapshots/highest-temperature-in-toronto-on-june-15-2026/order_books_long.csv",
            "size_bytes": 4, "mtime_ns": 1, "device": 1, "file_id": 2, "allocated_bytes": 4096}
+    if relative:
+        row["path"] = relative
     proposal = {"schema_version": schema_version("archive_target_owner_review_proposal"),
                 "selection_kind": kind, "source_root": str(root), "files": [row]}
     proposal_spec = record(tmp_path / "approved-proposal.json", proposal, sealed=False)
@@ -294,7 +301,7 @@ def approved_plan(tmp_path, kind="primary", target=TARGET):
     selection_spec = record(tmp_path / "approved-selection.json", selection, sealed=False)
     plan_path = tmp_path / "approved-plan.json"
     archive.plan_selection(selection_spec["path"], selection_spec["sha256"], plan_path,
-                           chunk_grouping=archive.SELECTIVE_GROUPING)
+                           chunk_grouping=grouping)
     request = {"owner_approval": approval_spec, "proposal": proposal_spec,
                "selection": selection_spec, "plan": {"path": str(plan_path), "sha256": fixtures.sha(plan_path)}}
     entry = {"source_root": str(root), "files": [{**row, "sha256": "a" * 64}],

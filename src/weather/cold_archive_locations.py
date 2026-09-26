@@ -17,9 +17,12 @@ import stat
 from weather.schema_registry import schema_version
 
 MARKER_DIRECTORY = ".cold_archive"
-MAX_METADATA_BYTES = 2 * 1024**2
+MAX_METADATA_BYTES = 16 * 1024**2
 MAX_MEMBERS = 256
+MAX_PRICE_MEMBERS = 16384
 ARCHIVE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}")
+ROTATED_DIAGNOSTIC_RE = re.compile(
+    r"(?:clob_diagnostics|diagnostics)\.([0-9]{8})T[0-9]{6}(?:[0-9]{6})?Z(?:\.[0-9]+)?\.jsonl(?:\.gz)?")
 
 
 class CatalogIntegrityError(RuntimeError):
@@ -77,6 +80,34 @@ def archive_id(value):
     _require(isinstance(value, str) and ARCHIVE_ID_RE.fullmatch(value) is not None
              and not value.endswith("."), "invalid archive ID")
     return value
+
+
+def source_layout(value):
+    """Allow existing snapshot inputs plus the two explicitly extended layouts."""
+    parts = relative_path(value).parts
+    if len(parts) == 2 and parts[0] == "snapshots" and ROTATED_DIAGNOSTIC_RE.fullmatch(parts[1]):
+        return "rotated_diagnostics", "snapshots"
+    if len(parts) == 3 and parts[0] == "snapshots":
+        return "snapshot", "/".join(parts[:2])
+    if (4 <= len(parts) <= 8 and parts[0] == "snapshots" and parts[2] == "price_history_raw"
+            and all(not part.startswith(".") for part in parts[3:])):
+        return "price_history_raw", "/".join(parts[:3])
+    if (len(parts) == 4 and parts[0] == "mm_runs"
+            and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", parts[1])
+            and not parts[2].startswith(".")
+            and parts[-1] in {"quote_intents_long.csv", "model_variant_quote_intents_long.csv"}):
+        return "maker_quote_intents", "/".join(parts[:3])
+    raise CatalogIntegrityError("unsupported archive source layout")
+
+
+def member_limit(files):
+    """Only one raw-price event subtree may exceed the ordinary 256 members."""
+    if len(files) <= MAX_MEMBERS:
+        return MAX_MEMBERS
+    groups = {source_layout(row["path"]) for row in files}
+    _require(len(groups) == 1 and next(iter(groups))[0] == "price_history_raw",
+             "large archive must contain one raw-price event subtree")
+    return MAX_PRICE_MEMBERS
 
 
 def safe_path(path, *, directory=False):
@@ -160,11 +191,11 @@ def load_location(path):
     _require(record["schema_version"] == schema_version("cold_archive_location"),
              "unsupported archive location schema")
     relative = relative_path(record["source_path"])
-    _require(len(relative.parts) == 3 and relative.parts[0] == "snapshots",
-             "archive location must identify an immediate snapshot input")
-    _require(len(source.parents) >= 3 and tuple(source.parts[-3:]) == relative.parts,
+    source_layout(record["source_path"])
+    depth = len(relative.parts)
+    _require(len(source.parents) >= depth and tuple(source.parts[-depth:]) == relative.parts,
              "archive marker belongs to a different source")
-    root = source.parents[2]
+    root = source.parents[depth - 1]
     catalog = root / "cold_archive" / "catalog"
     entry_path = catalog / "archives" / archive_id(record["archive_id"]) / "upload.json"
     entry, digest = read_record(entry_path, record["entry_sha256"])
@@ -176,9 +207,10 @@ def load_location(path):
     _require(type(record["size_bytes"]) is int and record["size_bytes"] >= 0,
              "archive source size invalid")
     files = entry.get("files")
-    _require(isinstance(files, list) and 0 < len(files) <= MAX_MEMBERS
+    _require(isinstance(files, list) and 0 < len(files) <= MAX_PRICE_MEMBERS
              and all(isinstance(row, dict) and isinstance(row.get("path"), str) for row in files),
              "archive member inventory invalid")
+    _require(len(files) <= member_limit(files), "archive member family bound exceeded")
     names = [row["path"].casefold() for row in files]
     _require(len(names) == len(set(names)), "archive member inventory contains collisions")
     matches = [row for row in files if row["path"] == record["source_path"]]
@@ -256,13 +288,25 @@ def registered_sources(folder, pattern="*"):
     safe_path(markers.absolute(), directory=True)
     result = []
     for index, marker in enumerate(sorted(markers.iterdir())):
-        _require(index < MAX_MEMBERS, "market-day archive marker bound exceeded")
+        _require(index < MAX_PRICE_MEMBERS, "market-day archive marker bound exceeded")
         _require(marker.name.endswith(".json"), "unexpected archive marker")
         source = folder / marker.name[:-5]
         if fnmatch.fnmatchcase(source.name, pattern):
             _require(load_location(source) is not None, "archive marker disappeared")
             result.append(source)
     return result
+
+
+def discover_sources(root, pattern):
+    """Union local and catalogued logical paths without restoring any payload."""
+    root = Path(root)
+    parent_pattern, _, name = pattern.rpartition("/")
+    folders = root.glob(parent_pattern) if parent_pattern else [root]
+    result = set(root.glob(pattern))
+    for folder in folders:
+        if folder.is_dir():
+            result.update(registered_sources(folder, name or pattern))
+    return sorted(result)
 
 
 def archived_inputs(folder):

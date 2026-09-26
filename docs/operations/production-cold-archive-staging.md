@@ -12,11 +12,10 @@
   `scripts/ops/production_cold_archive_run.ps1` and the reserve constants at
   the top of `src/weather/operations/production_cold_archive_stage_cli.py`.
 
-**Status: DISABLED.** The owner accepted the archive outcome and paused further
-uploads ([STATE_OF_PLAY.md](STATE_OF_PLAY.md), "Current authority" and "Armed
-recurring work"). No registrar schedules this lane. Do not run any operation
-below without a new owner decision; retain all pending originals, staged
-archives and receipts.
+**Status: manually approved campaigns only.** Storage-family implementation does
+not approve a particular selection or start uploads. Each campaign needs the
+owner's exact selection and existing execution gates. No registrar schedules
+this lane; retain all pending originals, staged archives and receipts.
 
 This lane stages exact cold snapshot files into bounded local archive objects.
 It is a prerequisite for the off-site workflow in
@@ -34,8 +33,9 @@ market_day_file_family_v1`: chunks do not mix event folders or file families.
 The default `sorted_whole_files_v1` preserves existing plan bytes and grouping.
 Unknown grouping policies are refused. The grouping is included in the plan hash.
 
-The production CLI admits only immediate files of recognized market-day
-snapshot folders strictly older than thirty days. Each source is pinned on
+The legacy production CLI scope is immediate files of recognized market-day
+snapshot folders strictly older than thirty days. The storage-family grouping
+below extends that scope. Each source is pinned on
 NTFS against writes, deletion and ancestor replacement while streaming its
 SHA-256 into a deterministic USTAR/gzip archive. The completed object is reread
 and every ordered header, member, content hash, padding and footer is checked.
@@ -45,6 +45,43 @@ Every attempt is create-only. Claim, archive, manifest, inner receipt, copied
 request, execution receipt and wrapper receipt remain available for review.
 A failure preserves partial evidence and spends that attempt path.
 
+### Owner-approved storage families
+
+Use `--chunk-grouping owner_storage_families_v1` for the storage decisions lane.
+It binds this order into the deterministic plan:
+
+1. Rotated `data/snapshots/diagnostics.<UTC-stamp>.jsonl` and
+   `clob_diagnostics.<UTC-stamp>.jsonl`, including gzip copies, grouped by
+   rotation month. Part A's registry corrections must be adopted first. Active
+   logs and observation-trigger rotations are excluded.
+2. `data/mm_runs/<YYYY-MM-DD>/<run>/quote_intents_long.csv` and
+   `model_variant_quote_intents_long.csv`, grouped per run. The EF 8bb evidence
+   dated **2026-07-31 through 2026-08-08 inclusive stays hot**, at both staging
+   admission and reclaim.
+3. Event-folder `variant_predictions.jsonl`, `snapshot_explanations.jsonl`
+   and their `_long.csv` projections, grouped per event and representation.
+4. `data/snapshots/<event>/price_history_raw/`, exactly one tar per complete
+   event subtree. Planning refuses a subtree over 1 GiB or 16,384 members;
+   it never splits it. Staging enumerates the bounded subtree before and after
+   streaming and refuses omitted, added, linked or redirected files. Location
+   marker directories are retained metadata and excluded from payload selection.
+
+All four families retain a conservative **strictly older than thirty days**
+floor, using rotation date, maker run date or event date. Ordinary chunks still
+hold at most 256 members; only a single raw-price subtree may exceed it.
+Archive and transport reservations include per-member tar overhead. Catalog
+publication checks each small marker against one pinned verified entry instead
+of rereading the complete large entry for every marker.
+
+No current event-day manifest or manifest backfill is required by this lane.
+Its authority is the exact measured selection, owner proposal/approval, bound
+plan and full archive proofs. Existing manifests remain retained. This differs
+from the fixture-only verified-archive contract. Before reclaim, adopt the
+archive-aware readers described in [archive locations](cold-archive-locations.md).
+The chain remains stage → upload → independent complete workstation restore
+→ reclaim, with restore completed within 24 hours before reclaim. Each campaign
+needs its own owner approval; these family rules grant no execution authority.
+
 ## Execution
 
 Use the project interpreter and exact reviewed source checkout. Metadata-only
@@ -53,6 +90,8 @@ planning is:
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.production_cold_archive_stage_cli plan --selection <absolute-selection-path> --selection-sha256 <raw-sha256> --output-path <new-absolute-plan-path>
 ```
+
+Append `--chunk-grouping owner_storage_families_v1` for the four storage families.
 
 The plan's raw SHA-256 binds a request with exactly these fields:
 `schema_version`, `production_repo_root`, `execution_host_id`, `operation`

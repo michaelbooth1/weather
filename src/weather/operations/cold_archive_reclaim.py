@@ -22,9 +22,14 @@ from weather.operations.cleanup_preflight import build_cleanup_preflight
 from weather.operations.cold_archive_native_removal import ExactNtfsRemoval
 from weather.operations.storage_classes import classification_payload
 from weather.operations.storage_recovery_inventory import event_date
+from weather.operations.cold_archive_families import validate_cold_source
 from weather.schema_registry import schema_version
 
 CONSUMER_FILES = (
+    "src/weather/reporting/scorecards/live_variant_settlement_scorecard.py",
+    "src/weather/reporting/scorecards/captured_input_parity_evidence.py",
+    "src/weather/reporting/source_gates/cross_hub_readiness.py",
+    "src/weather/market/market_microstructure_capture.py",
     "src/weather/cold_archive_locations.py", "src/weather/io.py",
     "src/weather/operations/cold_archive_catalog.py",
     "src/weather/operations/closed_market_day_archive.py",
@@ -32,6 +37,8 @@ CONSUMER_FILES = (
     "src/weather/operations/density_live_replay_parity.py",
     "src/weather/market/market_microstructure_features.py",
     "src/weather/market/mm_paper_scoring.py",
+    "src/weather/market/mm_scoring_projection.py",
+    "src/weather/reporting/market/mm_input_age_postmortem.py",
     "src/weather/market/order_book_tape.py",
     "src/weather/calibration/residual_distribution_corpus.py",
     "src/weather/reporting/data_quality/data_layer_audit_collectors.py",
@@ -92,7 +99,7 @@ def _approval(request, stack, entry):
     archive._check_seal(plan, "plan_hash")
     _require(plan.get("schema_version") == schema_version("production_cold_archive_plan")
              and plan.get("selection_sha256") == selection_sha and plan_sha == entry["plan_sha256"]
-             and plan.get("chunk_grouping") == archive.SELECTIVE_GROUPING,
+             and plan.get("chunk_grouping") in {archive.SELECTIVE_GROUPING, archive.STORAGE_GROUPING},
              "reclaim requires the exact selective plan")
     matches = [chunk for chunk in plan.get("chunks", []) if chunk.get("chunk_id") == entry["chunk_id"]]
     _require(len(matches) == 1 and archive._rows(matches[0].get("files")) == archive._rows(entry["files"]),
@@ -100,7 +107,7 @@ def _approval(request, stack, entry):
     plan_rows = archive._rows([row for chunk in plan["chunks"] for row in chunk["files"]])
     limit = archive._integer(plan.get("chunk_bytes"), "chunk_bytes", maximum=archive.MAX_CHUNK_BYTES)
     _require(limit > 0 and plan.get("format") == archive.FORMAT
-             and archive._chunks(plan_rows, limit, archive.SELECTIVE_GROUPING) == plan["chunks"]
+             and archive._chunks(plan_rows, limit, plan["chunk_grouping"]) == plan["chunks"]
              and plan.get("file_count") == len(plan_rows), "reclaim plan grouping or count changed")
     _require(plan_rows
              == archive._rows(selection["files"])
@@ -124,14 +131,22 @@ def _review(spec, stack, entry, entry_sha, now):
     _require(checked <= now < expires and expires - checked <= timedelta(minutes=5),
              "protected-input review is expired, future-dated or overlong")
     checks = review.get("checks")
-    _require(isinstance(checks, dict) and set(checks) == set(SELECTION_CHECKS),
+    diagnostic_only = all(locations.source_layout(row["path"])[0] == "rotated_diagnostics"
+                          for row in entry["files"])
+    required = ("rotated_logs_closed", *SELECTION_CHECKS[2:]) if diagnostic_only else SELECTION_CHECKS
+    _require(isinstance(checks, dict) and set(checks) == set(required),
              "protected-input review lacks required checks")
     _require(all(isinstance(row, dict) for row in checks.values()), "source protection checks must be objects")
-    _require(checks["market_day_closed"].get("closed") is True
-             and checks["settlement_final"].get("settled") is True
-             and checks["settlement_final"].get("settlement_state") in
-                 {"settled_countable", "settled_non_countable"},
-             "source market day is not proved closed and finally settled")
+    if diagnostic_only:
+        _require(checks["rotated_logs_closed"].get("closed") is True
+                 and checks["rotated_logs_closed"].get("active_writer") is False,
+                 "diagnostic rotation is not proved closed and writer-free")
+    else:
+        _require(checks["market_day_closed"].get("closed") is True
+                 and checks["settlement_final"].get("settled") is True
+                 and checks["settlement_final"].get("settlement_state") in
+                     {"settled_countable", "settled_non_countable"},
+                 "source market day is not proved closed and finally settled")
     for name, row in checks.items():
         _require(isinstance(row, dict) and row.get("status") == "PASS", "source protection check failed")
         if name.endswith("_clear"):
@@ -308,13 +323,18 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         _require(local_root == production_root / "data", "reclaim cannot use a relocated recovery catalog")
         approval, approval_sha, kind, target = _approval(request, stack, entry)
         _require(kind == "primary", "conditional reserve needs a qualified complete primary-disposition proof")
-        _require(len({locations.relative_path(row["path"]).parts[1] for row in entry["files"]}) == 1,
-                 "reclaim supports one market day per archive")
+        _require(len({locations.source_layout(row["path"])[1] for row in entry["files"]}) == 1,
+                 "reclaim supports one market day, maker run or price subtree per archive")
         for row in entry["files"]:
-            parts = locations.relative_path(row["path"]).parts
-            _require(len(parts) == 3 and parts[0] == "snapshots"
-                     and event_date(parts[1]) < now.astimezone(ZoneInfo("America/Toronto")).date() - timedelta(days=30),
-                     "reclaim target is not an old immediate market-day source")
+            family, _ = locations.source_layout(row["path"])
+            if family == "rotated_diagnostics":
+                _require(classification_payload(row["path"])["artifact_family"] == "rotated_capture_diagnostics",
+                         "Part A diagnostic archive classification must be adopted before reclaim")
+            try:
+                validate_cold_source(row["path"], now.astimezone(ZoneInfo("America/Toronto")).date(),
+                                     extended=family != "snapshot")
+            except ValueError as exc:
+                raise locations.CatalogIntegrityError(str(exc)) from exc
         review, review_sha, review_expires = _review(request["source_review"], stack, entry, entry_sha, now)
         restore_record, restore_sha = _restore(request["restore_record"], stack, entry, entry_sha, now)
         custody, custody_sha = _custody(request["custody_record"], stack, entry_sha, restore_sha, backup_host_id, now)
@@ -331,9 +351,7 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
             path = local_root.joinpath(*locations.relative_path(row["path"]).parts)
             marker = locations.marker_path(path)
             stack.enter_context(bridge._file_pin(locations.safe_path(marker)))
-            location = locations.load_location(path)
-            _require(location is not None and location.entry_sha256 == entry_sha,
-                     "reclaim source location marker is missing or changed")
+            catalog._check_marker(path, row, entry, entry_sha)
             pin = stack.enter_context(_removal_pin(locations.safe_path(path)))
             native = pin.metadata()
             _require(native == {key: value for key, value in archive._rows([row])[0].items() if key != "path"},

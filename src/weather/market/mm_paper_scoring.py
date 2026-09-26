@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from weather.cold_archive_locations import discover_sources, load_location
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 from weather.cold_archive_locations import resolve_local_path
@@ -270,7 +271,7 @@ def discover_run_folders(runs_root=DEFAULT_RUNS_ROOT, run_folders=None):
     if not root.exists():
         return []
     return sorted(
-        [folder for folder in root.glob("*/*") if folder.is_dir() and (folder / "quote_intents_long.csv").exists()],
+        [path.parent for path in discover_sources(root, "*/*/quote_intents_long.csv")],
         key=lambda path: str(path),
     )
 
@@ -291,7 +292,8 @@ def _run_folder_freshness_row(folder):
     evidence_mode = summary.get("evidence_mode") or live_gate.get("evidence_mode")
     target_date = summary.get("target_date") or run_config.get("target_date") or folder.parent.name
     run_id = summary.get("run_id") or run_config.get("run_id") or folder.name
-    completed = summary_path.exists() and (folder / "quote_intents_long.csv").exists()
+    completed = summary_path.exists() and ((folder / "quote_intents_long.csv").exists()
+        or load_location(folder / "quote_intents_long.csv") is not None)
     return {
         "run_folder": str(folder),
         "run_id": run_id,
