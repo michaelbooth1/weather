@@ -15,6 +15,9 @@ citations).
 
 | Audit | Added | Scope | Verdict (one line) | Open | Dispositions | Status |
 | --- | --- | --- | --- | --- | --- | --- |
+| [storage-value-assessment-2026-09-26](storage-value-assessment-2026-09-26.md) | 2026-09-26 | every large data family: keep / compress / cloud / delete | ~53-58 GiB fast deletes, ~170 GiB compression (weeks), ~100 GiB Drive; mm_runs/taker_runs compressed +25 GiB | owner decisions 1-8 | inside the file | OPEN |
+| [wide-audit-2026-09-25](wide-audit-2026-09-25.md) | 2026-09-25 | 10 areas, verified HIGH findings | disk binding; contract hole fixed (110e); settlement negative-C parser (95b); docs contradicted the pause | see dispositions | inside the file | OPEN |
+| [github-hygiene-review-2026-09-25](github-hygiene-review-2026-09-25.md) | 2026-09-25 | PRs, branches, tags, worktrees, settings | 39 PRs closed, 110 merged + 21 stale branches removed (archive tags), 90 worktrees | RE-1 chain after 09-30, small PR triage, master protection | inside the file | OPEN |
 | [maker-contract-review-2026-09-25](maker-contract-review-2026-09-25.md) | 2026-09-25 | maker_core contracts v0.1, decide(), weather plugin, ratchet | contract needs no breaking change; 3 HIGH policy defects; tag after 110c | 110c fixes | inside the file | OPEN |
 | [model-lanes-audit-2026-09-25](model-lanes-audit-2026-09-25.md) | 2026-09-25 | every model lane, missing paths, stale pipeline, plan | levers pulled but unrecorded; live afternoon shift contradicts canon; archive frozen 06-23; no T+1/T+2 model | docs mission, T+1 fair value, afternoon stage, archive, identity (owner calls) | inside the file | OPEN |
 | [afternoon-audit-2026-09-25](afternoon-audit-2026-09-25.md) | 2026-09-25 | day's work, disk vs 88a floor, reward terms, pause flag, wallet reader, tonight | work sound; 88a nearly hit its 50 GiB floor (fixed by reclaim); min size now 20 | P&L split (100e), pause-flag status guard, owner calls | inside the file | OPEN |
