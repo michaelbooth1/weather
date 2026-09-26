@@ -41,8 +41,11 @@ class MarketDescriptor:
     native_unit: str | None
     plugin_version: str
     source_hashes: Mapping[str, str]
+    group_relation: str | None = None
 
     def __post_init__(self):
+        if self.group_relation not in (None, "partition", "nested_ge", "nested_le"):
+            raise ValueError("unknown group relation")
         utc_time(self.close_at_utc)
         if self.settle_at_utc is not None:
             utc_time(self.settle_at_utc)
@@ -89,8 +92,9 @@ class OutcomeView:
 
     def __post_init__(self):
         probability(self.p_yes)
-        if not math.isfinite(self.stdev) or self.stdev <= 0:
-            raise ValueError("stdev must be finite and positive")
+        if (isinstance(self.stdev, bool) or not math.isfinite(self.stdev) or self.stdev < 0
+                or (self.stdev == 0 and self.p_yes not in (0.0, 1.0))):
+            raise ValueError("stdev must be positive, or zero for a decided outcome")
         utc_time(self.as_of_utc)
         utc_time(self.valid_until_utc)
         if self.valid_until_utc <= self.as_of_utc:
@@ -113,11 +117,14 @@ class OutcomeView:
 class Unavailable:
     reason: str
     as_of_utc: datetime
+    kind: str = "missing_input"
 
     def __post_init__(self):
         utc_time(self.as_of_utc)
         if not self.reason:
             raise ValueError("unavailability needs a reason")
+        if self.kind not in ("missing_input", "out_of_scope", "corrupt", "decided"):
+            raise ValueError("unknown unavailability kind")
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,7 @@ class InfoEvent:
     severity: float
     decided: Mapping[str, float] | None
     action_hint: str
+    active_until_utc: datetime | None = None
 
     def __post_init__(self):
         for t in (self.scheduled_at_utc, self.observed_at_utc, self.detected_at_utc):
@@ -137,6 +145,11 @@ class InfoEvent:
                 utc_time(t)
         if self.observed_at_utc and self.detected_at_utc and self.detected_at_utc < self.observed_at_utc:
             raise ValueError("detection precedes observation")
+        if self.active_until_utc is not None:
+            utc_time(self.active_until_utc)
+            reference = self.detected_at_utc or self.observed_at_utc or self.scheduled_at_utc
+            if reference is None or self.active_until_utc < reference:
+                raise ValueError("event expiry precedes or lacks reference time")
         probability(self.severity)
         if self.action_hint not in {"pull", "widen", "recentre", "observe"}:
             raise ValueError("unknown action hint")
@@ -154,12 +167,15 @@ class SettlementFact:
     as_of_utc: datetime
     source_hashes: Mapping[str, str]
     reconciliation_status: str
+    resolved_value: str | None = None
 
     def __post_init__(self):
         probability(self.p_yes)
         utc_time(self.as_of_utc)
         if not self.condition_id or not self.source_hashes or not self.reconciliation_status:
             raise ValueError("settlement provenance required")
+        if self.resolved_value is not None and not isinstance(self.resolved_value, str):
+            raise ValueError("resolved value must be text")
         _freeze(self, "source_hashes")
 
 

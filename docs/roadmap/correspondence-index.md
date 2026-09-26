@@ -403,4 +403,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-100d | handoff | [Workstation handoff 2026-09-100d — wallet reader fixes from the first live use](workstation-handoff-2026-09-100d-wallet-reader-fixes.md) | 2026-09-25 | none in tree | — | — |
 | 2026-09-100e | handoff | [Workstation handoff 2026-09-100e — wallet reader P&amp;L split](workstation-handoff-2026-09-100e-wallet-reader-pnl-split.md) | 2026-09-25 | none in tree | — | — |
 | 2026-09-110a | handoff | [Workstation handoff 2026-09-110a — maker core, Phase 0 (foundation)](workstation-handoff-2026-09-110a-maker-core-phase0.md) | 2026-09-25 | [agent-report-2026-09-110a-maker-core-phase0.md](agent-report-2026-09-110a-maker-core-phase0.md) | — | — |
-| 2026-09-110b | handoff | [Workstation handoff 2026-09-110b — weather maker plugin, Phase 1](workstation-handoff-2026-09-110b-weather-maker-plugin-phase1.md) | uncommitted | none in tree | 10c | — |
+| 2026-09-110b | handoff | [Workstation handoff 2026-09-110b — weather maker plugin, Phase 1](workstation-handoff-2026-09-110b-weather-maker-plugin-phase1.md) | 2026-09-25 | none in tree | 10c | — |

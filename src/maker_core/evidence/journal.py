@@ -59,11 +59,10 @@ class SecretGuard:
         value = plain(value)
         if isinstance(value, dict):
             value = {k: self.clean(v) for k, v in value.items()
-                     if re.sub(r"[^a-z0-9]", "", k.lower()) not in {
-                         "headers", "auth", "authorization", "signature", "secret",
-                         "apikey", "apisecret", "passphrase", "privatekey",
-                         "password", "accesstoken", "refreshtoken", "cookie",
-                     } and not (k.lower() == "owner" and isinstance(v, str) and v in self.secrets)}
+                     if not any(token in re.sub(r"[^a-z0-9]", "", k.lower()) for token in (
+                         "key", "secret", "passphrase", "token", "bearer", "mnemonic", "seed", "private",
+                         "header", "auth", "signature", "password", "cookie",
+                     )) and not (k.lower() == "owner" and isinstance(v, str) and v in self.secrets)}
         elif isinstance(value, list):
             value = [self.clean(v) for v in value]
         encoded = canonical_bytes(value).decode("utf-8")
@@ -97,6 +96,7 @@ class Journal:
             self.record("opened", scope=scope, mode=mode)
         except BaseException:
             self.handle.close()
+            self.path.unlink()
             raise
 
     def record(self, event, **payload):

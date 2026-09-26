@@ -64,8 +64,8 @@ def test_clock_regression_and_nonfinite_refused(tmp_path):
 
 
 def test_guard_escaped_secrets_and_keys():
-    guard = SecretGuard(('quote"\\secret',))
+    guard = SecretGuard(('quote"\\sensitive',))
     with pytest.raises(ValueError, match="secret_output_refused"):
-        guard.clean({"message": 'quote"\\secret'})
+        guard.clean({"message": 'quote"\\sensitive'})
     with pytest.raises(ValueError, match="secret_output_refused"):
-        guard.clean({'quote"\\secret': "value"})
+        guard.clean({'quote"\\sensitive': "value"})

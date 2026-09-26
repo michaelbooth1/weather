@@ -1111,6 +1111,8 @@ def maker_boundary_violations(source, module):
     tree = ast.parse(source)
     imports, aliases = [], {}
     package = module.rsplit(".", 1)[0]
+    module = module.removesuffix(".__init__")
+    prefix_module = module + "."
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -1139,20 +1141,24 @@ def maker_boundary_violations(source, module):
                 imports.append(node.args[0].value)
             else:
                 violations.append("computed dynamic import")
-        if module.startswith("maker_core.") and module != "maker_core.runtime.credentials":
+        if prefix_module.startswith("maker_core.") and module != "maker_core.runtime.credentials":
             name = qualified(node)
             if name == "os.getenv" or name.startswith("os.environ") or name.startswith("winreg") or name.startswith("keyring"):
                 violations.append("credential read outside credentials owner")
     for name in imports:
         root = name.split(".")[0]
-        if module.startswith("maker_core."):
+        if prefix_module.startswith("maker_core."):
             if root == "weather":
                 violations.append("core imports weather")
-            if root in {"polymarket", "py_clob_client", "eth_account", "dotenv", "requests", "httpx", "urllib", "socket"} and not module.startswith("maker_core.venue."):
+            if root == "dotenv" and module != "maker_core.runtime.credentials":
+                violations.append("dotenv outside credentials owner")
+            if (root in {"polymarket", "py_clob_client", "eth_account", "requests", "httpx", "urllib", "socket",
+                         "http", "ssl", "websocket", "websockets", "aiohttp", "web3"}
+                    and not prefix_module.startswith("maker_core.venue.")):
                 violations.append("SDK/HTTP outside venue")
-            if module.startswith(("maker_core.quoting.", "maker_core.portfolio.")) and name.startswith(("maker_core.venue", "maker_core.runtime")):
+            if prefix_module.startswith(("maker_core.quoting.", "maker_core.portfolio.")) and name.startswith(("maker_core.venue", "maker_core.runtime")):
                 violations.append("pure policy imports execution")
-        elif module.startswith("weather.market.maker_plugin.") or module == "fictional_plugin":
+        elif prefix_module.startswith("weather.market.maker_plugin.") or module == "fictional_plugin":
             if root == "maker_core" and not name.startswith("maker_core.contracts.") and name != "maker_core.contracts":
                 violations.append("plugin imports non-contract core")
     return violations
@@ -1182,6 +1188,20 @@ def test_maker_ratchet_detects_aliases_relative_and_dynamic_imports():
     assert not maker_boundary_violations("from maker_core.contracts import OutcomeView", "weather.market.maker_plugin.fair_value")
     assert not maker_boundary_violations("import os; os.environ.get('KEY')", "maker_core.runtime.credentials")
     assert not maker_boundary_violations("import py_clob_client", "maker_core.venue.transport")
+
+
+def test_maker_ratchet_covers_packages_and_credentials_owner():
+    for module in ("maker_core", "maker_core.__init__", "maker_core.venue", "maker_core.venue.__init__"):
+        assert maker_boundary_violations("import weather", module)
+        assert maker_boundary_violations("import dotenv", module)
+        assert maker_boundary_violations("from os import environ; environ.get('KEY')", module)
+    assert not maker_boundary_violations("import dotenv", "maker_core.runtime.credentials")
+    for name in ("http.client", "ssl", "websocket", "websockets", "aiohttp", "web3"):
+        for module in ("maker_core", "maker_core.quoting", "maker_core.portfolio.__init__"):
+            assert maker_boundary_violations(f"import {name}", module)
+        assert not maker_boundary_violations(f"import {name}", "maker_core.venue.__init__")
+    assert maker_boundary_violations("from maker_core import quoting", "weather.market.maker_plugin")
+    assert maker_boundary_violations("from ..venue import transport", "maker_core.quoting.__init__")
 
 
 def test_maker_core_setuptools_discovery():

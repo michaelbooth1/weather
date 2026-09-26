@@ -16,6 +16,8 @@ The authority is `src/maker_core/contracts/__init__.py`, with
 `maker-core-contracts-v0.1` after landing; this mission creates no tag.
 After publication changes are additive only: do not remove or reinterpret fields,
 change units, or add required arguments. A breaking change needs a new version.
+The core never passes extra keyword arguments to v0.1 Protocol methods. The
+conformance kit's deliberate keyword probe is a test, not a runtime convention.
 
 Implement `MarketUniverse.discover/describe`, `FairValueProvider.evaluate`,
 `InformationClock.upcoming/observe`, and `SettlementResolver.resolve`.
@@ -27,7 +29,7 @@ never absence of event and wallet caps. Plugins import only
 | --- | --- |
 | `MarketDescriptor` | Domain/event/condition identity, binary token mapping, tick, minimum order size, optional sibling group, UTC close/settle times, native unit, plugin/source provenance |
 | `UniverseSnapshot` | Tuple of descriptors, query `as_of_utc`, source hashes |
-| `OutcomeView` | Condition, probability and positive probability-unit stdev, optional sibling distribution, input timestamp/expiry, input hash/model/grade; no market-price fields |
+| `OutcomeView` | Condition, probability and probability-unit stdev (positive, or zero for p=0 or p=1), optional sibling distribution, input timestamp/expiry, input hash/model/grade; no market-price fields |
 | `Unavailable` | Reason and UTC query time; never a guessed probability |
 | `InfoEvent` | Scheduled/observed/detected times, affected conditions, severity, optional decided probabilities, action hint |
 | `SettlementFact` | Condition, resolved YES payout fraction, captured UTC time, source hashes, reconciliation status |
@@ -38,6 +40,19 @@ probabilities must be finite in [0,1]. Joint mass must sum to one within 1e-9 an
 agree with the condition's marginal when that condition is present. Settlement
 probabilities admit fractional resolution. Settlement source/reconciliation
 policy belongs to the plugin; a fact alone grants no execution authority.
+
+The pre-tag additions are trailing and defaulted:
+
+- `MarketDescriptor.group_relation=None`: optionally `partition` (mutually
+  exclusive/exhaustive), `nested_ge`, or `nested_le` (nested threshold direction).
+  Nested probabilities are marginals, not partition `joint` mass.
+- `InfoEvent.active_until_utc=None`: optional UTC expiry, at or after the detected
+  time, otherwise observed time, otherwise scheduled time. A reference is required.
+  Expiry is inclusive; absent expiry preserves the original event lifetime.
+- `Unavailable.kind="missing_input"`: alternatives `out_of_scope`, `corrupt`,
+  `decided` distinguish why a probability is not supplied.
+- `SettlementFact.resolved_value=None`: optional domain-native text, not a payout override.
+- `OutcomeView.stdev` also accepts zero exactly when `p_yes` is 0 or 1.
 
 ## Conformance and reference plugin
 
@@ -73,11 +88,23 @@ absolute value, so offsets never silently increase available capital.
 
 `informed_v0` implements the design's freshness, pull/decided, qualified-mid,
 width/asymmetry, depth, size, positive-net and portfolio screens. Scheduled events
-are active from -3 to +10 minutes; detected events remain active until the caller
-removes them on captured fresh evidence. Expired or future views refuse quoting;
-explicit `Unavailable` uses blind width. Fair value never shifts the centre.
+are active from -3 to +10 minutes; detected events remain active until explicit
+expiry or, without expiry, caller removal on captured fresh evidence. Only
+`action_hint="pull"` triggers a pull, independent of the domain's event kind.
+`Profile.eligible_horizons` owns eligibility (`informed_v0`: 1 and 2;
+`blind_re1`: unrestricted). Expired or future views refuse quoting;
+explicit `Unavailable` uses blind width with the lowest grade size cap.
+Fair value never shifts the centre. Outward snapping steps one tick inward when
+needed to keep a leg within the configured hold window.
 Information `recentre` hints only widen in v0. Last-three-hour and post-only gates
 apply to both profiles. Cancellation precedes the 60-second requote cooldown.
+Own resting YES buys and mirrored NO buys are removed from displayed competition
+and depth before scoring. Midpoint drift alone holds eligible legs inside the
+[1,3]-cent window. The caller supplies `previous_fair_value` to identify a new
+view: a half-delta asymmetry change of at least one tick or absolute probability
+change above max(effective sigma, 0.01) pulls immediately. Smaller changes that
+alter desired legs respect cooldown. Missing view history does not invent a move;
+size-cap, touch, depth, share and net safety checks still precede HOLD.
 
 The design leaves stale variance and grade trust constants unspecified. Phase 0
 uses an explicitly exposed conservative offline default of 0.01 probability
@@ -92,8 +119,11 @@ it must include either-leg exposure. No empirical hazard estimator ships here.
 
 `blind_re1` freezes 1.5-cent outward pricing, the [1,3]-cent hold window,
 20/30/50/75 sizes, one band and first-fill termination. Historical public quote
-fixtures prove price parity; account, transport and full runtime parity are not
-claimed. `inventory_action` is advisory hold/resting-sell/exit-review using the
+fixtures prove **first-minute price parity only**. Per-leg replacement and the
+RE-1 five-requote limit are not reproduced; account, transport and full-minute
+runtime parity are not claimed. The attempt-1..12 replay skeleton is skipped
+until an authorized sanitized journal export is available.
+`inventory_action` is advisory hold/resting-sell/exit-review using the
 specified taker fee, not a live liquidation path.
 
 ## Journal and deferred execution
@@ -102,12 +132,17 @@ specified taker fee, not a live liquidation path.
 Canonical sorted JSON lines include sequence, UTC time and previous-line hash;
 each append flushes and fsyncs. Reserved metadata cannot be overwritten. The
 recursive guard drops auth/signature fields and refuses any remaining caller-
-supplied secret string, including escaped strings. It never loads credentials.
+supplied secret string, including escaped strings. Normalized key substrings
+include key, secret, passphrase, token, bearer, mnemonic, seed and private,
+alongside header/auth/signature/password/cookie markers. **The runtime passes
+every loaded secret to SecretGuard.** The guard never loads credentials.
 Do not pass arbitrary raw SDK responses. `verify_journal` checks the chain,
 monotonic clock, opening/terminal records and optionally an externally retained
 whole-file SHA-256. The external digest is needed to detect full-chain rewriting
 or truncation to another apparently valid terminal. This is tamper evidence,
 not authentication. Journal IO failure poisons that writer; never retry append.
+If the opening record fails, the newly created journal is closed and unlinked;
+an existing file is never overwritten or removed.
 
 `portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
 The fictional replay lives in tests. Production evidence loading, portfolio
