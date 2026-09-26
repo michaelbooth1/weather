@@ -45,7 +45,10 @@ negative boundary tests are included in the architecture file. All execution use
 the required workstation heavy wrapper with a separate fixture basetemp.
 The first run had 875 passes and 12 skips; its sole failure was the new fixture file
 being untracked during the tracked-file audit. It was staged before the final run.
-Final verification results are recorded in the publication commit.
+The final focused run passed **876 tests, 12 skipped**, including all four audits
+and maker-core import-boundary tests.
+Focused compileall passed; the checked-in configuration inventory returned PASS
+with no warnings. Temporary pytest files were removed after verification.
 
 Fixtures exercise the synthetic 09-25/26 cash/position sequence, manual allocation,
 known settlement, completeness and fee uncertainty, legacy compatibility,
