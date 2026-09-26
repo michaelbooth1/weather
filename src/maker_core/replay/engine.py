@@ -121,6 +121,8 @@ class ReplayEngine:
     def __init__(self, bundles: tuple[Bundle, ...], config: ReplayConfig, *, check=lambda: None):
         if not bundles or len(bundles) > 366 or len({b.day for b in bundles}) != len(bundles):
             raise BundleError("duplicate_or_unbounded_days")
+        if (max(b.day for b in bundles) - min(b.day for b in bundles)).days >= 366:
+            raise BundleError("calendar_span_cap")
         self.bundles, self.config, self.check = tuple(sorted(bundles, key=lambda b: b.day)), config, check
         self.profile = blind_re1 if config.policy == "blind_re1" else informed_v0
         self.states, self.conditions, self.windows = {}, {}, defaultdict(list)
@@ -255,7 +257,9 @@ class ReplayEngine:
             self.schedule(value.valid_until_utc)
         elif row.kind == "book":
             self.books.append((at, row.condition_id, value))
-            self.schedule(at + timedelta(seconds=self.config.max_book_gap_seconds))
+            expiry = value.as_of_utc + timedelta(seconds=self.config.max_book_gap_seconds)
+            if expiry > at:
+                self.schedule(expiry)
         elif row.kind == "outcome_view" and isinstance(value, OutcomeView) and self.config.policy == "informed-v0":
             if at < value.valid_until_utc <= self.end:
                 self.schedule(value.valid_until_utc)
@@ -427,6 +431,8 @@ class ReplayEngine:
                             terms.rate_per_day if terms else D(0), state.reserve, state.inventory_cost,
                             self.event_window(state, previous), self.active(cid, previous)))
             rows = sorted(self.records.pop(at, ()), key=lambda r: r.sequence)
+            if previous is not None and previous.date() != at.date() and self.config.policy == "blind_re1":
+                self.ended = False  # One retrospective RE-1 session per UTC capture day.
             # All prints consume the expiring quote before any equal-time input
             # update or replacement, regardless of sequence within that capture.
             for row in rows:

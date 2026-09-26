@@ -37,4 +37,3 @@ def bind_scope(doc, bundles, config, replicates, seed):
                  metrics=["modeled_net_k1", "modeled_net_k05"])
     if any(doc.get(key) != value for key, value in scope.items()):
         raise BundleError("pre_registration_scope_mismatch")
-

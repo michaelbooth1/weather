@@ -70,3 +70,18 @@ def test_trace_comparator_rejects_missing_terminal_event(tmp_path):
     expected = [dict(at=e.at, condition_id=e.condition_id, decision=plain(e.decision)) for e in r.decisions]
     assert compare_journal(r, expected)["status"] == "PASS"
     assert compare_journal(r, expected[:-1])["status"] == "FAIL"
+
+
+def test_blind_first_fill_ends_each_day_not_all_future_sessions(tmp_path):
+    from datetime import timedelta
+    first = Scenario(markets=("a",), minutes=2)
+    second = Scenario(day=first.day+timedelta(days=1), markets=("a",), minutes=2)
+    for s in (first, second):
+        s.book("a", 0)
+        s.trade("a", 5)
+        s.settle("a", 50)
+        s.book("a", 60)
+    result = replay([first.bundle(tmp_path/"1"), second.bundle(tmp_path/"2")], ReplayConfig(policy="blind_re1"))
+    assert len(result.fills) == 2
+    assert {f.at.date() for f in result.fills} == {first.day, second.day}
+    assert len([e for e in result.decisions if e.decision.action == "QUOTE"]) == 2

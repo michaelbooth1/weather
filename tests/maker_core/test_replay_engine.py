@@ -102,3 +102,15 @@ def test_payload_future_clock_is_exclusion_not_a_guessed_view(tmp_path):
     result = run(s, tmp_path)
     assert result.exclusions[0]["reason"] == "INVALID_OUTCOME_VIEW"
     assert not any(span.covered or span.legs for span in result.spans)
+
+
+def test_delayed_book_expires_from_original_asof_not_envelope(tmp_path):
+    s = Scenario(markets=("a",), minutes=2)
+    s.book("a", 5)
+    book = next(r for r in s.records if r["kind"] == "book")
+    book["payload"]["as_of_utc"] = s.start.isoformat()
+    from maker_core.replay.bundle import sha256
+    book["payload_sha256"] = sha256(canonical_bytes(book["payload"]))
+    result = run(s, tmp_path)
+    assert sum((span.end-span.start).total_seconds() for span in result.spans if span.covered) == 55
+    assert all(not span.legs for span in result.spans if span.start >= s.at(60))

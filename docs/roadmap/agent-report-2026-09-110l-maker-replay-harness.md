@@ -2,8 +2,9 @@
 
 **Six continuation implementations pass fixtures; production qualification remains PARTIAL.**
 The engine, both fill bounds, scorer, baselines, clustered inference and deterministic reports are implemented.
-Full-session RE-1 journal parity is unavailable, no real-data registration is approved, and the weather export/final audit
-closeout follows below. No real-data read, economic result or full-session parity is claimed. Earlier notes are historical.
+Full-session RE-1 journal parity is unavailable and no real-data registration is approved. The bounded weather exporter
+is implemented; final audits are recorded below. No real-data read, economic result or full-session parity is claimed.
+Earlier notes are historical.
 
 ## Increment 1 — 2026-09-26
 
@@ -221,3 +222,131 @@ Registered hurdles, dates, clusters, policies, config and inference settings are
 bound before scoring; the fixture test enrolls only an in-memory fictional owner.
 New authorization/report modules and CLI/diagnostic changes: closure UNDECIDABLE;
 tests test-only; docs roll-free. Weather exporter and final repository audits follow.
+
+## Weather export and closeout — 2026-09-26
+
+Item 6 was pushed as `87afb7a2`. The weather-side `bundle` command now reuses
+110h's sealed 88a reader, projects both-token books, reward captures/references,
+public prints, lifecycle evidence, plugin inputs/views/clocks, region factors and
+reconciled ledger facts. It retains raw-file/segment/payload hashes and original
+supporting clocks, never reads a growing 88a segment, and refuses changed support
+files. Supporting plugin tables have 110h's stable-read checks; they are not
+misrepresented as 88a seals. Missing trade health expires after 30 seconds;
+unrecorded PONGs cannot turn silent periods into zero-fill observations.
+
+`--carry-bundle` supplies prior hashed descriptors/band metadata for a later
+settlement day with no new books. Empty active intervals mean settlement-only
+metadata and add no quote minutes. The neutral decoder now accepts the weather
+provider's reconciled status `match` as well as fixture `reconciled`. Blind RE-1
+resets its first-fill-ended session at each UTC date boundary, carrying cash and
+inventory; that explicit convention does not establish live-session parity.
+
+Admitted exporter tests: **9 passed**, including gzip/reference round trips,
+unchanged source files, disabled network access, lifecycle/token mapping,
+caps/refusals, later settlement carry, and deterministic output. The two-minute,
+three-band fixture measured **44,756 bytes**: bundle manifest 913, event stream
+40,224, export metadata 3,619. This is a fixture measurement, **not a forecast of
+production bytes/day**. Production size is unmeasured; each requested market/day
+export is bounded at **64 MiB** and 100,000 records, with at most 1 GiB source reads
+and 300 seconds. Over-cap days refuse, rather than silently truncate. Start with
+one named market; do not infer fleet volume or success from this tiny fixture.
+
+### Exact production export command (not executed)
+
+Run from the adopted production repository root, after the UTC day closes and
+inside the production admitted 00:30–09:00 window. The production operator must
+check the current reserved-window and host-load contracts first. `scratch` must
+already exist and the named output directory must not. This command is diagnostic
+export only; no registration or policy-comparison flag is involved.
+
+```powershell
+$replayRepo = (Get-Location).Path
+. .\scripts\ops\workload_admission.ps1
+$replayLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $replayRepo -Workload 'maker_replay_bundle_export'
+if ($null -eq $replayLease) { throw 'Heavy-work lease unavailable' }
+try {
+    & .\venv\Scripts\python.exe -B -m weather.market.maker_replay_bundle bundle --date 2026-09-26 --data-root .\data --markets nyc --out .\scratch\maker-replay-bundle-20260926-nyc --max-input-bytes 1073741824 --max-output-bytes 67108864 --max-records 100000 --max-seconds 300
+    if ($LASTEXITCODE -ne 0) { throw "Bundle export refused: $LASTEXITCODE" }
+}
+finally { Exit-WeatherHeavyWorkloadLease -Lease $replayLease }
+```
+
+The workstation's standalone heavy-module allowlist still needs an operations-owned
+reviewed addition for replay/export. This mission did not change admission or
+invoke these modules through a bypass; all implementation execution used fixture
+tests under `workstation_heavy.ps1`. The command above is for the production
+operator's distinct admitted lane, not authorization to run it on this workstation.
+
+### Continuation roll classification per file
+
+Production closure evidence is unavailable locally. The source classifications
+below are therefore **UNDECIDABLE**, not an inferred roll-free verdict. The final
+production `roll_verdict.ps1` covers the topic plus all inherited dependencies.
+
+| File | Classification |
+| --- | --- |
+| `src/maker_core/replay/_fill89a.py` | UNDECIDABLE; copied offline kernel |
+| `src/maker_core/replay/authorization.py` | UNDECIDABLE; reviewed hash gate |
+| `src/maker_core/replay/baselines.py` | UNDECIDABLE; offline controls |
+| `src/maker_core/replay/bundle.py` | UNDECIDABLE; neutral reader |
+| `src/maker_core/replay/diagnostics.py` | UNDECIDABLE; diagnostic output |
+| `src/maker_core/replay/engine.py` | UNDECIDABLE; pure replay |
+| `src/maker_core/replay/fill_model.py` | UNDECIDABLE; fill facade |
+| `src/maker_core/replay/inference.py` | UNDECIDABLE; clustered inference |
+| `src/maker_core/replay/parity.py` | UNDECIDABLE; trace comparator |
+| `src/maker_core/replay/payloads.py` | UNDECIDABLE; typed decoder |
+| `src/maker_core/replay/report.py` | UNDECIDABLE; report composition |
+| `src/maker_core/replay/score.py` | UNDECIDABLE; accounting |
+| `src/maker_core/replay/__main__.py` | UNDECIDABLE; CLI |
+| `src/weather/market/maker_replay_bundle.py` | UNDECIDABLE; offline exporter |
+| `tests/maker_core/fixtures/fill89a_reference.py` | Test-only unchanged 89a reference |
+| `tests/maker_core/fixtures/replay_scenario.py` | Test-only fictional captures |
+| `tests/maker_core/test_replay_baselines.py` | Test-only |
+| `tests/maker_core/test_replay_engine.py` | Test-only |
+| `tests/maker_core/test_replay_fills.py` | Test-only |
+| `tests/maker_core/test_replay_inference.py` | Test-only |
+| `tests/maker_core/test_replay_report.py` | Test-only |
+| `tests/maker_core/test_replay_score.py` | Test-only |
+| `tests/market/test_maker_replay_bundle.py` | Test-only |
+| `README.md` | Roll-free documentation |
+| `docs/operations/maker-replay-bundle.md` | Roll-free contract |
+| `docs/operations/package-boundaries.md` | Roll-free ownership map |
+| `docs/roadmap/correspondence-index.md` | Roll-free generated index |
+| This report | Roll-free report |
+
+Final verification and publication evidence follows after the required audits.
+
+### Final verification
+
+The admitted full selected matrix returned **1,169 passed, 13 skipped, 1 failed**.
+The sole failure was the generated correspondence index becoming stale as this
+report acquired citations. Regeneration and the exact failed audit recheck passed.
+The skips remain the twelve unavailable full RE-1 minute journals plus Windows
+symlink-creation privilege. All four required repo audits passed, including schema,
+import architecture (maker-core boundary and negative controls), agent docs, and
+path policy. These are the selected repository audits, not a claim that every
+test in the repository or hosted CI ran.
+
+Final source review corrected expiry for delayed paired-book captures: the
+60-second limit now starts at the book's original as-of clock, not its envelope
+arrival. The new case and replay/baseline/fill/scorer regressions returned
+**38 passed**. Across the selected matrix and that additional case, **1,171 distinct
+checks passed**, with the 13 stated skips. Admitted `compileall -q app src tests`
+passed. The documentation index was regenerated by its owning deterministic
+generator; no hand-edited index or changed audit/admission gate was used.
+
+All six requested implementation increments were pushed in order without pausing
+between them: `f4b68464`, `d6e732d9`, `23ce28ee`, `b9b3ea21`, `87865935`, `87afb7a2`.
+The final origin fetch still showed master `965374a0` without integration
+`8180404a0` as an ancestor; no speculative master merge was performed. Keep the
+draft PR open for review and production qualification. No source from 89a or the
+loop-imported reward/markout modules was edited; copied facades keep the core free
+of weather imports.
+
+**Remaining acceptance limitations:** full-session RE-1 parity needs the separately
+authorized sanitized journal export; the owner must approve/sign and pin an exact
+registration before any real-data comparison; standalone workstation admission
+needs its operations-owned review; production daily size/coverage and mechanical
+roll classification remain unmeasured. Fixture success is not an economic or
+live-readiness verdict. No production data, credentials, `.env`, venue, Scheduler,
+live action, deployment, or master mutation occurred.

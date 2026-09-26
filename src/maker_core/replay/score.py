@@ -77,6 +77,7 @@ def score(result, *, check=lambda: None):
         check()
         markets[span.condition_id] = span.market_id
         for day, seconds in _parts(span.start, span.end):
+            check()
             r = row(day, span.condition_id, span.market_id)
             r["reserved_cash_hours"] += span.reserved * seconds / 3600
             r["inventory_cash_hours"] += span.inventory_cost * seconds / 3600

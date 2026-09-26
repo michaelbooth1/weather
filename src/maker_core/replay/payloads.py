@@ -50,6 +50,14 @@ class Coverage:
     valid_until_utc: datetime
 
 
+def market_descriptor(payload):
+    m = dict(payload)
+    m["close_at_utc"] = timestamp(m["close_at_utc"])
+    m["settle_at_utc"] = timestamp(m["settle_at_utc"]) if m.get("settle_at_utc") else None
+    m["tick"], m["min_order_size"] = number(m["tick"]), number(m["min_order_size"])
+    return MarketDescriptor(**m)
+
+
 def decode(row: CapturedRecord):
     """No IO, no provider queries and no inferred timestamps or market probabilities."""
     p = row.payload
@@ -60,11 +68,7 @@ def decode(row: CapturedRecord):
             raise BundleError("invalid_trade_coverage")
         return Coverage(p["trade_stream_ok"], until)
     if row.kind == "descriptor":
-        m = dict(p["market"])
-        m["close_at_utc"] = timestamp(m["close_at_utc"])
-        m["settle_at_utc"] = timestamp(m["settle_at_utc"]) if m.get("settle_at_utc") else None
-        m["tick"], m["min_order_size"] = number(m["tick"]), number(m["min_order_size"])
-        market = MarketDescriptor(**m)
+        market = market_descriptor(p["market"])
         horizon = p["horizon_days"]
         if type(horizon) is not int or not -1 <= horizon <= 366:
             raise BundleError("invalid_local_horizon")
@@ -120,7 +124,7 @@ def decode(row: CapturedRecord):
         value = dict(p)
         value["as_of_utc"] = captured_time(value["as_of_utc"], row)
         fact = SettlementFact(**value)
-        if fact.condition_id != row.condition_id or fact.reconciliation_status != "reconciled":
+        if fact.condition_id != row.condition_id or fact.reconciliation_status not in ("reconciled", "match"):
             raise BundleError("unreconciled_settlement")
         return fact
     if row.kind == "trade":

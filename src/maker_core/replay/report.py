@@ -16,6 +16,8 @@ REPLAY_ASSUMPTIONS = (
     "Nominal rebates and modeled liquidity rewards are not payments and never increase replay cash.",
     "Markouts allow the first two-sided book up to 120 seconds after each horizon, never a zero for missing marks.",
     "Inventory starts empty and is held to reconciled settlement or censored at the last supplied day boundary.",
+    "Band admission uses condition-ID order; inventory constrains caps without an invented liquidation rule.",
+    "Late prints predating the current order are excluded; canceled historical orders are not reconstructed.",
     "Cash, hazard and caps are hypothetical predeclared inputs; no empirical hazard is fitted by the harness.",
     "Clock matching uses only retrospective pull exposure, not returns; unmatched controls have no intervals.",
     "Cluster minimums and synthetic checks do not establish power, economic edge or live readiness.",

@@ -241,7 +241,7 @@ def load_bundle(directory: Path, *, limits: Limits | None = None,
         _keys(value, "condition_id market_id domain_id active_from active_until")
         cid = _identity(value["condition_id"])
         active_from, active_until = timestamp(value["active_from"]), timestamp(value["active_until"])
-        if (cid in condition_ids or not start <= active_from < active_until <= end
+        if (cid in condition_ids or not start <= active_from <= active_until <= end
                 or active_from.second or active_from.microsecond
                 or active_until.second or active_until.microsecond):
             raise BundleError("duplicate_condition_or_invalid_active_window")

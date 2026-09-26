@@ -185,8 +185,11 @@ production execution still requires the host-load lease.
 
 The neutral replay entrypoint is
 `python -B -m maker_core.replay run --bundle <closed-day-dir> --policy blind_re1 --out <new-dir>`.
-It currently emits capture diagnostics only. Scoring and production export remain
-unfinished; see the [bundle contract and admission limits](docs/operations/maker-replay-bundle.md).
+It defaults to capture diagnostics. Explicit comparisons require an owner-reviewed
+registration hash; both fill bounds and clustered intervals are always reported.
+The weather export command is
+`python -B -m weather.market.maker_replay_bundle bundle --date YYYY-MM-DD --markets nyc --out <new-dir>`.
+See the [bundle, export and admission contract](docs/operations/maker-replay-bundle.md).
 Workstation verification uses the fixture suite under `workstation_heavy.ps1`
 until the standalone module receives a reviewed admission entry.
 
