@@ -26,6 +26,7 @@ If you add a file, link it here in the same change.
 | [PROJECT_OPERATING_SOP.md](PROJECT_OPERATING_SOP.md) | You need the end-to-end shift-to-release decision flow and which runbook owns each step. |
 | [Git workflow SOP](../git-workflow.md) | Branches, worktrees, commits, pushes, merges, branch retirement. Single owner of git authority. |
 | [wallet-reader.md](wallet-reader.md) | Starting the owner-run read-only wallet LAN API, scoped firewall rule, or production client. |
+| [portfolio-ledger.md](portfolio-ledger.md) | Rebuilding one-wallet campaign books, FIFO lots and reconciliation from recorded account reads. |
 
 ## Accumulated knowledge
 

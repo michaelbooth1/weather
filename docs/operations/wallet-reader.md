@@ -68,6 +68,12 @@ This is the owner's accepted scope; TLS is a separate optional improvement.
 
 ## Production client
 
+For multiple campaigns in one wallet, optional `serve --campaigns <json>` uses
+the [portfolio ledger](portfolio-ledger.md) and reports campaign-specific P&L and
+limits. Its default owner-discretionary lots are outside bot bleed limits.
+This mode adds a `campaigns` book and replaces the single-baseline status; it
+does not enable enforcement or change the GET-only safety boundary.
+
 The owner creates ignored `config/local/wallet_reader_client.json` on the client
 checkout containing `{"url":"http://192.168.1.20:8765","token":"<owner token>"}`.
 Do not commit it. This bearer token is separate from the venue's L2 credentials.

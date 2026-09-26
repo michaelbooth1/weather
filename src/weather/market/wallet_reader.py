@@ -127,7 +127,7 @@ dedicated campaign wallet is required. Reward accrual is not added to cash.
 
 
 class WalletReader:
-    def __init__(self, transport, *, signature_type, campaign_capital=None, campaign_start_utc=None):
+    def __init__(self, transport, *, signature_type, campaign_capital=None, campaign_start_utc=None, campaigns=None):
         if signature_type not in (2, 3):
             raise ReaderError("signature_type_must_be_2_or_3")
         if campaign_capital is not None and number(campaign_capital) < 0:
@@ -137,6 +137,10 @@ class WalletReader:
         self.campaign_capital = campaign_capital
         self.campaign_start = campaign_start(campaign_start_utc) if campaign_start_utc is not None else None
         self.funder = transport.fields["FUNDER_ADDRESS"]
+        self.campaigns = campaigns
+        if campaigns is not None:
+            from maker_core.contracts.portfolio import validate_campaigns
+            validate_campaigns(campaigns)
 
     def get(self, host, path, **params):
         return self.transport.request("GET", host, path, params)
@@ -202,6 +206,7 @@ class WalletReader:
         if not 0 <= average <= 1:
             raise ReaderError("position_price_unreadable")
         return dict(token_id=row["asset"], condition_id=row["conditionId"], title=row.get("title"),
+                      event_slug=row.get("eventSlug", ""),
                       outcome=row.get("outcome"), size=str(size), avg_price=str(average),
                       bid=None, ask=None, mid=None, mark_value_pusd=None,
                       unrealized_pnl_pusd=None, reward_min_size=None, reward_max_spread_cents=None,
@@ -425,6 +430,26 @@ class WalletReader:
                 pass
         return held
 
+    def _campaign_book(self, summary, inventory):
+        from maker_core.portfolio.ledger import build_book
+        from maker_core.venue.account_read import adapt_archive
+        history, complete = [], False
+        try:
+            for page in range(5):
+                chunk = rows(self.get(DATA, "/activity", user=self.funder, limit=100,
+                                      offset=page * 100, start=0, sortBy="TIMESTAMP", sortDirection="ASC"))
+                history.extend(chunk)
+                if len(chunk) < 100:
+                    complete = True
+                    break
+        except ReaderError:
+            pass
+        snapshot = adapt_archive(dict(account_id=self.funder, captured_at_utc=summary["captured_at_utc"],
+            summary={**summary, "resolved_positions": inventory["resolved_positions"]},
+            trades=dict(account_activity=history, history_complete=complete,
+                        history_start_utc="1970-01-01T00:00:00+00:00")))
+        return build_book([snapshot], self.campaigns)
+
     def summary(self, *, include_resolved=False):
         with self.transport.composite() as plan:
             errors, balance, orders = {}, None, None
@@ -448,6 +473,17 @@ class WalletReader:
                           plan={**inventory["plan"], "max_gets": plan["max_gets"], "used_gets": plan["used_gets"]})
             if include_resolved:
                 result["resolved_positions"] = inventory["resolved_positions"]
+            result["account_id"] = self.funder
+            if self.campaigns is not None:
+                try:
+                    result["campaigns"] = self._campaign_book(result, inventory)
+                    result["status"] = result["campaigns"]["status"]
+                except (ValueError, KeyError, TypeError):
+                    result["campaigns"] = {"status": "INCOMPLETE", "reasons": ["portfolio_input_unavailable"]}
+                    result["status"] = "INCOMPLETE"
+                for key in ("campaign_pnl_pusd", "campaign_net_contributions_pusd", "bleed_limit_reached", "reason", "reasons"):
+                    result.pop(key, None)
+                result["plan"]["used_gets"] = plan["used_gets"]
             return result
 
 
@@ -462,6 +498,7 @@ def main(argv=None):
                        help="Owner-confirmed existing wallet type: 2 Safe, 3 deposit wallet")
     serve.add_argument("--campaign-capital", help="Campaign-start equity plus net deposits/withdrawals in pUSD; omit for unknown P&L")
     serve.add_argument("--campaign-start-utc", help="Explicit timezone-aware campaign baseline instant; required to date unredeemed lots")
+    serve.add_argument("--campaigns", help="Explicit portfolio campaign JSON; replaces single-campaign status with campaign books")
     args = parser.parse_args(argv)
     try:
         lan_ip(args.bind)
@@ -472,9 +509,15 @@ def main(argv=None):
             raise ReaderError("negative_campaign_capital")
         if args.campaign_start_utc is not None:
             campaign_start(args.campaign_start_utc)
+        campaigns = None
+        if args.campaigns is not None:
+            from maker_core.runtime.portfolio_io import read_json
+            from maker_core.contracts.portfolio import validate_campaigns
+            campaigns = validate_campaigns(read_json(args.campaigns))
         fields, guard = load_owner_credentials()
         reader = WalletReader(ReadTransport(fields, guard), signature_type=args.signature_type,
-                              campaign_capital=args.campaign_capital, campaign_start_utc=args.campaign_start_utc)
+                              campaign_capital=args.campaign_capital, campaign_start_utc=args.campaign_start_utc,
+                              campaigns=campaigns)
         from weather.market.wallet_reader_server import serve_reader
         serve_reader(reader, guard, fields["READER_TOKEN"], bind=args.bind, allow=args.allow, port=args.port)
     except KeyboardInterrupt:
