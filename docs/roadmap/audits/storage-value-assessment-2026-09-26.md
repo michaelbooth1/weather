@@ -4,7 +4,7 @@
 - **Read when:** planning any reclaim, archive campaign, retention change or 91a registration.
 - **Do not use for:** current free space (`Get-Volume`) or retention rules themselves ([data-retention-policy](../../operations/data-retention-policy.md)).
 
-**Disposition so far:** retired `mm_runs`/`taker_runs` NTFS-compressed 2026-09-26 (51.4 GiB logical, 51.4 → 26.2 GiB on disk, receipt `data/alerts/disk-reclaim-20260926/`). Owner decisions 1-8 below are pending.
+**Disposition so far:** retired `mm_runs`/`taker_runs` NTFS-compressed 2026-09-26 (51.4 GiB logical, 51.4 → 26.2 GiB on disk, receipt `data/alerts/disk-reclaim-20260926/`). **Owner 2026-09-26: decisions 1-9 approved, 10 keep, 11 no** (DECISION_LOG). Production runs 1, 2, 3 and 8 under exact manifests and lands 91a (4); handoff 110j builds 5, 6, 7 and 9. Exchange-economics baseline re-accepted the same day.
 
 
 ## 1. Verdict

@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-26 03:15 America/Toronto (ALL LIVE TRADING PAUSED to build the informed maker; maker core + contracts v0.1 landed; disk reclaimed to ~83 GiB).**
+**Last updated: 2026-09-26 12:00 America/Toronto (ALL LIVE TRADING PAUSED to build the informed maker; storage decisions 1-9 approved; one-wallet portfolio ledger ordered).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -20,8 +20,11 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
   The owner starts any future live run personally; before any RE-1 resumption the pause and bleed limit go into code (deferred).
 - Owner 2026-09-19: implementation authority toward live testing; heavy work only 00:30-09:00 under the shared lease
   ([host load policy](HOST_LOAD_POLICY.md)); eligibility resolved, tunnel down during live sessions.
-- Owner 2026-09-23: **no second disk**; off-PC Drive archive as needed. 2026-09-25: disk reclaim approved (compress-and-retain,
-  one-time NTFS compression of retired `mm_runs`/`taker_runs`); storage value decisions 1-8 pending ([assessment](../roadmap/audits/storage-value-assessment-2026-09-26.md)).
+- Owner 2026-09-23: **no second disk**; off-PC Drive archive as needed. 2026-09-26: storage decisions **1-9 approved, 10 keep,
+  11 no** ([assessment](../roadmap/audits/storage-value-assessment-2026-09-26.md) §4): replay_cache deleted under an owner waiver;
+  exact-path delete manifests; 91a; Drive campaigns; order_books_long twin deletion; registry fixes; compress-on-close.
+- Owner 2026-09-26: exchange-economics baseline re-accepted (06-27 → 09-26 snapshot); one wallet carries several campaigns
+  (weather maker, future YouTube maker, owner manual trades), so a one-wallet portfolio ledger attributes every lot (110i).
 - Owner 2026-09-25 ([DECISION_LOG](DECISION_LOG.md)): informed maker design approved (`src/maker_core/`, v0 centre = market mid,
   grade-'none' fair value quotes both legs symmetrically, Windows Credential Manager for maker credentials); afternoon centering
   stage to be switched off (110g); wallet reader reports INCOMPLETE P&L while a settled lot is unredeemed (110f); records from
@@ -46,10 +49,10 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
   band agreement 359/360; negative Celsius band labels parse correctly since 95b (`802b967f4`). EF §10c.
 - **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A, `WeatherMakerEvidenceCapture` (88a, every
   minute, public data only). Paper maker and taker retired (tasks Disabled). Training DISABLED; mirror PAUSED.
-- **Wallet (recorded reads only, `data/wallet_ledger/`):** baseline 09-25 17:38Z cash 102.97; 09-26 00:32Z cash 2.17 with a new
-  owner position (MrBeast next video 70-80M views week 1, 140 YES @0.72) — the reader shows `BLEED_LIMIT` because the weather
-  campaign baseline now includes it (owner to say whether it is tracked separately); Chicago 68-69°F Sep 25 YES (75 @0.43) quoted
-  at 0.001 ask, settlement to be confirmed.
+- **Wallet (recorded reads only, `data/wallet_ledger/`):** baseline 09-25 17:38Z cash 102.97; 09-26 12:40Z cash 2.17. Chicago
+  68-69°F Sep 25 YES (75 @0.43) moved from live to resolved, not redeemable, cash unchanged — a loss of its cost. The only live
+  lot is the owner's MrBeast 70-80M week-1 position (140 YES @0.72, same wallet); the reader's `BLEED_LIMIT` is an artefact of
+  its single campaign baseline until the portfolio ledger (110i) attributes lots per campaign.
 - **RE-1 (paused):** 11 of 30 sessions used; first paid day 09-24 +2.13 (k ≈ 1.05); fills and settlements in EF §10m; Miami sold
   75 @0.18 (lot −13.30); `reconcile 12` owed; the code expires 09-30. Tested tip `d90d0a6e6`; `2b9a0ca9e` untested.
 - **Maker economics:** takers pay `0.05 x p(1-p)` per share, makers 0, 25% of taker fees fund rebates (EF §10o); reward terms can
@@ -65,10 +68,12 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
 1. **Informed maker:** Phase 0 landed and tagged. Phase 1 weather plugin (`codex/weather-maker-plugin-20260925`, `c734e5c2b`):
    real-data dry run deferred (no bounded entry point; handoff 110h adds one), then land. Phase 2 replay harness on 88a data; Phase 3 shadow on the workstation; Phase 4 owner-started live.
    Share `maker-core-contracts-v0.1` with the YouTube team.
-2. **Disk:** owner storage decisions; replay_cache and delete manifests; register 91a with a bounded nightly run; Drive campaigns.
+2. **Disk:** production runs decisions 1, 2, 3, 8 under exact manifests and lands 91a (rebase, bounded suite, dry run, register);
+   workstation builds decisions 5, 6, 7, 9 (handoff 110j).
 3. **Model:** 110g afternoon stage off (next quiet window); NBM layer 2 then 3; T+1 fair-value pre-registration scored after 10-08
    with 89a panel B.
-4. **Wallet reader:** 110f INCOMPLETE P&L; land with the bounded suite in a quiet window.
+4. **Wallet reader and portfolio ledger:** 110f done (`7c3184e81`; owner restarts the reader); land with the bounded suite in a
+   quiet window. 110i builds the one-wallet portfolio ledger on top. 110g (`ba42a13c8`) lands with a controlled restart.
 5. **Canon and ops:** documentation-transaction closeout each night after merges; small PR triage (#29, #30, #54, #55, #65, #68);
    RE-1 PR chain closes after 09-30; master force-push protection (owner).
 
