@@ -62,6 +62,26 @@ The normal daily refresh also writes the same artifacts:
 
 ## Pruning Rules
 
+Owner-approved storage decision 7 (2026-09-26) adds these family rules:
+
+| Family | Retention and gate |
+| --- | --- |
+| Rotated `snapshots/clob_diagnostics.*.jsonl` and `diagnostics.*.jsonl` (including gzip) | Operator logs; verified archive and exact-path review before local reclaim. Keep active logs and incident-linked records. |
+| `fetch_fanout/` receipts, including beneath `forecast_payload_cas/` | Claims strictly older than 7 days may expire only with no active owner or evidence reference; retain other receipts in verified monthly tar.gz archives. This never permits deleting CAS blobs. |
+| `wunderground/` atomic `final.<pid>.<time_ns>.tmp` orphans | Exclude from canonical protection only when the exact PID is absent or its process start is later than file mtime, age is strictly over 24 hours, an exclusive handle check proves no open handle, and the final file exists. Unknown observations retain protection. Recheck all four immediately before exact-path cleanup; the pure registry accepts a bound `WuAtomicOrphanProof`, not a filename-based exemption. |
+| `forecast_history/` | Canonical point-in-time evidence; permanent archive. |
+| `maker_evidence/` journals and manifests (88a) | Canonical; keep forever, including compressed representations. Status and operator configuration remain caches. |
+| `observation_triggers` rotations | Protected panel B source until the through-October-8 panel is scored; no diagnostic-log exemption. |
+
+The owner's 2026-09-26 replay-cache waiver applies only to
+`data/backtest/replay_cache`: an owner-signed manifest naming exact files,
+current checksums and reason may authorize deletion without a release
+reachability manifest (production has no release pointer). Retain the signed
+manifest and apply receipt. This is a separate reviewed cleanup campaign;
+`replay_cache_retention` still fails closed without its normal reachability
+inputs. The waiver does not cover `backtest/cache/replay`, source tapes,
+settlements, artifacts, or releases.
+
 - Classify files with the
   [Data Storage Class Contract](data-storage-class-contract.md) before cleanup:
   `canonical_evidence`, `analysis_projection`, and `operator_cache` have
