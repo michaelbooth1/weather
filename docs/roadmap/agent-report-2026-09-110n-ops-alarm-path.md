@@ -1,6 +1,6 @@
 # Agent report 2026-09-110n — ops scripts and alarm path
 
-Verdict: implementation complete; final fixture verification pending. No production
+Verdict: PASS — all seven items implemented and fixture-verified. No production
 deployment or Scheduler change has been performed.
 
 Mission source: owner-authorized 110n at handoff branch 2c8b90618.
@@ -42,7 +42,10 @@ tonight's production landing.
 Priority run: 170 passed, two new fixture-harness failures (format argument count
 and mock scope) corrected before final verification. Existing native status tests
 passed. Config inventory: PASS, nine configs, zero warnings.
-Final focused run and all schema/import/agent-doc/path-policy audits pending.
+Final focused run: 126 passed in 29.86 seconds, including all
+schema/import/agent-doc/path-policy audits. The earlier native status suite
+also passed; final changes to its expected-disabled list are covered by the new
+inventory equality check. Positive/negative AST controls passed over all ops scripts.
 All heavy tests use workstation_heavy.ps1; maker-core import boundaries are included.
 No production evidence, credentials, .env, venue calls or Scheduler mutations.
 
@@ -83,9 +86,34 @@ available on this workstation.
 
 ## Production adoption after owner-ops review
 
-The report's final verification revision will bind the exact reviewed source
-commit and script hashes for the watchdog re-registration command.
+Reviewed source: `1fc7ba35be4bfb8afafd28ebd84c48d288ee52ac`.
+Watchdog SHA256: `4eff7495c8937ba3b07875ea42abf1193df3ff3c160561214532d3486269689b`.
+Status SHA256: `8cebcbac61df462b5253aab704e615faabeeb7749aa34cc830e356a951f59b44`.
+
+Production runs the following only after owner-ops review and source landing,
+from its production master checkout. The detached deployment preserves reviewed
+bytes while the data root stays the production checkout. This transcript is not
+an instruction to execute Scheduler changes on the workstation.
+
+```powershell
+$productionRoot = ([string](git rev-parse --show-toplevel)).Trim()
+if (([string](git branch --show-current)).Trim() -cne 'master') { throw 'Use production master' }
+$reviewedTip = '1fc7ba35be4bfb8afafd28ebd84c48d288ee52ac'
+git merge-base --is-ancestor $reviewedTip HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Reviewed source has not landed' }
+$deploymentRoot = Join-Path (Split-Path $productionRoot -Parent) 'weather-watchdog-deployed-110n-1fc7ba35'
+$env:GIT_LFS_SKIP_SMUDGE = '1'
+git worktree add --detach $deploymentRoot $reviewedTip
+if ($LASTEXITCODE -ne 0) { throw 'Deployment checkout was not created; inspect before retrying' }
+& (Join-Path $deploymentRoot 'scripts/ops/register_health_watchdog.ps1') `
+    -RepoRoot $productionRoot `
+    -WatchdogScriptPath (Join-Path $deploymentRoot 'scripts/ops/health_watchdog.ps1') `
+    -ExpectedSelfSha256 '4eff7495c8937ba3b07875ea42abf1193df3ff3c160561214532d3486269689b' `
+    -StatusScriptPath (Join-Path $deploymentRoot 'scripts/ops/status.ps1') `
+    -ExpectedStatusScriptSha256 '8cebcbac61df462b5253aab704e615faabeeb7749aa34cc830e356a951f59b44'
+Get-ScheduledTask -TaskName 'WeatherHostHealthWatchdog' | Select-Object -ExpandProperty Actions
+```
+
 Do not re-register retired tasks. Stage A's action tokens are unchanged; its child
 contract gains skip flags. If its action executes a separate checkout, production
 must adopt this source into that checkout under its existing provenance contract.
-
