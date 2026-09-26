@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-26 02:00 America/Toronto (ALL LIVE TRADING PAUSED to build the informed maker; maker core + contracts v0.1 landed; disk reclaimed to ~83 GiB).**
+**Last updated: 2026-09-26 03:15 America/Toronto (ALL LIVE TRADING PAUSED to build the informed maker; maker core + contracts v0.1 landed; disk reclaimed to ~83 GiB).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -33,7 +33,8 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
 - **Production source:** `master` = `origin/master` at the 2026-09-26 night landings: 88a floor 40 GiB `45c2ff62f` (worker
   restarted, pid 17840, source hash verified, CAPTURING), `.gitignore` `e5b0f24e0` (`config/local/`, `.claude/settings.local.json`),
   paper-maker-paused flag `2703b65b3` (Stage A passes it; first run 09:30 09-26), **maker core Phase 0 `724f95cd4`, tag
-  `maker-core-contracts-v0.1`**, 95b: __95B__. Get `roll_verdict.ps1` and a `git merge-tree` check before any merge; every docs
+  `maker-core-contracts-v0.1`**, **95b signed band parser `802b967f4`** (fixes negative Celsius labels; bounded suite 22/22 on its third run), schema-audit
+  regression fix `dba5a0b99` (Phase 0's quoted profile name `informed_v0` read as a schema version; now `informed-v0`). Get `roll_verdict.ps1` and a `git merge-tree` check before any merge; every docs
   landing regenerates `docs/roadmap/correspondence-index.md`, so resync open branches first.
 - **Disk (binding):** 52.6 GiB at 00:32 09-26 → **83.5 GiB at 01:01** after removing 90 merged worktrees (+5.9) and NTFS-compressing
   retired `mm_runs`/`taker_runs` (51.4 GiB logical, 51.4 → 26.2 on disk, 148 folders, 0 errors; receipt
@@ -42,7 +43,7 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
   delete manifests (~21-26), 91a registration (largest), Drive campaigns, source-side compress-on-close.
 - **Host:** commit ~40%; W32Time Automatic; settlement repair per date via `settlement_backfill_one.ps1 -TargetDate <d> -Refetch`.
 - **Settlement source:** the venue resolves on the weather.gov WRH "Hourly Data" page since ~2026-08-23; master hard-codes WU;
-  band agreement 359/360; negative Celsius band labels mis-parse on master (fixed by 95b). EF §10c.
+  band agreement 359/360; negative Celsius band labels parse correctly since 95b (`802b967f4`). EF §10c.
 - **Armed work:** supervisors, 05:00 projection, 06:00 tiering, refreshes, 09:30 Stage-A, `WeatherMakerEvidenceCapture` (88a, every
   minute, public data only). Paper maker and taker retired (tasks Disabled). Training DISABLED; mirror PAUSED.
 - **Wallet (recorded reads only, `data/wallet_ledger/`):** baseline 09-25 17:38Z cash 102.97; 09-26 00:32Z cash 2.17 with a new
@@ -62,7 +63,7 @@ history: [forward plan](forward-plan-2026-09-23.md), [item 330](../roadmap/items
 ## Ordered critical path
 
 1. **Informed maker:** Phase 0 landed and tagged. Phase 1 weather plugin (`codex/weather-maker-plugin-20260925`, `c734e5c2b`):
-   real-data dry run, then land. Phase 2 replay harness on 88a data; Phase 3 shadow on the workstation; Phase 4 owner-started live.
+   real-data dry run deferred (no bounded entry point; handoff 110h adds one), then land. Phase 2 replay harness on 88a data; Phase 3 shadow on the workstation; Phase 4 owner-started live.
    Share `maker-core-contracts-v0.1` with the YouTube team.
 2. **Disk:** owner storage decisions; replay_cache and delete manifests; register 91a with a bounded nightly run; Drive campaigns.
 3. **Model:** 110g afternoon stage off (next quiet window); NBM layer 2 then 3; T+1 fair-value pre-registration scored after 10-08
