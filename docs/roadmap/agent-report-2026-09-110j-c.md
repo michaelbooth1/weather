@@ -38,8 +38,9 @@ Drive, task registration, live-order or merge actions were performed.
 The frozen-source consumer selection completed **766 passed, 2 skipped,
 35 subtests passed**; its two failures were the new guide's missing index link
 and untracked status. Both documentation issues are corrected in this branch.
-The final focused run includes the four mandatory audits and the projection,
-native compression, capture and admissibility regressions. All runs used
+The final committed-source focused run passed **77 tests and 2 subtests**,
+including all four mandatory audits and the projection, native compression,
+capture and admissibility regressions. All runs used
 `workstation_heavy.ps1 -Kind pytest`, the repository interpreter and explicit
 `--basetemp C:/Users/Michael/AppData/Local/Temp/weather-110j-c`.
 
@@ -49,8 +50,8 @@ forecast persistence and point-in-time preselection tests. An earlier active
 run correctly rejected source edits through the runtime-identity guard; the
 subsequent qualification run held source fixed. PowerShell parsing of the
 extended wrapper reported no errors. No production compression savings are
-claimed. Delete only this task's exact temporary fixture directory after the
-final run; retain the worktree and reports.
+claimed. This task's exact temporary fixture directory was removed after the
+final run; the worktree and reports are retained.
 
 ## Production commands
 
@@ -60,7 +61,8 @@ Before integration on production, obtain the repository-owned verdict:
 .\scripts\ops\roll_verdict.ps1 -Branch codex/compress-on-close-20260926 -Base origin/master
 ```
 
-Workstation live closure evidence is unavailable; conservatively treat Python
+The tool returned **UNDECIDABLE: no live closure evidence**, naming the missing
+loop, CLOB, observation-trigger and enrichment status files. Conservatively treat Python
 source as roll-sensitive until production determines its imported closure.
 Adopt the readers and capture switch together in the verdict-required lane.
 Do not land the writer subset alone. The native handle-limit change overlaps
