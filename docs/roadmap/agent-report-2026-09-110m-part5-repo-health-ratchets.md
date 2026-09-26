@@ -68,7 +68,7 @@ legacy field names. Before first publication, the seed was qualified against
 these exact companion changes, rather than adding directory-wide waivers:
 
 - `test_status_script.py`: 2,007 to 2,036 lines, covering the new alarm fixtures.
-- Exact token counts in nightly health and six associated/new fixture files,
+- Exact token counts in nightly health and five associated/new fixture files,
   including neutral-helper compatibility and retired-registrar controls.
 - Only `bin_value_c` and `bin_value_hi_c` in the new signed-band fixture file.
 
