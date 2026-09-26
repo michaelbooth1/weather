@@ -415,3 +415,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-110l | handoff | [Workstation handoff 2026-09-110l — informed maker Phase 2: replay harness (`maker_core/replay/`)](workstation-handoff-2026-09-110l-maker-replay-harness-phase2.md) | 2026-09-26 | none in tree | 10o | — |
 | 2026-09-110m | handoff | [Workstation handoff 2026-09-110m — repo-health code fixes and regrowth ratchets](workstation-handoff-2026-09-110m-repo-health-code-fixes.md) | 2026-09-26 | none in tree | — | — |
 | 2026-09-110n | handoff | [Workstation handoff 2026-09-110n — ops scripts: alarm path, retired tasks, Stage-A taker decoupling](workstation-handoff-2026-09-110n-ops-scripts-and-alarm-path.md) | 2026-09-26 | none in tree | — | — |
+| 2026-09-110o | handoff | [Workstation handoff 2026-09-110o — implement the owner's 10 repo-health decisions](workstation-handoff-2026-09-110o-repo-health-owner-decisions.md) | 2026-09-26 | none in tree | — | 1, 3 |
