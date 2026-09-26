@@ -68,9 +68,36 @@ def test_moved_public_and_platform_helpers_are_single_owners():
 
 def test_all_datetime_clock_definitions_use_the_shared_owner():
     # Explicit string clocks are deliberately outside the datetime contract.
+    validators = {
+        'market/mm_geographic_eligibility.py',
+        'reporting/scorecards/captured_input_parity_evidence.py',
+    }
     for path in (ROOT/'src/weather').rglob('*.py'):
         source=path.read_text(encoding='utf-8-sig')
         for node in ast.parse(source).body:
-            if isinstance(node,ast.FunctionDef) and node.name=='utc_now' and path.name!='time.py':
+            if isinstance(node,ast.FunctionDef) and node.name in {'utc_now', '_utc_now'} and path.name!='time.py':
                 body=ast.get_source_segment(source,node)
+                if path.relative_to(ROOT/'src/weather').as_posix() in validators:
+                    assert 'shared_utc_now()' in body and 'datetime.now(' not in body, path
+                    continue
                 assert '.isoformat()' in body or 'return utc_iso()' in body, path
+
+
+def test_private_clock_validators_preserve_errors_and_shared_fallback(monkeypatch):
+    from weather.collection import triggered_snapshot_queue as queue
+    from weather.market import mm_geographic_eligibility as eligibility
+    from weather.reporting.scorecards import captured_input_parity_evidence as parity
+    expected = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
+    assert queue._utc_now is time.utc_now
+    monkeypatch.setattr(eligibility, 'shared_utc_now', lambda: expected)
+    monkeypatch.setattr(parity, 'shared_utc_now', lambda: expected)
+    assert eligibility._utc_now(None) == parity._utc_now(None) == expected
+    shifted = datetime.fromisoformat('2026-09-26T08:00:00-04:00')
+    assert eligibility._utc_now(lambda: shifted) == parity._utc_now(shifted) == expected
+    for value in [expected.replace(tzinfo=None), 'bad', None]:
+        with pytest.raises(eligibility.GeographicEligibilityError, match='CLOCK_NOT_UTC_AWARE'):
+            eligibility._utc_now(lambda: value)
+    with pytest.raises(ValueError, match='now must be timezone-aware'):
+        parity._utc_now(expected.replace(tzinfo=None))
+    with pytest.raises(AttributeError):
+        parity._utc_now('bad')
