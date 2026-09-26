@@ -53,16 +53,18 @@ accepts explicit root/output paths for synthetic verification. Canonical procedu
 
 ## Verification
 
-The initial focused run passed **772 tests, 12 skipped, 40 subtests**. It includes
+The final focused run passed **773 tests, 12 skipped, 40 subtests**. It includes
 WU proof/caller, cleanup preflight, storage classes, projection tiering, all
 `tests/maker_core`, and repo-wide schema registry, import architecture, agent docs
 audit and path policy. The architecture file includes maker-core import boundaries
-and their negative tests. The wrapper parsed successfully without execution.
+and their negative tests. The wrapper parsed successfully without execution;
+focused compileall passed. Temporary pytest files were removed after verification.
 
 Fixtures cover live/reused/unknown PID cases, strict age, missing sibling, open
 handles, stale hash/mtime/final identity, forged proof/review, proof changes after
 intent, byte/time/entry caps, generic-preflight bypass attempts, raw manifest hash,
-immutable outputs, native current-process identity, and native handle deletion.
+immutable outputs, native current-process identity, native hard-link refusal,
+and native handle deletion.
 All tests use the workstation admission wrapper and a dedicated temporary directory.
 
 ## Per-file roll classification
