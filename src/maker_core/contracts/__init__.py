@@ -143,12 +143,14 @@ class InfoEvent:
         for t in (self.scheduled_at_utc, self.observed_at_utc, self.detected_at_utc):
             if t is not None:
                 utc_time(t)
+        reference = self.detected_at_utc or self.observed_at_utc or self.scheduled_at_utc
+        if reference is None:
+            raise ValueError("event requires at least one reference time")
         if self.observed_at_utc and self.detected_at_utc and self.detected_at_utc < self.observed_at_utc:
             raise ValueError("detection precedes observation")
         if self.active_until_utc is not None:
             utc_time(self.active_until_utc)
-            reference = self.detected_at_utc or self.observed_at_utc or self.scheduled_at_utc
-            if reference is None or self.active_until_utc < reference:
+            if self.active_until_utc < reference:
                 raise ValueError("event expiry precedes or lacks reference time")
         probability(self.severity)
         if self.action_hint not in {"pull", "widen", "recentre", "observe"}:
