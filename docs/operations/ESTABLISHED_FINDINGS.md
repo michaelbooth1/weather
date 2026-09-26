@@ -48,6 +48,7 @@ sequence numbers, not calendar dates.
 | 1i | α = 0.0025 is short on the thin tail; quantile amendment A1 (`-09-62a`) |
 | 1j | Decision 10 closed unused; Gate 3 fired on a floor never served (`-09-63a`) |
 | 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered |
+| 1m | Workstation research lineage 2026-09-01..04 (unmerged): the eleven extra free PIT fields are tested and inconclusive three times, never harmful; provider history depth by field/year; no free v2 PIT source |
 | 2 | The cool bias is real, seasonal-coverage caused, and not correctable at serve |
 | 3 | The serving floor fix: the one shipped win |
 | 4 | The model was feature-blind all day, fleet-wide; repaired; the repair did not move the gap |
@@ -986,9 +987,10 @@ and is **forbidden** as benchmark-consuming (§0c).
 
 And there is exactly one untapped free source: **the 11 PIT forecast fields the fetcher never
 requested** (§0a). **Note carefully — §1f tested our own *station observations* at cutoff, not
-*forecast-model output at issue time*.** Those fields do not exist in the archive, so they are
-**untested, not disproven.** That makes the re-fetch the top item, and it is production work
-because the workstation may not call providers.
+*forecast-model output at issue time*.** They were fetched and staged 2026-08-10 (§1e) and then
+tested three times on the workstation research lineage (§1m): a pooled-refit replacement was adverse on the centre,
+and an NWP-anchored residual challenger was **inconclusive and never harmful** at powers 0.06-0.39. They are
+**tested, not resolved**; the spent evaluations may not be reused.
 
 ---
 
@@ -1352,6 +1354,81 @@ candidate must be the closer arm on at least 57 rows for a positive mean. Both d
 proved reachable before the data was read. Limit: B decision stratum only, 11 date clusters; no
 outcome, label or market price was read. Source:
 `agent-report-2026-09-02-workstation-estimand-power-and-sign.md`.
+
+---
+
+## 1m. THE ELEVEN EXTRA FREE PIT FIELDS ARE TESTED, NOT UNTESTED — workstation research lineage, 2026-09-01..04 (unmerged)
+
+Recorded 2026-09-25 from branch-only reports (model-lanes audit "Missing paths" 2; numbers re-checked against the reports by
+the production agent). These research ids collide with later production missions of the same numbers: cite them as
+`research 2026-09-NNx` with the branch. The lineage branches from master at `c932b54f8` (2026-08-31); no commit below is on
+master. All results are point-forecast research on the workstation: nothing promoted, served, released, or allocated α.
+Crossed target-date × market pigeonhole bootstrap, 20,000 draws, percentile 95%, throughout.
+
+### The corpora (research `2026-09-87a`, `2026-09-89a`; collected 2026-09-02)
+
+Two Previous Runs corpora exist **only on the workstation**, each collected from a plan committed before the first provider
+call and content-addressed:
+
+| Corpus | Root (workstation) | Rows requested = normalized | Non-null / missing | Manifest SHA-256 |
+| --- | --- | ---: | ---: | --- |
+| 12 fields, leads 1-7, May 10-Aug 31, 2021-2025 (120 units) | `C:\Users\Michael\Documents\Codex\inputs\pit-12field-multiyear-2021-2025` | 13,789,440 | 5,975,424 / 7,814,016 | `d41bd21efb7a…` |
+| 11 fields, Jan 1-May 9 and Sep 1-Dec 31, 2024-2025 (96 units) | `C:\Users\Michael\Documents\Codex\inputs\pit-11field-2024-2025-calendar-extension` | 11,154,528 | 10,682,595 / 471,933 | `501e5d0e22a0…` |
+
+**Provider history depth is a field × year boundary:** `temperature_2m` is complete 2021-2025; the other ten fields exist for
+2024-2025 only; `precipitation_probability` for 2025 only; the calendar extension's only gap is early January 2024. This
+reconciles §4f (Toronto 2021: temperature only) with §0a (2026: 12 of 21). Both corpora carry
+`HISTORICAL_FIRST_AVAILABILITY_UNPROVEN`: research inputs only, not the production v2 PIT contract.
+
+### The pooled-refit replacement challenger lost on the centre (research `2026-09-86a`, 2026-09-02)
+
+Design frozen at `2b0057394` before any C outcome was opened; fit on in-season B (23 dates, 204 market-days); scored on C-pre
+(27 dates, 320 market-days, 7,653 snapshots). The repository pooled-band classifier with the 12-field surface vs temperature only:
+
+| C-pre endpoint | Point | Crossed 95% | Power |
+| --- | ---: | ---: | ---: |
+| Centre-SSE improvement | −1.341677301 | [−4.678093564, 1.065943194] | 0.148 |
+| Brier delta (challenger − baseline) | −0.000555427 | [−0.004691350, 0.003748432] | 0.058 |
+
+Four of six frozen conditions failed (San Francisco alone −15.70 SSE); verdict **`INCONCLUSIVE_UNDERPOWERED`**, and the frozen
+rule forbids a second replication. The research baseline (Brier 0.0779) is not the served incumbent, so this says nothing about
+serving. It was a research-only look on the sealed C-pre panel with no `CAMPAIGN_LEDGER.md` row (§1d counts looks; owner call).
+
+### The residual information test is inconclusive three times and never harmful (research `2026-09-88a`, `2026-09-100h`, `2026-09-90a`)
+
+Target = native settlement high − median NWP maximum anchor over leads 2-7; baseline = temperature-only features; challenger adds
+the ten extra fields (median and SD across leads); two `HistGradientBoostingRegressor` fits; WU `row_count ≥ 18`.
+
+| Test | Frozen before outcomes | Evaluate | Primary MSE improvement, C² [crossed 95%] | Power | Verdict |
+| --- | --- | --- | ---: | ---: | --- |
+| `88a` | `c9f41c5bc` | 2025 May-Aug, 1,365 md, 114 dates (train 2024 May-Aug) | **0.2751 [−0.0234, 0.6186]** | 0.389 | `INCONCLUSIVE_UNDERPOWERED` |
+| `100h`, no refit | amendment `5d6c9c1f…` | 2026 pre 06-03..07-30 (694 md); post 07-31..08-09 (120 md) | pre 0.4191 [−0.0410, 0.9678]; post 0.3681 [−0.1542, 0.9501] | 0.374 / 0.259 | `EXTERNAL_DIRECTION_CONSISTENT` (directional; verdict unchanged) |
+| `90a` | `5ce4a11a1` | 2025 Feb 1-May 9 + Sep-Dec, 2,624 md, 219 dates (train 2024 Feb-Dec) | **0.045130 [−0.242193, 0.355152]**; early −0.0767, late +0.1420 | 0.061 | `INCONCLUSIVE_UNDERPOWERED` |
+
+Read together: the fleet MSE point is positive in four of five cohorts and never below zero, but no interval excludes zero and
+the outside-window replication is an order of magnitude smaller with one adverse segment. **The fields carry no established
+information and no established harm.** All three evaluations are spent; a further test needs a new independently pre-committed
+design with more independent year support (2021-2023 are temperature-only). A reproduction-and-power preflight
+(`codex/48h-residual-preflight-20260911` @ `cbaa7cf9f`) was built and never executed.
+
+### No free source satisfies the v2 point-in-time contract (research `2026-09-82a`, 2026-09-01)
+
+**`NO_GO_PROVIDER_BOUND_AVAILABILITY_AND_PARITY`** from official documentation only (no provider called): NOAA GFS, ECMWF Open
+Data and Open-Meteo (Previous Runs, Historical Forecast, Single Runs, `data_run`, Model Updates) document no immutable historical
+per-artifact first-availability time, and none pairs a free 2021-2025 archive with a forward surface of equal 12-field hourly
+semantics. Closed under the frozen contract; the only valid next input is provider-owned availability evidence.
+
+### Evidence
+
+Branch-only reports (filename dates are labels): `agent-report-2026-09-06-workstation-pit-v2-source-contract.md`
+(`codex/workstation-pit-v2-source-contract-2026-09-82a` @ `2e20e59aa`); `agent-report-2026-09-10-workstation-12field-seasonal-challenger.md`
+and `agent-report-2026-09-11-workstation-multiyear-pit-research-collection.md` (`codex/workstation-collect-multiyear-pit-research-2026-09-87a`
+@ `3f3367b29`); `agent-report-2026-09-12-workstation-multiyear-nwp-residual.md` (`codex/workstation-multiyear-nwp-residual-2026-09-88a`
+@ `798225bc2`); `agent-report-2026-09-04-workstation-multiyear-nwp-residual-external-completion.md` (100i publication branch @
+`efaf8839f`); `agent-report-2026-09-13-workstation-calendar-extension.md` (`codex/workstation-collect-calendar-extension-2026-09-89a`
+@ `7839340f2`); `agent-report-2026-09-14-workstation-calendar-residual-replication.md` (`codex/workstation-calendar-residual-replication-2026-09-90a`
+@ `91fe352f0`). Run roots on the workstation under `C:\Users\Michael\Documents\github\weather\scratch\runs\` (existence today
+UNVERIFIED). The lineage's own `item-330-model-bom-…` file collides with master's item 330: never merge it.
 
 ---
 
@@ -1978,6 +2055,8 @@ matching total is not confirmation of a population. Three further facts, from di
 - Target range **2021-05-10 → 2026-06-23, months 05 and 06 only, zero July/August rows.** The
   honest corpus on disk is in the **stale** window §4b/`-09-31a` blamed for the cool bias, so
   **it cannot train the season we serve.** Collecting July 17 – Aug 14 is genuinely un-started.
+  **Update 2026-09-25:** a *research* corpus with May-August 2021-2025 (temperature all years; 11 further fields
+  2024-2025) and a Jan-May 9 / Sep-Dec 2024-2025 extension exist on the workstation only (§1m); production `data/` is unchanged.
 
 **So the corpus question is narrower than "free tier cannot do PIT".** It is: *the PIT surface
 carries temperature only.* The rich 21-field corpus is settled-analysis and contaminates the fit;

@@ -15,6 +15,7 @@ citations).
 
 | Audit | Added | Scope | Verdict (one line) | Open | Dispositions | Status |
 | --- | --- | --- | --- | --- | --- | --- |
+| [maker-contract-review-2026-09-25](maker-contract-review-2026-09-25.md) | 2026-09-25 | maker_core contracts v0.1, decide(), weather plugin, ratchet | contract needs no breaking change; 3 HIGH policy defects; tag after 110c | 110c fixes | inside the file | OPEN |
 | [model-lanes-audit-2026-09-25](model-lanes-audit-2026-09-25.md) | 2026-09-25 | every model lane, missing paths, stale pipeline, plan | levers pulled but unrecorded; live afternoon shift contradicts canon; archive frozen 06-23; no T+1/T+2 model | docs mission, T+1 fair value, afternoon stage, archive, identity (owner calls) | inside the file | OPEN |
 | [afternoon-audit-2026-09-25](afternoon-audit-2026-09-25.md) | 2026-09-25 | day's work, disk vs 88a floor, reward terms, pause flag, wallet reader, tonight | work sound; 88a nearly hit its 50 GiB floor (fixed by reclaim); min size now 20 | P&L split (100e), pause-flag status guard, owner calls | inside the file | OPEN |
 | [positions-review-2026-09-25](positions-review-2026-09-25.md) | 2026-09-25 | open RE-1 lots: hold/sell/rest EV, inventory policy, wallet reader | sell Miami, rest Chicago @0.37; policy + bleed limit; reader as a keyless script | wallet reader (100a) | inside the file; owner placed both orders | OPEN |

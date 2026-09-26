@@ -21,6 +21,13 @@ gaps are graded; it does not rank the streak above settlement evidence.
 
 ## Target Shape
 
+The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) is
+retired; retain code and evidence for historical replay. The Stage 2 hold build
+at `88aa7e43a` is frozen as fixtures only, not a runtime migration source.
+The replacement foundation is [maker core](maker-core-contracts.md). Production
+operations owns unregistering disabled paper tasks with backups in a separate
+operation; this retirement changes no scheduled task or capture worker.
+
 The operating setup has three layers:
 
 1. Windows Task Scheduler runs short-lived supervisors that keep three

@@ -93,7 +93,7 @@ def test_orphan_frame_still_counts_against_cap(store):
     assert restarted.stream_capped and restarted.stream_bytes == 11
 
 
-@pytest.mark.parametrize("free,band", [(49.9, "critical"), (50, "red"), (59.99, "red"),
+@pytest.mark.parametrize("free,band", [(39.9, "critical"), (40, "red"), (49.9, "red"), (50, "red"), (59.99, "red"),
                                         (60, "amber"), (74.99, "amber"), (75, "green")])
 def test_storage_brake_boundaries(free, band):
     assert disk_band(free * 1024**3) == band
@@ -199,7 +199,7 @@ def test_critical_disk_stops_before_network_and_writes_status(tmp_path, monkeypa
     from weather.market import maker_evidence_capture as capture
     args = capture.build_parser().parse_args(["--root", str(tmp_path / "capture"), "--duration-seconds", "1"])
     monkeypatch.setattr(capture, "lowest_priority", lambda: None)
-    monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 49 * 1024**3)
+    monkeypatch.setattr(EvidenceStore, "free_bytes", lambda self: 39 * 1024**3)
     monkeypatch.setattr(capture, "build_universe", lambda *a, **k: pytest.fail("network after critical disk"))
     assert capture.capture(args) == 2
     status = json.loads((args.root / "status.json").read_text())

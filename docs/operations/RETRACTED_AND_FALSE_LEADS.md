@@ -81,6 +81,14 @@ is information. Calibration work is not a path to edge.
 - **Why it fooled us:** a pooled rate averaged across a fix. The first version of the trace document
   was cited in a handoff before it was corrected.
 
+### "The 11 extra PIT fields are untested, not disproven" — STALE SINCE 2026-09-02
+
+EF §1g (2026-08-10) said the fields were untested, making the re-fetch the top item. The fetch ran 2026-08-10 and the
+fields were tested three times on the unmerged workstation research lineage (EF §1m): a pooled-refit replacement
+worsened the C-pre centre; an NWP-anchored residual challenger was `INCONCLUSIVE_UNDERPOWERED` (2025 May-Aug +0.2751 C²
+[−0.0234, 0.6186]), directionally consistent in 2026, near zero outside the window. Still not disproven; no longer
+untested. It fooled us because the reports sat on unmerged branches whose ids were reused by later production missions.
+
 ### "`high_so_far` is a running maximum" — FALSE
 
 - **What it looked like:** a day's high so far can only rise, so a fall must be a rare pre-dawn
