@@ -30,6 +30,29 @@ listed as a transitional edge in `tests/operations/test_import_architecture.py`.
 - Not checked: relative imports, and the content of this document. The test only asserts that this file exists,
   so keeping the lists below aligned with the tables is a manual duty.
 
+## Domain-neutral maker boundary
+
+`src/maker_core/` is a separate setuptools-discovered package, never a weather
+compatibility wrapper. Its v0.1 API and input/path conventions are owned by
+[maker-core-contracts.md](maker-core-contracts.md). Runtime paths are explicit
+caller inputs, so the neutral package never imports `weather.paths`.
+
+`test_maker_core_and_plugin_import_boundaries` enforces these additional edges:
+
+- No `weather.*` import anywhere in `maker_core`, including literal dynamic imports.
+- SDK/HTTP (`polymarket`, `py_clob_client`, `eth_account`, `dotenv`, `requests`,
+  `httpx`, `urllib`, `socket`) imports belong only to `maker_core.venue`.
+- Environment/vault credential access belongs only to
+  `maker_core.runtime.credentials`; that module does not exist in Phase 0.
+- `quoting` and `portfolio` cannot import `venue` or `runtime`. `quoting` may
+  import contracts, its kernels and the evidence canonical serializer; evidence
+  imports contracts for UTC validation. The other packages remain stubs.
+- A future `weather.market.maker_plugin` imports only `maker_core.contracts`
+  from the core. The fictional plugin follows the same rule.
+
+The new AST ratchet resolves relative imports and import aliases, and refuses
+computed dynamic imports. It is a source boundary check, not a general sandbox.
+
 ## Shared Utilities
 
 These packages are intentionally importable by any owner package:

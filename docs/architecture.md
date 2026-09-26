@@ -22,6 +22,7 @@ the evidence and release gates.
 | Owner | Responsibility |
 | --- | --- |
 | `app/` | Thin Streamlit routing and presentation views |
+| `maker_core` | Domain-neutral plugin contracts, pure quote proposals and hash-chained offline evidence; [contract](operations/maker-core-contracts.md) |
 | `weather.sources` | Provider fetch/parsing, historical stores, source schemas |
 | `weather.model` | Serving-time source assembly, features, distributions, calibration application |
 | `weather.calibration` | Training, candidate replay/scoring, calibration, artifact production |

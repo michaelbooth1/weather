@@ -14,6 +14,14 @@
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
 
+The legacy paper maker (`weather.market.mm_policy`, `market_making_run*`, and
+`mm_paper*`) is retired from new maker development. Keep its code and evidence
+for historical replay; the split suggestions below are historical maintenance
+notes, not a migration plan. The Stage 2 hold build at `88aa7e43a` is frozen as
+fixtures only. New domain-neutral contracts, quoting and journals belong to
+`maker_core` ([contract](maker-core-contracts.md)). No scheduled task is changed
+by this documentation retirement.
+
 Reviewed module-size warning allowance:
 
 - Warning threshold: 2,000 lines.
