@@ -199,6 +199,108 @@ def _persist_in_memory(payload: dict) -> None:
     _ = copy.deepcopy(payload)
 
 
+def _make_twin_fixture(tmp_path, *, slug=SLUG):
+    root, folder, record = _make_fixture(tmp_path, slug=slug)
+    for name in (tiering.ORDER_BOOK_RAW, tiering.ORDER_BOOK_LONG):
+        path = folder / name
+        compressed = path.with_name(name + ".gz")
+        compressed.write_bytes(gzip.compress(path.read_bytes(), mtime=0))
+        path.unlink()
+        quiet = time.time() - tiering.MIN_QUIET_SECONDS - 60
+        os.utime(compressed, (quiet, quiet))
+    manifest_path = folder / "event_day_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_families"][0]["files"] = [
+        _manifest_record(folder / name, root, rebuild_source="order_books.jsonl.gz")
+        for name in ("order_books.jsonl.gz", "order_books_long.csv.gz")]
+    manifest["manifest_hash"] = manifest_content_hash(manifest)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return root, folder, record
+
+
+def _twin_plan(root, **kwargs):
+    return tiering.build_plan(root, as_of_date="2026-07-07", delete_twins=True,
+                             manifest_validator=_pass_manifest_validator, **kwargs)
+
+
+def test_twin_synthetic_inventory_and_budget(tmp_path):
+    root, folder, _ = _make_twin_fixture(tmp_path)
+    _, missing, _ = _make_twin_fixture(tmp_path, slug="highest-temperature-in-austin-on-june-21-2026")
+    (missing / "order_books.jsonl.gz").unlink()
+    _, split, _ = _make_twin_fixture(tmp_path, slug="highest-temperature-in-austin-on-june-20-2026")
+    (split / "order_books.jsonl").write_text("{}\n")
+    _make_twin_fixture(tmp_path, slug="highest-temperature-in-austin-on-june-23-2026")
+    plan = _twin_plan(root)
+    assert plan["summary"]["folder_count"] == 4
+    assert plan["summary"]["eligible_action_count"] == 1, plan["folders"]
+    assert plan["actions"][0]["source"]["path"] == f"{folder.name}/order_books_long.csv.gz"
+    assert _twin_plan(root, max_bytes=1)["summary"]["eligible_action_count"] == 0
+
+
+def test_twin_proof_apply_preserves_raw_and_refreshes_manifest(tmp_path):
+    root, folder, _ = _make_twin_fixture(tmp_path)
+    raw = (folder / "order_books.jsonl.gz").read_bytes()
+    selection = _twin_plan(root)
+    proof = tiering.prove_twin_plan(selection, manifest_validator=_pass_manifest_validator)
+    approved = _approve(proof)
+    result = tiering.apply_approved_plan(approved, manifest_validator=_pass_manifest_validator,
+        persist_receipt=_persist_in_memory, approved_manifest_identity=_approved_identity(tmp_path, approved))
+    assert result["status"] == "PASS", result
+    assert result["summary"]["gzip_twins_removed"] == 1
+    assert result["summary"]["gzip_retained"] == 0
+    assert not (folder / "order_books_long.csv.gz").exists()
+    assert (folder / "order_books.jsonl.gz").read_bytes() == raw
+    assert "order_books_long.csv.gz" not in (folder / "event_day_manifest.json").read_text()
+
+
+@pytest.mark.parametrize("mutation", ["raw", "twin", "lock", "split", "manifest", "proof"])
+def test_twin_apply_refuses_changed_or_unproved_input(tmp_path, mutation):
+    root, folder, _ = _make_twin_fixture(tmp_path)
+    selection = _twin_plan(root)
+    proof = tiering.prove_twin_plan(selection, manifest_validator=_pass_manifest_validator)
+    if mutation == "proof":
+        proof = selection
+    approved = _approve(proof)
+    identity = _approved_identity(tmp_path, approved)
+    if mutation in {"raw", "twin"}:
+        name = "order_books.jsonl.gz" if mutation == "raw" else "order_books_long.csv.gz"
+        with (folder / name).open("ab") as handle:
+            handle.write(b"changed")
+    elif mutation == "lock":
+        (folder / ".snapshot.lock").write_text("held")
+    elif mutation == "split":
+        (folder / "order_books.jsonl").write_text("{}\n")
+    elif mutation == "manifest":
+        (folder / "event_day_manifest.json").write_text("{}")
+    result = tiering.apply_approved_plan(approved, manifest_validator=_pass_manifest_validator,
+        persist_receipt=_persist_in_memory, approved_manifest_identity=identity)
+    assert result["status"] == "BLOCK"
+    assert (folder / "order_books_long.csv.gz").exists()
+
+
+def test_twin_rebuild_detects_row_difference_and_corrupt_gzip(tmp_path):
+    root, folder, _ = _make_twin_fixture(tmp_path)
+    raw = folder / "order_books.jsonl.gz"
+    twin = folder / "order_books_long.csv.gz"
+    twin.write_bytes(gzip.compress(b"different CSV\r\n"))
+    with pytest.raises(tiering.ProjectionTieringError, match="differs byte-for-byte"):
+        tiering._twin_rebuild_proof(raw, twin)
+    raw.write_bytes(b"broken gzip")
+    with pytest.raises(OSError):
+        tiering._twin_rebuild_proof(raw, twin)
+
+
+def test_twin_night_budget_cannot_be_reset_by_a_new_plan(tmp_path):
+    root, _, _ = _make_twin_fixture(tmp_path)
+    plan = _twin_plan(root)
+    plan["max_bytes"] = plan["summary"]["planned_source_bytes"]
+    tiering._reserve_twin_night_budget(plan)
+    plan["plan_hash"] = "another-plan"
+    plan["max_bytes"] *= 100
+    with pytest.raises(tiering.ProjectionTieringError, match="budget exhausted"):
+        tiering._reserve_twin_night_budget(plan)
+
+
 def _refresh_fixture_manifest(
     folder: Path,
     *,
@@ -256,7 +358,7 @@ def test_registry_covers_every_archive_family_and_only_long_is_eligible():
     assert all(row["blocker"] for row in rows if not row["eligible"])
 
     long_family = tiering.PROJECTION_FAMILIES_BY_NAME["order_books_long"]
-    assert long_family.canonical_rebuild_sources == ("order_books.jsonl",)
+    assert long_family.canonical_rebuild_sources == ("order_books.jsonl", "order_books.jsonl.gz")
     assert (
         "canonical_jsonl:order_books.jsonl"
         in long_family.accepted_read_representations

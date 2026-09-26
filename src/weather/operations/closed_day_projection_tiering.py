@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import copy
 import gzip
 import hashlib
 import json
@@ -79,6 +80,7 @@ REBUILD_SCHEMA_VERSION = schema_version("closed_day_projection_rebuild")
 WRITER = "weather.operations.closed_day_projection_tiering"
 
 RAW_TAPE_WRITER_LOCK = ".clob_raw_tape.writer.lock"
+TWIN_DELETE = "remove_verified_gzip_twin"
 
 
 class ProjectionTieringError(RuntimeError):
@@ -317,6 +319,7 @@ def _writer_lock_paths(
     candidates = [folder / ".snapshot.lock"]
     candidates.extend(path for path in folder.glob("*.lock") if path.is_file())
     candidates.extend(path for path in folder.glob(".*.lock") if path.is_file())
+    candidates.extend(path for path in folder.glob("*.writerlock") if path.is_file())
     excluded = Path(exclude).resolve() if exclude else None
     return sorted(
         {
@@ -457,6 +460,7 @@ def _plan_folder(
     as_of: date,
     ledger_root: Path,
     manifest_validator: Callable[..., dict[str, Any]],
+    delete_twins: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     blockers: list[str] = []
     target_date = date_from_event_slug(folder.name)
@@ -464,6 +468,8 @@ def _plan_folder(
         return _blocked_folder(folder, ["event_slug_has_no_target_date"]), None
     if target_date >= as_of:
         blockers.append("event_day_is_not_closed_before_as_of_date")
+    if delete_twins and (as_of - target_date).days <= 14:
+        blockers.append("twin_requires_day_strictly_older_than_14_days")
 
     lock_paths = _writer_lock_paths(folder)
     if lock_paths:
@@ -504,9 +510,16 @@ def _plan_folder(
         if validation.get("status") != "PASS":
             blockers.append("event_day_manifest_current_validation_blocked")
 
-    source = folder / ORDER_BOOK_LONG
+    source = folder / (ORDER_BOOK_LONG_GZIP if delete_twins else ORDER_BOOK_LONG)
     gzip_path = folder / ORDER_BOOK_LONG_GZIP
-    raw = folder / ORDER_BOOK_RAW
+    raw = folder / (ORDER_BOOK_RAW + ".gz" if delete_twins else ORDER_BOOK_RAW)
+    if delete_twins:
+        try:
+            _assert_twin_unsplit(folder)
+        except ProjectionTieringError as exc:
+            blockers.append(str(exc))
+        if raw.is_file() and not source_is_quiet(raw):
+            blockers.append("canonical_raw_recently_written")
     for path, reason in (
         (source, "order_books_long_csv_missing"),
         (raw, "canonical_order_books_jsonl_missing"),
@@ -536,19 +549,19 @@ def _plan_folder(
         manifest_identity = _file_identity(manifest_path, root=snapshots_root)
         source_record = _assert_manifest_record_current(
             manifest,
-            ORDER_BOOK_LONG,
-            {**source_identity, "path": ORDER_BOOK_LONG},
+            source.name,
+            {**source_identity, "path": source.name},
             expected_storage_class="analysis_projection",
         )
         raw_record = _assert_manifest_record_current(
             manifest,
-            ORDER_BOOK_RAW,
-            {**raw_identity, "path": ORDER_BOOK_RAW},
+            raw.name,
+            {**raw_identity, "path": raw.name},
             expected_storage_class="canonical_evidence",
         )
         deletion_validation = validate_deletion_candidates(
             manifest,
-            [ORDER_BOOK_LONG],
+            [source.name],
         )
         if deletion_validation.get("status") != "PASS":
             raise ProjectionTieringError(
@@ -639,6 +652,10 @@ def _plan_folder(
         "action_id": action_id,
         "target_date": target_date.isoformat(),
     }
+    if delete_twins:
+        action["action"] = TWIN_DELETE
+        action["deletion_reason"] = "remove gzip projection only after exact canonical JSONL rebuild parity"
+        action["cleanup_candidate"]["deletion_reason"] = action["deletion_reason"]
     return folder_row, action
 
 
@@ -666,6 +683,8 @@ def build_plan(
     ledger_root: str | Path | None = None,
     generated_at_utc: str | None = None,
     manifest_validator: Callable[..., dict[str, Any]] | None = None,
+    delete_twins: bool = False,
+    max_bytes: int = 1024 ** 3,
 ) -> dict[str, Any]:
     """Build a read-only plan; no snapshot artifact is written or changed."""
 
@@ -674,6 +693,8 @@ def build_plan(
     if not root.exists() or not root.is_dir():
         raise ProjectionTieringError(f"snapshots root does not exist: {root}")
     as_of = _parse_date(as_of_date)
+    if type(max_bytes) is not int or max_bytes <= 0:
+        raise ProjectionTieringError("max_bytes must be a positive integer")
     ledger_value = ledger_root or data_root_for_snapshots(root) / "settlements"
     _assert_no_lexical_reparse_points(
         ledger_value,
@@ -693,7 +714,10 @@ def build_plan(
                 as_of=as_of,
                 ledger_root=resolved_ledger_root,
                 manifest_validator=validator,
+                delete_twins=delete_twins,
             )
+            if delete_twins and action is not None and sum(a["source"]["bytes"] for a in actions) + action["source"]["bytes"] > max_bytes:
+                folder_row, action = _blocked_folder(folder, ["night_byte_budget_exceeded"]), None
             folder_rows.append(folder_row)
             if action is not None:
                 actions.append(action)
@@ -733,6 +757,10 @@ def build_plan(
         },
         "plan_hash": "",
     }
+    if delete_twins:
+        plan["twin_delete"] = True
+        plan["max_bytes"] = max_bytes
+        plan["proof_status"] = "REQUIRED"
     plan["plan_hash"] = plan_content_hash(plan)
     return plan
 
@@ -931,6 +959,7 @@ def _prepare_gzip(
 
 
 def _assert_action_shape(action: dict[str, Any], snapshots_root: Path) -> dict[str, Path]:
+    twin = action.get("action") == TWIN_DELETE
     if action.get("projection_family") != "order_books_long":
         raise ProjectionTieringError("only order_books_long actions are permitted")
     source = _resolve_under_root(snapshots_root, action["source"]["path"])
@@ -943,11 +972,11 @@ def _assert_action_shape(action: dict[str, Any], snapshots_root: Path) -> dict[s
         snapshots_root,
         action["event_manifest"]["path"],
     )
-    if source.name != ORDER_BOOK_LONG:
+    if source.name != (ORDER_BOOK_LONG_GZIP if twin else ORDER_BOOK_LONG):
         raise ProjectionTieringError("source must be exact order_books_long.csv")
     if gzip_path.name != ORDER_BOOK_LONG_GZIP:
         raise ProjectionTieringError("gzip target must be exact order_books_long.csv.gz")
-    if raw.name != ORDER_BOOK_RAW:
+    if raw.name != (ORDER_BOOK_RAW + ".gz" if twin else ORDER_BOOK_RAW):
         raise ProjectionTieringError("canonical source must be exact order_books.jsonl")
     if manifest_path.name != event_day_manifest_path(source.parent).name:
         raise ProjectionTieringError("event manifest path is not exact")
@@ -995,9 +1024,10 @@ def _assert_action_current_before_compression(
     plan: dict[str, Any],
     snapshots_root: Path,
     manifest_validator: Callable[..., dict[str, Any]],
+    held_lock: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     paths = _assert_action_shape(action, snapshots_root)
-    if _writer_lock_paths(paths["source"].parent):
+    if _writer_lock_paths(paths["source"].parent, exclude=(held_lock or {}).get("path")):
         raise ProjectionTieringError("event-folder writer lock appeared after planning")
     source_identity = _file_identity(paths["source"], root=snapshots_root)
     raw_identity = _file_identity(paths["raw"], root=snapshots_root)
@@ -1031,6 +1061,10 @@ def _assert_action_current_before_compression(
     target_date = date_from_event_slug(paths["source"].parent.name)
     if target_date is None or target_date >= _parse_date(plan["as_of_date"]):
         raise ProjectionTieringError("event day is not closed before approved as-of date")
+    if action.get("action") == TWIN_DELETE:
+        if (_parse_date(plan["as_of_date"]) - target_date).days <= 14:
+            raise ProjectionTieringError("twin requires age greater than 14 days")
+        _assert_twin_unsplit(paths["source"].parent)
     _assert_finalization_proof_current(
         (action.get("closed_finalized_proof") or {}).get("finalization") or {},
         folder=paths["source"].parent,
@@ -1039,17 +1073,161 @@ def _assert_action_current_before_compression(
     )
     _assert_manifest_record_current(
         manifest,
-        ORDER_BOOK_LONG,
-        {**source_identity, "path": ORDER_BOOK_LONG},
+        paths["source"].name,
+        {**source_identity, "path": paths["source"].name},
         expected_storage_class="analysis_projection",
     )
     _assert_manifest_record_current(
         manifest,
-        ORDER_BOOK_RAW,
-        {**raw_identity, "path": ORDER_BOOK_RAW},
+        paths["raw"].name,
+        {**raw_identity, "path": paths["raw"].name},
         expected_storage_class="canonical_evidence",
     )
     return paths
+
+
+def _assert_twin_unsplit(folder: Path) -> None:
+    raw_parts = {p.name for p in folder.glob("order_books*.jsonl*")}
+    long_parts = {p.name for p in folder.glob("order_books_long*.csv*")}
+    if raw_parts != {ORDER_BOOK_RAW + ".gz"} or long_parts != {ORDER_BOOK_LONG_GZIP}:
+        raise ProjectionTieringError("twin_day_split_or_missing_raw_or_projection")
+
+
+def _twin_rebuild_proof(raw: Path, reference: Path) -> dict[str, Any]:
+    """Hash the exact writer-format CSV stream without materializing a long table."""
+    digest = hashlib.sha256()
+    size = 0
+    rows = 0
+
+    class Sink:
+        def write(self, text: str) -> int:
+            nonlocal size
+            encoded = text.encode("utf-8")
+            digest.update(encoded)
+            size += len(encoded)
+            return len(text)
+
+    writer = csv.DictWriter(Sink(), fieldnames=BOOK_LEVEL_COLUMNS, extrasaction="ignore", restval="")
+    writer.writeheader()
+    with gzip.open(raw, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if (not isinstance(record, dict) or not isinstance(record.get("book"), dict)
+                    or not isinstance(record.get("token"), dict) or not record.get("capture_id")):
+                raise ProjectionTieringError("raw JSONL lacks book/token/capture_id")
+            rebuilt = order_book_level_rows(record["book"], record["token"],
+                                           _parse_datetime(record.get("captured_at_utc")), str(record["capture_id"]))
+            writer.writerows(normalize_csv_row(row) for row in rebuilt)
+            rows += len(rebuilt)
+    reference_identity = _gzip_payload_identity(reference)
+    if size != reference_identity["payload_bytes"] or digest.hexdigest() != reference_identity["payload_sha256"]:
+        raise ProjectionTieringError("rebuilt long CSV differs byte-for-byte from decompressed twin")
+    return {"status": "PASS", "payload_bytes": size, "payload_sha256": digest.hexdigest(),
+            "rebuilt_row_count": rows, "ordered_columns": list(BOOK_LEVEL_COLUMNS),
+            "ordering": "raw JSONL line order; original writer bid/ask level order; CSV CRLF"}
+
+
+def prove_twin_plan(plan: dict[str, Any], *, manifest_validator=None) -> dict[str, Any]:
+    if not plan_hash_valid(plan) or plan.get("twin_delete") is not True or plan.get("status") != "PASS":
+        raise ProjectionTieringError("a valid twin selection plan is required")
+    proved = copy.deepcopy(plan)
+    root = Path(plan["snapshots_root"])
+    for action in proved["actions"]:
+        if action.get("action") != TWIN_DELETE:
+            raise ProjectionTieringError("mixed actions are forbidden")
+        paths = _assert_action_current_before_compression(
+            action, plan=plan, snapshots_root=root,
+            manifest_validator=manifest_validator or validate_event_day_manifest,
+        )
+        action["rebuild_proof"] = _twin_rebuild_proof(paths["raw"], paths["source"])
+        for name, expected in (("raw", action["canonical_rebuild_source"]), ("source", action["source"])):
+            _assert_identity(_file_identity(paths[name], root=root), expected, "post rebuild")
+    proved["selection_plan_hash"] = plan["plan_hash"]
+    proved["proof_status"] = "PASS"
+    proved["operator_review"] = {"approved": False, "approved_by": "", "approved_at_utc": "",
+                                 "approved_plan_hash": "", "note": ""}
+    proved["plan_hash"] = plan_content_hash(proved)
+    return proved
+
+
+def _reserve_twin_night_budget(plan: dict[str, Any]) -> dict[str, Any]:
+    # Fixed data-root-local ledger: changing output directories or plan dates
+    # cannot reset the night's budget. Failed attempts retain their reservation.
+    root = data_root_for_snapshots(plan["snapshots_root"])
+    path = root / "logs" / f"projection-twin-budget-{datetime.now().date().isoformat()}.json"
+    _assert_no_lexical_reparse_points(path, "night budget")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = acquire_writer_lock(path, attempts=1, stale_after_seconds=float("inf"), sleep_seconds=0)
+    if lock is None:
+        raise ProjectionTieringError("twin night budget is busy")
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
+            "schema_version": RECEIPT_SCHEMA_VERSION, "mode": "night_budget",
+            "limit_bytes": plan["max_bytes"], "reserved_bytes": 0, "plan_hashes": []}
+        if (state.get("schema_version") != RECEIPT_SCHEMA_VERSION or state.get("mode") != "night_budget"
+                or type(state.get("limit_bytes")) is not int or state["limit_bytes"] <= 0
+                or type(state.get("reserved_bytes")) is not int or state["reserved_bytes"] < 0
+                or not isinstance(state.get("plan_hashes"), list)):
+            raise ProjectionTieringError("invalid night budget ledger")
+        limit = min(state["limit_bytes"], plan["max_bytes"])
+        amount = sum(a["source"]["bytes"] for a in plan["actions"])
+        if plan["plan_hash"] in state["plan_hashes"] or state["reserved_bytes"] + amount > limit:
+            raise ProjectionTieringError("twin night budget exhausted or plan already attempted")
+        state.update(limit_bytes=limit, reserved_bytes=state["reserved_bytes"] + amount)
+        state["plan_hashes"].append(plan["plan_hash"])
+        _atomic_write_text(path, json.dumps(state, sort_keys=True) + "\n")
+        return {"path": str(path), **state}
+    finally:
+        release_writer_lock(lock)
+
+
+def _apply_twin(plan, action, receipt, *, snapshots_root, manifest_validator, persist_receipt):
+    paths = _assert_action_current_before_compression(
+        action, plan=plan, snapshots_root=snapshots_root, manifest_validator=manifest_validator)
+    preflight = build_cleanup_preflight(_cleanup_manifest(plan, action), root=snapshots_root)
+    if preflight.get("status") != "PASS" or preflight.get("delete_permission") is not True:
+        raise ProjectionTieringError("cleanup preflight denied twin deletion")
+    receipt["cleanup_preflight"] = preflight
+    held = _acquire_raw_tape_writer_lock(paths["source"].parent, action_id=action["action_id"])
+    try:
+        def recheck():
+            _assert_action_current_before_compression(
+                action, plan=plan, snapshots_root=snapshots_root,
+                manifest_validator=manifest_validator, held_lock=held)
+            if not all(source_is_quiet(paths[key]) for key in ("source", "raw")):
+                raise ProjectionTieringError("twin or raw source is no longer quiescent")
+            proof = _twin_rebuild_proof(paths["raw"], paths["source"])
+            if proof != action.get("rebuild_proof"):
+                raise ProjectionTieringError("rebuild proof changed or missing")
+            for key, expected in (("raw", action["canonical_rebuild_source"]), ("source", action["source"])):
+                _assert_identity(_file_identity(paths[key], root=snapshots_root), expected, "pre unlink")
+            return proof
+
+        receipt["rebuild_proof"] = recheck()
+        receipt["status"] = "UNLINK_PENDING"
+        receipt["night_budget"] = plan["max_bytes"]
+        persist_receipt()
+        recheck()
+        paths["source"].unlink()
+        receipt["status"] = "MANIFEST_REFRESH_PENDING"
+        persist_receipt()
+        manifest_path = write_event_day_manifest(paths["source"].parent, snapshots_root=snapshots_root, incremental=False)
+        manifest = read_event_day_manifest(manifest_path)
+        if manifest is None or not manifest_hash_valid(manifest) or _validator_result(
+                manifest_validator, manifest, paths["source"].parent, snapshots_root).get("status") != "PASS":
+            raise ProjectionTieringError("post twin deletion manifest refresh failed")
+        _assert_manifest_record_current(manifest, paths["raw"].name,
+                                       {**_file_identity(paths["raw"]), "path": paths["raw"].name},
+                                       expected_storage_class="canonical_evidence")
+        if _manifest_record(manifest, ORDER_BOOK_LONG_GZIP) is not None or paths["source"].exists():
+            raise ProjectionTieringError("removed twin still present in manifest or folder")
+        receipt.update(status="APPLIED", canonical_raw_retained=True,
+                       reclaimed_bytes=action["source"]["bytes"], gzip_twin_removed=True)
+        persist_receipt()
+    finally:
+        release_writer_lock(held)
 
 
 def _cleanup_manifest(
@@ -1196,6 +1374,10 @@ def _apply_one(
     manifest_refresher: Callable[..., dict[str, Any]],
     persist_receipt: Callable[[], None],
 ) -> None:
+    if action.get("action") == TWIN_DELETE:
+        _apply_twin(plan, action, action_receipt, snapshots_root=snapshots_root,
+                    manifest_validator=manifest_validator, persist_receipt=persist_receipt)
+        return
     paths = _assert_action_current_before_compression(
         action,
         plan=plan,
@@ -1341,6 +1523,9 @@ def _update_apply_summary(
             row.get("status") == "APPLIED" for row in actions
         ),
     }
+    receipt["summary"]["gzip_twins_removed"] = sum(bool(row.get("gzip_twin_removed")) for row in actions)
+    receipt["summary"]["gzip_retained"] -= receipt["summary"]["gzip_twins_removed"]
+    receipt["summary"]["uncompressed_sources_removed"] -= receipt["summary"]["gzip_twins_removed"]
 
 
 def apply_approved_plan(
@@ -1355,6 +1540,14 @@ def apply_approved_plan(
     """Apply an externally approved plan, stopping on the first failure."""
 
     errors = _approved_plan_errors(plan)
+    twins = [a for a in plan.get("actions", []) if a.get("action") == TWIN_DELETE]
+    if twins:
+        if (plan.get("twin_delete") is not True or plan.get("proof_status") != "PASS"
+                or len(twins) != len(plan.get("actions", []))):
+            errors.append("twin deletion requires a dedicated proved plan")
+        budget = plan.get("max_bytes")
+        if type(budget) is not int or budget <= 0 or sum(a["source"]["bytes"] for a in twins) > budget:
+            errors.append("twin night byte budget exceeded or invalid")
     errors.extend(
         _approved_manifest_identity_errors(
             plan,
@@ -1392,6 +1585,16 @@ def apply_approved_plan(
     if errors:
         _persist()
         return receipt
+
+    if twins:
+        try:
+            receipt["night_budget"] = _reserve_twin_night_budget(plan)
+            _persist()
+        except Exception as exc:
+            receipt["status"] = "BLOCK"
+            receipt["approval_errors"].append(str(exc))
+            _persist()
+            return receipt
 
     snapshots_root = Path(plan["snapshots_root"]).resolve()
     validator = manifest_validator or validate_event_day_manifest
@@ -1494,6 +1697,8 @@ def rebuild_one_order_books_long(
         ],
     )
     raw = source_folder / ORDER_BOOK_RAW
+    if not raw.exists():
+        raw = source_folder / (ORDER_BOOK_RAW + ".gz")
     if not raw.exists() or not raw.is_file() or _is_reparse_point(raw):
         raise ProjectionTieringError(f"canonical raw source is unavailable: {raw}")
     reference = source_folder / ORDER_BOOK_LONG
@@ -1520,7 +1725,8 @@ def rebuild_one_order_books_long(
     raw_rows = 0
     rebuilt_rows = 0
     try:
-        with raw.open("r", encoding="utf-8") as raw_handle, temporary.open(
+        opener = gzip.open if raw.suffix == ".gz" else open
+        with opener(raw, "rt", encoding="utf-8") as raw_handle, temporary.open(
             "x",
             encoding="utf-8",
             newline="",
@@ -1846,12 +2052,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("plan", "apply", "rebuild-one"),
+        choices=("plan", "apply", "rebuild-one", "plan-twins", "prove-twins"),
         default="plan",
     )
     parser.add_argument("--snapshots-root")
     parser.add_argument("--event-slug", action="append", default=[])
     parser.add_argument("--as-of-date")
+    parser.add_argument("--max-bytes", type=int, default=1024 ** 3)
     parser.add_argument("--approved-manifest")
     parser.add_argument("--folder")
     parser.add_argument("--ledger-root")
@@ -1871,7 +2078,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "plan":
+    if args.command in {"plan", "plan-twins"}:
         if not args.snapshots_root or not args.as_of_date:
             parser.error("plan requires --snapshots-root and --as-of-date")
         payload = build_plan(
@@ -1879,6 +2086,8 @@ def main(argv: list[str] | None = None) -> int:
             as_of_date=args.as_of_date,
             event_slugs=args.event_slug,
             ledger_root=args.ledger_root,
+            delete_twins=args.command == "plan-twins",
+            max_bytes=args.max_bytes,
         )
         json_path, report_path = write_outputs(
             payload,
@@ -1888,6 +2097,15 @@ def main(argv: list[str] | None = None) -> int:
                 data_root_for_snapshots(args.snapshots_root),
                 *args.protected_root,
             ],
+        )
+    elif args.command == "prove-twins":
+        if not args.approved_manifest:
+            parser.error("prove-twins requires --approved-manifest (unapproved selection plan)")
+        selection, _ = _read_json_with_identity(args.approved_manifest)
+        payload = prove_twin_plan(selection)
+        json_path, report_path = write_outputs(
+            payload, output_root=args.output_root, stem="closed_day_projection_twins_proved",
+            protected_root=[data_root_for_snapshots(selection["snapshots_root"]), *args.protected_root],
         )
     elif args.command == "apply":
         if not args.approved_manifest:

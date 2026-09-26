@@ -197,9 +197,10 @@ PROJECTION_FAMILIES = (
     ProjectionFamilyContract(
         "order_books_long",
         (ORDER_BOOK_LONG, ORDER_BOOK_LONG_GZIP),
-        (ORDER_BOOK_RAW,),
+        (ORDER_BOOK_RAW, ORDER_BOOK_RAW + ".gz"),
         (
             f"canonical_jsonl:{ORDER_BOOK_RAW}",
+            f"canonical_jsonl_gzip:{ORDER_BOOK_RAW}.gz",
             "validated_parquet:artifact_family=order_books_long/data.parquet",
             f"gzip_tiered_text:{ORDER_BOOK_LONG_GZIP}",
             f"text_tape:{ORDER_BOOK_LONG}",
