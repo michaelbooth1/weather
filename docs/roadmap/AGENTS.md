@@ -43,6 +43,10 @@ Reading rules:
   and report names run as a sequence and can be weeks ahead of, or collide with,
   the real date. Never sort, filter, or infer recency from filenames; use
   `git log --diff-filter=A --format=%ad -- <path>` for when a file was written.
+- **September 2026 ids exist twice.** The unmerged workstation research lineage (branched at `c932b54f8`,
+  run 09-01..09-11) used `79a`..`90a` and `100a`..`100i`; production reused those numbers from 09-21. Write a
+  lineage id as `research 2026-09-88a` with branch and commit; a bare id means the production mission. Never
+  merge the lineage's `item-330-model-bom-…` file (collides with master's item 330).
 - **Bind a handoff to the user's task, assigned host/role, and scope.** Read the
   handoff named by that task and any explicit corrections or successors for the
   same mission. A newer unrelated handoff does not replace or expand the task.
