@@ -399,7 +399,7 @@ def test_client_twenty_second_get_and_secret_refusal(tmp_path):
 def test_no_signing_imports_and_no_unapproved_file_access():
     permitted = {"__future__", "argparse", "base64", "collections", "contextlib", "copy", "datetime",
                  "decimal", "dotenv", "hashlib", "hmac", "http", "io", "ipaddress", "json", "logging", "math",
-                 "pathlib", "re", "subprocess", "threading", "time", "urllib", "weather"}
+                 "pathlib", "re", "subprocess", "threading", "time", "urllib", "weather", "maker_core"}
     weather_allowed = {"weather.market.wallet_reader", "weather.market.wallet_reader_security",
                        "weather.market.wallet_reader_transport", "weather.market.wallet_reader_server",
                        "weather.operations.live_path_security", "weather.paths", "weather.schema_registry"}
@@ -413,6 +413,10 @@ def test_no_signing_imports_and_no_unapproved_file_access():
                     assert module.split(".")[0] in permitted
                     if module.startswith("weather."):
                         assert module in weather_allowed
+                    if module.startswith("maker_core."):
+                        assert name == "wallet_reader" and module in {
+                            "maker_core.contracts.portfolio", "maker_core.portfolio.ledger",
+                            "maker_core.venue.account_read", "maker_core.runtime.portfolio_io"}
         assert "POLYMM_PRIVATE_KEY" not in source
         assert "os.environ" not in source
         assert "dotenv_values" not in source or name == "wallet_reader_security"
@@ -461,6 +465,36 @@ def test_other_funder_open_order_is_not_silently_dropped(tmp_path, guard):
     t = wire(tmp_path, guard, FakeOpener(lambda r: {"data": [{"maker_address": SIGNER}], "next_cursor": "LTE="}))
     with pytest.raises(security.ReaderError, match="account_mismatch"):
         core.WalletReader(t, signature_type=3).open_orders()
+
+
+def test_campaigns_summary_uses_neutral_ledger_without_single_wallet_bleed(tmp_path, guard, endpoint_fixtures):
+    from maker_core.contracts.portfolio import CAMPAIGNS_SCHEMA
+    config = dict(schema_version=CAMPAIGNS_SCHEMA, unattributed_cash_pusd="0", campaigns=[
+        dict(id="weather-maker", start_utc="2026-09-22T00:00:00Z", contributions=[
+            dict(id="initial", at_utc="2026-09-22T00:00:00Z", amount_pusd="102.25")], bleed_limit_pusd="40"),
+        dict(id="owner-discretionary", start_utc="2026-09-22T00:00:00Z", contributions=[])],
+        rules=[dict(condition_id=CONDITION, campaign="weather-maker")])
+    endpoint_fixtures["/activity"] = [dict(proxyWallet=FUNDER, type="TRADE", side="BUY", asset="123",
+        conditionId=CONDITION, transactionHash="fixture-tx", timestamp=1790244000, size=75, price=.43, fee_pusd="0")]
+    t = wire(tmp_path, guard, FakeOpener(lambda r: endpoint_fixtures[urlsplit(r.full_url).path]))
+    reader = core.WalletReader(t, signature_type=2, campaign_capital="200", campaigns=config)
+    code, value = server.dispatch(reader, guard, TOKEN, "192.168.1.5", "GET", "/summary",
+                                 "192.168.1.5", {"Authorization": "Bearer " + TOKEN})
+    assert code == 200 and value["status"] == "OBSERVED"
+    assert value["campaigns"]["campaigns"]["weather-maker"]["status"] == "OBSERVED"
+    assert "campaign_pnl_pusd" not in value and "bleed_limit_reached" not in value
+    assert value["plan"]["used_gets"] <= 24
+    assert not any(secret in json.dumps(value) for secret in guard.secrets)
+
+
+def test_campaign_config_validates_before_credentials(tmp_path, monkeypatch):
+    config = tmp_path / "campaigns.json"
+    config.write_text("{}")
+    def forbidden():
+        raise AssertionError("credentials were requested")
+    monkeypatch.setattr(core, "load_owner_credentials", forbidden)
+    assert core.main(["serve", "--bind", "192.168.1.106", "--allow", "192.168.1.247",
+                      "--signature-type", "2", "--campaigns", str(config)]) == 1
 
 
 def test_client_cli_exception_does_not_print_secrets(monkeypatch, capsys):

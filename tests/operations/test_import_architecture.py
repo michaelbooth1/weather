@@ -1156,7 +1156,10 @@ def maker_boundary_violations(source, module):
                          "http", "ssl", "websocket", "websockets", "aiohttp", "web3"}
                     and not prefix_module.startswith("maker_core.venue.")):
                 violations.append("SDK/HTTP outside venue")
-            if prefix_module.startswith(("maker_core.quoting.", "maker_core.portfolio.")) and name.startswith(("maker_core.venue", "maker_core.runtime")):
+            command_shim = (module == "maker_core.portfolio.__main__"
+                            and name == "maker_core.runtime.portfolio_report.main")
+            if (prefix_module.startswith(("maker_core.quoting.", "maker_core.portfolio."))
+                    and name.startswith(("maker_core.venue", "maker_core.runtime")) and not command_shim):
                 violations.append("pure policy imports execution")
         elif prefix_module.startswith("weather.market.maker_plugin.") or module == "fictional_plugin":
             if root == "maker_core" and not name.startswith("maker_core.contracts.") and name != "maker_core.contracts":
@@ -1208,6 +1211,14 @@ def test_maker_core_setuptools_discovery():
     from setuptools import find_packages
     assert {"maker_core", "maker_core.contracts", "maker_core.quoting", "maker_core.evidence",
             "maker_core.portfolio", "maker_core.venue", "maker_core.runtime", "maker_core.replay"} <= set(find_packages("src"))
+
+
+def test_portfolio_command_shim_is_the_only_orchestration_edge():
+    assert not maker_boundary_violations("from maker_core.runtime.portfolio_report import main", "maker_core.portfolio.__main__")
+    for module in ("maker_core.portfolio.ledger", "maker_core.portfolio", "maker_core.portfolio.journal"):
+        assert maker_boundary_violations("from maker_core.runtime.portfolio_report import main", module)
+    assert maker_boundary_violations("from maker_core.venue import account_read", "maker_core.portfolio.__main__")
+    assert maker_boundary_violations("from maker_core.runtime.credentials import reader_credentials", "maker_core.portfolio.__main__")
 
 
 def test_package_dependency_edges_follow_documented_ratchet():
