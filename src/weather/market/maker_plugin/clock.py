@@ -40,7 +40,8 @@ class WeatherInformationClock:
                     schedule.append((cursor + timedelta(minutes=210), "model_cycle", "widen"))
                 for when, kind, hint in schedule:
                     if from_utc <= when <= to_utc and when < market.close_at_utc:
-                        events.append(InfoEvent(kind, when, None, None, (market.condition_id,), 1., None, hint))
+                        events.append(InfoEvent(kind, when, None, None, (market.condition_id,), 1., None, hint,
+                                                when + timedelta(minutes=10)))
             cursor += timedelta(hours=1)
         return tuple(sorted(events, key=lambda e: (e.scheduled_at_utc, e.kind, e.affects)))
 
@@ -60,7 +61,7 @@ class WeatherInformationClock:
                 except ValueError:
                     continue
                 events.append(InfoEvent("model_cycle", issue, issue, fetched,
-                                        (market.condition_id,), 1., None, "widen"))
+                                        (market.condition_id,), 1., None, "widen", fetched + timedelta(minutes=10)))
             for row in self.triggers:
                 if row.get("event_slug") != market.event_id:
                     continue

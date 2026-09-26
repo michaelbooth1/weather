@@ -43,6 +43,17 @@ def slot_for_target_v2(rows, issue, target, station_id):
     return matches[0], None
 
 
+def parse_pair_row(line):
+    """Fixed-width row code and pipe-separated pairs; extra tokens fail closed."""
+    pairs = []
+    for group in line[6:].split("|"):
+        tokens = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", group)]
+        if len(tokens) > 2:
+            raise ValueError("ambiguous_nbp_pair")
+        pairs.append(tuple((tokens + [None, None])[:2]))
+    return pairs
+
+
 def parse(raw, station, target):
     text = raw["text"]
     if hashlib.sha256(text.encode()).hexdigest() != raw["payload_hash"]:
@@ -73,12 +84,7 @@ def parse(raw, station, target):
             continue
         if code in rows:
             raise ValueError("duplicate_nbp_row")
-        rows[code] = []
-        for group in line[6:].split("|"):
-            tokens = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", group)]
-            if len(tokens) > 2:
-                raise ValueError("ambiguous_nbp_pair")
-            rows[code].append(tuple((tokens + [None, None])[:2]))
+        rows[code] = parse_pair_row(line)
     slot, reason = slot_for_target_v2(rows, issue, target, station)
     if slot is None:
         raise ValueError(reason)

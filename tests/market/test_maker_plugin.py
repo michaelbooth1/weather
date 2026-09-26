@@ -98,7 +98,7 @@ def served_inputs(rows):
         "afternoon_residual_centering": {"active": True, "reason": "afternoon_residual_centering_applied",
                                           "context_key": "market=nyc|afternoon", "shift": -.3}}}}
     source = {**base, "release_id": "synthetic-release", "release_manifest_sha256": "a" * 64,
-              "release_identity_status": "verified_variant_serving_bundle"}
+              "release_identity_status": "verified_variant_serving_bundle", "release_calibration_method": "identity"}
     return explanation, source
 
 
@@ -264,13 +264,12 @@ def test_fallback_refuses_unproven_or_wrong_lead(defect):
     assert isinstance(WeatherFairValue(universe, forecasts=inputs).evaluate(universe.discover(NOW, 2).markets[1], NOW), Unavailable)
 
 
-@pytest.mark.parametrize("defect", ["stage", "release", "expiry", "future", "zero", "conflict"])
+@pytest.mark.parametrize("defect", ["stage", "release", "expiry", "future", "conflict"])
 def test_served_unavailable(defect):
     universe, rows, _, _, _, _ = fixture(lead=0)
     explanation, source = served_inputs(rows)
     if defect == "stage": explanation["explanations"] = {}
     if defect == "release": source["release_identity_status"] = "research_unbound_non_countable"
-    if defect == "zero": rows[1]["model_probability"] = 0
     if defect == "future": rows[1]["captured_at_utc"] = (NOW+timedelta(minutes=1)).isoformat()
     if defect == "conflict": rows.append(dict(rows[1], model_probability=.4))
     as_of = NOW+timedelta(minutes=10) if defect == "expiry" else NOW

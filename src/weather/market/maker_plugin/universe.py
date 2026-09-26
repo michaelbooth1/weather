@@ -88,7 +88,7 @@ class WeatherUniverse:
                     "weather", event["slug"], cid, pair, tick, size, event["slug"], close, None,
                     spec.unit, PLUGIN_VERSION, {"discovery": digest(captured),
                     "band": digest([str(v) for v in bands[cid]]),
-                    "book_rules": digest([str(tick), str(size)])}))
+                    "book_rules": digest([str(tick), str(size)])}, group_relation="partition"))
         ordered = tuple(sorted(markets, key=lambda m: m.condition_id))
         return UniverseSnapshot(ordered, as_of_utc, {"descriptors": digest([
             [m.condition_id, dict(m.source_hashes)] for m in ordered])})

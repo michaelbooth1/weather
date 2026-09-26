@@ -83,8 +83,6 @@ class WeatherFairValue:
     def _view(market, as_of, issue, expiry, joint, inputs, model):
         p = joint[market.condition_id]
         stdev = math.sqrt(p * (1 - p)) * ((as_of - issue).total_seconds() / 86400 + .25)
-        if stdev <= 0:
-            raise ValueError("zero_uncertainty_not_representable")
         return OutcomeView(market.condition_id, p, stdev, joint, as_of, expiry, digest(inputs), model, "none")
 
     def _fallback(self, market, spec, target, as_of, bands):
@@ -143,10 +141,22 @@ class WeatherFairValue:
         release, manifest, status = lineage.pop()
         if not release or not manifest or status != "verified_variant_serving_bundle":
             raise ValueError("served_snapshot_release_unbound")
+        # The bounded export supplies this projection from the calibration
+        # artifact belonging to the same verified release. Never guess identity
+        # from a missing field or infer it from the probability/stage name.
+        methods = {r.get("release_calibration_method") for r in sources}
+        if len(methods) != 1:
+            raise ValueError("served_release_calibration_ambiguous")
+        method = methods.pop()
+        if not isinstance(method, str) or not method or method != method.strip():
+            raise ValueError("served_release_calibration_unavailable")
+        if method == "market_shrink":
+            return Unavailable("market_informed_release", as_of, kind="out_of_scope")
         p = float(row["model_probability"])
         # Keep the captured marginal exactly; no normalization or re-serving.
         return OutcomeView(market.condition_id, p, math.sqrt(p * (1 - p)) * .25, None,
                            captured, expiry, digest({"snapshot": row["snapshot_id"], "probability": p,
                            "release": release, "manifest": manifest, "stage": stage,
+                           "release_calibration_method": method,
                            "model_version": row["model_version"], "captured_at_utc": row["captured_at_utc"]}),
-                           f"served:{release}:afternoon_residual_centering:{digest(stage)}", "none")
+                           f"served:{release}:calibration:{method}:afternoon_residual_centering:{digest(stage)}", "none")

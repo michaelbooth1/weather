@@ -13,6 +13,11 @@ or historical weather records are used. The factories emit these writer shapes:
 - `snapshot_store` explanation JSON: `explanations.probability_calibration_context`
   and its `afternoon_residual_centering` context. Release lineage comes from
   source rows, not an invented long-row release field.
+  For 110c the bounded export additionally projects `release_calibration_method`
+  from that bound release's probability-calibration artifact (`market_bin.method`)
+  onto every matching source row. This is a required new export field, not a
+  claim that the existing source-row writer already captures it. Missing or
+  conflicting method evidence fails closed; `market_shrink` is out of scope.
 - `forecast_archive.make_row`: daily_high/forecast_high_c with provider issue and
   captured_at_utc. Legacy _c values remain native-unit.
 - `observation_trigger.trigger_record`: current capture time and observed_at,
@@ -24,6 +29,9 @@ The v2 selector oracle is copied verbatim from `abd648c7c`, without provider
 imports. It is tested against synthetic FHR layouts for all qualified stations,
 cycle hours and T+1/T+2 targets, including timezone transitions. No dependency
 on that branch or a network request is needed to run tests.
+The additional row-parser oracle is copied verbatim from the same commit.
+110c's [44 tracked bulletin controls](../nbm_target_fix/README.md) are historical
+public parser fixtures, distinct from these invented adapter records.
 
 These are minimal required field projections of the captured shapes, not proof
 of production coverage. 88a discovery does not capture band metadata: a bounded

@@ -30,7 +30,7 @@ def test_pure_mid_centred_and_hash_bound(inputs):
     (lambda i: replace(i, portfolio=replace(i.portfolio, safety_breached=True)), "SAFETY_BUDGET"),
     (lambda i: replace(i, portfolio=replace(i.portfolio, foreign_open_order=True)), "UNKNOWN_ACCOUNT_STATE"),
     (lambda i: replace(i, portfolio=replace(i.portfolio, unknown_position=True)), "UNKNOWN_ACCOUNT_STATE"),
-    (lambda i: replace(i, horizon_days=0), "HORIZON_NOT_T1_T2"),
+    (lambda i: replace(i, horizon_days=0), "HORIZON_NOT_ELIGIBLE"),
     (lambda i: replace(i, hazard_per_minute=None), "MISSING_CONSERVATIVE_FILL_BOUND"),
     (lambda i: replace(i, hazard_per_minute=1), "NONPOSITIVE_NET"),
     (lambda i: replace(i, fair_value=replace(i.fair_value, p_yes=.6, joint=None)), "FAIR_VALUE_DISAGREEMENT"),
@@ -69,8 +69,12 @@ def test_grade_caps_uncertainty_and_unavailable(inputs):
     # Lower trust cannot increase size. Depth/share screen may also refuse it.
     d = decide(unscored)
     assert all(leg.size <= 30 for leg in d.legs)
-    blind_width = decide(replace(inputs, fair_value=Unavailable("missing", inputs.now)))
-    assert blind_width.legs == decide(inputs).legs
+    blind_width = decide(replace(inputs, fair_value=Unavailable("missing", inputs.now),
+                                terms=replace(inputs.terms, max_spread_cents=D(5)),
+                                book=replace(inputs.book, yes_bids=((D('.49'), D(75)),),
+                                             yes_asks=((D('.51'), D(75)),))))
+    assert blind_width.action == "QUOTE"
+    assert all(leg.size <= 30 for leg in blind_width.legs)
     wide = decide(replace(inputs, fair_value=replace(inputs.fair_value, stdev=.03)))
     assert all(leg.price <= D('.48') for leg in wide.legs)
     stale = replace(inputs.fair_value, as_of_utc=inputs.now-timedelta(minutes=59))
@@ -107,7 +111,8 @@ def test_blind_hold_first_fill_and_single_band(inputs):
 def test_adverse_leg_cancel_precedes_cooldown(inputs):
     initial = decide(inputs)
     moved = replace(inputs, existing=initial.legs, last_requote_at=inputs.now,
-                    fair_value=replace(inputs.fair_value, stdev=.02, p_yes=.515, joint=None))
+                    previous_fair_value=.5,
+                    fair_value=replace(inputs.fair_value, stdev=.03, p_yes=.525, joint=None))
     assert decide(moved).action == "CANCEL"
 
 
@@ -155,7 +160,7 @@ def test_sizing_adverse_leg_omission_and_cooldown(inputs):
     assert [leg.outcome for leg in d.legs] == ["YES"]
     legs = tuple(replace(leg, price=D('.47')) for leg in decide(inputs).legs)
     resting = replace(inputs, terms=replace(inputs.terms, max_spread_cents=D(5)), existing=legs,
-                      last_requote_at=inputs.now, hazard_per_minute=0)
+                      last_requote_at=inputs.now, hazard_per_minute=0, previous_fair_value=.495)
     assert decide(resting).reasons == ("REQUOTE_COOLDOWN",)
     assert decide(replace(resting, last_requote_at=inputs.now-timedelta(seconds=60))).reasons == ("REQUOTE_REQUIRED",)
 

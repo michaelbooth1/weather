@@ -37,3 +37,14 @@ def test_parity_evidence_is_bounded_and_available():
     assert sum(r["first_minute_prices"] is not None for r in FIXTURES) == 8
     for r in FIXTURES:
         assert len(r["source_journal_sha256"]) == len(r["source_selection_sha256"]) == 64
+
+
+@pytest.mark.parametrize("attempt", range(1, 13))
+def test_full_minute_journal_replay_skeleton(attempt):
+    # 110c forbids account/production reads. A later authorized export must
+    # supply sanitized DecisionInputs per minute plus the recorded expectation:
+    # action (HOLD/requote), each replacement leg/price, and terminal end reason.
+    # Replay each frame with decide(), carry its existing legs to the next frame,
+    # compare every minute, then assert the final recorded end reason. Do not
+    # silently substitute first-minute fixtures for these absent journals.
+    pytest.skip(f"attempt {attempt}: full-minute account journal export unavailable in fixture-only 110c")

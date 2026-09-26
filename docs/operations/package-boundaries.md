@@ -40,8 +40,10 @@ caller inputs, so the neutral package never imports `weather.paths`.
 `test_maker_core_and_plugin_import_boundaries` enforces these additional edges:
 
 - No `weather.*` import anywhere in `maker_core`, including literal dynamic imports.
-- SDK/HTTP (`polymarket`, `py_clob_client`, `eth_account`, `dotenv`, `requests`,
-  `httpx`, `urllib`, `socket`) imports belong only to `maker_core.venue`.
+- SDK/HTTP (`polymarket`, `py_clob_client`, `eth_account`, `requests`, `httpx`,
+  `urllib`, `socket`, `http.client`, `ssl`, `websocket`, `websockets`, `aiohttp`,
+  `web3`) imports belong only to `maker_core.venue`, including package initializers.
+- `dotenv` imports belong only to `maker_core.runtime.credentials`, never venue.
 - Environment/vault credential access belongs only to
   `maker_core.runtime.credentials`; that module does not exist in Phase 0.
 - `quoting` and `portfolio` cannot import `venue` or `runtime`. `quoting` may

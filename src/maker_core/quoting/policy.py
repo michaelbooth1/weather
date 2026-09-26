@@ -35,10 +35,11 @@ class Profile:
     # Unscored probabilities cannot tighten a leg or justify the largest sizes.
     # These are conservative offline defaults, not empirically fitted parameters.
     grade_size_caps: tuple[int, int, int] = (30, 50, 75)
+    eligible_horizons: tuple[int, ...] | None = (1, 2)
 
 
 informed_v0 = Profile("informed_v0", True)
-blind_re1 = Profile("blind_re1", False, first_fill_ends=True, max_bands=1)
+blind_re1 = Profile("blind_re1", False, first_fill_ends=True, max_bands=1, eligible_horizons=None)
 
 
 @dataclass(frozen=True)
@@ -168,8 +169,12 @@ def _fits(legs, p):
 
 
 def _event_active(event, now):
+    if event.active_until_utc is not None and now > event.active_until_utc:
+        return False
     if event.detected_at_utc is not None:
         return event.detected_at_utc <= now  # Caller retains unresolved detected events.
+    if event.active_until_utc is not None and event.observed_at_utc is not None:
+        return event.observed_at_utc <= now
     return (event.scheduled_at_utc is not None
             and event.scheduled_at_utc - timedelta(minutes=3) <= now
             <= event.scheduled_at_utc + timedelta(minutes=10))
@@ -189,7 +194,7 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
         return QuoteDecision(action or ("CANCEL" if i.existing else "NO_QUOTE"),
                              tuple(legs), (reason,), h, p.name, mid, share, net)
 
-    if p not in (informed_v0, blind_re1):
+    if p.name not in ("informed_v0", "blind_re1") or p.informed != (p.name == "informed_v0"):
         return result("UNSUPPORTED_PROFILE")
     if i.fill_seen:
         return result("FIRST_FILL_ENDS" if p.first_fill_ends else "FILL_CANCEL_SIBLING",
@@ -230,10 +235,10 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
     if p.informed:
         if any((e.decided or {}).get(i.market.condition_id, 0) >= .5 for e in active):
             return result("DECIDED")
-        if any(e.action_hint == "pull" or e.kind == "new_high" for e in active):
+        if any(e.action_hint == "pull" for e in active):
             return result("INFO_PULL")
-        if i.horizon_days not in (1, 2):
-            return result("HORIZON_NOT_T1_T2")
+        if p.eligible_horizons is not None and i.horizon_days not in p.eligible_horizons:
+            return result("HORIZON_NOT_ELIGIBLE")
         if (i.hazard_per_minute is None or not math.isfinite(i.hazard_per_minute)
                 or not 0 <= i.hazard_per_minute <= 1 or not math.isfinite(i.adverse_markout)
                 or i.adverse_markout < .0043):
@@ -251,7 +256,8 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
     maximum_width = min(p.d_hi_cents, t.max_spread_cents - i.market.tick * 100)
     if maximum_width < p.d_lo_cents:
         return result("NO_REWARD_WIDTH")
-    width, skew, size_cap = p.d0_cents, D(0), 75
+    width, skew = p.d0_cents, D(0)
+    size_cap = p.grade_size_caps[0] if p.informed else 75
     sigma_eff = 0.0
     if view:
         age_hours = (i.now - view.as_of_utc).total_seconds() / 3600
@@ -267,12 +273,27 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
     if view and view.calibration_grade == "none":
         distances = tuple(max(width, d) for d in distances)
 
+    def external_levels(rows, outcome):
+        own = {}
+        for leg in i.existing:
+            if leg.outcome == outcome:
+                price = leg.price if outcome == "YES" else 1 - leg.price
+                own[price] = own.get(price, D(0)) + leg.size
+        remaining = []
+        for price, size in rows:
+            removed = min(size, own.get(price, D(0)))
+            own[price] = own.get(price, D(0)) - removed
+            if size > removed:
+                remaining.append((price, size - removed))
+        return remaining
+
+    external = (external_levels(yb, "YES"), external_levels(ya, "NO"))
     comp = [side_score([(float(a), float(b)) for a, b in rows], float(mid),
-                       float(t.max_spread_cents), float(t.min_size)) for rows in (yb, ya)]
+                       float(t.max_spread_cents), float(t.min_size)) for rows in external]
     competing = (comp[0][0] + comp[1][0]) / 2
     displayed_depth = [sum((size for price, size in rows
                             if abs(price - mid) * 100 < t.max_spread_cents), D(0))
-                       for rows in (yb, ya)]
+                       for rows in external]
 
     def economics(legs):
         scores = {leg.outcome: order_score(float(leg.size),
@@ -320,7 +341,14 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
                 rejection = str(exc).upper()
                 continue
         else:
-            legs = tuple(QuoteLeg(outcome, outward(centre - max(p.d_lo_cents, d) / 100, i.market.tick), D(size))
+            def snapped(centre, distance):
+                price = outward(centre - max(p.d_lo_cents, distance) / 100, i.market.tick)
+                if ((centre - price) * 100 > p.d_hi_cents
+                        and (centre - price - i.market.tick) * 100 >= p.d_lo_cents):
+                    price += i.market.tick
+                return price
+
+            legs = tuple(QuoteLeg(outcome, snapped(centre, d), D(size))
                          for outcome, centre, d in zip(("YES", "NO"), (mid, 1 - mid), distances)
                          if d <= maximum_width)
         reason = eligible(legs)
@@ -338,6 +366,8 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
         break
 
     if i.existing:
+        if any(leg.size > size_cap for leg in i.existing):
+            return result("GRADE_SIZE_CAP")
         reason = eligible(i.existing)
         if reason:
             return result(reason)  # cancel before any replacement proposal
@@ -348,18 +378,14 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
             return result("NONPOSITIVE_NET")
         if not p.informed:
             return result("WITHIN_REQUOTE_WINDOW", legs=i.existing, action="HOLD", share=old_share, net=old_net)
-        if desired is None:
-            return result(rejection)
-        legs, share, net = desired
-        move = (i.previous_fair_value is not None and view is not None
-                and abs(view.p_yes - i.previous_fair_value) > max(sigma_eff, .01))
-        if legs == i.existing and not move:
-            return result("UNCHANGED", legs=i.existing, action="HOLD", share=old_share, net=old_net)
-        # A threatened/adverse leg is pulled immediately, even inside cooldown.
-        if any(old.outcome not in {leg.outcome for leg in legs} or any(
-                old.outcome == leg.outcome and (old.price > leg.price or old.size > leg.size)
-                for leg in legs) for old in i.existing):
+        delta = (abs(D(str(view.p_yes)) - D(str(i.previous_fair_value)))
+                 if i.previous_fair_value is not None and view is not None else D(0))
+        # Midpoint drift is not new fair-value information. Only a changed view
+        # can bypass cooldown while otherwise eligible resting legs remain safe.
+        if delta / 2 >= i.market.tick or delta > D(str(max(sigma_eff, .01))):
             return result("ADVERSE_LEG_CHANGED")
+        if not delta or desired is None or desired[0] == i.existing:
+            return result("WITHIN_REQUOTE_WINDOW", legs=i.existing, action="HOLD", share=old_share, net=old_net)
         if i.last_requote_at is not None:
             elapsed = (i.now - i.last_requote_at).total_seconds()
             if elapsed < 0:

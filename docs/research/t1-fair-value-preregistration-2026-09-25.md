@@ -75,3 +75,27 @@ alpha spend, repeated looks, centre-skew selection, or live authorization.
 Report detectable-effect/power limitations; an interval crossing zero is not
 evidence of an improvement. Any estimator or scoring change requires a dated
 amendment before reading results, never an edit of this frozen specification.
+
+## Clarification 1 — 2026-09-25, handoff 110c (before scoring)
+
+The no-market-input claim applies to the T+1/T+2 NBP and PIT fallback estimators
+in this frozen scoring protocol. It is not a blanket claim about served T+0
+releases: `market_shrink` calibration can include market prices. The T+0 adapter
+now requires the release's calibration method, bound to the same verified release
+ID/manifest as the snapshot, records it in `model_id` and `inputs_hash`, and returns
+`Unavailable(kind="out_of_scope", reason="market_informed_release")` for
+`market_shrink`. Missing or ambiguous method evidence remains unavailable; do not
+assume identity. The bounded export must supply `release_calibration_method` on
+each matching source row from that release's probability-calibration artifact
+(`market_bin.method`); this is an export projection, not an existing capture field.
+No artifact, release, or production row was read to make this clarification.
+
+The additive pre-tag contract now represents an exactly decided marginal with
+`stdev=0` when p is 0 or 1. The frozen stdev formula is unchanged; these cases no
+longer require `Unavailable`, and no epsilon is introduced. Weather descriptors
+declare `group_relation="partition"`. Scheduled METAR pulls retain the -3/+10
+minute window; scheduled model events expire at issue/availability +10 minutes,
+detected bulletin arrivals at fetch +10 minutes. New-high pulls retain their
+existing lifetime pending fresh evidence; determined-band vetoes remain permanent. Core safety and
+freshness checks still govern re-entry. These are fixture-verified interface and
+clock repairs, not a scored estimator change, new panel, or live authority.
