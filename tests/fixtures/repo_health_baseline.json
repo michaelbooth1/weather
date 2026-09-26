@@ -1,5 +1,5 @@
 {
-  "basis": "110m part 5 / integration 8180404a0; explicit allowances, no automatic widening",
+  "basis": "110m part 5 / integration 8180404a0 plus explicitly reviewed 110m/110n companion changes; shrink-only after this initial seed",
   "c_names": {
     "src/weather/backtesting/replay.py": [
       "bin_value_c",
@@ -1026,6 +1026,10 @@
     "tools/research/rescore_served_floor_09_66a.py": [
       "bin_value_c",
       "bin_value_hi_c"
+    ],
+    "tests/market/test_signed_band_capture.py": [
+      "bin_value_c",
+      "bin_value_hi_c"
     ]
   },
   "dependency_reasons": {
@@ -1081,7 +1085,7 @@
     "tests/operations/test_international_live_wrapper_sealer.py": 2567,
     "tests/operations/test_nightly_retrain.py": 2281,
     "tests/operations/test_production_baseline_reconciler_execution.py": 2592,
-    "tests/operations/test_status_script.py": 2007,
+    "tests/operations/test_status_script.py": 2036,
     "tests/operations/test_workload_admission_script.py": 2504,
     "tests/reporting/test_daily_learning.py": 2627,
     "tests/reporting/test_fleet_observability.py": 2066
@@ -2241,11 +2245,12 @@
       "market_making_daily_roll": 6,
       "soak": 10,
       "taker_alerts": 2,
-      "taker_bot": 2,
+      "taker_bot": 5,
       "taker_bot_daily_roll": 5,
-      "taker_row": 4,
+      "taker_row": 5,
       "taker_status": 4,
-      "taker_status_path": 2
+      "taker_status_path": 2,
+      "taker_retired": 3
     },
     "src/weather/operations/nightly_retrain.py": {
       "taker_bot": 1
@@ -2833,7 +2838,10 @@
       "streak": 2
     },
     "tests/operations/test_learning_lane_unblock.py": {
-      "mm_paper": 1
+      "mm_paper": 1,
+      "taker_edge_permission_map": 1,
+      "taker_finalization_watchdog": 1,
+      "taker_tail_casebook": 1
     },
     "tests/operations/test_live_wrapper_credential_launcher.py": {
       "POLYMARKET_US_SECRET_KEY": 2
@@ -2846,7 +2854,10 @@
       "market_making_run": 2
     },
     "tests/operations/test_nightly_health_checks.py": {
-      "taker_status": 3
+      "taker_status": 3,
+      "market_making_daily_roll": 1,
+      "taker_bot": 4,
+      "taker_bot_daily_roll": 1
     },
     "tests/operations/test_operating_reference.py": {
       "streak": 1
@@ -2994,6 +3005,18 @@
       "taker_runs": 27,
       "taker_runs_root": 19,
       "taker_settlement_finalization_v0": 3
+    },
+    "tests/market/test_neutral_execution_helpers.py": {
+      "market_making_preflight": 3,
+      "market_making_live_pilot": 1,
+      "market_making_run_support": 2
+    },
+    "tests/operations/test_health_watchdog_script.py": {
+      "streak": 3
+    },
+    "tests/operations/test_ops_script_ratchets.py": {
+      "market_making_daily_roll_task": 1,
+      "streak_capture_monitor": 1
     }
   },
   "undeclared_imports": {
@@ -3039,5 +3062,12 @@
     "tools/research/rescore_served_floor_09_66a.py": {
       "band_value_hi:\\d+": 1
     }
+  },
+  "companion_heads": {
+    "110m4": "7c23927864d9d195e8f29c739402f65de0ff3398",
+    "110m2": "db8cbfe9c294a5699e3f5c258940d6704865c111",
+    "110m3": "c1391d9704b6c02b90a7ba37cc810b11eb09deac",
+    "110m1": "aee78c2dcd80fdecc7edcee9ed793c0acd71fd12",
+    "110n": "ac47f5035517af1e6185840d6811d5d15dbf3f34"
   }
 }
