@@ -120,8 +120,13 @@ The final selection was:
 No cloud credentials or real transport were used; upstream upload/restore
 receipts are synthetic sealed proof fixtures. Catalog, transport, stage/wrapper,
 variant/parity, cross-hub, maker scoring/projection/input-age and microstructure
-regressions also passed in the broader selection. The exact disposable fixture
-directory is removed after committed-report verification.
+regressions also passed in the broader selection. Committed-report/index
+verification passed **49 tests**, including all four audits and targeted grouping,
+Part A adoption and maker-classification regressions. Per-file report coverage
+matches all 25 changed files. The exact disposable fixture directory was removed;
+C: reported 137,809,244,160 free bytes afterwards (a volume observation, not a
+production reclaim claim). Implementation commit: `4ba8f4e1`; report/index commit:
+`1a202124`.
 
 ## Production commands and integration
 
