@@ -152,10 +152,90 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
+## Weather adapter inputs
+
+The weather plugin supplies partition descriptors and exact zero stdev for
+decided 0/1 marginals. Scheduled METAR and model-cycle events expire ten minutes
+after their scheduled instant; detected model-cycle events expire ten minutes
+after fetch. New-high pulls and determined-band vetoes retain their original
+no-expiry behavior. Core windows/freshness and other admission checks still apply.
+
+Served T+0 joins require the bounded export to project `release_calibration_method`
+from the verified release's calibration artifact (`market_bin.method`) onto each
+matching source row. Missing or conflicting method evidence is unavailable;
+`market_shrink` returns `Unavailable(kind="out_of_scope")`. The method enters
+both model identity and input hash. This extra export field is not provided by
+the existing capture writer. T+1/T+2 estimators remain independent of market
+prices; T+0 is outside their frozen scoring protocol. See the
+[dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
+
 `portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
 The fictional replay lives in tests. Production evidence loading, portfolio
 accounting, venue/credential access, session control, fitted hazard estimation,
-weather and YouTube plugins, shadow scoring and live execution are later phases.
+YouTube plugins, shadow scoring and live execution are later phases. The weather
+adapters consume caller-supplied captured records without provider or filesystem IO.
+
+## Bounded weather plugin dry run
+
+`python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data>
+--output <new-dir> [--markets nyc chicago] [--max-seconds 2700]
+[--max-output-bytes 200000000] [--max-input-bytes 1073741824]` is an offline diagnostic caller.
+Use the topic's installed packages, or set `PYTHONPATH` to its absolute `src` directory.
+The interpreter's `-B` is required for the no-writes-outside-output invocation:
+it suppresses import-cache writes even before the entrypoint loads.
+Production runs remain subject to the host-load lease and window.
+
+It reads only sealed `maker_evidence/<UTC-date>/<hh>-<segment>/` manifests and their
+discovery, books, reward journals and referenced book shards. Raw and gzip forms
+are supported; no status, temporary file, stream, venue or credential is read.
+Only consumed files are hash/size/offset/count verified against the seal.
+References are confined to the same manifest; unchanged bodies are verified
+against their canonical hash while retaining the new response's capture time.
+Each input is opened, read and closed before another input or policy evaluation.
+Redirected paths, arbitrary payload paths and output overlap with source trees refuse.
+
+For registered events, explicit supporting paths beneath `--data-root` are:
+
+- `snapshots/<event>/snapshots_long.csv[.gz]` for captured bands and probabilities;
+- `forecasts_long.csv[.gz]`, `snapshot_explanations.jsonl[.gz]`,
+  `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
+- retained NBP blobs at `forecast_payloads/sha256/<prefix>/<payload_hash>.json[.gz]`,
+  addressed by the forecast manifest, with both blob and NBP text hashes checked;
+- `snapshots/observation_triggers.jsonl[.gz]` and `settlements/<market>/ledger.jsonl[.gz]`.
+
+The source manifests supply release lineage; the runner never manufactures the
+missing `release_calibration_method` projection or reads ambient model artifacts.
+All provider joins are point-in-time. A payload's first manifest capture also
+bounds its availability. Missing joins produce explicit coverage/Unavailable
+reasons; corrupt NBP or clock inputs cannot silently become fallback or an empty clock.
+Append/change during a file read refuses that input. Files above 64 MiB decoded
+or 100,000 rows refuse with a reported input reason; decoded segment bodies and
+the per-segment journal cache each have a 64 MiB limit.
+
+The last books capture in each segment's minute is the decision clock. Split
+minutes across segment boundaries are explicitly flagged, not silently deduplicated.
+Each discovered active band gets a descriptor attempt; missing both-token rules
+do not erase valid siblings. The JSON and Markdown contain available probability
+mass sums, expected/available bands, partial-mass flags, joins, provider refusals,
+clock events (JSON), settlement Pending/facts, policy reasons and leg counts.
+Not-evaluable inputs are counted separately from a policy decision with zero legs.
+
+`informed_v0` supplies profile name `informed-v0`. Every decision is independent
+with disclosed hypothetical 100-unit caps, empty inventory and no resting orders.
+This is not a portfolio replay. The default hazard is None: 88a supplies no
+measured conservative fill bound, so `MISSING_CONSERVATIVE_FILL_BOUND` is expected
+unless an earlier gate refuses. Optional `--hypothetical-hazard-per-minute`
+is an explicit synthetic control passed unchanged to the policy, never a fitted
+estimate or live authority. Book and reward capture clocks are preserved.
+
+`report.json` and `report.md` are create-only in a new/empty output directory.
+The combined final byte count includes both files; 32 KiB is reserved for their
+terminal summary, and output caps below 64 KiB are rejected before writing.
+Input bytes count decompressed reads including rereads. Time checks run between
+bounded reads/records/provider calls; terminal report flushing can add overhead.
+Time/input/output cap stops leave valid partial reports. Exit 0 means processing
+completed (coverage gaps may still exist); exit 2 means partial, input error,
+no event-minute coverage or invalid invocation. No score, fill or edge is inferred.
 
 ## Update when
 
