@@ -101,3 +101,22 @@ registry change was introduced by this increment. The existing integration merge
 No production data, mirror, credentials, `.env`, venue, model fitting, Scheduler registration, capture restart, live trading,
 production write or master merge occurred. Only the owner-requested dependency merge was performed in this local topic.
 Publication commit and final verification are recorded in the next note after the working increment is committed.
+
+### Increment 1 publication verification — 2026-09-26
+
+Implementation, fixtures and the initial report are committed as **`5cfc32c8`**. After committing the source report,
+`weather.reporting.roadmap.correspondence_index` regenerated its entry with the Git-added date. The two failed checks were
+rerun through `workstation_heavy.ps1` and **both passed**: `test_project_critical_files_are_tracked_or_ignored` and
+`test_agent_docs_audit_passes_repository_contracts`. Together with the initial broader run, every selected non-skipped
+check has passed (1,115 distinct checks, 13 explicit skips). No broad suite was rerun merely to replace that evidence.
+Compilation and `git diff --check` passed. This is local fixture verification, not full-repository or hosted CI qualification.
+
+The mechanical local command
+`scripts/ops/roll_verdict.ps1 -Branch codex/maker-replay-harness-20260926 -Base 87526eeb`
+returned exit 1, **UNDECIDABLE: no live closure evidence**, naming all four missing snapshot/CLOB/observation/enrichment
+status files. Nothing was copied from production to change that verdict. Before adoption, production must run the command
+above against its actual target base and fresh closures, including the inherited dependencies.
+
+Origin was fetched again before publication; master remained `965374a0`, so the integration-branch base is still the
+owner-directed choice. The tested source commit and this appended note/index commit are the first increment to push.
+Later notes in this report should append to this record, as the owner requested, rather than rewrite these observations.
