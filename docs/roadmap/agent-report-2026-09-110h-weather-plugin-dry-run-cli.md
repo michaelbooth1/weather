@@ -14,7 +14,9 @@ Open-question IDs: none assigned. Reserved-window status at intake: NONE RESERVE
 - Merged current master first: `07f8a173`. Only conflict: the generated correspondence index.
   Kept master's generated copy for the merge commit, then regenerated with the complete merged history:
   `9fa2bfce`. No history rewrite.
-- Tested implementation: `39f05c0b968fbca29356d93f164db36940587b82`.
+- Initial implementation: `39f05c0b968fbca29356d93f164db36940587b82`.
+- Final tested implementation: `c8bace28a49c281b16442c1d56e4092847daad1f`, including the final-review fix
+  that keeps future corrupt/missing bulletin failures from changing earlier decisions.
 - This report and its subsequent regenerated-index commit are documentation-only.
   Resolve final publication with `git ls-remote --exit-code origin refs/heads/codex/weather-maker-plugin-20260925`.
 - Existing draft [PR #96](https://github.com/michaelbooth1/weather/pull/96) is the review surface;
@@ -59,8 +61,8 @@ The [canonical CLI contract](../operations/maker-core-contracts.md#bounded-weath
 
 ## Verification
 
-- Final focused run: **1,257 passed, 12 skipped**, 15.09 seconds, through `workstation_heavy.ps1`.
-  Includes plugin 110b/110c/110e tests, the 19 new CLI fixtures, 88a capture fixtures, all core fixtures,
+- Final focused run: **1,258 passed, 12 skipped**, 16.34 seconds, through `workstation_heavy.ps1`.
+  Includes plugin 110b/110c/110e tests, the 20 new CLI fixtures, 88a capture fixtures, all core fixtures,
   and all four requested repository audits.
 - The 12 skips are the existing explicit RE-1 replay skeletons. New scenarios are invented 2030 fixtures;
   the existing 110c suite also checks its previously tracked public NBP parser controls.
