@@ -350,3 +350,18 @@ needs its operations-owned review; production daily size/coverage and mechanical
 roll classification remain unmeasured. Fixture success is not an economic or
 live-readiness verdict. No production data, credentials, `.env`, venue, Scheduler,
 live action, deployment, or master mutation occurred.
+
+### Publication receipt
+
+Final source/export closeout **`6c18e4abfbb773072ed0ffec0dac2f42ced18d27`** was
+pushed and independently matched against `git ls-remote origin` for the requested
+branch. The worktree was clean. Draft PR **#100** was updated in place and remains
+draft, with its original weather-plugin base. No PR merge or production adoption
+was performed.
+
+Mechanical local `roll_verdict.ps1 -Branch codex/maker-replay-harness-20260926
+-Base e3274ea7c` returned exit 1, **UNDECIDABLE: no live closure evidence**, listing
+the same four absent supervisor/enrichment status files. No production evidence
+was copied to change it. The production operator must obtain the real verdict
+before adoption. All nine task-owned pytest temporary directories were removed
+after verification with exact-path, non-redirected Temp-root checks.
