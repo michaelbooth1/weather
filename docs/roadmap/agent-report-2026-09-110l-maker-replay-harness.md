@@ -120,3 +120,21 @@ above against its actual target base and fresh closures, including the inherited
 Origin was fetched again before publication; master remained `965374a0`, so the integration-branch base is still the
 owner-directed choice. The tested source commit and this appended note/index commit are the first increment to push.
 Later notes in this report should append to this record, as the owner requested, rather than rewrite these observations.
+
+## Continuation item 1 — event engine (2026-09-26)
+
+**PASS on fixtures: capture-ordered engine and typed payload adapters implemented.**
+Resume base is `e3274ea7`; fetched master remains before the instructed integration landing.
+The engine invokes shared `decide()`, maintains reservations across bands, records
+explicit excluded intervals, schedules information/freshness/close timers, latches
+decidedness, and cancels before cooldown/replacement. Future captured probability
+or event changes leave earlier decisions byte-identical. No external provider is
+called. Numeric cash and hazard inputs remain explicit counterfactual assumptions.
+
+Admitted fixture verification: **39 passed, 1 symlink-privilege skip** (engine and
+bundle tests). It covers scheduled pull/re-entry, permanent decidedness, mid drift,
+minimum-size changes, gaps, cash reservation and future payload-clock refusal.
+The fill hook is inert in this item; item 2 supplies it. Scoring CLI remains refused.
+New `engine.py` and `payloads.py` are neutral offline modules with no production
+closure evidence; mechanical adoption verdict remains UNDECIDABLE. New scenario
+and engine-test files are test-only; the contract and this report are roll-free.

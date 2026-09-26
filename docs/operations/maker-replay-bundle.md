@@ -98,6 +98,34 @@ reads. Do not add a permissive fallback. Diagnostic mode must continue to suppre
 
 ## Remaining adapters and acceptance
 
+### Event engine
+
+`maker_core.replay.engine.replay(bundles, ReplayConfig(...))` runs the shared pure
+`decide()` against typed records in capture order. `payloads.decode` validates
+descriptors (market plus plugin-owned local horizon and optional exposure factors),
+both-token books, reward terms, available/unavailable views, event snapshots,
+trades and reconciled settlement facts. Object payloads use the existing contract
+field names serialized by `maker_core.evidence.journal.plain`; views are wrapped
+as `{available, value}` and event snapshots as `{events}`. No provider clock may
+exceed the envelope capture time; known scheduled event times may be in the future.
+
+All conditions share cash reservations and wallet/event/factor caps. Timers cover
+scheduled pulls, event expiry, view expiry, reward freshness, capture gaps and the
+last three hours. Decidedness latches; fresh captured book/view inputs are required
+after an information pull. Safety cancellation precedes replacement cooldown.
+Replacing an eligible quote waits 60 seconds from its previous placement.
+Same-time prints are processed against previously resting orders before inputs
+or replacements. This increment's trade hook is deliberately inert until the fill
+facade is installed. Quotes do not fabricate fills or account state.
+
+Public books omit our hypothetical orders. Before calling the shared kernel,
+replay restores matching own levels that the kernel removes, preserving measured
+competition without introducing a new best price. Between captures, books are
+held for at most 60 seconds; a gap withdraws quotes and produces excluded spans.
+This is a disclosed sampled-book approximation, not a live freshness relaxation:
+the shared kernel's ten-second submit freshness still applies at every decision.
+Both input event count and combined decision/span count have hard ceilings.
+
 The weather exporter must reuse the 110h sealed-segment reader (`maker_plugin_capture`) outside the pure weather-provider
 package. It must project both-token 88a v2 books, reward-on-change records and public trades plus captured plugin inputs and
 settlement facts, retaining original clocks and source hashes. No export is implemented by this increment. No production
