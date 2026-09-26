@@ -44,9 +44,21 @@ class Trade:
     aggressor_side: str
 
 
+@dataclass(frozen=True)
+class Coverage:
+    trade_stream_ok: bool
+    valid_until_utc: datetime
+
+
 def decode(row: CapturedRecord):
     """No IO, no provider queries and no inferred timestamps or market probabilities."""
     p = row.payload
+    if row.kind == "coverage":
+        until = timestamp(p["valid_until_utc"])
+        if (type(p["trade_stream_ok"]) is not bool
+                or not 0 < (until - row.captured_at).total_seconds() <= 60):
+            raise BundleError("invalid_trade_coverage")
+        return Coverage(p["trade_stream_ok"], until)
     if row.kind == "descriptor":
         m = dict(p["market"])
         m["close_at_utc"] = timestamp(m["close_at_utc"])

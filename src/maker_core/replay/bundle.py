@@ -21,7 +21,7 @@ from maker_core.evidence.journal import canonical_bytes
 
 FORMAT = "maker_core.replay.bundle.v0.1"
 KINDS = frozenset({"descriptor", "book", "terms", "trade", "plugin_input",
-                   "outcome_view", "info_event", "settlement"})
+                   "outcome_view", "info_event", "settlement", "coverage"})
 MAX_BYTES = 64 * 1024**2
 MAX_MANIFEST_BYTES = 1024**2
 MAX_LINE_BYTES = 1024**2

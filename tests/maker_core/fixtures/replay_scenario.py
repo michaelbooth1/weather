@@ -37,7 +37,8 @@ class Scenario:
         return market + "-" + self.day.isoformat()
 
     def add(self, market, kind, seconds, payload):
-        self.records.append(dict(sequence=len(self.records), captured_at=self.at(seconds).isoformat(),
+        sequence = max((r["sequence"] for r in self.records), default=-1) + 1
+        self.records.append(dict(sequence=sequence, captured_at=self.at(seconds).isoformat(),
                                  condition_id=self.cid(market), kind=kind, payload=plain(payload),
                                  payload_sha256=sha256(canonical_bytes(payload)),
                                  source_hashes={"fixture": sha256(b"typed-110l-synthetic")}))
@@ -48,6 +49,8 @@ class Scenario:
         self.add(market, "outcome_view", seconds, dict(available=True, value=plain(view)))
 
     def book(self, market, seconds, mid=D(".5"), depth=D(75)):
+        self.add(market, "coverage", seconds, dict(trade_stream_ok=True,
+                 valid_until_utc=self.at(seconds+60).isoformat()))
         yb, ya = ((mid-D(".01"), depth),), ((mid+D(".01"), depth),)
         nb, na = ((1-mid-D(".01"), depth),), ((1-mid+D(".01"), depth),)
         self.add(market, "book", seconds, Book(self.at(seconds), yb, ya, nb, na))

@@ -138,3 +138,20 @@ The fill hook is inert in this item; item 2 supplies it. Scoring CLI remains ref
 New `engine.py` and `payloads.py` are neutral offline modules with no production
 closure evidence; mechanical adoption verdict remains UNDECIDABLE. New scenario
 and engine-test files are test-only; the contract and this report are roll-free.
+
+## Continuation item 2 — fill facade (2026-09-26)
+
+**PASS on fixtures: both 89a fill bounds, sibling cancellation and cash accounting.**
+Item 1 was pushed as `f4b68464`. The original 89a simulate implementation is copied
+at `de76a4a9b67b25781c6c6f33b10691841e8630cc`, with its unchanged test reference;
+both-bound differential tests compare fills, exposures and quote diagnostics.
+An explicit trade-health capture is required: absent prints alone do not prove
+zero fills. Duplicate IDs cannot fill twice; conflicting IDs refuse. Equal-time
+trades consume old quotes, both legs cancel after a fill, and cash/reservations
+remain shared across markets. The conservative remainder cancellation and 60-second
+coverage limit are deliberate lifecycle overlays on 89a's predicate.
+
+Admitted engine/fill suite: **15 passed**. No real tape was read. New fill facade,
+copied kernel and payload/engine changes have UNDECIDABLE production closure
+classification pending the mechanical production verdict; fixture/reference/test
+files are test-only; documentation is roll-free.

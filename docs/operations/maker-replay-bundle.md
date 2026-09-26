@@ -33,7 +33,7 @@ Each stream record contains exactly these fields:
 | `sequence` | Unique nonnegative integer within the bundle, at most the exact JSON integer bound; breaks capture-time ties |
 | `captured_at` | UTC timestamp within the bundle day; never replaced with provider issue or export time |
 | `condition_id` | One of the manifest's conditions |
-| `kind` | `descriptor`, `book`, `terms`, `trade`, `plugin_input`, `outcome_view`, `info_event`, or `settlement` |
+| `kind` | `descriptor`, `book`, `terms`, `coverage`, `trade`, `plugin_input`, `outcome_view`, `info_event`, or `settlement` |
 | `payload` | Inline JSON object; kind-specific semantics require subsequent adapters and are not yet frozen |
 | `payload_sha256` | SHA-256 of `maker_core.evidence.journal.canonical_bytes(payload)` (sorted ASCII JSON plus LF) |
 | `source_hashes` | Nonempty mapping of provenance labels to lowercase SHA-256 digests; labels are not paths to open |
@@ -115,8 +115,18 @@ last three hours. Decidedness latches; fresh captured book/view inputs are requi
 after an information pull. Safety cancellation precedes replacement cooldown.
 Replacing an eligible quote waits 60 seconds from its previous placement.
 Same-time prints are processed against previously resting orders before inputs
-or replacements. This increment's trade hook is deliberately inert until the fill
-facade is installed. Quotes do not fabricate fills or account state.
+or replacements. The fill facade copies the 89a price/size predicate at
+`de76a4a9b67b25781c6c6f33b10691841e8630cc`; its original module is unchanged.
+Strictly-through is primary; at-price is a sensitivity. Public prints are a price-path
+counterfactual without a queue model or aggressor-side filter. Both orders, including
+any unfilled remainder, are pulled immediately after the first fill. Equal-time
+prints cannot consume a replacement. Duplicated trade IDs are idempotent; conflicting
+duplicates refuse. Buy costs reduce shared cash and settlement credits reconcile lots.
+
+`coverage` payloads contain `trade_stream_ok` and `valid_until_utc` (at most 60 seconds
+after capture). A book alone cannot establish a zero-fill interval. Missing/expired
+trade coverage excludes the interval. Producers must derive this assertion from
+captured lifecycle/heartbeat evidence; they must not infer it from an empty tape.
 
 Public books omit our hypothetical orders. Before calling the shared kernel,
 replay restores matching own levels that the kernel removes, preserving measured

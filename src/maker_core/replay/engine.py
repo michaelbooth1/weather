@@ -17,6 +17,7 @@ from maker_core.quoting.policy import (DecisionInputs, ExposureLimit, Portfolio,
                                        _event_active, blind_re1, decide, informed_v0)
 from maker_core.replay.bundle import Bundle, BundleError
 from maker_core.replay.payloads import Descriptor, decode, number
+from maker_core.replay.fill_model import BOUNDS, Fill, match
 
 D = Decimal
 EPSILON = timedelta(microseconds=1)
@@ -34,10 +35,13 @@ class ReplayConfig:
     hazard_per_minute: float | None = None
     max_book_gap_seconds: int = 60
     max_events: int = 500_000
+    fill_bound: str = "strictly_through"
 
     def __post_init__(self):
         if self.policy not in ("informed-v0", "blind_re1"):
             raise BundleError("unsupported_replay_policy")
+        if self.fill_bound not in BOUNDS:
+            raise BundleError("unknown_fill_bound")
         for name in ("initial_cash", "band_cap", "order_cap", "wallet_cap", "event_cap", "factor_cap"):
             object.__setattr__(self, name, number(getattr(self, name)))
         if (type(self.max_book_gap_seconds) is not int or not 1 <= self.max_book_gap_seconds <= 60
@@ -86,6 +90,7 @@ class State:
     inventory_cost: Decimal = D(0)
     lots: list = field(default_factory=list)
     quotes: int = 0
+    last_fill: datetime | None = None
 
     @property
     def reserve(self):
@@ -116,6 +121,7 @@ class ReplayEngine:
         self.decisions, self.spans, self.fills, self.exclusions, self.books = [], [], [], [], []
         self.cash, self.ended = config.initial_cash, False
         self.settlements = {}
+        self.trades_seen = {}
         self.processed = 0
         self.end = max(c.active_until for b in bundles for c in b.conditions)
         for bundle in self.bundles:
@@ -148,13 +154,18 @@ class ReplayEngine:
         return any(_event_active(event, at) for event in state.latest.get("info_event", ()))
 
     def valid_coverage(self, state, at):
-        for key in ("descriptor", "book", "terms", "outcome_view", "info_event"):
+        for key in ("descriptor", "book", "terms", "outcome_view", "info_event", "coverage"):
             if key not in state.latest:
                 return False, "MISSING_" + key.upper()
         book = state.latest["book"]
         age = (at - book.as_of_utc).total_seconds()
         if not 0 <= age < self.config.max_book_gap_seconds:
             return False, "CAPTURE_GAP"
+        coverage = state.latest["coverage"]
+        if not coverage.trade_stream_ok or at >= coverage.valid_until_utc:
+            return False, "TRADE_CAPTURE_GAP"
+        if not 0 <= (at - state.latest["terms"].as_of_utc).total_seconds() <= 3600:
+            return False, "TERMS_CAPTURE_GAP"
         return True, "COVERED"
 
     def portfolio(self, cid):
@@ -221,6 +232,8 @@ class ReplayEngine:
             close = value.market.close_at_utc - timedelta(hours=3)
             if at < close <= self.end:
                 self.schedule(close)
+        elif row.kind == "coverage":
+            self.schedule(value.valid_until_utc)
         elif row.kind == "book":
             self.books.append((at, row.condition_id, value))
             self.schedule(at + timedelta(seconds=self.config.max_book_gap_seconds))
@@ -249,9 +262,57 @@ class ReplayEngine:
             if previous is not None and previous.p_yes != value.p_yes:
                 raise BundleError("conflicting_settlement")
             self.settlements[row.condition_id] = value
+            if previous is None:
+                self.cash += sum((lot.size * D(str(value.p_yes if lot.outcome == "YES" else 1-value.p_yes))
+                                  for lot in state.lots), D(0))
+                state.inventory_cost = D(0)
+                state.lots.clear()
 
     def on_trade(self, row, at):
-        """Fill adapter added by the next increment; no fabricated fills here."""
+        state = self.states[row.condition_id]
+        try:
+            trade = decode(row)
+        except (ValueError, KeyError, TypeError, ArithmeticError):
+            self.exclusions.append({"at": at, "condition_id": row.condition_id, "reason": "INVALID_TRADE"})
+            state.latest.pop("coverage", None)
+            self.pull(row.condition_id, at, "INVALID_TRADE")
+            return
+        key = row.condition_id, trade.trade_id
+        signature = digest(trade)
+        if key in self.trades_seen:
+            if self.trades_seen[key] != signature:
+                raise BundleError("conflicting_duplicate_trade")
+            return
+        self.trades_seen[key] = signature
+        # Coverage is judged just before the capture boundary, so an equal-time
+        # print may consume the expiring quote (89a tie rule). A late print can
+        # never fill an order placed after its venue timestamp.
+        covered, _ = self.valid_coverage(state, at - EPSILON)
+        if not state.legs or not covered or not self.active(row.condition_id, at - EPSILON):
+            return
+        if trade.traded_at < state.placed_at:
+            self.exclusions.append({"at": at, "condition_id": row.condition_id, "reason": "PRINT_PREDATES_ORDER"})
+            return
+        matched = match(state.legs, trade, self.config.fill_bound)
+        if matched is None:
+            return
+        leg, size = matched
+        fill = Fill(at, trade.traded_at, row.condition_id, self.conditions[row.condition_id].market_id,
+                    trade.trade_id, leg.outcome, leg.price, size, self.config.fill_bound,
+                    self.event_window(state, at))
+        if fill.cost > self.cash:
+            raise BundleError("fill_exceeds_cash")
+        self.cash -= fill.cost
+        state.inventory_cost += fill.cost
+        state.lots.append(fill)
+        self.fills.append(fill)
+        state.last_fill = at
+        # Both sibling and the filled leg's unfilled remainder are pulled. That
+        # conservative lifecycle overlay differs from 89a's continuous maker.
+        decision = QuoteDecision("END" if self.profile.first_fill_ends else "CANCEL", (),
+                                 ("FIRST_FILL_ENDS" if self.profile.first_fill_ends else "FILL_CANCEL_SIBLING",),
+                                 digest(fill), self.profile.name)
+        self.record_decision(row.condition_id, at, decision)
 
     def tick(self, cid, at):
         state = self.states[cid]
@@ -264,6 +325,8 @@ class ReplayEngine:
         if not state.covered:
             self.pull(cid, at, why)
             return
+        if state.last_fill == at:
+            return  # Never recreate the sibling at the fill instant.
         if self.ended or cid in self.settlements or state.decided:
             self.pull(cid, at, "SESSION_ENDED" if self.ended else "SETTLED" if cid in self.settlements else "DECIDED")
             return
