@@ -10,9 +10,14 @@
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [switch]$AcknowledgeRetired,
     [string]$TaskName = "WeatherModelMarketDisagreementAnalysis",
     [int]$EveryMinutes = 30
 )
+
+if (-not $AcknowledgeRetired) {
+    throw 'This task is retired. Registration requires explicit -AcknowledgeRetired and owner-ops resumption review.'
+}
 
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 if (-not (Test-Path $python)) {
