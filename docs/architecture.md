@@ -130,6 +130,14 @@ daily-roll liveness classification.
   replayable.
 - Active serving binds a complete verified release. Do not fall back to global
   artifacts when a release pointer exists but verification fails.
+- Afternoon residual centering is controlled by `component.enabled` in
+  `artifacts/misc/afternoon_residual_centering.json` (or the verified release's
+  copy). Disabled means the serving stage returns `artifact_disabled` without
+  shifting or spreading probabilities. The loader reads it at model construction;
+  changing the global artifact requires recreating existing model instances.
+  Source fingerprints exclude artifacts, so a source-roll verdict alone does not
+  prove activation. Preserve fitted contexts when toggling the switch; never
+  refit against this stage's own output. See [the decision and evidence](operations/ESTABLISHED_FINDINGS.md#2-the-cool-bias-is-real-and-is-not-correctable-at-serve).
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.
