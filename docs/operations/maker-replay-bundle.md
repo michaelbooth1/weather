@@ -150,6 +150,15 @@ Reports must distinguish all such limitations from passed checks and retain the 
 
 ### Scoring
 
+Inference sums paired band-day net differences within each market/UTC-date and
+averages complete market/date cells. Any incomplete/unpaired band drops its entire
+cell. Date bootstrap resamples whole dates; crossed bootstrap independently draws
+dates and markets with multiplicity, then multiplies their weights. It reports 90%
+percentile intervals, fixed seeds, counts and empty intersections. Fewer than ten
+dates (or ten markets for crossed inference) is UNDERPOWERED. The displayed normal
+80%-power MDE approximation is descriptive; even ten clusters do not establish
+power. No estimate is a promotion decision or permission to score real data.
+
 Baselines are `no_quote`, `blind_re1`, and `clock_only`. Clock-only runs shared
 informed quoting safety with unavailable fair value and no information events.
 Its UTC active-interval prefix windows are predeclared for each replay. A bounded

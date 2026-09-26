@@ -187,3 +187,18 @@ UNMATCHED and cannot support an inferential clock comparison. No move or economi
 outcome selects its schedule. Admitted replay regression suite: **36 passed**.
 New baselines/parity modules and engine changes: closure UNDECIDABLE; tests
 test-only; docs roll-free. Full-session parity remains an adoption limitation.
+
+## Continuation item 5 — clustered inference (2026-09-26)
+
+**PASS on synthetic panels.** Item 4 was pushed as `b9b3ea21`. Paired band-day
+deltas are summed within date/market; an incomplete or unpaired band excludes the
+whole market/date cell. Bootstrap resamples whole dates and, separately, independent
+date and market multiplicities (crossed clustering). Both report 90% intervals,
+counts, deterministic seeds, sparse empty-replicate counts and UNDERPOWERED below
+ten required clusters. Cluster count is not a power claim; a descriptive normal
+80%-power MDE approximation is labelled as such. No market-day IID fallback exists.
+
+Admitted focused checks: **4 passed**, including shared market shocks that date-only
+resampling cannot capture, three-date/two-market underpower, deterministic order,
+and missing-cell exclusion. New inference source: closure UNDECIDABLE; tests
+test-only; docs roll-free. No real-data estimate or alpha spend occurred.
