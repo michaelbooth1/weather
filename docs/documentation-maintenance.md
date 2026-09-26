@@ -37,6 +37,7 @@ changing inventories, metrics, versions, or operational state.
 | Durable domain invariants | `docs/operations/AGENT_CONTEXT.md` |
 | Architecture/data flow | `docs/architecture.md` |
 | Package edges and facade ownership | operations boundary/ownership docs |
+| Domain-neutral maker plugin contracts, pure inputs and evidence format | `operations/maker-core-contracts.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |

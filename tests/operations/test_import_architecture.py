@@ -1106,6 +1106,110 @@ def test_package_modules_do_not_use_internal_compatibility_import_fallbacks():
     assert import_error_offenders == {}
 
 
+def maker_boundary_violations(source, module):
+    """Resolve relative imports and aliases, including literal dynamic imports."""
+    tree = ast.parse(source)
+    imports, aliases = [], {}
+    package = module.rsplit(".", 1)[0]
+    module = module.removesuffix(".__init__")
+    prefix_module = module + "."
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append(alias.name)
+                aliases[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom):
+            prefix = node.module or ""
+            if node.level:
+                prefix = ".".join(package.split(".")[:len(package.split(".")) - node.level + 1] + ([prefix] if prefix else []))
+            for alias in node.names:
+                name = prefix + "." + alias.name
+                imports.append(name)
+                aliases[alias.asname or alias.name] = name
+
+    def qualified(node):
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            return qualified(node.value) + "." + node.attr
+        return ""
+
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and qualified(node.func) in {"__import__", "importlib.import_module"}:
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                imports.append(node.args[0].value)
+            else:
+                violations.append("computed dynamic import")
+        if prefix_module.startswith("maker_core.") and module != "maker_core.runtime.credentials":
+            name = qualified(node)
+            if name == "os.getenv" or name.startswith("os.environ") or name.startswith("winreg") or name.startswith("keyring"):
+                violations.append("credential read outside credentials owner")
+    for name in imports:
+        root = name.split(".")[0]
+        if prefix_module.startswith("maker_core."):
+            if root == "weather":
+                violations.append("core imports weather")
+            if root == "dotenv" and module != "maker_core.runtime.credentials":
+                violations.append("dotenv outside credentials owner")
+            if (root in {"polymarket", "py_clob_client", "eth_account", "requests", "httpx", "urllib", "socket",
+                         "http", "ssl", "websocket", "websockets", "aiohttp", "web3"}
+                    and not prefix_module.startswith("maker_core.venue.")):
+                violations.append("SDK/HTTP outside venue")
+            if prefix_module.startswith(("maker_core.quoting.", "maker_core.portfolio.")) and name.startswith(("maker_core.venue", "maker_core.runtime")):
+                violations.append("pure policy imports execution")
+        elif prefix_module.startswith("weather.market.maker_plugin.") or module == "fictional_plugin":
+            if root == "maker_core" and not name.startswith("maker_core.contracts.") and name != "maker_core.contracts":
+                violations.append("plugin imports non-contract core")
+    return violations
+
+
+def test_maker_core_and_plugin_import_boundaries():
+    offenders = {}
+    for root in (Path("src/maker_core"), Path("src/weather/market/maker_plugin")):
+        for path in root.rglob("*.py"):
+            module = ".".join(path.relative_to("src").with_suffix("").parts)
+            found = maker_boundary_violations(path.read_text(encoding="utf-8"), module)
+            if found:
+                offenders[str(path)] = found
+    fixture = Path("tests/maker_core/fixtures/fictional_domain.py")
+    assert maker_boundary_violations(fixture.read_text(encoding="utf-8"), "fictional_plugin") == []
+    assert offenders == {}
+
+
+def test_maker_ratchet_detects_aliases_relative_and_dynamic_imports():
+    for source in ("import weather.paths", "from weather import paths", "__import__('weather.paths')",
+                   "import importlib as il; il.import_module('weather.market')",
+                   "import os as o; o.environ.get('KEY')", "from os import getenv as g; g('KEY')",
+                   "from os import environ as e; e['KEY']", "import py_clob_client",
+                   "from ..venue import transport", "import importlib; importlib.import_module(name)"):
+        assert maker_boundary_violations(source, "maker_core.quoting.policy"), source
+    assert maker_boundary_violations("from maker_core import quoting", "weather.market.maker_plugin.fair_value")
+    assert not maker_boundary_violations("from maker_core.contracts import OutcomeView", "weather.market.maker_plugin.fair_value")
+    assert not maker_boundary_violations("import os; os.environ.get('KEY')", "maker_core.runtime.credentials")
+    assert not maker_boundary_violations("import py_clob_client", "maker_core.venue.transport")
+
+
+def test_maker_ratchet_covers_packages_and_credentials_owner():
+    for module in ("maker_core", "maker_core.__init__", "maker_core.venue", "maker_core.venue.__init__"):
+        assert maker_boundary_violations("import weather", module)
+        assert maker_boundary_violations("import dotenv", module)
+        assert maker_boundary_violations("from os import environ; environ.get('KEY')", module)
+    assert not maker_boundary_violations("import dotenv", "maker_core.runtime.credentials")
+    for name in ("http.client", "ssl", "websocket", "websockets", "aiohttp", "web3"):
+        for module in ("maker_core", "maker_core.quoting", "maker_core.portfolio.__init__"):
+            assert maker_boundary_violations(f"import {name}", module)
+        assert not maker_boundary_violations(f"import {name}", "maker_core.venue.__init__")
+    assert maker_boundary_violations("from maker_core import quoting", "weather.market.maker_plugin")
+    assert maker_boundary_violations("from ..venue import transport", "maker_core.quoting.__init__")
+
+
+def test_maker_core_setuptools_discovery():
+    from setuptools import find_packages
+    assert {"maker_core", "maker_core.contracts", "maker_core.quoting", "maker_core.evidence",
+            "maker_core.portfolio", "maker_core.venue", "maker_core.runtime", "maker_core.replay"} <= set(find_packages("src"))
+
+
 def test_package_dependency_edges_follow_documented_ratchet():
     assert PACKAGE_BOUNDARY_DOC.exists()
     observed = observed_package_edges()

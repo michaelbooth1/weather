@@ -55,6 +55,7 @@ Read the one that owns the thing you are changing.
 | Changing | Contract |
 | --- | --- |
 | Imports or package edges | [Package dependency boundaries](operations/package-boundaries.md) |
+| A domain-neutral maker plugin, pure decision or evidence journal | [Maker core contracts](operations/maker-core-contracts.md) |
 | A large module or facade split | [Large-module ownership map](operations/module-ownership-map.md) |
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |

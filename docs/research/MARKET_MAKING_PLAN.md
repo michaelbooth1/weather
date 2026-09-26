@@ -9,6 +9,11 @@
 > dollar figure - every economic number here is dated 2026-06 unless marked
 > otherwise, and the reward budget was re-measured on 2026-09-19 (Part 0).
 
+> **Paper-maker retirement:** `mm_policy`, `market_making_run*` and `mm_paper*`
+> are retained as historical code/evidence only. New implementation follows
+> [maker core contracts](../operations/maker-core-contracts.md). The Stage 2
+> hold build at `88aa7e43a` is frozen as fixtures only; no tasks change here.
+
 Research date: 2026-06-12. Audited and revised same day (v2) - every economic
 assumption was re-tested against live APIs; see the audit changelog below.
 Live numbers were pulled from the Gamma and CLOB APIs for the June 11-13
