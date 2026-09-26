@@ -27,7 +27,7 @@ never pooled across the 2026-07-31 provenance boundary.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.
 11. Historical replay cannot reproduce what production served; do not commission reproduction work. EF §1k.
-12. Owner decisions in force: no live trading except the attended RE-1 exception (see STATE_OF_PLAY), International only, no paid weather APIs, backups deprioritized; **model work unpaused 2026-09-21** (measurement first; a candidate needs a pre-registration before it is scored). Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
+12. Owner decisions in force: no live trading (all paused 2026-09-25, including RE-1; see STATE_OF_PLAY), International only, no paid weather APIs, backups deprioritized; **model work unpaused 2026-09-21** (measurement first; a candidate needs a pre-registration before it is scored). Current authority is read from [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
 
 ## Model and forecast: what is established
 

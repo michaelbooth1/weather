@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-13T08:14:57.322915+00:00
+Generated: 2026-09-24T20:13:35.108369+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 326 |
-| Active items | 37 |
+| Items | 327 |
+| Active items | 38 |
 | OPEN | 3 |
-| PARTIAL | 34 |
+| PARTIAL | 35 |
 | COMPLETE | 289 |
-| ROADMAP rows | 326 |
-| ROADMAP primary rows | 326 |
-| Metadata manifest rows | 326 |
+| ROADMAP rows | 327 |
+| ROADMAP primary rows | 327 |
+| Metadata manifest rows | 327 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -62,6 +62,7 @@ Status: `OK`
 | 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 | 331 | PARTIAL | 2026-09-12 | LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
 | 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
+| 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Lint Issues
 
