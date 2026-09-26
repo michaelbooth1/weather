@@ -338,3 +338,8 @@ reader startup, firewall/Scheduler mutation, order or master merge was used.
 Only synthetic temporary credential fixtures are exercised by inherited tests.
 The owner must reconcile the baseline, adopt the pushed tip and restart `serve`
 with `--campaign-capital` and `--campaign-start-utc` to activate this behavior.
+
+Final 110f verification: **29 documentation tests passed** (agent-doc audit,
+roadmap backlog and correspondence parity), the standalone documentation audit
+passed, focused compilation passed, and `git diff --check` passed. Regenerating
+the correspondence index produced no change for an append to an existing report.
