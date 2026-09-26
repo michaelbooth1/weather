@@ -1,0 +1,36 @@
+{
+  "mission": "2026-09-83b",
+  "part": "A",
+  "implementation_commit": "d4f82289",
+  "verdict": "PARTIAL",
+  "wrapper": "scripts/ops/workstation_heavy.ps1",
+  "arguments": [
+    "-m",
+    "pytest",
+    "-q",
+    "--basetemp",
+    "C:/tmp/83baf",
+    "--junitxml",
+    "scratch/83b-full.xml"
+  ],
+  "passed": 6100,
+  "skipped": 34,
+  "failed": 2,
+  "subtests_passed": 923,
+  "seconds": 2748.32,
+  "warning": "NumPy/netCDF4 ndarray size changed ABI warning",
+  "failures": [
+    {
+      "test": "tests.operations.test_research_harness::test_research_inventory_covers_every_script",
+      "message": "AssertionError: assert {'analyze_bou...wend.py', ...} == {'analyze_bou...wend.py', ...}\n  \n  Extra items in the left set:\n  'nbm_target_fix.py'\n  Use -v to get more diff",
+      "detail": "def test_research_inventory_covers_every_script():\n        scripts = set(research_harness.research_scripts(RESEARCH_ROOT))\n    \n>       assert scripts == set(research_harness.SCRIPT_INVENTORY)\nE       AssertionError: assert {'analyze_bou...wend.py', ...} == {'analyze_bou...wend.py', ...}\nE         \nE         Extra items in the left set:\nE         'nbm_target_fix.py'\nE         Use -v to get more diff\n\ntests\\operations\\test_research_harness.py:15: AssertionError"
+    },
+    {
+      "test": "tests.operations.test_workload_admission_script::test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore",
+      "message": "assert False\n +  where False = all(<generator object test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore.<locals>.<genexpr> at 0x000001BDCD0BF920>)",
+      "detail": "def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore() -> None:\n        text = LEASE_SCRIPT.read_text(encoding=\"utf-8-sig\")\n        match = re.search(\n            r\"function Get-WeatherWorkstationOfflineModule\\s*\\{.*?@\\((.*?)\\)\\s*\\}\",\n            text,\n            flags=re.DOTALL,\n        )\n        assert match is not None\n        modules = re.findall(r'\"([A-Za-z0-9_.-]+)\"', match.group(1))\n        assert modules.count(\"weather.operations.workstation_cold_archive_stage\") == 1\n        assert modules.count(\"weather.operations.workstation_cold_archive_restore\") == 1\n        assert \"weather.operations.verified_cold_archive\" not in modules\n        assert \"weather.operations\" not in modules\n        assert \"rclone\" not in modules\n>       assert all(module.startswith(\"weather.\") for module in modules)\nE       assert False\nE        +  where False = all(<generator object test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore.<locals>.<genexpr> at 0x000001BDCD0BF920>)\n\ntests\\operations\\test_workload_admission_script.py:330: AssertionError"
+    }
+  ],
+  "gates_relaxed": false,
+  "note": "Optional live use-age preference and its focused test were added after this full suite."
+}
