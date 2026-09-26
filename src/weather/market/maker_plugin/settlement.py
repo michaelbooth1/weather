@@ -3,6 +3,7 @@ import math
 
 from maker_core.contracts import Pending, SettlementFact, utc_time
 from weather.market.maker_plugin.inputs import band, digest, event_identity, records, timestamp
+from weather.schema_registry import schema_version
 
 # Matches settlement_ledger.LEDGER_REVISION_METADATA_FIELDS without importing
 # that module's provider/network closure.
@@ -28,6 +29,8 @@ class WeatherSettlement:
                 raise ValueError("settlement_not_recorded_or_event_open")
             previous = None
             for row in sorted(rows, key=lambda r: int(r["revision_number"])):
+                if row.get("schema_version") != schema_version("settlement_ledger"):
+                    raise ValueError("unsupported_settlement_schema")
                 label = {k: v for k, v in row.items() if k not in REVISION_FIELDS}
                 if row.get("ledger_record_type") != "settlement_revision" or row["label_hash"] != digest(label):
                     raise ValueError("ledger_label_hash_mismatch_or_legacy_unbound")

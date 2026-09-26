@@ -104,7 +104,7 @@ def served_inputs(rows):
 
 def ledger(rows, spec, target, previous=None, status="match", bucket=75):
     recorded = datetime.combine(target + timedelta(days=1), datetime.min.time(), timezone.utc) + timedelta(hours=15)
-    row = {"schema_version": "settlement_ledger_v0.1", "event_slug": rows[0]["event_slug"],
+    row = {"schema_version": "settlement_ledger_v2", "event_slug": rows[0]["event_slug"],
            "market_id": spec.id, "target_date": target.isoformat(), "settlement_bucket": bucket,
            "settlement_high": bucket, "settlement_unit": spec.unit, "winning_band": "70-79 F",
            "winning_band_kind": "eq", "winning_band_value": 70, "winning_band_value_hi": 79,
@@ -409,3 +409,12 @@ def test_corrupted_nbp_cannot_silently_become_fallback():
     result = WeatherFairValue(universe, bulletins=[raw], forecasts=[forecast(rows, spec, target)]).evaluate(
         universe.discover(NOW, 2).markets[1], NOW)
     assert isinstance(result, Unavailable) and result.reason == "nbp_payload_hash_mismatch"
+
+
+def test_repeated_forecast_capture_does_not_invalidate_same_issue():
+    universe, rows, spec, target, _, _ = fixture()
+    raw = forecast(rows, spec, target)
+    market = universe.discover(NOW, 2).markets[1]
+    initial = WeatherFairValue(universe, forecasts=[raw]).evaluate(market, NOW)
+    again = dict(raw, snapshot_id="second", captured_at_utc=(NOW-timedelta(minutes=1)).isoformat())
+    assert WeatherFairValue(universe, forecasts=[again, raw]).evaluate(market, NOW) == initial

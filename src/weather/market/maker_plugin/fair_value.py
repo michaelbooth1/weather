@@ -102,8 +102,14 @@ class WeatherFairValue:
                 continue
             if issue <= timestamp(row["captured_at_utc"]) <= as_of < issue + timedelta(hours=24):
                 candidates.append({"issue": issue.isoformat(), "row": row})
-        selected = latest(candidates, as_of, "issue")
-        row, issue = selected["row"], timestamp(selected["issue"])
+        if not candidates:
+            raise ValueError("missing_point_in_time_forecast")
+        issue = max(timestamp(c["issue"]) for c in candidates)
+        newest = [c["row"] for c in candidates if timestamp(c["issue"]) == issue]
+        if len({digest({k: r.get(k) for k in ("source", "valid_time", "forecast_high_c")})
+                for r in newest}) != 1:
+            raise ValueError("conflicting_forecast_issue")
+        row = min(newest, key=lambda r: timestamp(r["captured_at_utc"]))
         mean = float(row["forecast_high_c"])
         if not math.isfinite(mean):
             raise ValueError("invalid_forecast_high")
