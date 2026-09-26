@@ -87,7 +87,7 @@ from weather.sources.asos_one_minute import (
     load_daily_summary,
 )
 from weather.time import parse_datetime, utc_now as shared_utc_now
-from weather.units import round_half_up, to_float
+from weather.units import parse_temperature_band, round_half_up, to_float
 
 
 SCHEMA_VERSION = schema_version("observation_trigger")
@@ -1359,31 +1359,29 @@ def read_jsonl(path):
 
 
 def band_key(row):
+    def first(*names):
+        return next((row[name] for name in names if row.get(name) not in (None, "")), None)
+
     kind = row.get("bin_kind")
-    value = to_int(row.get("bin_value_c") or row.get("bin_value"))
-    value_hi = to_int(row.get("bin_value_hi_c") or row.get("bin_value_hi"))
+    value = to_int(first("bin_value_c", "bin_value"))
+    value_hi = to_int(first("bin_value_hi_c", "bin_value_hi"))
     encoded = row.get("band_key") or row.get("band_key_text")
     if encoded and (not kind or value is None):
-        match = re.match(r"^(eq|lte|gte):(\d+)(?:-(\d+))?$", str(encoded))
-        if match:
-            kind = kind or match.group(1)
-            value = value if value is not None else to_int(match.group(2))
-            value_hi = value_hi if value_hi is not None else to_int(match.group(3))
-    label = row.get("range_label") or ""
-    numbers = [to_int(item) for item in re.findall(r"\d+", str(label))]
-    numbers = [item for item in numbers if item is not None]
-    if not kind and numbers:
-        label_lower = str(label).lower()
-        if "below" in label_lower or "under" in label_lower:
-            kind = "lte"
-        elif "higher" in label_lower or "above" in label_lower:
-            kind = "gte"
-        else:
-            kind = "eq"
-    if value is None and numbers:
-        value = numbers[0]
+        encoded_kind, separator, endpoints = str(encoded).partition(":")
+        parsed = parse_temperature_band(endpoints)
+        if separator and encoded_kind in {"eq", "lte", "gte"} and parsed and parsed.kind == "eq":
+            kind = kind or encoded_kind
+            value = value if value is not None else parsed.value
+            # A single persisted endpoint left the upper bound to the label.
+            if value_hi is None and not endpoints.lstrip("+-").isdigit():
+                value_hi = parsed.value_hi
+    label = parse_temperature_band(row.get("range_label"))
+    if not kind and label:
+        kind = label.kind
+    if value is None and label:
+        value = label.value
     if value_hi is None:
-        value_hi = numbers[-1] if len(numbers) >= 2 else value
+        value_hi = label.value_hi if label and label.value_hi != label.value else value
     return kind, value, value_hi
 
 
