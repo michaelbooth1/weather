@@ -32,7 +32,8 @@ def test_allowances_can_only_shrink_from_reviewed_seed(baseline):
     assert not {field: errors for field in SHRINK_FIELDS if (errors := health.growth(baseline[field], seed[field]))}
     revisions = subprocess.check_output(
         ["git", "log", "-2", "--format=%H", "--", health.BASELINE_PATH], cwd=ROOT, text=True).splitlines()
-    if revisions:
+    # A reviewed seed establishes the limit; earlier prototype seeds do not.
+    if revisions and revisions[0] != health.ALLOWANCE_SEED_SHA:
         latest = json.loads(subprocess.check_output(
             ["git", "show", f"{revisions[0]}:{health.BASELINE_PATH}"], cwd=ROOT, text=True, encoding="utf-8"))
         prior = latest

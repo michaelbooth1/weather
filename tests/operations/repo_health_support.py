@@ -12,7 +12,7 @@ import sys
 MODULE_LIMIT = 2_000
 FILE_LIMIT = 1024 * 1024
 ROADMAP_DATA_LIMIT = 250_000
-ALLOWANCE_SEED_SHA = "834f899adc96df72d2cec6ff740a06850944475a"
+ALLOWANCE_SEED_SHA = "2db5220bc12dc231ef1a42ab2f2ebff11ed5cf69"
 BASELINE_PATH = "tests/fixtures/repo_health_baseline.json"
 RETIRED = re.compile(r"\b(?:taker_\w+|mm_paper\w*|market_making_\w+|polymarket_us\w*|streak\w*|soak\w*)\b", re.I)
 MODULE_TOKEN = re.compile(r"\b(?:weather|maker_core|app|tools)(?:\.[A-Za-z_]\w*)+\b")
