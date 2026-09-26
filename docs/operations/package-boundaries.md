@@ -47,8 +47,17 @@ caller inputs, so the neutral package never imports `weather.paths`.
 - `quoting` and `portfolio` cannot import `venue` or `runtime`. `quoting` may
   import contracts, its kernels and the evidence canonical serializer; evidence
   imports contracts for UTC validation. The other packages remain stubs.
-- A future `weather.market.maker_plugin` imports only `maker_core.contracts`
+- `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
+
+The weather plugin consumes caller-supplied captured records. Its universe
+combines the built-in registry with discovery projections, both-token book
+rules and captured band metadata. It reads no provider, file, credential or
+environment state. NBP period selection and station minutes are vendored pure
+rules; region factors reuse the pure `mm_risk` table. Snapshot probabilities
+join to explanation and source-row release metadata; settlements require a
+reconciled, hash-verified ledger history. Input shapes and remaining export
+requirements are documented with the [synthetic fixtures](../../tests/fixtures/maker_plugin/README.md).
 
 The new AST ratchet resolves relative imports and import aliases, and refuses
 computed dynamic imports. It is a source boundary check, not a general sandbox.
