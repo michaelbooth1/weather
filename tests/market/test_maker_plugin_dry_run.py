@@ -264,6 +264,19 @@ def test_future_nbp_and_snapshot_rows_do_not_leak(tmp_path):
     assert summary["unavailable"]["fair_value:missing_point_in_time_forecast"] == 3
 
 
+def test_future_corrupt_bulletin_does_not_change_earlier_decisions(tmp_path):
+    args, folder, _ = layout(tmp_path)
+    future = {"source": "nbm_probabilistic_tmax", "payload_hash": "f" * 64,
+              "captured_at_utc": "2030-01-10T17:00:00+00:00"}
+    path = folder / "forecast_payloads.jsonl"
+    present = json.loads(path.read_bytes())
+    jsonl(path, [present, future])  # Future referenced payload is deliberately absent.
+    summary = run(args)
+    assert summary["leg_counts"] == {"0": 3, "1": 0, "2": 0}
+    assert summary["decision_reasons"] == {"MISSING_CONSERVATIVE_FILL_BOUND": 3}
+    assert summary["mass_coverage"] == {"complete_unit_mass": 1}
+
+
 def test_book_age_is_not_replaced_with_decision_time(tmp_path):
     args, _, segment = layout(tmp_path)
     reader = Reader(args.data_root, 60, 1000000)

@@ -48,7 +48,7 @@ class Sources:
         explanations = self.table(root / "snapshot_explanations.jsonl", "explanations")
         manifests = self.table(root / "forecast_payloads.jsonl", "nbp_manifests")
         observation_sources = self.table(root / "observation_payloads.jsonl", "observation_sources")
-        bulletins, hashes, size = [], set(), 0
+        bulletins, hashes, size, nbp_errors = [], set(), 0, []
         for row in sorted(manifests, key=lambda r: r.get("captured_at_utc", "")):
             self.reader.check()
             if row.get("source") != "nbm_probabilistic_tmax":
@@ -77,6 +77,7 @@ class Sources:
                 hashes.add(key)
             except (ValueError, KeyError, TypeError, OSError, EOFError) as exc:
                 self.error("nbp", exc)
+                nbp_errors.append({"captured_at_utc": row.get("captured_at_utc")})
         self.reader.coverage["nbp.rows"] += len(bulletins)
         events = self.table(self.reader.root / "snapshots" / "observation_triggers.jsonl", "triggers")
         triggers = []
@@ -90,7 +91,7 @@ class Sources:
         result = dict(snapshots=snapshots, source_rows=manifests + observation_sources, forecasts=forecasts,
                            explanations=explanations, bulletins=bulletins, triggers=triggers,
                            ledger_rows=[r for r in ledger if r.get("event_slug") == slug],
-                           bad_sources=sorted(self.bad_sources))
+                           bad_sources=sorted(self.bad_sources - {"nbp"}), nbp_errors=nbp_errors)
         size = 0
         for rows in result.values():
             for row in rows:

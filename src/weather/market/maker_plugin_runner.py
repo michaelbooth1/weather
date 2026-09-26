@@ -171,6 +171,13 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
     slug = event["slug"]
     spec, target = event_identity(slug)
     support = sources.for_event(slug)
+    bad_sources = set(support["bad_sources"])
+    for error in support["nbp_errors"]:
+        try:
+            if timestamp(error["captured_at_utc"]) <= now:
+                bad_sources.add("nbp")
+        except (ValueError, KeyError, TypeError):
+            bad_sources.add("nbp")  # Unknown availability cannot be guessed.
     source_coverage = {}
     for name, time_key in (("snapshots", "captured_at_utc"), ("source_rows", "captured_at_utc"),
                            ("forecasts", "captured_at_utc"), ("explanations", "captured_at_utc"),
@@ -215,7 +222,7 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
             outcomes.append(entry)
             continue
         view = provider.evaluate(descriptor, now)
-        if set(support["bad_sources"]) & {"nbp", "nbp_manifests", "forecasts", "snapshots", "explanations", "observation_sources"}:
+        if bad_sources & {"nbp", "nbp_manifests", "forecasts", "snapshots", "explanations", "observation_sources"}:
             view = Unavailable("corrupt_supporting_input", now, kind="corrupt")
         reader.check()
         entry["fair_value"] = plain(view)
@@ -225,7 +232,7 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
         else:
             probabilities.append(view.p_yes)
         try:
-            if set(support["bad_sources"]) & {"triggers", "nbp", "nbp_manifests"}:
+            if bad_sources & {"triggers", "nbp", "nbp_manifests"}:
                 raise ValueError("corrupt_clock_input")
             events = clock.upcoming((descriptor,), now - timedelta(minutes=10), now + timedelta(minutes=3))
             events += clock.observe((descriptor,), now)
