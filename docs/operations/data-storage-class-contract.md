@@ -45,6 +45,24 @@ files and fsynced receipts it last counted.
 
 ## Operator Rule
 
+Owner storage decision 7 (2026-09-26) classifies rotated `clob_diagnostics.*`
+and `diagnostics.*` JSONL as operator logs eligible for verified archive.
+The active logs and every `observation_triggers` rotation remain protected;
+the latter supplies panel B through October 8 scoring. `forecast_history/`
+is canonical point-in-time evidence, never a routine provider cache.
+
+`fetch_fanout` claims have a strictly greater than seven-day TTL; other fanout
+receipts use monthly tar.gz archives. WU atomic-write temporary files remain
+canonical by default. `WuAtomicOrphanProof` can classify an exact temporary
+path as an operator orphan only with all four action-time proofs documented
+in [the retention policy](data-retention-policy.md). Registry classification
+does not perform cleanup or collect those proofs.
+
+The owner's 2026-09-26 waiver permits `backtest/replay_cache` removal from an
+owner-signed exact-path checksum manifest without a release reachability
+manifest, because production has no release pointer. It does not change the
+general reachability tool or the alternate `backtest/cache/replay` policy.
+
 Passive maker journals and manifests under `data/maker_evidence/<UTC-day>/`
 are canonical evidence, including gzip representations. Its atomic status and
 operator-maintained extra-condition list are operator caches. The

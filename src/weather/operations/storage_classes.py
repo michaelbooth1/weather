@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fnmatch
+import math
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -72,6 +74,33 @@ CONTRACTS_BY_CLASS = {contract.name: contract for contract in STORAGE_CLASS_CONT
 
 
 ARTIFACT_FAMILIES = (
+    ArtifactFamilyClassification(
+        "rotated_capture_diagnostics", "operations", OPERATOR_CACHE,
+        ("snapshots/clob_diagnostics.*.jsonl", "snapshots/diagnostics.*.jsonl",
+         "snapshots/clob_diagnostics.*.jsonl.gz", "snapshots/diagnostics.*.jsonl.gz"),
+        "operator_log_archive", "retained diagnostic archive",
+        "verified_archive_and_reviewed_exact_path_manifest", False,
+        notes="Owner 2026-09-26 decision 7. Active logs and observation_triggers rotations excluded.",
+    ),
+    ArtifactFamilyClassification(
+        "fetch_fanout_claims", "collection", OPERATOR_CACHE,
+        ("fetch_fanout/*.claim", "fetch_fanout/**/*.claim",
+         "forecast_payload_cas/fetch_fanout/*.claim", "forecast_payload_cas/fetch_fanout/**/*.claim"),
+        "ttl_strictly_older_than_7_days", "completed fanout receipts",
+        "ttl_and_no_active_owner_or_evidence_reference", False,
+    ),
+    ArtifactFamilyClassification(
+        "fetch_fanout_receipts", "collection", OPERATOR_CACHE,
+        ("fetch_fanout/**", "forecast_payload_cas/fetch_fanout/**"),
+        "monthly_tar_gz_archive", "retained monthly archive",
+        "verified_archive_and_reviewed_exact_path_manifest", False,
+    ),
+    ArtifactFamilyClassification(
+        "forecast_history", "sources", CANONICAL_EVIDENCE,
+        ("forecast_history/**",), "permanent_point_in_time_forecast_history",
+        "not rebuildable with original issue and capture times",
+        "canonical_evidence_review_gate", True,
+    ),
     ArtifactFamilyClassification(
         "passive_maker_evidence", "market", CANONICAL_EVIDENCE,
         ("maker_evidence/*/*.jsonl", "maker_evidence/*/*.jsonl.gz",
@@ -559,7 +588,10 @@ ARTIFACT_FAMILIES = (
             "data/backtest/replay_cache/<event>/<key>.json",
             "data/backtest/cache/replay/<event>/<key>.json",
         ),
-        notes="Retention is exact-key reachability based; age and LRU are never deletion evidence.",
+        notes=("Retention is exact-key reachability based; age and LRU are never deletion evidence. "
+               "Owner 2026-09-26 waived release reachability only for backtest/replay_cache, "
+               "using an owner-signed exact-path checksum manifest because production has no release pointer. "
+               "The alternate backtest/cache/replay layout has no waiver."),
     ),
     ArtifactFamilyClassification(
         "provider_and_runtime_cache",
@@ -567,7 +599,6 @@ ARTIFACT_FAMILIES = (
         OPERATOR_CACHE,
         (
             "forecast_archive/**",
-            "forecast_history/**",
             "cache/**",
             "open_meteo/**",
             "weather_com/**",
@@ -621,10 +652,57 @@ def _matches_any(rel_path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(rel_path, pattern) for pattern in patterns)
 
 
-def classify_storage_path(path: str | Path) -> ArtifactFamilyClassification:
+@dataclass(frozen=True)
+class WuAtomicOrphanProof:
+    """Action-time observations, never inferred from a temporary filename alone.
+
+    The cleanup owner obtains process identity and an exclusive no-open-handle
+    proof, binds these observations to its exact-path checksum manifest, and
+    rechecks them at apply. This registry does not itself authorize deletion.
+    """
+
+    path: str
+    writer_pid: int
+    writer_alive: bool | None
+    writer_started_at: float | None
+    mtime: float
+    checked_at: float
+    no_open_handle: bool
+    final_exists: bool
+
+
+WU_ATOMIC_ORPHAN = ArtifactFamilyClassification(
+    "wu_atomic_write_orphan", "sources", OPERATOR_CACHE, (),
+    "orphan_strictly_older_than_24_hours", "existing final WU file",
+    "four_current_orphan_proofs_and_reviewed_exact_path_manifest", False,
+)
+
+
+def _wu_orphan_proved(rel_path: str, proof: WuAtomicOrphanProof | None) -> bool:
+    match = re.fullmatch(r"wunderground/(?:[^/]+/)*[^/]+\.(\d+)\.\d+\.tmp", rel_path)
+    if proof is None or match is None or _normalize_path(proof.path) != rel_path:
+        return False
+    if int(match[1]) != proof.writer_pid or proof.writer_pid <= 0:
+        return False
+    if not all(math.isfinite(value) for value in (proof.mtime, proof.checked_at)):
+        return False
+    writer_released = proof.writer_alive is False or (
+        proof.writer_alive is True and proof.writer_started_at is not None
+        and math.isfinite(proof.writer_started_at)
+        and proof.mtime < proof.writer_started_at <= proof.checked_at
+    )
+    return bool(writer_released and proof.checked_at - proof.mtime > 24 * 3600
+                and proof.no_open_handle is True and proof.final_exists is True)
+
+
+def classify_storage_path(
+    path: str | Path, *, wu_orphan_proof: WuAtomicOrphanProof | None = None,
+) -> ArtifactFamilyClassification:
     """Return the first registered storage classification for a data/repo path."""
 
     rel_path = _normalize_path(path)
+    if _wu_orphan_proved(rel_path, wu_orphan_proof):
+        return WU_ATOMIC_ORPHAN
     for family in ARTIFACT_FAMILIES:
         if _matches_any(rel_path, family.patterns):
             return family
@@ -639,8 +717,10 @@ def artifact_family_registry_payload() -> list[dict[str, Any]]:
     return [asdict(family) for family in ARTIFACT_FAMILIES]
 
 
-def classification_payload(path: str | Path) -> dict[str, Any]:
-    family = classify_storage_path(path)
+def classification_payload(
+    path: str | Path, *, wu_orphan_proof: WuAtomicOrphanProof | None = None,
+) -> dict[str, Any]:
+    family = classify_storage_path(path, wu_orphan_proof=wu_orphan_proof)
     return {
         "storage_class": family.storage_class,
         "artifact_family": family.artifact_family,
