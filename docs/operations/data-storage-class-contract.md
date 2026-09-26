@@ -72,6 +72,12 @@ and hourly rotation/compression mechanics; the same reviewed evidence-reclaim ga
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from
 raw directory size, age, or duplicated-looking filenames alone.
 
+WU atomic-temp exemptions require fresh native observations, including during
+generic cleanup preflight. The bounded, exact-file caller and its lease-held
+wrapper are documented in [the retention runbook](data-retention-policy.md#wu-atomic-temporary-file-cleanup).
+Stored proof booleans alone cannot authorize deletion; the final check and delete
+share one exclusive native handle while the final sibling remains pinned.
+
 For `canonical_evidence`, the cleanup manifest must name exact files, reason,
 operator review, and checksums. For `analysis_projection`, the manifest must
 name the canonical rebuild source. For `operator_cache`, TTL cleanup is

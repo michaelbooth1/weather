@@ -920,6 +920,13 @@ REGISTERED_SCHEMAS = (
         "Reviewed file-deletion manifest with exact paths, classes, hashes, and operator review.",
     ),
     SchemaSpec(
+        "wu_orphan_cleanup_receipt",
+        "wu_orphan_cleanup_receipt_v0.1",
+        "weather.operations.wu_orphan_cleanup",
+        "active",
+        "Exact WU temporary-file preflight and apply receipts with current orphan proofs.",
+    ),
+    SchemaSpec(
         "cleanup_preflight",
         "cleanup_preflight_v0.1",
         "weather.operations.cleanup_preflight",
