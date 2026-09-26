@@ -1,6 +1,6 @@
 # Agent report 2026-09-110m part 1 — signed band capture
 
-Verdict: implementation ready for fixture verification; production adoption pending.
+Verdict: PASS — fixture implementation verified; production adoption pending.
 
 Mission: 110m part 1, from the owner-authorized handoff at
 `origin/codex/handoff-110k-20260926` (`2c8b90618`).
@@ -30,8 +30,12 @@ Per-file roll classification (conservative until production's mechanical verdict
 | tests/market/test_signed_band_capture.py | Roll-free fixture tests |
 | this report and correspondence-index.md | Roll-free documentation |
 
-Verification pending: signed/zero/native-unit fixtures, existing capture and
+Verification: 193 tests and 25 subtests passed (44.95 seconds), covering signed/zero/native-unit fixtures, existing capture and
 observation tests, schema, import architecture (including maker-core boundary),
 agent-doc and path-policy audits, all through `workstation_heavy.ps1`.
 No production data, credentials, environment files or venue calls used.
 
+The workstation has no production supervisor closure evidence. Production must
+run `scripts/ops/roll_verdict.ps1 -Branch origin/codex/signed-band-capture-20260926`
+before adoption and use the resulting merge window. This report does not grant
+capture restart or evidence-repair authority.
