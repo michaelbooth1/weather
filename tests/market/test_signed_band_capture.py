@@ -72,4 +72,3 @@ def test_negative_token_rows_and_settlement_outcomes():
         assert band_outcome(row, -3) == 1
         assert band_outcome(row, -1) == 0
         assert row["unit"] == "C"
-
