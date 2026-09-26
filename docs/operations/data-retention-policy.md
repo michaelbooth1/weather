@@ -43,6 +43,12 @@ measured it roughly 10-13 GiB below the same day's evening reading
 
 ## Daily Report
 
+The independent [passive maker collector](passive-maker-evidence-capture.md)
+streams gzip on UTC hour close, verifies the decompressed hash and retains the
+logical journals permanently. Its daily raw-update cap limits new collection,
+not retention. It does not delete closed evidence by age or alter the existing
+capture tapes; later off-PC archive/reclaim follows the canonical-evidence gate.
+
 Run directly:
 
 ```powershell

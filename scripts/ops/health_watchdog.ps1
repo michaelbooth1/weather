@@ -32,6 +32,39 @@ $statePath = Join-Path $alertDir "host_health_watchdog_state.json"
 $briefingPath = Join-Path $alertDir "MORNING_BRIEFING.md"
 $HEARTBEAT_HOURS = 6
 
+function Add-WeatherWatchdogLog {
+    param([string]$Path, [string]$Line, [long]$MaxBytes = 16MB,
+          [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    $ErrorActionPreference = 'Stop'
+    $bytes = [Text.Encoding]::UTF8.GetByteCount($Line + "`n")
+    if ($bytes -gt $MaxBytes) { throw 'watchdog record exceeds rotation limit' }
+    # Serialize size-check/rename/append across overlapping watchdog invocations.
+    # Failure must not fall back to opening the oversized active log in place.
+    $lease = [IO.File]::Open($Path + '.append.lock', 'OpenOrCreate', 'ReadWrite', 'None')
+    try {
+        if ((Test-Path -LiteralPath $Path) -and (Get-Item -LiteralPath $Path).Length + $bytes -gt $MaxBytes) {
+            $archive = Join-Path (Split-Path -Parent $Path) (
+                'host_health_alerts.{0}.{1}.jsonl' -f $Now.UtcDateTime.ToString('yyyyMMddTHHmmssfffffffZ'), [guid]::NewGuid().ToString('N'))
+            [IO.File]::Move($Path, $archive)
+        }
+        [IO.File]::AppendAllText($Path, $Line + "`n", [Text.UTF8Encoding]::new($false))
+    } finally { $lease.Dispose() }
+}
+
+function Read-WeatherWatchdogTail {
+    param([string]$Path, [int]$MaxBytes = 1MB)
+    $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $start = [Math]::Max(0, $stream.Length - $MaxBytes)
+        [void]$stream.Seek($start, 'Begin')
+        $reader = [IO.BinaryReader]::new($stream)
+        try { $tail = [Text.Encoding]::UTF8.GetString($reader.ReadBytes($MaxBytes)) } finally { $reader.Dispose() }
+        $lines = @($tail -split "`n")
+        if ($start -gt 0) { $lines = @($lines | Select-Object -Skip 1) }
+        $lines | Select-Object -Last 400
+    } finally { $stream.Dispose() }
+}
+
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
 $statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
@@ -145,7 +178,12 @@ $record = [ordered]@{
 }
 $record | ConvertTo-Json -Depth 6 | Set-Content -Path $latestPath -Encoding utf8
 if ($shouldLog) {
-    ($record | ConvertTo-Json -Depth 6 -Compress) | Add-Content -Path $log -Encoding utf8
+    try { Add-WeatherWatchdogLog -Path $log -Line ($record | ConvertTo-Json -Depth 6 -Compress) -Now $now }
+    catch {
+        # Do not advance dedup/heartbeat state after a failed append.
+        Write-Error "Watchdog log append/rotation failed: $($_.Exception.Message)" -ErrorAction Continue
+        exit 2
+    }
 }
 [ordered]@{ fingerprint = $fingerprint; last_logged = $(if ($shouldLog) { $now.ToString("o") } elseif ($lastLogged) { $lastLogged.ToString("o") } else { $now.ToString("o") }) } |
 ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8
@@ -153,8 +191,11 @@ ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8
 # ---- regenerate the human briefing (what happened while nobody was looking) ----
 $since = (Get-Date).AddHours(-24)
 $recent = @()
-if (Test-Path $log) {
-    foreach ($line in (Get-Content $log -Tail 400)) {
+$briefingFiles = @(Get-ChildItem -LiteralPath $alertDir -Filter 'host_health_alerts.*.jsonl' -File |
+    Sort-Object Name -Descending | Select-Object -First 1)
+$briefingFiles += @(Get-Item -LiteralPath $log -ErrorAction SilentlyContinue)
+foreach ($briefingFile in $briefingFiles) {
+    foreach ($line in (Read-WeatherWatchdogTail -Path $briefingFile.FullName)) {
         if (-not $line) { continue }
         try { $r = $line | ConvertFrom-Json } catch { continue }
         try { if ([datetime]$r.ts -ge $since) { $recent += $r } } catch {}
@@ -170,7 +211,7 @@ foreach ($r in $recent) {
 $md = New-Object System.Collections.Generic.List[string]
 $md.Add("# Host health briefing")
 $md.Add("")
-$md.Add("Generated $($now.ToString('yyyy-MM-dd HH:mm')) - covers the last 24h. Regenerated every run; do not edit.")
+$md.Add("Generated $($now.ToString('yyyy-MM-dd HH:mm')) - last 24h in bounded tails (up to 400 rows / 1 MiB each from active log and newest archive); may omit older entries. Regenerated every run; do not edit.")
 $md.Add("")
 $md.Add("**Now:** verdict $([string]$status.verdict), window ``$window``, streak $($record.streak), today $($record.today).")
 $md.Add("**Worst in 24h:** $worst over $($recent.Count) logged state change(s).")

@@ -23,7 +23,7 @@ or non-project file on it may be deleted as needed.** That covers everything out
 (`data/` tapes, ledgers, labels, the RE-1 campaign root, `.git/lfs`) still leaves only by the archive-verify-reclaim path
 below, because losing it harms the project, and credential files are never opened or removed.
 
-## Bands (judge at the daily low, ~04:50, never an evening reading)
+## Bands (judge at the trail's 24 h minimum; see the 2026-09-24 correction below)
 
 | Band | Free at daily low | Action |
 | --- | --- | --- |

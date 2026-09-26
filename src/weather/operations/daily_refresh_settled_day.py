@@ -8,6 +8,7 @@ from datetime import date
 from weather.backtesting.settlement_ledger import DEFAULT_LABELS_CSV, DEFAULT_LEDGER_ROOT
 from weather.operations import settled_day_freshness
 from weather.operations.daily_refresh_locks import as_path, backtest_path, utc_iso, write_json
+from weather.operations.daily_refresh_registry import SETTLEMENT_TRUTH_STEPS
 from weather.schema_registry import schema_version
 
 
@@ -182,11 +183,18 @@ def _dependency_status(step, dependency, target_date):
         blocker = "step_missing"
     elif step_status == "error":
         blocker = step.get("error") or "step_error"
+    elif dependency["step"] in SETTLEMENT_TRUTH_STEPS and step_status != "ok":
+        blocker = f"step_status={step_status}"
+    elif (dependency["step"] == "maker_paper_score"
+          and result_status == "NOT_APPLICABLE"
+          and result.get("reason") == "paper_maker_paused"):
+        non_critical = True
     elif result_status == "SKIPPED" and dependency.get("skippable_as_non_critical"):
         non_critical = True
     elif result_status == "SKIPPED" and dependency.get("critical"):
         blocker = "step_skipped"
-    elif result_status in {"ALERT", "BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
+    elif result_status in {"ALERT", "BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR",
+                           "MISSING", "MISSING_INPUTS", "NO_DATA", "STALE", "DEFERRED"} and dependency.get("critical"):
         if result_status == "BLOCK" and dependency.get("block_is_policy_verdict"):
             # The gate ran for the analyzed day and fail-closed as a policy
             # verdict; downstream consumers (promotion refresh, countability
@@ -359,6 +367,8 @@ def _settled_day_resume_command(args, resume_step="settled_day_analysis_barrier"
         command += ["--settled-analysis-target-date", str(target)]
     if getattr(args, "fail_on_observed_floor_safety", False):
         command.append("--fail-on-observed-floor-safety")
+    if getattr(args, "paper_maker_paused", False):
+        command.append("--paper-maker-paused")
     return " ".join(command)
 
 
@@ -384,7 +394,7 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
         for dependency in SETTLED_DAY_ANALYSIS_DEPENDENCIES
     ]
     blockers = []
-    if freshness_payload.get("status") == "FAIL":
+    if freshness_payload.get("status") not in {"PASS", "WARN"}:
         summary = freshness_payload.get("summary") or {}
         blockers.append({
             "component": "settled_day_freshness",
@@ -445,10 +455,19 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
         if dependency.get("policy_verdict")
     ]
     status = "BLOCK" if blockers else ("DIAGNOSTIC_ONLY" if countability.get("diagnostic_only") else "PASS")
+    learning_blockers = [row for row in blockers if row["component"] in
+                         SETTLEMENT_TRUTH_STEPS | {"settled_day_freshness"}]
+    learning_status = "BLOCK" if learning_blockers else (
+        "DIAGNOSTIC_ONLY" if countability.get("diagnostic_only") else "PASS"
+    )
     return {
         "schema_version": schema_version("settled_day_analysis_barrier"),
         "generated_at_utc": utc_iso(),
         "status": status,
+        "learning_status": learning_status,
+        "learning_blockers": learning_blockers,
+        "learning_dependency_graph": [row for row in SETTLED_DAY_ANALYSIS_DEPENDENCIES
+                                      if row["step"] in SETTLEMENT_TRUTH_STEPS],
         "target_date": target_date,
         "dependency_graph": list(SETTLED_DAY_ANALYSIS_DEPENDENCIES),
         "dependencies": dependencies,

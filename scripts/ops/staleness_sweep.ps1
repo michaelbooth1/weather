@@ -61,6 +61,71 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
     Add-Finding $name $sev ("{0} is {1:N1}d old" -f $relPath, $age) $why $age $warnDays
 }
 
+function Get-WeatherRewardCaptureFinding {
+    param([string]$Root, [object]$Task, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    $detail = 'no producer registered (WeatherMakerEvidenceCapture)'
+    $severity = 'CRITICAL'; $age = $null; $newest = $null
+    if ($null -ne $Task -and [string]$Task.State -eq 'Disabled') {
+        $detail = 'reward-record producer is registered but disabled'
+    } elseif ($null -ne $Task) {
+        try {
+            # 88a's explicit UTC day/hour layout; never walk the evidence tree.
+            # Older/compressed segments cannot prove the five-minute freshness SLA.
+            $folders = @()
+            foreach ($hoursAgo in 0..2) {
+                $hour = $Now.UtcDateTime.AddHours(-$hoursAgo)
+                $day = Join-Path $Root $hour.ToString('yyyy-MM-dd')
+                if (Test-Path -LiteralPath $day) {
+                    $folders += @(Get-ChildItem -LiteralPath $day -Directory -Filter ($hour.ToString('HH') + '-*') -ErrorAction Stop |
+                        Select-Object -First 33)
+                }
+            }
+            if ($folders.Count -gt 32) { throw 'reward segment count exceeds monitor bound (32)' }
+            $files = @($folders | ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -File -Filter 'reward-*.jsonl' -ErrorAction Stop
+            } | Select-Object -First 513)
+            if ($files.Count -gt 512) { throw 'reward file count exceeds monitor bound (512)' }
+            foreach ($file in $files) {
+                # Seek a bounded suffix. Get-Content -Tail in Windows PowerShell can
+                # scan from byte zero; a fresh heartbeat alone proves no reward read.
+                $stream = [IO.File]::Open($file.FullName, 'Open', 'Read', 'ReadWrite')
+                try {
+                    $start = [Math]::Max(0, $stream.Length - 32768)
+                    [void]$stream.Seek($start, 'Begin')
+                    $reader = [IO.BinaryReader]::new($stream)
+                    try { $tail = [Text.Encoding]::UTF8.GetString($reader.ReadBytes(32768)) } finally { $reader.Dispose() }
+                } finally { $stream.Dispose() }
+                $lines = @($tail -split "`n")
+                if ($start -gt 0) { $lines = @($lines | Select-Object -Skip 1) }
+                foreach ($line in $lines) {
+                    try {
+                        $row = $line | ConvertFrom-Json -ErrorAction Stop
+                        if ([string]$row.kind -cne 'rewards' -or $row.http_status -ne 200 -or
+                            [string]$row.content_sha256 -notmatch '^[0-9a-f]{64}$') { continue }
+                        $at = [datetimeoffset]::Parse([string]$row.captured_at_utc)
+                        if ($at -gt $Now) { throw 'future reward timestamp' }
+                        if ($null -eq $newest -or $at -gt $newest) { $newest = $at }
+                    } catch { continue }
+                }
+            }
+            if ($null -eq $newest) { $detail = 'no readable successful reward record in the current/previous two UTC hours' }
+            else {
+                $age = ($Now - $newest).TotalMinutes
+                $severity = if ($age -gt 15) { 'CRITICAL' } elseif ($age -gt 5) { 'WARN' } else { 'OK' }
+                $detail = 'newest successful reward record {0:o}, {1:N1} minutes old' -f $newest, $age
+            }
+        } catch { $detail = 'reward capture unreadable: ' + $_.Exception.Message }
+    }
+    return [pscustomobject]@{ severity = $severity; detail = $detail; age_minutes = $age }
+}
+
+# ---- reward producer: required even before registration ----
+$rewardTask = Get-ScheduledTask -TaskName 'WeatherMakerEvidenceCapture' -ErrorAction SilentlyContinue
+$rewardFinding = Get-WeatherRewardCaptureFinding -Root (Join-Path $repo 'data\maker_evidence') -Task $rewardTask -Now $now
+Add-Finding 'capture/reward_records' $rewardFinding.severity $rewardFinding.detail `
+    'without refreshed reward terms the maker economics evidence silently stops; producer heartbeat is not a reward record' `
+    $(if ($null -ne $rewardFinding.age_minutes) { $rewardFinding.age_minutes / 1440 } else { $null }) (15.0 / 1440)
+
 # ---- 1. capture closures: freshness AND tombstones ----
 # A closure that stops reporting silently removes itself from every roll verdict derived after --
 # but ONLY for the files it alone contributes. On 2026-08-06 clob-enrichment sat at CRITICAL for

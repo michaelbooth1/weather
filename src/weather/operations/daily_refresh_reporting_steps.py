@@ -36,6 +36,7 @@ from weather.operations.daily_refresh_registry import (
     planned_steps,
 )
 from weather.operations.daily_refresh_lanes import (
+    settlement_barrier_blocker,
     step_target_settlement_coverage,
 )
 from weather.operations.daily_refresh_settled_day import (
@@ -1804,9 +1805,24 @@ def run_june23_location_bias_repair_step(args):
     }
 
 
+def _learning_settlement_gate(args):
+    target = settled_analysis_target_date(args).isoformat()
+    blocker = settlement_barrier_blocker(
+        getattr(args, "_daily_refresh_steps_so_far", None) or [],
+        target_date=target, learning_only=True,
+    )
+    if blocker:
+        return {"status": "BLOCK", "reason": "settlement_truth_not_ready",
+                "target_date": target, "upstream_blocker": blocker}
+    return None
+
+
 def run_data_retention_inventory_step(args):
     if getattr(args, "skip_data_retention_inventory", False):
         return {"status": "SKIPPED", "reason": "skip_data_retention_inventory"}
+    blocked = _learning_settlement_gate(args)
+    if blocked:
+        return blocked
     root = getattr(args, "data_root", "") or str(Path(args.backtest_root).parent)
     payload = data_retention_inventory.build_payload(
         root=root,
@@ -1846,6 +1862,9 @@ def run_data_retention_inventory_step(args):
 def run_daily_learning_step(args):
     if getattr(args, "skip_daily_learning", False):
         return {"status": "SKIPPED", "reason": "skip_daily_learning"}
+    blocked = _learning_settlement_gate(args)
+    if blocked:
+        return blocked
     steps_so_far = getattr(args, "_daily_refresh_steps_so_far", None) or []
     daily_refresh_summary = pipeline_summary(steps_so_far) if steps_so_far else None
     payload = daily_learning.build_learning_payload(
@@ -1899,6 +1918,9 @@ def run_daily_learning_step(args):
 def run_market_beating_objective_scoreboard_step(args):
     if getattr(args, "skip_market_beating_objective_scoreboard", False):
         return {"status": "SKIPPED", "reason": "skip_market_beating_objective_scoreboard"}
+    blocked = _learning_settlement_gate(args)
+    if blocked:
+        return blocked
     payload = market_beating_objective_scoreboard.build_scoreboard(
         backtest_root=args.backtest_root,
         generated_at_utc=utc_iso(),

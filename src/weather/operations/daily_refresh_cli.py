@@ -518,6 +518,8 @@ def build_run_parser(parser, dependencies=None):
         help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
     )
     parser.add_argument("--skip-maker-paper-score", action="store_true")
+    parser.add_argument("--paper-maker-paused", action="store_true",
+                        help="Explicit owner-paused paper maker: scoring is not applicable; grants no trading readiness")
     parser.add_argument(
         "--maker-paper-latest-active-runs",
         type=int,

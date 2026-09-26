@@ -1,0 +1,3550 @@
+{
+  "mission": "88a Amendment 1",
+  "verdict": "PASS_WORKSTATION_AMENDMENT_1",
+  "implementation_tip": "bd4e4b0a9215fb1033b19c5b994f807b36886432",
+  "instruction_source_commit": "dc01bbf21535c2abb1909ab40d2fbf7fe2df39df",
+  "instruction_source_path": "docs/roadmap/workstation-handoff-2026-09-88a-passive-maker-evidence-capture.md#5-amendment-1",
+  "generated_at_utc": "2026-09-23T18:47:47.6652933+00:00",
+  "units": "decimal bytes; MB = 1000000 bytes",
+  "stream_off_30_cycle_gzip_bytes_per_day": 113799024,
+  "stream_off_minimum_coverage_scaled_to_120_bytes_per_day": 114755318.31932773,
+  "baseline_cycle_city_coverage": [
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:14:58.1627760+00:00",
+        "dallas": "2026-09-23T18:14:58.1452940+00:00",
+        "atlanta": "2026-09-23T18:14:58.1377860+00:00",
+        "nyc": "2026-09-23T18:14:58.1561290+00:00",
+        "los-angeles": "2026-09-23T18:14:58.1512540+00:00",
+        "seattle": "2026-09-23T18:14:58.1607760+00:00",
+        "san-francisco": "2026-09-23T18:14:58.1582670+00:00",
+        "austin": "2026-09-23T18:14:58.1412930+00:00",
+        "houston": "2026-09-23T18:14:58.1502150+00:00",
+        "denver": "2026-09-23T18:14:58.1462940+00:00",
+        "miami": "2026-09-23T18:14:58.1541240+00:00",
+        "chicago": "2026-09-23T18:14:58.1432930+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 1,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:16:00.8122000+00:00",
+        "dallas": "2026-09-23T18:16:00.7948810+00:00",
+        "atlanta": "2026-09-23T18:16:00.7883650+00:00",
+        "nyc": "2026-09-23T18:16:00.8046890+00:00",
+        "los-angeles": "2026-09-23T18:16:00.8012630+00:00",
+        "seattle": "2026-09-23T18:16:00.8091980+00:00",
+        "san-francisco": "2026-09-23T18:16:00.8081980+00:00",
+        "austin": "2026-09-23T18:16:00.7903630+00:00",
+        "houston": "2026-09-23T18:16:00.7992660+00:00",
+        "denver": "2026-09-23T18:16:00.7967460+00:00",
+        "miami": "2026-09-23T18:16:00.8036940+00:00",
+        "chicago": "2026-09-23T18:16:00.7928810+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 2,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:16:57.8049700+00:00",
+        "dallas": "2026-09-23T18:16:57.7896830+00:00",
+        "atlanta": "2026-09-23T18:16:57.7841570+00:00",
+        "nyc": "2026-09-23T18:16:57.7989660+00:00",
+        "los-angeles": "2026-09-23T18:16:57.7953070+00:00",
+        "seattle": "2026-09-23T18:16:57.8019750+00:00",
+        "san-francisco": "2026-09-23T18:16:57.8009720+00:00",
+        "austin": "2026-09-23T18:16:57.7856650+00:00",
+        "houston": "2026-09-23T18:16:57.7938040+00:00",
+        "denver": "2026-09-23T18:16:57.7918050+00:00",
+        "miami": "2026-09-23T18:16:57.7973120+00:00",
+        "chicago": "2026-09-23T18:16:57.7881740+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 3,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:17:57.0190800+00:00",
+        "dallas": "2026-09-23T18:17:57.0015280+00:00",
+        "atlanta": "2026-09-23T18:17:56.9964440+00:00",
+        "nyc": "2026-09-23T18:17:57.0115650+00:00",
+        "los-angeles": "2026-09-23T18:17:57.0080450+00:00",
+        "seattle": "2026-09-23T18:17:57.0160800+00:00",
+        "san-francisco": "2026-09-23T18:17:57.0140780+00:00",
+        "austin": "2026-09-23T18:17:56.9984450+00:00",
+        "houston": "2026-09-23T18:17:57.0060450+00:00",
+        "denver": "2026-09-23T18:17:57.0040450+00:00",
+        "miami": "2026-09-23T18:17:57.0100530+00:00",
+        "chicago": "2026-09-23T18:17:56.9999490+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 4,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:18:58.9212790+00:00",
+        "dallas": "2026-09-23T18:18:58.9056850+00:00",
+        "atlanta": "2026-09-23T18:18:58.8990690+00:00",
+        "nyc": "2026-09-23T18:18:58.9147720+00:00",
+        "los-angeles": "2026-09-23T18:18:58.9112600+00:00",
+        "seattle": "2026-09-23T18:18:58.9192750+00:00",
+        "san-francisco": "2026-09-23T18:18:58.9167720+00:00",
+        "austin": "2026-09-23T18:18:58.9016640+00:00",
+        "houston": "2026-09-23T18:18:58.9096840+00:00",
+        "denver": "2026-09-23T18:18:58.9066860+00:00",
+        "miami": "2026-09-23T18:18:58.9127680+00:00",
+        "chicago": "2026-09-23T18:18:58.9031740+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 5,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:19:57.8247610+00:00",
+        "dallas": "2026-09-23T18:19:57.8086510+00:00",
+        "atlanta": "2026-09-23T18:19:57.8031360+00:00",
+        "nyc": "2026-09-23T18:19:57.8190750+00:00",
+        "los-angeles": "2026-09-23T18:19:57.8150730+00:00",
+        "seattle": "2026-09-23T18:19:57.8226680+00:00",
+        "san-francisco": "2026-09-23T18:19:57.8200730+00:00",
+        "austin": "2026-09-23T18:19:57.8051440+00:00",
+        "houston": "2026-09-23T18:19:57.8126710+00:00",
+        "denver": "2026-09-23T18:19:57.8101550+00:00",
+        "miami": "2026-09-23T18:19:57.8160760+00:00",
+        "chicago": "2026-09-23T18:19:57.8061440+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 6,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:20:57.2519290+00:00",
+        "dallas": "2026-09-23T18:20:57.2361170+00:00",
+        "atlanta": "2026-09-23T18:20:57.2295640+00:00",
+        "nyc": "2026-09-23T18:20:57.2459070+00:00",
+        "los-angeles": "2026-09-23T18:20:57.2416280+00:00",
+        "seattle": "2026-09-23T18:20:57.2499300+00:00",
+        "san-francisco": "2026-09-23T18:20:57.2479260+00:00",
+        "austin": "2026-09-23T18:20:57.2320680+00:00",
+        "houston": "2026-09-23T18:20:57.2396290+00:00",
+        "denver": "2026-09-23T18:20:57.2381170+00:00",
+        "miami": "2026-09-23T18:20:57.2436920+00:00",
+        "chicago": "2026-09-23T18:20:57.2340740+00:00"
+      },
+      "eligible_shortages": [],
+      "cycle": 7,
+      "selected": 120,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:21:58.0480070+00:00",
+        "dallas": "2026-09-23T18:21:58.0324090+00:00",
+        "atlanta": "2026-09-23T18:21:58.0253190+00:00",
+        "nyc": "2026-09-23T18:21:58.0419410+00:00",
+        "los-angeles": "2026-09-23T18:21:58.0374310+00:00",
+        "seattle": "2026-09-23T18:21:58.0459590+00:00",
+        "san-francisco": "2026-09-23T18:21:58.0444440+00:00",
+        "austin": "2026-09-23T18:21:58.0279000+00:00",
+        "houston": "2026-09-23T18:21:58.0364250+00:00",
+        "denver": "2026-09-23T18:21:58.0334100+00:00",
+        "miami": "2026-09-23T18:21:58.0399430+00:00",
+        "chicago": "2026-09-23T18:21:58.0294040+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 8,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:22:56.6728200+00:00",
+        "dallas": "2026-09-23T18:22:56.6547920+00:00",
+        "atlanta": "2026-09-23T18:22:56.6496450+00:00",
+        "nyc": "2026-09-23T18:22:56.6677980+00:00",
+        "los-angeles": "2026-09-23T18:22:56.6632890+00:00",
+        "seattle": "2026-09-23T18:22:56.6718120+00:00",
+        "san-francisco": "2026-09-23T18:22:56.6687970+00:00",
+        "austin": "2026-09-23T18:22:56.6506440+00:00",
+        "houston": "2026-09-23T18:22:56.6606670+00:00",
+        "denver": "2026-09-23T18:22:56.6583120+00:00",
+        "miami": "2026-09-23T18:22:56.6652890+00:00",
+        "chicago": "2026-09-23T18:22:56.6532880+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 9,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:23:56.3353880+00:00",
+        "dallas": "2026-09-23T18:23:56.3180460+00:00",
+        "atlanta": "2026-09-23T18:23:56.3118910+00:00",
+        "nyc": "2026-09-23T18:23:56.3275630+00:00",
+        "los-angeles": "2026-09-23T18:23:56.3245620+00:00",
+        "seattle": "2026-09-23T18:23:56.3323880+00:00",
+        "san-francisco": "2026-09-23T18:23:56.3303880+00:00",
+        "austin": "2026-09-23T18:23:56.3138890+00:00",
+        "houston": "2026-09-23T18:23:56.3225630+00:00",
+        "denver": "2026-09-23T18:23:56.3195570+00:00",
+        "miami": "2026-09-23T18:23:56.3265630+00:00",
+        "chicago": "2026-09-23T18:23:56.3158890+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 10,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:25:00.4606590+00:00",
+        "dallas": "2026-09-23T18:25:00.4449040+00:00",
+        "atlanta": "2026-09-23T18:25:00.4380710+00:00",
+        "nyc": "2026-09-23T18:25:00.4547050+00:00",
+        "los-angeles": "2026-09-23T18:25:00.4517050+00:00",
+        "seattle": "2026-09-23T18:25:00.4577050+00:00",
+        "san-francisco": "2026-09-23T18:25:00.4567080+00:00",
+        "austin": "2026-09-23T18:25:00.4398770+00:00",
+        "houston": "2026-09-23T18:25:00.4484110+00:00",
+        "denver": "2026-09-23T18:25:00.4459050+00:00",
+        "miami": "2026-09-23T18:25:00.4527070+00:00",
+        "chicago": "2026-09-23T18:25:00.4413860+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 11,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:25:56.2003770+00:00",
+        "dallas": "2026-09-23T18:25:56.1847090+00:00",
+        "atlanta": "2026-09-23T18:25:56.1795600+00:00",
+        "nyc": "2026-09-23T18:25:56.1958530+00:00",
+        "los-angeles": "2026-09-23T18:25:56.1918470+00:00",
+        "seattle": "2026-09-23T18:25:56.1993780+00:00",
+        "san-francisco": "2026-09-23T18:25:56.1968680+00:00",
+        "austin": "2026-09-23T18:25:56.1817090+00:00",
+        "houston": "2026-09-23T18:25:56.1882360+00:00",
+        "denver": "2026-09-23T18:25:56.1867240+00:00",
+        "miami": "2026-09-23T18:25:56.1928520+00:00",
+        "chicago": "2026-09-23T18:25:56.1837090+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 12,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:26:56.1951320+00:00",
+        "dallas": "2026-09-23T18:26:56.1793850+00:00",
+        "atlanta": "2026-09-23T18:26:56.1703540+00:00",
+        "nyc": "2026-09-23T18:26:56.1881150+00:00",
+        "los-angeles": "2026-09-23T18:26:56.1851150+00:00",
+        "seattle": "2026-09-23T18:26:56.1931320+00:00",
+        "san-francisco": "2026-09-23T18:26:56.1916240+00:00",
+        "austin": "2026-09-23T18:26:56.1723800+00:00",
+        "houston": "2026-09-23T18:26:56.1829230+00:00",
+        "denver": "2026-09-23T18:26:56.1819180+00:00",
+        "miami": "2026-09-23T18:26:56.1871130+00:00",
+        "chicago": "2026-09-23T18:26:56.1763880+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 13,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:27:56.3731550+00:00",
+        "dallas": "2026-09-23T18:27:56.3529650+00:00",
+        "atlanta": "2026-09-23T18:27:56.3469440+00:00",
+        "nyc": "2026-09-23T18:27:56.3659950+00:00",
+        "los-angeles": "2026-09-23T18:27:56.3620110+00:00",
+        "seattle": "2026-09-23T18:27:56.3706530+00:00",
+        "san-francisco": "2026-09-23T18:27:56.3682800+00:00",
+        "austin": "2026-09-23T18:27:56.3499490+00:00",
+        "houston": "2026-09-23T18:27:56.3596230+00:00",
+        "denver": "2026-09-23T18:27:56.3566210+00:00",
+        "miami": "2026-09-23T18:27:56.3630090+00:00",
+        "chicago": "2026-09-23T18:27:56.3514610+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 14,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:28:56.5283110+00:00",
+        "dallas": "2026-09-23T18:28:56.5116990+00:00",
+        "atlanta": "2026-09-23T18:28:56.5051910+00:00",
+        "nyc": "2026-09-23T18:28:56.5217790+00:00",
+        "los-angeles": "2026-09-23T18:28:56.5177090+00:00",
+        "seattle": "2026-09-23T18:28:56.5257970+00:00",
+        "san-francisco": "2026-09-23T18:28:56.5242840+00:00",
+        "austin": "2026-09-23T18:28:56.5076940+00:00",
+        "houston": "2026-09-23T18:28:56.5162050+00:00",
+        "denver": "2026-09-23T18:28:56.5142010+00:00",
+        "miami": "2026-09-23T18:28:56.5197130+00:00",
+        "chicago": "2026-09-23T18:28:56.5096990+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 15,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:29:56.3673020+00:00",
+        "dallas": "2026-09-23T18:29:56.3506780+00:00",
+        "atlanta": "2026-09-23T18:29:56.3441710+00:00",
+        "nyc": "2026-09-23T18:29:56.3612220+00:00",
+        "los-angeles": "2026-09-23T18:29:56.3572160+00:00",
+        "seattle": "2026-09-23T18:29:56.3642640+00:00",
+        "san-francisco": "2026-09-23T18:29:56.3632630+00:00",
+        "austin": "2026-09-23T18:29:56.3466790+00:00",
+        "houston": "2026-09-23T18:29:56.3541870+00:00",
+        "denver": "2026-09-23T18:29:56.3531880+00:00",
+        "miami": "2026-09-23T18:29:56.3592200+00:00",
+        "chicago": "2026-09-23T18:29:56.3486790+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 16,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:30:58.3417450+00:00",
+        "dallas": "2026-09-23T18:30:58.3252850+00:00",
+        "atlanta": "2026-09-23T18:30:58.3201000+00:00",
+        "nyc": "2026-09-23T18:30:58.3352080+00:00",
+        "los-angeles": "2026-09-23T18:30:58.3321530+00:00",
+        "seattle": "2026-09-23T18:30:58.3392370+00:00",
+        "san-francisco": "2026-09-23T18:30:58.3377260+00:00",
+        "austin": "2026-09-23T18:30:58.3221500+00:00",
+        "houston": "2026-09-23T18:30:58.3297950+00:00",
+        "denver": "2026-09-23T18:30:58.3277960+00:00",
+        "miami": "2026-09-23T18:30:58.3341530+00:00",
+        "chicago": "2026-09-23T18:30:58.3241490+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 17,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:31:59.7302730+00:00",
+        "dallas": "2026-09-23T18:31:59.7131870+00:00",
+        "atlanta": "2026-09-23T18:31:59.7070940+00:00",
+        "nyc": "2026-09-23T18:31:59.7237280+00:00",
+        "los-angeles": "2026-09-23T18:31:59.7197270+00:00",
+        "seattle": "2026-09-23T18:31:59.7267480+00:00",
+        "san-francisco": "2026-09-23T18:31:59.7247270+00:00",
+        "austin": "2026-09-23T18:31:59.7091150+00:00",
+        "houston": "2026-09-23T18:31:59.7182040+00:00",
+        "denver": "2026-09-23T18:31:59.7151870+00:00",
+        "miami": "2026-09-23T18:31:59.7217280+00:00",
+        "chicago": "2026-09-23T18:31:59.7111900+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 18,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:32:57.6832750+00:00",
+        "dallas": "2026-09-23T18:32:57.6675770+00:00",
+        "atlanta": "2026-09-23T18:32:57.6606830+00:00",
+        "nyc": "2026-09-23T18:32:57.6770960+00:00",
+        "los-angeles": "2026-09-23T18:32:57.6735870+00:00",
+        "seattle": "2026-09-23T18:32:57.6812050+00:00",
+        "san-francisco": "2026-09-23T18:32:57.6795990+00:00",
+        "austin": "2026-09-23T18:32:57.6635640+00:00",
+        "houston": "2026-09-23T18:32:57.6715880+00:00",
+        "denver": "2026-09-23T18:32:57.6700800+00:00",
+        "miami": "2026-09-23T18:32:57.6750910+00:00",
+        "chicago": "2026-09-23T18:32:57.6655610+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 19,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:33:56.7874080+00:00",
+        "dallas": "2026-09-23T18:33:56.7695730+00:00",
+        "atlanta": "2026-09-23T18:33:56.7635720+00:00",
+        "nyc": "2026-09-23T18:33:56.7811740+00:00",
+        "los-angeles": "2026-09-23T18:33:56.7762220+00:00",
+        "seattle": "2026-09-23T18:33:56.7854080+00:00",
+        "san-francisco": "2026-09-23T18:33:56.7834080+00:00",
+        "austin": "2026-09-23T18:33:56.7655720+00:00",
+        "houston": "2026-09-23T18:33:56.7742230+00:00",
+        "denver": "2026-09-23T18:33:56.7722160+00:00",
+        "miami": "2026-09-23T18:33:56.7782230+00:00",
+        "chicago": "2026-09-23T18:33:56.7675730+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 20,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:34:57.0829480+00:00",
+        "dallas": "2026-09-23T18:34:57.0662450+00:00",
+        "atlanta": "2026-09-23T18:34:57.0598270+00:00",
+        "nyc": "2026-09-23T18:34:57.0763150+00:00",
+        "los-angeles": "2026-09-23T18:34:57.0718160+00:00",
+        "seattle": "2026-09-23T18:34:57.0804380+00:00",
+        "san-francisco": "2026-09-23T18:34:57.0784370+00:00",
+        "austin": "2026-09-23T18:34:57.0618280+00:00",
+        "houston": "2026-09-23T18:34:57.0698160+00:00",
+        "denver": "2026-09-23T18:34:57.0677500+00:00",
+        "miami": "2026-09-23T18:34:57.0738800+00:00",
+        "chicago": "2026-09-23T18:34:57.0638630+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 21,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:35:57.6269480+00:00",
+        "dallas": "2026-09-23T18:35:57.6098660+00:00",
+        "atlanta": "2026-09-23T18:35:57.6036220+00:00",
+        "nyc": "2026-09-23T18:35:57.6204030+00:00",
+        "los-angeles": "2026-09-23T18:35:57.6164040+00:00",
+        "seattle": "2026-09-23T18:35:57.6234260+00:00",
+        "san-francisco": "2026-09-23T18:35:57.6229080+00:00",
+        "austin": "2026-09-23T18:35:57.6056270+00:00",
+        "houston": "2026-09-23T18:35:57.6138870+00:00",
+        "denver": "2026-09-23T18:35:57.6118660+00:00",
+        "miami": "2026-09-23T18:35:57.6184030+00:00",
+        "chicago": "2026-09-23T18:35:57.6078670+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 22,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:36:57.3095550+00:00",
+        "dallas": "2026-09-23T18:36:57.2944370+00:00",
+        "atlanta": "2026-09-23T18:36:57.2882270+00:00",
+        "nyc": "2026-09-23T18:36:57.3032740+00:00",
+        "los-angeles": "2026-09-23T18:36:57.3001660+00:00",
+        "seattle": "2026-09-23T18:36:57.3080520+00:00",
+        "san-francisco": "2026-09-23T18:36:57.3057830+00:00",
+        "austin": "2026-09-23T18:36:57.2904370+00:00",
+        "houston": "2026-09-23T18:36:57.2980720+00:00",
+        "denver": "2026-09-23T18:36:57.2959430+00:00",
+        "miami": "2026-09-23T18:36:57.3022730+00:00",
+        "chicago": "2026-09-23T18:36:57.2924370+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 23,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:37:56.7608510+00:00",
+        "dallas": "2026-09-23T18:37:56.7456820+00:00",
+        "atlanta": "2026-09-23T18:37:56.7391790+00:00",
+        "nyc": "2026-09-23T18:37:56.7553390+00:00",
+        "los-angeles": "2026-09-23T18:37:56.7512840+00:00",
+        "seattle": "2026-09-23T18:37:56.7588500+00:00",
+        "san-francisco": "2026-09-23T18:37:56.7568470+00:00",
+        "austin": "2026-09-23T18:37:56.7411780+00:00",
+        "houston": "2026-09-23T18:37:56.7492060+00:00",
+        "denver": "2026-09-23T18:37:56.7472050+00:00",
+        "miami": "2026-09-23T18:37:56.7532820+00:00",
+        "chicago": "2026-09-23T18:37:56.7431800+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 24,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:38:59.7537740+00:00",
+        "dallas": "2026-09-23T18:38:59.7373610+00:00",
+        "atlanta": "2026-09-23T18:38:59.7320440+00:00",
+        "nyc": "2026-09-23T18:38:59.7470860+00:00",
+        "los-angeles": "2026-09-23T18:38:59.7434490+00:00",
+        "seattle": "2026-09-23T18:38:59.7517740+00:00",
+        "san-francisco": "2026-09-23T18:38:59.7497740+00:00",
+        "austin": "2026-09-23T18:38:59.7340450+00:00",
+        "houston": "2026-09-23T18:38:59.7414450+00:00",
+        "denver": "2026-09-23T18:38:59.7399390+00:00",
+        "miami": "2026-09-23T18:38:59.7460870+00:00",
+        "chicago": "2026-09-23T18:38:59.7363620+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 25,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:39:56.6716870+00:00",
+        "dallas": "2026-09-23T18:39:56.6539230+00:00",
+        "atlanta": "2026-09-23T18:39:56.6468690+00:00",
+        "nyc": "2026-09-23T18:39:56.6645220+00:00",
+        "los-angeles": "2026-09-23T18:39:56.6604970+00:00",
+        "seattle": "2026-09-23T18:39:56.6685240+00:00",
+        "san-francisco": "2026-09-23T18:39:56.6665220+00:00",
+        "austin": "2026-09-23T18:39:56.6493810+00:00",
+        "houston": "2026-09-23T18:39:56.6584350+00:00",
+        "denver": "2026-09-23T18:39:56.6564340+00:00",
+        "miami": "2026-09-23T18:39:56.6625170+00:00",
+        "chicago": "2026-09-23T18:39:56.6508850+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 26,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:40:56.6483100+00:00",
+        "dallas": "2026-09-23T18:40:56.6325920+00:00",
+        "atlanta": "2026-09-23T18:40:56.6265040+00:00",
+        "nyc": "2026-09-23T18:40:56.6432090+00:00",
+        "los-angeles": "2026-09-23T18:40:56.6396070+00:00",
+        "seattle": "2026-09-23T18:40:56.6462120+00:00",
+        "san-francisco": "2026-09-23T18:40:56.6452120+00:00",
+        "austin": "2026-09-23T18:40:56.6285060+00:00",
+        "houston": "2026-09-23T18:40:56.6365920+00:00",
+        "denver": "2026-09-23T18:40:56.6345930+00:00",
+        "miami": "2026-09-23T18:40:56.6412090+00:00",
+        "chicago": "2026-09-23T18:40:56.6305870+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 27,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:41:56.7329810+00:00",
+        "dallas": "2026-09-23T18:41:56.7156870+00:00",
+        "atlanta": "2026-09-23T18:41:56.7093900+00:00",
+        "nyc": "2026-09-23T18:41:56.7269170+00:00",
+        "los-angeles": "2026-09-23T18:41:56.7217090+00:00",
+        "seattle": "2026-09-23T18:41:56.7309540+00:00",
+        "san-francisco": "2026-09-23T18:41:56.7289540+00:00",
+        "austin": "2026-09-23T18:41:56.7118990+00:00",
+        "houston": "2026-09-23T18:41:56.7202020+00:00",
+        "denver": "2026-09-23T18:41:56.7181970+00:00",
+        "miami": "2026-09-23T18:41:56.7247170+00:00",
+        "chicago": "2026-09-23T18:41:56.7134030+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 28,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:42:57.8630550+00:00",
+        "dallas": "2026-09-23T18:42:57.8484990+00:00",
+        "atlanta": "2026-09-23T18:42:57.8419770+00:00",
+        "nyc": "2026-09-23T18:42:57.8570310+00:00",
+        "los-angeles": "2026-09-23T18:42:57.8535200+00:00",
+        "seattle": "2026-09-23T18:42:57.8610500+00:00",
+        "san-francisco": "2026-09-23T18:42:57.8590320+00:00",
+        "austin": "2026-09-23T18:42:57.8439890+00:00",
+        "houston": "2026-09-23T18:42:57.8515120+00:00",
+        "denver": "2026-09-23T18:42:57.8494990+00:00",
+        "miami": "2026-09-23T18:42:57.8560250+00:00",
+        "chicago": "2026-09-23T18:42:57.8454940+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 29,
+      "selected": 119,
+      "cities": 12
+    },
+    {
+      "city_capture_times_utc": {
+        "toronto": "2026-09-23T18:43:57.2129500+00:00",
+        "dallas": "2026-09-23T18:43:57.1970050+00:00",
+        "atlanta": "2026-09-23T18:43:57.1924900+00:00",
+        "nyc": "2026-09-23T18:43:57.2071790+00:00",
+        "los-angeles": "2026-09-23T18:43:57.2031630+00:00",
+        "seattle": "2026-09-23T18:43:57.2104420+00:00",
+        "san-francisco": "2026-09-23T18:43:57.2091840+00:00",
+        "austin": "2026-09-23T18:43:57.1934950+00:00",
+        "houston": "2026-09-23T18:43:57.2016420+00:00",
+        "denver": "2026-09-23T18:43:57.2001390+00:00",
+        "miami": "2026-09-23T18:43:57.2041640+00:00",
+        "chicago": "2026-09-23T18:43:57.1955010+00:00"
+      },
+      "eligible_shortages": [
+        {
+          "city": "austin",
+          "candidates": 9,
+          "selected": 9
+        }
+      ],
+      "cycle": 30,
+      "selected": 119,
+      "cities": 12
+    }
+  ],
+  "stream_off_target_bytes_per_day": 150000000,
+  "in_window_update_bytes_per_60_minutes": 3444528.921699894,
+  "stream_off": {
+    "status": {
+      "cycles": 30,
+      "disk_band": "green",
+      "dry_run": true,
+      "elapsed_seconds": 1804.4530000000086,
+      "failed_cycles": 0,
+      "finished_at_utc": "2026-09-23T18:44:44.431542+00:00",
+      "free_bytes": 153541582848,
+      "http": {
+        "errors": 0,
+        "latency_bucket_counts": [
+          45,
+          39,
+          3561,
+          127,
+          39,
+          2,
+          4
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 4.047000000005937,
+        "latency_mean_seconds": 0.14422897563530734,
+        "requests": 3817,
+        "response_bytes": 87079527
+      },
+      "journal_bytes_written": 40723641,
+      "last_cycle_seconds": 18.48399999999674,
+      "missing_events": [],
+      "peak_raw_working_bytes": 40833071,
+      "pid": 39280,
+      "priority": "idle",
+      "raw_working_bytes": 0,
+      "raw_working_limit_bytes": 500000000,
+      "root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\maker-evidence-88a-a1-qualified-off-20260923",
+      "schema_version": "maker_evidence_v2",
+      "shortages": [
+        {
+          "available": 2,
+          "city": "chicago",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "houston",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "miami",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "nyc",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "toronto",
+          "day_ahead": 0
+        }
+      ],
+      "source_sha256": {
+        "weather.cold_archive_locations": "6f6e1a45d66020c0357866b27a60bf0bd4e6f80ae0476b18cecccf684c73e9a6",
+        "weather.io": "8d958652cb6ae6d62939a543a0a13ae55a687eeebc89d85af51c6da1492a57a0",
+        "weather.market": "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d",
+        "weather.market.maker_evidence_archive": "613e46ec2fe8cf90a5c10df98e2bd1938a68c38a00ac16a9a0caa7cd97f4a8ea",
+        "weather.market.maker_evidence_capture": "cda11e5e108853ebc85a9d53cb25ef1f0460737b1bbcb485adaf46189f3e3118",
+        "weather.market.maker_evidence_public": "fd06953fd148c0b6eb6191b57de7fd23da6a41f0f37629ebbf5425a74f4bed47",
+        "weather.market.maker_evidence_socket": "94e83b2927e17eb75619e1612101777f1fcd877e3e4dc5648cd94aafed7be6b5",
+        "weather.market.maker_evidence_store": "eee3af127e1f75d357b2e5f147f7777e1907ea002606f86b7873bf1b72228f84",
+        "weather.market.maker_evidence_stream": "66f34b1d413aed679ed6898e1adef5e4365e3fcce2a96135d3fe943e5647dd59",
+        "weather.market.market_config": "80b8115524c22fc0942bbcef2e94010a8a9f56d8b853807ad815876f51c14da0",
+        "weather.market.market_microstructure_constants": "7cd6f6c8829075082df35bf0cfeba8acf3871c55582631ea21dab4be54ebec5e",
+        "weather.market.market_registry": "b738b28616ee3a69b9f8c8e46e976345caebc39524be290bd18fe74e576050a0",
+        "weather.market.reward_share_estimate": "bb027ebb821af2fe4b2897e31d7d8750bc8d8d50786433d2d6dd48ace9a3df30",
+        "weather.paths": "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947",
+        "weather.schema_registry": "d5f733bd04819c2b9e716fa15d010e6f0d2ba4e633ebebcd9c89540275803e53",
+        "weather.schema_registry_data": "776f1849ee6aa2c756d37437e52f230f730cc04c9e2f2c1dca3f5c51bda46a73",
+        "weather.schema_registry_recent_data": "53f57ffc6a3c58f861035a4b063e8a8dd95d255dda3f3d3d4a7fe96eb57888ba",
+        "weather.schema_registry_types": "c11ec55405796ed119f62f9c417584cb841e092780b5aba8f8143bf4277962bd"
+      },
+      "started_at_utc": "2026-09-23T18:14:39.979638+00:00",
+      "state": "COMPLETED",
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": null,
+        "messages": 0,
+        "received_bytes": 0,
+        "tokens": 0,
+        "trades": 0
+      },
+      "stream_capped": false,
+      "stream_retained_bytes_today": 0,
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:44:40.008455+00:00",
+        "messages": 562723,
+        "received_bytes": 356675354,
+        "tokens": 0,
+        "trades": 250
+      },
+      "universe_size": 119,
+      "update_conditions": [],
+      "update_stream_enabled": false,
+      "update_window_end_utc": null,
+      "updated_at_utc": "2026-09-23T18:44:44.431542+00:00"
+    },
+    "inspection": {
+      "day": "2026-09-23",
+      "schema_version": "maker_evidence_v2",
+      "elapsed_seconds": 1804.451904,
+      "cycles": 30,
+      "failed_cycles": 0,
+      "http": {
+        "errors": 0,
+        "latency_bucket_counts": [
+          45,
+          39,
+          3561,
+          127,
+          39,
+          2,
+          4
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 4.047000000005937,
+        "latency_mean_seconds": 0.14422897563530734,
+        "requests": 3817,
+        "response_bytes": 87079527
+      },
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": null,
+        "messages": 0,
+        "received_bytes": 0,
+        "tokens": 0,
+        "trades": 0
+      },
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:44:40.008455+00:00",
+        "messages": 562723,
+        "received_bytes": 356675354,
+        "tokens": 0,
+        "trades": 250
+      },
+      "manifest_files_verified": 1,
+      "journal_files_verified": 444,
+      "response_records_verified": 4640,
+      "canonical_only_references": 0,
+      "discovery_projection_responses": 90,
+      "counts_by_kind": {
+        "books": 90,
+        "discovery": 90,
+        "ranking_books": 60,
+        "rewards": 3577,
+        "run_summary": 1,
+        "stream_lifecycle": 150,
+        "subscription": 62,
+        "trades": 250,
+        "universe": 360
+      },
+      "bodies_stored_by_kind": {
+        "books": 90,
+        "discovery": 20,
+        "ranking_books": 60,
+        "rewards": 1601,
+        "run_summary": 1,
+        "stream_lifecycle": 150,
+        "subscription": 62,
+        "trades": 250,
+        "universe": 360
+      },
+      "response_bytes_by_kind": {
+        "books": 14775507,
+        "discovery": 59448497,
+        "ranking_books": 9272520,
+        "rewards": 3583003,
+        "run_summary": 3358,
+        "stream_lifecycle": 32577,
+        "subscription": 424042,
+        "trades": 96704,
+        "universe": 2057689
+      },
+      "response_bytes_by_utc_minute": {
+        "2026-09-23T18:14": 3002870,
+        "2026-09-23T18:16": 3599852,
+        "2026-09-23T18:17": 2997818,
+        "2026-09-23T18:18": 2900905,
+        "2026-09-23T18:19": 3075703,
+        "2026-09-23T18:20": 2978411,
+        "2026-09-23T18:21": 2987383,
+        "2026-09-23T18:22": 2984546,
+        "2026-09-23T18:23": 2984147,
+        "2026-09-23T18:25": 3566737,
+        "2026-09-23T18:26": 2989940,
+        "2026-09-23T18:27": 2992961,
+        "2026-09-23T18:28": 2995687,
+        "2026-09-23T18:29": 2973809,
+        "2026-09-23T18:30": 2980167,
+        "2026-09-23T18:31": 2706484,
+        "2026-09-23T18:32": 3293774,
+        "2026-09-23T18:33": 2996710,
+        "2026-09-23T18:34": 2976904,
+        "2026-09-23T18:35": 2974781,
+        "2026-09-23T18:36": 2972645,
+        "2026-09-23T18:37": 2993499,
+        "2026-09-23T18:38": 2693131,
+        "2026-09-23T18:39": 3290467,
+        "2026-09-23T18:40": 3000084,
+        "2026-09-23T18:41": 2991038,
+        "2026-09-23T18:42": 2987554,
+        "2026-09-23T18:43": 2989393,
+        "2026-09-23T18:15": 2408276,
+        "2026-09-23T18:24": 2402272,
+        "2026-09-23T18:44": 5949
+      },
+      "journal_bytes": 40833071,
+      "gzip_level_6_bytes": 2370813,
+      "journal_bytes_per_minute": 1357744.2848817543,
+      "peak_raw_working_bytes": 40833071,
+      "final_raw_working_bytes": 0,
+      "gzip_bytes_per_day_extrapolated": 113518261.55406356,
+      "stream_off_gzip_bytes_per_day_extrapolated": 113518261.55406356,
+      "update_window_active_seconds": 0.0,
+      "in_window_updates_gzip_bytes_per_minute": null,
+      "in_window_updates_gzip_bytes_per_30_minutes": null,
+      "extrapolation_is_not_a_full_day_measurement": true,
+      "projection_basis": "Observed sealed-hour gzip-6 bytes, including actual file-manifest overhead; no stream extrapolation into off periods",
+      "families": {
+        "manifests": {
+          "journal_bytes": 109430,
+          "gzip_level_6_bytes": 38324,
+          "gzip_bytes_per_day_extrapolated": 1835013.4978161214
+        },
+        "token_books": {
+          "journal_bytes": 30180417,
+          "gzip_level_6_bytes": 1059737,
+          "gzip_bytes_per_day_extrapolated": 50741877.13013159
+        },
+        "books": {
+          "journal_bytes": 1012590,
+          "gzip_level_6_bytes": 234750,
+          "gzip_bytes_per_day_extrapolated": 11240199.838543328
+        },
+        "discovery": {
+          "journal_bytes": 1639667,
+          "gzip_level_6_bytes": 394447,
+          "gzip_bytes_per_day_extrapolated": 18886743.794308413
+        },
+        "ranking_books": {
+          "journal_bytes": 638781,
+          "gzip_level_6_bytes": 46733,
+          "gzip_bytes_per_day_extrapolated": 2237649.665834485
+        },
+        "rewards": {
+          "journal_bytes": 4283519,
+          "gzip_level_6_bytes": 366909,
+          "gzip_bytes_per_day_extrapolated": 17568180.96937207
+        },
+        "run_summary": {
+          "journal_bytes": 3846,
+          "gzip_level_6_bytes": 1803,
+          "gzip_bytes_per_day_extrapolated": 86330.48054906761
+        },
+        "stream_lifecycle": {
+          "journal_bytes": 73918,
+          "gzip_level_6_bytes": 11139,
+          "gzip_bytes_per_day_extrapolated": 533352.8690161199
+        },
+        "subscriptions": {
+          "journal_bytes": 450434,
+          "gzip_level_6_bytes": 29409,
+          "gzip_bytes_per_day_extrapolated": 1408149.2526164886
+        },
+        "trades": {
+          "journal_bytes": 166255,
+          "gzip_level_6_bytes": 37575,
+          "gzip_bytes_per_day_extrapolated": 1799150.1977987883
+        },
+        "universe": {
+          "journal_bytes": 2274214,
+          "gzip_level_6_bytes": 149987,
+          "gzip_bytes_per_day_extrapolated": 7181613.858077095
+        }
+      },
+      "manifests": {
+        "2026-09-23/18-d24ea7cecc70": {
+          "sha256": "fc3be6cbe1f1f450d818efdb501ba924eb91eaa32c23d4c656e543fc7017576d",
+          "file_count": 444
+        }
+      }
+    }
+  },
+  "windowed": {
+    "status": {
+      "cycles": 30,
+      "disk_band": "green",
+      "dry_run": true,
+      "elapsed_seconds": 1804.9219999999914,
+      "failed_cycles": 0,
+      "finished_at_utc": "2026-09-23T18:45:23.385710+00:00",
+      "free_bytes": 153541533696,
+      "http": {
+        "errors": 1,
+        "latency_bucket_counts": [
+          30,
+          54,
+          3602,
+          130,
+          28,
+          1,
+          3
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 5.015999999988708,
+        "latency_mean_seconds": 0.1412926195426544,
+        "requests": 3848,
+        "response_bytes": 87245910
+      },
+      "journal_bytes_written": 53538374,
+      "last_cycle_seconds": 17.562999999994645,
+      "missing_events": [],
+      "peak_raw_working_bytes": 53649456,
+      "pid": 16824,
+      "priority": "idle",
+      "raw_working_bytes": 0,
+      "raw_working_limit_bytes": 500000000,
+      "root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\maker-evidence-88a-a1-qualified-window-20260923",
+      "schema_version": "maker_evidence_v2",
+      "shortages": [
+        {
+          "available": 2,
+          "city": "chicago",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "houston",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "miami",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "nyc",
+          "day_ahead": 0
+        },
+        {
+          "available": 2,
+          "city": "toronto",
+          "day_ahead": 0
+        }
+      ],
+      "source_sha256": {
+        "weather.cold_archive_locations": "6f6e1a45d66020c0357866b27a60bf0bd4e6f80ae0476b18cecccf684c73e9a6",
+        "weather.io": "8d958652cb6ae6d62939a543a0a13ae55a687eeebc89d85af51c6da1492a57a0",
+        "weather.market": "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d",
+        "weather.market.maker_evidence_archive": "613e46ec2fe8cf90a5c10df98e2bd1938a68c38a00ac16a9a0caa7cd97f4a8ea",
+        "weather.market.maker_evidence_capture": "cda11e5e108853ebc85a9d53cb25ef1f0460737b1bbcb485adaf46189f3e3118",
+        "weather.market.maker_evidence_public": "fd06953fd148c0b6eb6191b57de7fd23da6a41f0f37629ebbf5425a74f4bed47",
+        "weather.market.maker_evidence_socket": "94e83b2927e17eb75619e1612101777f1fcd877e3e4dc5648cd94aafed7be6b5",
+        "weather.market.maker_evidence_store": "eee3af127e1f75d357b2e5f147f7777e1907ea002606f86b7873bf1b72228f84",
+        "weather.market.maker_evidence_stream": "66f34b1d413aed679ed6898e1adef5e4365e3fcce2a96135d3fe943e5647dd59",
+        "weather.market.market_config": "80b8115524c22fc0942bbcef2e94010a8a9f56d8b853807ad815876f51c14da0",
+        "weather.market.market_microstructure_constants": "7cd6f6c8829075082df35bf0cfeba8acf3871c55582631ea21dab4be54ebec5e",
+        "weather.market.market_registry": "b738b28616ee3a69b9f8c8e46e976345caebc39524be290bd18fe74e576050a0",
+        "weather.market.reward_share_estimate": "bb027ebb821af2fe4b2897e31d7d8750bc8d8d50786433d2d6dd48ace9a3df30",
+        "weather.paths": "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947",
+        "weather.schema_registry": "d5f733bd04819c2b9e716fa15d010e6f0d2ba4e633ebebcd9c89540275803e53",
+        "weather.schema_registry_data": "776f1849ee6aa2c756d37437e52f230f730cc04c9e2f2c1dca3f5c51bda46a73",
+        "weather.schema_registry_recent_data": "53f57ffc6a3c58f861035a4b063e8a8dd95d255dda3f3d3d4a7fe96eb57888ba",
+        "weather.schema_registry_types": "c11ec55405796ed119f62f9c417584cb841e092780b5aba8f8143bf4277962bd"
+      },
+      "started_at_utc": "2026-09-23T18:15:18.476725+00:00",
+      "state": "COMPLETED",
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:45:17.796209+00:00",
+        "messages": 13500,
+        "received_bytes": 8243448,
+        "tokens": 0,
+        "trades": 0
+      },
+      "stream_capped": false,
+      "stream_retained_bytes_today": 8243448,
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:45:18.512402+00:00",
+        "messages": 567212,
+        "received_bytes": 359528929,
+        "tokens": 0,
+        "trades": 251
+      },
+      "universe_size": 120,
+      "update_conditions": [],
+      "update_stream_enabled": false,
+      "update_window_active_seconds": 1780.5976200000007,
+      "update_window_end_utc": null,
+      "updated_at_utc": "2026-09-23T18:45:23.385710+00:00"
+    },
+    "inspection": {
+      "day": "2026-09-23",
+      "schema_version": "maker_evidence_v2",
+      "elapsed_seconds": 1804.908985,
+      "cycles": 30,
+      "failed_cycles": 0,
+      "http": {
+        "errors": 1,
+        "latency_bucket_counts": [
+          30,
+          54,
+          3602,
+          130,
+          28,
+          1,
+          3
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 5.015999999988708,
+        "latency_mean_seconds": 0.1412926195426544,
+        "requests": 3848,
+        "response_bytes": 87245910
+      },
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:45:17.796209+00:00",
+        "messages": 13500,
+        "received_bytes": 8243448,
+        "tokens": 0,
+        "trades": 0
+      },
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:45:18.512402+00:00",
+        "messages": 567212,
+        "received_bytes": 359528929,
+        "tokens": 0,
+        "trades": 251
+      },
+      "manifest_files_verified": 1,
+      "journal_files_verified": 451,
+      "response_records_verified": 18168,
+      "canonical_only_references": 0,
+      "discovery_projection_responses": 90,
+      "counts_by_kind": {
+        "books": 90,
+        "discovery": 90,
+        "ranking_books": 60,
+        "request_error": 1,
+        "rewards": 3607,
+        "run_summary": 1,
+        "stream": 13500,
+        "stream_lifecycle": 152,
+        "subscription": 56,
+        "trades": 251,
+        "universe": 360
+      },
+      "bodies_stored_by_kind": {
+        "books": 90,
+        "discovery": 20,
+        "ranking_books": 60,
+        "request_error": 1,
+        "rewards": 1730,
+        "run_summary": 1,
+        "stream": 13500,
+        "stream_lifecycle": 152,
+        "subscription": 56,
+        "trades": 251,
+        "universe": 360
+      },
+      "response_bytes_by_kind": {
+        "books": 14921402,
+        "discovery": 59454891,
+        "ranking_books": 9268871,
+        "request_error": 147,
+        "rewards": 3600746,
+        "run_summary": 3457,
+        "stream": 8243448,
+        "stream_lifecycle": 32986,
+        "subscription": 380179,
+        "trades": 97080,
+        "universe": 2074755
+      },
+      "response_bytes_by_utc_minute": {
+        "2026-09-23T18:15": 3205847,
+        "2026-09-23T18:16": 3367653,
+        "2026-09-23T18:17": 3285046,
+        "2026-09-23T18:18": 3562366,
+        "2026-09-23T18:19": 3406061,
+        "2026-09-23T18:20": 3539954,
+        "2026-09-23T18:21": 3582060,
+        "2026-09-23T18:22": 3253893,
+        "2026-09-23T18:23": 3532284,
+        "2026-09-23T18:24": 3386603,
+        "2026-09-23T18:25": 3415839,
+        "2026-09-23T18:26": 3491102,
+        "2026-09-23T18:27": 3215444,
+        "2026-09-23T18:28": 3373831,
+        "2026-09-23T18:29": 3386949,
+        "2026-09-23T18:30": 3292140,
+        "2026-09-23T18:31": 3159647,
+        "2026-09-23T18:32": 3216263,
+        "2026-09-23T18:33": 3187630,
+        "2026-09-23T18:34": 3121992,
+        "2026-09-23T18:35": 3156630,
+        "2026-09-23T18:36": 3106085,
+        "2026-09-23T18:37": 3089318,
+        "2026-09-23T18:38": 3105299,
+        "2026-09-23T18:39": 3091601,
+        "2026-09-23T18:40": 3128600,
+        "2026-09-23T18:41": 3106783,
+        "2026-09-23T18:42": 3105801,
+        "2026-09-23T18:43": 3063924,
+        "2026-09-23T18:44": 3120939,
+        "2026-09-23T18:45": 20378
+      },
+      "journal_bytes": 53649456,
+      "gzip_level_6_bytes": 4119758,
+      "journal_bytes_per_minute": 1783451.3467170757,
+      "peak_raw_working_bytes": 53649456,
+      "final_raw_working_bytes": 0,
+      "gzip_bytes_per_day_extrapolated": 197210548.65267903,
+      "stream_off_gzip_bytes_per_day_extrapolated": 115655367.07658419,
+      "update_window_active_seconds": 1780.5976200000007,
+      "in_window_updates_gzip_bytes_per_minute": 57408.8153616649,
+      "in_window_updates_gzip_bytes_per_30_minutes": 1722264.460849947,
+      "extrapolation_is_not_a_full_day_measurement": true,
+      "projection_basis": "Observed sealed-hour gzip-6 bytes, including actual file-manifest overhead; no stream extrapolation into off periods",
+      "families": {
+        "manifests": {
+          "journal_bytes": 111082,
+          "gzip_level_6_bytes": 38951,
+          "gzip_bytes_per_day_extrapolated": 1864562.938058619
+        },
+        "token_books": {
+          "journal_bytes": 30367576,
+          "gzip_level_6_bytes": 1065785,
+          "gzip_bytes_per_day_extrapolated": 51018541.52496227
+        },
+        "books": {
+          "journal_bytes": 1020885,
+          "gzip_level_6_bytes": 239342,
+          "gzip_bytes_per_day_extrapolated": 11457169.847265178
+        },
+        "discovery": {
+          "journal_bytes": 1639729,
+          "gzip_level_6_bytes": 393995,
+          "gzip_bytes_per_day_extrapolated": 18860323.862812396
+        },
+        "ranking_books": {
+          "journal_bytes": 638867,
+          "gzip_level_6_bytes": 46353,
+          "gzip_bytes_per_day_extrapolated": 2218892.6052689576
+        },
+        "request_error": {
+          "journal_bytes": 400,
+          "gzip_level_6_bytes": 305,
+          "gzip_bytes_per_day_extrapolated": 14600.182180377367
+        },
+        "rewards": {
+          "journal_bytes": 4440555,
+          "gzip_level_6_bytes": 384645,
+          "gzip_bytes_per_day_extrapolated": 18412744.50744673
+        },
+        "run_summary": {
+          "journal_bytes": 3950,
+          "gzip_level_6_bytes": 1840,
+          "gzip_bytes_per_day_extrapolated": 88079.7875799815
+        },
+        "stream": {
+          "journal_bytes": 18537,
+          "gzip_level_6_bytes": 2812,
+          "gzip_bytes_per_day_extrapolated": 134608.89275810216
+        },
+        "stream_lifecycle": {
+          "journal_bytes": 75002,
+          "gzip_level_6_bytes": 10572,
+          "gzip_bytes_per_day_extrapolated": 506075.8229867197
+        },
+        "subscriptions": {
+          "journal_bytes": 403986,
+          "gzip_level_6_bytes": 38482,
+          "gzip_bytes_per_day_extrapolated": 1842112.1661156781
+        },
+        "trades": {
+          "journal_bytes": 167110,
+          "gzip_level_6_bytes": 37734,
+          "gzip_bytes_per_day_extrapolated": 1806305.8176864248
+        },
+        "universe": {
+          "journal_bytes": 2292565,
+          "gzip_level_6_bytes": 158054,
+          "gzip_bytes_per_day_extrapolated": 7565958.014220866
+        },
+        "updates": {
+          "journal_bytes": 12469212,
+          "gzip_level_6_bytes": 1700888,
+          "gzip_bytes_per_day_extrapolated": 81420572.68333672
+        }
+      },
+      "manifests": {
+        "2026-09-23/18-ca264a9ebca7": {
+          "sha256": "918621ca5dabab7e69384bac007d81278d2dd52dd9f67a583b5d184a74d4b5c8",
+          "file_count": 451
+        }
+      }
+    },
+    "operator_file": {
+      "update_windows_utc": [
+        {
+          "start": "2026-09-23T18:15:17.8053063+00:00",
+          "end": "2026-09-23T18:45:17.8053063+00:00"
+        }
+      ],
+      "extra_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59"
+      ]
+    }
+  },
+  "source_binding": {
+    "implementation_tip": "bd4e4b0a9215fb1033b19c5b994f807b36886432",
+    "all_runtime_sources_match_committed_checkout": true,
+    "both_runs_have_identical_source_hashes": true,
+    "sources": [
+      {
+        "module": "weather.cold_archive_locations",
+        "path": "src/weather/cold_archive_locations.py",
+        "runtime_sha256": "6f6e1a45d66020c0357866b27a60bf0bd4e6f80ae0476b18cecccf684c73e9a6",
+        "git_blob": "fda534af6a513c47fe281bf967daef4a4644db10"
+      },
+      {
+        "module": "weather.io",
+        "path": "src/weather/io.py",
+        "runtime_sha256": "8d958652cb6ae6d62939a543a0a13ae55a687eeebc89d85af51c6da1492a57a0",
+        "git_blob": "1fddd60a4b8094dd1e9a793ddfcf2d5fdb185005"
+      },
+      {
+        "module": "weather.market",
+        "path": "src/weather/market/__init__.py",
+        "runtime_sha256": "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d",
+        "git_blob": "6686495896b8dc771af32eefa9177b75fc9f1aa8"
+      },
+      {
+        "module": "weather.market.maker_evidence_archive",
+        "path": "src/weather/market/maker_evidence_archive.py",
+        "runtime_sha256": "613e46ec2fe8cf90a5c10df98e2bd1938a68c38a00ac16a9a0caa7cd97f4a8ea",
+        "git_blob": "cd1cb9b8c278650f113e23f35f473157e2714aa1"
+      },
+      {
+        "module": "weather.market.maker_evidence_capture",
+        "path": "src/weather/market/maker_evidence_capture.py",
+        "runtime_sha256": "cda11e5e108853ebc85a9d53cb25ef1f0460737b1bbcb485adaf46189f3e3118",
+        "git_blob": "6b1626eca1279af8484c137001dafdc846e85f0b"
+      },
+      {
+        "module": "weather.market.maker_evidence_public",
+        "path": "src/weather/market/maker_evidence_public.py",
+        "runtime_sha256": "fd06953fd148c0b6eb6191b57de7fd23da6a41f0f37629ebbf5425a74f4bed47",
+        "git_blob": "4b95e99711a650e5c2ee3eed25e6afa9590b9825"
+      },
+      {
+        "module": "weather.market.maker_evidence_socket",
+        "path": "src/weather/market/maker_evidence_socket.py",
+        "runtime_sha256": "94e83b2927e17eb75619e1612101777f1fcd877e3e4dc5648cd94aafed7be6b5",
+        "git_blob": "8511d6046393a7ef512153748fa416a8a32e46e5"
+      },
+      {
+        "module": "weather.market.maker_evidence_store",
+        "path": "src/weather/market/maker_evidence_store.py",
+        "runtime_sha256": "eee3af127e1f75d357b2e5f147f7777e1907ea002606f86b7873bf1b72228f84",
+        "git_blob": "2739bc50ff1eb192e565778f2e447ddf1a4748fc"
+      },
+      {
+        "module": "weather.market.maker_evidence_stream",
+        "path": "src/weather/market/maker_evidence_stream.py",
+        "runtime_sha256": "66f34b1d413aed679ed6898e1adef5e4365e3fcce2a96135d3fe943e5647dd59",
+        "git_blob": "feaafee0a0e237a080f3859055e5da034135d031"
+      },
+      {
+        "module": "weather.market.market_config",
+        "path": "src/weather/market/market_config.py",
+        "runtime_sha256": "80b8115524c22fc0942bbcef2e94010a8a9f56d8b853807ad815876f51c14da0",
+        "git_blob": "5f7f0f237437b91d81b0d27404510f56773ae697"
+      },
+      {
+        "module": "weather.market.market_microstructure_constants",
+        "path": "src/weather/market/market_microstructure_constants.py",
+        "runtime_sha256": "7cd6f6c8829075082df35bf0cfeba8acf3871c55582631ea21dab4be54ebec5e",
+        "git_blob": "63fbb272f5fc8db9067897a0479369d28ff6724d"
+      },
+      {
+        "module": "weather.market.market_registry",
+        "path": "src/weather/market/market_registry.py",
+        "runtime_sha256": "b738b28616ee3a69b9f8c8e46e976345caebc39524be290bd18fe74e576050a0",
+        "git_blob": "c6c8b143a9ded1462ccf6bd32738fa025db4ecdc"
+      },
+      {
+        "module": "weather.market.reward_share_estimate",
+        "path": "src/weather/market/reward_share_estimate.py",
+        "runtime_sha256": "bb027ebb821af2fe4b2897e31d7d8750bc8d8d50786433d2d6dd48ace9a3df30",
+        "git_blob": "7777b8003c31c73eb2410f2111d57c2e807f99c1"
+      },
+      {
+        "module": "weather.paths",
+        "path": "src/weather/paths.py",
+        "runtime_sha256": "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947",
+        "git_blob": "a10213cd5e5ca64c9cb0b0ac2e6d316b4179d608"
+      },
+      {
+        "module": "weather.schema_registry",
+        "path": "src/weather/schema_registry.py",
+        "runtime_sha256": "d5f733bd04819c2b9e716fa15d010e6f0d2ba4e633ebebcd9c89540275803e53",
+        "git_blob": "4705186b10b5c758dda3d53ff742957aded98468"
+      },
+      {
+        "module": "weather.schema_registry_data",
+        "path": "src/weather/schema_registry_data.py",
+        "runtime_sha256": "776f1849ee6aa2c756d37437e52f230f730cc04c9e2f2c1dca3f5c51bda46a73",
+        "git_blob": "23479f921df98685fb94eed253db0596390fd3ad"
+      },
+      {
+        "module": "weather.schema_registry_recent_data",
+        "path": "src/weather/schema_registry_recent_data.py",
+        "runtime_sha256": "53f57ffc6a3c58f861035a4b063e8a8dd95d255dda3f3d3d4a7fe96eb57888ba",
+        "git_blob": "a6bb1dd4cd5758384999a2ac589983aeda2fe197"
+      },
+      {
+        "module": "weather.schema_registry_types",
+        "path": "src/weather/schema_registry_types.py",
+        "runtime_sha256": "c11ec55405796ed119f62f9c417584cb841e092780b5aba8f8143bf4277962bd",
+        "git_blob": "7b6780b18d4d50156d24c8cbeb4fccc4ce62cf67"
+      }
+    ]
+  },
+  "earlier_amendment_measurements": {
+    "implementation_tip": "0cd20b5d9537d4413c447e05af26dec4d7f7db35",
+    "off_inspection": {
+      "day": "2026-09-23",
+      "schema_version": "maker_evidence_v2",
+      "elapsed_seconds": 1804.124808,
+      "cycles": 30,
+      "failed_cycles": 0,
+      "http": {
+        "errors": 1,
+        "latency_bucket_counts": [
+          41,
+          77,
+          3545,
+          138,
+          33,
+          1,
+          6
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 5.01600000000326,
+        "latency_mean_seconds": 0.14169721426711557,
+        "requests": 3841,
+        "response_bytes": 87539985
+      },
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": null,
+        "messages": 0,
+        "received_bytes": 0,
+        "tokens": 0,
+        "trades": 0
+      },
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:12:17.094400+00:00",
+        "messages": 550648,
+        "received_bytes": 352135688,
+        "tokens": 0,
+        "trades": 575
+      },
+      "manifest_files_verified": 2,
+      "journal_files_verified": 963,
+      "response_records_verified": 5038,
+      "canonical_only_references": 0,
+      "discovery_projection_responses": 90,
+      "counts_by_kind": {
+        "books": 90,
+        "discovery": 90,
+        "ranking_books": 60,
+        "request_error": 1,
+        "rewards": 3600,
+        "stream_lifecycle": 174,
+        "subscription": 87,
+        "trades": 575,
+        "universe": 360,
+        "run_summary": 1
+      },
+      "bodies_stored_by_kind": {
+        "books": 90,
+        "discovery": 18,
+        "ranking_books": 60,
+        "request_error": 1,
+        "rewards": 1895,
+        "stream_lifecycle": 174,
+        "subscription": 87,
+        "trades": 575,
+        "universe": 360,
+        "run_summary": 1
+      },
+      "response_bytes_by_kind": {
+        "books": 14921885,
+        "discovery": 59400456,
+        "ranking_books": 9605037,
+        "request_error": 147,
+        "rewards": 3612607,
+        "stream_lifecycle": 41325,
+        "subscription": 569132,
+        "trades": 222788,
+        "universe": 2068776,
+        "run_summary": 3262
+      },
+      "response_bytes_by_utc_minute": {
+        "2026-09-23T17:42": 3008752,
+        "2026-09-23T17:43": 3014568,
+        "2026-09-23T17:44": 3013954,
+        "2026-09-23T17:45": 3019119,
+        "2026-09-23T17:46": 3021916,
+        "2026-09-23T17:47": 3019885,
+        "2026-09-23T17:48": 3019352,
+        "2026-09-23T17:49": 3021424,
+        "2026-09-23T17:50": 3018474,
+        "2026-09-23T17:51": 3030647,
+        "2026-09-23T17:52": 3024457,
+        "2026-09-23T17:53": 3029703,
+        "2026-09-23T17:54": 3019927,
+        "2026-09-23T17:55": 3020263,
+        "2026-09-23T17:56": 3018383,
+        "2026-09-23T17:57": 3013247,
+        "2026-09-23T17:58": 3023260,
+        "2026-09-23T17:59": 2999390,
+        "2026-09-23T18:00": 3022997,
+        "2026-09-23T18:01": 3011532,
+        "2026-09-23T18:02": 3013056,
+        "2026-09-23T18:03": 3010082,
+        "2026-09-23T18:04": 3000897,
+        "2026-09-23T18:05": 3000891,
+        "2026-09-23T18:06": 3010410,
+        "2026-09-23T18:07": 3007623,
+        "2026-09-23T18:08": 3005981,
+        "2026-09-23T18:09": 3007481,
+        "2026-09-23T18:10": 3008211,
+        "2026-09-23T18:11": 3002454,
+        "2026-09-23T18:12": 7079
+      },
+      "journal_bytes": 42156713,
+      "gzip_level_6_bytes": 3160461,
+      "journal_bytes_per_minute": 1402010.9743981748,
+      "peak_raw_working_bytes": 26963069,
+      "final_raw_working_bytes": 0,
+      "gzip_bytes_per_day_extrapolated": 151355288.27559915,
+      "stream_off_gzip_bytes_per_day_extrapolated": 151355288.27559915,
+      "update_window_active_seconds": 0.0,
+      "in_window_updates_gzip_bytes_per_minute": null,
+      "in_window_updates_gzip_bytes_per_30_minutes": null,
+      "extrapolation_is_not_a_full_day_measurement": true,
+      "projection_basis": "Observed sealed-hour gzip-6 bytes, including actual file-manifest overhead; no stream extrapolation into off periods",
+      "families": {
+        "manifests": {
+          "journal_bytes": 234100,
+          "gzip_level_6_bytes": 80654,
+          "gzip_bytes_per_day_extrapolated": 3862540.75610494
+        },
+        "token_books": {
+          "journal_bytes": 30779640,
+          "gzip_level_6_bytes": 1297914,
+          "gzip_bytes_per_day_extrapolated": 62157434.50937569
+        },
+        "books": {
+          "journal_bytes": 1016549,
+          "gzip_level_6_bytes": 242802,
+          "gzip_bytes_per_day_extrapolated": 11627850.083861826
+        },
+        "discovery": {
+          "journal_bytes": 1495824,
+          "gzip_level_6_bytes": 356086,
+          "gzip_bytes_per_day_extrapolated": 17053049.9129415
+        },
+        "ranking_books": {
+          "journal_bytes": 656711,
+          "gzip_level_6_bytes": 55177,
+          "gzip_bytes_per_day_extrapolated": 2642440.688615596
+        },
+        "request_error": {
+          "journal_bytes": 400,
+          "gzip_level_6_bytes": 306,
+          "gzip_bytes_per_day_extrapolated": 14654.418520694717
+        },
+        "rewards": {
+          "journal_bytes": 4607095,
+          "gzip_level_6_bytes": 524292,
+          "gzip_bytes_per_day_extrapolated": 25108478.415202856
+        },
+        "stream_lifecycle": {
+          "journal_bytes": 89238,
+          "gzip_level_6_bytes": 14701,
+          "gzip_bytes_per_day_extrapolated": 704034.6623291929
+        },
+        "subscriptions": {
+          "journal_bytes": 605094,
+          "gzip_level_6_bytes": 313320,
+          "gzip_bytes_per_day_extrapolated": 15004975.199032905
+        },
+        "trades": {
+          "journal_bytes": 382700,
+          "gzip_level_6_bytes": 81321,
+          "gzip_bytes_per_day_extrapolated": 3894483.557259526
+        },
+        "universe": {
+          "journal_bytes": 2285628,
+          "gzip_level_6_bytes": 192087,
+          "gzip_bytes_per_day_extrapolated": 9199095.720211392
+        },
+        "run_summary": {
+          "journal_bytes": 3734,
+          "gzip_level_6_bytes": 1801,
+          "gzip_bytes_per_day_extrapolated": 86250.35214304308
+        }
+      },
+      "manifests": {
+        "2026-09-23/17-0fa6d312f162": {
+          "sha256": "221d6f2a25ab7872a5ae7b92573ef621bd1e7240222b4457caa6169c764d3029",
+          "file_count": 500
+        },
+        "2026-09-23/18-7d3b25c658fe": {
+          "sha256": "49fd1fad9c4d0f17f19eedc2a16bf46b2ae74936ffda72e7041fcdbef2a4a693",
+          "file_count": 463
+        }
+      }
+    },
+    "window_inspection": {
+      "day": "2026-09-23",
+      "schema_version": "maker_evidence_v2",
+      "elapsed_seconds": 1806.811438,
+      "cycles": 30,
+      "failed_cycles": 0,
+      "http": {
+        "errors": 3,
+        "latency_bucket_counts": [
+          46,
+          50,
+          3585,
+          136,
+          45,
+          2,
+          6
+        ],
+        "latency_bucket_upper_seconds": [
+          0.05,
+          0.1,
+          0.25,
+          0.5,
+          1.0,
+          2.0,
+          null
+        ],
+        "latency_max_seconds": 5.01600000000326,
+        "latency_mean_seconds": 0.14560387596896807,
+        "requests": 3870,
+        "response_bytes": 87650168
+      },
+      "stream": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:16:12.363800+00:00",
+        "messages": 16276,
+        "received_bytes": 9946728,
+        "tokens": 0,
+        "trades": 0
+      },
+      "trades": {
+        "connections": 0,
+        "errors": 0,
+        "last_event_utc": "2026-09-23T18:16:13.521242+00:00",
+        "messages": 599989,
+        "received_bytes": 382099333,
+        "tokens": 0,
+        "trades": 620
+      },
+      "manifest_files_verified": 2,
+      "journal_files_verified": 968,
+      "response_records_verified": 21382,
+      "canonical_only_references": 0,
+      "discovery_projection_responses": 90,
+      "counts_by_kind": {
+        "books": 90,
+        "discovery": 90,
+        "ranking_books": 60,
+        "rewards": 3627,
+        "stream": 16276,
+        "stream_lifecycle": 170,
+        "subscription": 85,
+        "trades": 620,
+        "universe": 360,
+        "request_error": 3,
+        "run_summary": 1
+      },
+      "bodies_stored_by_kind": {
+        "books": 90,
+        "discovery": 15,
+        "ranking_books": 60,
+        "rewards": 1891,
+        "stream": 16276,
+        "stream_lifecycle": 170,
+        "subscription": 85,
+        "trades": 620,
+        "universe": 360,
+        "request_error": 3,
+        "run_summary": 1
+      },
+      "response_bytes_by_kind": {
+        "books": 15063730,
+        "discovery": 59396918,
+        "ranking_books": 9563427,
+        "rewards": 3626093,
+        "stream": 9946728,
+        "stream_lifecycle": 40377,
+        "subscription": 546517,
+        "trades": 240246,
+        "universe": 2084185,
+        "request_error": 441,
+        "run_summary": 3589
+      },
+      "response_bytes_by_utc_minute": {
+        "2026-09-23T17:46": 3192040,
+        "2026-09-23T17:47": 3506498,
+        "2026-09-23T17:48": 3796314,
+        "2026-09-23T17:49": 3684192,
+        "2026-09-23T17:50": 3452810,
+        "2026-09-23T17:51": 3472878,
+        "2026-09-23T17:52": 3266254,
+        "2026-09-23T17:53": 3387697,
+        "2026-09-23T17:54": 3214480,
+        "2026-09-23T17:55": 3263322,
+        "2026-09-23T17:56": 3455321,
+        "2026-09-23T17:57": 3199685,
+        "2026-09-23T17:58": 3077709,
+        "2026-09-23T17:59": 3039251,
+        "2026-09-23T18:00": 3042542,
+        "2026-09-23T18:01": 3442565,
+        "2026-09-23T18:02": 3388276,
+        "2026-09-23T18:03": 3228798,
+        "2026-09-23T18:04": 3414014,
+        "2026-09-23T18:05": 3119010,
+        "2026-09-23T18:06": 3425169,
+        "2026-09-23T18:07": 3629072,
+        "2026-09-23T18:08": 3930535,
+        "2026-09-23T18:09": 3280017,
+        "2026-09-23T18:10": 3166968,
+        "2026-09-23T18:11": 3410063,
+        "2026-09-23T18:12": 3213152,
+        "2026-09-23T18:13": 3192160,
+        "2026-09-23T18:14": 3242895,
+        "2026-09-23T18:15": 3273282,
+        "2026-09-23T18:16": 105282
+      },
+      "journal_bytes": 57157906,
+      "gzip_level_6_bytes": 5152642,
+      "journal_bytes_per_minute": 1898080.9440724826,
+      "peak_raw_working_bytes": 30253660,
+      "final_raw_working_bytes": 0,
+      "gzip_bytes_per_day_extrapolated": 246394426.9097548,
+      "stream_off_gzip_bytes_per_day_extrapolated": 148897990.31701726,
+      "update_window_active_seconds": 1762.231669999999,
+      "in_window_updates_gzip_bytes_per_minute": 69418.63665405587,
+      "in_window_updates_gzip_bytes_per_30_minutes": 2082559.099621676,
+      "extrapolation_is_not_a_full_day_measurement": true,
+      "projection_basis": "Observed sealed-hour gzip-6 bytes, including actual file-manifest overhead; no stream extrapolation into off periods",
+      "families": {
+        "manifests": {
+          "journal_bytes": 235457,
+          "gzip_level_6_bytes": 81380,
+          "gzip_bytes_per_day_extrapolated": 3891513.9964926434
+        },
+        "token_books": {
+          "journal_bytes": 30909010,
+          "gzip_level_6_bytes": 1311654,
+          "gzip_bytes_per_day_extrapolated": 62722043.49417009
+        },
+        "books": {
+          "journal_bytes": 1023893,
+          "gzip_level_6_bytes": 246519,
+          "gzip_bytes_per_day_extrapolated": 11788303.500876997
+        },
+        "discovery": {
+          "journal_bytes": 1268104,
+          "gzip_level_6_bytes": 298528,
+          "gzip_bytes_per_day_extrapolated": 14275324.28538899
+        },
+        "ranking_books": {
+          "journal_bytes": 653721,
+          "gzip_level_6_bytes": 53708,
+          "gzip_bytes_per_day_extrapolated": 2568265.344355209
+        },
+        "rewards": {
+          "journal_bytes": 4618906,
+          "gzip_level_6_bytes": 523730,
+          "gzip_bytes_per_day_extrapolated": 25044269.17403652
+        },
+        "stream": {
+          "journal_bytes": 17751,
+          "gzip_level_6_bytes": 2570,
+          "gzip_bytes_per_day_extrapolated": 122894.94926254723
+        },
+        "stream_lifecycle": {
+          "journal_bytes": 87249,
+          "gzip_level_6_bytes": 14345,
+          "gzip_bytes_per_day_extrapolated": 685964.2206891985
+        },
+        "subscriptions": {
+          "journal_bytes": 581438,
+          "gzip_level_6_bytes": 301188,
+          "gzip_bytes_per_day_extrapolated": 14402522.948828045
+        },
+        "trades": {
+          "journal_bytes": 412868,
+          "gzip_level_6_bytes": 88551,
+          "gzip_bytes_per_day_extrapolated": 4234424.378267635
+        },
+        "universe": {
+          "journal_bytes": 2302052,
+          "gzip_level_6_bytes": 191706,
+          "gzip_bytes_per_day_extrapolated": 9167198.110243533
+        },
+        "updates": {
+          "journal_bytes": 15042179,
+          "gzip_level_6_bytes": 2036292,
+          "gzip_bytes_per_day_extrapolated": 97373541.64347503
+        },
+        "request_error": {
+          "journal_bytes": 1204,
+          "gzip_level_6_bytes": 511,
+          "gzip_bytes_per_day_extrapolated": 24435.532713292465
+        },
+        "run_summary": {
+          "journal_bytes": 4074,
+          "gzip_level_6_bytes": 1960,
+          "gzip_bytes_per_day_extrapolated": 93725.33095509438
+        }
+      },
+      "manifests": {
+        "2026-09-23/17-627b270d9362": {
+          "sha256": "af906a028bf48f4624d12b1b4ab35b48bc3175d3f60c0ad0ee1cb18a17dccd6a",
+          "file_count": 489
+        },
+        "2026-09-23/18-75f6cc0f0d4c": {
+          "sha256": "ead7e76e18f6eb72ed09deaee84878cacf2cefc5481dad912344d2d34d5fccb9",
+          "file_count": 479
+        }
+      }
+    },
+    "result": "Integrity passed; stream-off daily projection 151.36 MB exceeded target. Changed subscription lists subsequently grouped into one journal.",
+    "crossed_utc_hour_boundary": true
+  },
+  "preliminary_interruption": {
+    "root": "C:/Users/Michael/Documents/github/weather/scratch/maker-evidence-88a-a1-off-20260923",
+    "reason": "Interrupted early to ensure hourly compression also runs after a failed HTTP cycle. Evidence and operator-interruption note preserved."
+  },
+  "verification": {
+    "tests_passed": 127,
+    "subtests_passed": 40,
+    "test_seconds": 13.79,
+    "test_scope": "maker evidence, reward estimator, storage, schema, import architecture, dependency pins, roadmap backlog",
+    "workstation_heavy_wrapper": true,
+    "compileall": "PASS; full app/src/tests, followed by focused recheck after the subscription change",
+    "agent_docs_audit": "PASS",
+    "generated_backlog": "PASS"
+  },
+  "roll_attempt": {
+    "command": "powershell.exe -File scripts/ops/roll_verdict.ps1 -Branch codex/maker-evidence-capture-20260923 -Base origin/master -JsonOut scratch/88a-a1-qualified-roll-verdict.json",
+    "exit_code": 1,
+    "verdict": "UNDECIDABLE",
+    "transcript": "UNDECIDABLE: no live closure evidence\r\n  missing closure evidence: data\\snapshots\\loop_supervisor_status.json\r\n  missing closure evidence: data\\snapshots\\clob_loop_supervisor_status.json\r\n  missing closure evidence: data\\snapshots\\observation_trigger_supervisor_status.json\r\n  missing closure evidence: data\\snapshots\\clob_enrichment_status.json",
+    "json_receipt_emitted": false
+  },
+  "resource_samples": [
+    {
+      "at_utc": "2026-09-23T17:50:38.0266991+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "minutes": 8.3,
+      "cycles": 9,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 12770462,
+      "plain_sample_bytes": 12792524.0,
+      "peak_bytes": 12770462,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "working_set_bytes": 55943168,
+      "cpu_seconds": 21.125
+    },
+    {
+      "at_utc": "2026-09-23T17:50:38.0827017+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "minutes": 4.39,
+      "cycles": 5,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 10657133,
+      "plain_sample_bytes": 10678320.0,
+      "peak_bytes": 10657133,
+      "updates": 3712,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "working_set_bytes": 55783424,
+      "cpu_seconds": 14.171875
+    },
+    {
+      "at_utc": "2026-09-23T17:52:43.2634379+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 10.4,
+      "cycles": 11,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 15487862,
+      "plain_sample_bytes": 15509927.0,
+      "gzip_files": 0,
+      "peak_bytes": 15487862,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56496128,
+      "cpu_seconds": 27.515625
+    },
+    {
+      "at_utc": "2026-09-23T17:52:43.3236390+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 6.44,
+      "cycles": 7,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 14775486,
+      "plain_sample_bytes": 14779188.0,
+      "gzip_files": 0,
+      "peak_bytes": 14775486,
+      "updates": 5200,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56336384,
+      "cpu_seconds": 21.046875
+    },
+    {
+      "at_utc": "2026-09-23T17:54:49.2198511+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 12.49,
+      "cycles": 13,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 18446910,
+      "plain_sample_bytes": 18446910.0,
+      "gzip_files": 0,
+      "peak_bytes": 18446910,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56750080,
+      "cpu_seconds": 33.265625
+    },
+    {
+      "at_utc": "2026-09-23T17:54:49.2690039+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 8.56,
+      "cycles": 9,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 18249416,
+      "plain_sample_bytes": 18270634.0,
+      "gzip_files": 0,
+      "peak_bytes": 18249416,
+      "updates": 6004,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57008128,
+      "cpu_seconds": 28.078125
+    },
+    {
+      "at_utc": "2026-09-23T17:56:19.4395118+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 14.0,
+      "cycles": 14,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 19820548,
+      "plain_sample_bytes": 20263621.0,
+      "gzip_files": 0,
+      "peak_bytes": 19820548,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 59551744,
+      "cpu_seconds": 39.296875
+    },
+    {
+      "at_utc": "2026-09-23T17:56:19.4885179+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 10.0,
+      "cycles": 10,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 20482440,
+      "plain_sample_bytes": 21080947.0,
+      "gzip_files": 0,
+      "peak_bytes": 20482440,
+      "updates": 6688,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 58535936,
+      "cpu_seconds": 35.28125
+    },
+    {
+      "at_utc": "2026-09-23T17:57:42.4149462+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 15.39,
+      "cycles": 16,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 22527837,
+      "plain_sample_bytes": 22527837.0,
+      "gzip_files": 0,
+      "peak_bytes": 22527837,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56774656,
+      "cpu_seconds": 45.0
+    },
+    {
+      "at_utc": "2026-09-23T17:57:42.4635318+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 11.47,
+      "cycles": 12,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 23929300,
+      "plain_sample_bytes": 23934828.0,
+      "gzip_files": 0,
+      "peak_bytes": 23929300,
+      "updates": 7454,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56664064,
+      "cpu_seconds": 41.625
+    },
+    {
+      "at_utc": "2026-09-23T17:58:47.1567051+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 16.48,
+      "cycles": 17,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 23884965,
+      "plain_sample_bytes": 23885636.0,
+      "gzip_files": 0,
+      "peak_bytes": 23884965,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 57192448,
+      "cpu_seconds": 49.46875
+    },
+    {
+      "at_utc": "2026-09-23T17:58:47.2237234+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 12.55,
+      "cycles": 13,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 25377294,
+      "plain_sample_bytes": 25387199.0,
+      "gzip_files": 0,
+      "peak_bytes": 25377294,
+      "updates": 7546,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56807424,
+      "cpu_seconds": 45.71875
+    },
+    {
+      "at_utc": "2026-09-23T17:59:51.4253703+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 17.56,
+      "cycles": 18,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 25227221,
+      "plain_sample_bytes": 25227221.0,
+      "gzip_files": 0,
+      "peak_bytes": 25227221,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56991744,
+      "cpu_seconds": 53.546875
+    },
+    {
+      "at_utc": "2026-09-23T17:59:51.4836259+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 13.64,
+      "cycles": 14,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 26783847,
+      "plain_sample_bytes": 26783847.0,
+      "gzip_files": 0,
+      "peak_bytes": 26783847,
+      "updates": 7612,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57729024,
+      "cpu_seconds": 49.53125
+    },
+    {
+      "at_utc": "2026-09-23T18:01:05.2601744+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 18.73,
+      "cycles": 19,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 1637828,
+      "plain_sample_bytes": 1643124.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 57200640,
+      "cpu_seconds": 59.5
+    },
+    {
+      "at_utc": "2026-09-23T18:01:05.3330616+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 14.83,
+      "cycles": 15,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 1669103,
+      "plain_sample_bytes": 1714035.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 7634,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57561088,
+      "cpu_seconds": 54.796875
+    },
+    {
+      "at_utc": "2026-09-23T18:03:02.7729640+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 20.72,
+      "cycles": 21,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 4335280,
+      "plain_sample_bytes": 4335280.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56897536,
+      "cpu_seconds": 67.6875
+    },
+    {
+      "at_utc": "2026-09-23T18:03:02.8422306+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 16.81,
+      "cycles": 17,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 5570826,
+      "plain_sample_bytes": 5570826.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 8934,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57769984,
+      "cpu_seconds": 63.75
+    },
+    {
+      "at_utc": "2026-09-23T18:04:37.5439376+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 22.28,
+      "cycles": 23,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 6981293,
+      "plain_sample_bytes": 7003348.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56647680,
+      "cpu_seconds": 73.40625
+    },
+    {
+      "at_utc": "2026-09-23T18:04:37.6115334+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 18.4,
+      "cycles": 19,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 8893629,
+      "plain_sample_bytes": 8893629.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 9630,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 58048512,
+      "cpu_seconds": 70.578125
+    },
+    {
+      "at_utc": "2026-09-23T18:05:43.1479437+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 23.38,
+      "cycles": 24,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 8407501,
+      "plain_sample_bytes": 8407501.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56315904,
+      "cpu_seconds": 77.0625
+    },
+    {
+      "at_utc": "2026-09-23T18:05:43.2159906+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 19.48,
+      "cycles": 20,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 10669685,
+      "plain_sample_bytes": 10669685.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 10092,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57757696,
+      "cpu_seconds": 74.46875
+    },
+    {
+      "at_utc": "2026-09-23T18:07:05.7394721+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 24.79,
+      "cycles": 25,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 9765046,
+      "plain_sample_bytes": 9765046.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56877056,
+      "cpu_seconds": 82.21875
+    },
+    {
+      "at_utc": "2026-09-23T18:07:05.8199585+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 20.83,
+      "cycles": 21,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 12799396,
+      "plain_sample_bytes": 12808636.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 10838,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 58191872,
+      "cpu_seconds": 80.078125
+    },
+    {
+      "at_utc": "2026-09-23T18:08:14.8820616+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 25.95,
+      "cycles": 26,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 11107296,
+      "plain_sample_bytes": 11107963.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 57393152,
+      "cpu_seconds": 87.59375
+    },
+    {
+      "at_utc": "2026-09-23T18:08:14.9267155+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 22.0,
+      "cycles": 22,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 15485960,
+      "plain_sample_bytes": 15960399.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 12287,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 61378560,
+      "cpu_seconds": 87.109375
+    },
+    {
+      "at_utc": "2026-09-23T18:09:30.8552943+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 27.0,
+      "cycles": 27,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 12448264,
+      "plain_sample_bytes": 12965609.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 58167296,
+      "cpu_seconds": 92.1875
+    },
+    {
+      "at_utc": "2026-09-23T18:09:30.8994267+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 23.0,
+      "cycles": 23,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 18036438,
+      "plain_sample_bytes": 18594663.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 13596,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 61636608,
+      "cpu_seconds": 92.125
+    },
+    {
+      "at_utc": "2026-09-23T18:10:36.9433096+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 28.0,
+      "cycles": 28,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 13787501,
+      "plain_sample_bytes": 14349170.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 58830848,
+      "cpu_seconds": 95.59375
+    },
+    {
+      "at_utc": "2026-09-23T18:10:36.9924531+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 24.37,
+      "cycles": 25,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 20864810,
+      "plain_sample_bytes": 20887037.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 13797,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 3,
+      "working_set_bytes": 60612608,
+      "cpu_seconds": 96.03125
+    },
+    {
+      "at_utc": "2026-09-23T18:11:43.2518615+00:00",
+      "run": "maker-evidence-88a-a1-off-final-20260923",
+      "state": "CAPTURING",
+      "minutes": 29.4,
+      "cycles": 30,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 16680782,
+      "plain_sample_bytes": 16680782.0,
+      "gzip_files": 501,
+      "peak_bytes": 26963069,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 57798656,
+      "cpu_seconds": 99.109375
+    },
+    {
+      "at_utc": "2026-09-23T18:11:43.2967852+00:00",
+      "run": "maker-evidence-88a-a1-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 25.48,
+      "cycles": 26,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 23153104,
+      "plain_sample_bytes": 23153104.0,
+      "gzip_files": 490,
+      "peak_bytes": 28530473,
+      "updates": 14534,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 3,
+      "working_set_bytes": 60698624,
+      "cpu_seconds": 99.96875
+    },
+    {
+      "at_utc": "2026-09-23T18:17:05.8768704+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 2.4,
+      "cycles": 3,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 4425026,
+      "plain_sample_bytes": 4425026.0,
+      "gzip_files": 0,
+      "peak_bytes": 4425026,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 53862400,
+      "cpu_seconds": 9.15625
+    },
+    {
+      "at_utc": "2026-09-23T18:17:05.9274331+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 1.78,
+      "cycles": 2,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 3975117,
+      "plain_sample_bytes": 3975117.0,
+      "gzip_files": 0,
+      "peak_bytes": 3975117,
+      "updates": 925,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54427648,
+      "cpu_seconds": 7.796875
+    },
+    {
+      "at_utc": "2026-09-23T18:18:26.3448310+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 3.73,
+      "cycles": 4,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 5759575,
+      "plain_sample_bytes": 5759575.0,
+      "gzip_files": 0,
+      "peak_bytes": 5759575,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54079488,
+      "cpu_seconds": 12.8125
+    },
+    {
+      "at_utc": "2026-09-23T18:18:26.3950481+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 3.0,
+      "cycles": 3,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 6164500,
+      "plain_sample_bytes": 6779987.0,
+      "gzip_files": 0,
+      "peak_bytes": 6164500,
+      "updates": 1834,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57905152,
+      "cpu_seconds": 12.8125
+    },
+    {
+      "at_utc": "2026-09-23T18:19:56.2014603+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 5.0,
+      "cycles": 5,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 7061374,
+      "plain_sample_bytes": 7603750.0,
+      "gzip_files": 0,
+      "peak_bytes": 7061374,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56844288,
+      "cpu_seconds": 17.984375
+    },
+    {
+      "at_utc": "2026-09-23T18:19:56.2541265+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 4.55,
+      "cycles": 5,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 9728686,
+      "plain_sample_bytes": 9791474.0,
+      "gzip_files": 0,
+      "peak_bytes": 9728686,
+      "updates": 2819,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55803904,
+      "cpu_seconds": 19.015625
+    },
+    {
+      "at_utc": "2026-09-23T18:22:11.6003751+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 7.49,
+      "cycles": 8,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 11191155,
+      "plain_sample_bytes": 11191155.0,
+      "gzip_files": 0,
+      "peak_bytes": 11191155,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54161408,
+      "cpu_seconds": 26.25
+    },
+    {
+      "at_utc": "2026-09-23T18:22:11.6493468+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 6.81,
+      "cycles": 7,
+      "failed": 0,
+      "conditions": 121,
+      "raw_bytes": 14301939,
+      "plain_sample_bytes": 14328734.0,
+      "gzip_files": 0,
+      "peak_bytes": 14301939,
+      "updates": 4922,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55640064,
+      "cpu_seconds": 28.984375
+    },
+    {
+      "at_utc": "2026-09-23T18:23:20.7008293+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 8.63,
+      "cycles": 9,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 12482439,
+      "plain_sample_bytes": 12482439.0,
+      "gzip_files": 0,
+      "peak_bytes": 12482439,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54878208,
+      "cpu_seconds": 29.90625
+    },
+    {
+      "at_utc": "2026-09-23T18:23:20.7526596+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 8.0,
+      "cycles": 8,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 16430169,
+      "plain_sample_bytes": 16906038.0,
+      "gzip_files": 0,
+      "peak_bytes": 16430169,
+      "updates": 5559,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 58060800,
+      "cpu_seconds": 33.453125
+    },
+    {
+      "at_utc": "2026-09-23T18:25:04.9701600+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 10.36,
+      "cycles": 11,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 15067220,
+      "plain_sample_bytes": 15085674.0,
+      "gzip_files": 0,
+      "peak_bytes": 15067220,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 55427072,
+      "cpu_seconds": 37.46875
+    },
+    {
+      "at_utc": "2026-09-23T18:25:05.0252658+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 9.72,
+      "cycles": 10,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 20210980,
+      "plain_sample_bytes": 20258991.0,
+      "gzip_files": 0,
+      "peak_bytes": 20210980,
+      "updates": 6838,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55803904,
+      "cpu_seconds": 41.46875
+    },
+    {
+      "at_utc": "2026-09-23T18:26:10.1522197+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 11.46,
+      "cycles": 12,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 16396753,
+      "plain_sample_bytes": 16396753.0,
+      "gzip_files": 0,
+      "peak_bytes": 16396753,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54857728,
+      "cpu_seconds": 40.78125
+    },
+    {
+      "at_utc": "2026-09-23T18:26:10.2094570+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 10.8,
+      "cycles": 11,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 22234406,
+      "plain_sample_bytes": 22273156.0,
+      "gzip_files": 0,
+      "peak_bytes": 22234406,
+      "updates": 7619,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55910400,
+      "cpu_seconds": 44.859375
+    },
+    {
+      "at_utc": "2026-09-23T18:27:18.2497644+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 12.63,
+      "cycles": 13,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 17706569,
+      "plain_sample_bytes": 17706569.0,
+      "gzip_files": 0,
+      "peak_bytes": 17706569,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 54898688,
+      "cpu_seconds": 43.328125
+    },
+    {
+      "at_utc": "2026-09-23T18:27:18.2967433+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 11.97,
+      "cycles": 12,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 24353862,
+      "plain_sample_bytes": 24353862.0,
+      "gzip_files": 0,
+      "peak_bytes": 24353862,
+      "updates": 8491,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56655872,
+      "cpu_seconds": 48.34375
+    },
+    {
+      "at_utc": "2026-09-23T18:28:22.4541064+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 13.63,
+      "cycles": 14,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 19251327,
+      "plain_sample_bytes": 19251995.0,
+      "gzip_files": 0,
+      "peak_bytes": 19251327,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 55549952,
+      "cpu_seconds": 46.0625
+    },
+    {
+      "at_utc": "2026-09-23T18:28:22.5085156+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 13.0,
+      "cycles": 13,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 26256999,
+      "plain_sample_bytes": 26737844.0,
+      "gzip_files": 0,
+      "peak_bytes": 26256999,
+      "updates": 8868,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 58134528,
+      "cpu_seconds": 51.5625
+    },
+    {
+      "at_utc": "2026-09-23T18:29:40.7408408+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 15.0,
+      "cycles": 15,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 20545981,
+      "plain_sample_bytes": 20550427.0,
+      "gzip_files": 0,
+      "peak_bytes": 20545981,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57569280,
+      "cpu_seconds": 50.625
+    },
+    {
+      "at_utc": "2026-09-23T18:29:40.7972837+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 14.29,
+      "cycles": 15,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 29574859,
+      "plain_sample_bytes": 29652268.0,
+      "gzip_files": 0,
+      "peak_bytes": 29574859,
+      "updates": 9623,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55848960,
+      "cpu_seconds": 57.125
+    },
+    {
+      "at_utc": "2026-09-23T18:30:45.3113460+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 16.0,
+      "cycles": 16,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 21829196,
+      "plain_sample_bytes": 22275258.0,
+      "gzip_files": 0,
+      "peak_bytes": 21829196,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 57053184,
+      "cpu_seconds": 55.21875
+    },
+    {
+      "at_utc": "2026-09-23T18:30:45.3666988+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 15.38,
+      "cycles": 16,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 31527122,
+      "plain_sample_bytes": 31531732.0,
+      "gzip_files": 0,
+      "peak_bytes": 31527122,
+      "updates": 10309,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56184832,
+      "cpu_seconds": 62.03125
+    },
+    {
+      "at_utc": "2026-09-23T18:32:02.3921430+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 17.35,
+      "cycles": 18,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 24402748,
+      "plain_sample_bytes": 24421202.0,
+      "gzip_files": 0,
+      "peak_bytes": 24402748,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 55332864,
+      "cpu_seconds": 59.078125
+    },
+    {
+      "at_utc": "2026-09-23T18:32:02.4463673+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 16.71,
+      "cycles": 17,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 33267327,
+      "plain_sample_bytes": 33267327.0,
+      "gzip_files": 0,
+      "peak_bytes": 33267327,
+      "updates": 10770,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56193024,
+      "cpu_seconds": 65.578125
+    },
+    {
+      "at_utc": "2026-09-23T18:33:07.1200401+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 18.4,
+      "cycles": 19,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 25944897,
+      "plain_sample_bytes": 25944897.0,
+      "gzip_files": 0,
+      "peak_bytes": 25944897,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 55431168,
+      "cpu_seconds": 62.234375
+    },
+    {
+      "at_utc": "2026-09-23T18:33:07.1769608+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 17.79,
+      "cycles": 18,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 34897222,
+      "plain_sample_bytes": 34897222.0,
+      "gzip_files": 0,
+      "peak_bytes": 34897222,
+      "updates": 11138,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56557568,
+      "cpu_seconds": 68.671875
+    },
+    {
+      "at_utc": "2026-09-23T18:34:29.9401460+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 19.81,
+      "cycles": 20,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 27263725,
+      "plain_sample_bytes": 27263725.0,
+      "gzip_files": 0,
+      "peak_bytes": 27263725,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56025088,
+      "cpu_seconds": 66.4375
+    },
+    {
+      "at_utc": "2026-09-23T18:34:29.9903549+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 19.0,
+      "cycles": 19,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 36804228,
+      "plain_sample_bytes": 37363969.0,
+      "gzip_files": 0,
+      "peak_bytes": 36804228,
+      "updates": 11534,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 59162624,
+      "cpu_seconds": 73.609375
+    },
+    {
+      "at_utc": "2026-09-23T18:35:37.0035795+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 20.89,
+      "cycles": 21,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 28543760,
+      "plain_sample_bytes": 28543760.0,
+      "gzip_files": 0,
+      "peak_bytes": 28543760,
+      "updates": 0,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56205312,
+      "cpu_seconds": 69.75
+    },
+    {
+      "at_utc": "2026-09-23T18:35:37.0631418+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 20.31,
+      "cycles": 21,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 39643517,
+      "plain_sample_bytes": 39645361.0,
+      "gzip_files": 0,
+      "peak_bytes": 39643517,
+      "updates": 11789,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 55971840,
+      "cpu_seconds": 77.34375
+    },
+    {
+      "at_utc": "2026-09-23T18:36:56.6058440+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 22.0,
+      "cycles": 22,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 29850414,
+      "plain_sample_bytes": 30404002.0,
+      "gzip_files": 0,
+      "peak_bytes": 29850414,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 58703872,
+      "cpu_seconds": 73.21875
+    },
+    {
+      "at_utc": "2026-09-23T18:36:56.6652978+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 21.57,
+      "cycles": 22,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 41244715,
+      "plain_sample_bytes": 41264180.0,
+      "gzip_files": 0,
+      "peak_bytes": 41244715,
+      "updates": 12087,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56868864,
+      "cpu_seconds": 81.53125
+    },
+    {
+      "at_utc": "2026-09-23T18:38:10.1140557+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 23.47,
+      "cycles": 24,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 32445749,
+      "plain_sample_bytes": 32445749.0,
+      "gzip_files": 0,
+      "peak_bytes": 32445749,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56885248,
+      "cpu_seconds": 76.96875
+    },
+    {
+      "at_utc": "2026-09-23T18:38:10.1646814+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 22.81,
+      "cycles": 23,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 42728461,
+      "plain_sample_bytes": 42728461.0,
+      "gzip_files": 0,
+      "peak_bytes": 42728461,
+      "updates": 12265,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56569856,
+      "cpu_seconds": 85.109375
+    },
+    {
+      "at_utc": "2026-09-23T18:39:16.9527896+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 24.6,
+      "cycles": 25,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 33986484,
+      "plain_sample_bytes": 33986484.0,
+      "gzip_files": 0,
+      "peak_bytes": 33986484,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56643584,
+      "cpu_seconds": 81.171875
+    },
+    {
+      "at_utc": "2026-09-23T18:39:17.0050137+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 23.91,
+      "cycles": 24,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 44426081,
+      "plain_sample_bytes": 44426081.0,
+      "gzip_files": 0,
+      "peak_bytes": 44426081,
+      "updates": 12434,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56676352,
+      "cpu_seconds": 89.03125
+    },
+    {
+      "at_utc": "2026-09-23T18:40:48.4673276+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 26.0,
+      "cycles": 26,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 35298656,
+      "plain_sample_bytes": 35767575.0,
+      "gzip_files": 0,
+      "peak_bytes": 35298656,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 58654720,
+      "cpu_seconds": 86.4375
+    },
+    {
+      "at_utc": "2026-09-23T18:40:48.5251440+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 25.47,
+      "cycles": 26,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 47343641,
+      "plain_sample_bytes": 47343641.0,
+      "gzip_files": 0,
+      "peak_bytes": 47343641,
+      "updates": 12724,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56606720,
+      "cpu_seconds": 95.109375
+    },
+    {
+      "at_utc": "2026-09-23T18:42:02.4538803+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 27.3,
+      "cycles": 28,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 37865152,
+      "plain_sample_bytes": 37887669.0,
+      "gzip_files": 0,
+      "peak_bytes": 37865152,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56647680,
+      "cpu_seconds": 91.890625
+    },
+    {
+      "at_utc": "2026-09-23T18:42:02.5032404+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 26.67,
+      "cycles": 27,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 48880514,
+      "plain_sample_bytes": 48887678.0,
+      "gzip_files": 0,
+      "peak_bytes": 48880514,
+      "updates": 12961,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56655872,
+      "cpu_seconds": 99.890625
+    },
+    {
+      "at_utc": "2026-09-23T18:43:12.3326630+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 28.49,
+      "cycles": 29,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 39187540,
+      "plain_sample_bytes": 39187540.0,
+      "gzip_files": 0,
+      "peak_bytes": 39187540,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56778752,
+      "cpu_seconds": 96.78125
+    },
+    {
+      "at_utc": "2026-09-23T18:43:12.3721544+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 27.89,
+      "cycles": 28,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 50384772,
+      "plain_sample_bytes": 50384772.0,
+      "gzip_files": 0,
+      "peak_bytes": 50384772,
+      "updates": 13187,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56651776,
+      "cpu_seconds": 104.515625
+    },
+    {
+      "at_utc": "2026-09-23T18:44:17.6410495+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "CAPTURING",
+      "minutes": 29.56,
+      "cycles": 30,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 40714981,
+      "plain_sample_bytes": 40714981.0,
+      "gzip_files": 0,
+      "peak_bytes": 40714981,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": 56946688,
+      "cpu_seconds": 100.421875
+    },
+    {
+      "at_utc": "2026-09-23T18:44:17.6816550+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "CAPTURING",
+      "minutes": 28.98,
+      "cycles": 29,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 51801448,
+      "plain_sample_bytes": 51801448.0,
+      "gzip_files": 0,
+      "peak_bytes": 51801448,
+      "updates": 13298,
+      "update_tokens": 6,
+      "update_conditions": [
+        "0x3c1e99a5b2cac49d3d4bdd49323c3b8904dad852a66151e0ae76b62885df6831",
+        "0x11348776f1d311b744028d447635b39f1b9ddac91fcb1e48d5a0ebae501fda59",
+        "0xe0199592b50c78988f792bee4753da0084cad8fc3f635ea0a87de2be9463827a"
+      ],
+      "update_enabled": true,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": 56696832,
+      "cpu_seconds": 108.296875
+    },
+    {
+      "at_utc": "2026-09-23T18:45:46.1588303+00:00",
+      "run": "maker-evidence-88a-a1-qualified-off-20260923",
+      "state": "COMPLETED",
+      "minutes": 30.07,
+      "cycles": 30,
+      "failed": 0,
+      "conditions": 119,
+      "raw_bytes": 0,
+      "plain_sample_bytes": null,
+      "gzip_files": 445,
+      "peak_bytes": 40833071,
+      "updates": 0,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 0,
+      "working_set_bytes": null,
+      "cpu_seconds": null
+    },
+    {
+      "at_utc": "2026-09-23T18:45:46.1822849+00:00",
+      "run": "maker-evidence-88a-a1-qualified-window-20260923",
+      "state": "COMPLETED",
+      "minutes": 30.08,
+      "cycles": 30,
+      "failed": 0,
+      "conditions": 120,
+      "raw_bytes": 0,
+      "plain_sample_bytes": null,
+      "gzip_files": 452,
+      "peak_bytes": 53649456,
+      "updates": 13500,
+      "update_tokens": 0,
+      "update_conditions": [],
+      "update_enabled": false,
+      "update_errors": 0,
+      "trade_errors": 0,
+      "http_errors": 1,
+      "working_set_bytes": null,
+      "cpu_seconds": null
+    }
+  ],
+  "production_remaining": [
+    "Tape discard-counter measurement",
+    "Roll verdict using production closure evidence",
+    "Integration qualification and dependency verification",
+    "Registration only after disk sweep lifts daily low out of Critical"
+  ]
+}
