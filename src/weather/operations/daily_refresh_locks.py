@@ -41,8 +41,7 @@ class DiskPreflightError(RuntimeError):
         self.payload = payload
 
 
-def utc_now():
-    return shared_utc_now()
+from weather.time import utc_now
 
 
 def utc_iso():

@@ -32,7 +32,7 @@ from weather.market.exchange_economics import (
 from weather.market.market_config import ensure_date
 from weather.market.market_microstructure_capture import ClobClient
 from weather.market.market_registry import BUILTIN_SPECS
-from weather.market.mm_policy import utc_now
+from weather.time import utc_now
 from weather.operations.live_path_security import (
     assert_no_ambient_market_registry_override,
     validate_nonreparse_directory,

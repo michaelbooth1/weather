@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from weather.market.mm_policy import bool_value
+from weather.market.value_helpers import bool_value
 
 
 COMPATIBLE_RUN_SCHEMA_VERSIONS = {"mm_run_v0.2"}

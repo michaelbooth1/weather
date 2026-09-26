@@ -71,8 +71,7 @@ class ExecutionPayloadError(ExecutionTapeError):
     """Raised when a wire execution event is not safe to persist."""
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def ensure_utc(value: datetime | str | None = None) -> datetime:

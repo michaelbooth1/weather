@@ -9,13 +9,10 @@ from pathlib import Path
 
 from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
 from weather.market.market_making_preflight import load_platform_verification_gate
-from weather.market.market_making_run_constants import (
-    DEFAULT_PLATFORM_VERIFICATION,
-    DEFAULT_RUNS_ROOT,
-    PLATFORM_VERIFICATION_SCHEMA_VERSION,
-)
+from weather.market.market_making_run_constants import DEFAULT_PLATFORM_VERIFICATION, DEFAULT_RUNS_ROOT
+from weather.market.execution_contract import PLATFORM_VERIFICATION_SCHEMA_VERSION
 from weather.market.market_making_run_support import load_live_readiness
-from weather.market.mm_policy import bool_value, maybe_float, parse_time
+from weather.market.value_helpers import bool_value, maybe_float, parse_time
 from weather.paths import data_path, relative_to_repo
 
 

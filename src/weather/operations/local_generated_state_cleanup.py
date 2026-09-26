@@ -75,8 +75,7 @@ TEXT_LINE_ENDING_NAMES = {
 PIN_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*==\s*([^;\s]+)")
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def relative_to_root(path: str | Path, root: str | Path) -> str:

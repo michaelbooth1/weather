@@ -23,7 +23,7 @@ from weather.collection.collection_health import (
     SNAPSHOT_STATUS_COMMAND,
     fleet_collection_health,
 )
-from weather.market.market_making_preflight import REMEDIATION_RULES
+from weather.market.platform_contract import REMEDIATION_RULES
 from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
     CLOB_SUPERVISOR,

@@ -177,8 +177,7 @@ def runtime_observation_sidecar_rotation_policy():
     }
 
 
-def utc_now():
-    return shared_utc_now()
+from weather.time import utc_now
 
 
 def write_json(path, payload):

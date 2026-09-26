@@ -32,18 +32,8 @@ from weather.market.clob_recon import (
     load_recon_payload,
 )
 from weather.market import exchange_economics
-from weather.market.mm_policy import (
-    bool_value,
-    early_hour_guardrail_state,
-    known_edge_record_key,
-    known_edge_row_dimensions,
-    load_known_edge_map,
-    maybe_float,
-    normalize_known_edge_field,
-    normalize_token,
-    parse_time,
-    resolve_known_edge_record,
-)
+from weather.market.value_helpers import bool_value, maybe_float, parse_time
+from weather.market.mm_policy import early_hour_guardrail_state, known_edge_record_key, known_edge_row_dimensions, load_known_edge_map, normalize_known_edge_field, normalize_token, resolve_known_edge_record
 from weather.market.mm_paper_evidence import (
     COMPATIBLE_RUN_SCHEMA_VERSIONS,
     LIVE_FORWARD_EVIDENCE_CLASSES,
@@ -2927,7 +2917,6 @@ def build_paper_payload(*args, **kwargs):
         for aggregation in reversed(spill_cleanup):
             aggregation.close()
         raise
-
 
 
 from weather.market.mm_paper_reports import (  # noqa: E402

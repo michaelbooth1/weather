@@ -145,8 +145,9 @@ def parse_time(value):
     return parsed.astimezone(timezone.utc)
 
 
-def utc_now(value=None):
-    return parse_time(value) or datetime.now(timezone.utc)
+from functools import partial as _clock_partial
+from weather.time import utc_now as _shared_clock
+utc_now = _clock_partial(_shared_clock, parser=parse_time)
 
 
 def _deep_merge(base, override):

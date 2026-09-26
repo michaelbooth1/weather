@@ -22,16 +22,8 @@ from pathlib import Path
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 from weather.io import append_jsonl, read_csv_rows, read_json, write_csv_rows
 from weather.market.market_config import config_for_date, ensure_date
-from weather.market.market_making_run_support import (
-    classify_zero_trade_root_cause,
-    clob_token_discovery_health,
-    clob_feature_index_from_rows,
-    first_failed_gate,
-    latest_book_rows,
-    latest_clob_feature_rows,
-    source_status_for_snapshot,
-    source_status_is_current,
-)
+from weather.market.market_making_run_support import classify_zero_trade_root_cause, clob_feature_index_from_rows, first_failed_gate, latest_clob_feature_rows
+from weather.market.public_capture_inputs import clob_token_discovery_health, latest_book_rows, source_status_for_snapshot, source_status_is_current
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.live_observation_normalization import (
@@ -40,16 +32,9 @@ from weather.market.live_observation_normalization import (
     normalized_high_for_market,
 )
 from weather.market.taker_edge_permission import DEFAULT_TAKER_EDGE_PERMISSION_MAP
-from weather.market.mm_policy import (
-    DEFAULT_OBSERVATION_STATUS,
-    bool_value,
-    first_present,
-    load_latest_snapshot_rows,
-    load_observation_status,
-    maybe_float,
-    parse_time,
-    source_freshness_state_from_rows,
-)
+from weather.market.mm_policy import DEFAULT_OBSERVATION_STATUS, load_latest_snapshot_rows, source_freshness_state_from_rows
+from weather.market.value_helpers import bool_value, first_present, maybe_float, parse_time
+from weather.market.observation_status import load_observation_status
 from weather.operations.power import keep_system_awake
 from weather.paths import data_path
 
@@ -646,9 +631,7 @@ COUNTERFACTUAL_ORDER_COLUMNS = [
 ]
 
 
-def utc_now(value=None):
-    parsed = parse_time(value)
-    return parsed or datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def compact_float(value, digits=6):
