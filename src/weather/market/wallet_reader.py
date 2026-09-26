@@ -51,8 +51,43 @@ def rows(value):
     return value
 
 
-def portfolio_summary(balance, positions, orders, campaign_capital, *, resolved=(), inventory_complete=True):
-    """Live equity less owner-confirmed net contributions; resolved P&L is separate.
+def campaign_start(value):
+    """Require an explicit instant, never infer a baseline from settlement dates."""
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if instant.tzinfo is None or instant.utcoffset() is None or instant.timestamp() < 0:
+            raise ValueError
+        return instant.astimezone(timezone.utc)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        raise ReaderError("campaign_start_must_be_aware_iso_time") from None
+
+
+def terminal_price(row, market):
+    """A resolved outcome needs an exact 0/1 value tied to this token."""
+    prices = []
+    try:
+        price = number(row.get("curPrice"))
+        if price in (0, 1):
+            prices.append(price)
+    except ReaderError:
+        pass
+    try:
+        tokens, outcomes = market.get("clobTokenIds"), market.get("outcomePrices")
+        tokens = json.loads(tokens) if isinstance(tokens, str) else tokens
+        outcomes = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
+        if (market.get("closed") is True and isinstance(tokens, list) and isinstance(outcomes, list)
+                and len(tokens) == len(outcomes) and tokens.count(row["asset"]) == 1):
+            price = number(outcomes[tokens.index(row["asset"])])
+            if price in (0, 1):
+                prices.append(price)
+    except (ReaderError, ValueError, TypeError):
+        pass
+    return prices[0] if prices and len(set(prices)) == 1 else None
+
+
+def portfolio_summary(balance, positions, orders, campaign_capital, *, resolved=(),
+                      unredeemed=(), inventory_complete=True):
+    """Live and campaign unredeemed equity less owner-confirmed net contributions.
 
 Campaign capital = initial equity + subsequent deposits - withdrawals. A
 dedicated campaign wallet is required. Reward accrual is not added to cash.
@@ -64,22 +99,35 @@ dedicated campaign wallet is required. Reward accrual is not added to cash.
     unrealized = sum((number(p["unrealized_pnl_pusd"]) for p in positions), Decimal(0)) if complete else None
     resolved_pnl = (sum((number(p["unrealized_pnl_pusd"]) for p in resolved), Decimal(0))
                     if all(p.get("unrealized_pnl_pusd") is not None for p in resolved) else None)
-    campaign = cash + marked - number(campaign_capital) if complete and cash is not None and campaign_capital is not None else None
+    reasons = []
+    if any(p["campaign_scope"] == "unknown" for p in unredeemed):
+        reasons.append("unredeemed_acquisition_time_unknown")
+    if any(p["terminal_value_pusd"] is None for p in unredeemed):
+        reasons.append("unredeemed_terminal_value_unknown")
+    terminal = (sum((number(p["terminal_value_pusd"]) for p in unredeemed
+                     if p["campaign_scope"] == "campaign"), Decimal(0)) if not reasons else None)
+    campaign = (cash + marked + terminal - number(campaign_capital)
+                if complete and not reasons and cash is not None and campaign_capital is not None else None)
     bleed = cash is not None and cash < 60 or campaign is not None and campaign < -40
     return dict(cash_pusd=str(cash) if cash is not None else None, positions=positions, open_orders=orders,
                 marked_positions_pusd=str(marked) if marked is not None else None,
                 unrealized_pnl_pusd=str(unrealized) if unrealized is not None else None,
                 resolved_pnl_vs_cost_pusd=str(resolved_pnl) if resolved_pnl is not None else None,
                 resolved_count=len(resolved),
+                unredeemed_positions=list(unredeemed),
+                unredeemed_campaign_value_pusd=str(terminal) if terminal is not None else None,
+                incomplete_reasons=reasons, bleed_limit_reached=bleed,
+                reason=("unredeemed_terminal_value_unknown" if "unredeemed_terminal_value_unknown" in reasons
+                        else reasons[0] if reasons else None),
                 campaign_pnl_pusd=str(campaign) if campaign is not None else None,
                 campaign_net_contributions_pusd=str(campaign_capital) if campaign_capital is not None else None,
-                status="BLEED_LIMIT" if bleed else "INCOMPLETE" if campaign is None or orders is None else "OBSERVED",
+                status="INCOMPLETE" if reasons else "BLEED_LIMIT" if bleed else "INCOMPLETE" if campaign is None or orders is None else "OBSERVED",
                 mark_basis="live_two_sided_mid", cache_seconds=30,
                 captured_at_utc=datetime.now(timezone.utc).isoformat())
 
 
 class WalletReader:
-    def __init__(self, transport, *, signature_type, campaign_capital=None):
+    def __init__(self, transport, *, signature_type, campaign_capital=None, campaign_start_utc=None):
         if signature_type not in (2, 3):
             raise ReaderError("signature_type_must_be_2_or_3")
         if campaign_capital is not None and number(campaign_capital) < 0:
@@ -87,6 +135,7 @@ class WalletReader:
         self.transport = transport
         self.signature_type = signature_type
         self.campaign_capital = campaign_capital
+        self.campaign_start = campaign_start(campaign_start_utc) if campaign_start_utc is not None else None
         self.funder = transport.fields["FUNDER_ADDRESS"]
 
     def get(self, host, path, **params):
@@ -203,9 +252,11 @@ class WalletReader:
             if row.get("redeemable") is True or market.get("closed") is True:
                 result["classification"] = "resolved"
                 result["classification_basis"] = "redeemable" if row.get("redeemable") is True else "gamma_closed"
-                if last in (Decimal(0), Decimal(1)):
-                    result.update(mark_value_pusd=str(number(row["size"]) * last),
-                                  unrealized_pnl_pusd=str(number(row["size"]) * (last - number(row["avgPrice"]))))
+                terminal = terminal_price(row, market)
+                result["terminal_price"] = str(terminal) if terminal is not None else None
+                if terminal is not None:
+                    result.update(mark_value_pusd=str(number(row["size"]) * terminal),
+                                  unrealized_pnl_pusd=str(number(row["size"]) * (terminal - number(row["avgPrice"]))))
                 else:
                     result["errors"].append("resolved_value_unavailable")
                 payload["resolved_positions"].append(result)
@@ -312,6 +363,68 @@ class WalletReader:
                 "percentages": self.get(CLOB, "/rewards/user/percentages", signature_type=self.signature_type),
                 "payment_verified": False}
 
+    def _unredeemed(self, resolved):
+        # Positive resolved holdings are still held. redeemable=False does not
+        # prove redemption; a zero-size/absent lot is already represented in cash.
+        held = [dict(p, terminal_value_pusd=p["mark_value_pusd"], campaign_scope="unknown",
+                     terminal_value_status="terminal_value_unknown" if p["mark_value_pusd"] is None else "known",
+                     acquisition_basis="unavailable") for p in resolved if number(p["size"]) > 0]
+        if not held or self.campaign_start is None:
+            return held
+        try:
+            history = []
+            for page in range(5):
+                chunk = rows(self.get(DATA, "/activity", user=self.funder, limit=100,
+                                      offset=100 * page, start=0, sortBy="TIMESTAMP", sortDirection="ASC"))
+                history.extend(chunk)
+                if len(chunk) < 100:
+                    break
+            else:
+                raise ReaderError("activity_incomplete")
+        except ReaderError:
+            return held
+        baseline = Decimal(str(self.campaign_start.timestamp()))
+        for position in held:
+            try:
+                quantity, scopes, seen = Decimal(0), set(), set()
+                relevant = [r for r in history if r.get("asset") == position["token_id"]
+                            or str(r.get("conditionId", "")).lower() == position["condition_id"].lower()]
+                relevant.sort(key=lambda r: number(r.get("timestamp")))
+                for row in relevant:
+                    # Splits, merges, redemptions, transfers or a partial ledger
+                    # cannot establish remaining-lot acquisition without guessing.
+                    if (str(row.get("proxyWallet", "")).lower() != self.funder.lower()
+                            or row.get("type") != "TRADE"):
+                        raise ReaderError("acquisition_unproven")
+                    if row.get("asset") != position["token_id"]:
+                        continue
+                    if str(row.get("conditionId", "")).lower() != position["condition_id"].lower():
+                        raise ReaderError("acquisition_unproven")
+                    timestamp, size = number(row.get("timestamp")), number(row.get("size"))
+                    identity = (row.get("transactionHash"), row.get("asset"), row.get("side"), timestamp, size)
+                    if (not isinstance(identity[0], str) or not identity[0] or identity in seen
+                            or size <= 0 or timestamp < 0 or timestamp != timestamp.to_integral_value()
+                            or timestamp > Decimal(str(datetime.now(timezone.utc).timestamp()))):
+                        raise ReaderError("acquisition_unproven")
+                    seen.add(identity)
+                    if row.get("side") == "BUY":
+                        quantity += size
+                        scopes.add("campaign" if timestamp > baseline else "historical")
+                    elif row.get("side") == "SELL":
+                        quantity -= size
+                    else:
+                        raise ReaderError("acquisition_unproven")
+                    if quantity < 0:
+                        raise ReaderError("acquisition_unproven")
+                    if quantity == 0:
+                        scopes.clear()
+                if quantity != number(position["size"]) or len(scopes) != 1:
+                    raise ReaderError("acquisition_unproven")
+                position.update(campaign_scope=scopes.pop(), acquisition_basis="complete_activity_quantity_reconciled")
+            except (ReaderError, TypeError):
+                pass
+        return held
+
     def summary(self, *, include_resolved=False):
         with self.transport.composite() as plan:
             errors, balance, orders = {}, None, None
@@ -324,10 +437,13 @@ class WalletReader:
             except ReaderError:
                 errors["open_orders"] = "open_orders_unavailable"
             inventory = self._inventory()
+            unredeemed = self._unredeemed(inventory["resolved_positions"])
             result = portfolio_summary(balance, inventory["positions"], orders, self.campaign_capital,
                                        resolved=inventory["resolved_positions"],
+                                       unredeemed=unredeemed,
                                        inventory_complete=inventory["inventory_complete"])
             result.update(errors={**errors, **inventory["errors"]},
+                          campaign_start_utc=self.campaign_start.isoformat() if self.campaign_start else None,
                           unclassified_positions=inventory["unclassified_positions"],
                           plan={**inventory["plan"], "max_gets": plan["max_gets"], "used_gets": plan["used_gets"]})
             if include_resolved:
@@ -345,6 +461,7 @@ def main(argv=None):
     serve.add_argument("--signature-type", type=int, choices=(2, 3), required=True,
                        help="Owner-confirmed existing wallet type: 2 Safe, 3 deposit wallet")
     serve.add_argument("--campaign-capital", help="Campaign-start equity plus net deposits/withdrawals in pUSD; omit for unknown P&L")
+    serve.add_argument("--campaign-start-utc", help="Explicit timezone-aware campaign baseline instant; required to date unredeemed lots")
     args = parser.parse_args(argv)
     try:
         lan_ip(args.bind)
@@ -353,9 +470,11 @@ def main(argv=None):
             raise ReaderError("port_invalid")
         if args.campaign_capital is not None and number(args.campaign_capital) < 0:
             raise ReaderError("negative_campaign_capital")
+        if args.campaign_start_utc is not None:
+            campaign_start(args.campaign_start_utc)
         fields, guard = load_owner_credentials()
         reader = WalletReader(ReadTransport(fields, guard), signature_type=args.signature_type,
-                              campaign_capital=args.campaign_capital)
+                              campaign_capital=args.campaign_capital, campaign_start_utc=args.campaign_start_utc)
         from weather.market.wallet_reader_server import serve_reader
         serve_reader(reader, guard, fields["READER_TOKEN"], bind=args.bind, allow=args.allow, port=args.port)
     except KeyboardInterrupt:

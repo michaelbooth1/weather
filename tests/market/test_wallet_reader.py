@@ -27,6 +27,8 @@ TOKEN = "ab" * 32
 FIELDS = dict(API_KEY="fixture-api-key-100a", API_SECRET=base64.urlsafe_b64encode(b"fixture-hmac-secret").decode(),
               API_PASSPHRASE="fixture-passphrase-100a", WALLET_ADDRESS=SIGNER, FUNDER_ADDRESS=FUNDER,
               CLOB_HOST=security.CLOB, CHAIN_ID="137", READER_TOKEN=TOKEN)
+CAMPAIGN_START = "2026-09-22T00:00:00Z"
+CAMPAIGN_TIMESTAMP = int(core.campaign_start(CAMPAIGN_START).timestamp())
 
 
 @pytest.fixture(autouse=True)
@@ -494,6 +496,13 @@ def inventory_fixture(live=4, resolved=100):
             return {"balance": "70000000"}
         if parts.path == "/data/orders":
             return {"data": [], "next_cursor": "LTE="}
+        if parts.path == "/activity":
+            assert query["start"] == ["0"] and query["sortDirection"] == ["ASC"]
+            offset = int(query["offset"][0])
+            return [dict(proxyWallet=FUNDER, asset=p["asset"], conditionId=p["conditionId"],
+                         type="TRADE", side="BUY", size=p["size"], timestamp=CAMPAIGN_TIMESTAMP - 86400,
+                         transactionHash="fixture-" + p["asset"]) for p in holdings[offset:offset + 100]
+                    if core.number(p["size"]) > 0]
         if parts.path == "/book":
             p = next(p for p in holdings if p["asset"] == query["token_id"][0])
             assert not p["redeemable"], "resolved position requested a book"
@@ -696,7 +705,7 @@ def test_resolved_winner_pnl_is_separate_when_hidden(tmp_path, guard):
     holdings, _, respond = inventory_fixture(live=0, resolved=1)
     holdings[0].update(curPrice=1, size=5)
     t = wire(tmp_path, guard, FakeOpener(respond))
-    reader = core.WalletReader(t, signature_type=2, campaign_capital=100)
+    reader = core.WalletReader(t, signature_type=2, campaign_capital=100, campaign_start_utc=CAMPAIGN_START)
     result = reader.summary()
     assert result["marked_positions_pusd"] == "0" and result["campaign_pnl_pusd"] == "-30"
     assert result["unrealized_pnl_pusd"] == "0"
@@ -716,7 +725,7 @@ def test_100e_one_live_103_resolved_pnl_split(tmp_path, guard, capital, campaign
         row.update(size=100, avgPrice=.9, curPrice=terminal)
     holdings[-1].update(size=10, avgPrice=.7)
     t = wire(tmp_path, guard, FakeOpener(respond))
-    reader = core.WalletReader(t, signature_type=2, campaign_capital=capital)
+    reader = core.WalletReader(t, signature_type=2, campaign_capital=capital, campaign_start_utc=CAMPAIGN_START)
     for include_resolved in (False, True):
         result = reader.summary(include_resolved=include_resolved)
         assert result["cash_pusd"] == "70"
@@ -729,7 +738,7 @@ def test_100e_one_live_103_resolved_pnl_split(tmp_path, guard, capital, campaign
         assert result["mark_basis"] == "live_two_sided_mid"
         assert ("resolved_positions" in result) is include_resolved
         assert result["plan"]["deferred_live_positions"] == 0
-    assert len(t.opener.calls) == 7  # Visibility does not add reads; resolved rows stay unenriched.
+    assert len(t.opener.calls) == 9  # Two bounded activity pages prove historical acquisition; visibility is cached.
     assert sum(urlsplit(req.full_url).path == "/book" for req, _ in t.opener.calls) == 1
 
 
@@ -837,3 +846,153 @@ def test_client_resolved_flag_and_five_second_timeout_floor(tmp_path):
             client.read_account("positions", config=config, opener=opener, timeout=invalid)
         assert caught.value.reason == "refused"
     assert len(opener.calls) == 1
+
+
+def unredeemed_fixture(tmp_path, guard, *, terminal=1, size=5, timestamp=CAMPAIGN_TIMESTAMP + 60,
+                       activity=None, baseline=CAMPAIGN_START, cash="70000000", redeemable=True):
+    holdings, markets, respond = inventory_fixture(live=0, resolved=1)
+    holdings[0].update(curPrice=terminal, size=size, redeemable=redeemable, title="Fixture weather", outcome="Yes")
+    default_activity = [dict(proxyWallet=FUNDER, asset=holdings[0]["asset"], conditionId=holdings[0]["conditionId"],
+                             type="TRADE", side="BUY", size=size, timestamp=timestamp, transactionHash="fixture-buy")]
+    def endpoint(req):
+        path = urlsplit(req.full_url).path
+        if path == "/activity":
+            return default_activity if activity is None else activity
+        if path == "/balance-allowance":
+            return {"balance": cash}
+        return respond(req)
+    t = wire(tmp_path, guard, FakeOpener(endpoint))
+    return core.WalletReader(t, signature_type=2, campaign_capital=100, campaign_start_utc=baseline), markets, default_activity
+
+
+@pytest.mark.parametrize("terminal,value,pnl", [(1, "5", "-25"), (0, "0", "-30")])
+def test_110f_campaign_unredeemed_winner_and_loser(tmp_path, guard, terminal, value, pnl):
+    reader, _, _ = unredeemed_fixture(tmp_path, guard, terminal=terminal)
+    code, result = server.dispatch(reader, guard, TOKEN, "192.168.1.5", "GET", "/summary",
+                                  "192.168.1.5", {"Authorization": "Bearer " + TOKEN})
+    assert code == 200 and result["status"] == "OBSERVED"
+    assert result["campaign_pnl_pusd"] == pnl
+    assert result["unredeemed_campaign_value_pusd"] == value
+    assert result["marked_positions_pusd"] == "0"
+    assert "resolved_positions" not in result
+    lot = result["unredeemed_positions"][0]
+    assert (lot["title"], lot["outcome"], lot["size"], lot["terminal_value_pusd"]) == ("Fixture weather", "Yes", "5", value)
+    assert lot["campaign_scope"] == "campaign"
+    assert result["incomplete_reasons"] == []
+    assert not any(urlsplit(r.full_url).path == "/book" for r, _ in reader.transport.opener.calls)
+
+
+@pytest.mark.parametrize("terminal", [None, ".5", "NaN", "1.01"])
+@pytest.mark.parametrize("cash", ["70000000", "59000000"])
+def test_110f_ambiguous_terminal_is_incomplete_even_below_cash_limit(tmp_path, guard, terminal, cash):
+    reader, _, _ = unredeemed_fixture(tmp_path, guard, terminal=terminal, cash=cash)
+    result = reader.summary()
+    assert result["status"] == "INCOMPLETE" and result["campaign_pnl_pusd"] is None
+    assert result["incomplete_reasons"] == ["unredeemed_terminal_value_unknown"]
+    assert result["reason"] == "unredeemed_terminal_value_unknown"
+    assert result["bleed_limit_reached"] is (cash == "59000000")
+    assert result["unredeemed_positions"][0]["terminal_value_pusd"] is None
+
+
+@pytest.mark.parametrize("timestamp", [CAMPAIGN_TIMESTAMP - 60, CAMPAIGN_TIMESTAMP])
+def test_110f_historical_dust_stays_separate(tmp_path, guard, timestamp):
+    reader, _, _ = unredeemed_fixture(tmp_path, guard, timestamp=timestamp)
+    result = reader.summary()
+    assert result["campaign_pnl_pusd"] == "-30" and result["resolved_pnl_vs_cost_pusd"] == "3.0"
+    assert result["unredeemed_campaign_value_pusd"] == "0"
+    assert result["unredeemed_positions"][0]["campaign_scope"] == "historical"
+
+
+def test_110f_redeemed_cash_is_not_counted_twice(tmp_path, guard):
+    reader, _, _ = unredeemed_fixture(tmp_path, guard, size=0, cash="75000000", baseline=None)
+    result = reader.summary()
+    assert result["campaign_pnl_pusd"] == "-25" and result["unredeemed_positions"] == []
+    assert not any(urlsplit(r.full_url).path == "/activity" for r, _ in reader.transport.opener.calls)
+
+
+@pytest.mark.parametrize("failure", ["no_baseline", "empty", "missing_timestamp", "future", "quantity", "mixed",
+                                     "wrong_wallet", "duplicate", "split", "unknown_side", "exhausted", "failure", "budget"])
+def test_110f_unknown_acquisition_never_guessed(tmp_path, guard, failure):
+    reader, _, activity = unredeemed_fixture(tmp_path, guard, baseline=None if failure == "no_baseline" else CAMPAIGN_START)
+    if failure == "empty":
+        activity.clear()
+    elif failure == "missing_timestamp":
+        activity[0].pop("timestamp")
+    elif failure == "future":
+        activity[0]["timestamp"] = 9999999999
+    elif failure == "quantity":
+        activity[0]["size"] = 4
+    elif failure == "mixed":
+        activity[0]["size"] = 3
+        activity.append(dict(activity[0], size=2, timestamp=CAMPAIGN_TIMESTAMP - 1, transactionHash="old-buy"))
+    elif failure == "wrong_wallet":
+        activity[0]["proxyWallet"] = SIGNER
+    elif failure == "duplicate":
+        activity.append(dict(activity[0]))
+    elif failure == "split":
+        activity[0]["type"] = "SPLIT"
+    elif failure == "unknown_side":
+        activity[0]["side"] = "OTHER"
+    elif failure == "exhausted":
+        activity.extend(dict(activity[0], transactionHash=f"fixture-{i}") for i in range(99))
+    elif failure == "failure":
+        responder = reader.transport.opener.responder
+        def fail(req):
+            if urlsplit(req.full_url).path == "/activity":
+                raise security.ReaderError("fixture_failure")
+            return responder(req)
+        reader.transport.opener.responder = fail
+    elif failure == "budget":
+        # Leave exactly enough budget for cash, orders and inventory, but no history.
+        reader.transport.calls.extend([0] * 27)
+    result = reader.summary()
+    assert result["status"] == "INCOMPLETE" and result["campaign_pnl_pusd"] is None
+    assert "unredeemed_acquisition_time_unknown" in result["incomplete_reasons"]
+    assert result["unredeemed_positions"][0]["campaign_scope"] == "unknown"
+    assert result["plan"]["used_gets"] <= 24
+
+
+@pytest.mark.parametrize("gamma_price,expected", [("1", "5"), ("0", "0"), (".5", None)])
+def test_110f_closed_gamma_terminal_price_is_token_matched(tmp_path, guard, gamma_price, expected):
+    reader, markets, _ = unredeemed_fixture(tmp_path, guard, terminal=None, redeemable=False)
+    markets[0].update(clobTokenIds=json.dumps(["999", "1"]), outcomePrices=json.dumps([".3", gamma_price]))
+    result = reader.summary()
+    assert result["unredeemed_positions"][0]["terminal_value_pusd"] == expected
+    assert (result["status"] == "INCOMPLETE") is (expected is None)
+
+
+def test_110f_conflicting_terminal_sources_are_unknown(tmp_path, guard):
+    reader, markets, _ = unredeemed_fixture(tmp_path, guard, terminal=1, redeemable=False)
+    markets[0].update(clobTokenIds=["1"], outcomePrices=["0"])
+    result = reader.summary()
+    assert result["campaign_pnl_pusd"] is None
+    assert result["incomplete_reasons"] == ["unredeemed_terminal_value_unknown"]
+
+
+def test_110f_invalid_baseline_fails_before_credentials(monkeypatch):
+    def forbidden():
+        raise AssertionError("credential loader must not run")
+    monkeypatch.setattr(core, "load_owner_credentials", forbidden)
+    assert core.main(["serve", "--bind", "192.168.1.20", "--allow", "192.168.1.5",
+                      "--signature-type", "3", "--campaign-start-utc", "2026-09-22"]) == 1
+
+
+@pytest.mark.parametrize("reset", [False, True])
+def test_110f_sales_reconcile_remaining_quantity_without_guessing_fifo(tmp_path, guard, reset):
+    reader, _, activity = unredeemed_fixture(tmp_path, guard)
+    activity[0].update(size=10, timestamp=CAMPAIGN_TIMESTAMP - 60 if reset else CAMPAIGN_TIMESTAMP + 1)
+    activity.append(dict(activity[0], side="SELL", size=10 if reset else 5,
+                         timestamp=CAMPAIGN_TIMESTAMP + 2, transactionHash="fixture-sale"))
+    if reset:
+        activity.append(dict(activity[0], size=5, timestamp=CAMPAIGN_TIMESTAMP + 3, transactionHash="fixture-reentry"))
+    result = reader.summary()
+    assert result["status"] == "OBSERVED" and result["campaign_pnl_pusd"] == "-25"
+
+
+def test_110f_redemption_with_stale_positive_position_does_not_double_count(tmp_path, guard):
+    reader, _, activity = unredeemed_fixture(tmp_path, guard, cash="75000000")
+    activity.append(dict(activity[0], type="REDEEM", timestamp=CAMPAIGN_TIMESTAMP + 61,
+                         transactionHash="fixture-redeem"))
+    result = reader.summary()
+    assert result["campaign_pnl_pusd"] is None and result["status"] == "INCOMPLETE"
+    assert result["cash_pusd"] == "75"

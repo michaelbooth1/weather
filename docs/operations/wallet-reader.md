@@ -38,6 +38,12 @@ For RE-1, the owner should pass equity at the **2026-09-22 campaign start**,
 adjusted for subsequent deposits and withdrawals. Reconcile that starting equity
 on the same cash-plus-live-marks basis used now, keeping historical resolved dust
 outside both sides so it cancels; do not use lifetime cost basis or lifetime deposits.
+Also supply `--campaign-start-utc <timezone-aware-ISO-instant>` for the exact
+reconciled baseline instant. Positive resolved lots require acquisition evidence
+relative to that instant; omitting it makes campaign P&L incomplete when such lots
+exist. A calendar date, settlement/end date or position's last price cannot date
+its acquisition. Campaign acquisitions after that instant add their unredeemed
+terminal value to current equity; historical dust remains outside the baseline.
 No wallet cap is assumed to be starting capital. Without this value campaign P&L
 is `null`/`INCOMPLETE`, although cash below the limit still yields `BLEED_LIMIT`.
 Use Ctrl+C to stop. There is no Scheduler registration or background installer.
@@ -148,15 +154,43 @@ Resolved holdings use last price only when terminal (0 or 1). Their separate
 `resolved_pnl_vs_cost_pusd` sums terminal marked value minus cost; it is `null`
 if any resolved value is unavailable and zero for an empty resolved list.
 `resolved_count` and this informational total remain visible even when resolved
-rows are hidden. Neither resolved value nor resolved P&L enters the live totals,
-campaign P&L or bleed check. Missing resolved value alone does not invalidate live
-totals. This informational comparison is not a realized-P&L ledger or proof of redemption.
-Campaign P&L is cash plus **live** marked inventory minus the explicit
-net contribution baseline, which includes paid rewards already in cash and does
-not add unverified reward accrual. It is meaningful only for a dedicated campaign
+rows are hidden. Resolved P&L does not enter live totals or campaign P&L; this
+comparison is not a realized-P&L ledger or proof of redemption. Positive resolved
+holdings also appear in summary's always-visible `unredeemed_positions`, with
+title, outcome, size, `terminal_value_pusd`, and `campaign_scope`. A terminal 0/1
+data-api price or token-matched closed Gamma outcome price values the lot; conflicting
+terminal prices or nonterminal prices leave its value unknown. `redeemable=false`
+alone is not proof of redemption. Zero-size or absent lots add nothing to cash.
+
+When a baseline instant and positive resolved lots exist, summary attempts a
+bounded complete `/activity` walk from Unix zero, oldest first, at most five
+100-row pages within the existing 24-GET/16-second composite budget. It runs after
+live marking and uses the existing cache, GET allowlist and journal. The latest
+100 rows from `/trades` are never treated as complete history. Only account- and
+token-matched trade history whose buys minus sells reconcile exactly to the held
+quantity can establish age. Every acquisition in the remaining inventory must
+fall on the same side of the baseline (strictly after is campaign); mixed-age
+inventory is unknown rather than assigned a speculative FIFO age. Splits, merges,
+redemptions, missing/duplicate/future records, quantity mismatches, read failures
+or exhausted pagination/budget leave acquisition unproved. A fully sold lot can
+reset the age of a later acquisition. No extra history requests occur without a
+baseline or without positive resolved lots.
+
+`unredeemed_campaign_value_pusd` sums known campaign terminal values; historical
+dust stays only in the resolved informational comparison. Unknown age produces
+`unredeemed_acquisition_time_unknown`; any unknown unredeemed terminal value
+produces `unredeemed_terminal_value_unknown` in `incomplete_reasons`. Either makes
+campaign P&L null and status `INCOMPLETE`. `bleed_limit_reached` independently
+preserves a known cash-limit breach even when status must be incomplete.
+Missing resolved information does not hide available live marks.
+Campaign P&L is cash plus **live marked inventory and campaign unredeemed terminal
+value**, minus the explicit net contribution baseline. It includes paid rewards
+already in cash and does not add unverified reward accrual. It is meaningful only for a dedicated campaign
 wallet with a reconciled baseline; unrelated holdings/transfers invalidate that
 interpretation. Cash < 60 or known campaign P&L < -40 yields `BLEED_LIMIT`.
 Other missing campaign information yields `INCOMPLETE`, never a trading go-ahead.
+The owner restarts the service after adopting reader changes; implementation and
+tests do not access an account or restart a real reader.
 
 Authenticated trade pages are bounded/exhaustive or fail; public trades/activity
 are explicitly the latest 100 rows, not a complete ledger. Reward earnings and
