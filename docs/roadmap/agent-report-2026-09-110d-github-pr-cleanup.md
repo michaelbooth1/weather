@@ -162,10 +162,14 @@ Documentation validation: focused `tests/reporting/test_roadmap_backlog.py` and
 `-m pytest`, those exact two files, `-q`, and an isolated `--basetemp`.
 The report's correspondence index is regenerated after the report commit so its
 Git-added date is available; the generated index is part of the docs handback.
+Backlog parity and correspondence-index parity passed. The agent documentation
+audit passed (18 agent files, 969 Markdown files); Git whitespace checks passed.
 
 ## Publication and boundaries
 
 - Docs branch: `codex/docs-github-pr-cleanup-110d-20260925`.
+- Initial report commit: `30a4740d40b24d62e693599667a2ef253c89e5a9`; the follow-up
+  docs commit adds the generated index and these validation/publication details.
 - Base: `e4dcef601b1b67afa9f3c8a6e361ebbb8ff92fb7` (fresh `origin/master`).
 - Isolated workstation worktree: `C:/Users/Michael/Documents/github/weather/scratch/w/github-pr-cleanup-110d`.
 - Only the report and its required generated correspondence-index update belong to this change.
