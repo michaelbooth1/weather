@@ -6,6 +6,8 @@ model-ready rows keyed like ``snapshots_long.csv``: one row per
 snapshot timestamp.
 """
 
+from weather.projection_io import projection_source
+
 import argparse
 import bisect
 import csv
@@ -523,7 +525,7 @@ def clob_feature_rows_from_rows(
 def clob_feature_rows_for_folder(folder, max_age_seconds=180, market_id=None):
     folder = Path(folder)
     return clob_feature_rows_from_rows(
-        read_csv_rows(folder / "snapshots_long.csv"),
+        read_csv_rows(projection_source(folder / "snapshots_long.csv")),
         read_csv_rows(folder / "order_books_summary.csv"),
         price_history_rows=read_csv_rows(folder / "price_history.csv"),
         ws_event_rows=read_csv_rows(folder / "market_ws_events.csv"),

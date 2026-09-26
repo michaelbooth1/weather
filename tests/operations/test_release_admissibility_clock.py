@@ -211,3 +211,24 @@ def test_collapse_reads_receipts_and_ignores_unsettled_tail(tmp_path):
         clock,
         omit=("clock_sha256",),
     )
+
+
+def test_canonical_only_day_binds_real_source_bytes_and_preserves_clock(tmp_path):
+    snapshots_root, ledger_root, folder = _write_pass_fixture(tmp_path)
+    csv_path = folder / "snapshots_long.csv"
+    with csv_path.open(encoding="utf-8", newline="") as stream:
+        bands = list(csv.DictReader(stream))
+    canonical = folder / "snapshots.jsonl"
+    canonical.write_text(json.dumps({"bands": bands}) + "\n", encoding="utf-8")
+    csv_path.unlink()
+    label = json.loads((folder / "settlement.json").read_text())
+    label["evidence"]["raw_resolution_hashes"]["snapshot_tape_sha256"] = hashlib.sha256(canonical.read_bytes()).hexdigest()
+    upsert_ledger_record(label, ledger_root)
+    (folder / "settlement.json").write_text(json.dumps(label) + "\n")
+    receipt = grade_market_day(target_date=TARGET, snapshots_root=snapshots_root,
+                              ledger_root=ledger_root, receipt_path=tmp_path / "receipt.json")
+    assert receipt["status"] == "PASS", receipt
+    canonical.write_text('{"bands":[],"bands":[]}\n')
+    receipt = grade_market_day(target_date=TARGET, snapshots_root=snapshots_root,
+                              ledger_root=ledger_root, receipt_path=tmp_path / "corrupt.json")
+    assert receipt["status"] != "PASS"

@@ -5,6 +5,8 @@ artifact is intentionally lightweight: it learns source-specific observed-minus-
 forecast error, MAE/RMSE, and tail rates from the historical Open-Meteo daily
 archive plus any settled snapshot forecast tapes.
 """
+
+from weather.projection_io import open_projection, projection_source, read_projection_frame
 import argparse
 import csv
 import json
@@ -81,9 +83,9 @@ def load_forecast_error_model(path=DEFAULT_ARTIFACT_PATH):
 def load_daily_summary(path=DEFAULT_DAILY_SUMMARY):
     path = Path(path)
     rows = {}
-    if not path.exists():
+    if not projection_source(path).exists():
         return rows
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             high = native_high(row)
             bucket = native_bucket(row)
@@ -99,10 +101,10 @@ def load_daily_summary(path=DEFAULT_DAILY_SUMMARY):
 
 def forecast_rows_from_daily_archive(path, daily_summary, market_id=None, regime_id=None):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
     rows = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             target_date = row.get("local_date")
             final = daily_summary.get(target_date)
@@ -138,12 +140,12 @@ def forecast_rows_from_snapshot_folders(folders, daily_summary, market_id=None, 
     for folder in folders:
         folder = Path(folder)
         forecast_path = folder / "forecasts_long.csv"
-        snapshot_path = folder / "snapshots_long.csv"
-        if not forecast_path.exists() or not snapshot_path.exists():
+        snapshot_path = projection_source(folder / "snapshots_long.csv")
+        if not projection_source(forecast_path).exists() or not projection_source(snapshot_path).exists():
             continue
         try:
             import pandas as pd
-            snapshot_frame = pd.read_csv(snapshot_path)
+            snapshot_frame = read_projection_frame(snapshot_path)
         except Exception:
             continue
         target_date = date_from_event_slug(folder.name)
@@ -159,7 +161,7 @@ def forecast_rows_from_snapshot_folders(folders, daily_summary, market_id=None, 
             continue
 
         grouped = defaultdict(list)
-        with forecast_path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(forecast_path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 if row.get("target_date") != target_date.isoformat():
                     continue

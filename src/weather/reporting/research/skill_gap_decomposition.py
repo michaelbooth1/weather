@@ -14,6 +14,8 @@ repository's candidate and market Brier scores.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -432,13 +434,13 @@ def load_feature_context(
         relative = entry.get("folder_relative_to_snapshots_root") or entry.get("folder_name")
         if not relative:
             continue
-        path = root / str(relative) / "features_long.csv"
-        if not path.exists():
+        path = projection_source(root / str(relative) / "features_long.csv")
+        if not projection_source(path).exists():
             missing_files.append(str(path))
             continue
         before_hash = _sha256(path)
         before_bytes = path.stat().st_size
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 snapshot_id = str(row.get("snapshot_id") or "")
                 row_target_date = str(row.get("target_date") or target_date)
@@ -486,7 +488,7 @@ def load_feature_context(
     for item in feature_inputs:
         path = Path(item["path"])
         after_hash = _sha256(path)
-        after_bytes = path.stat().st_size if path.exists() else None
+        after_bytes = path.stat().st_size if projection_source(path).exists() else None
         if after_hash != item["sha256"] or after_bytes != item["bytes"]:
             raise RuntimeError(f"feature input changed while being read: {path}")
     input_set_bytes = json.dumps(
@@ -913,7 +915,7 @@ def build_decomposition(
     manifest_path = Path(corpus_manifest) if corpus_manifest else None
     manifest_input_bytes = (
         manifest_path.stat().st_size
-        if manifest_path is not None and manifest_path.exists()
+        if manifest_path is not None and projection_source(manifest_path).exists()
         else None
     )
     manifest_input_sha256 = _sha256(manifest_path) if manifest_path else None
@@ -1256,7 +1258,7 @@ def build_decomposition(
                     snapshot_id=snapshot_id,
                 )
 
-    with variant_path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(variant_path, "r", encoding="utf-8", newline="") as handle:
         for raw in csv.DictReader(handle):
             row_count += 1
             row_variant_id = str(raw.get("variant_id") or "")
@@ -1453,7 +1455,7 @@ def build_decomposition(
     ):
         raise RuntimeError(f"variant input changed while being scored: {variant_path}")
     if manifest_path is not None and (
-        not manifest_path.exists()
+        not projection_source(manifest_path).exists()
         or manifest_path.stat().st_size != manifest_input_bytes
         or _sha256(manifest_path) != manifest_input_sha256
     ):

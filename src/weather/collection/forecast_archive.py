@@ -1,3 +1,5 @@
+
+from weather.projection_io import open_projection, projection_source
 import argparse
 import csv
 import hashlib
@@ -366,10 +368,10 @@ def should_archive_eccc_row(row, archive_path):
 
 def last_payload_hash(path, source, forecast_kind):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return None
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
     except csv.Error:
         return None
@@ -381,9 +383,9 @@ def last_payload_hash(path, source, forecast_kind):
 
 def migrate_csv_schema(path, columns):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         existing_fields = reader.fieldnames or []
         rows = list(reader)
@@ -468,18 +470,18 @@ def append_rows(path, columns, rows):
 
 def backfill_eccc_from_snapshots(snapshot_folder):
     folder = Path(snapshot_folder)
-    snapshots_path = folder / "snapshots_long.csv"
+    snapshots_path = projection_source(folder / "snapshots_long.csv")
     forecasts_path = folder / "forecasts_long.csv"
-    if not snapshots_path.exists():
+    if not projection_source(snapshots_path).exists():
         return 0
     migrate_csv_schema(forecasts_path, FORECAST_COLUMNS)
     existing_hashes = set()
-    if forecasts_path.exists():
-        with forecasts_path.open("r", encoding="utf-8", newline="") as handle:
+    if projection_source(forecasts_path).exists():
+        with open_projection(forecasts_path, "r", encoding="utf-8", newline="") as handle:
             existing_hashes = {row.get("payload_hash") for row in csv.DictReader(handle)}
 
     rows = []
-    with snapshots_path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(snapshots_path, "r", encoding="utf-8", newline="") as handle:
         for snapshot in csv.DictReader(handle):
             if snapshot.get("range_label") != first_band_label(snapshots_path, snapshot.get("snapshot_id")):
                 continue
@@ -522,7 +524,7 @@ def backfill_eccc_from_snapshots(snapshot_folder):
 
 
 def first_band_label(snapshots_path, snapshot_id):
-    with Path(snapshots_path).open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(Path(snapshots_path), "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             if row.get("snapshot_id") == snapshot_id:
                 return row.get("range_label")
@@ -561,7 +563,7 @@ def analyze_forecast_archive(snapshot_folder, data_root=DEFAULT_DATA_ROOT):
 
 
 def read_forecasts(path):
-    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(Path(path), "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -569,18 +571,18 @@ def load_final_highs(data_root, snapshot_folder):
     final_highs = {}
     basis = {}
     summary_path = Path(data_root) / "daily" / "daily_summary.csv"
-    if summary_path.exists():
-        with summary_path.open("r", encoding="utf-8", newline="") as handle:
+    if projection_source(summary_path).exists():
+        with open_projection(summary_path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 high = native_high(row)
                 if high is not None:
                     final_highs[row["local_date"]] = high
                     basis[row["local_date"]] = "wu_daily_summary"
 
-    snapshots_path = Path(snapshot_folder) / "snapshots_long.csv"
-    if snapshots_path.exists():
+    snapshots_path = projection_source(Path(snapshot_folder) / "snapshots_long.csv")
+    if projection_source(snapshots_path).exists():
         latest_by_date = {}
-        with snapshots_path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(snapshots_path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 date_value = row.get("captured_at_local", "")[:10] or TARGET_DATE.isoformat()
                 high = to_float(row.get("wu_history_high_native"))

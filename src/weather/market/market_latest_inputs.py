@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -308,7 +310,7 @@ def load_latest_market_inputs(
     diagnostics = {}
 
     snapshot_tail, snapshot_diag = read_csv_tail_rows_with_diagnostics(
-        folder / "snapshots_long.csv",
+        projection_source(folder / "snapshots_long.csv"),
         max_bytes=latest_group_max_scan_bytes,
     )
     diagnostics["snapshots"] = snapshot_diag

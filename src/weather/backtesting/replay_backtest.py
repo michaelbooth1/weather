@@ -26,6 +26,8 @@ CLI:
       [--out data/backtest/replay_report.md]
       [--save-baseline PATH] | [--gate PATH [--tol 0.003]]
 """
+
+from weather.projection_io import projection_glob, projection_source, read_projection_frame
 import argparse
 import json
 import sys
@@ -349,7 +351,7 @@ def run_replay_backtest(
     snaps_scored = 0
 
     for folder in folders:
-        tape_path = Path(folder) / "snapshots_long.csv"
+        tape_path = projection_source(Path(folder) / "snapshots_long.csv")
         if not tape_path.exists():
             print(f"  skip {folder}: no snapshots_long.csv")
             continue
@@ -362,7 +364,7 @@ def run_replay_backtest(
             print(f"  skip {Path(folder).name}: no replay_inputs.jsonl (capture not yet seeded)")
             continue
         model = model_for_market(market_id)
-        df = pd.read_csv(tape_path)
+        df = read_projection_frame(tape_path)
         if "snapshot_id" not in df:
             continue
         slug = Path(folder).name
@@ -832,7 +834,7 @@ def main():
             )
     if not folders:
         root = Path(args.snapshots_root)
-        folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
+        folders = sorted(str(p.parent) for p in projection_glob(root, '*/snapshots_long.csv'))
     if args.market:
         folders = [f for f in folders if folder_market_id(f) == args.market]
     if not folders:

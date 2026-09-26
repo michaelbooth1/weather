@@ -5,6 +5,8 @@ corpus with the current serving model, then scores the separate pooled-F
 artifact against the same settled rows as a shadow candidate. Live serving is
 not changed by this module.
 """
+
+from weather.projection_io import projection_source, read_projection_frame, projection_bytes_view
 import argparse
 import csv
 import hashlib
@@ -2185,8 +2187,7 @@ def _bounded_preselection_tape(path, *, max_rows):
     row_count = 0
     try:
         csv.field_size_limit(_PRESELECTION_MAX_TAPE_FIELD_BYTES)
-        text = raw.decode("utf-8-sig")
-        with io.StringIO(text, newline="") as handle:
+        with projection_bytes_view(path, raw) as handle:
             reader = csv.reader(handle)
             try:
                 header = next(reader)
@@ -2210,7 +2211,7 @@ def _bounded_preselection_tape(path, *, max_rows):
                     raise BoundedCandidateReplayError(
                         f"raw tape row bound exceeded: > {max_rows}"
                     )
-    except (csv.Error, UnicodeError, OSError) as exc:
+    except (csv.Error, UnicodeError, OSError, ValueError) as exc:
         raise BoundedCandidateReplayError(
             f"preselection tape cannot be read within bounds: {exc}"
         ) from exc
@@ -2218,7 +2219,8 @@ def _bounded_preselection_tape(path, *, max_rows):
         csv.field_size_limit(prior_limit)
     if row_count <= 0:
         raise BoundedCandidateReplayError("preselection tape has no data rows")
-    frame = pd.read_csv(io.BytesIO(raw), low_memory=False)
+    with projection_bytes_view(path, raw) as handle:
+        frame = pd.read_csv(handle, low_memory=False)
     return path, raw_sha256, row_count, frame
 
 
@@ -2285,7 +2287,7 @@ def _bounded_preselection_auxiliary_csv(path, *, max_rows):
     """Preflight a CSV consumed by the legacy feature-quality audit."""
 
     path = Path(path).resolve()
-    if not path.exists():
+    if not projection_source(path).exists():
         return None
     path, raw, raw_sha256 = _bounded_preselection_file_bytes(
         path,
@@ -2296,7 +2298,7 @@ def _bounded_preselection_auxiliary_csv(path, *, max_rows):
     rows = []
     try:
         csv.field_size_limit(_PRESELECTION_MAX_TAPE_FIELD_BYTES)
-        with io.StringIO(raw.decode("utf-8-sig"), newline="") as handle:
+        with projection_bytes_view(path, raw) as handle:
             reader = csv.DictReader(handle)
             if not reader.fieldnames:
                 raise BoundedCandidateReplayError(
@@ -2308,7 +2310,7 @@ def _bounded_preselection_auxiliary_csv(path, *, max_rows):
                     raise BoundedCandidateReplayError(
                         f"preselection auxiliary CSV row bound exceeded: {path}"
                     )
-    except (csv.Error, UnicodeError, OSError) as exc:
+    except (csv.Error, UnicodeError, OSError, ValueError) as exc:
         raise BoundedCandidateReplayError(
             f"preselection auxiliary CSV cannot be read within bounds: {path}: {exc}"
         ) from exc
@@ -2397,7 +2399,7 @@ def load_bounded_preselection_folder_inputs(
         ) from exc
 
     tape_path, tape_sha256, _tape_rows, frame = _bounded_preselection_tape(
-        folder / "snapshots_long.csv",
+        projection_source(folder / "snapshots_long.csv"),
         max_rows=max_rows_per_market_day,
     )
     _require_preselection_folder_file(tape_path, folder=folder)
@@ -2427,7 +2429,7 @@ def load_bounded_preselection_folder_inputs(
         )
 
     features_binding = _bounded_preselection_auxiliary_csv(
-        folder / "features_long.csv",
+        projection_source(folder / "features_long.csv"),
         max_rows=max_rows_per_market_day,
     )
     settlement_binding = _bounded_preselection_optional_file(
@@ -2761,7 +2763,7 @@ def iter_bounded_preselection_source_market_days(
             raise BoundedCandidateReplayError(
                 f"manifest label hash is invalid for {entry['event_slug']}"
             )
-        tape_path = folder / "snapshots_long.csv"
+        tape_path = projection_source(folder / "snapshots_long.csv")
         replay_path = folder / "replay_inputs.jsonl"
         if not tape_path.is_file() or not replay_path.is_file():
             raise BoundedCandidateReplayError(

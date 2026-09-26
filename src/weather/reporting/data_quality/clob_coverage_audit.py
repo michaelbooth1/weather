@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -60,11 +62,11 @@ def safe_float(value: Any) -> float | None:
 
 
 def read_csv_count(path: Path) -> tuple[int, list[dict[str, Any]]]:
-    if not path.exists():
+    if not projection_source(path).exists():
         return 0, []
     count = 0
     sample = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             count += 1
@@ -147,7 +149,7 @@ def feature_summary(folder: Path) -> dict[str, Any]:
     one_sided_rows = 0
     spreads = []
     liquidity = []
-    with feature_path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(feature_path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             token = row.get("clob_token_id")
             available = safe_float(row.get("clob_feature_available"))
@@ -210,7 +212,7 @@ def classify_folder(summary: dict[str, Any]) -> str:
 
 def audit_folder(folder: str | Path) -> dict[str, Any]:
     folder = Path(folder)
-    snapshot_rows, _sample = read_csv_count(folder / "snapshots_long.csv")
+    snapshot_rows, _sample = read_csv_count(projection_source(folder / "snapshots_long.csv"))
     raw_book_files = file_info(folder, RAW_BOOK_FILES)
     token_files = file_info(folder, TOKEN_FILES)
     features = feature_summary(folder)

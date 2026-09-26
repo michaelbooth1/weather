@@ -16,6 +16,48 @@
 
 This lane is attended and unscheduled; nothing runs it automatically.
 
+## Token tapes after close
+
+`cold_snapshot_compression_run.ps1 -CompressOnClose` selects the separate
+`weather.operations.compress_on_close` policy. It processes `clob_tokens.jsonl`
+before `clob_tokens.csv`, after each market's local calendar day ends and the
+file has been unchanged for two hours. The CLOB raw-tape writer lock and native
+handle exclusion must both succeed. This is a close-time maintenance pass,
+outside the capture loop; schedule registration is not part of this change.
+
+The handle verifier is shared with the ordinary lane and mission 91a. Its
+default remains 64 MiB; this lane explicitly opts into 256 MiB, at most 32 files
+and one GiB per invocation, with a 50 GiB free-space floor. Every file, path,
+logical byte, hash and timestamp stays in place. All existing token readers
+therefore continue using ordinary CSV/JSONL reads. No event-day manifest
+backfill is required for retained-byte NTFS compression. A manifest does not
+replace writer exclusion or the before/after identity and hash proof.
+
+The exact `compress_on_close_policy` fields are `schema_version` (resolve from
+the registry), `production_repo_root`, `execution_host_id`, `approved_by`,
+`approved_at_utc`, `expires_at_utc`, `operation=compress_and_retain`, and
+`max_bytes`. The named owner approval must be current, at most 31 days long,
+and bind the actual capture host. It authorizes only this fixed token-file
+selection. Review a dry-run attempt before applying with a new output folder.
+The existing wrapper keeps its 600-second deadline, source-tip binding,
+shared lease, capture health checks, protected windows and child-tree teardown.
+
+```powershell
+$repo = (Resolve-Path .).Path
+$tip = (git rev-parse HEAD).Trim()
+$request = Join-Path $repo 'scratch/compress-on-close-approved.json'
+$hash = (Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant()
+.\scripts\ops\cold_snapshot_compression_run.ps1 -CompressOnClose -ProductionRepoRoot $repo -RequestPath $request -RequestSha256 $hash -ExpectedSourceTip $tip -OutputRoot (Join-Path $repo 'scratch/cold_snapshot_compression/close-plan-01')
+.\scripts\ops\cold_snapshot_compression_run.ps1 -CompressOnClose -Apply -ProductionRepoRoot $repo -RequestPath $request -RequestSha256 $hash -ExpectedSourceTip $tip -OutputRoot (Join-Path $repo 'scratch/cold_snapshot_compression/close-apply-01')
+```
+
+Keep every before/after and wrapper receipt. Stop and inspect any failed or
+interrupted attempt; a later pass skips already compressed files and never
+claims unverified savings. This mode rejects daytime exceptions and cannot be
+combined with `-VerifyRetained`. The original exact-inventory lane below is
+unchanged. The paired [projection reader contract](snapshot-projection-readers.md)
+owns the independent CSV writer retirement.
+
 This is a compress-and-retain capacity operation. Every source file, logical
 byte, native file identity, and timestamp remains in place. NTFS provides the
 same content to existing readers; no gzip reader migration or off-site

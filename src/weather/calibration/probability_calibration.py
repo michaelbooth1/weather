@@ -13,6 +13,8 @@ those two calibration layers separate:
 The training CLI compares deployable no-market methods against market-informed
 baselines, then writes a lightweight JSON artifact consumed by live inference.
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import json
 import math
@@ -465,10 +467,10 @@ def read_scored_rows(folders, daily_summary_path=DEFAULT_DAILY_SUMMARY, override
     overrides = overrides or {}
     for folder in folders:
         folder = Path(folder)
-        tape = folder / "snapshots_long.csv"
+        tape = projection_source(folder / "snapshots_long.csv")
         if not tape.exists():
             continue
-        frame = pd.read_csv(tape)
+        frame = read_projection_frame(tape)
         target_date = date_from_event_slug(folder.name)
         bucket, _, _ = settlement_for_tape(frame, target_date, daily_index, overrides)
         scored, _, _, _ = backtest_tape(frame, bucket, [0.10], target_date=target_date)

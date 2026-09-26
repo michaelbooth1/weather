@@ -18,6 +18,7 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.projection_io import projection_source
 
 from weather.paths import data_path
 from weather.operations.closed_market_day_archive import DEFAULT_ARCHIVE_ROOT, read_market_day_artifact
@@ -252,7 +253,7 @@ def snapshot_folder_summary(
         replay_input_record_count = line_count(folder / SNAPSHOT_ARTIFACTS["replay_inputs"])
 
     artifacts = {
-        key: (folder / filename).exists()
+        key: projection_source(folder / filename).exists()
         for key, filename in SNAPSHOT_ARTIFACTS.items()
     }
     return {
@@ -277,7 +278,7 @@ def discover_snapshot_folders(root):
         return []
     return sorted(
         path for path in root.iterdir()
-        if path.is_dir() and (path / SNAPSHOT_ARTIFACTS["snapshots_long"]).exists()
+        if path.is_dir() and projection_source(path / SNAPSHOT_ARTIFACTS["snapshots_long"]).exists()
     )
 
 

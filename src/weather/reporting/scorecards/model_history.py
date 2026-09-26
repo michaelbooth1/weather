@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source, read_projection_frame
+
 import json
 import math
 import csv
@@ -114,11 +116,11 @@ def _read_folder_label(folder):
 
 def load_label_index(path=DEFAULT_LABELS_CSV):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return {}
     rows = {}
     try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
             for row in csv.DictReader(handle):
                 event_slug = row.get("event_slug")
                 if event_slug:
@@ -156,7 +158,7 @@ def history_signature(root, selected_dates, specs, labels_csv=DEFAULT_LABELS_CSV
     for target_date in selected_dates:
         for spec in specs:
             folder = root / event_slug_for_date(target_date, spec.id)
-            files.append(_file_signature(folder / "snapshots_long.csv"))
+            files.append(_file_signature(projection_source(folder / "snapshots_long.csv")))
             files.append(_file_signature(folder / "settlement.json"))
     return {
         "schema_version": MODEL_HISTORY_CACHE_SCHEMA,
@@ -472,11 +474,11 @@ def summarize_market_day(folder, spec, target_date, label_index=None):
         "scored_rows": 0,
         "note": "",
     }
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     if not tape.exists():
         return row, []
     try:
-        frame = pd.read_csv(tape)
+        frame = read_projection_frame(tape)
     except Exception as exc:  # noqa: BLE001 - page should show the bad artifact
         row.update({"status": "read_error", "status_label": _status_summary("read_error"), "note": str(exc)})
         return row, []

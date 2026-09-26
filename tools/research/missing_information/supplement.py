@@ -2,6 +2,8 @@
 
 The frozen primary outputs stay intact. These additions do not fit a candidate.
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 from collections import Counter
 import copy
 import json
@@ -108,7 +110,7 @@ def captured_feature_trace(raw):
     with artifact.open("rb") as stream:
         bundles = pickle.load(stream)
     folder = raw / "highest-temperature-in-atlanta-on-august-1-2026"
-    row = next(r for r in read_csv(folder/"features_long.csv") if finite(r.get("nbm_prob_tmax_p50")) is not None)
+    row = next(r for r in read_csv(projection_source(folder/"features_long.csv")) if finite(r.get("nbm_prob_tmax_p50")) is not None)
     feats = {k: finite(v) for k, v in row.items()}
     feats.update(wind_group=row.get("wind_group"), cloud_group=row.get("cloud_group"))
     cutoff = str(int(float(row["cutoff_hour"])))
@@ -158,7 +160,7 @@ def captured_feature_trace(raw):
 
 
 def guidance_sensitivities(baseline):
-    scores = pd.read_csv(baseline/"guidance_paired_snapshot_scores.csv")
+    scores = read_projection_frame(baseline/"guidance_paired_snapshot_scores.csv")
     result = {}
     for stratum, f in scores.groupby("stratum"):
         s = {}

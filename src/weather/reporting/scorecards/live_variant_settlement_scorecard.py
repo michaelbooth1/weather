@@ -10,6 +10,8 @@ accounting, but are never included in proper-score aggregates.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_glob, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -1947,11 +1949,11 @@ def read_rows(path: str | Path) -> list[dict[str, Any]]:
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".csv":
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
             rows = [dict(row) for row in csv.DictReader(handle)]
     elif suffix in {".jsonl", ".ndjson"}:
         rows = []
-        with path.open("r", encoding="utf-8-sig") as handle:
+        with open_projection(path, "r", encoding="utf-8-sig") as handle:
             for line in handle:
                 line = line.strip()
                 if line:
@@ -1969,7 +1971,7 @@ def read_rows(path: str | Path) -> list[dict[str, Any]]:
 
 
 def discover_tapes(snapshots_root: str | Path) -> list[Path]:
-    return sorted(Path(snapshots_root).glob("*/variant_predictions_long.csv"))
+    return sorted(projection_glob(Path(snapshots_root), '*/variant_predictions_long.csv'))
 
 
 def read_label_csv(path: str | Path | None) -> dict[tuple[str, str], dict[str, Any]]:
@@ -2021,7 +2023,7 @@ def load_snapshot_partition_contracts(
     blockers: list[dict[str, Any]] = []
     for value in paths:
         tape_path = Path(value)
-        snapshot_path = tape_path.parent / "snapshots_long.csv"
+        snapshot_path = projection_source(tape_path.parent / "snapshots_long.csv")
         if not snapshot_path.is_file():
             blockers.append(
                 _issue(

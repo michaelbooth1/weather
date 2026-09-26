@@ -1,4 +1,5 @@
 import csv
+from weather.io import read_csv_rows
 import json
 import pickle
 import tempfile
@@ -572,12 +573,14 @@ class TestLiveVariantPredictions(unittest.TestCase):
             ):
                 result = store.write(event, model, FakeModelClient(), captured_at)
 
-            variant_rows = list(csv.DictReader((root / "variant_predictions_long.csv").open(encoding="utf-8", newline="")))
-            snapshot_header = (root / "snapshots_long.csv").read_text(encoding="utf-8").splitlines()[0]
+            variant_rows = read_csv_rows(root / "variant_predictions_long.csv")
+            self.assertFalse((root / "variant_predictions_long.csv").exists())
+            snapshot_header = list(read_csv_rows(root / "snapshots_long.csv")[0])
+            self.assertFalse((root / "snapshots_long.csv").exists())
             sidecar = json.loads((root / "variant_predictions.jsonl").read_text(encoding="utf-8").strip())
 
         self.assertEqual(result["variant_prediction_rows"], 1)
-        self.assertEqual(result["variant_predictions_path"], str(root / "variant_predictions_long.csv"))
+        self.assertEqual(result["variant_predictions_path"], str(root / "variant_predictions.jsonl"))
         self.assertEqual(variant_rows[0]["variant_id"], "live-v")
         self.assertEqual(sidecar["failure_reason"], "missing_artifact")
         self.assertNotIn("variant_id", snapshot_header)
@@ -709,7 +712,7 @@ class TestLiveVariantPredictions(unittest.TestCase):
                 side_effect=RuntimeError("variant tape unavailable"),
             ):
                 result = store.write(event, model, FakeModelClient(), captured_at)
-            snapshot_exists = (root / "snapshots_long.csv").exists()
+            snapshot_exists = (root / "snapshots.jsonl").exists()
             variant_tape_exists = (root / "variant_predictions_long.csv").exists()
 
         self.assertEqual(result["bands"], 1)

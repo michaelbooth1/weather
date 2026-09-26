@@ -1435,4 +1435,14 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "compress_on_close_policy", "compress_on_close_policy_v0.1",
+        "weather.operations.compress_on_close", "active",
+        "Expiring host-bound approval for bounded retained token-tape compression after market-local close.",
+    ),
+    SchemaSpec(
+        "compress_on_close_receipt", "compress_on_close_receipt_v0.1",
+        "weather.operations.compress_on_close", "active",
+        "Retained token-tape compression with native identity, before/after hashes and no cleanup authority.",
+    ),
 )

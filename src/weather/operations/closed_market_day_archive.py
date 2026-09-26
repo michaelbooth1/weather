@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.cold_archive_locations import archived_inputs, registered_sources, resolve_local_path
 from weather.io import sha256_file
+from weather.projection_io import PROJECTIONS, read_projection_frame
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations.closed_market_day_archive_manifest_contract import (
     validate_manifest_shape as validate_manifest_shape_contract,
@@ -347,6 +348,9 @@ def _analysis_source_record(family_manifest: dict[str, Any] | None) -> dict[str,
 
 def _source_paths_for_family(folder: Path, family: ArtifactFamilyContract) -> tuple[list[Path], list[Path]]:
     paths = _find_paths(folder, family.source_patterns)
+    if not paths:
+        patterns = tuple(PROJECTIONS[p] for p in family.source_patterns if p in PROJECTIONS)
+        paths = _find_paths(folder, patterns)
     gzip_paths = [path for path in paths if path.name.lower().endswith(".csv.gz")]
     text_paths = [path for path in paths if path not in gzip_paths]
     return gzip_paths, text_paths
@@ -368,7 +372,7 @@ def _read_source_artifact_result(
         source_mode = "gzip_tiered_text"
     elif text_paths:
         source_path = text_paths[0]
-        source_mode = "text_tape"
+        source_mode = "canonical_jsonl" if source_path.name in PROJECTIONS.values() else "text_tape"
     else:
         reason = _combine_fallback_reasons(fallback_reason, "source_missing")
         frame = pd.DataFrame()
@@ -782,6 +786,8 @@ def _read_csv_decode_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
 def _read_source_frame(path: Path) -> pd.DataFrame:
     path = resolve_local_path(path)
     name = path.name.lower()
+    if name in PROJECTIONS.values():
+        return _coerce_oversized_ints(read_projection_frame(path))
     if name.endswith(".jsonl"):
         return _coerce_oversized_ints(_read_jsonl_frame(path))
     if name.endswith(".csv") or name.endswith(".csv.gz"):

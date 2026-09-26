@@ -5,6 +5,8 @@ but they should only move probability through a learned catch-up rate, never a
 hard floor. This module trains that catch-up artifact from historical METAR vs
 WU hourly rows and from settled snapshot tapes that include SWOB/current highs.
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import json
 import math
@@ -199,10 +201,10 @@ def rows_from_snapshot_folders(folders, daily_summary):
     rows = []
     for folder in folders:
         folder = Path(folder)
-        tape = folder / "snapshots_long.csv"
+        tape = projection_source(folder / "snapshots_long.csv")
         if not tape.exists():
             continue
-        frame = pd.read_csv(tape)
+        frame = read_projection_frame(tape)
         target_date = date_from_event_slug(folder.name)
         if not target_date:
             continue

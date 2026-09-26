@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -74,9 +76,9 @@ def write_json(path, payload):
 
 def read_labels_csv(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
@@ -238,7 +240,7 @@ def daily_summary_status(spec, target_date):
 def market_row(spec, target_date, snapshots_root, labels, ledgers, ledger_root):
     slug = event_slug_for_date(target_date, spec.id)
     folder = Path(snapshots_root) / slug
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     settlement_path = folder / "settlement.json"
     replay_status_path = folder / REPLAY_STATUS_LONG_FILENAME
     replay_inputs_path = folder / REPLAY_INPUTS_FILENAME

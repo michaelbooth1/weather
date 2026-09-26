@@ -7,6 +7,8 @@ through ``snapshot_tracker.capture_snapshot`` and tags that evidence as
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
 
 apply_windows_silent_subprocess_defaults()
@@ -1424,20 +1426,20 @@ def mean(values):
 def load_labels(path):
     labels = {}
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return labels
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             labels[row.get("event_slug")] = row
     return labels
 
 
 def load_snapshot_rows(folder):
-    path = Path(folder) / "snapshots_long.csv"
-    if not path.exists():
+    path = projection_source(Path(folder) / "snapshots_long.csv")
+    if not projection_source(path).exists():
         return []
     rows = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             row["_captured_dt"] = parse_dt(row.get("captured_at_utc") or row.get("captured_at_local"))
             rows.append(row)

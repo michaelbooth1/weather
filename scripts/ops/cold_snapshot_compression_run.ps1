@@ -9,12 +9,14 @@ param(
     [ValidateRange(30, 600)][int]$MaxRuntimeSeconds = 600,
     [switch]$Apply,
     [switch]$VerifyRetained,
+    [switch]$CompressOnClose,
     [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 if ($Apply -and $VerifyRetained) { throw 'read-only verification cannot be combined with Apply' }
+if ($CompressOnClose -and ($VerifyRetained -or $OwnerApprovedException)) { throw 'CompressOnClose cannot use verification mode or a daytime exception' }
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
@@ -130,7 +132,9 @@ try {
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = [string]$PID
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $deadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException
-    $arguments = @('-m', 'weather.operations.cold_snapshot_compression',
+    $compressionModule = 'weather.operations.cold_snapshot_compression'
+    if ($CompressOnClose) { $compressionModule = 'weather.operations.compress_on_close' }
+    $arguments = @('-m', $compressionModule,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
         '--source-git-sha', $ExpectedSourceTip)

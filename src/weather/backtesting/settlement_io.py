@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source
+
 import csv
 import hashlib
 import json
@@ -89,7 +91,7 @@ def resolve_outcome(kind, value, settlement_bucket, value_hi=None):
 def load_daily_summary(path):
     """date -> (native settlement bucket, row_count) from WU daily summary."""
     index = {}
-    if not Path(path).exists():
+    if not projection_source(Path(path)).exists():
         return index
     with open(path, encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
@@ -371,7 +373,7 @@ def _portable_tape_path(value):
 
 
 def ledger_label_matches_folder(label, folder, *, snapshot_tape_sha256=None):
-    expected_tape = Path(folder) / "snapshots_long.csv"
+    expected_tape = projection_source(Path(folder) / "snapshots_long.csv")
     recorded_sha256 = _snapshot_tape_sha256(label)
     if recorded_sha256 is not None:
         if not re.fullmatch(r"[0-9a-f]{64}", recorded_sha256):
@@ -388,7 +390,7 @@ def ledger_label_matches_folder(label, folder, *, snapshot_tape_sha256=None):
 
     portable_path = label.get("snapshot_tape_repo_relative_path")
     if portable_path not in (None, ""):
-        expected = f"snapshots/{Path(folder).name}/snapshots_long.csv".casefold()
+        expected = f"snapshots/{Path(folder).name}/{expected_tape.name}".casefold()
         return _portable_tape_path(portable_path) == expected
 
     tape_path = label.get("snapshot_tape_path")
@@ -396,7 +398,7 @@ def ledger_label_matches_folder(label, folder, *, snapshot_tape_sha256=None):
         return False
     portable_path = _portable_tape_path(tape_path)
     if portable_path is not None:
-        expected = f"snapshots/{Path(folder).name}/snapshots_long.csv".casefold()
+        expected = f"snapshots/{Path(folder).name}/{expected_tape.name}".casefold()
         return portable_path == expected
     return False
 

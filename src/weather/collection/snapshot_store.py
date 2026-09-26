@@ -12,6 +12,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from weather.projection_io import explanation_rows, open_projection, projection_source
 from types import SimpleNamespace
 
 from weather.paths import data_path
@@ -652,14 +653,14 @@ class SnapshotStore:
             return {
                 "written": False,
                 "locked": True,
-                "path": str(self.long_path),
+                "path": str(projection_source(self.long_path)),
                 "next_due_at": self.next_due_at(),
             }
         try:
             if not force and not self.is_due(now, cadence=cadence):
                 return {
                     "written": False,
-                    "path": str(self.long_path),
+                    "path": str(projection_source(self.long_path)),
                     "next_due_at": self.next_due_at(cadence=cadence),
                 }
             runtime_guard = self.runtime_identity_guard()
@@ -883,7 +884,7 @@ class SnapshotStore:
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
             variant_prediction_error = f"{type(exc).__name__}: {exc}"
-        self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
+        self.append_projection(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
             self.wide_columns(long_rows),
@@ -932,7 +933,7 @@ class SnapshotStore:
                 },
                 feature_vector,
             )
-            self.append_csv(self.features_long_path, FEATURE_AUDIT_COLUMNS, [feature_row])
+            self.append_projection(self.features_long_path, FEATURE_AUDIT_COLUMNS, [feature_row])
             self.append_jsonl(self.features_jsonl_path, feature_row)
 
         component_rows = self.component_rows(
@@ -963,7 +964,7 @@ class SnapshotStore:
         if explanation_payload:
             self.append_jsonl(self.snapshot_explanations_jsonl_path, explanation_payload)
             if explanation_rows:
-                self.append_csv(
+                self.append_projection(
                     self.snapshot_explanations_long_path,
                     SNAPSHOT_EXPLANATION_COLUMNS,
                     explanation_rows,
@@ -1002,7 +1003,7 @@ class SnapshotStore:
             self.append_jsonl(self.replay_inputs_path, replay_input_payload)
 
         if variant_prediction_rows:
-            self.append_csv(
+            self.append_projection(
                 self.variant_predictions_long_path,
                 LIVE_VARIANT_PREDICTION_COLUMNS,
                 variant_prediction_rows,
@@ -1016,13 +1017,13 @@ class SnapshotStore:
             "snapshot_cadence": cadence,
             "trigger_context": trigger_context,
             "bands": len(long_rows),
-            "path": str(self.long_path),
+            "path": str(projection_source(self.long_path)),
             "wide_path": str(self.wide_path),
             "jsonl_path": str(self.jsonl_path),
-            "features_path": str(self.features_long_path),
+            "features_path": str(projection_source(self.features_long_path)),
             "components_path": str(self.components_long_path),
             "snapshot_explanation_rows": len(explanation_rows),
-            "snapshot_explanations_path": str(self.snapshot_explanations_long_path),
+            "snapshot_explanations_path": str(projection_source(self.snapshot_explanations_long_path)),
             "snapshot_explanations_jsonl_path": str(self.snapshot_explanations_jsonl_path),
             "source_status_rows": len(source_status_rows),
             "source_status_path": str(self.source_status_long_path),
@@ -1033,7 +1034,7 @@ class SnapshotStore:
             "observation_payloads_path": str(self.observation_payloads_long_path),
             "observation_payloads_jsonl_path": str(self.observation_payloads_jsonl_path),
             "variant_prediction_rows": len(variant_prediction_rows),
-            "variant_predictions_path": str(self.variant_predictions_long_path),
+            "variant_predictions_path": str(projection_source(self.variant_predictions_long_path)),
             "variant_predictions_jsonl_path": str(self.variant_predictions_jsonl_path),
             "variant_prediction_error": variant_prediction_error,
             "release_id": release_lineage.get("release_id") or "",
@@ -1063,10 +1064,10 @@ class SnapshotStore:
         return last is None or now - last >= self.interval - self.due_tolerance
 
     def last_snapshot_time(self, cadence=None):
-        if not self.long_path.exists():
+        if not projection_source(self.long_path).exists():
             return None
         last_time = None
-        with self.long_path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(self.long_path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 if cadence == "scheduled":
                     row_cadence = row.get("snapshot_cadence") or "scheduled"
@@ -2102,10 +2103,7 @@ class SnapshotStore:
         }
 
     def snapshot_explanation_rows(self, base, explanation):
-        rows = []
-        for section, value in sorted((explanation or {}).items()):
-            rows.extend(self.explanation_section_rows(base, section, value))
-        return rows
+        return list(explanation_rows(base, explanation))
 
     def explanation_section_rows(self, base, section, value):
         if isinstance(value, dict):
@@ -2220,7 +2218,7 @@ class SnapshotStore:
             "written": False,
             "blocked": True,
             "status": runtime_guard.get("state") or "stale_code",
-            "path": str(self.long_path),
+            "path": str(projection_source(self.long_path)),
             "next_due_at": self.next_due_at(cadence=cadence),
             "runtime_guard": runtime_guard,
             "detail": runtime_guard.get("detail"),
@@ -2486,6 +2484,11 @@ class SnapshotStore:
         except (TypeError, ValueError):
             return self.safe_filename_part(value)
 
+    def append_projection(self, path, columns, rows):
+        """Keep existing legacy days complete; new days use canonical JSONL."""
+        if path.exists():
+            self.append_csv(path, columns, rows)
+
     def append_csv(self, path, columns, rows):
         """Append rows, widening an existing header when the schema grows.
 
@@ -2577,7 +2580,7 @@ class SnapshotStore:
         return ids
 
     def existing_snapshot_ids_for_sidecar(self, path):
-        path = Path(path)
+        path = projection_source(path)
         if not path.exists():
             return set()
         ids = set()
@@ -2733,7 +2736,7 @@ class SnapshotStore:
             "missing_feature_vector_count": missing_feature_vector,
             "missing_distribution_component_count": missing_components,
             "invalid_snapshot_row_count": invalid_snapshot_rows,
-            "features_path": str(self.features_long_path),
+            "features_path": str(projection_source(self.features_long_path)),
             "components_path": str(self.components_long_path),
         }
 
@@ -2884,7 +2887,7 @@ class SnapshotStore:
             "skipped_missing_payload_count": skipped_missing_payload,
             "error_count": len(errors),
             "errors": errors[:20],
-            "snapshot_explanations_path": str(self.snapshot_explanations_long_path),
+            "snapshot_explanations_path": str(projection_source(self.snapshot_explanations_long_path)),
             "snapshot_explanations_jsonl_path": str(self.snapshot_explanations_jsonl_path),
         }
 

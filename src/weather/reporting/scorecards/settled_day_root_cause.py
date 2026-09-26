@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -127,7 +129,7 @@ def snapshot_folders_for_date(snapshots_root: str | Path, target_date: str) -> l
         folder for folder in root.iterdir()
         if folder.is_dir()
         and folder.name.endswith(suffix)
-        and (folder / SNAPSHOTS_FILENAME).exists()
+        and (projection_source(folder / SNAPSHOTS_FILENAME)).exists()
     )
 
 
@@ -271,11 +273,11 @@ def afternoon_slice_summary(snapshot_rows: list[dict[str, Any]]) -> dict[str, An
 
 
 def load_features_by_snapshot(folder: Path) -> dict[str, dict[str, Any]]:
-    path = folder / FEATURES_FILENAME
-    if not path.exists():
+    path = projection_source(folder / FEATURES_FILENAME)
+    if not projection_source(path).exists():
         return {}
     output: dict[str, dict[str, Any]] = {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             snapshot_id = row.get("snapshot_id")
             if snapshot_id and snapshot_id not in output:
@@ -284,11 +286,11 @@ def load_features_by_snapshot(folder: Path) -> dict[str, dict[str, Any]]:
 
 
 def load_explanations_by_snapshot(folder: Path) -> dict[str, list[dict[str, Any]]]:
-    path = resolve_local_path(folder / EXPLANATIONS_FILENAME)
-    if not path.exists():
+    path = resolve_local_path(projection_source(folder / EXPLANATIONS_FILENAME))
+    if not projection_source(path).exists():
         return {}
     output: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             snapshot_id = row.get("snapshot_id")
             if snapshot_id:
@@ -487,7 +489,7 @@ def analyze_snapshot_folder(folder: str | Path) -> dict[str, Any]:
     explanations_by_snapshot = load_explanations_by_snapshot(folder)
     market_events = load_market_event_context(folder)
     by_snapshot: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    with (folder / SNAPSHOTS_FILENAME).open("r", encoding="utf-8", newline="") as handle:
+    with (projection_source(folder / SNAPSHOTS_FILENAME)).open("r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             snapshot_id = row.get("snapshot_id")
             if snapshot_id:
@@ -639,8 +641,8 @@ def analyze_taker_run(run_folder: str | Path | None, target_date: str) -> dict[s
     worst_fills: list[dict[str, Any]] = []
     by_market = {row.get("market_id"): dict(row) for row in pnl.get("by_market") or []}
     orders_path = run_folder / "orders_long.csv"
-    if orders_path.exists():
-        with orders_path.open("r", encoding="utf-8", newline="") as handle:
+    if projection_source(orders_path).exists():
+        with open_projection(orders_path, "r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 fill_notional = maybe_float(row.get("fill_notional_usdc")) or 0.0
                 if fill_notional <= 0:
@@ -720,8 +722,8 @@ def analyze_mm_runs(target_date: str, mm_root: str | Path = DEFAULT_MM_ROOT) -> 
         blocked = int(cumulative.get("blocked_by_preflight_count") or 0)
         fills_path = run_folder / "fills_long.csv"
         fill_count = 0
-        if fills_path.exists():
-            with fills_path.open("r", encoding="utf-8", newline="") as handle:
+        if projection_source(fills_path).exists():
+            with open_projection(fills_path, "r", encoding="utf-8", newline="") as handle:
                 fill_count = max(0, sum(1 for _ in csv.DictReader(handle)))
         stale_markets = []
         for market in preflight.get("markets") or []:

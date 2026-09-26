@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import projection_glob, projection_source
+
 import gc
 import json
 import sys
@@ -874,7 +876,7 @@ def _live_variant_settlement_tape_paths(args, target_date):
     selected = []
     root = Path(args.snapshots_root)
     if root.exists():
-        for path in root.glob("*/variant_predictions_long.csv"):
+        for path in projection_glob(root, '*/variant_predictions_long.csv'):
             folder_date = date_from_event_slug(path.parent.name)
             if folder_date is not None and folder_date.isoformat() == target_date:
                 selected.append(path)
@@ -944,7 +946,7 @@ def _live_variant_settlement_preflight(args, paths, *, selection_mode, target_da
                     "limit_bytes": max_tape_bytes,
                 }
             )
-        snapshot_path = path.parent / "snapshots_long.csv"
+        snapshot_path = projection_source(path.parent / "snapshots_long.csv")
         if not snapshot_path.is_file():
             blockers.append(
                 {

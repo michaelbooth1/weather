@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source, read_projection_frame
+
 import argparse
 import csv
 import json
@@ -278,12 +280,12 @@ def load_candidate_rows(
     sources: list[dict[str, Any]] = []
     for raw_path in paths:
         path = Path(raw_path)
-        source = {"path": str(path), "exists": path.exists(), "row_count": 0, "scored_row_count": 0}
+        source = {"path": str(path), "exists": projection_source(path).exists(), "row_count": 0, "scored_row_count": 0}
         sources.append(source)
-        if not path.exists():
+        if not projection_source(path).exists():
             continue
         try:
-            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
                 for row in csv.DictReader(handle):
                     source["row_count"] += 1
                     target_date = str(row.get("target_date") or "")
@@ -386,7 +388,7 @@ def load_served_rows(
         for spec in specs:
             event_slug = event_slug_for_date(target_date, spec.id)
             folder = root / event_slug
-            tape = folder / "snapshots_long.csv"
+            tape = projection_source(folder / "snapshots_long.csv")
             source = {
                 "market_id": spec.id,
                 "target_date": target_date.isoformat(),
@@ -400,7 +402,7 @@ def load_served_rows(
             if not tape.exists():
                 continue
             try:
-                frame = pd.read_csv(tape)
+                frame = read_projection_frame(tape)
             except Exception as exc:  # noqa: BLE001
                 source.update({"status": "read_error", "error": str(exc)})
                 continue

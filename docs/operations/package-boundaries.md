@@ -61,6 +61,7 @@ These packages are intentionally importable by any owner package:
 
 - `weather.artifacts`
 - `weather.cold_archive_locations` (read-only archive discovery and verified local-cache resolution)
+- `weather.projection_io` (read-only JSONL views for retired snapshot CSV projections; real source paths and hashes)
 - `weather.io`
 - `weather.paths`
 - `weather.runtime_identity`

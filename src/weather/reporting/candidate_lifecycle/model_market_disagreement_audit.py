@@ -8,6 +8,8 @@ the fair value used to decide whether the model or market was closer.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -161,9 +163,9 @@ def legacy_threshold_audit_key_for_row(
 
 def read_csv_rows(path: str | Path) -> list[dict[str, Any]]:
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
@@ -175,7 +177,7 @@ def read_snapshot_rows(
     snapshot_id: str | None = None,
 ) -> list[dict[str, Any]]:
     folder = Path(folder)
-    rows = read_csv_rows(folder / SNAPSHOT_FILENAME)
+    rows = read_csv_rows(projection_source(folder / SNAPSHOT_FILENAME))
     for row in rows:
         row["_folder"] = str(folder)
         if not row.get("event_slug"):
@@ -215,7 +217,7 @@ def selected_folders(
             candidates = []
     output = []
     for folder in candidates:
-        if not (folder / SNAPSHOT_FILENAME).exists():
+        if not (projection_source(folder / SNAPSHOT_FILENAME)).exists():
             continue
         spec = spec_for_slug(folder.name)
         if market_id and (spec.id if spec else None) != market_id:

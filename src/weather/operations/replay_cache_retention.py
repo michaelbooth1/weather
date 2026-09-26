@@ -7,6 +7,8 @@ before unlinking that one exact file.
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source, read_projection_frame
+
 import argparse
 import json
 import math
@@ -424,7 +426,7 @@ def _verify_corpus_rebuild_inputs(
                     f"{event_slug}: {field} contains a non-SHA-256 value"
                 )
 
-        tape_path = folder / "snapshots_long.csv"
+        tape_path = projection_source(folder / "snapshots_long.csv")
         replay_path = folder / REPLAY_INPUTS_FILENAME
         tape_source, tape_hash = _stable_source(
             tape_path,
@@ -436,7 +438,7 @@ def _verify_corpus_rebuild_inputs(
         )
         input_sources = [tape_source, replay_source]
         for filename in OPTIONAL_EVENT_REBUILD_INPUTS:
-            optional_path = folder / filename
+            optional_path = projection_source(folder / filename)
             kind = f"promotion_optional_rebuild_input:{filename}"
             if optional_path.exists():
                 optional_source, _ = _stable_source(
@@ -449,7 +451,7 @@ def _verify_corpus_rebuild_inputs(
                     _absent_source(optional_path, kind=kind)
                 )
 
-        frame = pd.read_csv(tape_path)
+        frame = read_projection_frame(tape_path)
         records = index_records_by_snapshot(load_replay_records(folder))
         if "snapshot_id" not in frame:
             raise ValueError(f"{event_slug}: snapshot tape lacks snapshot_id")

@@ -8,6 +8,8 @@ identities.
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source, read_projection_frame
+
 import argparse
 import hashlib
 import json
@@ -345,7 +347,7 @@ def prepare_predictors(
         "served_replay_probability",
         "market_probability",
     ]
-    frame = pd.read_csv(
+    frame = read_projection_frame(
         band_rows_path,
         usecols=quote_columns,
         dtype={"snapshot_id": str, "record_hash": str, "target_date": str, "market_id": str},
@@ -384,7 +386,7 @@ def prepare_predictors(
         feature_frames.append(
             _extract_forecast_features(roster, records, str(market_id), str(target_date))
         )
-        header = list(pd.read_csv(folder / "snapshots_long.csv", nrows=0).columns)
+        header = list(read_projection_frame(projection_source(folder / "snapshots_long.csv"), nrows=0).columns)
         desired = [
             "snapshot_id",
             "range_label",
@@ -396,8 +398,8 @@ def prepare_predictors(
             "volume",
             "liquidity",
         ]
-        tape = pd.read_csv(
-            folder / "snapshots_long.csv",
+        tape = read_projection_frame(
+            projection_source(folder / "snapshots_long.csv"),
             usecols=[column for column in desired if column in header],
             dtype=str,
             low_memory=False,
@@ -854,14 +856,14 @@ def analyze(
         "served_replay_probability",
         "market_probability",
     ]
-    outcomes = pd.read_csv(
+    outcomes = read_projection_frame(
         band_rows_path,
         usecols=outcome_columns,
         dtype={"snapshot_id": str, "record_hash": str, "target_date": str, "market_id": str},
         low_memory=False,
     ).rename(columns={"served_replay_probability": "repair_probability"})
     _validate_population(outcomes)
-    predictors = pd.read_csv(
+    predictors = read_projection_frame(
         predictor_sidecar_path,
         dtype={"snapshot_id": str, "record_hash": str, "target_date": str, "market_id": str},
         low_memory=False,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import csv
 import hashlib
 import json
@@ -472,10 +474,10 @@ def _price_history_point_signature(row):
 
 def _read_csv_header(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             return next(csv.reader(handle), []) or []
     except (OSError, csv.Error):
         return []
@@ -807,10 +809,10 @@ class MarketMicrostructureStore:
         if not rows:
             return
         self.root.mkdir(parents=True, exist_ok=True)
-        write_header = not path.exists()
+        write_header = not projection_source(path).exists()
         if not write_header:
             try:
-                with path.open("r", encoding="utf-8", newline="") as handle:
+                with open_projection(path, "r", encoding="utf-8", newline="") as handle:
                     existing_header = next(csv.reader(handle), None)
                 if existing_header:
                     columns = existing_header
@@ -1171,7 +1173,7 @@ def capture_event_books(
             except Exception as exc:  # noqa: BLE001 - WS capture should not drop REST book data
                 ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
 
-        if include_clob_features and (store.root / "snapshots_long.csv").exists():
+        if include_clob_features and (projection_source(store.root / "snapshots_long.csv")).exists():
             try:
                 with store.raw_tape_guard("derived_feature_read"):
                     feature_result = write_clob_feature_rows(
@@ -1388,7 +1390,7 @@ def capture_event_enrichment(
         except Exception as exc:  # noqa: BLE001 - optional stream is per-market evidence
             ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
 
-    if include_clob_features and (store.root / "snapshots_long.csv").exists():
+    if include_clob_features and (projection_source(store.root / "snapshots_long.csv")).exists():
         try:
             with store.raw_tape_guard("derived_feature_read"):
                 feature_result = write_clob_feature_rows(

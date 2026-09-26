@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable
 import requests
 
 from weather.cold_archive_locations import resolve_local_path
+from weather.projection_io import PROJECTIONS, canonical_rows, canonical_tail, open_projection, projection_source
 
 
 SleepFn = Callable[[float], None]
@@ -738,7 +739,7 @@ def _decode_error_payload(exc: UnicodeDecodeError) -> dict[str, Any]:
 
 
 def _read_csv_with_encoding(path: Path, encoding: str) -> tuple[list[dict], list[str]]:
-    with path.open("r", encoding=encoding, newline="") as handle:
+    with open_projection(path, "r", encoding=encoding, newline="") as handle:
         reader = csv.DictReader(handle)
         rows = [dict(row) for row in reader]
         return rows, list(reader.fieldnames or [])
@@ -767,7 +768,7 @@ def read_csv_rows_with_diagnostics(
     attach_diagnostics: bool = False,
 ) -> tuple[list[dict], dict[str, Any]]:
     logical_path = Path(path)
-    path = resolve_local_path(path)
+    path = projection_source(path)
     diagnostics: dict[str, Any] = {
         "path": str(logical_path),
         "exists": path.exists(),
@@ -793,7 +794,7 @@ def read_csv_rows_with_diagnostics(
         return rows, diagnostics
     except UnicodeDecodeError as exc:
         diagnostics["utf8_decode_error"] = _decode_error_payload(exc)
-    except (OSError, csv.Error) as exc:
+    except (OSError, csv.Error, ValueError) as exc:
         diagnostics.update({"status": "read_error", "error": f"{type(exc).__name__}: {exc}"})
         return [], diagnostics
 
@@ -858,8 +859,11 @@ def iter_csv_rows(
     the caller may have already aggregated earlier rows.
     """
 
-    path = resolve_local_path(path)
+    path = projection_source(path)
     if not path.exists():
+        return
+    if path.name in PROJECTIONS.values():
+        yield from canonical_rows(path)
         return
     try:
         _validate_utf8_sig_streaming(path)
@@ -913,9 +917,11 @@ def read_csv_tail_rows_with_diagnostics(
     """
 
     logical_path = Path(path)
-    path = resolve_local_path(path)
+    path = projection_source(path)
     diagnostics = _bounded_tail_diagnostics(path, max_bytes)
     diagnostics["path"] = str(logical_path)
+    if path.name in PROJECTIONS.values() and path.exists():
+        return canonical_tail(path, max_bytes=max_bytes, diagnostics=diagnostics)
     if not path.exists():
         return [], diagnostics
     try:
@@ -1021,9 +1027,11 @@ def read_jsonl_tail_with_diagnostics(
     """Read a complete bounded JSONL suffix and reject malformed evidence."""
 
     logical_path = Path(path)
-    path = resolve_local_path(path)
+    path = projection_source(path)
     diagnostics = _bounded_tail_diagnostics(path, max_bytes)
     diagnostics["path"] = str(logical_path)
+    if path.name in PROJECTIONS.values() and path.exists():
+        return canonical_tail(path, max_bytes=max_bytes, diagnostics=diagnostics)
     if not path.exists():
         return [], diagnostics
     try:

@@ -5,6 +5,8 @@ evaluation. Folder-local ``settlement.json`` files are convenient evidence
 copies; the per-market JSONL ledgers under ``data/settlements`` are the source
 of truth that scoring tools should consult first.
 """
+
+from weather.projection_io import open_projection, projection_source, read_projection_frame
 import csv
 import hashlib
 import json
@@ -354,9 +356,9 @@ def load_daily_summary(path):
     """
     index = {}
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return index
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             local_date = row.get("local_date")
             if not local_date:
@@ -1125,10 +1127,10 @@ def build_label(
     ledger_root=None,
 ):
     folder = Path(folder)
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     if not tape.exists():
         return None
-    frame = pd.read_csv(tape)
+    frame = read_projection_frame(tape)
     event_slug = folder.name
     target_date = date_from_event_slug(event_slug)
     spec = spec_for_slug(event_slug)
@@ -1334,8 +1336,8 @@ def merge_labels_csv(path, labels):
 
     path = Path(path)
     existing = []
-    if path.exists():
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    if projection_source(path).exists():
+        with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
             existing = [row for row in csv.DictReader(handle) if row.get("event_slug")]
     by_slug = {row.get("event_slug"): row for row in existing}
     for label in labels:

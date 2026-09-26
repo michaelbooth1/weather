@@ -6,6 +6,8 @@ settlement-scored ablation output. It does not train or replay by itself.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source, projection_glob
+
 import argparse
 import csv
 import math
@@ -327,7 +329,7 @@ def iter_snapshot_folders(snapshots_root):
         "forecast_payloads_long.csv",
         "clob_features_long.csv",
     ):
-        folders.update(path.parent for path in root.glob(f"*/{filename}"))
+        folders.update(path.parent for path in projection_glob(root, f"*/{filename}"))
     return sorted(folders)
 
 
@@ -502,9 +504,9 @@ def update_feature_stats(stats, spec, row, market_id, *, columns=None):
 
 def read_csv_stream(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return [], []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         rows = [dict(row) for row in reader]
         return rows, list(reader.fieldnames or [])
@@ -769,7 +771,7 @@ def clob_raw_tape_present(folder):
         "market_ws_events.csv",
         "market_ws.jsonl",
     }
-    return [name for name in names if (folder / name).exists()]
+    return [name for name in names if projection_source(folder / name).exists()]
 
 
 def scan_clob(

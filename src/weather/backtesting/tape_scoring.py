@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source, read_projection_frame
+
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -147,11 +149,11 @@ def minutes_since_cutoff_bucket(value):
 
 
 def load_feature_vectors(folder):
-    path = Path(folder) / "features_long.csv"
+    path = projection_source(Path(folder) / "features_long.csv")
     if not path.exists():
         return {}
     try:
-        features = pd.read_csv(path)
+        features = read_projection_frame(path)
     except Exception:
         return {}
     if "snapshot_id" not in features:

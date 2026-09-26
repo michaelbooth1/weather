@@ -10,6 +10,8 @@ belongs in ``weather.reporting.data_quality.data_layer_audit_report``.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -182,10 +184,10 @@ def clob_loop_summary(path=CLOB_LOOP_STATUS_PATH, interval_seconds=60.0):
 
 def daily_dates_from_csv(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return set()
     dates = set()
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             value = row.get("local_date") or row.get("date")
             if not value:
@@ -199,10 +201,10 @@ def daily_dates_from_csv(path):
 
 def daily_value_rows_from_csv(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return {}
     rows = {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             value = row.get("local_date") or row.get("date")
             if not value:

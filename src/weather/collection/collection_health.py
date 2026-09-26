@@ -10,6 +10,8 @@ CLI:
   python -m weather.collection.collection_health [folder ...] [--interval-minutes 10] [--tolerance 1.5]
   python -m weather.collection.collection_health --live --strict [folder ...]
 """
+
+from weather.projection_io import open_projection, projection_glob, projection_source
 import argparse
 import csv
 import json
@@ -449,7 +451,7 @@ def folder_target_date(folder):
 
 def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, as_of=None):
     folder = Path(folder)
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     raw_times = snapshot_times(tape) if tape.exists() else []
     freshness_sla = float(interval_minutes) * float(tolerance)
     target_date = folder_target_date(folder)
@@ -502,8 +504,8 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
 
 
 def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
-    path = Path(folder) / "snapshots_long.csv"
-    if not path.exists():
+    path = projection_source(Path(folder) / "snapshots_long.csv")
+    if not projection_source(path).exists():
         return {
             "status": "MISSING",
             "action_required": True,
@@ -515,7 +517,7 @@ def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
     try:
         groups = {}
         row_count = 0
-        with path.open(newline="", encoding="utf-8") as handle:
+        with open_projection(path, newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
                 row_count += 1
                 snapshot_id = row.get("snapshot_id")
@@ -603,9 +605,9 @@ def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_dat
     root = Path(snapshots_root)
     if target_date is not None:
         folder = root / config_for_date(ensure_date(target_date), spec.id).event_slug
-        return folder if (folder / "snapshots_long.csv").exists() else None
+        return folder if (projection_source(folder / "snapshots_long.csv")).exists() else None
     candidates = []
-    for tape in root.glob("*/snapshots_long.csv"):
+    for tape in projection_glob(root, '*/snapshots_long.csv'):
         folder = tape.parent
         folder_spec = spec_for_slug(folder.name)
         if folder_spec and folder_spec.id == spec.id:
@@ -807,7 +809,7 @@ def paid_provider_auth_only(summary):
 
 def latest_source_status_rows(folder):
     path = Path(folder) / "source_status_long.csv"
-    if not path.exists():
+    if not projection_source(path).exists():
         return [], {"available": False, "reason": "source_status_long.csv missing"}
     def row_sort_time(row):
         parsed = parse_times(
@@ -817,7 +819,7 @@ def latest_source_status_rows(folder):
 
     latest = None
     latest_time = float("-inf")
-    with path.open(newline="", encoding="utf-8") as handle:
+    with open_projection(path, newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             candidate_time = row_sort_time(row)
             if latest is None or candidate_time > latest_time:
@@ -827,7 +829,7 @@ def latest_source_status_rows(folder):
         return [], {"available": False, "reason": "source_status_long.csv empty"}
     latest_snapshot_id = latest.get("snapshot_id")
     latest_rows = []
-    with path.open(newline="", encoding="utf-8") as handle:
+    with open_projection(path, newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             if row.get("snapshot_id") == latest_snapshot_id:
                 latest_rows.append(row)
@@ -1258,10 +1260,10 @@ _ALL_CSV_SNAPSHOTS = object()
 
 def read_csv_rows(path, *, snapshot_id=_ALL_CSV_SNAPSHOTS):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
     rows = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             if (
                 snapshot_id is _ALL_CSV_SNAPSHOTS
@@ -1277,12 +1279,12 @@ def row_sort_time(row):
 
 
 def latest_snapshot_rows(folder):
-    path = Path(folder) / "snapshots_long.csv"
-    if not path.exists():
+    path = projection_source(Path(folder) / "snapshots_long.csv")
+    if not projection_source(path).exists():
         return [], {"available": False, "reason": "snapshots_long.csv missing or empty", "path": str(path)}
     latest = None
     latest_time = float("-inf")
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             candidate_time = row_sort_time(row)
             if latest is None or candidate_time > latest_time:
@@ -1317,7 +1319,7 @@ def variant_prediction_tape_health(folder, registry_path=DEFAULT_REGISTRY_PATH):
             "state": "MISSING",
             "action_required": True,
             "reason": snapshot_meta.get("reason"),
-            "path": str(folder / "variant_predictions_long.csv"),
+            "path": str(projection_source(folder / "variant_predictions_long.csv")),
         }
     try:
         active_ids = _active_variant_ids(registry_path)
@@ -1331,7 +1333,7 @@ def variant_prediction_tape_health(folder, registry_path=DEFAULT_REGISTRY_PATH):
             "state": "REGISTRY_ERROR",
             "action_required": True,
             "reason": f"variant registry unreadable: {registry_error}",
-            "path": str(folder / "variant_predictions_long.csv"),
+            "path": str(projection_source(folder / "variant_predictions_long.csv")),
             "snapshot_id": snapshot_meta.get("snapshot_id"),
         }
     if not active_ids:
@@ -1340,12 +1342,12 @@ def variant_prediction_tape_health(folder, registry_path=DEFAULT_REGISTRY_PATH):
             "state": "OK",
             "action_required": False,
             "reason": "no active variants require live rows",
-            "path": str(folder / "variant_predictions_long.csv"),
+            "path": str(projection_source(folder / "variant_predictions_long.csv")),
             "snapshot_id": snapshot_meta.get("snapshot_id"),
             "active_variant_count": 0,
         }
 
-    path = folder / "variant_predictions_long.csv"
+    path = projection_source(folder / "variant_predictions_long.csv")
     rows = read_csv_rows(path, snapshot_id=snapshot_meta.get("snapshot_id"))
     if not rows:
         return {
@@ -1781,7 +1783,7 @@ def main():
     folders = args.folders
     if not folders:
         root = Path(args.snapshots_root)
-        folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
+        folders = sorted(str(p.parent) for p in projection_glob(root, '*/snapshots_long.csv'))
     if not folders:
         print("No snapshot tapes found.")
         return
@@ -1790,7 +1792,7 @@ def main():
     any_attention = False
     for folder in folders:
         folder_path = Path(folder)
-        tape = folder_path / "snapshots_long.csv"
+        tape = projection_source(folder_path / "snapshots_long.csv")
         if not tape.exists():
             continue
         summary = summarize_folder(folder_path, args.interval_minutes, args.tolerance, live=args.live)

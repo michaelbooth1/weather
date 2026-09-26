@@ -7,6 +7,8 @@ health, and risk caps into auditable quote or no-quote intents.
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source
+
 import argparse
 import csv
 import hashlib
@@ -1663,7 +1665,7 @@ def source_freshness_state_from_rows(rows):
 
 
 def load_latest_snapshot_rows(folder):
-    path = Path(folder) / "snapshots_long.csv"
+    path = projection_source(Path(folder) / "snapshots_long.csv")
     rows = io_read_csv_rows(path, attach_diagnostics=True)
     if not rows:
         return []
@@ -1700,7 +1702,7 @@ def latest_folders_by_market(root=DEFAULT_SNAPSHOTS_ROOT, markets=None):
     if not root.exists():
         return latest
     for child in root.iterdir():
-        if not child.is_dir() or not (child / "snapshots_long.csv").exists():
+        if not child.is_dir() or not (projection_source(child / "snapshots_long.csv")).exists():
             continue
         spec = spec_for_slug(child.name)
         if not spec or spec.id not in wanted:

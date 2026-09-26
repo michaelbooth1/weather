@@ -124,6 +124,7 @@ contract and a reviewed cleanup manifest.
 | [production-cold-archive-staging.md](production-cold-archive-staging.md) | The owner has re-authorized archive staging/upload, or you are reading a staging receipt. |
 | [storage-recovery-inventory.md](storage-recovery-inventory.md) | You need a source-bound, metadata-only file selection for compression or archive. |
 | [cold-snapshot-compression.md](cold-snapshot-compression.md) | The owner asks for retained-file capacity, or you reconcile an interrupted compression attempt. |
+| [snapshot-projection-readers.md](snapshot-projection-readers.md) | Reading JSONL-only capture days or changing the four retired snapshot CSV projections. |
 | [replay-cache-compression.md](replay-cache-compression.md) | The owner asks for replay-cache capacity (lossless compression, never eviction). |
 | [storage-recovery-night.md](storage-recovery-night.md) | The owner authorizes an unattended compression night, or you reconcile its result. |
 | [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md) | Reclaiming disk on the workstation. The mirror it describes is **paused** ([record](mirror-paused-2026-08-12.md)); on restart, deleting there without excluding at source is undone by `/MIR`. |

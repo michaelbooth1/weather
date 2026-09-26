@@ -7,6 +7,8 @@ outputs and driver summaries for the best and worst hours.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_glob, projection_source, read_projection_frame
+
 import argparse
 import csv
 import json
@@ -167,9 +169,9 @@ def mean(values):
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -225,7 +227,7 @@ def discover_labeled_folders(
         candidates = read_csv_rows(labels_csv)
     else:
         candidates = []
-        for tape in sorted(snapshots_root.glob("*/snapshots_long.csv")):
+        for tape in sorted(projection_glob(snapshots_root, '*/snapshots_long.csv')):
             label = label_from_folder(tape.parent)
             if label:
                 candidates.append(label)
@@ -256,10 +258,10 @@ def discover_labeled_folders(
             skipped["end_date"] += 1
             continue
         folder = label_folder(row, snapshots_root)
-        if not folder or not (folder / "snapshots_long.csv").exists():
+        if not folder or not (projection_source(folder / "snapshots_long.csv")).exists():
             skipped["missing_tape"] += 1
             continue
-        key = str((folder / "snapshots_long.csv").resolve())
+        key = str((projection_source(folder / "snapshots_long.csv")).resolve())
         if key in seen:
             skipped["duplicate"] += 1
             continue
@@ -317,8 +319,8 @@ def attach_raw_drivers(scoring_row, raw_row):
 
 def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS):
     folder = Path(folder)
-    tape = folder / "snapshots_long.csv"
-    frame = pd.read_csv(tape)
+    tape = projection_source(folder / "snapshots_long.csv")
+    frame = read_projection_frame(tape)
     slug = label.get("event_slug") or folder.name
     target_date = row_date(label) or date_from_event_slug(slug)
     settlement_bucket = safe_int(label.get("settlement_bucket"))

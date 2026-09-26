@@ -23,6 +23,8 @@ automatically and rise as they accumulate clean settled days.
 CLI:
   python -m weather.reporting.location_analysis.location_trust [--out data/backtest/location_trust.json]
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import json
 import math
@@ -142,10 +144,10 @@ def market_settled_folders(
 def collect_scored_rows(folders, daily_index):
     rows = []
     for folder in folders:
-        tape = Path(folder) / "snapshots_long.csv"
+        tape = projection_source(Path(folder) / "snapshots_long.csv")
         if not tape.exists():
             continue
-        df = pd.read_csv(tape)
+        df = read_projection_frame(tape)
         target_date = date_from_event_slug(Path(folder).name)
         label = load_market_day_label(folder)
         if not label or label.get("settlement_bucket") is None:
