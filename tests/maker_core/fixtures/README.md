@@ -18,3 +18,8 @@ identities, orders, signatures, auth fields, balances or credential material.
 Attempt folders are not session counts. Four attempts have no minute-price row;
 those tests prove recorded selection-price parity only. Freshness/close clocks
 are synthetic in this price-only replay; no live-state parity is claimed.
+
+`replay_bundle.py` creates three synthetic closed UTC days for two fictional
+markets, with a missing book minute and later-captured plugin/settlement inputs.
+It supplies the [neutral replay envelope](../../../docs/operations/maker-replay-bundle.md)
+tests. It contains no production data and proves no real-data fill or parity result.

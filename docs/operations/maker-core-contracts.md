@@ -169,10 +169,13 @@ the existing capture writer. T+1/T+2 estimators remain independent of market
 prices; T+0 is outside their frozen scoring protocol. See the
 [dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
-The fictional replay lives in tests. Production evidence loading, portfolio
-accounting, venue/credential access, session control, fitted hazard estimation,
-YouTube plugins, shadow scoring and live execution are later phases. The weather
+Portfolio accounting and saved-read orchestration are owned by the
+[portfolio ledger contract](portfolio-ledger.md). The additive
+[replay bundle contract](maker-replay-bundle.md) supplies a bounded neutral
+envelope reader, capture-time snapshots and a diagnostic-only CLI; scored
+replay and weather bundle export remain unfinished. The fictional decision
+replay lives in tests. Session control, fitted hazard estimation, YouTube
+plugins, shadow scoring and live execution are later phases. The weather
 adapters consume caller-supplied captured records without provider or filesystem IO.
 
 ## Bounded weather plugin dry run

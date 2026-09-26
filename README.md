@@ -183,6 +183,13 @@ It consumes sealed captures and writes bounded JSON/Markdown reports. See the
 [input paths, limits and policy assumptions](docs/operations/maker-core-contracts.md#bounded-weather-plugin-dry-run);
 production execution still requires the host-load lease.
 
+The neutral replay entrypoint is
+`python -B -m maker_core.replay run --bundle <closed-day-dir> --policy blind_re1 --out <new-dir>`.
+It currently emits capture diagnostics only. Scoring and production export remain
+unfinished; see the [bundle contract and admission limits](docs/operations/maker-replay-bundle.md).
+Workstation verification uses the fixture suite under `workstation_heavy.ps1`
+until the standalone module receives a reviewed admission entry.
+
 ### Registry, History, And Source Data
 
 ```powershell
