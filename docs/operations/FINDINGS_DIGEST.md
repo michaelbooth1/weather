@@ -10,7 +10,7 @@ Status: canonical. Written for LLM agents. Hard cap: 250 lines.
 | **Depth lives in** | **EF** = [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md), loaded by section: `Grep` for `^## <id>\.` (or `^### <id>\.` for 10a–10o), then `Read` from that line. **RF** = [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md), entries cited by heading. **HW** = [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md). α budget: [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md). |
 | **Next and evidence** | Unanswered: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Audits: [audit index](../roadmap/audits/README.md). Owner decisions by date: [DECISION_LOG.md](DECISION_LOG.md). |
 
-Mission ids such as `-09-56a` are sequence numbers, not calendar dates. Strata: **B** = in-season
+Mission ids such as `-09-56a` are sequence numbers, not calendar dates; September ids exist twice (workstation research lineage 09-01..09-11 vs production missions from 09-21): cite the former as `research 2026-09-NNx` with its branch. Strata: **B** = in-season
 pre-boundary panel (23 dates), **C** = out-of-season pre-boundary panel (27 dates); never pooled, and
 never pooled across the 2026-07-31 provenance boundary.
 
@@ -42,7 +42,9 @@ never pooled across the 2026-07-31 provenance boundary.
 - The centre, not the width, is the lever; never sharpen globally; never weaken the floor. EF §1, §2, §1g.
 - The forecast archive covers the wrong days for a retrain, no target-year row is ever in-sample, and the retrain blocks on 14 cells whose floor of 18 is not a knob. EF §4a-bis, §4b, §4c, §4g.
 - The free tier offers 12 of the 21 declared point-in-time fields; the other 9 are a real wall, and sourcing them from stitched history would re-create a named contamination defect. EF §0a, §4f.
-- The point-in-time source stops at 2026-06-23, so the `-09-58a` null is blind, not precise; the staged fetch is not adopted and adopting it is a serving change. EF §1e.
+- The point-in-time source stops at 2026-06-23 in production, so the `-09-58a` null is blind, not precise; the staged 12-field fetch is not adopted (adopting it is a serving change); a sealed copy was the research lineage's 2026 evaluation input. EF §1e, §1m.
+- **The 11 extra free PIT fields are tested, not untested** (workstation research lineage, 2026-09-01..04, unmerged): an NWP-anchored residual challenger was `INCONCLUSIVE_UNDERPOWERED` three times (2025 May-Aug +0.2751 C² [−0.0234, 0.6186]; outside-window 2025 +0.0451 [−0.2422, 0.3552]; 2026 no-refit directionally consistent), never harmful; a 12-field pooled-refit replacement worsened the C-pre centre and may not be replicated. The spent evaluations may not be reused. EF §1m.
+- Free provider history depth: temperature 2021-2025, ten more fields 2024-2025 only, `precipitation_probability` 2025 only; two research corpora (13.8 M and 11.2 M rows) live only on the workstation. No free source satisfies the v2 point-in-time contract (`NO_GO_PROVIDER_BOUND_AVAILABILITY_AND_PARITY`). EF §1m.
 - Training data is contaminated at fit time, and `forecast_high` is not point-in-time. EF §6, §0a.
 - `high_so_far` is not a running maximum: the vendor observation series is not append-only, and when it drops rows the input window slides backward (658 of 658 B cutoff changes narrowed). EF §1k (`-09-70a`, `-09-71a`).
 - A floor-safe recovery rule exists (recover a row only if the current payload has nothing at or after its minute; zero new above-settlement rows on 28,254 snapshots) but its evaluation is unpowered and the thread is closed. EF §1k (`-09-73a`, `-09-78a`).
@@ -146,6 +148,8 @@ never pooled across the 2026-07-31 provenance boundary.
 | Paid weather providers; Polymarket US | Owner decisions | [AGENT_CONTEXT.md](AGENT_CONTEXT.md) |
 | Geographic eligibility of the execution PC | Resolved by owner statement 2026-09-19; keep the tunnel-down preflight rule | [Pilot runbook](INTERNATIONAL_MM_LIVE_PILOT.md) |
 | Age-curve explanation of the cool bias; blindness as the centre mechanism | Both rejected by measurement | RF §1 |
+| A better free point-in-time source under the v2 contract | No provider documents historical first-availability; no archive/forward parity | EF §1m (research `2026-09-82a`) |
+| 12-field pooled-refit replacement on the sealed panel | Centre worse, Brier null, its own rule forbids replication | EF §1m (research `2026-09-86a`) |
 
 ## Retracted numbers — never cite
 
