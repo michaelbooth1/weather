@@ -155,3 +155,17 @@ Admitted engine/fill suite: **15 passed**. No real tape was read. New fill facad
 copied kernel and payload/engine changes have UNDECIDABLE production closure
 classification pending the mechanical production verdict; fixture/reference/test
 files are test-only; documentation is roll-free.
+
+## Continuation item 3 — scorer (2026-09-26)
+
+**PASS on fixtures: per-band-day scorer implemented.** Item 2 was pushed as
+`d6e732d9`. Accrual uses changing reward terms and k=1/0.5; nominal fee-funded
+rebates stay separate from cash. Maker fees follow EF §10o. Both-token markouts at
+1/5/30 minutes and settlement retain missing counts and null missing valuations.
+Settlement P&L never double-counts markouts. Inventory cash-hours include holding
+after quote windows, while capture exclusions cannot become zero-return days.
+The scorer includes pull fraction, quote/requote counts and event-window fills.
+
+Admitted engine/fill/score suite: **21 passed**. Pure copied markout/rebate logic is
+differentially checked against the existing owner module. New score module and
+engine changes: production closure UNDECIDABLE; tests are test-only, docs roll-free.

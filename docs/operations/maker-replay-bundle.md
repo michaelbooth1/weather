@@ -148,4 +148,20 @@ Reports must distinguish all such limitations from passed checks and retain the 
 
 ## Update when
 
+### Scoring
+
+`replay.score.score(result)` produces per-policy, per-condition, UTC-day rows.
+Reward accrual uses contemporaneous share and terms, with k=1 and k=0.5. Maker fees
+are zero; the nominal rebate is `shares * .25 * .05 * p * (1-p)` (EF §10o), not a
+cash credit. The engine has no taker-exit strategy or optional builder fee.
+Markouts use each bought token's first two-sided midpoint at/after 1/5/30 minutes,
+within 120 seconds, copied from the public-tape markout convention. Missing marks
+remain null with missing counts. Markouts are alternative valuations, not added
+to settlement P&L. Reconciled payout less purchase cost is attributed to the fill
+date. Inventory cash-hours continue outside quote windows to settlement or the
+last bundle's UTC boundary; unresolved inventory is explicitly counted. No carry-in
+inventory is assumed. Missing coverage or unresolved fills suppress modeled net
+totals for that band-day. Cash-hours, observed pull fraction, replacements and
+inside/outside-event fill counts are retained separately from economics.
+
 Update when the envelope, payload validation, time/byte limits, export path, scoring admission or report semantics change.

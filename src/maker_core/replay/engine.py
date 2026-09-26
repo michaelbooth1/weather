@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import heapq
 
@@ -72,6 +72,7 @@ class Span:
     reserved: Decimal
     inventory_cost: Decimal
     in_event_window: bool
+    evaluation_active: bool = True
 
 
 @dataclass
@@ -124,7 +125,12 @@ class ReplayEngine:
         self.trades_seen = {}
         self.processed = 0
         self.end = max(c.active_until for b in bundles for c in b.conditions)
+        self.horizon = datetime.combine(max(b.day for b in bundles) + timedelta(days=1),
+                                        datetime.min.time(), tzinfo=timezone.utc)
         for bundle in self.bundles:
+            self.schedule(datetime.combine(bundle.day, datetime.min.time(), tzinfo=timezone.utc))
+            self.schedule(datetime.combine(bundle.day + timedelta(days=1), datetime.min.time(),
+                                           tzinfo=timezone.utc))
             for c in bundle.conditions:
                 previous = self.conditions.get(c.condition_id)
                 if previous and (c.market_id, c.domain_id) != (previous.market_id, previous.domain_id):
@@ -141,6 +147,8 @@ class ReplayEngine:
             raise BundleError("engine_event_cap")
 
     def schedule(self, at):
+        if at > self.horizon:
+            return
         if at not in self.pending:
             if len(self.pending) + self.processed >= self.config.max_events:
                 raise BundleError("engine_event_cap")
@@ -387,7 +395,7 @@ class ReplayEngine:
                 raise BundleError("engine_event_cap")
             if previous is not None:
                 for cid, state in sorted(self.states.items()):
-                    if self.active(cid, previous):
+                    if self.active(cid, previous) or state.inventory_cost:
                         self.check()
                         if len(self.decisions) + len(self.spans) >= self.config.max_events:
                             raise BundleError("engine_output_cap")
@@ -396,7 +404,7 @@ class ReplayEngine:
                             state.covered, state.reason, state.legs,
                             state.decision.share_many if state.decision and state.legs else 0.0,
                             terms.rate_per_day if terms else D(0), state.reserve, state.inventory_cost,
-                            self.event_window(state, previous)))
+                            self.event_window(state, previous), self.active(cid, previous)))
             rows = sorted(self.records.pop(at, ()), key=lambda r: r.sequence)
             # All prints consume the expiring quote before any equal-time input
             # update or replacement, regardless of sequence within that capture.
