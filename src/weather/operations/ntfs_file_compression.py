@@ -55,7 +55,10 @@ class LockedNtfsFile:
     attribute fails closed. Callers supply admission and durable journaling.
     """
 
-    def __init__(self, path: Path, *, writable: bool):
+    def __init__(self, path: Path, *, writable: bool, max_file_bytes=MAX_FILE_BYTES):
+        if type(max_file_bytes) is not int or not 0 < max_file_bytes <= 256 * MIB:
+            raise ValueError("invalid bounded file size")
+        self.max_file_bytes = max_file_bytes
         if os.name != "nt":
             raise OSError("NTFS compression requires native Windows")
         self.path = Path(path)
@@ -149,8 +152,8 @@ class LockedNtfsFile:
         if info.attributes & ~(0x20 | 0x80 | COMPRESSED):
             raise ValueError("unsupported candidate file attributes")
         if (info.links != 1 or standard.links != 1 or standard.delete_pending
-                or standard.directory or not 0 < size <= MAX_FILE_BYTES):
-            raise ValueError("candidate must be one ordinary nonempty file of at most 64 MiB")
+                or standard.directory or not 0 < size <= self.max_file_bytes):
+            raise ValueError("candidate must be one ordinary nonempty file within its size bound")
         compression = ctypes.c_ushort()
         returned = wintypes.DWORD()
         self._check(self._kernel.DeviceIoControl(

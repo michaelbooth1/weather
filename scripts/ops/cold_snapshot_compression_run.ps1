@@ -6,7 +6,8 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateRange(30, 600)][int]$MaxRuntimeSeconds = 600,
+    [ValidateRange(30, 15300)][int]$MaxRuntimeSeconds = 600,
+    [switch]$Nightly,
     [switch]$Apply,
     [switch]$VerifyRetained,
     [string]$OwnerApprovedException = ''
@@ -15,10 +16,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 if ($Apply -and $VerifyRetained) { throw 'read-only verification cannot be combined with Apply' }
+if (-not $Nightly -and $MaxRuntimeSeconds -gt 600) { throw 'attended batches remain bounded to 600 seconds' }
+if ($Nightly -and ($VerifyRetained -or $OwnerApprovedException)) { throw 'nightly mode accepts no verification or window exception' }
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
+if ($Nightly -and ($minute -lt 30 -or $minute -ge 285)) { throw 'nightly mode is restricted to 00:30-04:45' }
 if ($OwnerApprovedException) {
     $exceptionDate = @{
         'OWNER_APPROVED_STORAGE_RECOVERY_20260908' = '2026-09-08'
@@ -130,7 +134,8 @@ try {
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = [string]$PID
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $deadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException
-    $arguments = @('-m', 'weather.operations.cold_snapshot_compression',
+    $compressionModule = if ($Nightly) { 'weather.operations.cold_snapshot_nightly' } else { 'weather.operations.cold_snapshot_compression' }
+    $arguments = @('-m', $compressionModule,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
         '--source-git-sha', $ExpectedSourceTip)
