@@ -7,6 +7,11 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "wallet_reader_request", "wallet_reader_request_v1",
+        "weather.market.wallet_reader_transport", "active",
+        "GET-only wallet reader request intent and result; no headers or response bodies.",
+    ),
+    SchemaSpec(
         "maker_evidence_v1_legacy", "maker_evidence_v1",
         "weather.market.maker_evidence_store", "legacy",
         "Original daily journals, retained without migration; use their bound reader.",
