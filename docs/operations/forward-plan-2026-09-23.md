@@ -54,7 +54,7 @@
    a rolling per-market centre correction), then a pooled guidance-anchored residual model with state-dependent spread.
 9. **Live-path qualification kit** (mission 87a) adopted after RE-1, with PR 85's execution modules under their own roll
    verdict.
-10. **Settlement hardening:** land the signed band parser (`016e1c92c`, rebased as 95b `codex/signed-band-parser-20260924`) before Toronto's first sub-zero high; add a
+10. **Settlement hardening:** land the signed band parser ([item 333](../roadmap/items/item-333-signed-native-temperature-band-parser.md), 95b `codex/signed-band-parser-20260924`, minimal extraction of `016e1c92c`) before Toronto's first sub-zero high; add a
     resolution-source change alarm.
 
 ## Kill rules
