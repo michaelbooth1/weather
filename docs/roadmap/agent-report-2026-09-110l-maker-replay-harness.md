@@ -1,7 +1,9 @@
 # Agent report 2026-09-110l — maker replay harness
 
-**PARTIAL — first working increment: bounded neutral bundles, capture-time snapshots and a diagnostic-only CLI.
-Phase 2 is not complete; no scored replay, real-data read, economic result or full-session RE-1 parity is claimed.**
+**Six continuation implementations pass fixtures; production qualification remains PARTIAL.**
+The engine, both fill bounds, scorer, baselines, clustered inference and deterministic reports are implemented.
+Full-session RE-1 journal parity is unavailable, no real-data registration is approved, and the weather export/final audit
+closeout follows below. No real-data read, economic result or full-session parity is claimed. Earlier notes are historical.
 
 ## Increment 1 — 2026-09-26
 
@@ -202,3 +204,20 @@ Admitted focused checks: **4 passed**, including shared market shocks that date-
 resampling cannot capture, three-date/two-market underpower, deterministic order,
 and missing-cell exclusion. New inference source: closure UNDECIDABLE; tests
 test-only; docs roll-free. No real-data estimate or alpha spend occurred.
+
+## Continuation item 6 — reports and diagnostic-default gate (2026-09-26)
+
+**PASS on fixtures.** Item 5 was pushed as `87865935`. JSON and Markdown always
+include both bounds, hashes, exclusion intervals, scores, matched-clock status,
+90% clustered intervals and the full-session parity limitation. Reordered copies
+of the synthetic three-date/two-market panel produce identical report bytes.
+Admitted report/envelope suite: **37 passed, 1 symlink-privilege skip**.
+
+The CLI defaults to diagnostics. Comparison requires an explicit raw registration
+hash pinned through a separate owner-approved source review. The approval table
+is empty; neither synthetic labels nor arbitrary hashes admit a run. The owner
+signature is review-attested, **not a claim of cryptographic signature verification**.
+Registered hurdles, dates, clusters, policies, config and inference settings are
+bound before scoring; the fixture test enrolls only an in-memory fictional owner.
+New authorization/report modules and CLI/diagnostic changes: closure UNDECIDABLE;
+tests test-only; docs roll-free. Weather exporter and final repository audits follow.

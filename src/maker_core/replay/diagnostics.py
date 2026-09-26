@@ -13,7 +13,7 @@ ASSUMPTIONS = (
     "Minute books hide intervening price paths and cancellations.",
     "Capture gaps are exclusions; no reward, fill or return zero is imputed.",
     "Envelope hashes prove byte binding, not source truth or owner authorization.",
-    "Payload semantic validation and decision replay are not implemented in this increment.",
+    "Diagnostic mode checks envelopes; it does not execute a policy or validate economic eligibility.",
 )
 
 
@@ -49,7 +49,7 @@ def coverage_report(bundle: Bundle, policy: str, *, check=lambda: None) -> dict:
             "day": bundle.day.isoformat(), "provenance": bundle.provenance,
             "requested_policy": policy, "policy_executed": False, "input_hashes": bundle.input_hashes,
             "input_bytes": bundle.input_bytes, "records": len(bundle.records), "coverage": coverage,
-            "parity": {"status": "NOT_RUN", "reason": "full-session replay not implemented"},
+            "parity": {"status": "NOT_RUN", "reason": "no sanitized full-session journal supplied"},
             "assumptions": ASSUMPTIONS}
 
 
@@ -63,7 +63,7 @@ def report_bytes(report: dict) -> tuple[bytes, bytes]:
     for row in report["coverage"]:
         label = str(row['condition_id']).replace("|", "&#124;").replace("<", "&lt;")
         lines.append(f"| {label} | {row['expected_minutes']} | {row['book_capture_minutes']} | {row['excluded_minutes']} |")
-    lines.extend(["", "Parity: NOT_RUN; full-session replay is not implemented.", "", "Assumptions:", ""])
+    lines.extend(["", "Parity: NOT_RUN; no sanitized full-session journal supplied.", "", "Assumptions:", ""])
     lines.extend("- " + assumption for assumption in report["assumptions"])
     lines.extend(["", "Input SHA-256 hashes:", ""])
     lines.extend(f"- `{name}`: `{value}`" for name, value in sorted(report["input_hashes"].items()))
@@ -71,14 +71,19 @@ def report_bytes(report: dict) -> tuple[bytes, bytes]:
 
 
 def write_report(directory: Path, report: dict, *, input_directory: Path,
-                 max_bytes: int = MAX_REPORT_BYTES, check=lambda: None) -> None:
+                 max_bytes: int = MAX_REPORT_BYTES, check=lambda: None, render=report_bytes,
+                 other_inputs=()) -> None:
     if type(max_bytes) is not int or not 1 <= max_bytes <= MAX_REPORT_BYTES:
         raise BundleError("invalid_report_byte_cap")
     check()
     output, source = regular_path(directory), regular_path(input_directory)
     if output == source or output.is_relative_to(source) or source.is_relative_to(output):
         raise BundleError("output_input_overlap")
-    raw, markdown = report_bytes(report)
+    for path in other_inputs:
+        source = regular_path(path)
+        if output == source or output.is_relative_to(source) or source.is_relative_to(output):
+            raise BundleError("output_input_overlap")
+    raw, markdown = render(report)
     if len(raw) + len(markdown) > max_bytes:
         raise BundleError("report_byte_cap")
     check()

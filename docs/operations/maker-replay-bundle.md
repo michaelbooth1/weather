@@ -1,6 +1,6 @@
 # Maker replay bundle and diagnostic contract
 
-Status: canonical envelope contract; payload semantics and scored replay are unfinished.
+Status: canonical envelope, replay, scoring and diagnostic-default contract; fixture-verified.
 
 - **Owns:** bounded closed-UTC-day replay envelopes, capture-time access, diagnostic output and the scoring boundary.
 - **Read when:** producing neutral replay inputs (including an external domain plugin) or reviewing replay admission.
@@ -47,8 +47,8 @@ Records are sorted by `(captured_at, sequence)` independently of file layout. A 
 records captured at or before `t`, with recursively immutable payloads. Pass that snapshot to an adapter; do not pass the
 full tape. Same-time records are all visible at the tick, ordered by producer sequence. This API prevents ordinary future
 record access through snapshots; it is not a sandbox against a provider deliberately reading another source. Settlement
-records follow the same rule. Later-captured settlement belongs to a later capture-day bundle; multi-day engine joins,
-carry-in state and kind-specific validity checks remain to be implemented.
+records follow the same rule. Later-captured settlement belongs to a later capture-day bundle. Multi-day replay carries
+its own lots and cash across supplied days; it assumes no positions before the first bundle.
 
 The fixture producer is `tests/maker_core/fixtures/replay_bundle.py`: three closed synthetic UTC days, two fictional
 market clusters and one missing book minute per day. It is not an 88a export or evidence about any real market.
@@ -90,11 +90,24 @@ intervals; omitted conditions or narrowed intervals cannot be discovered by this
 not the count of captured books. Present but malformed books do not become valid decisions. No P&L, rewards, fill rates,
 returns, comparisons or confidence intervals are emitted. Parity is explicitly `NOT_RUN`.
 
-`--compare`, `--pre-registration`, and `--pre-registration-sha256` currently refuse **before input IO**, even together and
-even for fixtures. They reserve the intended interface; they do not implement authorization. A user-provided hash or an
-`owner_signed: true` field cannot authenticate the owner. A later increment must verify the owner-approved signed artifact,
-bind its exact hash, policy/hurdles/date/cluster scope, and obtain the required review before exposing scored real-data
-reads. Do not add a permissive fallback. Diagnostic mode must continue to suppress comparisons after scoring is added.
+`--compare` requires `--pre-registration` and `--pre-registration-sha256`. The exact raw-byte hash and owner must first
+be enrolled in `replay.authorization.APPROVED_REGISTRATIONS` through a separate owner-approved code review. The table
+is deliberately empty in this fixture-only build. An arbitrary caller hash, boolean or synthetic label cannot enroll an
+approval, and an unenrolled request refuses before bundle or registration IO. This is **review-attested hash pinning**,
+not cryptographic signature verification. The owner signs the registration in the review process; the signature field
+records its review reference and is not itself trusted. No key, private material or signing identity is invented here.
+
+An approved artifact must specify owner, signature reference, UTC signed_at, hurdles, dates, market clusters, all four
+policies, both clustering schemes, replay_config, bootstrap_replicates, bootstrap_seed, and both net metrics. Exact scope
+and configuration equality is checked before scoring. Repeat `--bundle` for closed UTC days in comparison mode; total
+bytes/records and the whole-run clock remain bounded. `--hazard-per-minute`, `--initial-cash`, bootstrap options and all
+other ReplayConfig defaults must match the registered artifact. Diagnostic mode accepts one bundle and suppresses
+scores even after authorization machinery exists; registration flags require explicit `--compare`.
+
+`replay.report.comparison_report` is the pure fixture/library composer used by tests. It always renders both fill bounds,
+input hashes, exclusions, band-day scores, matched-control status, paired intervals and explicit parity limitations.
+JSON and Markdown are deterministic and bounded. Libraries are not a security sandbox; production operators must use
+the gated CLI and the repository's admission path.
 
 ## Remaining adapters and acceptance
 
@@ -141,9 +154,9 @@ package. It must project both-token 88a v2 books, reward-on-change records and p
 settlement facts, retaining original clocks and source hashes. No export is implemented by this increment. No production
 command or per-day measured size is claimed yet; fixture size is not an estimate of production volume.
 
-Subsequent increments add typed payload validation, a shared-`decide()` event engine and portfolio reservations, both fill
-bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, date and crossed date×market inference,
-and parity. The Phase 0 RE-1 fixture proves first-price parity only; sanitized full-session journals are unavailable.
+The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
+both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
+The Phase 0 RE-1 fixture proves first-price parity only; sanitized full-session journals are unavailable.
 Reports must distinguish all such limitations from passed checks and retain the design's replay optimism assumptions.
 
 ## Update when
