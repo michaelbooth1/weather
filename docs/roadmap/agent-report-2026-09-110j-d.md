@@ -17,6 +17,10 @@ tool's current imported-closure verdict. Tests and Markdown are roll-free.
 The workstation contains no live closure evidence; no synthetic closure is
 substituted for the production merge gate.
 
+The repository tool returned **UNDECIDABLE: no live closure evidence**, naming
+the absent loop, CLOB, observation-trigger and enrichment status files. It did
+not certify any Python file as roll-free.
+
 | File | Classification |
 | --- | --- |
 | `src/weather/cold_archive_locations.py` | roll-sensitive |
