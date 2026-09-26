@@ -63,7 +63,7 @@ deleted; the work is fix, decouple, archive-in-place and ratchet.
   can be frozen (D2-04); consolidate the 32 `datetime`-returning `utc_now` copies (D3).
 - Archive-in-place of unimported research reporting (~25k lines; needs a schema-registry edit) (D1-06/07/08).
 
-**Needs an owner decision**
+**Owner decisions — all 10 APPROVED 2026-09-26** (implementation: 110m, 110n, 110o; branch lifecycle and workstation repack as noted in 110o)
 1. Move `config/location_market_events.json` (generated, 90 commits, ~25-60 MB/yr of history, permanently dirty production
    tree) to `data/` with an append-only archive (~20 call sites) (D4-1; open since 09-18).
 2. The seven unscheduled producers (defect 4): schedule them or drop their inputs.
