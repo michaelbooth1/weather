@@ -61,6 +61,14 @@ join to explanation and source-row release metadata; settlements require a
 reconciled, hash-verified ledger history. Input shapes and remaining export
 requirements are documented with the [synthetic fixtures](../../tests/fixtures/maker_plugin/README.md).
 
+The module entrypoint `maker_plugin.dry_run` delegates to the diagnostic
+caller `weather.market.maker_plugin_runner`, outside the provider boundary.
+That caller composes contracts and pure quoting policy; its sibling
+`maker_plugin_capture` and `maker_plugin_sources` own bounded local reads.
+They have no collector, venue or credential dependency. This is the sole IO
+entrypoint under the plugin package; the four provider adapters remain pure.
+See [the dry-run contract](maker-core-contracts.md#bounded-weather-plugin-dry-run).
+
 The new AST ratchet resolves relative imports and import aliases, and refuses
 computed dynamic imports. It is a source boundary check, not a general sandbox.
 
