@@ -3137,7 +3137,7 @@ def evaluate(
         )
     if _unbounded_pytest(command):
         return _deny(
-            "An unbounded pytest run is forbidden on the 16 GB capture host; use the repository-owned bounded 25-file suite wrapper."
+            "An unbounded pytest run is forbidden on the 16 GB capture host; use the repository-owned chunked full suite (at most 25 files per child) wrapper."
         )
 
     instant = now or datetime.now().astimezone()

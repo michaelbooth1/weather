@@ -129,11 +129,11 @@ def test_allowed_window_still_denies_full_suite_and_recursive_data_scans():
         now=now,
         constrained_capture_host=True,
     )
-    assert "bounded 25-file suite" in reason(full_suite)
-    assert "bounded 25-file suite" in reason(attached_full_suite)
-    assert "bounded 25-file suite" in reason(clustered_full_suite)
-    assert "bounded 25-file suite" in reason(separated_cluster_full_suite)
-    assert "bounded 25-file suite" in reason(quoted_cluster_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(attached_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(clustered_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(separated_cluster_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(quoted_cluster_full_suite)
     assert "Recursive Get-ChildItem" in reason(recursive_scan)
 
 
@@ -251,7 +251,7 @@ def test_multiline_heavy_commands_cannot_bypass_host_policy():
         capture_reason = reason(capture)
         assert (
             "00:30-09:00" in capture_reason
-            or "bounded 25-file suite" in capture_reason
+            or "chunked full suite (at most 25 files per child)" in capture_reason
         ), command
 
 
@@ -556,7 +556,7 @@ def test_pytest_main_alias_is_subject_to_the_unbounded_suite_guard():
             now=now,
             constrained_capture_host=True,
         )
-        assert "bounded 25-file suite" in reason(blocked), command
+        assert "chunked full suite (at most 25 files per child)" in reason(blocked), command
 
     for command in (
         r"python -m cProfile -o NUL -m pytest tests/operations/test_x.py -q",
@@ -625,7 +625,7 @@ def test_pytest_option_values_do_not_prove_a_focused_target():
             now=now,
             constrained_capture_host=True,
         )
-        assert "bounded 25-file suite" in reason(blocked), command
+        assert "chunked full suite (at most 25 files per child)" in reason(blocked), command
 
 
 def test_every_offline_weather_module_is_classified_and_wrapper_allowlisted():

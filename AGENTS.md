@@ -72,7 +72,7 @@ memory as project guidance; durable knowledge lives in this repository.
     graded window and 18:00–00:30 near-close window are protected.
   - Never launch pytest, compileall, replay, training, or bulk scans through
     parallel agents or parallel tool calls. **A direct full pytest run is
-    forbidden at every hour**; use the 25-file bounded suite,
+    forbidden at every hour**; use the full suite in chunks of at most 25 files,
     `scripts/ops/bounded_worktree_test_suite.ps1`, in the admitted window.
   - The user-layer Codex hook and the one-minute S4U guard enforce this policy.
     Do not bypass either, and always retain and poll or terminate any yielded
