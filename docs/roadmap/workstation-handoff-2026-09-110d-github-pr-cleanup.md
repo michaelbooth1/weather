@@ -27,14 +27,21 @@ lineage and must not be deleted."
 workstation research lineage, recorded in ESTABLISHED_FINDINGS §1m as evidence that by design never lands on master. The
 branch stays."
 
+**D. Retired stacks (owner 2026-09-25: retire both).** Storage-recovery stack #45, #64, #66, #67, #71, #72 and qualification
+v2 #69, #70. Comment: "Closing: retired by owner decision 2026-09-25. Storage is now handled by closed-day compression and the
+verified archive path; the qualification problem was solved by the fixed bounded suite. The branches are retained, and the
+exact sources that ran in production are preserved as `deployed/*` tags. A future need gets a small fresh branch, not this
+stack."
+
 ## 2. Retarget
 
 `gh pr edit 91 --base master` and `gh pr edit 80 --base master` (their base branches are already merged).
 
 ## 3. Do not touch
 
-#95, #96, #94, #91, #80, #81, #74, #38 (live), and the owner-decision group (#78, #82-#85 RE-1 chain; #45, #64, #66, #67,
-#69-#72 storage/qualification stacks; #54, #55; #29, #30; #65, #68; #86, #90, #93).
+#95, #96, #94, #91, #80, #81, #74, #38 (live); the RE-1 chain #78, #82-#85 (owner: close after RE-1 ends 2026-09-30; the
+production agent will issue that handoff); and #54, #55, #29, #30, #65, #68, #86, #90, #93 (owner delegated triage to the
+production agent, which will list them in a later handoff once each is checked against master).
 
 ## 4. Report
 
