@@ -111,7 +111,8 @@ def test_task_inventory_covers_registrars_status_and_generated_docs():
               re.findall(r'"(Weather[\w-]+)"\s*=\s*@\(([^)]+)\)', nonzero)}
     assert actual == {row["name"]: row["expected_nonzero"] for row in rows if row["expected_nonzero"]}
     # All complete Weather literals, including status classifications, must be owned.
-    non_tasks = {"WeatherProject", "WeatherHeavyWorkloadMutexPoisoned"}
+    # Project/mutex identities and the all-task selection wildcard are not tasks.
+    non_tasks = {"WeatherProject", "WeatherHeavyWorkloadMutexPoisoned", "Weather*"}
     for path in OPS.glob("*.ps1"):
         literals = re.findall(r"""["'](Weather[\w*-]+)["']""", path.read_text(encoding="utf-8-sig"))
         for name in literals:
@@ -153,4 +154,3 @@ try {
 @{error=$failure} | ConvertTo-Json -Compress
 """, FIXTURE_ROOT=str(tmp_path), FIXTURE_NAME=name, FIXTURE_ACK="yes" if acknowledge else "no")
     assert ("ACKNOWLEDGED_NO_SCHEDULER_CALL" if acknowledge else "requires explicit -AcknowledgeRetired") in result["error"]
-
