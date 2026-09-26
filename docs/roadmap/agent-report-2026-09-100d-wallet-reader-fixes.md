@@ -262,3 +262,79 @@ evidence, actual `.env`, real account or reader endpoint was accessed; no privat
 key was loaded, service started/restarted, firewall/Scheduler state changed,
 order mutated, production write performed or master merge made. **The owner
 restarts `serve` after reviewing the pushed tip.**
+
+## 110f — Campaign unredeemed value and incomplete evidence
+
+Verdict: **PASS — fixture-tested correction, owner service restart pending.**
+This section supersedes 100e's exclusion of all resolved value from campaign
+equity, following the owner's 110f handoff at
+`codex/owner-decisions-0925-night` commit
+`8643c31ee3352b27548e6cc5b1316333de34a252`.
+Base: `ec44b657d29218b839eba28db0daebf161d9a749` on
+`codex/wallet-public-reader-20260925`; implementation tip:
+`c91b96fee223db9a82bc417ac7d72113128ab270`.
+Work used an isolated local worktree/branch to preserve the owner's existing
+wallet checkout; the handback is pushed to the requested wallet branch.
+
+### Behavior
+
+`/summary` always exposes positive resolved holdings as `unredeemed_positions`,
+including title, outcome, size, terminal value/status and campaign scope. Exact
+0/1 data-api prices or token-matched closed Gamma outcome prices provide terminal
+value. Conflicting terminal sources fail closed. Winning campaign shares add
+their size to equity; losing shares add zero. Resolved cost-basis P&L remains a
+separate informational comparison, and live marks remain separate.
+
+Campaign P&L is cash + live marks + campaign unredeemed terminal value minus the
+owner's reconciled capital baseline. Zero-size/absent redeemed holdings add no
+value on top of cash. A redemption record with a stale positive holding makes
+acquisition/quantity evidence incomplete instead of double counting proceeds.
+Unknown terminal value yields `status=INCOMPLETE`, null campaign P&L,
+`reason=unredeemed_terminal_value_unknown`, and a per-lot
+`terminal_value_status=terminal_value_unknown`. The independent
+`bleed_limit_reached` flag preserves a known low-cash breach.
+
+The new optional `--campaign-start-utc` takes the owner's exact timezone-aware
+baseline instant; no campaign clock is guessed from a calendar date or end date.
+When positive resolved lots exist, absent baseline/acquisition evidence yields
+`unredeemed_acquisition_time_unknown` and incomplete P&L. With a baseline,
+summary uses the already-allowlisted public `/activity` endpoint, starting at
+Unix zero, ascending, at most five 100-row pages, after live marking. Only an
+exhausted history whose account/token-matched buys minus sells reconcile exactly
+to the current lot can establish age. Mixed-age lots, unsupported activity,
+missing/duplicate/future rows, failures or pagination/budget exhaustion stay
+unknown. A fully sold lot resets subsequent acquisition scope; no FIFO age is
+invented. Proven pre-baseline dust stays out of campaign equity, preserving its
+separate `resolved_pnl_vs_cost_pusd`. This is deliberately conservative and may
+report incomplete on real histories that cannot be reconciled within the bounds.
+
+### Validation and safety
+
+**206 focused tests passed**: wallet acceptance, schema registry and import
+architecture. They include winners, losers, unknown terminal values (also with
+low cash), historical dust, exact baseline boundary, zero-size redemption, stale
+positive redeemed rows, partial sales, full exit/reentry, Gamma token mapping,
+conflicting prices, absent baseline, missing/future dates, mixed lots, quantity
+mismatches, foreign account rows, duplicates, splits, unknown sides, exhausted
+history, read failure and exhausted GET budget. Tests exercised `/summary`
+through server dispatch with synthetic credentials and refused socket connect/bind.
+Historical 100e fixture assertions now prove dust acquisition using fixture
+activity; visibility toggles still use the shared read cache.
+
+Changed files: `src/weather/market/wallet_reader.py`, its wallet test file,
+`docs/operations/wallet-reader.md`, and this append-only report section.
+The source is Python and needs the production script's closure verdict before
+any later production adoption; test/docs files do not enter a runtime closure.
+No production closure evidence was accessed and no new production roll verdict
+is claimed. This branch remains a workstation reader handback.
+
+**100a safety is unchanged:** transport allowlists and GET-only enforcement,
+30-second success cache, 30-GET/minute ceiling, 24-GET/16-second composite plan,
+credential selection, no private-key loading/order signing, account identity,
+redaction, journal schema, LAN/IP/token/origin controls and firewall code are
+unchanged. Additional history reads consume the existing plan and cache; they
+cannot expand its limits. No real `.env`, account, venue call, production data,
+reader startup, firewall/Scheduler mutation, order or master merge was used.
+Only synthetic temporary credential fixtures are exercised by inherited tests.
+The owner must reconcile the baseline, adopt the pushed tip and restart `serve`
+with `--campaign-capital` and `--campaign-start-utc` to activate this behavior.
