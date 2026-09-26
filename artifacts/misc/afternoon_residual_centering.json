@@ -8,7 +8,7 @@
       "regime_afternoon"
     ],
     "disagreement_reference": 3.0,
-    "enabled": true,
+    "enabled": false,
     "end_hour": 18,
     "global_contexts": "diagnostic_only",
     "max_abs_shift": 2.0,

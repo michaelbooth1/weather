@@ -1434,6 +1434,13 @@ UNVERIFIED). The lineage's own `item-330-model-bom-…` file collides with maste
 
 ## 2. The cool bias is real and is not correctable at serve
 
+**110g owner decision, 2026-09-25:** the global afternoon residual-centering
+artifact now has `component.enabled=false`; production activation requires the
+model reload in the [110g report](../roadmap/agent-report-2026-09-110g-disable-afternoon-centering.md).
+Its retained contexts were fitted in-sample in June on a pipeline not served
+since June 30. This disables the stage pending a separate measurement; it does
+not establish an improvement and must never trigger a refit on its own output.
+
 | Property | Value |
 | --- | --- |
 | Magnitude | **−0.6641 C-equivalent** |
