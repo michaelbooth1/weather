@@ -215,4 +215,3 @@ def test_lazy_import_closure_excludes_reporting_verifier(tmp_path):
     (tmp_path / "closure.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     assert "weather.reporting.validation.point_in_time_evaluation" not in new_graph["weather.residual_distribution_release"]
     assert "weather.reporting.validation.point_in_time_evaluation" in old_graph["weather.residual_distribution_release"]
-
