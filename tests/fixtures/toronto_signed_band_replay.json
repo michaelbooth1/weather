@@ -1,0 +1,110 @@
+{
+  "source_commit": "69c5a325342b99fa03655883436e169159b7756d",
+  "source_path": "config/location_market_events.json",
+  "cases": [
+    {
+      "event_date": "2026-09-23",
+      "event": {
+        "markets": [
+          {
+            "groupItemTitle": "12°C or below",
+            "conditionId": "0xfd6c24a4e8fab17b27d4fa2ae333cfaa7946781d0207963a18201317688eac3d"
+          },
+          {
+            "groupItemTitle": "13°C",
+            "conditionId": "0xbfb3bdc64974a9a175b709019e00c3281ee33cc6da8e0d2793de6c80d335a77a"
+          },
+          {
+            "groupItemTitle": "14°C",
+            "conditionId": "0x9c40a77ea1fdb7f81d5e56b6c4b67b62e8d2589f6ff3d308b0c59916cae18569"
+          },
+          {
+            "groupItemTitle": "15°C",
+            "conditionId": "0x80d0837c0c5b54a61cd7903a994643b8f6ce21606d35108fd9ffafb26518163f"
+          },
+          {
+            "groupItemTitle": "16°C",
+            "conditionId": "0xb992c058694d4113fd826350c32e9913d38e0eee0e8acaf2947134d0d6c8aece"
+          },
+          {
+            "groupItemTitle": "17°C",
+            "conditionId": "0x0d9d3861f823f9b0e2fc6f5dce753fc7e71326ecc9091caccd81254726f5b9e5"
+          },
+          {
+            "groupItemTitle": "18°C",
+            "conditionId": "0x96ea0ab4edc77b27627854361f460ab9265ca15f326c4af16c821fdb2b22a57b"
+          },
+          {
+            "groupItemTitle": "19°C",
+            "conditionId": "0x236b1bcfa3969fb688a3f7ffd843682434bd4394f89690427d71821c1c2740f0"
+          },
+          {
+            "groupItemTitle": "20°C",
+            "conditionId": "0xf69670578a997076f933f0d7a24a200b6040f9624278094bcae8157b23bcb8e9"
+          },
+          {
+            "groupItemTitle": "21°C",
+            "conditionId": "0xd5956aa543f328a405be2f38be78bc33f94c632d9db17afadc8c02b9c51dd7bd"
+          },
+          {
+            "groupItemTitle": "22°C or higher",
+            "conditionId": "0x011a120c06e4f4d6d71f0423deb2e5227a242dbffd59ff0449a661ac9dd46fa4"
+          }
+        ]
+      },
+      "expected_bins_json": "[{\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xfd6c24a4e8fab17b27d4fa2ae333cfaa7946781d0207963a18201317688eac3d\", \"enable_order_book\": null, \"kind\": \"lte\", \"label\": \"12 C or below\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xfd6c24a4e8fab17b27d4fa2ae333cfaa7946781d0207963a18201317688eac3d\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 12, \"value_hi\": 12, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xbfb3bdc64974a9a175b709019e00c3281ee33cc6da8e0d2793de6c80d335a77a\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"13 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xbfb3bdc64974a9a175b709019e00c3281ee33cc6da8e0d2793de6c80d335a77a\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 13, \"value_hi\": 13, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x9c40a77ea1fdb7f81d5e56b6c4b67b62e8d2589f6ff3d308b0c59916cae18569\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"14 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x9c40a77ea1fdb7f81d5e56b6c4b67b62e8d2589f6ff3d308b0c59916cae18569\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 14, \"value_hi\": 14, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x80d0837c0c5b54a61cd7903a994643b8f6ce21606d35108fd9ffafb26518163f\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"15 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x80d0837c0c5b54a61cd7903a994643b8f6ce21606d35108fd9ffafb26518163f\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 15, \"value_hi\": 15, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xb992c058694d4113fd826350c32e9913d38e0eee0e8acaf2947134d0d6c8aece\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"16 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xb992c058694d4113fd826350c32e9913d38e0eee0e8acaf2947134d0d6c8aece\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 16, \"value_hi\": 16, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x0d9d3861f823f9b0e2fc6f5dce753fc7e71326ecc9091caccd81254726f5b9e5\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"17 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x0d9d3861f823f9b0e2fc6f5dce753fc7e71326ecc9091caccd81254726f5b9e5\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 17, \"value_hi\": 17, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x96ea0ab4edc77b27627854361f460ab9265ca15f326c4af16c821fdb2b22a57b\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"18 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x96ea0ab4edc77b27627854361f460ab9265ca15f326c4af16c821fdb2b22a57b\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 18, \"value_hi\": 18, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x236b1bcfa3969fb688a3f7ffd843682434bd4394f89690427d71821c1c2740f0\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"19 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x236b1bcfa3969fb688a3f7ffd843682434bd4394f89690427d71821c1c2740f0\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 19, \"value_hi\": 19, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xf69670578a997076f933f0d7a24a200b6040f9624278094bcae8157b23bcb8e9\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"20 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xf69670578a997076f933f0d7a24a200b6040f9624278094bcae8157b23bcb8e9\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 20, \"value_hi\": 20, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xd5956aa543f328a405be2f38be78bc33f94c632d9db17afadc8c02b9c51dd7bd\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"21 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xd5956aa543f328a405be2f38be78bc33f94c632d9db17afadc8c02b9c51dd7bd\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 21, \"value_hi\": 21, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x011a120c06e4f4d6d71f0423deb2e5227a242dbffd59ff0449a661ac9dd46fa4\", \"enable_order_book\": null, \"kind\": \"gte\", \"label\": \"22 C or higher\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x011a120c06e4f4d6d71f0423deb2e5227a242dbffd59ff0449a661ac9dd46fa4\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 22, \"value_hi\": 22, \"volume\": null}]"
+    },
+    {
+      "event_date": "2026-09-24",
+      "event": {
+        "markets": [
+          {
+            "groupItemTitle": "14°C or below",
+            "conditionId": "0x3243e3d442bb4e860cccb5183a4e8718072c81e19bd12349aba77eac92f84d8d"
+          },
+          {
+            "groupItemTitle": "15°C",
+            "conditionId": "0xab4682587f1792ac78825d23c60d386c503b4f28adce2b78d8f65609e5c6446c"
+          },
+          {
+            "groupItemTitle": "16°C",
+            "conditionId": "0x2e92f751fbaa1893f4b4af8f468ebce852d963769c5d3e64eda892f7f6d2750f"
+          },
+          {
+            "groupItemTitle": "17°C",
+            "conditionId": "0x4adcf20cbadf7b3d5940367c9176a3d7033d6d4121adfb3291beb675e259c547"
+          },
+          {
+            "groupItemTitle": "18°C",
+            "conditionId": "0x2690a668b488b050820dfe573136dd460724e6c5efaad240851dfff7d5054d58"
+          },
+          {
+            "groupItemTitle": "19°C",
+            "conditionId": "0xe419c5c4dc9049f2dbc0005df0794f0569909a648f2f4d900583eba315657e51"
+          },
+          {
+            "groupItemTitle": "20°C",
+            "conditionId": "0x52709bd42b33338f3d65e651b7854d41d6e11cd03110644d0152757d2bc4c7fc"
+          },
+          {
+            "groupItemTitle": "21°C",
+            "conditionId": "0xf84ddd63ab5bd119a285d9d13e6f0626f621ed589803afe5338a871dcb97aefb"
+          },
+          {
+            "groupItemTitle": "22°C",
+            "conditionId": "0x1cacfab07c1ccf109acd54d485dcd2d148fe61cf157884dafdc8804b4e65d966"
+          },
+          {
+            "groupItemTitle": "23°C",
+            "conditionId": "0xc0671c49854977e93e81d5523751f58d4f5a6c72feaf84f28005f3828f7a5803"
+          },
+          {
+            "groupItemTitle": "24°C or higher",
+            "conditionId": "0x409f1c1dc913a274cd05bd038291ce010f1bba26c26e578a1e3bb07e5b82943a"
+          }
+        ]
+      },
+      "expected_bins_json": "[{\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x3243e3d442bb4e860cccb5183a4e8718072c81e19bd12349aba77eac92f84d8d\", \"enable_order_book\": null, \"kind\": \"lte\", \"label\": \"14 C or below\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x3243e3d442bb4e860cccb5183a4e8718072c81e19bd12349aba77eac92f84d8d\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 14, \"value_hi\": 14, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xab4682587f1792ac78825d23c60d386c503b4f28adce2b78d8f65609e5c6446c\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"15 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xab4682587f1792ac78825d23c60d386c503b4f28adce2b78d8f65609e5c6446c\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 15, \"value_hi\": 15, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x2e92f751fbaa1893f4b4af8f468ebce852d963769c5d3e64eda892f7f6d2750f\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"16 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x2e92f751fbaa1893f4b4af8f468ebce852d963769c5d3e64eda892f7f6d2750f\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 16, \"value_hi\": 16, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x4adcf20cbadf7b3d5940367c9176a3d7033d6d4121adfb3291beb675e259c547\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"17 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x4adcf20cbadf7b3d5940367c9176a3d7033d6d4121adfb3291beb675e259c547\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 17, \"value_hi\": 17, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x2690a668b488b050820dfe573136dd460724e6c5efaad240851dfff7d5054d58\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"18 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x2690a668b488b050820dfe573136dd460724e6c5efaad240851dfff7d5054d58\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 18, \"value_hi\": 18, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xe419c5c4dc9049f2dbc0005df0794f0569909a648f2f4d900583eba315657e51\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"19 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xe419c5c4dc9049f2dbc0005df0794f0569909a648f2f4d900583eba315657e51\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 19, \"value_hi\": 19, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x52709bd42b33338f3d65e651b7854d41d6e11cd03110644d0152757d2bc4c7fc\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"20 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x52709bd42b33338f3d65e651b7854d41d6e11cd03110644d0152757d2bc4c7fc\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 20, \"value_hi\": 20, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xf84ddd63ab5bd119a285d9d13e6f0626f621ed589803afe5338a871dcb97aefb\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"21 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xf84ddd63ab5bd119a285d9d13e6f0626f621ed589803afe5338a871dcb97aefb\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 21, \"value_hi\": 21, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x1cacfab07c1ccf109acd54d485dcd2d148fe61cf157884dafdc8804b4e65d966\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"22 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x1cacfab07c1ccf109acd54d485dcd2d148fe61cf157884dafdc8804b4e65d966\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 22, \"value_hi\": 22, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0xc0671c49854977e93e81d5523751f58d4f5a6c72feaf84f28005f3828f7a5803\", \"enable_order_book\": null, \"kind\": \"eq\", \"label\": \"23 C\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0xc0671c49854977e93e81d5523751f58d4f5a6c72feaf84f28005f3828f7a5803\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 23, \"value_hi\": 23, \"volume\": null}, {\"best_ask\": null, \"best_bid\": null, \"clob_no_token_id\": null, \"clob_token_ids\": \"[]\", \"clob_yes_token_id\": null, \"condition_id\": \"0x409f1c1dc913a274cd05bd038291ce010f1bba26c26e578a1e3bb07e5b82943a\", \"enable_order_book\": null, \"kind\": \"gte\", \"label\": \"24 C or higher\", \"last_trade_price\": null, \"liquidity\": null, \"market_id\": \"0x409f1c1dc913a274cd05bd038291ce010f1bba26c26e578a1e3bb07e5b82943a\", \"market_no\": null, \"market_yes\": null, \"polymarket_market_id\": null, \"question\": null, \"status\": \"inactive\", \"unit\": \"C\", \"value\": 24, \"value_hi\": 24, \"volume\": null}]"
+    }
+  ]
+}
