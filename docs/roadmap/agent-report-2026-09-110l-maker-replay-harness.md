@@ -363,5 +363,6 @@ Mechanical local `roll_verdict.ps1 -Branch codex/maker-replay-harness-20260926
 -Base e3274ea7c` returned exit 1, **UNDECIDABLE: no live closure evidence**, listing
 the same four absent supervisor/enrichment status files. No production evidence
 was copied to change it. The production operator must obtain the real verdict
-before adoption. All nine task-owned pytest temporary directories were removed
-after verification with exact-path, non-redirected Temp-root checks.
+before adoption. Cleanup checked nine named pytest temporary targets: seven
+directories were removed and two were already absent. Every existing target
+passed exact-path, non-redirected Temp-root checks before removal.
