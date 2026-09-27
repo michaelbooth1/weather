@@ -17,8 +17,10 @@ The owner's follow-up explicitly confirmed an empty approval registry and a sepa
 - Implementation commit: `f96c1f268af724904938251d8660c52ecdbf08c9`.
 - Separate enrollment-template/test commit: `bc47eb7ab99837d5b507212bddbc422f18753f49`.
 - The preregistration dependency is [draft PR 109](https://github.com/michaelbooth1/weather/pull/109).
-  This handback is stacked on the integration branch and also contains that preregistration dependency. It is not a
-  standalone master change. After the planned dependency landings, synchronize with master and rerun the relevant
+  The draft PR targets that preregistration branch to keep its review delta small and declares the required integration
+  branch as a second dependency. Eight inherited integration paths (decision log, economics-drift fix/tests/docs,
+  module-size ownership and correspondence index) are present in addition to 110r. It is not a standalone master
+  change. After the planned dependency landings, synchronize with master and rerun the relevant
   checks. Do not rewrite a published branch without the owner's explicit exception.
 
 ## Delivered behavior
@@ -61,10 +63,13 @@ No full pytest run was used.
 | --- | --- |
 | Maker-core suite plus import architecture, agent-doc audit, knowledge-structure audit, schema registry, module-size audit and roadmap backlog tests | **921 passed, 1 skipped, 5 xfailed** |
 | Enrollment, authorization and execution-pack regressions after the separate template change | **40 passed** |
+| Final documentation/knowledge/backlog and enrollment checks after report/index generation | **38 passed** |
 | Replay calibration/execution/report/baseline/bundle focused run | **80 passed, 1 skipped** |
 | Earlier maker-core, import architecture, workload-admission and Codex host-hook run | 938 passed, 12 skipped, 5 xfailed; the sole failure was the then-untracked new tests. Staging those files resolved it in the 921-pass run. |
 | `compileall -q app src tests` through workstation wrapper | **PASS** |
 | `git diff --check` / staged diff check | **PASS** |
+| Read-only `agent_docs_audit`, `roadmap_backlog --fail-on-lint --check`, `correspondence_index --check` CLIs | **PASS / OK / OK** |
+| PowerShell parser check of the changed workstation wrapper | **PASS** |
 
 The CP fixture oracle includes endpoints and large counts against the beta quantile; the pooled control has
 n=1,440, x=30, three dates and M=2, with the absent city's bound equal to the pooled bound. This is synthetic support,
