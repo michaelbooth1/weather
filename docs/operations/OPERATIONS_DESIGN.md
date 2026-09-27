@@ -169,6 +169,14 @@ error for Stage-A admission.
 
 ### CLOB Book Loop
 
+Capture discovery caches Gamma events by resolved event slug and target date
+for ten minutes. Expired lookup failures propagate; an expired event is never
+served as fresh. Book and enrichment capture share the process-local cache.
+Price-history and enrichment feature projections append new rows when the
+existing prefix is unchanged and skip identical polls. Late corrections,
+legacy duplicate repair, or schema changes retain the full rewrite behavior
+so existing readers see the same result as a full rebuild.
+
 - `data/snapshots/clob_loop_status.json`
 - `data/snapshots/clob_loop_supervisor_status.json`
 - `data/snapshots/clob_diagnostics.jsonl`
