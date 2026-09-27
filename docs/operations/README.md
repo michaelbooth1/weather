@@ -56,6 +56,7 @@ right now is the generated `data/alerts/MORNING_BRIEFING.md` and `scripts\ops\st
 | [package-boundaries.md](package-boundaries.md) | Adding an import across packages. |
 | [PYTHON_RUNTIME_AUDIT_GATE.md](PYTHON_RUNTIME_AUDIT_GATE.md) | Running or changing the focused runtime lint, daily-refresh smoke, Streamlit-route smoke or log-signature checks. Its tracked baseline is [python-runtime-audit-baseline.json](python-runtime-audit-baseline.json). |
 | [RESEARCH_AUDIT_HARNESS.md](RESEARCH_AUDIT_HARNESS.md) | Running a research audit script; distinguishes fixture-only from networked entrypoints. |
+| [t1-fair-value-scoring.md](t1-fair-value-scoring.md) | Reviewing or executing the frozen T+1/T+2 reliability scorer on sealed replay bundles. |
 
 The root `README.md`, `pyproject.toml`, `pytest.ini` and `.github/workflows/ci.yml` are the
 authoritative setup and baseline-test surfaces; [`../development.md`](../development.md) owns
