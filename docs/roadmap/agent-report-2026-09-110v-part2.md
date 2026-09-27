@@ -5,7 +5,8 @@ remain to be measured by the production owner.**
 
 Answers Part 2 of `workstation-handoff-2026-09-110v-efficiency-fixes.md` at
 `795e87d6` on `origin/codex/handoff-110k-20260926`. Open questions: none.
-Branch `codex/stage-a-incremental-20260927`, implementation `93642398`, base
+Branch `codex/stage-a-incremental-20260927`, implementation `93642398` plus
+provenance correction `158008c6`, base
 `e3bc4dc8` on `origin/codex/integration-91a-110f-20260926`. Resolve full hashes
 with `git rev-parse`; the draft PR declares this integration dependency until
 master adoption. No Part 1 dependency or copied implementation.
@@ -44,7 +45,9 @@ and ten-minute report equality apart from generation timestamps; row equality;
 label, feature, threshold, source/schema and corruption invalidation; exact
 replay existing-status response equality; no repeated scoring or replay
 parsing on a warm hit; label parity with a fixed clock; retained venue mismatch
-handling; and one daily-summary read across folders.
+handling; and one daily-summary read across folders. Strict label parity
+also caught the original projection being hashed as a new raw venue response;
+the correction preserves the actual retained response hash (or its absence).
 
 Expected warm-run saving is **roughly 60–75 minutes per daily Stage A**, a
 planning estimate from the supplied production audit, not a measured host
