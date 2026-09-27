@@ -1,10 +1,10 @@
 # Agent report 2026-09-110l — maker replay harness
 
-**Six continuation implementations pass fixtures; production qualification remains PARTIAL.**
-The engine, both fill bounds, scorer, baselines, clustered inference and deterministic reports are implemented.
-Full-session RE-1 journal parity is unavailable and no real-data registration is approved. The bounded weather exporter
-is implemented; final audits are recorded below. No real-data read, economic result or full-session parity is claimed.
-Earlier notes are historical.
+**Full-session RE-1 parity is NOT QUALIFIED: recorded policy mismatches and transport coverage gaps remain.**
+The owner-authorized journal continuation below supersedes the earlier unavailability statement: twelve guarded journals
+now have minimal source-bound fixtures. Four launched sessions show policy divergence; only sessions 7 and 8 match the
+minute/fill-terminal decision projection. No full-session, economic, production or live-readiness pass is claimed.
+The engine, fill bounds, scorer, baselines, inference, reports and bounded exporter are implemented. Earlier notes are historical.
 
 ## Increment 1 — 2026-09-26
 
@@ -366,3 +366,143 @@ was copied to change it. The production operator must obtain the real verdict
 before adoption. Cleanup checked nine named pytest temporary targets: seven
 directories were removed and two were already absent. Every existing target
 passed exact-path, non-redirected Temp-root checks before removal.
+
+## Recorded-session qualification — 2026-09-26 owner authorization
+
+**NOT QUALIFIED. All twelve recorded attempts were tested; ten projected traces differ and no full lifecycle is qualified.**
+This continuation starts at `ed6d43260` on `codex/maker-replay-harness-20260926`. The owner explicitly authorized read-only
+workstation RE-1 journal access solely for this parity test, minimal fixture publication, repository audits, push, and draft
+PR #100 update. No policy, quote kernel, live controller or guard was changed to make a decision match.
+
+### Source and guard qualification
+
+The campaign-analysis handoff identified the older analysis copy. Source inspection of
+`2b9a0ca9e:src/weather/market/re1_attended_cli.py` and `re1_evidence.campaign_root()` located the fixed workstation profile
+campaign root, `.weather-re1m-20260921`. Only the explicit `session-1` through `session-12` **journal.jsonl** files were
+read. The older copy ends at attempt 9 and was not used. No `.env`, key, credential, selection, prediction, reconciliation
+or user-stream file was opened; the already-tracked public selection fixture supplies its previously hashed price control.
+
+Every journal passed the original RE-1 `SecretGuard` before use. The retained exporter freezes that class unchanged at
+`2b9a0ca9e586d510b4aa879fad8f0e7331cfe2c8`; an AST comparison against the pinned Git source passed. It refuses a guard
+change rather than silently scrubbing, verifies every hash-chain link, and repeats guarded hashing to prove stable inputs.
+All twelve original SHA-256 values equal the earlier selection fixture's journal bindings. Their hashes, sizes, row counts
+and every minute's source sequence are retained in
+[the minimal fixture](../../tests/maker_core/fixtures/re1_sessions.json).
+
+An additional substring check stopped on `rows.[].lifecycle_key`. The owner first authorized field-name-only classification;
+no value was printed. Pinned `mm_official_adapter.py` assigns this field from `order_id` on normalized official order/trade
+events. Automatic approval review correctly rejected resumption under classification-only authority. The owner then
+explicitly approved resumption with this exact exception: same `order_id`, official normalized user-stream source, and
+order/trade event type. The original SecretGuard remains unchanged, other suspicious fields/values still stop, and both
+identifiers are absent from the fixture. The final retained exporter reproduced the complete projection byte-for-byte,
+and the core's output SecretGuard also left it unchanged. This is an audited false-positive disposition, not a secret waiver.
+
+### What the byte comparison means
+
+RE-1 did not record native `QuoteDecision` objects. The test therefore compares **canonical JSON bytes of the common
+action/legs projection**, not bytes of SDK payloads or reconstructed native decisions. Each recorded minute retains its
+public books, reward terms, prices, affected leg indices and original capture clock. `at` is the preceding `market_snapshot`
+record clock (when `observe()` runs), rather than the later `minute` record after potentially slow accrual/account calls.
+Both clocks and source sequence are retained. No minute is resampled; attempt 6's two `minute_missed` events remain missing.
+
+The driver executes the existing `blind_re1` `decide()` kernel on all twelve price controls, then each recorded minute,
+carrying **its own** legs forward. Expected recorded legs never reset the carried path. An independent recorded-state
+diagnostic separates the first local policy defect from later divergent state. RE-1's requote requests first cancel affected
+legs; both controllers cancelling both legs is compared as `CANCEL`, not falsely failed on `REQUOTE` versus `CANCEL`
+vocabulary. The partial-leg cancellation remains a genuine mismatch. Replacement/ack timing is not manufactured.
+
+Terminal `fill_seen` is supplied as a recorded account input and exercises `FIRST_FILL_ENDS`; its projected reason is `fill`.
+This is **conditional termination parity, not a fill-model test**. Other terminal reasons remain `UNSUPPORTED` on the actual
+side and cannot match by construction from a quote-only kernel. The original reasons are retained unchanged on the expected
+side. The driver is an offline kernel/session diagnostic, not a replay of the venue transport or the UTC-day bundle engine.
+
+Explicit neutral scaffolding: selection capture time is absent from the older price fixture, so its price-only control gets
+a neutral clock; domain/order identities are placeholders; market minimum is 1 (below all treatments); horizon is 2 (ignored
+by blind); close is fixed session-end plus one day; and available cash/band/event/wallet caps are the treatment size, with
+order cap 0.8 times size. These isolate quote/hold behavior without exporting balances. They cannot qualify historical
+market-close or account-budget gates. Sequential posting, fresh-ask checks, transport failures, cancel acknowledgments,
+heartbeat termination and cleanup remain uncovered. Zero recorded minutes never becomes a parity pass.
+
+### Per-session result
+
+"Equal bytes" covers all retained minutes plus the terminal projection. Initial selection prices match in all 12 attempts.
+Every expected/actual trace SHA-256, mismatching minute index, first divergence and local reason count is in
+[the findings artifact](../../tests/maker_core/fixtures/re1_session_findings.json); the fixture records every source SHA-256.
+
+| Attempt | Launched session | Equal minutes / recorded | Terminal reason | Terminal projection equal | Equal bytes | Full session |
+| ---: | ---: | ---: | --- | --- | --- | --- |
+| 1 | 1 | 37 / 42 | fill | yes, conditional | no | FAIL |
+| 2 | 2 | 0 / 0 | fresh_ask | unsupported | no | INCOMPLETE |
+| 3 | none, opening refused | 0 / 0 | fresh_ask_before_post | unsupported | no | INCOMPLETE |
+| 4 | 3 | 2 / 2 | cancel_not_terminal | unsupported | no | INCOMPLETE |
+| 5 | 4 | 70 / 88 | fill | yes, conditional | no | FAIL |
+| 6 | 5 | 51 / 56 | heartbeat_stale | unsupported | no | FAIL |
+| 7 | 6 | 0 / 0 | exception | unsupported | no | INCOMPLETE |
+| 8 | 7 | 2 / 2 | fill | yes, conditional | yes | INCOMPLETE |
+| 9 | 8 | 13 / 13 | fill | yes, conditional | yes | INCOMPLETE |
+| 10 | 9 | 38 / 38 | exception | unsupported | no | INCOMPLETE |
+| 11 | 10 | 0 / 0 | unexpected_open_orders | unsupported | no | INCOMPLETE |
+| 12 | 11 | 14 / 72 | fill | yes, conditional | no | FAIL |
+
+**227/313 minute decisions match; 86 differ on the carried path.** Two defects explain the first policy divergences:
+
+- `SHARE_BELOW_PULL_FLOOR`: the shared kernel pulls below 5% even for blind RE-1; the recorded RE-1 `observe()` computes
+  share but never applies this pull. First divergences: session 1 minute 38, session 5 minute 52, session 11 minute 15.
+  Recorded-state diagnostics find 38 such local differences across sessions 1, 4, 5 and 11. Later carried differences include
+  cancellation/re-entry state, so 86 is not a count of independent policy defects.
+- Session 4 minute 71 (attempt 5, journal sequence 6233): RE-1 cancels only YES (`[0]`), while the kernel cancels both
+  (`[0,1]`) under `OUTSIDE_REQUOTE_WINDOW`. RE-1 subsequently replaces only that leg; the carried paths then diverge.
+  Session 3's both-leg requote has matching cancellation intent and fails qualification on transport coverage instead.
+
+These findings are retained, not repaired in this qualification task. The twelve former journal-unavailable skips are
+replaced with executable source-bound checks. Ten byte-equality cases are **strict expected failures**, so an unexpected
+pass demands review; separate unmarked tests reproduce each complete findings record and catch crashes or changed findings.
+The two passing byte cases cannot promote full-session status. No economics, model score, confidence interval or alpha spend
+was computed; deterministic comparisons do not supply statistical market evidence.
+
+### Reproduction and verification
+
+From the branch root, through `scripts/ops/workstation_heavy.ps1` with the documented literal base64 argument contract:
+
+```text
+python -m pytest tests/maker_core/test_re1_parity.py tests/maker_core/test_re1_session_export.py tests/maker_core/test_replay_report.py -q --basetemp <fresh-temp-dir>
+```
+
+The ordinary tests use committed minimal fixtures only and need no campaign files or network. Focused result:
+**44 passed, 10 xfailed**, all ten representing the explicitly retained byte-parity findings. Guard tests cover refusal before
+forbidden-path opens, key/signature/credential detection without value output, hash-chain tampering and the exact lifecycle
+identifier exception. The original guard/source, source-stability and exact projection recheck passed separately.
+Repository-wide audit/import tests and final compilation/publication evidence are recorded in the closeout below.
+
+The retained explicit-path `project_journals(paths, selections)` helper can regenerate the projection only under the same
+owner authorization; it has no default path, live/venue imports or output writes. Its result must be canonicalized before
+comparison. Raw journals remain outside Git. Re-running the committed tests needs none of this source access.
+
+### Roll and authority
+
+`src/maker_core/replay/report.py` changes only its truthful qualification message; production closure membership remains
+UNDECIDABLE without the mechanical production verdict. All added/changed tests and fixture helpers are offline test-only;
+the minimal JSON projections carry no claimed production closure membership. The report, bundle contract and fixture README
+are roll-free documentation. No schema registry, admission wrapper, quoting policy or live controller was changed.
+No venue calls, orders, cancels, credentials, production/mirror writes, Scheduler action, master merge or runtime adoption
+occurred. Source-control publication is only to the authorized topic and existing draft PR #100.
+
+### Recorded-session closeout
+
+The admitted selected matrix completed with **1,209 passed, 1 skipped, 10 xfailed**. It included all `tests/maker_core`,
+the weather replay exporter and plugin/dry-run tests, the four repository-wide schema/import-architecture/agent-docs/path
+audit files, and roadmap-backlog tests. The sole skip is Windows symlink privilege; the ten strict expected failures are
+the named byte-parity findings above. This is selected verification, not a claim that the entire repository suite ran.
+`compileall -q app src tests` and both staged/cumulative `git diff --check` passed. Ordinary tests never accessed journals.
+
+```text
+python -m pytest tests/maker_core tests/market/test_maker_replay_bundle.py tests/market/test_maker_plugin.py tests/market/test_maker_plugin_dry_run.py tests/operations/test_schema_registry.py tests/operations/test_import_architecture.py tests/operations/test_agent_docs_audit.py tests/operations/test_path_policy.py tests/reporting/test_roadmap_backlog.py -q --basetemp <fresh-temp-dir>
+python -m compileall -q app src tests
+```
+
+Both commands used the workstation heavy wrapper and its host/principal check, shared mutex and child-tree containment.
+The sandbox identity was refused; executing the same wrapper as the attending principal passed, without changing admission.
+The inherited integration dependency `8180404a0` remains disclosed; fetched `origin/master` was still `965374a0` and the PR
+target remains `codex/weather-maker-plugin-20260925` at `3b8c7b92d`. No dependency or master was merged in this continuation.
+The final canonical `agent_docs_audit`, `roadmap_backlog --fail-on-lint --check`, and `correspondence_index --check` CLIs
+also passed inside the admitted wrapper. The correspondence index remained current and needed no rewrite.

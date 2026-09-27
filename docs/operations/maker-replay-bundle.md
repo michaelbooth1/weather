@@ -210,9 +210,13 @@ Its UTC active-interval prefix windows are predeclared for each replay. A bounde
 minute; exposure alone selects the schedule. This retrospective matching is
 descriptive, not a deployable policy. Additional safety/cash pulls may prevent a
 match; such results report UNMATCHED and are excluded from clock inference.
-Full-trace parity compares every journal field and terminal event. The available
-Phase 0 kit proves 12 selection and eight first-minute quote pairs only; no full
-RE-1 session journal is available under this fixture-only authorization.
+Full-trace parity compares every supplied decision field and terminal event.
+The owner-authorized RE-1 journal projection now retains all recorded minute
+decisions and terminal outcomes, with source hashes and guard-first derivation.
+It exposes policy differences and transport states the neutral kernel cannot
+replay; full-session parity is **NOT QUALIFIED**. See the
+[110l qualification](../roadmap/agent-report-2026-09-110l-maker-replay-harness.md#recorded-session-qualification--2026-09-26-owner-authorization)
+for the per-session byte comparisons and their exact projection limits.
 Blind RE-1 treats each UTC capture day as one retrospective session, ending after
 its first fill and restarting on the next day with the shared inventory/cash carried.
 This daily convention is not evidence of full live-session parity.

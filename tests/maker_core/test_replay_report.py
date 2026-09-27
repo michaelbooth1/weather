@@ -32,7 +32,7 @@ def test_dual_bound_three_day_report_is_byte_deterministic(tmp_path):
     b = comparison_report(reversed(bundles), config, replicates=100)
     assert report_bytes(a) == report_bytes(b)
     assert list(a["bounds"]) == ["strictly_through", "at_price"]
-    assert a["parity"]["status"] == "FULL_SESSION_UNAVAILABLE"
+    assert a["parity"]["status"] == "FULL_SESSION_NOT_QUALIFIED"
     for bound in a["bounds"].values():
         assert set(bound["scores"]) == set(authorization.POLICIES)
         assert all(e["status"] == "UNDERPOWERED" for c in bound["intervals"].values()

@@ -7,6 +7,8 @@ import pytest
 
 from maker_core.contracts import Unavailable
 from maker_core.quoting.policy import Book, RewardTerms, blind_re1, decide
+from maker_core.evidence.journal import canonical_bytes, SecretGuard
+from .fixtures.re1_session_replay import replay_session
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures/re1_price_parity.json").read_text())
 
@@ -39,12 +41,46 @@ def test_parity_evidence_is_bounded_and_available():
         assert len(r["source_journal_sha256"]) == len(r["source_selection_sha256"]) == 64
 
 
-@pytest.mark.parametrize("attempt", range(1, 13))
-def test_full_minute_journal_replay_skeleton(attempt):
-    # 110c forbids account/production reads. A later authorized export must
-    # supply sanitized DecisionInputs per minute plus the recorded expectation:
-    # action (HOLD/requote), each replacement leg/price, and terminal end reason.
-    # Replay each frame with decide(), carry its existing legs to the next frame,
-    # compare every minute, then assert the final recorded end reason. Do not
-    # silently substitute first-minute fixtures for these absent journals.
-    pytest.skip(f"attempt {attempt}: full-minute account journal export unavailable in fixture-only 110c")
+SESSION_FIXTURES = json.loads((Path(__file__).parent / 'fixtures/re1_sessions.json').read_text())['sessions']
+FINDINGS = json.loads((Path(__file__).parent / 'fixtures/re1_session_findings.json').read_text())
+
+
+@pytest.mark.parametrize('session', SESSION_FIXTURES, ids=lambda s: f"attempt-{s['attempt']}")
+def test_recorded_session_findings(session):
+    """Reproduce measured FAIL/INCOMPLETE findings, not assert parity passed."""
+    result = replay_session(session, FIXTURES[session['attempt'] - 1])
+    assert result == FINDINGS[session['attempt'] - 1]
+    assert result['initial_quote_equal']
+    assert result['full_session_parity'] != 'PASS'
+
+
+@pytest.mark.parametrize('session', [
+    pytest.param(s, id=f"attempt-{s['attempt']}", marks=() if s['attempt'] in (8, 9) else
+                 pytest.mark.xfail(strict=True, reason='Recorded parity finding; see 110l qualification and findings JSON'))
+    for s in SESSION_FIXTURES
+])
+def test_recorded_decision_bytes_equal(session):
+    """An unexpected pass requires review; these failures are not hidden skips."""
+    result = replay_session(session, FIXTURES[session['attempt'] - 1])
+    assert result['decision_bytes_equal'], result
+
+
+def test_session_projection_is_minimal_bound_and_guard_clean():
+    assert len(SESSION_FIXTURES) == 12
+    assert sum(len(s['minutes']) for s in SESSION_FIXTURES) == 313
+    assert SecretGuard().clean(SESSION_FIXTURES) == SESSION_FIXTURES
+    for session, selection in zip(SESSION_FIXTURES, FIXTURES):
+        assert session['source_journal_sha256'] == selection['source_journal_sha256']
+        assert session['initial_prices_source_selection_sha256'] == selection['source_selection_sha256']
+        encoded = canonical_bytes(session)
+        for excluded in (b'order_id', b'maker_address', b'token_id', b'lifecycle_key', b'sdk_response', b'available_collateral'):
+            assert excluded not in encoded
+
+
+def test_measured_mismatches_are_behavioral_not_requote_vocabulary():
+    both = replay_session(SESSION_FIXTURES[3], FIXTURES[3])
+    one = replay_session(SESSION_FIXTURES[4], FIXTURES[4])
+    assert both['mismatched_minutes'] == 0  # Both controllers cancel both legs.
+    assert one['first_mismatch']['expected']['cancel_legs'] == [0]
+    assert one['first_mismatch']['actual']['cancel_legs'] == [0, 1]
+    assert one['first_mismatch']['expected']['action'] == one['first_mismatch']['actual']['action'] == 'CANCEL'
