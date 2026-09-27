@@ -1378,10 +1378,6 @@ def build_drift_report(
         "accepted_snapshot_present": accepted_payload is not None,
         "material_change_count": len(changes),
         "material_changes": changes,
-        "market_tick_size_mixes": {
-            "accepted": _market_tick_size_mixes(accepted_payload),
-            "current": _market_tick_size_mixes(current_payload),
-        },
         "rescore_required": rescore_required,
         "blockers": (
             [
