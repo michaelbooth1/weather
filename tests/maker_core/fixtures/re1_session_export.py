@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import stat
+from decimal import Decimal
 
 from maker_core.evidence.journal import canonical_bytes
 
@@ -111,6 +112,65 @@ def snapshot_frame(row):
     return dict(at=row['recorded_at_utc'], observed_at=snapshot['observed_at_utc'], quote_inputs=values)
 
 
+def lifecycle_projection(rows):
+    """Keep only price/leg boundaries and acknowledgment facts; erase identities."""
+    tokens = next(r['snapshot']['token_ids'] for r in rows if 'snapshot' in r)
+    known, pending_post, pending_cancel = {}, None, None
+    result = []
+    for row in rows:
+        event = row['event']
+        item = dict(event=event, sequence=row['sequence'], at=row['recorded_at_utc'])
+        if event in ('opening_market_snapshot', 'submit_market_snapshot'):
+            item.update(snapshot_frame(row))
+        elif event == 'submit_request':
+            request = row['request']
+            pending_post = tokens.index(request['token_id'])
+            item.update(leg=pending_post, price=str(request['price']), size=str(request['size']))
+        elif event == 'signed_order_book':
+            book = row['book']
+            item.update(leg=tokens.index(book['token_id']), ask_min=min(str(v['price']) for v in book['asks']))
+        elif event == 'submit_response':
+            response = row['response']
+            oid = response.get('id') or response.get('order_id') or response.get('orderID')
+            if oid:
+                known[oid] = pending_post
+            item.update(leg=pending_post, identity_present=bool(oid), ok=response.get('ok', response.get('success')) is True,
+                        live=response.get('status') == 'live', matched=response.get('status') == 'matched',
+                        trade=bool(response.get('trade_ids') or response.get('tradeIDs')))
+        elif event == 'cancel_request':
+            pending_cancel = row['request']['order_id']
+            item['leg'] = known[pending_cancel]
+        elif event == 'cancel_response':
+            response = row['response']
+            canceled = response.get('canceled')
+            item.update(leg=known[pending_cancel], acknowledged=isinstance(canceled, list)
+                        and not response.get('not_canceled') and pending_cancel in canceled)
+            item['acknowledged'] = bool(item['acknowledged'])
+        elif event == 'cancel_order_read_response':
+            response = row['response']
+            item.update(leg=known[pending_cancel], filled=Decimal(str(response.get('size_matched', 0))) > 0
+                        or bool(response.get('associate_trades'))
+                        or str(response.get('status') or response.get('official_order_status') or '').upper() == 'MATCHED')
+        elif event == 'open_orders_response':
+            values = row['response']
+            identities = [v.get('id') or v.get('order_id') or v.get('orderID') or v.get('lifecycle_key') for v in values]
+            item.update(legs=[known[v] for v in identities if v in known], unknown_count=sum(v not in known for v in identities))
+        elif event in ('minute_missed', 'read_unavailable'):
+            label = row['exception_type']
+            if not re.fullmatch('[A-Za-z_]{1,64}', label):
+                raise ValueError('unrecognized exception label')
+            item['exception_type'] = label
+            if event == 'read_unavailable':
+                fact = row['fact']
+                item['fact'] = 'order' if fact.startswith('order_') else fact
+                if not re.fullmatch('[A-Za-z_]{1,64}', item['fact']):
+                    raise ValueError('unrecognized read label')
+        else:
+            continue
+        result.append(item)
+    return result
+
+
 def project_journals(paths, selections):
     paths = tuple(Path(p) for p in paths)
     if not paths or len(paths) > 30 or len(set(paths)) != len(paths):
@@ -132,7 +192,15 @@ def project_journals(paths, selections):
                        terminal=dict(at=terminal['recorded_at_utc'], reason=terminal['reason'],
                                      fill_seen=terminal['fill_seen'], requotes=terminal['requotes'],
                                      submits=terminal['submits']),
-                       missing_minutes=sum(r['event'] == 'minute_missed' for r in rows))
+                       missing_minutes=sum(r['event'] == 'minute_missed' for r in rows),
+                       lifecycle=lifecycle_projection(rows),
+                       terminal_evidence=dict(sequence=terminal['sequence'], failure_type=terminal['failure_type'],
+                                              unknown_submit=terminal['unknown_submit'], post_count=terminal['post_count'],
+                                              cleanup_ok=terminal['cleanup_ok'], inventory_proven=terminal['inventory_proven'],
+                                              last_events=[dict(event=r['event'], sequence=r['sequence'], at=r['recorded_at_utc'])
+                                                           for r in rows[max(0, next(i for i, r in enumerate(rows)
+                                                               if r['event'].startswith('cleanup_')) - 6):
+                                                               next(i for i, r in enumerate(rows) if r['event'].startswith('cleanup_'))]]))
         last_snapshot = None
         for row in rows:
             if row['event'] == 'market_snapshot':

@@ -33,7 +33,7 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
         input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
         coverage=[coverage_report(b, config.policy, check=check) for b in bundles],
         parity=dict(status="FULL_SESSION_NOT_QUALIFIED",
-                    reason="recorded-session fixtures expose policy mismatches and transport coverage gaps",
+                    reason="all 313 recorded minutes match; five terminal projections retain source-revision/input-coverage findings",
                     available_fixture_scope="selection prices and recorded minute/terminal projections; see test_re1_parity"),
         assumptions=(*ASSUMPTIONS[:4], *REPLAY_ASSUMPTIONS), bounds={})
     for bound in BOUNDS:
@@ -70,7 +70,7 @@ def _safe(value):
 def report_bytes(report):
     raw = canonical_bytes(report)
     lines = ["# Maker replay report", "", "**" + report["status"] + " — modeled counterfactuals.**", "",
-             "Full-session parity: NOT QUALIFIED. Recorded decision mismatches and transport gaps remain; "
+              "Full-session parity: NOT QUALIFIED. Recorded minutes match; terminal and transport coverage gaps remain; "
              "no live or promotion verdict follows from replay.", "",
              "Registration SHA-256: " + str(report["pre_registration_sha256"]), ""]
     for bound, result in report["bounds"].items():

@@ -9,6 +9,9 @@ from maker_core.contracts import Unavailable
 from maker_core.quoting.policy import Book, RewardTerms, blind_re1, decide
 from maker_core.evidence.journal import canonical_bytes, SecretGuard
 from .fixtures.re1_session_replay import replay_session
+from .fixtures.re1_session_replay import inputs_for
+from .fixtures.re1_attended_observe import observe as reference_observe
+from maker_core.quoting.re1 import observe as ported_observe
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures/re1_price_parity.json").read_text())
 
@@ -43,20 +46,24 @@ def test_parity_evidence_is_bounded_and_available():
 
 SESSION_FIXTURES = json.loads((Path(__file__).parent / 'fixtures/re1_sessions.json').read_text())['sessions']
 FINDINGS = json.loads((Path(__file__).parent / 'fixtures/re1_session_findings.json').read_text())
+LEDGER = json.loads((Path(__file__).parent / 'fixtures/re1_divergence_ledger.json').read_text())
+REMAINING = {r['attempt']: r for r in LEDGER['terminal_divergences']}
 
 
 @pytest.mark.parametrize('session', SESSION_FIXTURES, ids=lambda s: f"attempt-{s['attempt']}")
 def test_recorded_session_findings(session):
-    """Reproduce measured FAIL/INCOMPLETE findings, not assert parity passed."""
+    """Unmarked checks prevent an xfail from concealing unrelated regressions."""
     result = replay_session(session, FIXTURES[session['attempt'] - 1])
     assert result == FINDINGS[session['attempt'] - 1]
     assert result['initial_quote_equal']
     assert result['full_session_parity'] != 'PASS'
+    assert result['minute_divergences'] == []
+    assert result['lifecycle_divergences'] == []
 
 
 @pytest.mark.parametrize('session', [
-    pytest.param(s, id=f"attempt-{s['attempt']}", marks=() if s['attempt'] in (8, 9) else
-                 pytest.mark.xfail(strict=True, reason='Recorded parity finding; see 110l qualification and findings JSON'))
+    pytest.param(s, id=f"attempt-{s['attempt']}", marks=() if s['attempt'] not in REMAINING else
+                 pytest.mark.xfail(strict=True, raises=AssertionError, reason=REMAINING[s['attempt']]['cause'] + ': ' + REMAINING[s['attempt']]['reason']))
     for s in SESSION_FIXTURES
 ])
 def test_recorded_decision_bytes_equal(session):
@@ -73,14 +80,35 @@ def test_session_projection_is_minimal_bound_and_guard_clean():
         assert session['source_journal_sha256'] == selection['source_journal_sha256']
         assert session['initial_prices_source_selection_sha256'] == selection['source_selection_sha256']
         encoded = canonical_bytes(session)
-        for excluded in (b'order_id', b'maker_address', b'token_id', b'lifecycle_key', b'sdk_response', b'available_collateral'):
+        for excluded in (b'order_id', b'maker_address', b'token_id', b'lifecycle_key', b'available_collateral'):
             assert excluded not in encoded
 
 
-def test_measured_mismatches_are_behavioral_not_requote_vocabulary():
-    both = replay_session(SESSION_FIXTURES[3], FIXTURES[3])
-    one = replay_session(SESSION_FIXTURES[4], FIXTURES[4])
-    assert both['mismatched_minutes'] == 0  # Both controllers cancel both legs.
-    assert one['first_mismatch']['expected']['cancel_legs'] == [0]
-    assert one['first_mismatch']['actual']['cancel_legs'] == [0, 1]
-    assert one['first_mismatch']['expected']['action'] == one['first_mismatch']['actual']['action'] == 'CANCEL'
+def test_ledger_accounts_for_every_remaining_divergence_with_bound_evidence():
+    assert LEDGER['remaining_minute_divergences'] == []
+    assert set(REMAINING) == {r['attempt'] for r in FINDINGS if not r['decision_bytes_equal']}
+    assert sum(r['matched_minutes'] for r in FINDINGS) == 313
+    for attempt, entry in REMAINING.items():
+        source = SESSION_FIXTURES[attempt-1]
+        assert entry['source_journal_sha256'] == source['source_journal_sha256']
+        sequences = {v['sequence'] for v in source['lifecycle'] + source['terminal_evidence']['last_events']}
+        sequences.add(source['terminal_evidence']['sequence'])
+        assert set(entry['sequences']) <= sequences
+        assert entry['cause'] and entry['reason'] and entry['classification']
+    missed = [v for v in SESSION_FIXTURES[5]['lifecycle'] if v['event'] == 'minute_missed']
+    assert [v['sequence'] for v in missed] == LEDGER['unobserved_minutes'][0]['sequences']
+
+
+@pytest.mark.parametrize('session', SESSION_FIXTURES, ids=lambda s: f"attempt-{s['attempt']}")
+def test_observer_differential_against_frozen_live_function(session):
+    for frame in session['minutes']:
+        raw = dict(frame['quote_inputs'])
+        for key in ('yes_bids', 'yes_asks', 'no_bids', 'no_asks'):
+            raw[key] = [dict(price=p, size=s) for p, s in raw[key]]
+        reference = reference_observe(dict(quote_inputs=raw), frame['prices'], session['size'])
+        i = inputs_for(session, frame, ())
+        actual = ported_observe(i.book, i.terms, tuple(map(D, frame['prices'])), D(session['size']))
+        assert actual.adjusted_mid == D(reference['adjusted_mid'])
+        assert actual.requote_legs == tuple(reference['requote_legs'])
+        assert actual.share_many == reference['share_many']
+        assert actual.per_minute_many == reference['per_minute_many']

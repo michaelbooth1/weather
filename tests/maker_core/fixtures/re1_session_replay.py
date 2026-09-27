@@ -1,10 +1,9 @@
-"""Offline RE-1 decision projection; no account, SDK, or filesystem access.
+"""Canonical minute/terminal projection, driven by anonymous recorded inputs.
 
-The journal has no native QuoteDecision objects. Compare canonical bytes of the
-shared observable action/legs projection, preserving every minute and terminal.
-Transport-only terminal causes remain unsupported, never manufactured inputs.
+Expected minute prices/requote legs and terminal reasons are comparison outputs,
+never runtime state inputs. Actual legs advance only through generated intents
+and recorded acknowledgment facts. Neither account identity nor HTTP is replayed.
 """
-from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal as D
@@ -12,9 +11,8 @@ import hashlib
 
 from maker_core.contracts import MarketDescriptor, Unavailable
 from maker_core.evidence.journal import canonical_bytes
-from maker_core.quoting.policy import (
-    Book, DecisionInputs, Portfolio, QuoteLeg, RewardTerms, blind_re1, decide,
-)
+from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, QuoteLeg, RewardTerms, blind_re1, decide
+from maker_core.replay.re1 import Re1Session
 
 
 def legs(prices, size):
@@ -26,13 +24,10 @@ def projection(action, current):
 
 
 def inputs_for(session, frame, existing):
-    at = datetime.fromisoformat(frame['at'])
-    observed = datetime.fromisoformat(frame['observed_at'])
-    raw = frame['quote_inputs']
-    size = D(session['size'])
-    # RE-1 journals do not retain market close or an event-wide portfolio.
-    # Explicit neutral scaffolding isolates the recorded quote/hold decisions;
-    # it is not historical evidence for these newer gates.
+    at, observed = map(datetime.fromisoformat, (frame['at'], frame['observed_at']))
+    raw, size = frame['quote_inputs'], D(session['size'])
+    # These identity/cap/close fields are neutral scaffolding, not historical
+    # evidence. The RE-1 observer does not use inferred market-close gates.
     close = datetime.fromisoformat(session['fixed_end_at']) + timedelta(days=1)
     market = MarketDescriptor('re1-parity', 'event', 'band', {'YES': 'yes', 'NO': 'no'},
                               D(raw['tick']), D(1), None, close, close, None,
@@ -43,83 +38,95 @@ def inputs_for(session, frame, existing):
     terms = RewardTerms(observed, D(raw['reward_min_size']), D(raw['reward_max_spread_cents']),
                         D(raw['reward_rate_per_day']))
     return DecisionInputs(market, at, book, terms, Unavailable('recorded blind policy', at),
-                          Portfolio(size, D(0), size, size * D('.8'), D(0), size, D(0), size),
+                          Portfolio(D(100), D(0), size, size * D('.8'), D(0), size, D(0), size),
                           2, profile=blind_re1, existing=existing)
 
 
 def replay_session(session, selection):
-    """Carry the kernel's own legs; separately diagnose recorded-state decisions.
-
-    Recorded terminal fill_seen is an observed account input, not a simulated
-    fill prediction. Other terminal causes cannot be inferred from quote books.
-    No raw expected decision is ever used to advance the carried kernel state.
-    """
     assert selection['source_journal_sha256'] == session['source_journal_sha256']
     raw = dict(selection['quote_inputs'])
     for key in ('yes_bids', 'yes_asks', 'no_bids', 'no_asks'):
         raw[key] = [(str(v['price']), str(v['size'])) for v in raw[key]]
-    # The older public selection fixture has no capture time. Use a neutral
-    # clock ONLY for this already-qualified selection-price control.
-    initial_frame = dict(at=session['opening']['at'], observed_at=session['opening']['at'], quote_inputs=raw)
-    initial = decide(inputs_for(session, initial_frame, ()))
-    current = initial.legs
-    initial_equal = canonical_bytes(projection(initial.action, current)) == canonical_bytes(
+    frame = dict(at=session['opening']['at'], observed_at=session['opening']['at'], quote_inputs=raw)
+    initial = decide(inputs_for(session, frame, ()))
+    initial_equal = canonical_bytes(projection(initial.action, initial.legs)) == canonical_bytes(
         projection('QUOTE', legs(selection['expected_prices'], session['size'])))
-    expected, actual, mismatches = [], [], []
-    local_reasons = Counter()
+    runtime = Re1Session(initial.legs, end=datetime.fromisoformat(session['fixed_end_at']))
+    expected, actual, mismatches, lifecycle_mismatches = [], [], [], []
+    timeline = iter(session['lifecycle'])
+    pending = next(timeline, None)
+    last_cancel_ack = None
+
+    def consume(item):
+        nonlocal last_cancel_ack
+        event = item['event']
+        now = datetime.fromisoformat(item['at'])
+        if event == 'opening_market_snapshot':
+            runtime.opening_check(inputs_for(session, item, ()).book)
+        elif event == 'submit_market_snapshot':
+            runtime.begin_post(inputs_for(session, item, runtime.legs))
+        elif event == 'submit_request':
+            intent = runtime.pending[0] if runtime.pending else None
+            observed = dict(leg=item['leg'], price=item['price'], size=item['size'])
+            generated = dict(leg=intent.leg, price=str(intent.price), size=str(intent.size)) if intent else None
+            if observed != generated:
+                lifecycle_mismatches.append(dict(sequence=item['sequence'], cause='SUBMIT_INTENT_DIFFERENCE',
+                                                 expected=observed, actual=generated))
+        elif event == 'signed_order_book':
+            runtime.signed_book(D(item['ask_min']))
+        elif event == 'submit_response':
+            runtime.post_result(identity_present=item['identity_present'], ok=item['ok'],
+                                status='matched' if item['matched'] else 'live' if item['live'] else 'other',
+                                trade=item['trade'])
+        elif event == 'cancel_request':
+            generated = runtime.pending[0].leg if runtime.pending else None
+            if generated != item['leg']:
+                lifecycle_mismatches.append(dict(sequence=item['sequence'], cause='CANCEL_INTENT_DIFFERENCE',
+                                                 expected=item['leg'], actual=generated))
+        elif event == 'cancel_response':
+            last_cancel_ack = item['acknowledged']
+        elif event == 'cancel_order_read_response':
+            runtime.cancel_result(now, acknowledged=last_cancel_ack, filled=item['filled'])
+        elif event == 'open_orders_response' and runtime.cancel_ack_at is not None and not runtime.reason:
+            runtime.cancel_open_read(now, present=runtime.pending[0].leg in item['legs'])
+        elif event == 'open_orders_response' and runtime.pending and not runtime.reason:
+            runtime.pre_submit_open_read(now, item['legs'], unknown_count=item['unknown_count'])
+
     for index, frame in enumerate(session['minutes']):
+        while pending is not None and pending['sequence'] < frame['sequence']:
+            consume(pending)
+            pending = next(timeline, None)
         recorded = legs(frame['prices'], session['size'])
-        # RE-1 cancels affected legs before attempting replacements. Compare
-        # that immediate cancellation intent with the core's CANCEL, not an
-        # invented REQUOTE action that would fail merely on vocabulary.
-        wanted = projection('CANCEL' if frame['requote_legs'] else 'HOLD',
-                            () if frame['requote_legs'] else recorded)
+        wanted = projection('CANCEL' if frame['requote_legs'] else 'HOLD', () if frame['requote_legs'] else recorded)
         wanted.update(at=frame['at'], cancel_legs=frame['requote_legs'])
-        decision = decide(inputs_for(session, frame, current))
+        decision, affected = runtime.minute(inputs_for(session, frame, runtime.legs))
         got = projection(decision.action, decision.legs)
-        got.update(at=frame['at'], cancel_legs=[0 if v.outcome == 'YES' else 1 for v in current]
-                   if decision.action in ('CANCEL', 'END') else [])
+        got.update(at=frame['at'], cancel_legs=list(affected))
         expected.append(wanted)
         actual.append(got)
-        local = decide(inputs_for(session, frame, recorded))
-        local_got = projection(local.action, local.legs)
-        local_got.update(at=frame['at'], cancel_legs=[0, 1] if local.action in ('CANCEL', 'END') else [])
-        if canonical_bytes(local_got) != canonical_bytes(wanted):
-            local_reasons.update(local.reasons)
         if canonical_bytes(got) != canonical_bytes(wanted):
-            mismatches.append(dict(minute=index + 1, sequence=frame['sequence'],
+            mismatches.append(dict(minute=index + 1, sequence=frame['sequence'], cause='UNCLASSIFIED_POLICY_DIFFERENCE',
                                    expected=wanted, actual=got, reasons=list(decision.reasons)))
-        if decision.action in ('QUOTE', 'HOLD'):
-            current = decision.legs
-        elif decision.action in ('CANCEL', 'END', 'NO_QUOTE'):
-            current = ()
-
+    while pending is not None:
+        consume(pending)
+        pending = next(timeline, None)
     terminal = session['terminal']
-    terminal_expected = dict(at=terminal['at'], action='END', reason=terminal['reason'])
-    # A fill flag exercises the actual first-fill gate. Do not translate other
-    # terminal reasons into inputs chosen to force the recorded outcome.
     if terminal['fill_seen']:
-        last = session['minutes'][-1] if session['minutes'] else session['opening']
-        decision = decide(replace(inputs_for(session, last, current),
-                                  now=datetime.fromisoformat(terminal['at']), fill_seen=True))
-        terminal_actual = dict(at=terminal['at'], action=decision.action,
-                               reason='fill' if decision.reasons == ('FIRST_FILL_ENDS',) else list(decision.reasons))
-    else:
-        terminal_actual = dict(at=terminal['at'], action='UNSUPPORTED', reason='TRANSPORT_STATE_NOT_REPLAYED')
-    expected.append(terminal_expected)
-    actual.append(terminal_actual)
-    terminal_equal = canonical_bytes(terminal_expected) == canonical_bytes(terminal_actual)
+        runtime.fill()  # Observed inventory input; never a predicted fill.
+    wanted = dict(at=terminal['at'], action='END', reason=terminal['reason'])
+    got = dict(at=terminal['at'], action='END' if runtime.reason else 'UNSUPPORTED',
+               reason=runtime.reason or 'TRANSPORT_STATE_NOT_REPLAYED')
+    expected.append(wanted)
+    actual.append(got)
+    terminal_equal = canonical_bytes(wanted) == canonical_bytes(got)
     return dict(attempt=session['attempt'], session=session['session'], initial_quote_equal=initial_equal,
                 minute_count=len(session['minutes']), matched_minutes=len(session['minutes']) - len(mismatches),
-                mismatched_minutes=len(mismatches), first_mismatch=mismatches[0] if mismatches else None,
-                mismatched_minute_indices=[m['minute'] for m in mismatches],
-                recorded_state_reasons=dict(sorted(local_reasons.items())), terminal_equal=terminal_equal,
-                terminal_reason=terminal['reason'],
+                mismatched_minutes=len(mismatches), minute_divergences=mismatches,
+                lifecycle_divergences=lifecycle_mismatches, terminal_equal=terminal_equal,
+                terminal_reason=terminal['reason'], actual_terminal_reason=got['reason'],
                 decision_bytes_equal=canonical_bytes(actual) == canonical_bytes(expected),
                 expected_sha256=hashlib.sha256(canonical_bytes(expected)).hexdigest(),
                 actual_sha256=hashlib.sha256(canonical_bytes(actual)).hexdigest(),
-                # Even matching minutes/fill termination do not replay sequential
-                # post acks, fresh-ask checks, failed cancels, or cleanup.
-                full_session_parity='FAIL' if mismatches or not initial_equal else 'INCOMPLETE',
-                uncovered=['opening_and_sequential_submit_checks', 'transport_and_cleanup',
+                full_session_parity='INCOMPLETE',
+                uncovered=['account_and_signing_bindings', 'monotonic_transport_schedule_and_cleanup',
                            'market_close_and_account_caps_not_retained'])

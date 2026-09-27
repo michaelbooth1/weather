@@ -18,6 +18,7 @@ from maker_core.quoting.policy import (DecisionInputs, ExposureLimit, Portfolio,
 from maker_core.replay.bundle import Bundle, BundleError
 from maker_core.replay.payloads import Descriptor, decode, number
 from maker_core.replay.fill_model import BOUNDS, Fill, match
+from maker_core.replay.re1_counterfactual import tick as blind_tick
 
 D = Decimal
 EPSILON = timedelta(microseconds=1)
@@ -83,6 +84,7 @@ class Span:
 
 @dataclass
 class State:
+    re1: object | None = None
     latest: dict = field(default_factory=dict)
     captured: dict = field(default_factory=dict)
     legs: tuple[QuoteLeg, ...] = ()
@@ -229,6 +231,8 @@ class ReplayEngine:
 
     def pull(self, cid, at, reason):
         state = self.states[cid]
+        if self.config.policy == 'blind_re1' and state.re1 is not None:
+            state.re1.finish('input_coverage_ended')
         decision = QuoteDecision("CANCEL" if state.legs else "NO_QUOTE", (), (reason,),
                                  digest({"at": at, "condition": cid, "reason": reason,
                                          "captured": state.captured}), self.profile.name)
@@ -371,7 +375,8 @@ class ReplayEngine:
                 self.pull(cid, at, "AWAIT_FRESH_REENTRY_INPUTS")
                 return
             state.resume_after = None
-        if not state.legs and state.last_quote is not None and at - state.last_quote < timedelta(seconds=60):
+        if (self.config.policy != 'blind_re1' and not state.legs and state.last_quote is not None
+                and at - state.last_quote < timedelta(seconds=60)):
             self.pull(cid, at, "REQUOTE_COOLDOWN")
             return
         desc = state.latest["descriptor"]
@@ -391,6 +396,11 @@ class ReplayEngine:
                                self.portfolio(cid), desc.horizon_days, events, self.profile,
                                self.config.hazard_per_minute, existing=state.legs,
                                last_requote_at=state.last_quote, previous_fair_value=state.previous_fair_value)
+        if self.config.policy == 'blind_re1':
+            blind_tick(self, cid, at, value)
+            if sum((s.reserve for s in self.states.values()), D(0)) > self.cash:
+                raise BundleError("cash_overcommitment")
+            return
         decision = decide(value)
         self.record_decision(cid, at, decision)
         if "INFO_PULL" in decision.reasons and state.resume_after is None:
@@ -433,6 +443,8 @@ class ReplayEngine:
             rows = sorted(self.records.pop(at, ()), key=lambda r: r.sequence)
             if previous is not None and previous.date() != at.date() and self.config.policy == "blind_re1":
                 self.ended = False  # One retrospective RE-1 session per UTC capture day.
+                for state in self.states.values():
+                    state.re1 = None
             # All prints consume the expiring quote before any equal-time input
             # update or replacement, regardless of sequence within that capture.
             for row in rows:

@@ -1,9 +1,10 @@
 # Agent report 2026-09-110l — maker replay harness
 
-**Full-session RE-1 parity is NOT QUALIFIED: recorded policy mismatches and transport coverage gaps remain.**
-The owner-authorized journal continuation below supersedes the earlier unavailability statement: twelve guarded journals
-now have minimal source-bound fixtures. Four launched sessions show policy divergence; only sessions 7 and 8 match the
-minute/fill-terminal decision projection. No full-session, economic, production or live-readiness pass is claimed.
+**All 313 recorded RE-1 minutes now match. Full-session parity remains NOT QUALIFIED.**
+The [behavior-port continuation](#re-1-behavior-port--2026-09-27-continuation-from-0bd7adf98) supersedes the earlier
+227/313 result: seven of twelve attempt projections match canonical minute/terminal bytes; five terminal differences
+have named source-revision/input-coverage causes. Every retained submit/cancel intent matches. No recorded minute
+divergence remains. No full-session, economic, production or live-readiness pass is claimed.
 The engine, fill bounds, scorer, baselines, inference, reports and bounded exporter are implemented. Earlier notes are historical.
 
 ## Increment 1 — 2026-09-26
@@ -513,3 +514,119 @@ Source/fixture commit **`4cdabbd4b7a0fa4f91ef4afa64a4a83f769f8592`** was pushed 
 closure evidence**, naming the four absent capture status files. Production must obtain its own verdict before adoption.
 Cleanup checked nine exact task-owned pytest Temp targets: two existed and were removed after parent/reparse checks; seven
 were already absent. The raw campaign remains read-only and unchanged. This receipt is a documentation-only follow-up.
+
+## RE-1 behavior port — 2026-09-27 continuation from 0bd7adf98
+
+Owner requested the exact RE-1 behavior rather than adapting the informed kernel to the recorded decisions. Work continued
+on the same topic from `0bd7adf98de6c546baa64fff7ee7d45000d7f67e`. Fetch confirmed the RE-1 branch
+`codex/re1-wallet-200-20260923` at `2b9a0ca9e586d510b4aa879fad8f0e7331cfe2c8`.
+[The source manifest](../../tests/maker_core/fixtures/re1_live_source.json) records SHA-256s for `re1_attended`,
+`re1_transport`, `re1_resilience`, `re1_sizing` and `reward_quote`. The source was read through Git, never imported into
+the neutral runtime. No credentials, venue calls, orders, cancels or live processes were used.
+
+### Corrected behavior and source evidence
+
+The requested share-floor investigation found **no live RE-1 share-floor pull at any threshold or duration**.
+`re1_attended.observe` records share and only requests requotes for distances outside the inclusive 1–3 cent window.
+The old replay incorrectly applied the informed profile's immediate 5% pull. The new blind observer keeps the exact
+live term/book checks and own-depth aggregation; selection/submit freshness, midpoint-range, touch-buffer and minimum
+reward-width gates are not reapplied to resting prices. `informed_v0` retains its existing gates and cooldown.
+
+The offline lifecycle carries its own generated prices and frozen session size. It cancels every affected leg in order,
+confirms removal, then posts replacements in order; an unaffected sibling stays active. No 60-second requote cooldown
+exists in RE-1. Sampling uses `max(previous + 60 seconds, now + 1 second)`. The controller permits four requote rounds,
+ends before the fifth, and consumes at most ten submit attempts, including ambiguous failures. A lost POST acknowledgment
+ends the session without retry; a fill during post, cancellation or terminal inventory proof ends it. Cancel confirmation
+uses ten reads with one-second waits including the final wait. Missing own posts receive up to ten pre-submit read retries;
+foreign orders fail immediately. Heartbeat timing is two seconds after success, one second on transient/resync failure,
+eight seconds stale and twenty seconds main-loop stalled. A rotating-ID resync is not an acknowledgment.
+
+Selection retains the size ladder and wallet-minus-ten reserve budget capped at 75. Session submit caps are 0.79 times
+size per leg and min(0.98 times size, reserve budget) per pair. Initial paired opening checks, ten-second submit snapshot
+freshness, actual post-signing ask checks and the three-minute remaining expiration horizon are exercised separately.
+The neutral state machine emits intents only; it does not implement HTTP, account identity/signature verification or
+cleanup IO. Six-hour sessions and UTC-day boundaries remain explicit. The historical campaign expiry and owner live
+authorization are not authority granted by offline replay.
+
+All twelve original journals were guarded again before projection with the unchanged pinned SecretGuard, the stronger
+stop check and the already approved exact `lifecycle_key == order_id` exception. Hash chains and after-read source hashes
+passed. The added fixture fields are public submit books/ask minima, anonymous leg indices, acknowledgment booleans,
+exception types, and sequence/time boundaries. No order/token/account identifiers or raw payloads survive.
+
+### Qualification by session
+
+The projection compares canonical bytes of every recorded minute's timestamp, action, legs and affected cancel indices,
+plus terminal timestamp/action/reason. Terminal timestamps are recorded envelopes, not predicted stop times. Selection
+prices are checked separately. Expected minute prices, requote flags and terminal reasons never update carried state;
+only generated intents and recorded acknowledgment inputs do. Recorded fill flags condition the first-fill gate and do
+not validate a fill model. Source functions are frozen independently and compared against every recorded minute.
+
+| Attempt | Launched session | Recorded minutes matching | Minute/terminal bytes | Remaining cause |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 42 / 42 | equal | projection scope only |
+| 2 | 2 | 0 / 0 | equal | fresh-ask terminal reproduced; no minute observations |
+| 3 | none | 0 / 0 | equal | opening fresh-ask refusal reproduced; no posts |
+| 4 | 3 | 2 / 2 | different | legacy cancel-read retry inputs |
+| 5 | 4 | 88 / 88 | equal | partial cancellation and replacement carried correctly |
+| 6 | 5 | 56 / 56 | different | legacy heartbeat schedule / missing monotonic clock |
+| 7 | 6 | 0 / 0 | different | legacy order-decode retry inputs |
+| 8 | 7 | 2 / 2 | equal | projection scope only |
+| 9 | 8 | 13 / 13 | equal | projection scope only |
+| 10 | 9 | 38 / 38 | different | unjournaled RuntimeError detail |
+| 11 | 10 | 0 / 0 | different | legacy post-visibility retry inputs |
+| 12 | 11 | 72 / 72 | equal | projection scope only |
+
+**313/313 recorded minutes, zero divergent minutes; seven equal projections and five explained terminal differences.**
+All 86 prior minute differences are resolved by removing the informed share pull, preserving affected-leg cancellation,
+and carrying generated replacements. [Findings](../../tests/maker_core/fixtures/re1_session_findings.json) retain each
+session's actual/expected SHA-256 and explicit minute/lifecycle divergence arrays. The
+[divergence ledger](../../tests/maker_core/fixtures/re1_divergence_ledger.json) names each remaining cause, binds it to
+the source journal SHA-256 and specific sequences, and cites the source fixes:
+
+- Attempt 4 acknowledged a cancel but exited after one open-order read still listed it (182/186/199; terminal 239).
+  `26f60347` subsequently added ten polls. The newer controller needs reads the exited session cannot supply.
+- Attempt 6 has a heartbeat request/unavailable boundary (5098/5103; terminal 5152). `f3df6f26` changed five-second
+  cadence to two seconds. No monotonic watchdog ticks or responses at the new cadence are retained. Its two
+  `minute_missed` records, sequences 351 and 2891, lack books/decisions and are separately excluded from the denominator.
+- Attempt 7 stops with `UnexpectedResponseError` after an SDK response but before normalized order response (73/75;
+  terminal 118). `f3df6f26` makes that error transient; hypothetical subsequent read outcomes are absent.
+- Attempt 10 ends with `RuntimeError` (5369) after successful order/heartbeat boundaries (5323/5326).
+  `Session.run` retains the type but no message, traceback or origin. The underlying fault cannot be identified more
+  specifically from this journal, and the terminal label is not recycled into an input to force equality.
+- Attempt 11 has one acknowledged post (46), then an empty open-order list (63; terminal 96). `10fa052a` adds retries
+  for this strict-subset lag; the missing future reads are not fabricated.
+
+The five parity checks use **strict, reasoned xfail**, not plain failures or silent skips. Unmarked checks reproduce the
+full findings, require zero unclassified minute/lifecycle differences, and verify ledger/source sequence coverage.
+An unexpected parity pass fails strict xfail and requires review. Account/signing bindings, monotonic transport scheduling
+and cleanup remain outside the anonymous projection, even for the seven equal traces. Attempts 1/2 predate the paired
+opening gate; only their retained checks are replayed.
+
+### Capture-input limit and verification
+
+No 88a-vs-live-book divergence is claimed: these 313 comparisons use the actual journal snapshots. The 88a adapter lacks
+private acknowledgments and the actual post-signing live book. It now uses the same blind lifecycle but explicitly records
+`RE1_TRANSPORT_ASSUMED` when assuming immediate success and a captured book for the later touch check. Such diagnostic
+counterfactuals cannot establish live parity. Capture gaps end that session, and shared portfolio caps still apply.
+The CLI remains diagnostic-only by default; scoring admission and the informed policy are unchanged.
+
+Final selected verification: **1,245 passed, 1 skipped, 5 xfailed**. The skip is the documented Windows symlink privilege
+case; the xfails are exactly the five named terminal findings. This is a selected regression matrix, not the entire repo
+suite. It includes all maker-core tests, weather exporter/plugin/dry-run tests, schema/import-architecture/agent-docs/path
+audits and roadmap tests. A final focused runtime/parity check also passed (64 passed, 5 xfailed). All commands ran through
+`scripts/ops/workstation_heavy.ps1` with host/principal admission, shared mutex and child-tree containment.
+
+```text
+python -m pytest tests/maker_core tests/market/test_maker_replay_bundle.py tests/market/test_maker_plugin.py tests/market/test_maker_plugin_dry_run.py tests/operations/test_schema_registry.py tests/operations/test_import_architecture.py tests/operations/test_agent_docs_audit.py tests/operations/test_path_policy.py tests/reporting/test_roadmap_backlog.py -q --basetemp <fresh-temp-dir>
+python -m compileall -q app src tests
+python -m weather.operations.agent_docs_audit
+python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+python -m weather.reporting.roadmap.correspondence_index --check
+```
+
+Compilation and all three canonical CLI audits passed. A separate comparison to `0bd7adf98` proved that **every original
+expected projection field is unchanged** after removing the two added lifecycle/evidence fields. Another independent
+comparison executed that commit's pure policy and confirmed **59 informed-policy cases byte-identical**, spanning reward
+width, depth, fill hazard, resting/initial state, stale inputs, first fill and horizon refusal. These checks do not consult
+local campaign data. Staged and cumulative whitespace checks passed; cumulative ancestry/diff review retained the declared
+integration dependency `8180404a0`. Refreshed parent remains `3b8c7b92d`, and `origin/master` remains `965374a0`.

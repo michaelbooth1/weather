@@ -85,3 +85,17 @@ def test_blind_first_fill_ends_each_day_not_all_future_sessions(tmp_path):
     assert len(result.fills) == 2
     assert {f.at.date() for f in result.fills} == {first.day, second.day}
     assert len([e for e in result.decisions if e.decision.action == "QUOTE"]) == 2
+
+
+def test_blind_counterfactual_partial_requote_uses_lifecycle_and_discloses_assumptions(tmp_path):
+    s = Scenario(markets=('a',), minutes=2)
+    s.book('a', 0)
+    def level(price):
+        return ((D(price), D(75)),)
+    s.add('a', 'book', 0, Book(s.start, level('.50'), level('.51'), level('.49'), level('.50')))
+    s.book('a', 60, mid=D('.52'))
+    result = replay([s.bundle(tmp_path/'b')], ReplayConfig(policy='blind_re1'))
+    quotes = [e.decision for e in result.decisions if e.decision.action == 'QUOTE']
+    assert [[v.price for v in d.legs] for d in quotes] == [[D('.49'), D('.48')], [D('.49'), D('.46')]]
+    assert all(v.size == 75 for d in quotes for v in d.legs)
+    assert any(e['reason'] == 'RE1_TRANSPORT_ASSUMED' and e['cancel_legs'] == [1] for e in result.exclusions)

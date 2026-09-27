@@ -187,7 +187,7 @@ Both input and output limits still apply. Actual production bytes/day are unknow
 
 The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
 both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
-The Phase 0 RE-1 fixture proves first-price parity only; sanitized full-session journals are unavailable.
+RE-1 qualification uses guarded, minimal recorded-journal fixtures; see the qualification limits below.
 Reports must distinguish all such limitations from passed checks and retain the design's replay optimism assumptions.
 
 ## Update when
@@ -213,13 +213,31 @@ match; such results report UNMATCHED and are excluded from clock inference.
 Full-trace parity compares every supplied decision field and terminal event.
 The owner-authorized RE-1 journal projection now retains all recorded minute
 decisions and terminal outcomes, with source hashes and guard-first derivation.
-It exposes policy differences and transport states the neutral kernel cannot
-replay; full-session parity is **NOT QUALIFIED**. See the
-[110l qualification](../roadmap/agent-report-2026-09-110l-maker-replay-harness.md#recorded-session-qualification--2026-09-26-owner-authorization)
+All 313 recorded minutes match the pinned live observer and carried-state
+lifecycle. Five terminal projections still have named source-revision/input
+coverage findings; full-session parity is **NOT QUALIFIED**. See the
+[110l continuation](../roadmap/agent-report-2026-09-110l-maker-replay-harness.md#re-1-behavior-port--2026-09-27-continuation-from-0bd7adf98)
 for the per-session byte comparisons and their exact projection limits.
 Blind RE-1 treats each UTC capture day as one retrospective session, ending after
-its first fill and restarting on the next day with the shared inventory/cash carried.
+its first fill (or six-hour deadline) and restarting on the next day with shared
+inventory/cash carried. A six-hour session crossing UTC midnight is refused.
 This daily convention is not evidence of full live-session parity.
+
+The blind profile uses RE-1's frozen-size observer: inclusive 1–3 cent hold
+window, no share-floor pull or requote cooldown, maximum four requote rounds and
+ten submit attempts. It cancels only affected legs, confirms their removal before
+posting either replacement, and ends on fills or an ambiguous POST without retry.
+Selection uses the 20/30/50/75 ladder and wallet-minus-ten reserve budget; submit
+caps are 0.79 times size per leg and min(0.98 times size, reserve budget) per pair.
+Fresh submit and post-signing touch checks are separate from resting-price checks.
+The informed policy and QuoteDecision schema retain their existing semantics.
+
+The offline lifecycle accepts explicit acknowledgments. The 88a adapter lacks
+private acks and post-signing live books, so it records `RE1_TRANSPORT_ASSUMED`
+when using instantaneous success and the same captured book. Capture gaps end
+that diagnostic session; missing live reads are never presented as successful
+parity. The recorded-session tests instead consume retained acknowledgment facts.
+Default CLI execution remains diagnostic-only, behind the existing score gate.
 
 `replay.score.score(result)` produces per-policy, per-condition, UTC-day rows.
 Reward accrual uses contemporaneous share and terms, with k=1 and k=0.5. Maker fees
