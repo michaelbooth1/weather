@@ -1,4 +1,5 @@
 import ast
+import pytest
 import re
 import subprocess
 from pathlib import Path
@@ -1211,6 +1212,70 @@ def test_maker_core_setuptools_discovery():
     from setuptools import find_packages
     assert {"maker_core", "maker_core.contracts", "maker_core.quoting", "maker_core.evidence",
             "maker_core.portfolio", "maker_core.venue", "maker_core.runtime", "maker_core.replay"} <= set(find_packages("src"))
+
+
+def shadow_import_closure(roots, sources):
+    """Resolve local imports and package initializers, including imports inside functions."""
+    pending, reached = list(roots), set()
+    while pending:
+        name = pending.pop()
+        while name not in sources and "." in name:
+            name = name.rsplit(".", 1)[0]
+        if name not in sources or name in reached:
+            continue
+        reached.add(name)
+        parts = name.split(".")
+        pending.extend(".".join(parts[:i]) for i in range(1, len(parts)))
+        source, package = sources[name]
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                pending.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                prefix = node.module or ""
+                if node.level:
+                    parent = name if package else name.rsplit(".", 1)[0]
+                    prefix = ".".join(parent.split(".")[:len(parent.split("."))-node.level+1]
+                                      + ([prefix] if prefix else []))
+                pending.append(prefix)
+                pending.extend(prefix + "." + alias.name for alias in node.names)
+        # There is no dynamic plugin loader in this lane. Fail even for aliases.
+        assert not any(isinstance(n, ast.Import) and any(a.name == "importlib" for a in n.names)
+                       or isinstance(n, ast.ImportFrom) and n.module == "importlib"
+                       or isinstance(n, ast.Name) and n.id in ("__import__", "eval", "exec")
+                       for n in ast.walk(tree)), name
+    return reached
+
+
+def test_shadow_transitive_import_capability_boundary():
+    sources = {}
+    for path in Path("src").rglob("*.py"):
+        parts = list(path.relative_to("src").with_suffix("").parts)
+        package = parts[-1] == "__init__"
+        name = ".".join(parts[:-1] if package else parts)
+        sources[name] = (path.read_text(encoding="utf-8"), package)
+    roots = ["weather.market.maker_shadow"] + [n for n in sources if n.startswith("maker_core.shadow")]
+    closure = shadow_import_closure(roots, sources)
+    denied = ("maker_core.runtime", "maker_core.replay.engine", "maker_core.replay.re1",
+              "maker_core.replay.report", "maker_core.replay.score", "maker_core.portfolio",
+              "weather.market.international", "weather.market.re1", "weather.market.wallet",
+              "weather.market.polymarket", "weather.credentials")
+    assert not {n for n in closure if n.startswith(denied)}, closure
+    assert {n for n in closure if n.startswith("maker_core.venue.")} == {"maker_core.venue.public_read"}
+    for name in closure:
+        source = sources[name][0]
+        assert not any(term in source for term in ("import dotenv", "import keyring", "import win32cred",
+                                                    "import py_clob_client", "import eth_account")), name
+
+
+def test_shadow_closure_follows_transitive_and_relative_edges():
+    sources = {"root": ("from .bridge import entry", True),
+               "root.bridge": ("from forbidden import client", False),
+               "forbidden": ("", True)}
+    assert shadow_import_closure(["root"], sources) == set(sources)
+    sources["root.bridge"] = ("import importlib as loader; loader.import_module(name)", False)
+    with pytest.raises(AssertionError):
+        shadow_import_closure(["root"], sources)
 
 
 def test_portfolio_command_shim_is_the_only_orchestration_edge():

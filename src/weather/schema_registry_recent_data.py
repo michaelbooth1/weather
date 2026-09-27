@@ -6,6 +6,14 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("maker_shadow_session", "maker_shadow_session_v0.1", "maker_core.shadow.session", "active",
+               "Frozen public-only hypothetical session, scope, identities and resource ceilings."),
+    SchemaSpec("maker_shadow_seal", "maker_shadow_seal_v0.1", "maker_core.shadow.session", "active",
+               "Create-only quote-journal segment seal with state and predecessor binding."),
+    SchemaSpec("maker_shadow_receipt", "maker_shadow_receipt_v0.1", "maker_core.shadow.session", "active",
+               "Independent closed-session binding of every segment and typed input artifact."),
+    SchemaSpec("maker_shadow_agreement", "maker_shadow_agreement_v0.1", "maker_core.shadow.agreement", "active",
+               "Decision and state agreement only; economics and policy comparison remain NOT_RUN."),
     SchemaSpec("portfolio_snapshot", "portfolio_snapshot_v0.1", "maker_core.contracts.portfolio", "active",
                "Neutral account snapshots with explicit history coverage and fee availability."),
     SchemaSpec("portfolio_campaigns", "portfolio_campaigns_v0.1", "maker_core.contracts.portfolio", "active",

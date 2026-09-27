@@ -1,6 +1,6 @@
 # Maker shadow runner design
 
-Status: proposed Phase 3 implementation contract; documentation only.
+Status: Phase 3 public evidence implementation and acceptance contract.
 
 - **Owns:** workstation public-read orchestration, the per-minute quotes tape,
   nightly replay scoring, agreement tolerance and shadow safety drills.
@@ -13,9 +13,62 @@ Status: proposed Phase 3 implementation contract; documentation only.
 ## Scope and capability boundary
 
 Run on the separate non-capture workstation. Production continues to own 88a
-capture and bounded, sealed exports. This change implements no runner, CLI,
-schedule, credentials, exporter or score authorization. Names below describe
-proposed records and components, not installed commands or schema versions.
+capture and bounded, sealed exports. `maker_core.shadow` implements incremental
+capture, typed artifacts, quote journals, safety timers and exact agreement.
+`weather.market.maker_shadow` composes immutable weather-provider inputs.
+The economic outputs below remain a future, separately admitted scored look.
+
+## Installed entry points
+
+The owner supplies `Manifest.projection()` JSON and immutable public weather
+captures. `maker_core.shadow.session.Manifest` validates the exact Git revision,
+plugin/model identities, explicit cash/caps/hazard, conditions, local target dates,
+UTC intervals and resource ceilings. Its configuration digest is
+`digest(provider_captures)`; both files are additionally bound by complete SHA256.
+Provider inputs accept discovery/books/band rows and optional bulletin, forecast,
+snapshot, explanation, source and trigger records used by the existing plugin.
+Missing or expired forecasts stay `Unavailable`. The owner prepares selection
+and admission files; the implementation does not select a market or hazard.
+
+From a clean, reviewed workstation checkout, the owner starts a session with:
+
+```powershell
+& .\scripts\ops\workstation_shadow.ps1 -PythonPath $pythonPath -OutputPath $outputPath -ManifestPath $manifestPath -ManifestSha256 $manifestSha256 -ProviderPath $providerPath -ProviderSha256 $providerSha256 -StopPath $stopPath -Confirmation I_START_PUBLIC_SHADOW_ONLY
+```
+
+All paths are absolute. Start must be in the next ten minutes; HEAD must equal
+the frozen code revision. Output is a new directory. Creating the external stop
+file latches a local stop; it must be absent at startup. Forced termination can
+leave an incomplete segment. Retain the printed receipt SHA256 outside the
+session directory. No old output is reused and no incomplete campaign resumed.
+
+Closed-session agreement uses the same host-bound wrapper, with no public IO:
+
+```powershell
+& .\scripts\ops\workstation_shadow.ps1 -PythonPath $pythonPath -OutputPath $reportPath -SourcePath $closedSessionPath -ReceiptSha256 $receiptSha256
+```
+
+This creates `agreement.json` and a reproduced tape. PASS means exact decision,
+checkpoint, lifecycle, artifact and terminal bytes. It is not 88a admission:
+`qualified_dates` stays zero with `PENDING_88A_ADMISSION`. No P&L or policy
+comparisons are emitted, including for September 30–October 13 before the
+October 15 scored look. Economics stay `NOT_RUN` afterwards until separate
+registration and scorer integration is commissioned. The evaluator never imports
+that scorer. Agreement must run after the public process releases the lease.
+
+The public adapter polls both-token books and current per-condition reward terms,
+and receives the market WebSocket. Book timestamps retain the venue clock;
+PONG refreshes trade-stream health only. Prints without venue ids use a content
+identity; indistinguishable collisions remain a public-feed limitation, never
+authoritative own fills. Frozen weather inputs may expire and produce refusals.
+Public timing/coverage needs owner-run forward qualification; fixtures cannot
+prove that. There is no automatic restart or nightly scheduled task.
+
+The distinct `workstation_public_shadow` profile retains the exact non-capture
+host/principal, shared mutex, durable teardown poison and kill-on-close child
+tree. It does not extend the offline module allowlist. The launcher bounds time
+and Python memory; the manifest bounds events, artifacts, segments, bytes and
+free disk. Native admission must be reviewed before commissioning.
 
 The runner has **no order path at all**. It must be possible to run its complete
 import closure without a signing SDK, wallet, credential store or live adapter:
@@ -99,10 +152,9 @@ Use these proposed orchestration rules:
    Resume uncertain campaigns only as separately labelled diagnostic runs with
    an explicit new initial state; do not splice them into countable continuity.
 
-The incremental event adapter, deadline scheduling and replay projection are
-Phase 3 implementation work. Reuse/extract the Phase 2 transition logic with
-parity fixtures; do not claim the existing closed-bundle engine already runs a
-public feed. In particular, its sampled-book hold of up to 60 seconds is a
+The incremental adapter shares `replay.lifecycle` with the closed-bundle engine;
+the RE-1 composition stays in `replay.engine`, outside the shadow import closure.
+The closed engine's sampled-book hold of up to 60 seconds is a
 disclosed replay approximation, not permission to relax shadow freshness.
 The shadow replay must reproduce the recorded ten-second expiry timers.
 
@@ -284,11 +336,9 @@ all worker children and leave explicit terminal or partial evidence on limits.
 
 Nightly replay is heavy workstation work under
 [the host-load policy](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope).
-The existing offline wrapper does not authorize a networked runner, and its
-allowlist does not yet admit `maker_core.replay`. A reviewed admission integration
-must land before real nightly execution; fixture tests use the admitted test
-path meanwhile. Do not weaken or bypass the wrapper. Any future shadow launcher
-must respect the workstation live-executor exclusion and child-tree cleanup;
+The offline wrapper does not authorize a networked runner. The dedicated shadow
+launcher uses its public-only profile and retains shared exclusion and cleanup.
+Fixture tests use the admitted test path. Do not bypass either wrapper;
 production receives no new quoting workload or scheduled task.
 
 The owner reviews replay evidence, shadow coverage/agreement and drill receipts

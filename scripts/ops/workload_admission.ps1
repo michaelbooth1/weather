@@ -852,7 +852,8 @@ function Get-WeatherActiveWorkstationHeavyProcess {
                     "pytest", "pytest.__main__", "compileall",
                     "coverage", "coverage.__main__",
                     "tox", "tox.__main__", "nox", "nox.__main__",
-                    "cprofile", "profile", "pdb", "trace"
+                    "cprofile", "profile", "pdb", "trace",
+                    "weather.market.maker_shadow"
                 ) -ccontains $pythonModule -or
                 $isOfflineWeatherModule -or
                 $isHeuristicHeavyWeatherModule
@@ -1095,7 +1096,8 @@ function Get-WeatherHeavyWorkloadPoisonState {
         $marker.execution_host_profile -isnot [string] -or
         $marker.execution_host_profile -cnotin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+        "workstation_public_shadow"
         ) -or
         -not $pidIsExactInteger -or
         [long]$marker.pid -le 0 -or
@@ -1337,7 +1339,8 @@ function Enter-WeatherHeavyWorkloadLease {
 
     $poisonSensitiveProfile = $ExecutionHostProfile -cin @(
         "portable_execution_v1",
-        "workstation_offline_v1"
+        "workstation_offline_v1",
+        "workstation_public_shadow"
     )
     if ($null -ne $script:WeatherHeavyWorkloadPoisonedLease) {
         throw (
@@ -1393,7 +1396,7 @@ function Enter-WeatherHeavyWorkloadLease {
         }
         $policyWindow = "portable_execution"
     }
-    elseif ($ExecutionHostProfile -ceq "workstation_offline_v1") {
+    elseif ($ExecutionHostProfile -cin @("workstation_offline_v1", "workstation_public_shadow")) {
         $executionPrincipalId = Get-WeatherExecutionPrincipalId
         $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
         if ($executionHostId -ceq
@@ -1421,17 +1424,19 @@ function Enter-WeatherHeavyWorkloadLease {
                 "or owner-approved exceptions"
             )
         }
+        $workloadPattern = if ($ExecutionHostProfile -ceq "workstation_public_shadow") {
+            '\AWorkstationPublicShadow-[A-Za-z0-9._-]+\z'
+        } else { '\AWorkstationOffline-(?:pytest|compileall|weather_heavy)-[A-Za-z0-9._-]+\z' }
         if (
             $Workload.Length -gt 96 -or
-            $Workload -cnotmatch
-                '\AWorkstationOffline-(?:pytest|compileall|weather_heavy)-[A-Za-z0-9._-]+\z'
+            $Workload -cnotmatch $workloadPattern
         ) {
             throw "workstation-offline admission requires a canonical offline workload"
         }
         if ($ExpectedExecutionHostId) {
             throw "workstation-offline admission does not accept a live host binding"
         }
-        $policyWindow = "workstation_offline"
+        $policyWindow = if ($ExecutionHostProfile -ceq "workstation_public_shadow") { "workstation_public_shadow" } else { "workstation_offline" }
     }
     elseif ($ExecutionHostProfile -ceq "capture_colocated_v1") {
         if ($Workload -cmatch '\AInternationalLive-') {
@@ -1760,7 +1765,8 @@ function Set-WeatherHeavyWorkloadLeaseTeardownPending {
     }
     if ([string]$Lease.ExecutionHostProfile -cnotin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+        "workstation_public_shadow"
         ) -or
         $Lease.PSObject.Properties.Name -notcontains "DurablePoisonPath" -or
         $Lease.PSObject.Properties.Name -notcontains "WorkloadState" -or
@@ -1964,7 +1970,8 @@ function Exit-WeatherHeavyWorkloadLease {
     $poisonSensitiveProfile = $null -ne $Lease -and
         [string]$Lease.ExecutionHostProfile -cin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+        "workstation_public_shadow"
         )
     if ($poisonSensitiveProfile) {
         try {
