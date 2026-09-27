@@ -71,7 +71,6 @@ MATERIAL_FIELD_PATHS = (
     ("api_order_semantics",),
     ("order_semantics",),
     ("market_fee_rule_profiles",),
-    ("market_tick_size_values",),
 )
 RUNTIME_SNAPSHOT_FIELDS = {
     "accepted_at_utc",
@@ -787,11 +786,7 @@ def normalized_economics_payload(payload):
 
 
 def normalized_drift_payload(payload):
-    """Compare distinct per-location rules, not daily market/tick counts.
-
-    Project both current and accepted raw snapshots here. Snapshot hashing
-    deliberately retains the exact per-condition table for existing bindings.
-    """
+    """Return economics rules without daily condition/token identity churn."""
 
     normalized = normalized_economics_payload(payload)
     by_location = {}
@@ -800,43 +795,20 @@ def normalized_drift_payload(payload):
             "fees_enabled": market.get("fees_enabled"),
             "fee_schedule": market.get("fee_schedule") or {},
             "order_min_size": market.get("order_min_size"),
+            "order_price_min_tick_size": market.get("order_price_min_tick_size"),
         }
-        profiles = by_location.setdefault(str(market.get("location_id") or ""), {})
-        profiles[_canonical_json_bytes(profile)] = profile
+        by_location.setdefault(str(market.get("location_id") or ""), []).append(profile)
     normalized["market_fee_rule_profiles"] = [
         {
             "location_id": location_id,
-            "profiles": [profiles[key] for key in sorted(profiles)],
+            "profiles": sorted(
+                profiles,
+                key=lambda row: _canonical_json_bytes(row),
+            ),
         }
         for location_id, profiles in sorted(by_location.items())
     ]
-    normalized["market_tick_size_values"] = [
-        {
-            "location_id": row["location_id"],
-            "tick_sizes": [tick["tick_size"] for tick in row["tick_sizes"]],
-        }
-        for row in _market_tick_size_mixes(payload)
-    ]
     return normalized
-
-
-def _market_tick_size_mixes(payload):
-    """Keep deterministic tick counts for diagnostics, outside drift/hash rules."""
-    by_location = {}
-    for market in (payload or {}).get("markets") or []:
-        tick = market.get("order_price_min_tick_size")
-        ticks = by_location.setdefault(str(market.get("location_id") or ""), {})
-        entry = ticks.setdefault(
-            _canonical_json_bytes(tick), {"tick_size": tick, "market_count": 0},
-        )
-        entry["market_count"] += 1
-    return [
-        {
-            "location_id": location_id,
-            "tick_sizes": [ticks[key] for key in sorted(ticks)],
-        }
-        for location_id, ticks in sorted(by_location.items())
-    ]
 
 
 def snapshot_hash(payload):
@@ -1378,10 +1350,6 @@ def build_drift_report(
         "accepted_snapshot_present": accepted_payload is not None,
         "material_change_count": len(changes),
         "material_changes": changes,
-        "market_tick_size_mixes": {
-            "accepted": _market_tick_size_mixes(accepted_payload),
-            "current": _market_tick_size_mixes(current_payload),
-        },
         "rescore_required": rescore_required,
         "blockers": (
             [

@@ -191,23 +191,8 @@ Healthy state requires a passing current gate, a present reviewed baseline, and
 `rescore_required = false`. Exact condition and token identity is revalidated
 on every collection and changes normally as daily weather markets roll. It is
 part of the snapshot hash, but identity rotation alone is not economics drift.
-Drift compares each location's **set of distinct fee profiles** (`fee_schedule`,
-`fees_enabled`, `order_min_size`), ignoring profile counts. Tick sizes have a
-separate per-location set: adding or removing a distinct value is material,
-including a new value outside the usual `0.01` / `0.001` pair. Changing only
-the market counts at those ticks is not material. The drift report retains
-both snapshots' per-city counts in `market_tick_size_mixes` for diagnostics.
-Fee, rebate, exponent, taker-only, fees-enabled and minimum-order changes remain
-material when they change a location's distinct profiles.
-
-Both raw snapshots are projected at comparison time, including previously
-accepted baselines. Snapshot hashing still binds the complete per-condition
-table unchanged; a tick-mix change can change the hash without requiring a
-rescore. Existing accepted hashes and captured-run bindings need no migration
-or re-acceptance solely for this comparison change. Freshness, content-proof
-and exact-condition validation still apply to the current snapshot.
-
-Reward configuration is retained but cannot trigger a primary-P&L
+Location-level fee, rebate, fee-curve, tick, or minimum-order profile changes
+are material. Reward configuration is retained but cannot trigger a primary-P&L
 rescore while the enforced reward assumption remains zero.
 
 ## Update this file when
