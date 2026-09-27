@@ -11,8 +11,8 @@ import re
 from zoneinfo import ZoneInfo
 from maker_core.evidence.journal import plain
 from maker_core.replay.bundle import BundleError, Limits, _Reader, _json, sha256, timestamp
+from maker_core.replay.approved_registrations import APPROVED_REGISTRATIONS
 
-APPROVED_REGISTRATIONS: dict[str, str] = {}
 POLICIES = ("informed-v0", "no_quote", "blind_re1", "clock_only")
 DECISION_FIELDS = {"authorization_id", "owner", "protocol_sha256", "addendum_sha256",
                    "signed_at", "scoring_date", "expires_at"}
@@ -46,14 +46,16 @@ def _log_lines(raw):
     return lines
 
 
-def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now):
+def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now,
+                     clarification=None, *, require_scoring_date=True):
     attestation = doc.get("owner_decision")
-    if (not isinstance(attestation, dict) or set(attestation) != DECISION_FIELDS
+    if (not isinstance(attestation, dict) or set(attestation) not in (
+            DECISION_FIELDS, DECISION_FIELDS | {"clarification_sha256"})
             or attestation.get("owner") != doc["owner"]
             or not isinstance(attestation.get("authorization_id"), str)
             or re.fullmatch(r"[A-Za-z0-9_-]{1,80}", attestation["authorization_id"]) is None):
         raise BundleError("invalid_owner_decision")
-    for field in ("protocol_sha256", "addendum_sha256"):
+    for field in ("protocol_sha256", "addendum_sha256", *(["clarification_sha256"] if "clarification_sha256" in attestation else [])):
         if not isinstance(attestation[field], str) or re.fullmatch(r"[0-9a-f]{64}", attestation[field]) is None:
             raise BundleError("invalid_frozen_document_hash")
     signed, expires = timestamp(attestation["signed_at"]), timestamp(attestation["expires_at"])
@@ -62,7 +64,8 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
     except (ValueError, TypeError) as exc:
         raise BundleError("invalid_scoring_date") from exc
     if (scoring_date.isoformat() != attestation["scoring_date"] or not signed <= now < expires
-            or signed >= expires or now.astimezone(ZoneInfo("America/Toronto")).date() != scoring_date):
+            or signed >= expires or (require_scoring_date and
+                now.astimezone(ZoneInfo("America/Toronto")).date() != scoring_date)):
         raise BundleError("owner_decision_time_window")
     if doc.get("signed_at") != attestation["signed_at"]:
         raise BundleError("owner_decision_signed_at_mismatch")
@@ -85,6 +88,8 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
         if not isinstance(source, dict) or "authorization_id" not in source:
             raise BundleError("invalid_decision_log_row")
         if source["authorization_id"] == attestation["authorization_id"]:
+            if fields[1] == "REVOKE_MAKER_REPLAY":
+                raise BundleError("owner_decision_revoked")
             matches.append((fields, source))
     if len(matches) != 1:
         raise BundleError("owner_decision_missing_duplicate_or_superseded")
@@ -92,17 +97,25 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
     if (fields[1] != "APPROVE_MAKER_REPLAY" or fields[0] != signed.date().isoformat()
             or fields[2] != "offline replay only" or fields[4] != "—" or source != attestation):
         raise BundleError("owner_decision_mismatch_or_revoked")
-    for path, field in ((frozen_protocol, "protocol_sha256"), (execution_addendum, "addendum_sha256")):
+    documents = [(frozen_protocol, "protocol_sha256"), (execution_addendum, "addendum_sha256")]
+    if "clarification_sha256" in attestation:
+        if not clarification:
+            raise BundleError("clarification_path_required")
+        documents.append((clarification, "clarification_sha256"))
+    elif clarification:
+        raise BundleError("clarification_not_attested")
+    for path, field in documents:
         if sha256(reader.read(path, 65536)) != attestation[field]:
             raise BundleError("frozen_document_hash_mismatch:" + field)
 
 
-def read_authorization(path, expected_hash, *, decision_log=None, frozen_protocol=None, execution_addendum=None):
+def read_authorization(path, expected_hash, *, decision_log=None, frozen_protocol=None, execution_addendum=None,
+                       clarification=None):
     # Fail before any input IO if the requested signature/hash is not enrolled.
     if not path or expected_hash not in APPROVED_REGISTRATIONS:
         raise BundleError("owner_signed_pre_registration_hash_not_approved")
-    reader = _Reader(Limits(458752, 1, 5), time.monotonic)
-    raw = reader.read(path, 65536)
+    reader = _Reader(Limits(8*1024**2+458752, 1, 5), time.monotonic)
+    raw = reader.read(path, 8*1024**2)
     if sha256(raw) != expected_hash:
         raise BundleError("pre_registration_hash_mismatch")
     doc = _json(raw)
@@ -111,13 +124,14 @@ def read_authorization(path, expected_hash, *, decision_log=None, frozen_protoco
             or doc.get("clusters") != ["date", "date_x_market"]
             or doc.get("policies") != list(POLICIES)):
         raise BundleError("invalid_signed_pre_registration")
-    _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, _utc_now())
+    _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, _utc_now(), clarification)
     return doc
 
 
 def bind_scope(doc, bundles, config, replicates, seed):
-    scope = dict(dates=sorted(b.day.isoformat() for b in bundles),
-                 markets=sorted({c.market_id for b in bundles for c in b.conditions}),
+    quote_bundles = [b for b in bundles if b.day.isoformat() != doc.get("settlement_only_date")]
+    scope = dict(dates=sorted(b.day.isoformat() for b in quote_bundles),
+                 markets=sorted({c.market_id for b in quote_bundles for c in b.conditions}),
                  replay_config=plain(config), bootstrap_replicates=replicates, bootstrap_seed=seed,
                  metrics=["modeled_net_k1", "modeled_net_k05"])
     if any(doc.get(key) != value for key, value in scope.items()):

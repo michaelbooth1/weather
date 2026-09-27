@@ -147,9 +147,10 @@ class ReplayEngine:
                     raise BundleError("condition_cluster_identity_changed")
                 self.conditions[c.condition_id] = c
                 self.states.setdefault(c.condition_id, State())
-                self.windows[c.condition_id].append((c.active_from, c.active_until))
-                self.schedule(c.active_from)
-                self.schedule(c.active_until)
+                for start, end in bundle.windows(c):
+                    self.windows[c.condition_id].append((start, end))
+                    self.schedule(start)
+                    self.schedule(end)
             for record in bundle.records:
                 self.records[record.captured_at].append(record)
                 self.schedule(record.captured_at)
@@ -316,6 +317,8 @@ class ReplayEngine:
         # print may consume the expiring quote (89a tie rule). A late print can
         # never fill an order placed after its venue timestamp.
         covered, _ = self.valid_coverage(state, at - EPSILON)
+        if any(b.active_intervals is not None for b in self.bundles) and not self.active(row.condition_id, at):
+            return  # Declared maintenance/settlement exclusions include their starting instant.
         if not state.legs or not covered or not self.active(row.condition_id, at - EPSILON):
             return
         if trade.traded_at < state.placed_at:
