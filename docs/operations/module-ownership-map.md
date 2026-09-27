@@ -25,7 +25,8 @@ by this documentation retirement.
 Reviewed module-size warning allowance:
 
 - Warning threshold: 2,000 lines.
-- Allowed warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
+- Allowed warning modules: `weather.operations.closed_day_projection_tiering`,
+  `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
   `weather.collection.snapshot_store`, `weather.market.market_making_run`,
