@@ -506,3 +506,10 @@ The inherited integration dependency `8180404a0` remains disclosed; fetched `ori
 target remains `codex/weather-maker-plugin-20260925` at `3b8c7b92d`. No dependency or master was merged in this continuation.
 The final canonical `agent_docs_audit`, `roadmap_backlog --fail-on-lint --check`, and `correspondence_index --check` CLIs
 also passed inside the admitted wrapper. The correspondence index remained current and needed no rewrite.
+
+Source/fixture commit **`4cdabbd4b7a0fa4f91ef4afa64a4a83f769f8592`** was pushed to the requested topic and matched by a fresh
+`git ls-remote --exit-code --refs` query. The mechanical local
+`roll_verdict.ps1 -Branch codex/maker-replay-harness-20260926 -Base ed6d43260` returned exit 1, **UNDECIDABLE: no live
+closure evidence**, naming the four absent capture status files. Production must obtain its own verdict before adoption.
+Cleanup checked nine exact task-owned pytest Temp targets: two existed and were removed after parent/reparse checks; seven
+were already absent. The raw campaign remains read-only and unchanged. This receipt is a documentation-only follow-up.
