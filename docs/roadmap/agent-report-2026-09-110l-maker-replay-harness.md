@@ -630,3 +630,10 @@ comparison executed that commit's pure policy and confirmed **59 informed-policy
 width, depth, fill hazard, resting/initial state, stale inputs, first fill and horizon refusal. These checks do not consult
 local campaign data. Staged and cumulative whitespace checks passed; cumulative ancestry/diff review retained the declared
 integration dependency `8180404a0`. Refreshed parent remains `3b8c7b92d`, and `origin/master` remains `965374a0`.
+
+Behavior/fixture commit: **`3ff1e26c81c1bbb51b7db26913cd87ffc72138d6`**. Post-commit canonical CLI audits passed again.
+The mechanical local `roll_verdict.ps1 -Branch codex/maker-replay-harness-20260926 -Base 0bd7adf98` returned
+**UNDECIDABLE: no live closure evidence** (exit 1; four capture status files absent). This is no production adoption
+verdict; operations must obtain its own current closure verdict. Publication remains the topic branch and draft PR #100.
+Cleanup checked nine exact continuation-owned pytest Temp paths with absolute-parent and reparse checks: two removed,
+seven already absent. Campaign journals remain untouched; only their minimal guarded projections enter Git.
