@@ -414,7 +414,8 @@ summaries load once per distinct path. Previously matched, closed venue
 resolution evidence is reused through the existing reconciler against the
 current local bucket; changed local settlement can still produce a mismatch.
 Unresolved labels use the normal reconciliation request. No freshness claim
-is made for retained terminal venue evidence. Explicit folders or a zero-day
+is made for retained terminal venue evidence; its original raw response hash
+(or absence) is preserved, never replaced with a projection hash. Explicit folders or a zero-day
 window request historical processing; the standalone replay backfill also
 accepts `--recent-days 0` and `--full-scan` to bypass reuse. These caches are
 derived accelerators and do not authorize changes to canonical evidence.
