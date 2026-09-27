@@ -22,7 +22,7 @@ All fields are required; optional values use null or empty lists:
 | `id`, `title` | W-####, nonempty title; id immutable, never reused |
 | `workstream` | maker, wallet, model, storage, repo-health, youtube, ops, canon |
 | `status` | proposed, handed-off, in-progress, handback-received, verified, queued, landed, blocked, dormant, closed |
-| `owner` | production, workstation, owner; responsible next actor |
+| `owner` | production, workstation, owner; responsible host/person |
 | `handoff` | Path or pinned remote document URL, or null until authored |
 | `handbacks` | List of `{path, received, verified}`: path/URL, timezone timestamp, boolean |
 | `branch`, `tip`, `pr` | Branch without origin/, 7–40 hex commit, PR URL; nullable |

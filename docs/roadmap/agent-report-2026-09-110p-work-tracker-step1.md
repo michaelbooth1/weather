@@ -81,10 +81,13 @@ correctly add failures if the snapshot is left untouched.
 
 ## Verification and reproduction
 
-Focused fixture suite: **25 passed**. Initial combined verification: **69 passed,
-1 failed** solely because the architecture audit requires the two new Python
-files to be staged/tracked. Final staged verification is recorded in the closeout
-below. No production data or network fixture was used.
+Focused fixture suite: **25 passed**. Final wrapped run: **72 passed** (70 tracked
+tests plus two temporary CLI/seed checks), including schema registry, import
+architecture, path policy and agent_docs_audit. Correspondence generation/parity,
+roadmap-backlog parity and the agent_docs_audit CLI all passed. The earlier
+untracked-file architecture failure cleared after committing the new files.
+No production data or network fixture was used. Test imports exercised compilation
+of both new Python files; no full-suite or repository-wide compileall was run.
 
 Use the workstation's `scripts/ops/workstation_heavy.ps1`, with its own absolute
 RepoRoot and existing project interpreter, and JSON/base64 arguments as documented
@@ -139,5 +142,8 @@ fixture verification and the authorized topic publication are in scope.
 Branch: `codex/W-tracker-step1-20260927`. Base: `965374a0edc6fcb65d66e257be9e404cc9af8d60`.
 Worktree: `.worktrees/W-tracker-step1-20260927` under the workstation checkout;
 the primary checkout and pre-existing branches are preserved. Implementation
-commit, final verification and draft PR are recorded in the follow-up closeout
-before publication. Merge/runtime adoption remains with production and owner.
+commit: `38b16ce90a601d7c2e11ff7ff6c6a56b7003d8b2`. This report's verification
+closeout and the generated correspondence row follow in a documentation commit.
+The authorized draft PR targets master; its URL and final remote tip are returned
+in the task closeout after publication. No CI or independent-review result is
+claimed in this report. Merge/runtime adoption remains with production and owner.
