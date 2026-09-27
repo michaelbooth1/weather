@@ -90,14 +90,17 @@ intervals; omitted conditions or narrowed intervals cannot be discovered by this
 not the count of captured books. Present but malformed books do not become valid decisions. No P&L, rewards, fill rates,
 returns, comparisons or confidence intervals are emitted. Parity is explicitly `NOT_RUN`.
 
-`--compare` requires `--pre-registration` and `--pre-registration-sha256`. The exact raw-byte hash and owner must first
+`--compare` requires `--pre-registration` and `--pre-registration-sha256` for its execution JSON manifest, plus
+`--decision-log`, `--frozen-protocol` and `--execution-addendum`. The exact raw-byte manifest hash and owner must first
 be enrolled in `replay.authorization.APPROVED_REGISTRATIONS` through a separate owner-approved code review. The table
 is deliberately empty in this fixture-only build. An arbitrary caller hash, boolean or synthetic label cannot enroll an
-approval, and an unenrolled request refuses before bundle or registration IO. This is **review-attested hash pinning**,
-not cryptographic signature verification. The owner signs the registration in the review process; the signature field
-records its review reference and is not itself trusted. No key, private material or signing identity is invented here.
+approval, and an unenrolled request refuses before bundle or registration IO. The owner's signature is a DECISION_LOG
+row binding the raw-byte SHA-256 of the frozen protocol and execution addendum. The CLI verifies the exact row,
+document hashes and scoring time before bundle IO. This is review-attested authorization, without a signing key.
+The [verifier contract](maker-replay-authorization-verifier-design-2026-09-27.md) owns the row format and remaining
+one-look gates; real enrollment remains blocked until those gates are implemented and reviewed.
 
-An approved artifact must specify owner, signature reference, UTC signed_at, hurdles, dates, market clusters, all four
+An approved artifact must specify owner, owner_decision, UTC signed_at, hurdles, dates, market clusters, all four
 policies, both clustering schemes, replay_config, bootstrap_replicates, bootstrap_seed, and both net metrics. Exact scope
 and configuration equality is checked before scoring. Repeat `--bundle` for closed UTC days in comparison mode; total
 bytes/records and the whole-run clock remain bounded. `--hazard-per-minute`, `--initial-cash`, bootstrap options and all
@@ -193,6 +196,14 @@ Reports must distinguish all such limitations from passed checks and retain the 
 ## Update when
 
 ### Scoring
+
+`replay.pull_efficiency.pull_efficiency` reports the registered five-minute YES-midpoint move endpoint alongside
+economic intervals under both fill bounds. It samples the post-decision resting state at each UTC minute, forms a
+common covered opportunity set, verifies its own one-minute pull-count match, and resamples paired counts by date
+and crossed date x market. Zero pull denominators or zero clock removed moves are UNIDENTIFIED. The point ratio
+threshold and all endpoint conventions are owned by the [registration](../research/maker-replay-hurdles-preregistration-2026-09-27.md)
+and [execution addendum](../research/maker-replay-execution-addendum-2026-09-27.md); endpoint success is not a combined
+economics/admission verdict. JSON contains counts, exclusions, band-days, intervals and omitted replicate counts.
 
 Inference sums paired band-day net differences within each market/UTC-date and
 averages complete market/date cells. Any incomplete/unpaired band drops its entire

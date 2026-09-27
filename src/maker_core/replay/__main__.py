@@ -1,4 +1,4 @@
-"""Bounded replay CLI; diagnostic-only unless an owner-reviewed signature hash is pinned."""
+"""Bounded replay CLI; comparison requires a pinned manifest and owner decision-log row."""
 import argparse
 from pathlib import Path
 import time
@@ -23,6 +23,9 @@ def main(argv=None):
     mode.add_argument("--compare", dest="diagnostic_only", action="store_false")
     run.add_argument("--pre-registration", type=Path)
     run.add_argument("--pre-registration-sha256")
+    run.add_argument("--decision-log", type=Path, help="reviewed owner decision log")
+    run.add_argument("--frozen-protocol", type=Path, help="frozen hurdle Markdown file")
+    run.add_argument("--execution-addendum", type=Path, help="frozen execution-method Markdown file")
     run.add_argument("--hazard-per-minute", type=float)
     run.add_argument("--initial-cash", default="100")
     run.add_argument("--bootstrap-replicates", type=int, default=2000)
@@ -33,7 +36,8 @@ def main(argv=None):
     run.add_argument("--max-seconds", type=float, default=300.0)
     args = parser.parse_args(argv)
     # A user-supplied hash or synthetic label cannot enroll an approval.
-    if args.diagnostic_only and (args.pre_registration or args.pre_registration_sha256):
+    if args.diagnostic_only and (args.pre_registration or args.pre_registration_sha256
+                                or args.decision_log or args.frozen_protocol or args.execution_addendum):
         parser.error("registration flags require explicit --compare; use diagnostic-only without registration flags")
     if len(args.bundle) > 366:
         parser.error("at most 366 closed UTC days")
@@ -45,7 +49,9 @@ def main(argv=None):
 
     try:
         registration = (None if args.diagnostic_only else
-                        read_authorization(args.pre_registration, args.pre_registration_sha256))
+                        read_authorization(args.pre_registration, args.pre_registration_sha256,
+                                           decision_log=args.decision_log, frozen_protocol=args.frozen_protocol,
+                                           execution_addendum=args.execution_addendum))
         if args.diagnostic_only and len(args.bundle) != 1:
             raise BundleError("diagnostic_mode_requires_one_bundle_per_report")
         limits = Limits(args.max_input_bytes, args.max_records, args.max_seconds)

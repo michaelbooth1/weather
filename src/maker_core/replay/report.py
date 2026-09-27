@@ -8,6 +8,7 @@ from maker_core.replay.engine import ReplayConfig, replay
 from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.inference import paired_cells, cluster_intervals
 from maker_core.replay.score import score
+from maker_core.replay.pull_efficiency import pull_efficiency
 
 REPLAY_ASSUMPTIONS = (
     "Strictly-through is primary; at-price is sensitivity. Public price paths do not identify queue fills.",
@@ -55,6 +56,8 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
                 intervals[key] = dict(excluded_market_dates=excluded,
                     intervals=cluster_intervals(cells, replicates=replicates, seed=seed, check=check))
         report["bounds"][bound] = dict(scores=scores, intervals=intervals, clock_match=matching,
+            pull_efficiency=pull_efficiency(results["informed-v0"], results["clock_only"], matching,
+                                           replicates=replicates, seed=seed, check=check),
             traces={name: dict(decision_count=len(r.decisions), decision_sha256=digest(r.decisions),
                               final_cash=r.final_cash, fills=r.fills, exclusions=r.exclusions,
                               excluded_intervals=[dict(start=s.start, end=s.end, condition_id=s.condition_id,
@@ -90,6 +93,18 @@ def report_bytes(report):
                 for cluster, estimate in entry["intervals"].items():
                     lines.append(f"- {comparator} / {cluster}: {estimate['status']}; mean {estimate['estimate']}; "
                                  f"90% {estimate['interval']}; dates={estimate['date_clusters']}, markets={estimate['market_clusters']}.")
+        pull = result["pull_efficiency"]
+        lines += ["", "### Pull efficiency", "",
+                  f"{pull['status']}; ratio {pull['ratio']}; common opportunities {pull['counts']['opportunities']}; "
+                  f"sampled exposure {pull['exposure_match']['status']}.", ""]
+        for policy in ("informed", "clock"):
+            lines.append(f"- {policy}: {pull['counts'][policy + '_removed']} large moves removed / "
+                         f"{pull['counts'][policy + '_pulled']} pulled minutes; efficiency {pull['efficiencies'][policy]}.")
+        for cluster, estimate in pull["intervals"].items():
+            lines.append(f"- {cluster}: {estimate['status']}; 90% {estimate['interval']}; "
+                         f"dates={estimate['date_clusters']}, markets={estimate['market_clusters']}; "
+                         f"valid={estimate['valid_replicates']}, empty={estimate['empty_replicates']}, "
+                         f"undefined={estimate['undefined_replicates']}.")
         lines += ["", "Detailed markouts, missing counts, fees, requotes, event fills, coverage exclusions and trace hashes are in JSON.", ""]
     lines += ["## Assumptions", "", *("- " + x for x in report["assumptions"]), "", "## Input hashes", ""]
     for day, hashes in sorted(report["input_hashes"].items()):

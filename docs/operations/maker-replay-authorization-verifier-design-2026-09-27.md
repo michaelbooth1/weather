@@ -1,77 +1,97 @@
-# Maker replay signed-authorization verifier — design note, 2026-09-27
+# Maker replay owner-authorization verifier — 2026-09-27
 
-**Status: proposed implementation contract; docs only, no scoring authority.**
-Owns the signature/admission gap for the harness CLI. Read when implementing that verifier.
-The [frozen registration](../research/maker-replay-hurdles-preregistration-2026-09-27.md) owns the hurdles;
-the [bundle contract](maker-replay-bundle.md) owns existing IO and replay semantics.
+**Status: decision-log signature check implemented and fixture-verified; full one-look admission still proposed.**
+Owns the owner attestation format and the remaining scored-admission design. Read before enrolling a replay.
+The [registration](../research/maker-replay-hurdles-preregistration-2026-09-27.md) owns the hurdles;
+the [execution addendum](../research/maker-replay-execution-addendum-2026-09-27.md) freezes remaining configuration;
+the [bundle contract](maker-replay-bundle.md) owns replay IO. No real-data approval is enrolled.
 
-At basis `8ee7b8ad34c3d6ab8c073e93f90fc717586505ca`, `replay.authorization` has an empty
-`APPROVED_REGISTRATIONS` table. It pins a raw artifact hash and owner through code review, accepts a nonempty
-signature-reference string, then binds dates, markets, policies, clustering, metrics and configuration. It does
-**not** cryptographically verify that string or enforce numeric hurdles/scoring dates. Keep the default diagnostic
-path and empty production approval table until the complete scored path has separate owner approval.
+This revision follows the owner's instruction to use a DECISION_LOG row as the signature. It supersedes this note's
+earlier detached-Ed25519 proposal. No signing key, crypto dependency or key enrollment is required. October 12 was
+proposed by the agent and still awaits owner confirmation; neither publication nor fixtures supply that confirmation.
 
-## Proposed trust and signed object
+## Trust and signature row
 
-Use a detached Ed25519 signature over an exact, bounded UTF-8 execution-manifest byte sequence, prefixed by a fixed
-domain-separation literal for maker replay authorization. This is a design choice for implementation review, not
-a claim that a crypto dependency, key or new flag exists. The signer retains the private key outside the repository;
-the CLI receives only a signature and a key ID resolved from an independently owner-approved public-key trust store.
-A key supplied inside the artifact, a Git author name, a caller SHA-256 or a review URL cannot establish that trust.
-The owner must approve enrollment, rotation and revocation; never generate or enroll an owner identity on their behalf.
+The owner approves a row in the existing five-column table in [DECISION_LOG](DECISION_LOG.md). Append only after an
+explicit owner decision on the final file bytes. Do not write a placeholder approval into the real log. The row is:
 
-The manifest must bind the frozen Markdown path, introducing commit and raw-byte SHA-256, plus:
+| Column | Required content |
+| --- | --- |
+| Date | UTC date of `signed_at`, canonical YYYY-MM-DD |
+| Decision | Literal `APPROVE_MAKER_REPLAY` |
+| Scope / expiry | Literal `offline replay only`; expiry is recorded in Source |
+| Source | One inline-code JSON object with exactly the seven keys below; no pipe characters |
+| Supersedes | Literal em dash `—`; a new authorization uses a new ID |
 
-- a unique authorization ID, owner/key ID, purpose restricted to offline replay, review reference, signed_at,
-  not-before and expiry in UTC, and the October 12 scoring date in America/Toronto;
-- the exact quote-date list and separately typed settlement-only date, sorted market/condition inventory and active
-  intervals, and every bundle/stream/plugin/settlement hash (future inputs are sealed before signing, not wildcards);
-- exact executable source/tree identities and policy/plugin/scorer identities, all four policy names (map prose
-  informed_v0 to runtime informed-v0 explicitly), every ReplayConfig value, both fill bounds, both k metrics,
-  clustering methods, interval quantiles, bootstrap count/seed, and the pull endpoint/matching definitions;
-- typed numeric hurdles and strictness: 14 closed quote dates; 10 effective dates and markets; all required
-  conservative k=1 lower bounds > 0; matched pull-efficiency point ratio >= 2; mandatory sensitivities and disclosures.
+The Source object has `authorization_id` (1-80 ASCII letters/digits/underscore/hyphen), `owner`, `protocol_sha256`,
+`addendum_sha256`, `signed_at` (UTC), `scoring_date` (YYYY-MM-DD America/Toronto), and `expires_at` (UTC, exclusive).
+Both hashes are lowercase raw-byte SHA-256 of the final frozen Markdown files, including newlines. `owner` is the
+exact independently reviewed owner identity. Pending names, dates or hashes are not an owner decision.
 
-Reject missing/unknown fields, duplicate keys, nonfinite values, ambiguous dates, duplicate identities and unsupported
-versions. Verify the signature over the bytes actually read: no newline normalization or parse/re-serialization before
-verification. SHA-256 is a byte binding, not proof of authorship. Preserve the existing review-attested enrollment
-as an additional independent approval if retained; it must not bypass cryptographic verification in the new mode.
-Do not silently reinterpret a previously accepted review-reference string as a cryptographic signature.
+The execution JSON manifest retains the CLI's `--pre-registration` name for compatibility. Its `owner_decision`
+object must equal the row's Source object exactly, and its top-level `owner` and `signed_at` must agree. The manifest
+also carries the existing hurdles, policies, clusters, dates, market inventory, complete ReplayConfig and bootstrap
+bindings. Its own raw-byte SHA-256 and owner must be independently enrolled through an owner-approved code review in
+`replay.authorization.APPROVED_REGISTRATIONS`, which remains **empty**. A caller-supplied row, hash, Git author,
+nonempty signature string or synthetic provenance cannot enroll authority. Hashes establish byte binding; authorship
+comes from the owner decision/review process, not from a claim of cryptographic authentication.
 
-## Verification order and result
+To revoke, append a `REVOKE_MAKER_REPLAY` row whose Source object names the `authorization_id`; never remove the old
+approval. The checker requires exactly one row for that ID and requires it to be APPROVE. A duplicate, revocation or
+superseding row for the same ID therefore refuses. A successor gets a new ID and a newly reviewed manifest. Operators
+must use the current reviewed log from the executing checkout, not an archived pre-revocation copy. This offline CLI
+does not authenticate Git history or defend against an operator deliberately substituting stale trusted files.
 
-1. Parse bounded invocation metadata; require explicit comparison mode and an independently enrolled, unrevoked
-   key/authorization. Reject unknown approval before bundle IO. Read only the bounded explicit authorization files,
-   using the existing redirected-path, changed-file and strict-JSON protections.
-2. Verify purpose/domain, signature, protocol hash, owner identity, approval, time window and exact source identities.
-   Reject pending signature fields, future signed_at, expired/not-yet-valid authorization and a scoring-date mismatch.
-3. Read the admitted bundles with the existing bounded reader, verify all signed hashes and exact scope/config
-   equality, then enforce closed-day and settlement-only restrictions. No omitted/extra date, market or condition,
-   configuration override or widened input cap may silently alter the approved experiment.
-4. Atomically reserve a create-only attempt receipt for the authorization ID before the first policy/scorer call.
-   Record the verification evidence and consumed status before releasing any scores. A partial or failed scored run
-   stays consumed; retries need an explicit reviewed recovery authorization bound to the same frozen experiment,
-   with any output already exposed disclosed. A new output directory alone must not reset the one-look rule.
-5. Compute all policies, both fill bounds/k values and both inference schemes. Evaluate typed hurdles on effective
-   paired cells and the matched move panel. Missing endpoint implementation, insufficient clusters/replicates,
-   undefined efficiency, unmatched controls or missing required reports must never produce a combined PASS.
-6. Write deterministic comparison artifacts and a separate immutable verification/attempt receipt containing
-   authorization/protocol/input/config/source digests, key ID, verification time and each gate verdict. Time-bearing
-   receipts are separate from deterministic scores. Refusals are bounded, nonzero and contain reasons, not scores
-   or private material; a partial output is retained as incomplete and never reused.
+## Implemented CLI check, before bundle IO
 
-Local receipts assume operator-controlled storage; they cannot stop a hostile caller deleting state or invoking the
-pure library directly. The CLI is the authorized operational entry point, not a sandbox. Keep verifier tests and
-synthetic library tests separate; no synthetic provenance, diagnostic flag, environment variable or test key may
-enroll real scoring authority. Host workload admission remains an independent requirement.
+Comparison now additionally requires the explicit paths `--decision-log`, `--frozen-protocol`, and
+`--execution-addendum`. Diagnostic mode rejects authorization flags and remains score-free. The CLI:
 
-## Focused implementation acceptance
+1. Rejects an unenrolled execution-manifest hash before any file IO.
+2. Reads the bounded manifest using the existing redirected-path, changed-file and strict-JSON protections and
+   verifies its raw hash, enrolled owner, required policy/cluster declarations and owner-decision object.
+3. Requires `signed_at <= now < expires_at` and the confirmed America/Toronto scoring date to equal today's date.
+   No early look is admitted; expiry equality refuses. Manifest and row signing timestamps must agree.
+4. Reads the explicit DECISION_LOG, locates the unique row in its canonical five-column table, and checks its date,
+   decision, offline purpose, Source object and supersession state. Duplicate JSON keys and ambiguous IDs refuse.
+5. Reads and hashes both frozen files without newline normalization. Both must match the owner row. Each Markdown
+   file and the manifest are capped at 64 KiB, the log at 256 KiB, the total at 448 KiB and five seconds. Failure
+   returns nonzero before bundle loading or policy/scorer invocation.
+6. Continues through the existing bounded bundle reader and exact scope/config/metric/bootstrap binding. The
+   comparison report retains the execution-manifest hash and verified owner-decision object alongside all input hashes.
 
-Fixtures must prove one valid offline signature path and refusals for an unknown/revoked key, wrong owner/purpose,
-tampered protocol/manifest/signature, newline changes, duplicate JSON keys, invalid time window, unclosed date,
-extra settlement-day quote minutes, changed config/source/input hash and reused/partially consumed authorization.
-Use spies to prove early refusals do not open bundles or invoke the scorer. Test exact zero lower bounds, a ratio of
-exactly two, 13 dates, nine markets, undefined clock efficiency and UNMATCHED controls; none may silently weaken
-the frozen inequalities. Verify both bounds/sensitivities always appear and diagnostic runs still emit no economics.
-The pull-efficiency endpoint and typed hurdle evaluator must land with the verifier before this registration is
-enrolled. This note adds no code, keys, approval-table entry, live permission or production admission change.
+The tests use a fictional log and monkeypatched approval table, never a real log row or production enrollment.
+Old free-form `signature` strings no longer satisfy the gate. There is no runtime enrollment command or bypass flag.
+
+## Remaining one-look execution gates — must precede real enrollment
+
+The row check is necessary but does not implement every gate in this prospective design. In particular, it is not a
+durable consumed-attempt registry or a combined economic/pull-hurdle evaluator. **Keep real enrollment empty until
+all of the following land and receive owner review**, even if a row has been signed:
+
+- Strictly validate the complete execution-manifest schema, including exact executable source identities, every
+  input/stream/plugin/settlement hash, sorted market/condition inventory and declared intervals. Require the fixed
+  14 closed quote dates and typed settlement-only date; the latter has no active minutes or quote/date clusters.
+  Enforce the addendum's complete field values and independently recomputed calibration recipe before scoring.
+- Atomically reserve a create-only, authorization-ID attempt receipt before the first policy/scorer call. Mark it
+  consumed before exposing scores. Partial/failing scored attempts remain consumed across output directories.
+  Recovery needs a new reviewed authorization disclosing every previous read; an ordinary rerun is not allowed.
+- Evaluate the registration's full conjunction: conservative k=1 date and crossed lower bounds strictly above zero
+  against both baselines; >=14 dates admitted and >=10 dates/markets effectively retained; mandatory 100 valid
+  replicates; matched, identified pull point ratio >=2; both fill bounds and k sensitivities/report fields present.
+  The implemented pull endpoint reports its own result only. Missing gates cannot produce REPLAY_HURDLES_MET.
+- Write an immutable verification/attempt receipt with protocol/addendum/manifest/input/config/source digests,
+  authorization ID, verification time and gate verdicts. Keep time-bearing receipts separate from deterministic
+  comparison reports; preserve partial output as incomplete. Revalidate trusted files at the execution boundary.
+
+Libraries remain pure tools rather than a security sandbox. Host admission is independent; the heavy-module
+allowlist still does not permit this real-data CLI. This change authorizes no guard changes, data reads or live work.
+
+## Focused acceptance
+
+Fixtures cover a valid reviewed log path, unknown hash/old signature, absent and duplicate rows, revocation,
+owner/purpose/hash changes, raw-byte newline changes, duplicate JSON keys, wrong local scoring date and expiry.
+CLI spies prove hash refusal precedes bundle IO and scoring; default diagnostics still emit no economics.
+The pull suite covers threshold and endpoint tolerances, missing/one-sided/crossed books, coverage gaps, post-decision
+state, one-minute matching, zero denominators, crossed counts, omitted draws, cluster/replicate minima and both bounds.
+Full-manifest/input/source and consumed-attempt acceptance remains required with the gates above before enrollment.

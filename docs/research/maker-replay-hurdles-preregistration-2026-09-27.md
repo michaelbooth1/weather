@@ -12,8 +12,8 @@ This is a prospective protocol, not a result or a live-trading approval.
 The design basis is [Evaluation harness](../operations/informed-maker-design-2026-09-25.md#evaluation-harness-maker_corereplay)
 and the [110l report](../roadmap/agent-report-2026-09-110l-maker-replay-harness.md), read at harness commit
 `8ee7b8ad34c3d6ab8c073e93f90fc717586505ca` on `origin/codex/maker-replay-harness-20260926`.
-The owner selected **2026-10-12** as the scoring date in the task requesting this document.
-There is one scheduled scored look on that America/Toronto date, after the input seal and authorization checks.
+The agent proposed **2026-10-12** as the scoring date; owner confirmation is pending.
+The proposal is one scored look on that America/Toronto date, only after owner confirmation, the input seal and authorization checks.
 No interim economics, policy comparison, confidence interval or move-efficiency result may be inspected.
 Envelope, hash and coverage diagnostics are permitted; they cannot choose policy settings or a favourable subset.
 
@@ -123,7 +123,8 @@ date x market 90% bootstrap intervals for the ratio using the same settings, rec
 within each replicate; omit undefined draws and report their count. The >= 10 cluster and >= 100 valid-replicate
 rules apply here too. The **point ratio >= 2.0** is the frozen pull hurdle; its interval is mandatory uncertainty
 disclosure, not an unregistered lower-bound >= 2 rule. Report at_price sensitivity without changing the decision.
-The basis harness does not yet implement this endpoint: absence must block the combined decision, not count as PASS.
+The basis harness did not implement this endpoint. The fixture-only implementation is documented in the
+[execution addendum](maker-replay-execution-addendum-2026-09-27.md); absence must block the combined decision, not count as PASS.
 
 ## Result and execution boundary
 
@@ -133,8 +134,9 @@ BLOCKED, UNDERPOWERED, UNIDENTIFIED, UNMATCHED or HURDLE_NOT_MET reason; retain 
 An interval containing zero means the delta is not distinguishable from zero at this registered interval level.
 Do not refit, select a hazard or alter cash/caps after seeing this panel's outcomes.
 
-Before any scored read, a separately reviewed execution manifest must freeze every `ReplayConfig` field (including
-the conservative `hazard_per_minute` input), exact policies/config/source hashes, all inputs and the definitions above.
+Before any scored read, a separately reviewed execution manifest must bind every `ReplayConfig` field (including
+the conservative `hazard_per_minute` input) to the prospective
+[execution addendum](maker-replay-execution-addendum-2026-09-27.md), exact policies/config/source hashes, all inputs and the definitions above.
 An omitted hazard is not zero: the basis informed policy refuses quoting when that bound is absent. This hurdle
 registration supplies no empirical hazard estimate. Missing run bindings require an owner-approved prospective
 completion before scoring; changing a frozen policy or analysis choice requires a new registration. Signing a vague
@@ -145,20 +147,22 @@ remains explicit: recorded minute parity does not establish full-session/transpo
 does not discharge the design's T+1 fair-value reliability table, at least seven days of forward shadow/replay agreement,
 operational drills, accounting reconciliation or the owner's separate decision to start live trading.
 
-## Owner-signature block — unsigned; complete by detached attestation
+## Owner-signature block — unsigned; complete by decision-log row
 
 | Binding | Owner attestation |
 | --- | --- |
-| Owner name / independently trusted signing-key ID | PENDING |
+| Owner name / decision-log authorization ID | PENDING |
 | Decision | PENDING — approve one offline scored look only |
 | Frozen protocol | This repository path, introducing commit and raw-byte SHA-256: PENDING |
+| Frozen execution addendum | Linked addendum path, introducing commit and raw-byte SHA-256: PENDING |
 | Execution manifest | Path and raw-byte SHA-256, including complete run bindings: PENDING |
-| Approved scoring date | 2026-10-12 America/Toronto; no earlier scored read |
+| Proposed scoring date | 2026-10-12 America/Toronto; owner confirmation PENDING; no earlier scored read |
 | Quote dates / settlement-only date | 2026-09-27..2026-10-10 UTC / 2026-10-11 UTC |
 | Owner signed_at / authorization expiry (UTC) | PENDING |
-| Review approval reference / detached signature | PENDING |
+| Review approval reference / DECISION_LOG row | PENDING |
 | Pre-score attestation | PENDING — criteria/config frozen before any scored read; all prior access disclosed |
 
-Do not insert a simulated owner signature or treat task approval to write/push these docs as signing. A detached
-attestation binds the final committed bytes and avoids a self-referential hash. Keep this frozen file and attach the
-completed attestation separately. No hash enrollment, key enrollment or scoring is authorized by this change.
+Do not insert a simulated owner signature or treat task approval to write/push these docs as signing. An owner-approved
+row in [DECISION_LOG](../operations/DECISION_LOG.md) binds the final raw-byte SHA-256 of this file and its execution
+addendum without a self-referential hash; the CLI checks it as specified in the verifier note. No cryptographic key
+is required. No approval row, hash enrollment or scoring is authorized by this change.

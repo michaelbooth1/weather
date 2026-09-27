@@ -1,15 +1,14 @@
 from datetime import date, timedelta
-from pathlib import Path
 import json
 import pytest
 
-from maker_core.evidence.journal import canonical_bytes, plain
+from maker_core.evidence.journal import plain
 from maker_core.replay import authorization
 from maker_core.replay.__main__ import main
-from maker_core.replay.bundle import sha256
 from maker_core.replay.engine import ReplayConfig
 from maker_core.replay.report import comparison_report, report_bytes
 from .fixtures.replay_scenario import Scenario
+from .fixtures.replay_authorization import sign_fixture
 
 
 def panel(tmp_path):
@@ -34,6 +33,7 @@ def test_dual_bound_three_day_report_is_byte_deterministic(tmp_path):
     assert list(a["bounds"]) == ["strictly_through", "at_price"]
     assert a["parity"]["status"] == "FULL_SESSION_NOT_QUALIFIED"
     for bound in a["bounds"].values():
+        assert "pull_efficiency" in bound
         assert set(bound["scores"]) == set(authorization.POLICIES)
         assert all(e["status"] == "UNDERPOWERED" for c in bound["intervals"].values()
                    for e in (c.get("intervals") or {}).values())
@@ -53,17 +53,16 @@ def test_cli_cannot_self_approve_or_read_bundle_first(monkeypatch, flags):
 def test_pinned_fixture_registration_binds_scope_and_diagnostic_stays_default(tmp_path, monkeypatch):
     bundles = panel(tmp_path)
     config = ReplayConfig(hazard_per_minute=0)
-    doc = dict(owner="FICTIONAL TEST OWNER", signature="fixture signed review reference", signed_at="2019-12-31T00:00:00Z",
+    doc = dict(owner="FICTIONAL TEST OWNER", signed_at="2019-12-31T00:00:00Z",
         hurdles={"fixture_only": True}, clusters=["date", "date_x_market"], policies=list(authorization.POLICIES),
         dates=[b.day.isoformat() for b in bundles], markets=["a", "b"], replay_config=plain(config),
         bootstrap_replicates=100, bootstrap_seed=20260926, metrics=["modeled_net_k1", "modeled_net_k05"])
-    path = tmp_path/"registration.json"
-    raw = canonical_bytes(doc)
-    path.write_bytes(raw)
-    key = sha256(raw)
-    monkeypatch.setitem(authorization.APPROVED_REGISTRATIONS, key, doc["owner"])
+    path, key, paths = sign_fixture(tmp_path, doc, monkeypatch)
+    raw = path.read_bytes()
     args = ["run", "--out", str(tmp_path/"out"), "--compare", "--hazard-per-minute", "0",
             "--bootstrap-replicates", "100", "--pre-registration", str(path), "--pre-registration-sha256", key]
+    for name, value in paths.items():
+        args += ["--" + name.replace("_", "-"), str(value)]
     for i in range(3):
         args += ["--bundle", str(tmp_path/str(i))]
     assert main(args) == 0
