@@ -15,6 +15,7 @@ citations).
 
 | Audit | Added | Scope | Verdict (one line) | Open | Dispositions | Status |
 | --- | --- | --- | --- | --- | --- | --- |
+| [efficiency-audit-2026-09-27](efficiency-audit-2026-09-27.md) | 2026-09-27 | runtime inventory, capture-loop code, storage I/O, language strategy | do not migrate languages; waste is algorithmic/I-O: exec-tape ~314 GB/day status writes, Stage-A ~75/100 min recomputing history, ~8x storage write waste | handoff 110v; ops actions | inside the file | OPEN |
 | [repo-health-audit-2026-09-26](repo-health-audit-2026-09-26/) | 2026-09-26 | repo long-term health: dead code, retired residue, size/duplication, config/evidence, docs growth, scripts/tasks, tests, deps/CI/branches (8 dimensions) | structurally sound; 4 live defects (unsigned capture band parser, settlement-hole alarm never CRITICAL, deployed watchdog off master, unscheduled producers); retired taker still on Stage-A path; growth unbounded | handoffs 110m/110n; 10 owner decisions | inside the file | OPEN |
 | [storage-value-assessment-2026-09-26](storage-value-assessment-2026-09-26.md) | 2026-09-26 | every large data family: keep / compress / cloud / delete | ~53-58 GiB fast deletes, ~170 GiB compression (weeks), ~100 GiB Drive; mm_runs/taker_runs compressed +25 GiB | owner decisions 1-8 | inside the file | OPEN |
 | [wide-audit-2026-09-25](wide-audit-2026-09-25.md) | 2026-09-25 | 10 areas, verified HIGH findings | disk binding; contract hole fixed (110e); settlement negative-C parser (95b); docs contradicted the pause | see dispositions | inside the file | OPEN |
