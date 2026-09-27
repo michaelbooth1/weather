@@ -1,0 +1,26 @@
+{
+  "id": "W-0036",
+  "title": "88a capture, disk and panel headroom",
+  "workstream": "ops",
+  "status": "in-progress",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": null,
+  "needs_owner": [],
+  "item": null,
+  "questions": [
+    "Can production retain complete panel B coverage through 2026-10-08 while meeting capture and suite disk reserves?"
+  ],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "After integration prove 88a readoption in addition to three capture workers (seed old pid 17840, not a current pid).",
+    "Live disk and panel evidence requires production review; do not infer capacity from the seed. Capture floor 40 GiB and suite floor 50 GiB per current policy; autumn/panel collection must retain headroom."
+  ]
+}

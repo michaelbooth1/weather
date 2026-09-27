@@ -23,6 +23,7 @@ research established) · **Generated** (edit the generator) · **History**
 
 | Read when you are… | Document | Class |
 | --- | --- | --- |
+| Coordinating mission ownership, dependencies, handbacks or landing slots | [Work registry](roadmap/work/README.md) | Canonical records; production-generated board |
 | Doing model, measurement, or research work; or about to claim a number | [Findings digest](operations/FINDINGS_DIGEST.md) — short, mandatory; it cites the depth below | Distillation |
 | …and need the full derivation behind a digest entry | [Established findings](operations/ESTABLISHED_FINDINGS.md) (read the cited section, not the file) | Distillation, reference depth |
 | …and need to know what was claimed and was wrong | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md); the recurring error *shapes* are in [How we get things wrong](operations/HOW_WE_GET_THINGS_WRONG.md) | Distillation, reference depth |
