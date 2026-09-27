@@ -114,6 +114,10 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--roadmap", default=str(progress_audit.DEFAULT_ROADMAP))
     parser.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--profile-steps", action="store_true",
+                        help="Opt in to per-step pyinstrument/tracemalloc and sampled private-memory diagnostics.")
+    parser.add_argument("--profile-out",
+                        help="Profile output directory; defaults to <backtest-root>/step_profiles.")
     parser.add_argument("--lock-path", default=str(DEFAULT_LOCK_PATH))
     parser.add_argument("--stage", default="all", choices=STAGE_CHOICES)
     parser.add_argument("--stage-a-manifest", default=str(DEFAULT_STAGE_A_MANIFEST))

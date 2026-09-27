@@ -339,6 +339,26 @@ budget or create another run folder. The taker supervisor has no end boundary.
 
 ## Daily Refresh Delegated-Child Tasks
 
+Per-step profiling is opt-in: add `--profile-steps --profile-out <run-directory>`
+to an otherwise approved, admitted daily-refresh invocation. It does not
+grant a new execution window or change child containment. The optional
+`requirements-profiling.txt` supplies pyinstrument; without it the JSON
+records pyinstrument as unavailable while tracemalloc/memory capture remains.
+No profiler is started and no profile files are written by default.
+
+Each executed step writes a small JSON report with wall time, top twenty
+tracemalloc allocation sites and traced peak bytes, plus sampled Windows
+PrivateUsage (100 ms, process only). Private memory is null when unavailable,
+including on unsupported platforms; it is never mislabeled RSS. A separate
+bounded text sidecar holds pyinstrument output when installed. Isolated
+children write `isolated_step` reports, and the parent writes separate
+`orchestrator` reports including its wait. Do not sum those wall times or
+treat parent memory as the child's peak. Hard-killed children may have no
+terminal profile; containment receipts remain authoritative. Diagnostic
+failures do not change step results, exceptions, resource caps or deadlines.
+See [pyinstrument's API](https://pyinstrument.readthedocs.io/en/latest/reference.html)
+for reading its sample-based output.
+
 `scripts/ops/register_daily_refresh.ps1` registers both daily stages as
 scheduled PowerShell wrapper actions:
 
