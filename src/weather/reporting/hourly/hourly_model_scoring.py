@@ -27,6 +27,7 @@ from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.paths import data_path, relative_to_repo
 from weather.reporting.formatting import markdown_table
+from weather.reporting.hourly.scored_folder_cache import cached_score
 from weather.scoring.metrics import (
     binary_log_loss,
     brier,
@@ -315,7 +316,13 @@ def attach_raw_drivers(scoring_row, raw_row):
     return scoring_row
 
 
-def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS):
+def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS, *, use_cache=True):
+    if use_cache:
+        return cached_score(folder, label, thresholds, SCHEMA_VERSION, _score_folder_full)
+    return _score_folder_full(folder, label, thresholds)
+
+
+def _score_folder_full(folder, label, thresholds=DEFAULT_THRESHOLDS):
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
     frame = pd.read_csv(tape)

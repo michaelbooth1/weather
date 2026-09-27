@@ -110,6 +110,8 @@ def build_run_parser(parser, dependencies=None):
         configure(dependencies)
     parser.add_argument("folders", nargs="*", help="Optional snapshot folders for settlement finalization.")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--stage-a-recent-days", type=int, default=7,
+                        help="Recent label/replay-status window; 0 explicitly revisits all history.")
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--roadmap", default=str(progress_audit.DEFAULT_ROADMAP))
     parser.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
