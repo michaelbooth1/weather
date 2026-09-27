@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import time
 
 from weather.backtesting import settlement_ledger as ledger
 from weather.market.market_config import date_from_event_slug
@@ -26,6 +27,33 @@ def retained_resolved_event(label):
          "umaResolutionStatus": "resolved" if row.get("resolved") else "",
          "outcomes": ["Yes", "No"], "outcomePrices": [row["yes_price"], row.get("no_price")]}
         for row in winners]}
+
+
+def finalize_with_retained_evidence(folder, previous, **kwargs):
+    event = retained_resolved_event(previous) if kwargs.get("reconcile_polymarket") else None
+    if event is None:
+        return ledger._finalize_folder_with_retry(folder, **kwargs)
+    for attempt in range(ledger.DEFAULT_FOLDER_FINALIZE_ATTEMPTS):
+        try:
+            label = ledger.build_label(folder, polymarket_event=event, **kwargs)
+            if not label:
+                return None
+            # The projection is not a raw response. Preserve only the original
+            # response hash, if the authoritative label actually retained one.
+            old_hash = ((previous.get("evidence") or {}).get("raw_resolution_hashes") or {}).get(
+                "polymarket_response_sha256")
+            hashes = label["evidence"]["raw_resolution_hashes"]
+            hashes.pop("polymarket_response_sha256", None)
+            if old_hash:
+                hashes["polymarket_response_sha256"] = old_hash
+            ledger.upsert_ledger_record(label, kwargs.get("ledger_root"))
+            ledger.write_folder_label(folder, label)
+            ledger.append_mismatch_alert(label, kwargs.get("ledger_root"))
+            return label
+        except OSError:
+            if attempt + 1 == ledger.DEFAULT_FOLDER_FINALIZE_ATTEMPTS:
+                raise
+            time.sleep(ledger.DEFAULT_FOLDER_FINALIZE_RETRY_SECONDS * (attempt + 1))
 
 
 def finalize_incremental(folders, *, as_of_date, recent_days=7, daily_summary_path=None,
@@ -58,12 +86,11 @@ def finalize_incremental(folders, *, as_of_date, recent_days=7, daily_summary_pa
             summary_key = str(summary_path.resolve())
             if summary_key not in daily_indexes:
                 daily_indexes[summary_key] = ledger.load_daily_summary(summary_path)
-            label = ledger._finalize_folder_with_retry(
-                folder, daily_summary_path=summary_path, daily_index=daily_indexes[summary_key],
+            label = finalize_with_retained_evidence(
+                folder, previous, daily_summary_path=summary_path, daily_index=daily_indexes[summary_key],
                 overrides=overrides, finalized_at=finalized_at,
                 interval_minutes=interval_minutes, gap_tolerance=gap_tolerance,
                 reconcile_polymarket=reconcile_polymarket,
-                polymarket_event=retained_resolved_event(previous) if reconcile_polymarket else None,
                 ledger_root=ledger_root)
             if label:
                 labels.append(label)
