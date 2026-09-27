@@ -25,7 +25,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m weather.market.market_microstructure ensure --market $Market --interval-seconds $IntervalSeconds --fast-interval-seconds $FastIntervalSeconds"
+$arguments = "-m weather.operations.thin_ensure --ensure --loop clob --market $Market --interval-seconds $IntervalSeconds --fast-interval-seconds $FastIntervalSeconds"
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
@@ -57,7 +57,7 @@ Register-ScheduledTask `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
     -Principal $principal `
-    -Description "Keeps the Polymarket CLOB book capture loop alive (python -m weather.market.market_microstructure ensure). Registered by scripts/ops/register_clob_supervisor.ps1." `
+    -Description "Keeps the Polymarket CLOB book capture loop alive (python -m weather.operations.thin_ensure --ensure --loop clob). Registered by scripts/ops/register_clob_supervisor.ps1." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': CLOB --ensure every $EnsureEveryMinutes min + at logon."
