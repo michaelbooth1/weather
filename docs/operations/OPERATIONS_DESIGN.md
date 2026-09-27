@@ -153,6 +153,19 @@ it against `git worktree list`. If it is not the production checkout, the code t
 
 ### Weather Snapshot Loop
 
+Last-snapshot cadence checks read a 64 KiB CSV suffix first, retaining the
+full-reader fallback for legacy/malformed tails or triggered-only suffixes
+without a scheduled row. Forecast archive last-hash and payload first-seen
+lookups use disposable hidden JSON indexes bound to source path, size, mtime
+and creation time, with a payload checksum. Normal append writers update an
+existing valid index. Missing, stale or corrupt indexes rebuild from evidence;
+cache-write failures do not change captured evidence. First-seen candidates
+are cached durably only after the manifest append.
+Forecast schema checks inspect the header before reading historical rows.
+Current-schema projections continue to append; explicit schema migration
+retains its existing rewrite behavior. Fleet capture keeps separate bounded
+market children, deadlines and the existing memory ceiling.
+
 - `data/snapshots/loop_status.json`
 - `data/snapshots/loop_supervisor_status.json`
 - `data/snapshots/diagnostics.jsonl`

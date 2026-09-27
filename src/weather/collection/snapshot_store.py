@@ -15,6 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from weather.paths import data_path
+from weather.io import read_csv_tail_rows_with_diagnostics
+from weather.collection.snapshot_read_index import (
+    add_first_seen, indexed, read_index, save_index, signature,
+)
 
 from weather.collection.forecast_payload_cas import (
     CANONICAL_JSON_HASH_ALGORITHM,
@@ -1065,6 +1069,19 @@ class SnapshotStore:
     def last_snapshot_time(self, cadence=None):
         if not self.long_path.exists():
             return None
+        rows, diagnostics = read_csv_tail_rows_with_diagnostics(self.long_path, max_bytes=64 * 1024)
+        if diagnostics.get("status") == "ok":
+            for row in reversed(rows):
+                if cadence == "scheduled" and (row.get("snapshot_cadence") or "scheduled") != "scheduled":
+                    continue
+                try:
+                    return datetime.fromisoformat(row.get("captured_at_local") or "")
+                except ValueError:
+                    continue
+            if diagnostics.get("reached_start"):
+                return None
+        # Legacy multiline/malformed tails or long triggered-only suffixes
+        # retain the original full-reader semantics.
         last_time = None
         with self.long_path.open("r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
@@ -1458,21 +1475,16 @@ class SnapshotStore:
     def payload_first_seen(self, kind, payload_hash, candidate, captured_utc):
         cache = self._payload_first_seen_cache.get(kind)
         if cache is None:
-            cache = {}
             manifest_path = (
                 self.forecast_payloads_jsonl_path
                 if kind == "forecast"
                 else self.observation_payloads_jsonl_path
             )
-            if manifest_path.exists():
-                for row in self.read_jsonl(manifest_path):
-                    digest = row.get("payload_hash")
-                    first_seen = row.get("first_seen_at") or row.get("captured_at_utc")
-                    if digest and first_seen and digest not in cache:
-                        cache[digest] = (
-                            first_seen,
-                            row.get("first_seen_basis") or "existing_manifest",
-                        )
+            def build():
+                values = {}
+                add_first_seen(values, self.read_jsonl(manifest_path))
+                return values
+            cache = {key: tuple(value) for key, value in indexed(manifest_path, "first-seen", build).items()}
             self._payload_first_seen_cache[kind] = cache
         if payload_hash not in cache:
             cache[payload_hash] = (
@@ -2545,6 +2557,8 @@ class SnapshotStore:
             os.fsync(handle.fileno())
 
     def append_jsonl(self, path, payload, *, durable=False):
+        is_manifest = path in (self.forecast_payloads_jsonl_path, self.observation_payloads_jsonl_path)
+        index = read_index(path, "first-seen") if is_manifest else None
         with path.open("a", encoding="utf-8") as handle:
             for text_chunk in _iter_json_text_chunks(
                 payload,
@@ -2556,6 +2570,9 @@ class SnapshotStore:
             if durable:
                 handle.flush()
                 os.fsync(handle.fileno())
+        if index is not None:
+            add_first_seen(index, [payload])
+            save_index(path, "first-seen", index, expected=signature(path))
 
     def existing_explanation_snapshot_ids(self):
         ids = set()
