@@ -177,6 +177,22 @@ Unmatched lots belong to owner-discretionary, outside bot bleed limits.
 
 Run commands from the repository root with the venv interpreter.
 
+The offline maker-plugin diagnostic entrypoint is
+`python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data> --output <new-dir>`.
+It consumes sealed captures and writes bounded JSON/Markdown reports. See the
+[input paths, limits and policy assumptions](docs/operations/maker-core-contracts.md#bounded-weather-plugin-dry-run);
+production execution still requires the host-load lease.
+
+The neutral replay entrypoint is
+`python -B -m maker_core.replay run --bundle <closed-day-dir> --policy blind_re1 --out <new-dir>`.
+It defaults to capture diagnostics. Explicit comparisons require an owner-reviewed
+registration hash; both fill bounds and clustered intervals are always reported.
+The weather export command is
+`python -B -m weather.market.maker_replay_bundle bundle --date YYYY-MM-DD --markets nyc --out <new-dir>`.
+See the [bundle, export and admission contract](docs/operations/maker-replay-bundle.md).
+Workstation verification uses the fixture suite under `workstation_heavy.ps1`
+until the standalone module receives a reviewed admission entry.
+
 ### Registry, History, And Source Data
 
 ```powershell

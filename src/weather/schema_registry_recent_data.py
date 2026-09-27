@@ -18,6 +18,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "GET-only wallet reader request intent and result; no headers or response bodies.",
     ),
     SchemaSpec(
+        "maker_plugin_dry_run", "maker_plugin_dry_run_v0.1",
+        "weather.market.maker_plugin_runner", "active",
+        "Bounded offline weather-plugin joins, probability mass and pure maker decisions.",
+    ),
+    SchemaSpec(
         "maker_evidence_v1_legacy", "maker_evidence_v1",
         "weather.market.maker_evidence_store", "legacy",
         "Original daily journals, retained without migration; use their bound reader.",

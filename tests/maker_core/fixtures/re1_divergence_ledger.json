@@ -1,0 +1,72 @@
+{
+  "source_commit": "2b9a0ca9e586d510b4aa879fad8f0e7331cfe2c8",
+  "comparison_scope": "Canonical minute action/legs/cancel-indices and terminal action/reason; terminal clock is a recorded envelope, not predicted timing.",
+  "remaining_minute_divergences": [],
+  "terminal_divergences": [
+    {
+      "attempt": 4,
+      "session": 3,
+      "cause": "LEGACY_CANCEL_READ_RETRY_INPUTS",
+      "classification": "source_revision_and_input_coverage",
+      "source_journal_sha256": "fa94c73a8e2834aca9272051ab748b518075847fa016b5838a287a2eeace1e87",
+      "sequences": [182, 186, 199, 239],
+      "reason": "The cancel is acknowledged, the order read is unfilled, and one open-order read still lists both legs. The journal then stops as cancel_not_terminal. Commit 26f60347339a3ae7e6a4c88100bacefde8a668eb added ten one-second polls after this incident. The current source waits for more reads; this stopped historical session cannot supply their outcomes. No polls are invented."
+    },
+    {
+      "attempt": 6,
+      "session": 5,
+      "cause": "LEGACY_HEARTBEAT_SCHEDULE_AND_MISSING_MONOTONIC_CLOCK",
+      "classification": "source_revision_and_input_coverage",
+      "source_journal_sha256": "74ab517951ce29ac2a64f7ecfc77a254ca1a0db6e858f7137002af1172342ed9",
+      "sequences": [5098, 5103, 5152],
+      "reason": "A heartbeat request is followed by heartbeat_unavailable and a heartbeat_stale terminal. Commit f3df6f26d0623fc689041631d30cc841c5a24693 changed the send cadence from five to two seconds while keeping the eight-second stale budget. Journal UTC timestamps do not retain monotonic watchdog ticks or the counterfactual responses at the new cadence; the terminal is not manufactured from its own label."
+    },
+    {
+      "attempt": 7,
+      "session": 6,
+      "cause": "LEGACY_ORDER_DECODE_RETRY_INPUTS",
+      "classification": "source_revision_and_input_coverage",
+      "source_journal_sha256": "7221c9108e44b4fbcd8aeef97fabcbdc24ad692249a6ebd6f5e4471e0db61aa7",
+      "sequences": [73, 75, 118],
+      "reason": "The final order request has an SDK response but no normalized order_response, then terminal failure_type UnexpectedResponseError. Commit f3df6f26d0623fc689041631d30cc841c5a24693 maps this decode error to a transient TimeoutError. Further bounded retry outcomes are absent because the old session exited."
+    },
+    {
+      "attempt": 10,
+      "session": 9,
+      "cause": "NONJOURNALED_RUNTIME_EXCEPTION_DETAIL",
+      "classification": "input_coverage",
+      "source_journal_sha256": "294fc3748f1b331f059232d1319f4316a221724082dac656411e1ef10eb3bf66",
+      "sequences": [5323, 5326, 5369],
+      "reason": "The last retained boundaries are a successful order response and heartbeat response. The terminal records RuntimeError only. Session.run retains the exception type, not its message, traceback or origin. These records cannot distinguish the unjournaled control/stream checks that can raise that type; no specific underlying fault is asserted."
+    },
+    {
+      "attempt": 11,
+      "session": 10,
+      "cause": "LEGACY_POST_VISIBILITY_RETRY_INPUTS",
+      "classification": "source_revision_and_input_coverage",
+      "source_journal_sha256": "fa8b478da12a8fed3fd4d579a2c8ac62522f7cc62cbd2cac4eaf1d9fbfa4493e",
+      "sequences": [46, 63, 96],
+      "reason": "The first post is acknowledged; the next open-order read is empty with no foreign orders. The journal stops as unexpected_open_orders. Commit 10fa052a03c77c15ac1c82917b01237e4b9524e9 adds up to ten retries for this strict-subset read lag. The newer source needs subsequent reads that the stopped session cannot provide."
+    }
+  ],
+  "unobserved_minutes": [
+    {
+      "attempt": 6,
+      "cause": "PUBLIC_SNAPSHOT_READ_FAILED",
+      "sequences": [351, 2891],
+      "reason": "minute_missed records TimeoutError and URLError, without a book snapshot or minute decision. These are two input-coverage gaps, excluded from the 313 recorded-minute denominator."
+    }
+  ],
+  "resolved": {
+    "baseline_commit": "0bd7adf98de6c546baa64fff7ee7d45000d7f67e",
+    "baseline_mismatching_minutes": 86,
+    "causes": ["INFORMED_SHARE_PULL_LEAKED_INTO_RE1", "PARTIAL_CANCEL_EXPANDED_TO_BOTH_LEGS", "POST_REQUOTE_STATE_NOT_CARRIED"],
+    "note": "All 86 previously divergent minutes now match. No expected price, requote flag or terminal reason advances runtime state."
+  },
+  "other_scope_limits": [
+    "Account identity, exact signing bindings and cleanup effects are outside the anonymous projection.",
+    "The 88a bundle lacks RE-1 private acknowledgments and post-signing live books. Its adapter explicitly records RE1_TRANSPORT_ASSUMED; those counterfactual results cannot qualify live decision parity.",
+    "Selection clocks and account caps are neutral scaffolding. Recorded fill flags condition terminal comparison; fill timing and economics are not validated.",
+    "Attempts 1 and 2 predate the opening-pair check; only retained gates are exercised. This is historical input coverage, not evidence that the current opening gate ran."
+  ]
+}
