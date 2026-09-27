@@ -51,6 +51,7 @@ from weather.market.storage_pressure_policy import (
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.market.clob_capture_cache import capture_event as cached_capture_event
+from weather.market.clob_token_cadence import write_complete_batch
 from weather.io import request_with_retries
 from weather.schema_registry import schema_version
 
@@ -845,10 +846,8 @@ class MarketMicrostructureStore:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
 
-    def write_token_rows(self, rows):
-        self.append_csv(self.token_path, TOKEN_COLUMNS, rows)
-        for row in rows:
-            self.append_jsonl(self.token_jsonl_path, row)
+    def write_token_rows(self, rows, *, book_metadata=None):
+        return write_complete_batch(self, rows, book_metadata)
 
     def write_books(self, summaries, level_rows, raw_records):
         self.append_csv(self.books_summary_path, BOOK_SUMMARY_COLUMNS, summaries)
@@ -1132,7 +1131,7 @@ def capture_event_books(
             })
         stage = "raw_tape_write"
         with store.raw_tape_guard("raw_token_book_append"):
-            store.write_token_rows(all_token_rows)
+            store.write_token_rows(all_token_rows, book_metadata=summaries)
             book_write_result = store.write_books(
                 summaries,
                 level_rows,

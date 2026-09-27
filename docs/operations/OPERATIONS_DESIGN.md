@@ -169,6 +169,17 @@ error for Stage-A admission.
 
 ### CLOB Book Loop
 
+Token discovery appends a complete, unchanged-schema batch when static token
+identity changes or on the first successful poll of each UTC hour (also at
+local day rollover). Identity includes token/condition/market/event, band and
+outcome metadata, active/closed flags, and observed book tick/minimum size.
+Volatile Gamma values do not trigger a batch. Existing tapes are never
+rewritten; a missing/stale cadence sidecar causes an extra complete batch.
+Book-summary Gamma bid/ask/last-trade fields retain book-poll cadence.
+The portable live preflight still requires token evidence no older than
+600 seconds: hourly token batches can BLOCK that gate. This optimization
+does not weaken the gate or authorize live use.
+
 Capture discovery caches Gamma events by resolved event slug and target date
 for ten minutes. Expired lookup failures propagate; an expired event is never
 served as fresh. Book and enrichment capture share the process-local cache.
