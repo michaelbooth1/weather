@@ -185,6 +185,72 @@ their captured reconciled facts can settle the engine's lots from earlier suppli
 The weather provider's reconciliation status `match` and neutral fixture status `reconciled` are both admitted.
 Both input and output limits still apply. Actual production bytes/day are unknown until an authorized diagnostic export.
 
+### Nightly city bundles
+
+The command facade `weather.market.maker_plugin.replay_export` delegates filesystem orchestration to
+`weather.market.maker_replay_night`, outside the pure providers. It reuses the 110l exporter:
+
+```text
+python -B -m weather.market.maker_plugin.replay_export night --day YYYY-MM-DD --data-root <data> --release-root <immutable-releases> --out <panel> --exclude-utc 05:00-08:00
+```
+
+The explicit output root must be disjoint from the entire input tree and have an existing parent. A closed, canonical
+UTC date is required. Discovery reads only sealed 88a segments, including gzip and content references. Every discovered
+registered city must export successfully. An open segment, missing projectable city, corrupt hash, changed source or
+exceeded cap refuses the entire day. The cap is 64 MiB per city including all three output files, never truncation.
+The whole invocation shares a 1 GiB input-read budget and 300-second cooperative clock, both lowerable; repeated per-city
+reads count again. The scheduled wrapper supplies the outer hard deadline. No whole-history scan or network access occurs.
+
+The output is `<panel>/<day>/bundles/<city>/{bundle.json,events.jsonl,export.json}` plus a day `receipt.json` and an
+append-only `<panel>/panel-ledger.jsonl`. A writer lock serializes admission and ledger appends. City files start under
+`<day>/pending`; publication renames that directory only after every city passes. Only a `SEALED` ledger entry matching
+the receipt hash seals the day. A missing/torn ledger entry, `REFUSED`, or partial directory grants no completeness claim.
+Retries of any attempted day refuse; preserve the attempt for review. The exporter never deletes evidence or repairs a
+torn ledger. Each ledger row includes receipt/bundle hashes, observed free bytes before/after (before receipt/ledger
+overhead), discovered cities, book gaps, exclusions and recorded lifecycle events. A run killed before its terminal
+receipt leaves an unsealed partial directory; Scheduler failure and the retained attempt need operator review.
+
+`--exclude-utc` is repeatable, minute aligned, half open and prospective. Overlap, wrapping midnight and empty ranges
+refuse. `24:00` is accepted only as an end. Missing books outside exclusions remain gaps, never zero fills or rewards.
+With exclusions, each manifest condition gains **`active_intervals`**, an ordered list of objects with `active_from` and
+`active_until` UTC strings, contained within the existing outer interval. An empty list means no quote minutes. Existing
+outer bounds remain the envelope, not permission to quote through holes. The receipt repeats the day intervals and marks
+`reader_compatibility=REQUIRES_110R_ACTIVE_INTERVALS`. **110r owns support in the neutral reader, engine, diagnostics and
+clock baseline. Until that dependency lands, the 110l reader deliberately rejects these extra fields; never strip them
+or score using the outer bounds.** Export and byte sealing can proceed without reader adoption. No maker-core file is
+changed by the nightly exporter mission.
+
+The optional explicit `--release-root` (also supported by the single-city exporter) supplies immutable release directories.
+`maker_replay_release.ReleaseSources` binds the captured source's release ID/content-manifest hash to the one declared
+`base_model.<city>.probability_calibration` inventory role, checks its JSON size/hash, then projects `market_bin.method`
+onto each verified source row as `release_calibration_method`, plus `release_calibration_artifact_sha256`. The plugin input
+envelope also exposes the method beside `record`. Manifest/artifact reads each cap at 2 MiB, count against the shared
+read/time budget and are rechecked before sealing. This verifies that specific export projection, not the entire model
+graph's serving readiness. Wrong hashes, ambiguous roles, missing artifacts or a conflicting captured method refuse.
+Without an explicit release root, existing captured methods remain available and absent methods stay null; no active
+pointer or ambient artifact is consulted. Source files/clocks remain unchanged and the 88a writer is untouched. This
+fulfills the scorer preregistration's additive calibration projection without inventing identity. Run summaries supply recorded
+88a process starts; sealed stream gaps/disconnects, disk brakes and caps are retained separately. Segment rotation is not
+called a restart. Crashes without a sealed summary remain explicitly unknown, so restart coverage is never claimed complete.
+
+### Scheduled production export
+
+`scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It admits only the assigned capture host, holds
+the shared heavy-work lease, checks fresh commit charge below 70% and 50 GiB free, and owns the child in a kill-on-close
+Job. Starts are limited to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child is bounded to 330
+seconds and stops by 04:54:45 at the latest, reserving 15 seconds for teardown/lease release before 04:55. A 2 GiB
+monitored child memory ceiling also refuses; the exporter itself launches no descendants. Unproved teardown poisons
+the lease. A busy lease fails without waiting or automatic catch-up. The default day is yesterday in UTC, not local time.
+
+`scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`, `-ExpectedSourceTip` and
+`-ExpectedRunnerSha256`; `-RepoRoot` defaults to its own checkout. Use `-WhatIf` first: it checks pins without touching
+Scheduler. Registration binds 00:35 daily, S4U/Limited current user, IgnoreNew, a seven-minute Scheduler ceiling and no
+StartWhenAvailable. It reads back the complete action, principal, trigger and safety settings. Both registration and
+execution require the exact Git tip and clean source/script trees, plus the wrapper hash. Re-register with reviewed pins
+after any source-tip adoption. Registration and production qualification belong to the production operator; fixture
+tests and a draft PR grant neither. The new task can contend with other heavy jobs at 00:35 and will visibly refuse a
+busy lease; choosing a different schedule needs a reviewed registrar change. Production bytes/day remain unmeasured.
+
 The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
 both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
 RE-1 qualification uses guarded, minimal recorded-journal fixtures; see the qualification limits below.
