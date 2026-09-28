@@ -319,7 +319,6 @@ def _serving_gauntlet_summary(report, report_path, replay_report_path):
         "corpus_ok": report.get("corpus_ok"),
         "fidelity_ok": report.get("fidelity_ok"),
         "baseline_ok": report.get("baseline_ok"),
-        "forecast_tracker": report.get("forecast_tracker") or {},
         "market_rows": report.get("market_rows") or [],
         "decomposition": report.get("decomposition") or {},
         "corpus_identity": report.get("corpus_identity") or {},
