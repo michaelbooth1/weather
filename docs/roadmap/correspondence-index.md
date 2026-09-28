@@ -422,3 +422,5 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-110t | handoff | [Workstation handoff 2026-09-110t — Phase 3 shadow runner (public reads only)](workstation-handoff-2026-09-110t-shadow-runner.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110u | handoff | [Workstation handoff 2026-09-110u — T+1/T+2 fair-value reliability scorer](workstation-handoff-2026-09-110u-t1-fair-value-scorer.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110v | handoff | [Workstation handoff 2026-09-110v — efficiency fixes from the 2026-09-27 audit](workstation-handoff-2026-09-110v-efficiency-fixes.md) | 2026-09-27 | none in tree | — | — |
+| 2026-09-110w | handoff | [Workstation handoff 2026-09-110w — one-sided edge maker profile (second candidate)](workstation-handoff-2026-09-110w-one-sided-edge-profile.md) | 2026-09-27 | none in tree | — | — |
+| 2026-09-110x | handoff | [Workstation handoff 2026-09-110x — journal of the owner's manual one-sided orders](workstation-handoff-2026-09-110x-manual-order-journal.md) | 2026-09-27 | none in tree | — | — |
