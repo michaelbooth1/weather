@@ -156,10 +156,28 @@ if ($markerReadable) {
     $markerMergeCommit = ([string]$marker.merge_commit).ToLowerInvariant()
     $expectedTip = ([string]$marker.expected_tip).ToLowerInvariant()
     $resolvedTip = ([string]$marker.resolved_branch_tip).ToLowerInvariant()
-    $expectedPaths = @(
+    $allowedAutoRefreshedPaths = @(
         "config/locations.json",
         "config/location_market_events.json"
     )
+    $expectedPaths = @($marker.auto_refreshed_paths | ForEach-Object { [string]$_ })
+    $markerAutoRefreshedPathsValid = (
+        $expectedPaths.Count -gt 0 -and
+        @($expectedPaths | Select-Object -Unique).Count -eq $expectedPaths.Count -and
+        @($expectedPaths | Where-Object { $allowedAutoRefreshedPaths -notcontains $_ }).Count -eq 0
+    )
+    if (-not $markerAutoRefreshedPathsValid) { $expectedPaths = @() }
+    $eventSnapshotPinValid = $true
+    if ($marker.event_snapshot_sha256) {
+        $eventSnapshotForRecovery = Join-Path $repo "data\location_market_events.json"
+        $eventSnapshotPinValid = (
+            [string]$marker.event_snapshot_path -ceq "data/location_market_events.json" -and
+            [string]$marker.event_snapshot_sha256 -match '^[0-9a-fA-F]{64}$' -and
+            (Test-Path -LiteralPath $eventSnapshotForRecovery -PathType Leaf) -and
+            (Get-FileHash -LiteralPath $eventSnapshotForRecovery -Algorithm SHA256).Hash -ieq
+                [string]$marker.event_snapshot_sha256
+        )
+    }
 
     # Booleans in a mutable recovery marker are not enough to preserve a
     # committed tree. Re-derive the exact Git shape: synchronized reviewed
@@ -195,6 +213,8 @@ if ($markerReadable) {
     $markerIdentityValid = (
         $onMaster -and
         $markerRepoValid -and
+        $markerAutoRefreshedPathsValid -and
+        $eventSnapshotPinValid -and
         -not [string]::IsNullOrWhiteSpace([string]$marker.branch) -and
         $expectedTip -match '^[0-9a-f]{40}$' -and
         $resolvedTip -eq $expectedTip -and

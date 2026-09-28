@@ -145,7 +145,9 @@ def _fixture(tmp_path: Path, *, leaking_registry: bool = False) -> dict:
             ],
         },
     )
-    _write_json(config / "location_market_events.json", {"schema_version": "events_v0.1", "locations": []})
+    data = repo / "data"
+    data.mkdir(exist_ok=True)
+    _write_json(data / "location_market_events.json", {"schema_version": "events_v0.1", "locations": []})
     _write_json(config / "markets.json", {"schema_version": "markets_v0.1", "markets": []})
     base_artifacts = _write_base_model_fixture(repo)
     bundle_path = candidate / "model" / "model.pkl"

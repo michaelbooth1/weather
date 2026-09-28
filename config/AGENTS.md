@@ -4,8 +4,8 @@ These instructions apply to `config/`.
 
 - Treat `locations.json` as the durable location, station, settlement, source
   plan, and Polymarket-series registry.
-- Do not hand-edit `location_market_events.json`. It is a generated Gamma-event
-  snapshot; refresh it with
+- Do not hand-edit `data/location_market_events.json`. It is an ignored
+  generated Gamma-event snapshot; bootstrap or refresh it with
   `python -m weather.operations.location_config_refresh` and review the diff.
 - Keep `markets.json` as the deprecated external-override compatibility shell.
   Built-in `MarketSpec` definitions in

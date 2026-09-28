@@ -2565,3 +2565,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
     assert "geographic_eligibility_fresh_until_utc=(" in lifecycle[
         lifecycle_submit :
     ]
+
+
+def test_ignored_event_snapshot_is_not_a_tracked_dirty_path_allowance():
+    assert sealer.ALLOWED_DIRTY_PATHS == frozenset({"config/locations.json"})

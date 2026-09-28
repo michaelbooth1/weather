@@ -22,7 +22,7 @@ from weather.market.market_making_preflight import (
     recent_utc_timestamp,
 )
 from weather.market.mm_policy import maybe_float, parse_time, utc_now
-from weather.paths import config_path, data_path, docs_path
+from weather.paths import LOCATION_MARKET_EVENTS_PATH, config_path, data_path, docs_path
 from weather.schema_registry import schema_version
 
 
@@ -31,7 +31,7 @@ DRIFT_SCHEMA_VERSION = schema_version("exchange_economics_drift")
 DEFAULT_PLATFORM = "polymarket_global"
 DEFAULT_MAX_AGE_HOURS = 24.0
 DEFAULT_TEMPLATE = docs_path("research", "exchange_economics_snapshot_template.json")
-DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
+DEFAULT_EVENT_METADATA = LOCATION_MARKET_EVENTS_PATH
 DEFAULT_SNAPSHOT = data_path() / "backtest" / "exchange_economics_snapshot.json"
 DEFAULT_ACCEPTED_SNAPSHOT = data_path() / "backtest" / "exchange_economics_accepted_snapshot.json"
 DEFAULT_DRIFT_REPORT = data_path() / "backtest" / "exchange_economics_drift.json"

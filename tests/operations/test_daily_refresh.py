@@ -258,7 +258,7 @@ def _args(tmp, **overrides):
         "exchange_economics_snapshot": str(root / "backtest" / "exchange_economics_snapshot.json"),
         "exchange_economics_accepted_snapshot": str(root / "backtest" / "exchange_economics_accepted_snapshot.json"),
         "exchange_economics_platform": exchange_economics.DEFAULT_PLATFORM,
-        "event_metadata_config": str(root / "config" / "location_market_events.json"),
+        "event_metadata_config": str(root / "data" / "location_market_events.json"),
         "skip_taker_tail_casebook": False,
         "skip_taker_edge_permission_map": False,
         "taker_edge_permission_map_out": str(root / "backtest" / "taker_edge_permission_map.json"),

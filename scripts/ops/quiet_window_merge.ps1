@@ -90,9 +90,12 @@ $mergeCommit = $null
 $baselineCommit = $null
 $preMerge = $null
 $rollbackContentSha256 = [ordered]@{}
-# Exact pre-commit bytes of the generated config files. The drift commit normalizes line endings, so a rollback that
+# Exact pre-commit bytes of the durable location registry. The drift commit normalizes line endings, so a rollback that
 # restores them from Git can leave the same JSON with different bytes (2026-09-24); rollback writes these back first.
 $rollbackContentBytes = @{}
+$eventSnapshotRelativePath = ""
+$eventSnapshotAbsolutePath = ""
+$eventSnapshotSha256 = ""
 $captureRecoveryProved = $false
 $reconciliationStagedSafetyCaptureRecoveryProved = $false
 $reconciliationStagedSafetyCaptureRecoveryAt = $null
@@ -214,6 +217,8 @@ function Save-Report($ok, $stage, $detail) {
         roll_verdict_json_sha256 = $rollVerdictJsonSha256
         roll_verdict_transcript_sha256 = $reconciliationRollVerdictTranscriptSha256
         rollback_content_sha256 = $rollbackContentSha256
+        event_snapshot_path = $eventSnapshotRelativePath
+        event_snapshot_sha256 = $eventSnapshotSha256
         reconciliation_config_content_sha256 = $rollbackContentSha256
         merge_commit = $mergeCommit
         capture_recovery_proved = $captureRecoveryProved
@@ -457,10 +462,11 @@ function Write-QuietMergeMarker {
         push_stop_rpc_timed_out = $pushStopRpcTimedOut
         publication_acknowledged = $publicationAcknowledged
         auto_refreshed_paths = @(
-            "config/locations.json",
-            "config/location_market_events.json"
+            "config/locations.json"
         )
         auto_refreshed_sha256 = $rollbackContentSha256
+        event_snapshot_path = $eventSnapshotRelativePath
+        event_snapshot_sha256 = $eventSnapshotSha256
         reconciliation_config_content_sha256 = $rollbackContentSha256
     }
     if ($productionBaselineReconciliationMode) {
@@ -3364,16 +3370,32 @@ if (Test-Path -LiteralPath $existingMergeHeadPath -PathType Leaf) {
 }
 try { Assert-OneShotPushTask }
 catch { Fail $_.Exception.Message }
-# WeatherLocationConfigRefresh rewrites the two config files every 6 hours, including once
-# just before this window. Refusing that generated drift would make this tool abort on an
-# otherwise normal production tree. The guard exists so a rollback cannot destroy WORK;
-# these two files are fleet-regenerated state, not authored work. Commit them rather than
-# ignore them, which both cleans the tree and preserves the drift, and only then take the
-# rollback point. Keep this list exact: no other dirty tracked path may pass automatically.
+# WeatherLocationConfigRefresh rewrites the durable locations registry and the ignored
+# event snapshot every 6 hours, including once just before this window. Only the tracked
+# registry can appear as Git drift and be committed here. The ignored snapshot is separately
+# hash-pinned for the duration of merge preparation. Keep the tracked list exact: no other
+# dirty path may pass automatically.
 $autoRefreshed = @(
-    "config/locations.json",
-    "config/location_market_events.json"
+    "config/locations.json"
 )
+if (-not $productionBaselineReconciliationMode) {
+    $eventSnapshotRelativePath = "data/location_market_events.json"
+    $eventSnapshotAbsolutePath = Join-Path $repo "data\location_market_events.json"
+    if (-not (Test-Path -LiteralPath $eventSnapshotAbsolutePath -PathType Leaf)) {
+        Fail "generated market-event snapshot is missing: $eventSnapshotRelativePath"
+    }
+    $eventSnapshotSha256 = (Get-FileHash -LiteralPath $eventSnapshotAbsolutePath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Assert-EventSnapshotHashPinned {
+    if ($productionBaselineReconciliationMode) { return }
+    if (-not (Test-Path -LiteralPath $eventSnapshotAbsolutePath -PathType Leaf)) {
+        Fail "generated market-event snapshot disappeared during merge preparation"
+    }
+    $currentHash = (Get-FileHash -LiteralPath $eventSnapshotAbsolutePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($currentHash -cne $eventSnapshotSha256) {
+        Fail "generated market-event snapshot changed during merge preparation; expected sha256 $eventSnapshotSha256, found $currentHash"
+    }
+}
 $dirtyTracked = @(& git status --porcelain | Where-Object { $_ -and $_ -notmatch '^\?\?' })
 $unexpected = @($dirtyTracked | Where-Object {
         $p = ($_ -replace '^..\s*', '').Trim()
@@ -3429,7 +3451,7 @@ foreach ($relativePath in $autoRefreshed) {
     }
 }
 if ($rollbackContentSha256.Count -ne $autoRefreshed.Count) {
-    Fail "both fleet-generated config files must exist before merge preparation"
+    Fail "the durable location registry must exist before merge preparation"
 }
 
 function Restore-GeneratedConfigBytes {
@@ -3767,6 +3789,7 @@ catch {
 }
 
 if ($DryRun) {
+    Assert-EventSnapshotHashPinned
     $dryMergeExit = Invoke-GitAllowingNativeStderr { & git merge --no-commit --no-ff $mergeTarget | Out-Null }
     $conflicts = @(& git diff --name-only --diff-filter=U | Where-Object { $_ })
     # Always unwind: leaving a half-merged tree changes loop-loaded modules on disk and
@@ -3806,6 +3829,7 @@ if ($DryRun) {
 # merge commit below.
 $mergeCommitted = $false
 try {
+    Assert-EventSnapshotHashPinned
     $mergeExit = Invoke-GitAllowingNativeStderr {
         & git merge --no-commit --no-ff $mergeTarget | Out-Null
     }

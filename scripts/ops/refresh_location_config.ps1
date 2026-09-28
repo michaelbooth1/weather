@@ -2,7 +2,7 @@
 # independently validates today's configured markets against live Gamma before
 # reporting task success.
 #
-# Regenerates config/location_market_events.json so the collection loops always
+# Regenerates data/location_market_events.json so the collection loops always
 # hold the current and upcoming daily temperature-market events plus their CLOB
 # token maps. When this config goes stale the loops have no tokens to capture
 # once the market day rolls past the last pre-loaded event -- the root cause of
@@ -15,7 +15,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$Locations = "config/locations.json",
-    [string]$EventMetadata = "config/location_market_events.json"
+    [string]$EventMetadata = "data/location_market_events.json"
 )
 
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"

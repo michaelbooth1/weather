@@ -31,6 +31,10 @@ def config_path(*parts: str | Path) -> Path:
     return CONFIG_ROOT.joinpath(*parts)
 
 
+LOCATION_MARKET_EVENTS_PATH = data_path("location_market_events.json")
+LEGACY_LOCATION_MARKET_EVENTS_PATH = config_path("location_market_events.json")
+
+
 def docs_path(*parts: str | Path) -> Path:
     return DOCS_ROOT.joinpath(*parts)
 

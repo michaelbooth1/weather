@@ -56,7 +56,7 @@ Run outside the 12:00-18:00 graded capture window:
 .\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global --target-date <yyyy-mm-dd>
 ```
 
-The collector reads `config/location_market_events.json` to choose exact active
+The collector reads `data/location_market_events.json` to choose exact active
 conditions, validates Gamma identity against the tracked condition/token map,
 fetches current reward campaigns from the CLOB, validates the complete payload,
 and only then replaces the ignored runtime snapshot.

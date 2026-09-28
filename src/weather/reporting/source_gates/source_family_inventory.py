@@ -33,7 +33,7 @@ from weather.model.feature_store import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     US_GUIDANCE_FEATURE_COLUMNS,
 )
-from weather.paths import config_path, data_path
+from weather.paths import LOCATION_MARKET_EVENTS_PATH, config_path, data_path
 from weather.reporting.source_gates.source_family_inventory_report import write_report
 from weather.schema_registry import schema_version
 from weather.sources.marine_water_contrast import (
@@ -68,7 +68,7 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory_report.md"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation.json"
 DEFAULT_CANDIDATE_REPLAY_JSON = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
 DEFAULT_LOCATIONS_CONFIG = config_path("locations.json")
-DEFAULT_LOCATION_MARKET_EVENTS_CONFIG = config_path("location_market_events.json")
+DEFAULT_LOCATION_MARKET_EVENTS_CONFIG = LOCATION_MARKET_EVENTS_PATH
 
 BLANK_VALUES = {"", "na", "nan", "none", "null", "n/a"}
 FORECAST_PAYLOAD_SOURCES = {

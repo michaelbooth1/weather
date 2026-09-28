@@ -1,6 +1,6 @@
 {
   "source_commit": "69c5a325342b99fa03655883436e169159b7756d",
-  "source_path": "config/location_market_events.json",
+  "source_path": "data/location_market_events.json",
   "cases": [
     {
       "event_date": "2026-09-23",

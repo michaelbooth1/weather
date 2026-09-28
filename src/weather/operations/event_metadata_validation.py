@@ -13,20 +13,20 @@ from typing import Any
 from weather.market.market_config import config_for_date, date_from_event_slug, ensure_date
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
-from weather.paths import config_path, data_path
+from weather.paths import LOCATION_MARKET_EVENTS_PATH, config_path, data_path
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("event_metadata_validation")
 DEFAULT_LOCATIONS = config_path("locations.json")
-DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
+DEFAULT_EVENT_METADATA = LOCATION_MARKET_EVENTS_PATH
 DEFAULT_JSON_OUT = data_path("backtest", "event_metadata_validation.json")
 DEFAULT_REPORT_OUT = data_path("backtest", "event_metadata_validation_report.md")
 DEFAULT_MAX_AGE_HOURS = 36.0
 REFRESH_COMMAND = (
     "python -m weather.operations.location_config_refresh "
-    "--locations config/locations.json --event-metadata config/location_market_events.json"
+    "--locations config/locations.json --event-metadata data/location_market_events.json"
 )
 VALIDATION_COMMAND = (
     "python -m weather.operations.event_metadata_validation "

@@ -106,7 +106,7 @@ daily-roll liveness classification.
 - Broader location/source planning: `config/locations.json`. It is not the same
   set as the built-in live market registry.
 - Volatile Gamma event metadata: generated
-  `config/location_market_events.json`; refresh it rather than hand-editing it.
+  `data/location_market_events.json`; refresh it rather than hand-editing it.
 - Supervised settlement labels: per-market ledgers under local
   `data/settlements/`; folder settlement files are derived copies.
 - Schemas: `weather.schema_registry` and producer/consumer tests.

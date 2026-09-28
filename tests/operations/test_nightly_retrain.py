@@ -138,7 +138,9 @@ def _args(tmp, *extra):
         ),
         encoding="utf-8",
     )
-    (config / "location_market_events.json").write_text(
+    data = root / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    (data / "location_market_events.json").write_text(
         '{"schema_version":"location_market_events_v0.1","locations":[]}',
         encoding="utf-8",
     )

@@ -840,7 +840,7 @@ def _semantic_parent_fixture(tmp_path: Path) -> dict:
         },
     )
     _write_json(
-        config / "location_market_events.json",
+        repo / "data" / "location_market_events.json",
         {"schema_version": "events_v0.1", "locations": []},
     )
     _write_json(
