@@ -1,4 +1,4 @@
-# Workstation handoff 2026-09-110h2 — weather plugin: fixes from the first real-data dry run
+# Workstation handoff 2026-09-111a — weather plugin: fixes from the first real-data dry run
 
 Written 2026-09-28 by the production agent. The first production run of the 110h dry-run CLI (branch
 `codex/weather-maker-plugin-20260925` at `3b8c7b92d`, run from a detached worktree with `python -P`, module path verified)
@@ -28,7 +28,7 @@ on 88a date 2026-09-26 ended **PARTIAL** after 24.8 s: `stop_reason=input_byte_c
 
 Fixture tests for each defect (store layout `forecast_payload_cas/sha256/<xx>/<key>.blob`, an over-cap token file, an
 over-cap ledger, the T+0 case) plus the repo-wide audits and maker-core boundary tests. Push, update draft PR #96, and
-report `docs/roadmap/agent-report-2026-09-110h2-plugin-dry-run-fixes.md` with the exact production re-run command (same
+report `docs/roadmap/agent-report-2026-09-111a-plugin-dry-run-fixes.md` with the exact production re-run command (same
 safeguards: detached worktree, `python -P`, module-path probe, lease, new output directory). The plugin does not land until
 a production re-run evaluates bands end to end. The replay exam is unaffected in timing: hazard calibration uses 88a
 public trades, and panel bundles can be exported after the fix from sealed 88a data.
