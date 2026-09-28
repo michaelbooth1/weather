@@ -96,6 +96,15 @@ reclaimed bytes and `cleanup_eligible=false`. It is not the verified archive
 manifest: source hashes, dependency closure, independent restore, and reviewed
 exact-file cleanup remain required by the archive contract.
 
+## Nightly compression consumer
+
+The separate `weather.operations.cold_snapshot_nightly` consumer calls the
+same bounded inventory with `min_age_days=14` and `immediate_files` under its
+own approved nightly policy, shared lease and 00:30-04:45 deadline. This does
+not change the attended inventory CLI's thirty-day selection contract or
+give inventory receipts deletion authority. See
+[nightly compression](cold-snapshot-compression.md#nightly-automatic-selection).
+
 ## Update this file when
 
 Update when selection, bounds, admission, request fields, receipt interpretation,
