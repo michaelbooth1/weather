@@ -436,3 +436,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-110x | handoff | [Workstation handoff 2026-09-110x — journal of the owner's manual one-sided orders](workstation-handoff-2026-09-110x-manual-order-journal.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110y | handoff | [Workstation handoff 2026-09-110y — owner cockpit page](workstation-handoff-2026-09-110y-owner-cockpit.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110z | handoff | [Workstation handoff 2026-09-110z — reward-opportunity scanner, settlement watcher, PR hygiene report](workstation-handoff-2026-09-110z-reward-scan-and-read-tools.md) | 2026-09-27 | none in tree | — | — |
+| 2026-09-111a | handoff | [Workstation handoff 2026-09-111a — weather plugin: fixes from the first real-data dry run](workstation-handoff-2026-09-111a-plugin-dry-run-fixes.md) | 2026-09-28 | none in tree | — | — |
