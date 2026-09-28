@@ -11,6 +11,7 @@ def write_json(path, payload):
 def test_config_inventory_classifies_stale_location_events_and_deprecated_market_shell(tmp_path):
     config = tmp_path / "config"
     config.mkdir()
+    (tmp_path / "data").mkdir()
     write_json(
         config / "locations.json",
         {
@@ -20,7 +21,7 @@ def test_config_inventory_classifies_stale_location_events_and_deprecated_market
         },
     )
     write_json(
-        config / "location_market_events.json",
+        tmp_path / "data" / "location_market_events.json",
         {
             "schema_version": "location_market_events_v0.1",
             "generated_at_utc": "2026-06-01T00:00:00+00:00",
@@ -67,6 +68,9 @@ def test_config_inventory_classifies_stale_location_events_and_deprecated_market
     assert rows["locations.json"]["freshness"] == "NOT_REQUIRED"
     assert rows["location_market_events.json"]["classification"] == "generated_snapshot"
     assert rows["location_market_events.json"]["freshness"] == "STALE"
+    assert rows["location_market_events.json"]["path"].replace("\\", "/").endswith(
+        "data/location_market_events.json"
+    )
     assert rows["markets.json"]["classification"] == "deprecated_compatibility_shell"
     assert rows["markets.json"]["status"] == "PASS"
     assert rows["storage_pressure.json"]["classification"] == "operator_activation_policy"
@@ -76,6 +80,7 @@ def test_config_inventory_classifies_stale_location_events_and_deprecated_market
 def test_config_inventory_flags_active_variant_data_artifact_path(tmp_path):
     config = tmp_path / "config"
     config.mkdir()
+    (tmp_path / "data").mkdir()
     for name, payload in {
         "locations.json": {"schema_version": "location_registry_v0.1", "locations": []},
         "location_market_events.json": {
@@ -91,7 +96,10 @@ def test_config_inventory_flags_active_variant_data_artifact_path(tmp_path):
             "capture": {"write_order_books_long_csv": True},
         },
     }.items():
-        write_json(config / name, payload)
+        write_json(
+            tmp_path / "data" / name if name == "location_market_events.json" else config / name,
+            payload,
+        )
     write_json(
         config / "model_variant_registry.json",
         {
@@ -123,6 +131,7 @@ def test_config_inventory_flags_active_variant_data_artifact_path(tmp_path):
 def test_config_inventory_accepts_archived_no_market_extra_locations(tmp_path):
     config = tmp_path / "config"
     config.mkdir()
+    (tmp_path / "data").mkdir()
     for name, payload in {
         "locations.json": {"schema_version": "location_registry_v0.1", "locations": []},
         "location_market_events.json": {
@@ -138,7 +147,10 @@ def test_config_inventory_accepts_archived_no_market_extra_locations(tmp_path):
             "capture": {"write_order_books_long_csv": True},
         },
     }.items():
-        write_json(config / name, payload)
+        write_json(
+            tmp_path / "data" / name if name == "location_market_events.json" else config / name,
+            payload,
+        )
     write_json(
         config / "no_market_extra_locations.json",
         {

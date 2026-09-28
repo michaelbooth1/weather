@@ -209,17 +209,43 @@ def test_exact_tip_guard_precedes_any_automatic_commit_or_merge() -> None:
     assert guard < automatic_commit < merge
 
 
-def test_quiet_merge_accepts_only_the_two_fleet_generated_config_paths() -> None:
+def test_quiet_merge_commits_only_the_tracked_generated_location_registry() -> None:
     script = _script_text()
 
-    match = re.search(r"\$autoRefreshed = @\((.*?)\)\n\$dirtyTracked", script, re.DOTALL)
+    match = re.search(r"\$autoRefreshed = @\((.*?)\)", script, re.DOTALL)
     assert match is not None
     assert re.findall(r'"([^"]+)"', match.group(1)) == [
         "config/locations.json",
-        "config/location_market_events.json",
     ]
     assert "fleet-generated drift set" in script
     assert 'git commit -m "ops: preserve fleet-generated drift' in script
+
+
+def test_quiet_merge_hash_pins_the_data_root_event_snapshot_fixture() -> None:
+    script = _script_text()
+    assert '$eventSnapshotRelativePath = "data/location_market_events.json"' in script
+    assert "Get-FileHash -LiteralPath $eventSnapshotAbsolutePath -Algorithm SHA256" in script
+    assert "event_snapshot_sha256 = $eventSnapshotSha256" in script
+    pin_guard = _braced_block(script, "function Assert-EventSnapshotHashPinned")
+    assert "$currentHash -cne $eventSnapshotSha256" in pin_guard
+    merge = script.index("& git merge --no-commit --no-ff $mergeTarget")
+    assert script.rfind("Assert-EventSnapshotHashPinned", 0, merge) >= 0
+
+
+def test_quiet_merge_dirty_path_fixture_excludes_ignored_event_snapshot() -> None:
+    script = _script_text()
+    match = re.search(r"\$autoRefreshed = @\((.*?)\)", script, re.DOTALL)
+    assert match is not None
+    allowlist = set(re.findall(r'"([^\"]+)"', match.group(1)))
+    fixtures = {
+        " M config/locations.json": True,
+        " M config/location_market_events.json": False,
+        " M data/location_market_events.json": False,
+        " M src/weather/market/exchange_economics.py": False,
+    }
+    for status, accepted in fixtures.items():
+        path = re.sub(r"^..\s*", "", status).strip()
+        assert (path in allowlist) is accepted
 
 
 def test_generated_drift_commit_survives_outer_task_log_redirection() -> None:
@@ -584,7 +610,7 @@ def test_preparation_is_journaled_before_config_mutation_and_prepared_binds_tape
     merge = script.index("& git merge --no-commit --no-ff $mergeTarget")
 
     assert first_preparing < git_add < source_before < prepared < merge
-    assert "both fleet-generated config files must exist before merge preparation" in script
+    assert "the durable location registry must exist before merge preparation" in script
 
 
 def test_attempt_report_is_exclusive_atomic_and_written_before_mutable_slots() -> None:
@@ -831,11 +857,13 @@ def test_reconciliation_roll_verdict_is_explicit_and_fails_closed() -> None:
 def test_reconciliation_snapshots_only_exact_generated_paths_as_raw_bytes() -> None:
     script = _script_text()
 
-    auto_refreshed = re.search(
-        r"\$autoRefreshed = @\((.*?)\)\n\$dirtyTracked", script, re.DOTALL
+    incident_pin = re.search(
+        r"\$reconciliationExpectedConfigBlobs = \[ordered\]@\{(.*?)\n\}",
+        script,
+        re.DOTALL,
     )
-    assert auto_refreshed is not None
-    assert set(re.findall(r'"([^\"]+)"', auto_refreshed.group(1))) == (
+    assert incident_pin is not None
+    assert set(re.findall(r'^\s*"([^\"]+)"\s*=', incident_pin.group(1), re.MULTILINE)) == (
         RECONCILIATION_CONFIG_PATHS
     )
     assert "[IO.File]::ReadAllBytes" in script

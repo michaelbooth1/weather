@@ -354,12 +354,12 @@ try {
     Write-WindowStatus "opening" "in_progress"
 
 # ---- Commit scheduled location-config drift so clean-source gates can pass ----
-# WeatherLocationConfigRefresh regenerates the two config JSONs at 00:00, one
-# hour before this window; an uncommitted diff makes the nightly clean-source
-# gate (and therefore immutable release construction) fail closed. Only these
-# two generated files are ever auto-committed, and only after JSON validation;
+# WeatherLocationConfigRefresh regenerates the ignored event snapshot and the
+# durable registry at 00:00, one hour before this window; an uncommitted tracked diff makes the nightly clean-source
+# gate (and therefore immutable release construction) fail closed. Only the
+# tracked durable registry is auto-committed, and only after JSON validation;
 # any other dirt is logged and left for the operator.
-$autoCommitPaths = @("config/location_market_events.json", "config/locations.json")
+$autoCommitPaths = @("config/locations.json")
 $dirtyPaths = @(git -C $RepoRoot status --porcelain |
     Where-Object { $_ } |
     ForEach-Object { ($_.Substring(3).Trim('"') -replace '\\', '/') })

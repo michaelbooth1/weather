@@ -194,7 +194,8 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
   back, so one discrete reclaim flips its sign. Read the free-space figure and the trail
   (`data\alerts\disk_free_trail.jsonl`).
 - **The working tree normally carries two fleet-generated modified files**,
-  `config/location_market_events.json` and `config/locations.json`. Routine churn — leave them
+  `data/location_market_events.json` is ignored runtime state; only
+  `config/locations.json` is tracked generated drift. Routine churn — leave it
   uncommitted. The guarded quiet-window merge is the sole exception: after its immutable-tip guard
   passes, it commits exactly those two paths so its rollback point cannot discard generated state.
 

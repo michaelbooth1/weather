@@ -190,7 +190,7 @@ separately in `weather.operations.execution_tape_supervisor`; its registrar is
 an explicit host-adoption action and repository integration alone does not arm
 the task. The producer is auxiliary to the three-loop streak-critical topology.
 It builds subscriptions only from the retained
-`config/location_market_events.json` seed; it does not discover markets from a
+`data/location_market_events.json` snapshot; it does not discover markets from a
 live REST endpoint and has no order, credential, wallet, or signing path.
 
 The managed worker records its PID, exact process provenance, loaded-source

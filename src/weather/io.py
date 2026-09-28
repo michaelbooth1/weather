@@ -514,6 +514,21 @@ def write_text_atomic(
     return path
 
 
+def write_bytes_atomic(path: str | Path, data: bytes) -> Path:
+    """Write bytes through a same-directory atomic replacement."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return path
+
+
 def rotate_sidecar(
     path: str | Path,
     *,

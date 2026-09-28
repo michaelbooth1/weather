@@ -131,7 +131,7 @@ Checked-in configuration lives under `config/`.
 | File | Role |
 | --- | --- |
 | `config/locations.json` | Durable location, station, settlement, source-plan, and Polymarket series facts. |
-| `config/location_market_events.json` | Generated Gamma event metadata for configured locations. Refresh it, do not hand-edit it. |
+| `data/location_market_events.json` | Ignored generated Gamma event metadata for configured locations. Refresh it, do not hand-edit it. |
 | `config/markets.json` | Deprecated external-override compatibility shell. The built-in `MarketSpec` definitions in `src/weather/market/market_registry.py` are authoritative unless a non-live workflow explicitly sets `WEATHER_MARKET_REGISTRY`; live candidate/session paths refuse that override. |
 | `config/model_variant_registry.json` | Model-variant lifecycle, artifact, and promotion registry. |
 | `config/supplemental_stations.json` | Supplemental station provenance and validation registry. |
@@ -145,7 +145,7 @@ Ownership, generation method, and freshness rules for each file are in
 Refresh generated market-event metadata and audit config freshness:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
+.\venv\Scripts\python.exe -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata data\location_market_events.json
 .\venv\Scripts\python.exe -m weather.operations.config_inventory --out data\backtest\config_inventory.json --report data\backtest\config_inventory_report.md
 ```
 

@@ -90,7 +90,6 @@ CANONICAL_ORIGIN_URL = "https://github.com/michaelbooth1/weather.git"
 REMOTE_PROOF_TIMEOUT_SECONDS = 10
 ALLOWED_DIRTY_PATHS = frozenset(
     {
-        "config/location_market_events.json",
         "config/locations.json",
     }
 )

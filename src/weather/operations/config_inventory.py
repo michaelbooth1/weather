@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.paths import config_path, data_path, relative_to_repo
+from weather.paths import LOCATION_MARKET_EVENTS_PATH, config_path, data_path, relative_to_repo
 from weather.schema_registry import schema_version
 
 
@@ -240,13 +240,25 @@ def config_record(path: Path, *, now: datetime, policy: dict) -> dict:
 def build_config_inventory(
     config_root: str | Path = DEFAULT_CONFIG_ROOT,
     *,
+    event_metadata_path: str | Path | None = None,
     generated_at_utc: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     config_root = Path(config_root)
+    if event_metadata_path is None:
+        event_metadata_path = (
+            LOCATION_MARKET_EVENTS_PATH
+            if config_root.resolve() == DEFAULT_CONFIG_ROOT.resolve()
+            else config_root.parent / "data" / "location_market_events.json"
+        )
+    event_metadata_path = Path(event_metadata_path)
     now = now or utc_now()
     rows = [
-        config_record(config_root / name, now=now, policy=policy)
+        config_record(
+            event_metadata_path if name == "location_market_events.json" else config_root / name,
+            now=now,
+            policy=policy,
+        )
         for name, policy in sorted(CONFIG_POLICIES.items())
     ]
     warning_count = sum(1 for row in rows if row["status"] == "WARN")

@@ -33,11 +33,11 @@ from weather.market.execution_tape_store import (
 from weather.market.market_config import config_for_date, ensure_date
 from weather.market.market_microstructure_constants import CLOB_WS_URL
 from weather.market.market_registry import all_specs, spec_for_id
-from weather.paths import config_path
+from weather.paths import LOCATION_MARKET_EVENTS_PATH, config_path
 from weather.schema_registry import schema_version
 
 
-DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
+DEFAULT_EVENT_METADATA = LOCATION_MARKET_EVENTS_PATH
 DEFAULT_EVENT_METADATA_MAX_AGE_HOURS = 36.0
 DEFAULT_HEARTBEAT_SECONDS = 10.0
 DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS = 30.0

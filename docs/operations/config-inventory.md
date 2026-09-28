@@ -2,12 +2,16 @@
 
 Status: canonical configuration classification and freshness policy.
 
-Checked-in files under `config/` are classified by owner and freshness policy:
+Tracked configuration and the ignored generated snapshot are classified by owner and freshness policy:
 
 | File | Classification | Policy |
 | :--- | :--- | :--- |
 | `locations.json` | Durable location registry | Hand-authored location, station, settlement, and source-plan facts. Volatile market-event fields are not stored here. |
-| `location_market_events.json` | Generated snapshot | Current Gamma API active-event metadata by location; stale after 7 days. |
+| `data/location_market_events.json` | Ignored generated snapshot | Current Gamma API active-event metadata by location; stale after 7 days. Prior bytes are appended under `data/location_market_events_archive/`. |
+
+The snapshot's `generated_at_utc` is the freshness timestamp. The durable
+location registry stores only the snapshot path and schema version; it does not
+carry a second refresh timestamp.
 | `markets.json` | Deprecated compatibility shell | Empty external override file retained for `weather.market.market_registry`; built-in `MarketSpec` definitions remain authoritative. |
 | `model_variant_registry.json` | Hand-authored registry | Validate before promotion; active promoted artifacts must not point at ignored `data/` paths. |
 | `supplemental_stations.json` | Hand-authored registry | Review when station provenance changes. |
@@ -28,8 +32,24 @@ python -m weather.operations.config_inventory --out data\backtest\config_invento
 Refresh generated market-event metadata:
 
 ```powershell
-python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
+python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata data\location_market_events.json
 ```
+
+For the one-time production cutover, bootstrap while the tracked legacy file is
+still present, before merging the move. The bootstrap copies bytes unchanged,
+adds those bytes to the local archive, and does not contact Gamma:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.location_config_refresh --bootstrap-legacy --event-metadata data\location_market_events.json
+$legacyHash = (Get-FileHash config\location_market_events.json -Algorithm SHA256).Hash
+$snapshotHash = (Get-FileHash data\location_market_events.json -Algorithm SHA256).Hash
+if ($legacyHash -cne $snapshotHash) { throw "event snapshot bootstrap changed bytes" }
+```
+
+Then merge the reviewed branch, verify `config/location_market_events.json` is
+removed from the tracked tree, confirm `data/location_market_events.json` is
+still present and ignored, and run the normal scheduled refresh after the
+merge. The archive remains append-only under `data/location_market_events_archive/`.
 
 On the production host, `scripts/ops/refresh_location_config.ps1` follows that
 refresh with an independent live target-date validation and reports task

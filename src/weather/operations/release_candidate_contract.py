@@ -1502,7 +1502,7 @@ def freeze_candidate_semantic_contract(
             label="locations config",
         ),
         "location_market_events_config": _copy_canonical_json(
-            config_root / "location_market_events.json",
+            config_root.parent / "data" / "location_market_events.json",
             root / SEMANTIC_PATHS["location_market_events_config"],
             label="location market-events config",
         ),

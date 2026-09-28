@@ -76,7 +76,7 @@ repo on 2026-07-31 before any change:
 
 ```text
 git_dirty: true    →  RELEASE BUILD GATE PASSES: False
- M config/location_market_events.json
+ (ignored) data/location_market_events.json
  M config/locations.json
 ?? logs/backfill_19a.err
 ?? logs/backfill_19a.json
@@ -89,7 +89,7 @@ references it and nothing regenerates it, but `.gitignore` covered `*.log` and n
 it sat dirty forever. Now ignored (commit `aaf8252b`); the files remain on disk.
 
 **(b) `config/` drift — recurring, and it cannot be ignored away.** `WeatherLocationConfigRefresh`
-rewrites `config/locations.json` and `config/location_market_events.json` every six hours
+rewrites `config/locations.json` and `data/location_market_events.json` every six hours
 (00:00 / 06:00 / 12:00 / 18:00). Config hashes are legitimately attested in the release manifest
 (`release config hash index`), so excluding `config/` from the gate would be wrong.
 
@@ -100,7 +100,7 @@ Immediately before the build:
 
 ```powershell
 # run from the production checkout root
-git add config/locations.json config/location_market_events.json
+git add config/locations.json
 git commit -m "config: scheduled location refresh drift (pre-release-build, automated)"
 # then PROVE the gate is satisfied before spending window time:
 $env:PYTHONPATH="$PWD\src"

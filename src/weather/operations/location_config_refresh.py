@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import urllib.parse
@@ -10,7 +11,13 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.paths import config_path
+from weather.io import write_bytes_atomic
+from weather.paths import (
+    LEGACY_LOCATION_MARKET_EVENTS_PATH,
+    LOCATION_MARKET_EVENTS_PATH,
+    config_path,
+    data_path,
+)
 from weather.schema_registry import schema_version
 
 
@@ -18,7 +25,8 @@ LOCATION_REGISTRY_SCHEMA_VERSION = schema_version("location_registry")
 LOCATION_MARKET_EVENTS_SCHEMA_VERSION = schema_version("location_market_events")
 
 DEFAULT_LOCATIONS = config_path("locations.json")
-DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
+DEFAULT_EVENT_METADATA = LOCATION_MARKET_EVENTS_PATH
+DEFAULT_EVENT_ARCHIVE = data_path("location_market_events_archive")
 DEFAULT_TAG_SLUG = "highest-temperature"
 DEFAULT_CATEGORY_URL = "https://polymarket.com/weather/high-temperature"
 DEFAULT_GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
@@ -65,6 +73,81 @@ def write_json(path: str | Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+def _archive_name(payload: dict, raw: bytes) -> str:
+    generated = str(payload.get("generated_at_utc") or "unknown")
+    try:
+        instant = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=timezone.utc)
+        stamp = instant.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    except ValueError:
+        stamp = "unknown-time"
+    return f"{stamp}-{hashlib.sha256(raw).hexdigest()}.json"
+
+
+def archive_event_snapshot(path: str | Path, *, archive_dir: str | Path = DEFAULT_EVENT_ARCHIVE) -> Path | None:
+    path = Path(path)
+    if not path.is_file():
+        return None
+    raw = path.read_bytes()
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot archive invalid event snapshot: {path}") from exc
+    target = Path(archive_dir) / _archive_name(payload, raw)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.read_bytes() != raw:
+            raise FileExistsError(f"archive path already contains different bytes: {target}")
+        return target
+    # Exclusive creation keeps the archive append-only under concurrent refreshes.
+    with target.open("xb") as handle:
+        handle.write(raw)
+    return target
+
+
+def write_event_snapshot(
+    path: str | Path,
+    payload: dict,
+    *,
+    archive_dir: str | Path = DEFAULT_EVENT_ARCHIVE,
+) -> Path:
+    path = Path(path)
+    archive_event_snapshot(path, archive_dir=archive_dir)
+    raw = (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return write_bytes_atomic(path, raw)
+
+
+def bootstrap_legacy_event_snapshot(
+    source: str | Path = LEGACY_LOCATION_MARKET_EVENTS_PATH,
+    target: str | Path = DEFAULT_EVENT_METADATA,
+    *,
+    archive_dir: str | Path = DEFAULT_EVENT_ARCHIVE,
+) -> Path:
+    """Copy a checked-in legacy snapshot byte-for-byte without contacting Gamma."""
+    source = Path(source)
+    target = Path(target)
+    raw = source.read_bytes()
+    # Parse only to validate and name the archive; copied bytes remain untouched.
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"legacy event snapshot is invalid: {source}") from exc
+    archive_target = Path(archive_dir) / _archive_name(payload, raw)
+    archive_target.parent.mkdir(parents=True, exist_ok=True)
+    if archive_target.exists():
+        if archive_target.read_bytes() != raw:
+            raise FileExistsError(f"archive path already contains different bytes: {archive_target}")
+    else:
+        with archive_target.open("xb") as handle:
+            handle.write(raw)
+    if target.exists():
+        if target.read_bytes() != raw:
+            raise FileExistsError(f"target already exists with different bytes: {target}")
+        return target
+    return write_bytes_atomic(target, raw)
 
 
 def gamma_events_url(*, tag_slug: str, active: bool, closed: bool, limit: int, offset: int) -> str:
@@ -316,10 +399,9 @@ def durable_locations_payload(
     output["freshness_policy"] = {
         "source": "hand-authored durable location and station facts",
         "event_metadata_path": str(Path(event_metadata_path).as_posix()),
-        "volatile_event_metadata": "config/location_market_events.json",
+        "volatile_event_metadata": "data/location_market_events.json",
     }
     output["event_metadata"] = {
-        "last_refreshed_at_utc": generated_at_utc,
         "path": str(Path(event_metadata_path).as_posix()),
         "schema_version": LOCATION_MARKET_EVENTS_SCHEMA_VERSION,
     }
@@ -371,11 +453,23 @@ def main(argv=None):
     parser.add_argument("--event-metadata", default=str(DEFAULT_EVENT_METADATA))
     parser.add_argument("--events-json", default="", help="Optional fixture events JSON instead of live Gamma fetch.")
     parser.add_argument(
+        "--bootstrap-legacy",
+        action="store_true",
+        help="Copy the tracked legacy event snapshot byte-for-byte to data/ and archive it; no API request is made.",
+    )
+    parser.add_argument(
         "--metadata-only",
         action="store_true",
         help="Write only --event-metadata; leave the input location registry byte-for-byte unchanged.",
     )
     args = parser.parse_args(argv)
+    if args.bootstrap_legacy:
+        result = bootstrap_legacy_event_snapshot(
+            source=LEGACY_LOCATION_MARKET_EVENTS_PATH,
+            target=args.event_metadata,
+        )
+        print(f"Legacy location event snapshot copied byte-for-byte to {result}")
+        return result
     events = None
     if args.events_json:
         payload = load_json(args.events_json)
@@ -387,7 +481,7 @@ def main(argv=None):
     )
     if not args.metadata_only:
         write_json(args.locations, locations_payload)
-    write_json(args.event_metadata, event_payload)
+    write_event_snapshot(args.event_metadata, event_payload)
     print(
         "Location config refresh: locations={locations} events={events}".format(
             locations=len(locations_payload.get("locations") or []),
