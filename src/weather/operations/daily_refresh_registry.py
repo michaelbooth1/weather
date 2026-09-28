@@ -251,7 +251,7 @@ STAGE_ALL = "all"
 STAGE_SETTLEMENT = "settlement"
 STAGE_EVIDENCE = "evidence"
 STAGE_CHOICES = (STAGE_ALL, STAGE_SETTLEMENT, STAGE_EVIDENCE)
-STAGE_A_END_STEP = "fleet_observability"
+STAGE_A_END_STEP = "physical_feature_family_ratchet"
 STAGE_B_START_STEP = "promotion_refresh"
 
 

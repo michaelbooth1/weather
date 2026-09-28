@@ -1328,7 +1328,7 @@ class TestDailyRefresh(unittest.TestCase):
         settlement = step_names_for_stage("settlement")
         evidence = step_names_for_stage("evidence")
 
-        self.assertEqual(settlement[-1], "fleet_observability")
+        self.assertEqual(settlement[-1], "physical_feature_family_ratchet")
         self.assertEqual(evidence[0], "promotion_refresh")
         self.assertNotIn("promotion_refresh", settlement)
         self.assertNotIn("fleet_observability", evidence)
