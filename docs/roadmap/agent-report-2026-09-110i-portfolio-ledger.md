@@ -184,8 +184,14 @@ closure evidence. The branch-level script verdict above governs integration.
 After guarded integration, from the production checkout with the owner-supplied
 recorded campaign configuration, run:
 
+**110k correction (2026-09-26, explicitly requested in that handoff):** the
+configuration must now include the public `account_id`, or use the explicit
+argument below. The 110k adapter supports the production helper's `reads`
+envelope. The historical layout limitation below describes the original 110i
+implementation; see [the correction report](agent-report-2026-09-110k-1.md).
+
 ```powershell
-.\venv\Scripts\python.exe -m maker_core.portfolio report --snapshots .\data\wallet_ledger --campaigns .\config\local\portfolio_campaigns.json --out .\data\portfolio_ledger
+.\venv\Scripts\python.exe -m maker_core.portfolio report --snapshots .\data\wallet_ledger --campaigns .\config\local\portfolio_campaigns.json --account-id (Read-Host 'Public wallet account ID') --out .\data\portfolio_ledger
 ```
 
 This is offline by default. It was **not** run on production or real snapshots.

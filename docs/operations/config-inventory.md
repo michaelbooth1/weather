@@ -20,6 +20,10 @@ Generate the current inventory:
 `config/local/` is ignored owner-local configuration, never part of the tracked
 inventory. `local/wallet_reader_client.json` holds the LAN URL and reader bearer
 token under the [wallet-reader runbook](wallet-reader.md); never commit or print it.
+`examples/portfolio_campaigns.json` is a hand-authored structural template owned by
+`maker_core.contracts.portfolio`; update it when the campaign contract changes.
+The production agent authors `local/portfolio_campaigns.json` from it using the
+owner's actual account and capital records; see [portfolio ledger](portfolio-ledger.md).
 
 ```powershell
 python -m weather.operations.config_inventory --out data\backtest\config_inventory.json --report data\backtest\config_inventory_report.md
