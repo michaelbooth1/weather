@@ -12,10 +12,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import threading
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -29,6 +29,7 @@ from weather.io import (
     write_json_atomic,
 )
 from weather.paths import data_path
+from weather.market.execution_tape_io import StatusCadence, TAPE_FSYNC
 from weather.schema_registry import schema_version
 
 
@@ -495,9 +496,7 @@ class RotatingJsonlWriter:
         if self._handle is None:
             self._open_append_part()
             current = self.parts[-1]
-        self._handle.write(encoded)
-        self._handle.flush()
-        os.fsync(self._handle.fileno())
+        TAPE_FSYNC.write(self._handle, encoded)
         current["rows"] += 1
         current["bytes"] += len(encoded)
         self.last_row = payload
@@ -536,8 +535,8 @@ class RotatingJsonlWriter:
 
     def close_handle(self) -> None:
         if self._handle is not None:
-            self._handle.close()
-            self._handle = None
+            handle, self._handle = self._handle, None
+            TAPE_FSYNC.close(handle)
 
     def close(self) -> None:
         self.close_handle()
@@ -563,6 +562,7 @@ class MarketDayTapeStore:
         self.seed = seed
         self.root = Path(snapshots_root) / seed.event_slug / "execution_tape"
         self.status_path = self.root / "status.json"
+        self._status_cadence = StatusCadence()
         self.trades = RotatingJsonlWriter(self.root, "trades", max_part_bytes=max_part_bytes)
         self.dedupe = RotatingJsonlWriter(self.root, "dedupe", max_part_bytes=max_part_bytes)
         self.gaps = RotatingJsonlWriter(self.root, "gaps", max_part_bytes=max_part_bytes)
@@ -856,7 +856,7 @@ class MarketDayTapeStore:
         if message_seen:
             self.state["last_message_at_utc"] = at.isoformat()
             self.state["messages_seen"] = int(self.state.get("messages_seen") or 0) + 1
-        self.persist_status(now=at)
+        self.persist_status(now=at, force=False)
 
     def record_message_counts(self, *, non_trade: int = 0, rejected: int = 0) -> None:
         self.state["non_trade_messages_discarded"] = (
@@ -994,7 +994,7 @@ class MarketDayTapeStore:
         self.state["last_written_execution_identity_strength"] = row[
             "execution_identity_strength"
         ]
-        self.persist_status(now=received_at)
+        self.persist_status(now=received_at, force=False)
         return {
             "written": True,
             "duplicate": False,
@@ -1074,18 +1074,21 @@ class MarketDayTapeStore:
                     self.state.get("partial_execution_observations_admitted") or 0
                 ),
                 "last_trade_timestamp_ms_seen": self.state.get("last_trade_timestamp_ms_seen"),
-                "counter_basis": "physical JSONL scan at open plus fsynced append receipts",
+                "counter_basis": "physical JSONL scan at open plus append receipts (fsync grouped at 1 s)",
             },
         }
 
-    def persist_status(self, *, now: datetime) -> None:
+    def persist_status(self, *, now: datetime, force: bool = True) -> None:
+        if not self._status_cadence.due(force=force):
+            return
         write_json_atomic(self.status_path, self.status_payload(now=now), trailing_newline=True)
+        self._status_cadence.written()
 
     def close(self) -> None:
-        self.trades.close()
-        self.dedupe.close()
-        self.gaps.close()
-        self.seeds.close()
+        with ExitStack() as cleanup:
+            for writer in (self.trades, self.dedupe, self.gaps, self.seeds):
+                cleanup.callback(writer.close)
+        self.persist_status(now=utc_now())
 
 
 class ExecutionTapeCoordinator:
@@ -1103,6 +1106,7 @@ class ExecutionTapeCoordinator:
         self.snapshots_root = Path(snapshots_root)
         self.max_part_bytes = int(max_part_bytes)
         self.status_path = self.snapshots_root / "execution_tape_status.json"
+        self._status_cadence = StatusCadence()
         self.reject_root = self.snapshots_root / "execution_tape_unrouted"
         self._mutex = threading.RLock()
         self.coordinator_session_id = uuid.uuid4().hex
@@ -1165,6 +1169,26 @@ class ExecutionTapeCoordinator:
         self.condition_routes: dict[str, str] = {}
         self.asset_condition_routes: dict[str, str] = {}
         self.replace_seeds(tuple(seeds), now=ensure_utc(now))
+        # A cached root can predate up to ten seconds of physically present
+        # rows. Replace its contribution for reopened routes, preserving the
+        # accumulated contribution of retired routes.
+        previous_routes = {row["event_slug"]: row for row in prior.get("active_market_days", [])}
+        for field in ("weak_execution_identities_admitted", "repeated_execution_identities_admitted",
+                      "nonunique_execution_observations_admitted", "partial_execution_observations_admitted"):
+            for store in self.stores.values():
+                cached = previous_routes.get(store.seed.event_slug, {})
+                self.state[field] += int(store.state[field]) - int(cached.get(field) or 0)
+        rejection_counts = {"parse_rejections": 0, "unrouted_trades": 0, "ambiguous_routes": 0}
+        for row in self.rejects.iter_rows():
+            classification = row.get("classification")
+            field = ("parse_rejections" if classification in {"unparseable_frame", "invalid_execution_message"}
+                     else "unrouted_trades" if classification == "incomplete_execution_route"
+                     else "ambiguous_routes" if classification in {"asset_condition_route_conflict", "asset_exact_condition_conflict"}
+                     else None)
+            if field:
+                rejection_counts[field] += 1
+        self.state.update(rejection_counts)
+        self.persist_status(now=ensure_utc(now))
 
     def _validate_routes(self, seeds: Iterable[MarketDaySeed]) -> None:
         asset_owner: dict[str, str] = {}
@@ -1271,7 +1295,7 @@ class ExecutionTapeCoordinator:
         with self._mutex:
             for key in route_keys:
                 self.stores[key].heartbeat(at, message_seen=message_seen)
-            self.persist_status(now=at)
+            self.persist_status(now=at, force=False)
 
     def _record_rejection(
         self,
@@ -1295,6 +1319,7 @@ class ExecutionTapeCoordinator:
     def ingest_frame(self, raw: Any, *, session_id: str, received_at: datetime | None = None) -> dict[str, Any]:
         received_at = ensure_utc(received_at)
         with self._mutex:
+            previous_state = self._global_state()
             self.state["frames_seen"] = int(self.state.get("frames_seen") or 0) + 1
             try:
                 batch = parse_execution_payload(raw)
@@ -1306,7 +1331,7 @@ class ExecutionTapeCoordinator:
                     classification="unparseable_frame",
                     detail=str(exc),
                 )
-                self.persist_status(now=received_at)
+                self.persist_status(now=received_at, force=self._global_state() != previous_state)
                 return {"trades": 0, "written": 0, "duplicates": 0, "rejected": 1}
 
             self.state["non_trade_messages_discarded"] += batch.non_trade_messages
@@ -1414,7 +1439,7 @@ class ExecutionTapeCoordinator:
                 int(self.state.get("partial_execution_observations_admitted") or 0)
                 + partial_execution_observations
             )
-            self.persist_status(now=received_at)
+            self.persist_status(now=received_at, force=self._global_state() != previous_state)
             return {
                 "trades": len(batch.trades),
                 "written": written,
@@ -1575,13 +1600,16 @@ class ExecutionTapeCoordinator:
                     default="",
                 ) or None,
                 "rejection_tape": self.rejects.stats(),
-                "counter_basis": "per-market-day physical JSONL scans plus fsynced append receipts",
+                "counter_basis": "per-market-day physical JSONL scans plus append receipts (fsync grouped at 1 s)",
             },
         }
 
-    def persist_status(self, *, now: datetime) -> None:
+    def persist_status(self, *, now: datetime, force: bool = True) -> None:
+        if not self._status_cadence.due(force=force):
+            return
         payload = self.status_payload(now=now)
         write_json_atomic(self.status_path, payload, trailing_newline=True)
+        self._status_cadence.written()
         if self._lock:
             try:
                 Path(self._lock["path"]).touch()
@@ -1604,11 +1632,15 @@ class ExecutionTapeCoordinator:
 
     def close(self) -> None:
         with self._mutex:
-            for store in self.stores.values():
-                store.close()
-            self.rejects.close()
-            release_writer_lock(self._lock)
-            self._lock = None
+            try:
+                with ExitStack() as cleanup:
+                    for store in self.stores.values():
+                        cleanup.callback(store.close)
+                    cleanup.callback(self.rejects.close)
+                self.persist_status(now=utc_now())
+            finally:
+                release_writer_lock(self._lock)
+                self._lock = None
 
     def __enter__(self) -> "ExecutionTapeCoordinator":
         return self
