@@ -52,6 +52,10 @@ class WeatherUniverse:
             for book in body(capture):
                 if str(book["asset_id"]) == token:
                     found.append({"captured_at_utc": capture["captured_at_utc"], "book": book})
+        if not found:
+            # 88a books only its selected, reward-eligible bands: a coverage
+            # limit of the capture, distinct from a missing clock or metadata.
+            raise ValueError("book_not_captured")
         return latest(found, as_of)["book"]
 
     def discover(self, as_of_utc, horizon_days):
