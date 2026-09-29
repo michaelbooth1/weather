@@ -78,7 +78,8 @@ Room and the active Roadmap; retired market, history, overview, and operations
 views are not hidden routes or retained application code.
 
 The paper taker and the paper maker were retired and their runtime code deleted on
-2026-09-29 (110o part 3). Their run folders under `data/taker_runs` and `data/mm_runs`
+2026-09-29 (110o part 3), except the paper-run tool `weather.market.market_making_run`,
+retained only for the International live-pilot Stage 0/1 paper proof. Their run folders under `data/taker_runs` and `data/mm_runs`
 remain append-only evidence: real order evidence is permanent, and the taker's
 bounded counterfactual detail is governed by the
 [storage class contract](operations/data-storage-class-contract.md). The retained

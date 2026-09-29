@@ -1,9 +1,4 @@
-"""Shared execution helpers retain values while live imports avoid paper owners.
-
-The paper-maker owners (``mm_policy``, ``market_making_*``) were deleted on
-2026-09-29, so their compatibility re-exports are gone; the neutral owners keep
-the frozen values.
-"""
+"""Shared execution helpers retain values while live imports avoid paper owners."""
 import ast
 from datetime import datetime, timezone
 import importlib
@@ -13,7 +8,7 @@ import subprocess
 import pytest
 
 from weather import time
-from weather.market import platform_contract, public_capture_inputs, value_helpers
+from weather.market import mm_policy, platform_contract, public_capture_inputs, value_helpers
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '8180404a0e588f73dab3c83a171538f8a89c9705'
@@ -29,6 +24,7 @@ def test_scalar_helpers_match_frozen_policy(value):
     exec(compile(tree,'frozen-policy','exec'),namespace)
     for name in names:
         assert getattr(value_helpers,name)(value) == namespace[name](value)
+        assert getattr(mm_policy,name) is getattr(value_helpers,name)
 
 
 def test_clocks_keep_input_diagnostics_and_patchable_aliases(monkeypatch):
@@ -36,7 +32,7 @@ def test_clocks_keep_input_diagnostics_and_patchable_aliases(monkeypatch):
     from weather.operations import event_metadata_validation, runtime_monitor
     expected = datetime(2026,9,26,12,tzinfo=timezone.utc)
     assert time.utc_now('2026-09-26T08:00:00-04:00') == expected
-    assert time.utc_now(expected.replace(tzinfo=None)) == expected
+    assert mm_policy.utc_now(expected.replace(tzinfo=None)) == expected
     assert info_event_calendar.utc_now(' 2026-09-26T12:00:00Z ') == expected
     with pytest.raises(ValueError):
         event_metadata_validation.utc_now('bad')
@@ -47,7 +43,7 @@ def test_clocks_keep_input_diagnostics_and_patchable_aliases(monkeypatch):
 
 
 def test_live_entrypoints_and_neutral_owners_have_no_paper_helper_imports():
-    names = ['exchange_economics','live_forward_gate',
+    names = ['exchange_economics','live_forward_gate','market_making_live_pilot',
              'mm_exchange','mm_exchange_reports','mm_live_bootstrap','mm_live_candidate_cli',
              'mm_live_lifecycle_probe','mm_live_pilot_cli','mm_credentials','mm_credential_import_cli',
              'mm_official_adapter','portable_live_candidate_preflight',
@@ -61,8 +57,10 @@ def test_live_entrypoints_and_neutral_owners_have_no_paper_helper_imports():
 
 
 def test_moved_public_and_platform_helpers_are_single_owners():
-    for retired in ('market_making_preflight', 'market_making_run_support', 'mm_policy'):
-        assert not (ROOT/f'src/weather/market/{retired}.py').exists(), retired
+    from weather.market import market_making_preflight, market_making_run_support
+    assert market_making_preflight.REMEDIATION_RULES is platform_contract.REMEDIATION_RULES
+    assert market_making_preflight.valid_evm_address is platform_contract.valid_evm_address
+    assert market_making_run_support.latest_book_rows is public_capture_inputs.latest_book_rows
     assert platform_contract.valid_evm_address('0x'+'a'*40)
     assert not platform_contract.valid_evm_address('0x'+'a'*39)
     assert public_capture_inputs.clob_token_discovery_health([])['status'] == 'BLOCK'

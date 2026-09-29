@@ -107,6 +107,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "executable_experiment_result_v0.1",
         )
         self.assertEqual(
+            schema_version("mm_scoring_projection"),
+            "mm_scoring_projection_v0.2",
+        )
+        self.assertEqual(
             schema_version("mm_live_credential_import_receipt"),
             "mm_live_credential_import_receipt_v0.4",
         )
@@ -125,6 +129,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("international_live_sdk_portability_receipt"),
             "international_live_sdk_portability_receipt_v0.1",
+        )
+        self.assertEqual(
+            schema_version("maker_scoring_input_binding"),
+            "maker_scoring_input_binding_v0.1",
         )
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.2")
@@ -436,6 +444,7 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("mm_stage0_client_identity"),
             "mm_stage0_client_identity_v0.3",
         )
+        self.assertEqual(schema_version("early_hour_market_guardrail"), "early_hour_market_guardrail_v0.1")
         self.assertEqual(
             schema_version("taker_settled_finalization_projection"),
             "taker_settled_finalization_projection_v0.1",
@@ -502,20 +511,28 @@ class TestSchemaRegistry(unittest.TestCase):
             "taker_edge_permission_map",
             "taker_tail_casebook",
             "mm_paper",
-            "mm_scoring_projection",
+            "mm_known_edge_map",
             "market_making_daily_roll",
             "taker_bot_daily_roll",
         ):
             self.assertNotIn(retired, names)
             with self.assertRaises(KeyError):
                 schema_version(retired)
-        # Readers of retained evidence still resolve their schemas.
+        # Readers of retained evidence and the retained Stage 0/1 paper-run tool resolve theirs.
         for retained in (
             "taker_profitability_artifact_verification",
             "taker_settled_finalization_projection",
             "taker_strategy_report",
             "trading_evidence_summary",
             "mm_run",
+            "mm_quote_intent",
+            "mm_policy",
+            "mm_platform_verification",
+            "mm_scoring_projection",
+            "maker_scoring_input_binding",
+            "early_hour_market_guardrail",
+            "mm_model_variant_bakeoff",
+            "mm_useful_work_liveness",
         ):
             self.assertIn(retained, names)
 

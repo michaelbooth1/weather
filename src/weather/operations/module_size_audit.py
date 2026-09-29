@@ -218,6 +218,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI.",
         "next_split": "Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged.",
     },
+    "src/weather/market/market_making_run.py": {
+        "owner": "market",
+        "boundary": "Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch. Retained after the 2026-09-29 paper-maker retirement only to produce the International live-pilot Stage 0/1 paper run.",
+        "next_split": "Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Retained for Stage 0/1 until the informed maker's own live procedure replaces it; do not grow it. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI.",
+    },
     "src/weather/market/market_microstructure.py": {
         "owner": "market",
         "boundary": "CLOB tape capture loops, tape audit, supervisor process lifecycle, status artifacts, compatibility exports, and CLI.",

@@ -22,9 +22,12 @@ gaps are graded; it does not rank the streak above settlement evidence.
 ## Target Shape
 
 The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) and the
-paper taker (`taker_bot*`) are retired, and their runtime code, daily-refresh steps,
+paper taker (`taker_bot*`) are retired, and their scoring, daily-refresh steps,
 daily rolls and registrars were deleted on 2026-09-29 (110o part 3, owner decision 3
-of the 2026-09-26 repo-health audit). Their run folders under `data/` are retained
+of the 2026-09-26 repo-health audit). By owner decision the paper-run tool
+(`market_making_run` and the modules it imports) is retained only to produce the
+International live-pilot Stage 0/1 paper run until the informed maker's own live
+procedure replaces it; it has no scheduled task. Their run folders under `data/` are retained
 evidence; `trading_evidence` reads them through the read-only
 `weather.reporting.market.retired_trading_evidence` module, and git history holds
 the deleted code. The Stage 2 hold build at `88aa7e43a` is frozen as fixtures only,

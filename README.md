@@ -394,19 +394,32 @@ F-family artifacts. For the local multi-market helper, use
 
 ### Trading Simulations
 
-The keyless paper market maker (`market_making_run`, `mm_paper`) and the paper
-taker bot, with their daily rolls, were retired and their runtime code deleted
-on 2026-09-29 (110o part 3). Their retained run folders are read-only
-evidence. The informed maker is built in `maker_core`; see
+The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
+were retired and their runtime code deleted on 2026-09-29 (110o part 3). Their
+retained run folders are read-only evidence. The informed maker is built in
+`maker_core`; see
 [the informed maker design](docs/operations/informed-maker-design-2026-09-25.md).
 
-Live order modes have additional readiness gates and confirmation flags.
+`market_making_run` is retained only as the paper-run tool that produces the
+International live-pilot Stage 0/1 paper proof (runbook prerequisite 7), until
+the informed maker's own live procedure replaces it:
+
+```powershell
+# Separately authorized paper-only midpoint-harvest profile; never emits live permission.
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
+```
+
+Live order modes have additional readiness gates and confirmation flags. Keep
+normal development and research runs in `shadow` or `paper-live-forward`.
 The bounded Stage 0/1 procedure is in the
 [International live-pilot runbook](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md);
 its optional second-PC topology is in the
 [portable execution-host runbook](docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
-The runbook's paper-counterfactual prerequisite was produced by the deleted
-paper maker; a replacement producer is required before any future live run.
+The default permission profile remains `model`. The `market_harvest` profile
+is a separate paper-only route built from current event/token/book/features;
+it never reads model probabilities for permission, never changes model
+promotion, assumes zero reward, clamps existing risk ceilings, and hard-fails
+if paired with `live-pilot`.
 
 ## Scheduled Operations
 
@@ -497,7 +510,7 @@ data/
       market_ws.jsonl
   backtest/                     # reports, scoring outputs, promotion payloads
   settlements/<market-id>/      # settlement ledgers
-  mm_runs/                      # retired paper-maker run folders (read-only evidence)
+  mm_runs/                      # paper-maker run folders (retained evidence; Stage 0/1 paper runs)
   taker_runs/                   # retired taker-bot run folders (read-only evidence)
 ```
 

@@ -342,6 +342,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Self-hashed fail-closed preflight binding a retrain to an explicit PIT forecast corpus.",
     ),
     SchemaSpec(
+        "maker_scoring_input_binding",
+        "maker_scoring_input_binding_v0.1",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Hash-attested complete-record byte-prefix binding for live-appending maker scoring inputs.",
+    ),
+    SchemaSpec(
         "forecast_payload_manifest",
         "forecast_payload_manifest_v2",
         "weather.collection.snapshot_store",
@@ -707,9 +714,27 @@ RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
         "mm_quote_intent",
         "mm_quote_intent_v0.3",
-        "weather.market.mm_live_candidate_cli",
+        "weather.market.mm_policy",
         "active",
         "Per-row market-making quote intent and no-quote decision schema.",
+    ),
+    SchemaSpec(
+        "mm_scoring_projection",
+        "mm_scoring_projection_v0.1",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Compact source-bound base and model-variant quote inputs for bounded maker-paper scoring.",
+    ),
+    SchemaSpec(
+        "mm_scoring_projection",
+        "mm_scoring_projection_v0.2",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Compact source-bound maker-paper inputs including per-run economics snapshot identity.",
+        supersedes=("mm_scoring_projection_v0.1",),
+        migration_notes=(
+            "Old projections fail exact header/version validation and fall back to canonical quote tapes.",
+        ),
     ),
     SchemaSpec(
         "taker_settled_finalization_projection",

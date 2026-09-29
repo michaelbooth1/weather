@@ -39,11 +39,17 @@ TARGET_MODULES = [
     Path("src/weather/collection/snapshot_tracker.py"),
     Path("src/weather/market/market_config.py"),
     Path("src/weather/market/market_day_labels.py"),
+    Path("src/weather/market/market_making_preflight.py"),
+    Path("src/weather/market/market_making_run.py"),
+    Path("src/weather/market/market_making_run_constants.py"),
+    Path("src/weather/market/market_making_run_support.py"),
     Path("src/weather/market/market_microstructure.py"),
     Path("src/weather/market/market_microstructure_capture.py"),
     Path("src/weather/market/market_microstructure_features.py"),
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
+    Path("src/weather/market/mm_policy.py"),
+    Path("src/weather/market/mm_scoring_projection.py"),
     Path("src/weather/market/polymarket_client.py"),
     Path("src/weather/model/calibration_runtime.py"),
     Path("src/weather/model/model_climatology.py"),
@@ -501,6 +507,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
     Path("src/weather/calibration/pooled_feature_source_state.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.calibration\.pooled_feature_model|\.pooled_feature_model)\s+import\b|"
         r"import\s+weather\.calibration\.pooled_feature_model\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/market/market_making_preflight.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.market_making_run|\.market_making_run)\s+import\b|"
+        r"import\s+weather\.market\.market_making_run\b)",
         re.MULTILINE,
     ),
     Path("src/weather/market/mm_exchange_reports.py"): re.compile(

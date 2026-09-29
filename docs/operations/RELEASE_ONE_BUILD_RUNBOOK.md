@@ -303,9 +303,9 @@ not bind a model release but is normally stopped/restored with capture.
    paused, skip the taker sub-steps here and the taker rows in step 3; do not re-enable the taker
    supervisor as a side effect of a cutover.) Restart the snapshot loop with
    `python -m weather.collection.snapshot_tracker --restart`. The paper market-making and taker
-   daily rolls, the only former consumers of `worker_release_binding`, were retired and their
-   runtime code deleted on 2026-09-29 (110o part 3); there is no bot daily roll to restart and
-   their Disabled tasks must stay Disabled. Restore/ensure the CLOB and observation loops using the exact commands in
+   daily rolls were retired and their runtime code deleted on 2026-09-29 (110o part 3); there is
+   no bot daily roll to restart and their Disabled tasks must stay Disabled. `market_making_run`,
+   now the only consumer of `worker_release_binding`, runs only as an attended Stage 0/1 paper tick. Restore/ensure the CLOB and observation loops using the exact commands in
    `training_window.ps1` and enable their supervisors.
 3. **Prove rows, not just processes.** For the first entirely post-cutover market day, require snapshot
    `variant_predictions_long.csv` rows, maker `run_config.json`/quote rows, and taker

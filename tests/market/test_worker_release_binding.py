@@ -5,8 +5,13 @@ from pathlib import Path
 import pytest
 
 from weather.captured_input_hash import captured_input_payload_sha256
+from tests.market.test_market_making_run import (
+    write_known_edge_map,
+    write_market_fixture,
+)
 from tests.test_release_serving import _active_fixture
 from weather.market.market_config import config_for_date
+from weather.market.market_making_run import build_run_once as build_maker_run_once
 from weather.market.worker_release_binding import (
     LINEAGE_FIELDS,
     WorkerReleaseBindingError,
@@ -22,9 +27,8 @@ from weather.release_serving import clear_process_serving_bundle_cache
 from weather.schema_registry import schema_version
 
 
-# The taker/maker workers that bound releases were retired and deleted on
-# 2026-09-29; the binding contract itself is still exercised on a fixed column
-# list and a minimal snapshot folder.
+# The taker worker was retired and deleted on 2026-09-29; the maker paper-run
+# tool is retained for the International live-pilot Stage 0/1 paper proof.
 ORDER_COLUMNS = ["order_status", "market_id", "range_label", "limit_price"]
 TARGET_DATE = "2026-06-18"
 NOW = "2026-06-18T16:00:00+00:00"
@@ -36,6 +40,14 @@ def _read_csv(path: str | Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _replace_fixture_text(path: Path, *, event_slug: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(OLD_EVENT, event_slug)
+    text = text.replace("2026-06-14", TARGET_DATE)
+    text = text.replace("atlanta", "nyc")
+    path.write_text(text, encoding="utf-8")
+
+
 def _write_release_bound_worker_inputs(
     root: Path,
     *,
@@ -43,34 +55,38 @@ def _write_release_bound_worker_inputs(
     manifest_sha256: str,
     pointer_sha256: str,
     sequence: int,
-) -> Path:
+) -> tuple[Path, Path, Path]:
+    snapshots_root, promotion = write_market_fixture(root)
     event_slug = config_for_date(TARGET_DATE, "nyc").event_slug
-    snapshots_root = root / "snapshots"
+    old_folder = snapshots_root / OLD_EVENT
+    for path in old_folder.iterdir():
+        if path.is_file():
+            _replace_fixture_text(path, event_slug=event_slug)
     folder = snapshots_root / event_slug
-    folder.mkdir(parents=True)
-    snapshot_rows = [
-        {
-            "snapshot_id": "s1",
-            "captured_at_utc": "2026-06-18T15:59:30+00:00",
-            "event_slug": event_slug,
-            "model_version": "candidate",
-            "range_label": f"{value}-{value + 1} F",
-            "condition_id": f"condition-{value}",
-            "clob_yes_token_id": f"token-{value}",
-            "bin_kind": "eq",
-            "bin_value_c": str(value),
-            "model_probability": "0.5",
-            "market_yes": "0.50",
-            "best_bid": "0.49",
-            "best_ask": "0.51",
-            "market_status": "active",
-        }
-        for value in (80, 82)
-    ]
-    with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+    old_folder.rename(folder)
+    _replace_fixture_text(promotion, event_slug=event_slug)
+
+    snapshot_path = folder / "snapshots_long.csv"
+    snapshot_rows = _read_csv(snapshot_path)
+    for row in snapshot_rows:
+        row["model_probability"] = "0.5"
+    with snapshot_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(snapshot_rows[0]))
         writer.writeheader()
         writer.writerows(snapshot_rows)
+
+    known_edge = write_known_edge_map(root / "known_edge.json")
+    _replace_fixture_text(known_edge, event_slug=event_slug)
+    observation_status = root / "observation_status.json"
+    observation_status.write_text(
+        json.dumps(
+            {
+                "last_heartbeat": "2026-06-18T15:59:50+00:00",
+                "consecutive_errors": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     replay_input = {
         "schema_version": schema_version("replay_inputs"),
@@ -100,7 +116,72 @@ def _write_release_bound_worker_inputs(
         json.dumps(replay_input, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    return snapshots_root
+    return snapshots_root, promotion, observation_status
+
+
+def _assert_release_stamped(rows: list[dict[str, str]], manifest_sha256: str) -> None:
+    assert rows
+    assert {row["release_id"] for row in rows} == {"r1"}
+    assert {row["release_manifest_sha256"] for row in rows} == {manifest_sha256}
+    assert {row["release_identity_status"] for row in rows} == {
+        "verified_variant_serving_bundle"
+    }
+    assert {row["base_model_release_bound"] for row in rows} == {"True"}
+
+
+def test_maker_binds_verified_release_and_stamps_summary_and_tape(
+    tmp_path: Path,
+) -> None:
+    paths, _frozen, release, releases_root, pointer = _active_fixture(
+        tmp_path / "release"
+    )
+    pointer_payload = json.loads(pointer.read_text(encoding="utf-8"))
+    snapshots_root, promotion, observation_status = _write_release_bound_worker_inputs(
+        tmp_path / "worker-inputs",
+        release_id=release["release_id"],
+        manifest_sha256=release["manifest_sha256"],
+        pointer_sha256=pointer_payload["pointer_sha256"],
+        sequence=pointer_payload["sequence"],
+    )
+    known_edge = tmp_path / "worker-inputs" / "known_edge.json"
+
+    clear_process_serving_bundle_cache()
+    try:
+        maker = build_maker_run_once(
+            TARGET_DATE,
+            budget_usdc=25.0,
+            mode="shadow",
+            markets=["nyc"],
+            runs_root=tmp_path / "maker-runs",
+            snapshots_root=snapshots_root,
+            promotion_refresh=promotion,
+            known_edge_map=known_edge,
+            observation_status_path=observation_status,
+            run_id="release-bound-maker",
+            now=NOW,
+            active_release_pointer_path=pointer,
+            releases_root=releases_root,
+            release_repo_root=paths["repo"],
+            release_check_runtime=False,
+        )
+    finally:
+        clear_process_serving_bundle_cache()
+
+    for payload in (maker,):
+        assert payload["release_id"] == "r1"
+        assert payload["release_manifest_sha256"] == release["manifest_sha256"]
+        assert payload["release_identity_status"] == "verified_variant_serving_bundle"
+        assert payload["base_model_release_bound"] is True
+        persisted = json.loads(
+            Path(payload["run_folder"], "run_summary.json").read_text(encoding="utf-8")
+        )
+        assert persisted["release_id"] == "r1"
+        assert persisted["release_manifest_sha256"] == release["manifest_sha256"]
+
+    _assert_release_stamped(
+        _read_csv(maker["quote_intents_path"]),
+        release["manifest_sha256"],
+    )
 
 
 def test_unbound_diagnostic_tape_keeps_legacy_columns(tmp_path: Path) -> None:
@@ -246,12 +327,14 @@ def test_tampered_snapshot_probability_blocks_against_hashed_capture(
         tmp_path / "release"
     )
     pointer_payload = json.loads(pointer.read_text(encoding="utf-8"))
-    snapshots_root = _write_release_bound_worker_inputs(
-        tmp_path / "worker-inputs",
-        release_id=release["release_id"],
-        manifest_sha256=release["manifest_sha256"],
-        pointer_sha256=pointer_payload["pointer_sha256"],
-        sequence=pointer_payload["sequence"],
+    snapshots_root, _promotion, _observation_status = (
+        _write_release_bound_worker_inputs(
+            tmp_path / "worker-inputs",
+            release_id=release["release_id"],
+            manifest_sha256=release["manifest_sha256"],
+            pointer_sha256=pointer_payload["pointer_sha256"],
+            sequence=pointer_payload["sequence"],
+        )
     )
     event_slug = config_for_date(TARGET_DATE, "nyc").event_slug
     folder = snapshots_root / event_slug
@@ -288,12 +371,14 @@ def test_worker_snapshot_binding_rejects_cross_market_event_provenance(
         tmp_path / "release"
     )
     pointer_payload = json.loads(pointer.read_text(encoding="utf-8"))
-    snapshots_root = _write_release_bound_worker_inputs(
-        tmp_path / "worker-inputs",
-        release_id=release["release_id"],
-        manifest_sha256=release["manifest_sha256"],
-        pointer_sha256=pointer_payload["pointer_sha256"],
-        sequence=pointer_payload["sequence"],
+    snapshots_root, _promotion, _observation_status = (
+        _write_release_bound_worker_inputs(
+            tmp_path / "worker-inputs",
+            release_id=release["release_id"],
+            manifest_sha256=release["manifest_sha256"],
+            pointer_sha256=pointer_payload["pointer_sha256"],
+            sequence=pointer_payload["sequence"],
+        )
     )
     event_slug = config_for_date(TARGET_DATE, "nyc").event_slug
     folder = snapshots_root / event_slug

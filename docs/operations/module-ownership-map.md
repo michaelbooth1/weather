@@ -14,11 +14,14 @@
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
 
-The legacy paper maker (`weather.market.mm_policy`, `market_making_run*`, and
-`mm_paper*`) and the paper taker (`weather.market.taker_bot*`) were retired and
-their runtime modules deleted on 2026-09-29 (110o part 3); git history holds the
-code. Their retained evidence is read only through
-`weather.reporting.market.retired_trading_evidence`. The Stage 2 hold build at
+The legacy paper maker scorer and daily roll (`mm_paper*` and friends) and the
+paper taker (`weather.market.taker_bot*`) were retired and their runtime modules
+deleted on 2026-09-29 (110o part 3); git history holds the code. Their retained
+evidence is read only through `weather.reporting.market.retired_trading_evidence`.
+The paper-run tool (`weather.market.market_making_run`, `market_making_run_*`,
+`market_making_{preflight,evidence,live_pilot,model_variants}`, `mm_policy`,
+`mm_scoring_projection`) is retained only to produce the International live-pilot
+Stage 0/1 paper run, until the informed maker's own live procedure replaces it. The Stage 2 hold build at
 `88aa7e43a` is frozen as fixtures only. New domain-neutral contracts, quoting and
 journals belong to `maker_core` ([contract](maker-core-contracts.md)).
 
@@ -29,7 +32,7 @@ Reviewed module-size warning allowance:
   `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
-  `weather.collection.snapshot_store`,
+  `weather.collection.snapshot_store`, `weather.market.market_making_run`,
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
   `weather.operations.event_day_manifest`,
@@ -62,6 +65,8 @@ Reviewed module-size warning allowance:
 | `weather.operations.daily_refresh_locks` | Operations | Lock, stale-state repair, and disk-preflight helpers. | Owner module for item 205; must not import the facade. |
 | `weather.operations.daily_refresh_steps` | Operations | Compatibility facade for the daily refresh runner. Step order/resume filtering live in `weather.operations.daily_refresh_registry`; settled-day barrier contracts live in `weather.operations.daily_refresh_settled_day`; status aggregation and variant-learning gate summaries live in `weather.operations.daily_refresh_status`; step adapters live in source, trading, and reporting family modules. | Item 318 step-family split complete; facade is back below the 2,000-line warning threshold. |
 | `weather.operations.daily_refresh_source_steps` | Operations | Source-refresh, ingest quality, event metadata, settlement restore, and market-day label finalization step adapters. | Owner module for item 318; must not import the `daily_refresh` facade. |
+| `weather.market.market_making_run` | Market | Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch. | Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI. |
+| `weather.market.mm_scoring_projection` | Market | Source-bound compact base and model-variant quote projections, validation, canonical fallback resolution, and idempotent backfill CLI for bounded maker-paper scoring. | Canonical projection owner; canonical quote tapes remain immutable provenance. |
 | `weather.reporting.market.retired_trading_evidence` | Reporting | Read-only readers of retained taker and paper-maker evidence (taker starvation classification, taker profitability artifact verification with the settled-finalization projection loader, maker paper-score freshness), copied verbatim from the deleted owners for `trading_evidence`. | Read-only owner added 2026-09-29; must not grow producers, scoring or quoting. |
 | `weather.operations.daily_refresh_trading_steps` | Operations | Exchange economics, trading evidence, CLOB tiering, replay status, and closed-day archive step adapters. | Owner module for item 318; must not import the `daily_refresh` facade. |
 | `weather.operations.daily_refresh_reporting_steps` | Operations | Promotion, scorecard, lifecycle, observability, retention, snapshot evaluation, root-cause, daily learning, and daily flow step adapters. | Owner module for item 318; must not import the `daily_refresh` facade. |

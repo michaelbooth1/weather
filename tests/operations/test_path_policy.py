@@ -10,6 +10,7 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     forecast_payload_cas = importlib.import_module("weather.collection.forecast_payload_cas")
     nightly_retrain = importlib.import_module("weather.operations.nightly_retrain")
     observation_trigger = importlib.import_module("weather.operations.observation_trigger")
+    market_making_constants = importlib.import_module("weather.market.market_making_run_constants")
     retired_trading_evidence = importlib.import_module(
         "weather.reporting.market.retired_trading_evidence"
     )
@@ -23,6 +24,7 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     assert forecast_payload_cas.SHARED_FORECAST_PAYLOAD_CAS_ROOT == data_path("forecast_payload_cas")
     assert nightly_retrain.DEFAULT_SNAPSHOTS_ROOT == data_path("snapshots")
     assert observation_trigger.DEFAULT_BACKTEST_ROOT == data_path("backtest")
+    assert market_making_constants.DEFAULT_RUNS_ROOT == data_path("mm_runs")
     assert retired_trading_evidence.DEFAULT_MM_RUNS_ROOT == data_path("mm_runs")
     assert retired_trading_evidence.DEFAULT_MM_PAPER_JSON == data_path("backtest", "mm_paper_report.json")
     assert progress_audit.DEFAULT_ROADMAP == docs_path("roadmap", "ROADMAP.md")
