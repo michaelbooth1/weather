@@ -116,3 +116,19 @@ def test_later_settlement_day_uses_hash_bound_carry_without_new_books(tmp_path):
     assert all(f.reconciliation_status == "match" for f in facts)
     assert all(c.active_from == c.active_until for c in bundle.conditions)
     assert not any(r.kind == "book" for r in bundle.records)
+
+
+def test_streamed_inputs_are_hashed_and_early_stops_are_labelled(tmp_path):
+    import hashlib
+    source = tmp_path/"ledger.jsonl"
+    source.write_bytes(b'{"a": 1}\n{"b": 2}\n')
+    reader = ExportReader(tmp_path, 60, 1024**2)
+    reader.lines(source, lambda line: True)
+    assert reader.hashes["ledger.jsonl"].startswith("prefix:")
+    reader.lines(source, lambda line: False)
+    assert reader.hashes["ledger.jsonl"] == hashlib.sha256(source.read_bytes()).hexdigest()
+    reader.lines(source, lambda line: True)  # A later partial read never replaces a whole-file hash.
+    assert reader.hashes["ledger.jsonl"] == hashlib.sha256(source.read_bytes()).hexdigest()
+    source.write_bytes(b'{"a": 1}\n{"b": 3}\n{"c": 4}\n')
+    with pytest.raises(ValueError, match="source_changed_between_reads"):
+        reader.read(source)

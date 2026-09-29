@@ -6,6 +6,7 @@ open/read/close and changed-file checks; this exporter never calls a collector.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 import json
@@ -18,8 +19,8 @@ from maker_core.replay.bundle import regular_path as neutral_path
 from maker_core.replay.payloads import market_descriptor
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, sealed_segments
-from weather.market.maker_plugin_runner import evaluate_event, captured_book, reward_terms
-from weather.market.maker_plugin_sources import Sources
+from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, captured_book, reward_terms
+from weather.market.maker_plugin_sources import COVERAGE_KEYS, Sources
 from weather.market.maker_plugin.exposure import WeatherExposure
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
@@ -32,15 +33,31 @@ class ExportReader(Reader):
         super().__init__(*args, **kwargs)
         self.identities, self.hashes = {}, {}
 
-    def read(self, path, *args, **kwargs):
-        raw = super().read(path, *args, **kwargs)
-        info = Path(path).stat()
+    def scan(self, path, consume, *args, **kwargs):
+        # Whole reads and streamed lines both pass through scan, so every input
+        # file is identity-checked before export and hashed. A visitor that stops
+        # early leaves a labelled prefix hash, never a false whole-file hash.
+        digest, size, stopped = hashlib.sha256(), 0, False
+        def hashed(chunk):
+            nonlocal size, stopped
+            digest.update(chunk)
+            size += len(chunk)
+            stopped = bool(consume(chunk))
+            return stopped
+        info = super().scan(path, hashed, *args, **kwargs)
+        complete = not stopped
         key = str(Path(path).absolute().relative_to(self.root)).replace("\\", "/")
         signature = info.st_size, info.st_mtime_ns, info.st_ino
-        if key in self.hashes and self.hashes[key] != sha256(raw):
+        if key in self.identities and self.identities[key] != signature:
             raise ValueError("source_changed_between_reads")
-        self.identities[key], self.hashes[key] = signature, sha256(raw)
-        return raw
+        value = digest.hexdigest() if complete else f"prefix:{size}:{digest.hexdigest()}"
+        known = self.hashes.get(key)
+        if complete and known is not None and not known.startswith("prefix:") and known != value:
+            raise ValueError("source_changed_between_reads")
+        if complete or known is None or known.startswith("prefix:"):
+            self.hashes[key] = value
+        self.identities[key] = signature
+        return info
 
     def recheck(self):
         for key, signature in self.identities.items():
@@ -135,6 +152,13 @@ class Projection:
         self.coverage(at, hashes)
 
 
+def _raw_support(loaded):
+    """Copy an event's captured rows before evaluation builds providers and releases them."""
+    if "providers" in loaded:
+        raise ValueError("support_rows_released_before_export")
+    return {name: list(loaded[name]) for name, _ in COVERAGE_KEYS}
+
+
 def _support_records(projection, cid, support, hashes):
     for name, time_key in (("snapshots", "captured_at_utc"), ("source_rows", "captured_at_utc"),
             ("forecasts", "captured_at_utc"), ("explanations", "captured_at_utc"),
@@ -212,14 +236,16 @@ def export(args, *, now=None):
         if output == source or output.is_relative_to(source) or source.is_relative_to(output):
             raise ValueError("output_carry_overlap")
     reader = ExportReader(root, args.max_seconds, args.max_input_bytes)
-    sources, projection = Sources(reader), Projection(day, args.max_output_bytes, args.max_records, reader.check)
+    sources, projection = Sources(reader, args.date, args.markets), Projection(day, args.max_output_bytes, args.max_records, reader.check)
     _carry_metadata(args, projection, reader)
     support_written, segments = set(), sealed_segments(reader, args.date)
+    raw_support = {}
     last_capture = None
     for sealed, folder, manifest in segments:
         reader.check()
         segment = Segment(reader, folder, manifest)
         captures = segment.captures()
+        index = CaptureIndex(captures)
         stream_rows = []
         for name in sorted(manifest["files"]):
             if name in ("trades.jsonl", "stream_lifecycle.jsonl", "stream_gap.jsonl"):
@@ -236,7 +262,7 @@ def export(args, *, now=None):
                 continue
             if row["kind"] == "rewards":
                 for cid in sorted(projection.descriptors):
-                    terms = reward_terms(captures, cid, at)
+                    terms = reward_terms(index, cid, at)
                     if terms is not None:
                         projection.add(cid, "terms", at, terms, hashes, changed=True)
                 continue
@@ -252,8 +278,10 @@ def export(args, *, now=None):
                 horizon = (target - at.astimezone(spec.tz).date()).days
                 if spec.id not in args.markets or not 0 <= horizon <= 2:
                     continue
-                result = evaluate_event(captures, latest(candidates, at), at, sources, reader, None)
-                support = sources.for_event(slug)
+                if slug not in raw_support:
+                    raw_support[slug] = _raw_support(sources.for_event(slug))
+                result = evaluate_event(index, latest(candidates, at), at, sources, reader, None)
+                support = raw_support[slug]
                 for entry in result["outcomes"]:
                     cid = entry["condition_id"]
                     # Retain missing descriptors as exclusions, not invented bands.
@@ -272,8 +300,8 @@ def export(args, *, now=None):
                         projection.tokens[token] = cid, outcome
                     projection.add(cid, "descriptor", at, dict(market=entry["descriptor"], horizon_days=horizon,
                                    exposure_factors=WeatherExposure().factors(descriptor)), hashes, changed=True)
-                    projection.add(cid, "book", at, captured_book(captures, descriptor, at), hashes)
-                    terms = reward_terms(captures, cid, at)
+                    projection.add(cid, "book", at, captured_book(index, descriptor, at), hashes)
+                    terms = reward_terms(index, cid, at)
                     if terms is not None:
                         projection.add(cid, "terms", at, terms, hashes, changed=True)
                     if "fair_value" in entry:
