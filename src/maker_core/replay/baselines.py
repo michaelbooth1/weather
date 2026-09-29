@@ -39,9 +39,10 @@ def matched_clock(bundles, config, target_result, *, check=lambda: None):
         windows = []
         for bundle in bundles:
             for c in bundle.conditions:
-                seconds = int((c.active_until-c.active_from).total_seconds() * float(fraction))
-                if seconds:
-                    windows.append((c.condition_id, c.active_from, c.active_from+timedelta(seconds=seconds)))
+                for start, end in bundle.windows(c):
+                    seconds = int((end-start).total_seconds() * float(fraction))
+                    if seconds:
+                        windows.append((c.condition_id, start, start+timedelta(seconds=seconds)))
         trial = replay(bundles, replace(base, clock_pulls=tuple(windows)), check=check)
         got, _ = _fraction(score(trial, check=check))
         attempts += 1
@@ -57,4 +58,5 @@ def matched_clock(bundles, config, target_result, *, check=lambda: None):
     return result, dict(status="MATCHED" if error <= tolerance else "UNMATCHED", target=target,
                         actual=actual, tolerance=tolerance, absolute_error=error, attempts=attempts,
                         calendar_prefix_fraction=fraction,
+                        selected_windows=result.config.clock_pulls,
                         interpretation="ex-post exposure-matched clock control; no return optimization")

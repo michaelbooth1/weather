@@ -201,6 +201,14 @@ class Bundle:
     records: tuple[CapturedRecord, ...]
     input_hashes: Mapping[str, str]
     input_bytes: int
+    # None retains legacy envelope intervals; () means settlement-only/inactive.
+    # Only a verified execution manifest supplies this in the scored CLI.
+    active_intervals: tuple | None = None
+
+    def windows(self, condition):
+        if self.active_intervals is None:
+            return ((condition.active_from, condition.active_until),)
+        return tuple((start, end) for cid, start, end in self.active_intervals if cid == condition.condition_id)
 
 
 def load_bundle(directory: Path, *, limits: Limits | None = None,

@@ -75,7 +75,10 @@ def report_bytes(report):
     lines = ["# Maker replay report", "", "**" + report["status"] + " — modeled counterfactuals.**", "",
               "Full-session parity: NOT QUALIFIED. Recorded minutes match; terminal and transport coverage gaps remain; "
              "no live or promotion verdict follows from replay.", "",
-             "Registration SHA-256: " + str(report["pre_registration_sha256"]), ""]
+              "Registration SHA-256: " + str(report["pre_registration_sha256"]), ""]
+    if "registered_decision" in report:
+        lines += ["Registered decision: **"+report["registered_decision"]["status"]+"**.",
+                  "Reasons: "+", ".join(report["registered_decision"]["reasons"]), ""]
     for bound, result in report["bounds"].items():
         lines += ["## " + bound, "", "Clock match: " + result["clock_match"]["status"], "",
                   "| Policy | Date | Condition | Coverage | Reward k=1 | Reward k=.5 | Nominal rebate | Settlement P&L | Cash-hours | Pull fraction | Fills |",
