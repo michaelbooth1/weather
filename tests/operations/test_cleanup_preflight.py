@@ -174,5 +174,46 @@ class CleanupPreflightTests(unittest.TestCase):
         )
 
 
+    def test_storage_5f_5g_candidates_classify_as_rebuildable_projections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            run = data_root / "mm_runs/2026-09-01/run-1"
+            write(run / "quote_intents_long.csv", "a\n1\n")
+            write(run / "model_variant_quote_intents_long.csv", "a\n1\n")
+            manifest_file = write(run / "mm_scoring_projection_manifest.json", "{}\n")
+            paths = [
+                write(run / "mm_scoring_projection.csv", "a\n1\n"),
+                write(run / "model_variant_mm_scoring_projection.csv", "a\n1\n"),
+                write(data_root / "backtest/active_variant_shadow_attribution.jsonl", "{}\n"),
+            ]
+            manifest = cleanup_manifest_for_paths(
+                paths,
+                root=data_root,
+                deletion_reason="storage 5f/5g disk relief",
+                operator_review=review(),
+            )
+
+            preflight = build_cleanup_preflight(manifest, root=data_root)
+            retained = cleanup_manifest_for_paths(
+                [manifest_file],
+                root=data_root,
+                deletion_reason="unit test",
+                operator_review=review(),
+            )["candidates"][0]
+
+        self.assertEqual(preflight["status"], "PASS")
+        self.assertEqual(
+            [(row["storage_class"], row["artifact_family"]) for row in preflight["candidates"]],
+            [
+                ("analysis_projection", "mm_scoring_projection"),
+                ("analysis_projection", "mm_scoring_projection"),
+                ("analysis_projection", "backtest_row_exports"),
+            ],
+        )
+        self.assertIn("quote_intents_long.csv", manifest["candidates"][0]["rebuild_source"])
+        self.assertEqual(retained["storage_class"], "canonical_evidence")
+        self.assertEqual(retained["artifact_family"], "mm_scoring_projection_manifest")
+
+
 if __name__ == "__main__":
     unittest.main()

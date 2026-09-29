@@ -110,6 +110,27 @@ if ($null -eq $status) {
     }
 }
 
+# ---- reviewed expected-disabled tasks: a named list with reasons, never a blanket silence ----
+# Only the disabled-state flag of an exactly named task becomes a note. Every other flag about
+# that task, and every other unexpectedly disabled task, still alerts.
+$expectedDisabledTasks = [ordered]@{
+    "WeatherMarketMakingDailyRoll"           = "live and paper maker paused by owner 2026-09-25"
+    "WeatherMarketMakingDailyRollSupervisor" = "live and paper maker paused by owner 2026-09-25"
+}
+$alertFlags = @()
+$expectedDisabledNotes = @()
+foreach ($f in @($status.flags)) {
+    $disabledTask = $null
+    if ([string]$f -cmatch '^(\S+) (?:unexpectedly DISABLED|is armed for .+ but DISABLED - it will not fire)$') {
+        $disabledTask = $Matches[1]
+    }
+    if ($disabledTask -and $expectedDisabledTasks.Contains($disabledTask)) {
+        $expectedDisabledNotes += "$disabledTask is expected-disabled: $($expectedDisabledTasks[$disabledTask])"
+    }
+    else { $alertFlags += $f }
+}
+$notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
+
 # ---- which window are we in? ----
 $now = Get-Date
 $h = $now.Hour + ($now.Minute / 60.0)
@@ -150,7 +171,7 @@ function Get-FlagAction($class) {
     return [string]$actionWindow[[string]$class]
 }
 $entries = @()
-foreach ($f in @($status.flags)) {
+foreach ($f in $alertFlags) {
     if (-not $f) { continue }
     $class = Get-FlagClass $f
     $sev = switch ($class) {
@@ -204,7 +225,8 @@ $record = [ordered]@{
     streak = $(if ($status.streak) { "$($status.streak.days)/$($status.streak.target)" } else { "?" })
     today = $(if ($status.streak) { [string]$status.streak.today } else { "?" })
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
-    notes = @($status.warns)
+    notes = $notes
+    expected_disabled_tasks = $expectedDisabledTasks
     reconciliation_publication = $status.reconciliation_publication
     memory_guard = $status.memory_guard
     status_script_path = $statusScript
@@ -261,11 +283,11 @@ else {
         $md.Add("  - act: $($e.act)")
     }
 }
-if (@($status.warns).Count -gt 0) {
+if ($notes.Count -gt 0) {
     $md.Add("")
     $md.Add("## Standing notes")
     $md.Add("")
-    foreach ($w in @($status.warns)) { $md.Add("- $w") }
+    foreach ($w in $notes) { $md.Add("- $w") }
 }
 if ($recent.Count -gt 0) {
     $md.Add("")
