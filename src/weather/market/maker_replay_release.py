@@ -13,8 +13,8 @@ from weather.schema_registry import schema_version
 
 
 class ReleaseSources(Sources):
-    def __init__(self, reader, release_root):
-        super().__init__(reader)
+    def __init__(self, reader, day, markets, release_root):
+        super().__init__(reader, day, markets)
         self.release_root, self.methods = release_root, {}
 
     def calibration(self, row, market):
