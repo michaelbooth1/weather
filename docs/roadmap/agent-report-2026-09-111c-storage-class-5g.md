@@ -6,10 +6,11 @@ production data was read, and no Scheduler change was made.
 
 Mission: [workstation handoff 111c](workstation-handoff-2026-09-111c-storage-class-5g.md).
 Branch `codex/storage-class-5g-20260929` from `origin/master` `164f12d0`, with
-`origin/master` `b0032a90` merged in (no rebase). Watchdog source commit
-`d9756e8f5beecd294f59ced20db7340c8aeb6fe1`. The preflight check is in
-`5f644cc419ae002a3b16c7650cd0450a018ff2e3`. Report and index commits are
-docs-only. Disk relief, so it may merge during the exam period.
+`origin/master` `b0032a90` merged in (no rebase). The reviewed source tip is
+`4f2f4813ee60c6730463167a7b234e0cb6c36143`. It contains the classifications,
+the preflight check, and the final watchdog. The filter sits inside the
+classification loop so that `test_ops_alarm_path`'s slice evaluation stays
+self-contained. Later commits are docs-only. Disk relief, so it may merge during the exam period.
 
 ## Changes
 
@@ -103,7 +104,7 @@ run on production. This table does not replace it.
 
 ## Production adoption after owner-ops review (watchdog)
 
-New watchdog SHA-256: `8d989f5f5a0eda9c4d533d96b74117ba7cec466938da3f129e1b0fa3d258e07c`.
+New watchdog SHA-256: `e93c240b48898cf75b550a9bf1d6dc7a285d1a6ffc3f99d5bf3ba8156d2be1e3`.
 Status SHA-256 (unchanged, same as 110n): `8cebcbac61df462b5253aab704e615faabeeb7749aa34cc830e356a951f59b44`.
 Both hashes are over the LF bytes checked out under `.gitattributes` `eol=lf`.
 
@@ -114,17 +115,17 @@ instruction to run Scheduler changes on the workstation.
 ```powershell
 $productionRoot = ([string](git rev-parse --show-toplevel)).Trim()
 if (([string](git branch --show-current)).Trim() -cne 'master') { throw 'Use production master' }
-$reviewedTip = '5f644cc419ae002a3b16c7650cd0450a018ff2e3'
+$reviewedTip = '4f2f4813ee60c6730463167a7b234e0cb6c36143'
 git merge-base --is-ancestor $reviewedTip HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Reviewed source has not landed' }
-$deploymentRoot = Join-Path (Split-Path $productionRoot -Parent) 'weather-watchdog-deployed-111c-5f644cc4'
+$deploymentRoot = Join-Path (Split-Path $productionRoot -Parent) 'weather-watchdog-deployed-111c-4f2f4813'
 $env:GIT_LFS_SKIP_SMUDGE = '1'
 git worktree add --detach $deploymentRoot $reviewedTip
 if ($LASTEXITCODE -ne 0) { throw 'Deployment checkout was not created; inspect before retrying' }
 & (Join-Path $deploymentRoot 'scripts/ops/register_health_watchdog.ps1') `
     -RepoRoot $productionRoot `
     -WatchdogScriptPath (Join-Path $deploymentRoot 'scripts/ops/health_watchdog.ps1') `
-    -ExpectedSelfSha256 '8d989f5f5a0eda9c4d533d96b74117ba7cec466938da3f129e1b0fa3d258e07c' `
+    -ExpectedSelfSha256 'e93c240b48898cf75b550a9bf1d6dc7a285d1a6ffc3f99d5bf3ba8156d2be1e3' `
     -StatusScriptPath (Join-Path $deploymentRoot 'scripts/ops/status.ps1') `
     -ExpectedStatusScriptSha256 '8cebcbac61df462b5253aab704e615faabeeb7749aa34cc830e356a951f59b44'
 Get-ScheduledTask -TaskName 'WeatherHostHealthWatchdog' | Select-Object -ExpandProperty Actions
