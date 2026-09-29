@@ -272,6 +272,21 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 
 ---
 
+## 8. Dispatching a mission to the workstation
+
+Workstation missions run in Claude Code sessions the owner starts. The standing session rules live in
+[WORKSTATION_SESSION_PREAMBLE.md](WORKSTATION_SESSION_PREAMBLE.md), so a dispatch prompt never repeats them.
+Its first line is always:
+
+```text
+Run `git fetch origin`, then read docs/operations/WORKSTATION_SESSION_PREAMBLE.md on origin/master and follow it.
+```
+
+The next lines name the handoff (with its ref if it is not on `origin/master`) and anything mission-specific,
+such as ordering against parallel sessions.
+
+---
+
 ## Related
 
 - [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) — what is known

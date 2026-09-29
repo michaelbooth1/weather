@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -11,8 +12,18 @@ from weather.market.market_registry import BUILTIN_SPECS
 
 
 def timestamp(value):
-    result = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
-    if not isinstance(result, datetime) or result.utcoffset() is None:
+    if isinstance(value, str):
+        return _parsed_timestamp(value)
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise ValueError("captured_timestamp_must_be_aware")
+    return value.astimezone(timezone.utc)
+
+
+@lru_cache(maxsize=1 << 18)
+def _parsed_timestamp(value):
+    # Pure and immutable: replayed rows repeat the same clocks every minute.
+    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.utcoffset() is None:
         raise ValueError("captured_timestamp_must_be_aware")
     return result.astimezone(timezone.utc)
 
