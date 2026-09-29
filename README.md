@@ -77,22 +77,35 @@ Canonical Streamlit entrypoint:
 The former root wrapper was retired on 2026-07-20. Use the canonical entrypoint
 above for every dashboard launch.
 
-The operator launcher starts Streamlit if needed, opens the read-only Control
-Room, and writes Streamlit logs under `data/logs/`:
+The operator launcher starts Streamlit if needed, opens the read-only Owner
+Cockpit, and writes Streamlit logs under `data/logs/`:
 
 ```powershell
 .\scripts\launch\start_weather_dashboard.cmd
 ```
 
-The frontend deliberately has only two pages:
+The frontend deliberately has only three pages:
 
 ```text
+http://localhost:8501/?cockpit
 http://localhost:8501/?market=control
 http://localhost:8501/?roadmap
 ```
 
-The **Control Room** is the decision-first surface for the capped International
-Polymarket maker pilot. It binds the latest maker run to an exact-target-date
+The **Owner Cockpit** is the default page. Its Money, Work, Health and Exam
+columns read the watchdog record (`data/alerts/host_health_latest.json`), the
+tail of `data/alerts/disk_free_trail.jsonl` (24 h slope, days to 50 and 40
+GiB), 88a maker-evidence status and closed UTC dates, the `docs/roadmap/work/`
+registry (owner waits over three days are flagged), and the wallet reader's
+`summary` and `rewards` routes through its GET-only LAN client. Every source is
+optional and states why it is unavailable; campaign P&L is shown only when the
+reader reports it complete, otherwise `INCOMPLETE` with the reasons. Exam dates
+are constants from the signed replay calendar. During an exam it shows no policy
+P&L or policy comparison for panel dates. It has no mutation controls and fails
+closed on any exception.
+
+The **Control Room** (historical pilot view) is the decision-first surface for
+the capped International Polymarket maker pilot. It binds the latest maker run to an exact-target-date
 readiness receipt, the canonical host digest, International platform identity,
 execution-tape integrity, and the explicitly accepted exchange-economics
 baseline. Missing, stale, US-platform, or contradictory evidence produces
@@ -102,9 +115,9 @@ promotion, or risk-setting controls.
 
 The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
 roadmap index, separates dependency-held items from work with a clear path, and
-surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
-to the Control Room; the retired frontend pages are not retained as hidden
-code.
+surfaces roadmap-integrity failures. Any `?market=` route, including the
+retired ones, falls back to the Control Room; other unknown routes open the
+Cockpit. The retired frontend pages are not retained as hidden code.
 
 ## Tests And Local Checks
 
