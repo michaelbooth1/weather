@@ -167,6 +167,39 @@ def test_reaction_refuses_broken_chain_and_skips_unlisted_dates(tmp_path):
     assert report["sessions_refused"] == [{"session": "session-3", "reason": "journal_chain_broken"}]
 
 
+def test_re1_only_estimates_from_journals_and_emits_no_identifiers(tmp_path, capsys):
+    root = tmp_path / ".weather-re1m-20260921"
+    start = utc("2026-09-24T12:00:00")
+    write_journal(root / "session-1", session_events(start))
+    (root / "session-1" / "selection.json").write_bytes(canonical(
+        {"rows": [{"condition_id": COND_A, "market_id": "miami", "quote": {"share_many": 0.9}}]}))
+    rehearsal = session_events(start + timedelta(hours=2))
+    rehearsal[0][2]["mode"] = "rehearsal"
+    write_journal(root / "session-2", rehearsal)
+    argv = ["reaction", "--source", "re1-only", "--date", "2026-09-24", "--re1-root", str(root),
+            "--out-dir", str(tmp_path / "out")]
+    with pytest.raises(SystemExit):  # the opt-in is refused outside re1-only
+        rd.main(["reaction", "--date", "2026-09-24", "--re1-root", str(root), "--out-dir", str(tmp_path / "x"),
+                 "--read-live-campaign-root"])
+    assert rd.main(argv) == 2  # the live campaign root needs the explicit opt-in and "re1_root_must_be_an_analysis_copy" in capsys.readouterr().out
+    assert rd.main(argv + ["--read-live-campaign-root"]) == 0
+    raw = (tmp_path / "out" / "reaction-re1-only.json").read_text(encoding="utf-8")
+    markdown = (tmp_path / "out" / "reaction-re1-only.md").read_text(encoding="utf-8")
+    for secret in (COND_A, f'"{YES_A}"', f'"{NO_A}"', '"o1"', '"o2"', "| o1 ", "| 111 "):
+        assert secret not in raw and secret not in markdown
+    report = json.loads(raw)
+    assert report["source"] == "re1-only" and report["verdict"] == "ESTIMATED"
+    assert report["sessions_by_mode"] == {"live": 1, "rehearsal": 1}
+    series = report["series_re1_journal_books"]
+    assert series["k_pooled"] == pytest.approx((2 * 1.0 + 7 * 0.25) / 9)
+    assert series["episodes"][0]["band"] == "band-1" and series["episodes"][0]["market"] == "miami"
+    assert series["episodes"][0]["kind"] == "opening"
+    assert report["opening_episodes_only"]["k_pooled"] == pytest.approx(series["k_pooled"])
+    assert report["versus_selection_share"]["k_pooled"] == pytest.approx((2 * 1.0 + 7 * 0.25) / 9 / 0.9)
+    assert series["episodes"][0]["share_at_selection"] == 0.9
+    assert "Opening postings only" in markdown
+
+
 def test_reaction_requires_analysis_copy(tmp_path):
     (tmp_path / "live-root").mkdir()
     with pytest.raises(ValueError, match="analysis_copy"):

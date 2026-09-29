@@ -33,8 +33,8 @@ from weather.io import rotated_sidecar_paths
 from weather.market.live_observation_normalization import band_contains_value
 from weather.market.reaction_diagnostic_io import (
     CALIBRATION_DATES, MAX_INPUT_BYTES, MAX_SECONDS, Budget, InputRefused, StopRun, allow_list,
-    parse_utc, read_bands, read_books, read_journal, read_prediction_hash, read_triggers, read_universe,
-    session_folders,
+    CAMPAIGN_ROOT, parse_utc, read_bands, read_books, read_journal, read_prediction_hash, read_selection,
+    read_triggers, read_universe, session_folders,
 )
 from weather.market.reward_share_estimate import order_score, parse_levels, q_min, share_of, side_score
 from weather.paths import data_path
@@ -166,6 +166,7 @@ def parse_session(rows):
                        default=episode["start"])
         episode["end"] = min(following, live_end)
     return {"condition_id": str(scope["condition_id"]).lower(), "yes_token": tokens[0], "no_token": tokens[1],
+            "mode": str(opened.get("mode") or "unknown"),
             "orders": list(orders.values()), "terms": terms, "journal": journal, "episodes": episodes,
             "first": parse_utc(rows[0]["recorded_at_utc"]), "end": end}
 
@@ -293,9 +294,10 @@ def summarize_series(episodes, horizon, baseline_seconds):
                              f"at posting (first sample within {baseline_seconds} s); 1 = no reaction")}
 
 
-def run_reaction(re1_root, maker_root, days, *, horizon=60, baseline_seconds=120, budget=None):
-    budget = budget or Budget()
-    if "analysis-copy" not in Path(re1_root).name:
+def load_sessions(re1_root, days, budget, *, allow_campaign_root=False):
+    """Hash-checked RE-1 sessions; each flagged by whether its UTC span is inside the allow-list."""
+    name = Path(re1_root).name
+    if "analysis-copy" not in name and not (allow_campaign_root and CAMPAIGN_ROOT.fullmatch(name)):
         raise InputRefused("re1_root_must_be_an_analysis_copy")
     sessions, refused = [], []
     for folder in session_folders(re1_root):
@@ -313,7 +315,14 @@ def run_reaction(re1_root, maker_root, days, *, horizon=60, baseline_seconds=120
         session["name"] = folder.name
         span = {session["first"].date().isoformat(), session["end"].date().isoformat()}
         session["in_allow_list"] = span <= set(days)
+        session["folder"] = folder
         sessions.append(session)
+    return sessions, refused
+
+
+def run_reaction(re1_root, maker_root, days, *, horizon=60, baseline_seconds=120, budget=None):
+    budget = budget or Budget()
+    sessions, refused = load_sessions(re1_root, days, budget)
     allowed = [s for s in sessions if s["in_allow_list"]]
     universe = read_universe(maker_root, days, budget)
     books = read_books(maker_root, days, [s["yes_token"] for s in allowed], budget)
@@ -346,6 +355,75 @@ def run_reaction(re1_root, maker_root, days, *, horizon=60, baseline_seconds=120
             "overlap": overlap, "horizon_minutes": horizon, "baseline_seconds": baseline_seconds,
             "series_88a_books": summarize_series(maker_eps, horizon, baseline_seconds),
             "series_re1_journal_books": summarize_series(journal_eps, horizon, baseline_seconds),
+            "input": {"bytes": budget.bytes, "coverage": dict(budget.coverage)}}
+
+
+def run_reaction_re1_only(re1_root, days, *, horizon=60, baseline_seconds=120, budget=None,
+                          allow_campaign_root=False):
+    """share(t) from the RE-1 journals' own per-minute ``share_many`` samples; no 88a input.
+
+    The output is aggregate only: bands are relabelled ``band-N`` and no
+    condition, token, order or wallet identifier is emitted.
+    """
+    budget = budget or Budget()
+    sessions, refused = load_sessions(re1_root, days, budget, allow_campaign_root=allow_campaign_root)
+    labels, episodes, listed, modes = {}, [], [], defaultdict(int)
+    for session in sessions:
+        modes[session["mode"]] += 1
+        if not session["in_allow_list"] or session["mode"] != "live":
+            continue
+        band = labels.setdefault(session["condition_id"], f"band-{len(labels) + 1}")
+        market, selected = read_selection(session["folder"], session["condition_id"], budget)
+        market = market or band
+        count = 0
+        for index, episode in enumerate(session["episodes"]):
+            samples = journal_samples(session, episode, horizon)
+            count += len(samples)
+            if samples:
+                episodes.append({"session": session["name"], "index": index, "kind": "opening" if index == 0
+                                 else "requote", "date": episode["start"].date().isoformat(), "market": market,
+                                 "condition_id": band, "samples": samples,
+                                 "share_at_selection": selected if index == 0 else None})
+        listed.append({"session": session["name"], "band": band, "market": market,
+                       "date": session["first"].date().isoformat(), "episodes": len(session["episodes"]),
+                       "minute_samples_in_horizon": count,
+                       "duration_minutes": round((session["end"] - session["first"]).total_seconds() / 60, 1)})
+    series = summarize_series(episodes, horizon, baseline_seconds)
+    extra = {(e["session"], e["index"]): e for e in episodes}
+    for row in series["episodes"]:
+        row["band"] = row.pop("condition_id")
+        source = extra[(row["session"], row["episode"])]
+        row["kind"], row["share_at_selection"] = source["kind"], source["share_at_selection"]
+    opening = summarize_series([e for e in episodes if e["kind"] == "opening"], horizon, baseline_seconds)
+    selected = [r for r in series["episodes"] if r["share_at_selection"] and r["mean_share_over_horizon"] is not None]
+
+    def pooled_selection(weighted):
+        bottom = sum(w * r["share_at_selection"] for r, w in weighted)
+        return sum(w * r["mean_share_over_horizon"] for r, w in weighted) / bottom if bottom else None
+
+    versus_selection = {
+        "k_pooled": pooled_selection([(r, 1) for r in selected]) if selected else None,
+        "k_median_episode": (statistics.median([r["mean_share_over_horizon"] / r["share_at_selection"]
+                                                for r in selected]) if selected else None),
+        "episodes_with_k": len(selected),
+        "k_interval": crossed_bootstrap(selected, pooled_selection) if selected else None,
+        "k_definition": ("opening episodes: sum of mean share over the horizon / sum of the selection-time modelled "
+                         "share (selection.json quote.share_many, the book before our quote was posted)")}
+    return {"schema_version": SCHEMA, "command": "reaction", "source": "re1-only",
+            "verdict": "ESTIMATED" if series["episodes_with_k"] else "NO_JOURNAL_SAMPLES", "dates": list(days),
+            "note": NO_REACTION_NOTE,
+            "basis": ("RE-1 per-minute modelled share_many (84b scoring of the public book with our own size "
+                      "removed, size-cutoff midpoint), sampled by the attended runner about every 60 s; "
+                      "not a venue share and not an 88a measurement"),
+            "sessions_found": len(sessions) + len(refused),
+            "sessions_refused": [r["reason"] for r in refused],
+            "sessions_by_mode": dict(sorted(modes.items())),
+            "sessions_outside_allow_list": sum(not s["in_allow_list"] for s in sessions),
+            "sessions": listed, "horizon_minutes": horizon, "baseline_seconds": baseline_seconds,
+            "series_re1_journal_books": series,
+            "opening_episodes_only": {k: opening[k] for k in ("k_pooled", "k_median_episode", "episodes_with_k",
+                                                              "k_interval")},
+            "versus_selection_share": versus_selection,
             "input": {"bytes": budget.bytes, "coverage": dict(budget.coverage)}}
 
 
@@ -517,6 +595,37 @@ def render_reaction(report):
     return "\n".join(lines)
 
 
+def render_reaction_re1_only(report):
+    series = report["series_re1_journal_books"]
+    opening = report["opening_episodes_only"]
+    lines = [f"# Competitor-reaction diagnostic, RE-1 journals only ({', '.join(report['dates'])})", "",
+             f"**Verdict: {report['verdict']}.** {report['note']}", "", f"Basis: {report['basis']}.", "",
+             f"Sessions found {report['sessions_found']}, by mode {json.dumps(report['sessions_by_mode'])}, "
+             f"refused {len(report['sessions_refused'])}, outside allow-list {report['sessions_outside_allow_list']}.",
+             ""]
+    for label, block in (("All postings (opening and requote)", series), ("Opening postings only", opening),
+                         ("Opening postings vs selection-time share", report["versus_selection_share"])):
+        interval = (block["k_interval"] or {}).get("ci95")
+        lines.append(f"- {label}: k pooled {_fmt(block['k_pooled'])}, median episode k "
+                     f"{_fmt(block['k_median_episode'])}, episodes {block['episodes_with_k']}, "
+                     f"95% interval {_fmt(interval)}.")
+    lines += ["", "## share(t) after posting", "",
+              "| minute | samples | episodes | sessions | bands | mean share_many | median | mean share_single |",
+              "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    lines += [f"| {r['minute']} | {r['samples']} | {r['episodes']} | {r['sessions']} | {r['bands']} | "
+              f"{_fmt(r['mean_share_many'])} | {_fmt(r['median_share_many'])} | {_fmt(r['mean_share_single'])} |"
+              for r in series["curve"] if r["samples"]]
+    lines += ["", "## Episodes", "",
+              "| session | episode | kind | band | market | date | samples | share at selection | share at posting | "
+              "mean share | k |",
+              "| --- | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |"]
+    lines += [f"| {e['session']} | {e['episode']} | {e['kind']} | {e['band']} | {e['market']} | {e['date']} | "
+              f"{e['samples']} | {_fmt(e['share_at_selection'])} | {_fmt(e['share_at_posting'])} | "
+              f"{_fmt(e['mean_share_over_horizon'])} | {_fmt(e['k'])} |" for e in series["episodes"]]
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_latency(report):
     lines = [f"# Decidedness-latency diagnostic ({', '.join(report['dates'])})", "",
              f"**Verdict: {report['verdict']}.** {report['definition']}.", "",
@@ -542,6 +651,8 @@ def write_outputs(report, out_dir, protected):
     out_dir.mkdir(parents=True, exist_ok=True)
     name = report["command"]
     renderer = render_reaction if name == "reaction" else render_latency
+    if report.get("source") == "re1-only":
+        name, renderer = "reaction-re1-only", render_reaction_re1_only
     with (out_dir / f"{name}.json").open("x", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, sort_keys=True, default=str)
         handle.write("\n")
@@ -562,6 +673,10 @@ def build_parser():
         p.add_argument("--max-seconds", type=int, default=MAX_SECONDS)
     reaction = sub.choices["reaction"]
     reaction.add_argument("--re1-root", type=Path, required=True, help="read-only RE-1 analysis copy")
+    reaction.add_argument("--source", choices=("88a-overlap", "re1-only"), default="88a-overlap",
+                          help="88a-overlap joins 88a books; re1-only uses the journals' per-minute share alone")
+    reaction.add_argument("--read-live-campaign-root", action="store_true",
+                          help="re1-only: also accept the live campaign root (.weather-re1m-YYYYMMDD), read-only")
     reaction.add_argument("--horizon-minutes", type=int, default=60)
     reaction.add_argument("--baseline-seconds", type=int, default=120)
     latency = sub.choices["latency"]
@@ -582,7 +697,14 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
     try:
-        if args.command == "reaction":
+        if args.command == "reaction" and args.source == "re1-only":
+            report = run_reaction_re1_only(args.re1_root, days, horizon=args.horizon_minutes,
+                                           baseline_seconds=args.baseline_seconds, budget=budget,
+                                           allow_campaign_root=args.read_live_campaign_root)
+            protected = (args.re1_root,)
+        elif args.command == "reaction":
+            if args.read_live_campaign_root:
+                parser.error("--read-live-campaign-root applies to --source re1-only only")
             report = run_reaction(args.re1_root, args.maker_evidence_root, days, horizon=args.horizon_minutes,
                                   baseline_seconds=args.baseline_seconds, budget=budget)
             protected = (args.re1_root, args.maker_evidence_root)

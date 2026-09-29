@@ -25,10 +25,12 @@ CALIBRATION_DATES = ("2026-09-27", "2026-09-28", "2026-09-29")
 MAX_FILE_BYTES = 64 * 1024**2
 MAX_LINE_BYTES = 1024**2
 MAX_ROWS = 100_000
+RE1_MAX_LINE_BYTES = 16 * 1024**2  # RE-1 JSON files are one canonical line each (the 88a store's line cap)
 MAX_INPUT_BYTES = 1024**3
 MAX_SECONDS = 2700
 MAX_SEGMENTS_PER_DAY = 2000
 MAX_MANIFEST_BYTES = 2 * 1024**2
+CAMPAIGN_ROOT = re.compile(r"\.weather-re1m-\d{8}")  # read only on an explicit opt-in flag
 SEGMENT_NAME = re.compile(r"\d{2}-[0-9a-f]{12}")
 CONDITION = re.compile(r"0x[0-9a-f]{64}")
 TOKEN = re.compile(r"[0-9]{1,100}")
@@ -92,7 +94,8 @@ def variant(path):
     return zipped if zipped.is_file() else path
 
 
-def iter_lines(path, budget, *, max_file_bytes=MAX_FILE_BYTES, max_rows=MAX_ROWS, sha=None):
+def iter_lines(path, budget, *, max_file_bytes=MAX_FILE_BYTES, max_rows=MAX_ROWS, max_line_bytes=MAX_LINE_BYTES,
+               sha=None):
     """Yield raw lines (decompressed) under the per-file, per-line and run caps."""
     path = Path(path)
     if path.is_symlink():
@@ -100,8 +103,8 @@ def iter_lines(path, budget, *, max_file_bytes=MAX_FILE_BYTES, max_rows=MAX_ROWS
     opener = gzip.open if path.suffix == ".gz" else open
     total = rows = 0
     with opener(path, "rb") as handle:
-        while line := handle.readline(MAX_LINE_BYTES + 1):
-            if len(line) > MAX_LINE_BYTES:
+        while line := handle.readline(max_line_bytes + 1):
+            if len(line) > max_line_bytes:
                 raise InputRefused("line_byte_cap")
             total += len(line)
             rows += 1
@@ -257,7 +260,7 @@ def read_journal(path, budget):
     """Rows of one RE-1 ``journal.jsonl`` after the canonical hash-chain check."""
     rows, previous = [], None
     sha = hashlib.sha256()
-    for index, line in enumerate(iter_lines(path, budget, sha=sha)):
+    for index, line in enumerate(iter_lines(path, budget, sha=sha, max_line_bytes=RE1_MAX_LINE_BYTES)):
         row = json.loads(line)
         if (canonical_line(row) != line or row.get("kind") != "journal" or row.get("sequence") != index
                 or row.get("previous_sha256") != previous):
@@ -278,11 +281,27 @@ def session_folders(root):
     return folders
 
 
+def read_selection(folder, condition_id, budget):
+    """(market_id, selection-time modelled share_many) of the selected band, or (None, None)."""
+    path = Path(folder) / "selection.json"
+    if not path.is_file():
+        return None, None
+    try:
+        selection = json.loads(b"".join(iter_lines(path, budget, max_line_bytes=RE1_MAX_LINE_BYTES)))
+    except (InputRefused, ValueError):
+        return None, None
+    for row in selection.get("rows") or []:
+        if str(row.get("condition_id", "")).lower() == condition_id:
+            share = (row.get("quote") or {}).get("share_many")
+            return row.get("market_id"), None if share is None else float(share)
+    return None, None
+
+
 def read_prediction_hash(folder, budget):
     path = Path(folder) / "prediction.json"
     if not path.is_file():
         return None
-    raw = b"".join(iter_lines(path, budget))
+    raw = b"".join(iter_lines(path, budget, max_line_bytes=RE1_MAX_LINE_BYTES))
     return json.loads(raw).get("journal_sha256")
 
 
