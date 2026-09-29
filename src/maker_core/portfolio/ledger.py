@@ -2,7 +2,7 @@
 from copy import deepcopy
 from decimal import Decimal
 
-from maker_core.contracts.portfolio import amount, instant, validate_campaigns, validate_snapshot
+from maker_core.contracts.portfolio import active_campaigns, amount, instant, validate_campaigns, validate_snapshot
 from maker_core.evidence.journal import digest, plain
 
 ZERO = Decimal(0)
@@ -33,10 +33,12 @@ def build_book(snapshots, config):
     if len({s["account_id"] for s in snapshots}) != 1:
         raise ValueError("mixed_accounts_refused")
     latest = snapshots[-1]
+    if config.get("account_id") is not None and config["account_id"].lower() != latest["account_id"].lower():
+        raise ValueError("campaign_account_mismatch")
     now = instant(latest["as_of_utc"])
-    reasons, events, books = set(), {}, {}
+    reasons, events, books = set(latest.get("unavailable_reasons", [])), {}, {}
     tolerance = amount(config.get("reconciliation_tolerance_pusd", "0.000001"))
-    for campaign in config["campaigns"]:
+    for campaign in active_campaigns(config):
         capital = sum((amount(c["amount_pusd"]) for c in campaign["contributions"]
                        if instant(c["at_utc"]) <= now), ZERO)
         books[campaign["id"]] = dict(contributed_capital_pusd=capital, cash_pusd=capital,
