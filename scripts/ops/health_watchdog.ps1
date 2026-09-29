@@ -117,19 +117,7 @@ $expectedDisabledTasks = [ordered]@{
     "WeatherMarketMakingDailyRoll"           = "live and paper maker paused by owner 2026-09-25"
     "WeatherMarketMakingDailyRollSupervisor" = "live and paper maker paused by owner 2026-09-25"
 }
-$alertFlags = @()
 $expectedDisabledNotes = @()
-foreach ($f in @($status.flags)) {
-    $disabledTask = $null
-    if ([string]$f -cmatch '^(\S+) (?:unexpectedly DISABLED|is armed for .+ but DISABLED - it will not fire)$') {
-        $disabledTask = $Matches[1]
-    }
-    if ($disabledTask -and $expectedDisabledTasks.Contains($disabledTask)) {
-        $expectedDisabledNotes += "$disabledTask is expected-disabled: $($expectedDisabledTasks[$disabledTask])"
-    }
-    else { $alertFlags += $f }
-}
-$notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
 
 # ---- which window are we in? ----
 $now = Get-Date
@@ -171,8 +159,13 @@ function Get-FlagAction($class) {
     return [string]$actionWindow[[string]$class]
 }
 $entries = @()
-foreach ($f in $alertFlags) {
+foreach ($f in @($status.flags)) {
     if (-not $f) { continue }
+    if ([string]$f -cmatch '^(\S+) (?:unexpectedly DISABLED|is armed for .+ but DISABLED - it will not fire)$' -and
+        $expectedDisabledTasks.Contains($Matches[1])) {
+        $expectedDisabledNotes += "$($Matches[1]) is expected-disabled: $($expectedDisabledTasks[$Matches[1]])"
+        continue
+    }
     $class = Get-FlagClass $f
     $sev = switch ($class) {
         "capture" { if ($inCapture) { "CRITICAL" } elseif ($inRollover) { "HIGH" } else { "HIGH" } }
@@ -202,6 +195,7 @@ foreach ($f in $alertFlags) {
 $rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
 $entries = @($entries | Sort-Object { $rank[$_.severity] })
 $top = if ($entries.Count -gt 0) { $entries[0].severity } else { "OK" }
+$notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
 
 # ---- dedupe: log on change, on CRITICAL, or as a heartbeat ----
 $fingerprint = ""
