@@ -1,0 +1,29 @@
+{
+  "id": "W-0001",
+  "title": "Combined integration: 91a, 110f/g/i, 110j A/B",
+  "workstream": "ops",
+  "status": "handed-off",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": "codex/integration-91a-110f-20260926",
+  "tip": "8180404a0e588f73dab3c83a171538f8a89c9705",
+  "pr": null,
+  "roll": "sensitive",
+  "depends_on": [],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "01:00-04:00 America/Toronto; suite 00:30 first"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Supersedes suite tip 3c1e58337. Base master 965374a0e; includes owner-decisions-0926-day.",
+    "ALL bounded-suite chunks required; hand-merged schema registry. If 91a fails, rebuild without 91a and rerun. No partial-pass merge.",
+    "Use production roll_verdict and quiet_window_merge with exact suite tip; recover three capture workers AND 88a; verify origin/master.",
+    "Fresh TEMP/TMP under C:/pt; record free bytes; serial lease ends 04:55, no heavy work 05:00-06:30. Seed historical shell cleanup is not authority."
+  ]
+}
