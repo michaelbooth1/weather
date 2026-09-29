@@ -8,18 +8,24 @@ from zoneinfo import ZoneInfo
 from maker_core.evidence.journal import digest, plain
 from maker_core.replay import authorization
 from maker_core.replay.bundle import BundleError, Limits, _Reader, sha256, timestamp
+from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.calibration import calibrate
 from maker_core.replay.engine import ReplayConfig
 from maker_core.replay.pack_io import read_json
 from maker_core.replay.payloads import decode
 
-FORMAT = "maker_core.replay.execution.v1"
-AUTHORIZATION_ID = "maker-replay-2026-10-15-v1"
+# Clarification 2 (v2): manifest-only intervals, measured ceilings, rule-derived
+# quote markets, look protection. Built on the scoring date after settlement seals.
+FORMAT = "maker_core.replay.execution.v2"
+AUTHORIZATION_ID = "maker-replay-2026-10-15-v2"
 QUOTE_DATES = tuple(date(2026, 9, 30)+timedelta(days=i) for i in range(14))
 SETTLEMENT_DATE = date(2026, 10, 14)
+# max_events and max_outputs are the measured ceilings, not frozen values.
 FROZEN_CONFIG = dict(policy="informed-v0", initial_cash="100", band_cap="100", order_cap="60",
                      wallet_cap="100", event_cap="100", factor_cap="100", max_book_gap_seconds=60,
-                     max_events=500000, fill_bound="strictly_through", clock_pulls=())
+                     fill_bound="strictly_through", clock_pulls=())
+MAX_OUTPUT_BYTES = 8*1024**2
+CEILING_FIELDS = {"max_input_bytes", "max_records", "max_seconds", "max_output_bytes", "max_memory_bytes"}
 HURDLES = dict(primary_fill_bound="strictly_through", primary_metric="modeled_net_k1",
                economic_baselines=["blind_re1", "no_quote"], economic_lower_bound_strictly_above=0,
                quote_dates=14, min_dates=10, min_markets=10, min_valid_replicates=100,
@@ -107,18 +113,43 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
     return windows, excluded
 
 
-def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_decision, *,
-                   calibration_sha256, inventory_sha256, quote_inventory_sha256,
-                   limits=Limits(), max_output_bytes=8*1024**2, check=lambda: None):
+def quote_market_rule(calibration_bundles):
+    """Cities with at least one 88a-captured band on a calibration date; no hand list.
+
+    A weather condition enters a bundle only with a captured book (the descriptor
+    needs both token books), so this is the sealed per-date captured-band inventory.
+    """
+    return sorted({c.market_id for b in calibration_bundles for c in b.conditions})
+
+
+def measured_limits(measurement):
+    """Validate the resource-only measurement and re-apply the fixed rule."""
+    if (not isinstance(measurement, dict) or measurement.get("format") != ceiling_rule.FORMAT
+            or measurement.get("date") != ceiling_rule.MEASUREMENT_DATE.isoformat()):
+        raise BundleError("invalid_ceiling_measurement")
+    derived = ceiling_rule.derive(measurement.get("measured"))
+    if measurement.get("derived") != derived:
+        raise BundleError("ceiling_derivation_mismatch")
+    return ceiling_rule.run_limits(derived)
+
+
+def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_decision, measurement, *,
+                   calibration_sha256, inventory_sha256, quote_inventory_sha256, measurement_sha256,
+                   max_output_bytes=MAX_OUTPUT_BYTES, check=lambda: None):
     bundles = tuple(sorted(bundles, key=lambda b: b.day))
     if tuple(b.day for b in bundles) != (*QUOTE_DATES, SETTLEMENT_DATE):
         raise BundleError("manifest_requires_fourteen_quote_dates_and_settlement_only")
-    if (type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 8*1024**2):
+    if (type(max_output_bytes) is not int or not 1 <= max_output_bytes <= MAX_OUTPUT_BYTES):
         raise BundleError("invalid_output_ceiling")
+    run = measured_limits(measurement)
+    if not isinstance(calibration, dict):
+        raise BundleError("invalid_calibration_json")
     all_bundles = (*bundles, *calibration_bundles)
-    if (sum(b.input_bytes for b in all_bundles) > limits.max_bytes
-            or sum(len(b.records) for b in all_bundles) > limits.max_records):
+    if (sum(b.input_bytes for b in all_bundles) > run["max_input_bytes"]
+            or sum(len(b.records) for b in all_bundles) > run["max_records"]):
         raise BundleError("manifest_input_ceiling")
+    if calibration.get("quote_markets") != quote_market_rule(calibration_bundles):
+        raise BundleError("quote_markets_rule_mismatch")
     recomputed = calibrate(calibration_bundles, calibration.get("quote_markets"), check=check)
     recomputed["quote_inventory_sha256"] = quote_inventory_sha256
     if calibration != recomputed:
@@ -127,14 +158,16 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
     quote_markets = sorted({c.market_id for b in bundles if b.day in QUOTE_DATES for c in b.conditions})
     if sorted(set(quote_markets) | {c.market_id for b in calibration_bundles for c in b.conditions}) != calibration["markets"]:
         raise BundleError("calibration_city_union_mismatch")
-    if (not isinstance(owner_decision, dict) or set(owner_decision) != authorization.DECISION_FIELDS | {"clarification_sha256"}
+    if (not isinstance(owner_decision, dict)
+            or set(owner_decision) != authorization.DECISION_FIELDS | set(authorization.CLARIFIED_IDS[AUTHORIZATION_ID])
             or owner_decision["authorization_id"] != AUTHORIZATION_ID
             or owner_decision["scoring_date"] != "2026-10-15" or owner_decision["owner"] != "michaelbooth1"):
         raise BundleError("clarified_owner_decision_required")
     windows, exclusions = active_intervals(bundles, inventory, check=check)
-    if {f.name for f in fields(ReplayConfig)} != set(FROZEN_CONFIG) | {"hazard_per_minute"}:
+    if {f.name for f in fields(ReplayConfig)} != set(FROZEN_CONFIG) | {"hazard_per_minute", "max_events", "max_outputs"}:
         raise BundleError("new_config_field_requires_prospective_addendum")
-    config = ReplayConfig(**FROZEN_CONFIG, hazard_per_minute=float(calibration["hazard_per_minute"]))
+    config = ReplayConfig(**FROZEN_CONFIG, hazard_per_minute=float(calibration["hazard_per_minute"]),
+                          max_events=run["max_events"], max_outputs=run["max_outputs"])
     return dict(format=FORMAT, owner=owner_decision["owner"], signed_at=owner_decision["signed_at"],
                 owner_decision=owner_decision, hurdles=HURDLES, policies=list(authorization.POLICIES),
                 clusters=["date", "date_x_market"], dates=[d.isoformat() for d in QUOTE_DATES],
@@ -145,31 +178,32 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
                 maintenance_utc=["05:00", "08:00"], input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
                 record_sources_sha256=digest([dict(r.source_hashes) for b in bundles for r in b.records]),
                 calibration=calibration, calibration_sha256=calibration_sha256,
-                source_hashes=source_hashes(check=check),
-                ceilings=dict(max_input_bytes=limits.max_bytes, max_records=limits.max_records,
-                              max_seconds=limits.max_seconds, max_output_bytes=max_output_bytes))
+                source_hashes=source_hashes(check=check), quote_market_rule="captured_band_on_any_calibration_date",
+                ceiling_measurement=measurement, ceiling_measurement_sha256=measurement_sha256,
+                ceilings=dict(max_input_bytes=run["max_input_bytes"], max_records=run["max_records"],
+                              max_seconds=run["max_seconds"], max_output_bytes=max_output_bytes,
+                              max_memory_bytes=run["max_memory_bytes"]))
 
 
 def verify_manifest(doc, bundles, calibration_bundles, *, calibration_path, inventory_path,
-                    quote_inventory_path, decision_log, frozen_protocol, execution_addendum, clarification,
-                    now, check=lambda: None):
+                    quote_inventory_path, measurement_path, decision_log, frozen_protocol, execution_addendum,
+                    clarification, clarification_2, now, check=lambda: None):
     reader = _Reader(Limits(458752, 1, 5), time.monotonic)
     authorization._verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now,
-                                   clarification, require_scoring_date=False)
+                                   clarification, require_scoring_date=False, clarification_2=clarification_2)
     calibration, calibration_hash = read_json(calibration_path)
     inventory, inventory_hash = read_json(inventory_path, 8*1024**2)
     quote_inventory, quote_hash = read_json(quote_inventory_path)
+    measurement, measurement_hash = read_json(measurement_path)
+    if not isinstance(calibration, dict):
+        raise BundleError("invalid_calibration_json")
     if quote_inventory != calibration.get("quote_markets"):
         raise BundleError("quote_inventory_mismatch")
-    ceilings = doc.get("ceilings", {})
-    if set(ceilings) != {"max_input_bytes", "max_records", "max_seconds", "max_output_bytes"}:
+    if set(doc.get("ceilings", {})) != CEILING_FIELDS:
         raise BundleError("incomplete_ceiling_bindings")
-    limits = Limits(ceilings["max_input_bytes"], ceilings["max_records"], ceilings["max_seconds"])
-    if sum(b.input_bytes for b in bundles) > limits.max_bytes or sum(len(b.records) for b in bundles) > limits.max_records:
-        raise BundleError("manifest_input_ceiling")
-    expected = build_manifest(bundles, calibration_bundles, calibration, inventory, doc["owner_decision"],
+    expected = build_manifest(bundles, calibration_bundles, calibration, inventory, doc["owner_decision"], measurement,
         calibration_sha256=calibration_hash, inventory_sha256=inventory_hash, quote_inventory_sha256=quote_hash,
-        limits=limits, max_output_bytes=ceilings["max_output_bytes"], check=check)
+        measurement_sha256=measurement_hash, max_output_bytes=doc["ceilings"]["max_output_bytes"], check=check)
     if doc != expected:
         raise BundleError("execution_manifest_binding_mismatch")
     return expected

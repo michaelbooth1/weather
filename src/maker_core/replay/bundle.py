@@ -29,6 +29,14 @@ MAX_RECORDS = 100_000
 MAX_STREAMS = 64
 MAX_CONDITIONS = 2_000
 MAX_SECONDS = 300.0
+# Clarification 2 ceilings are derived from a measured calibration day and capped
+# by the 16 GB host: bytes held in memory at most 70% of RAM, 45 minutes. The
+# defaults above stay the ordinary diagnostic ceilings; only these host caps bound
+# an explicitly derived ceiling. Raising a limit never truncates or samples input.
+HOST_RAM_BYTES = 16 * 1024**3
+HOST_MAX_BYTES = HOST_RAM_BYTES * 7 // 10
+HOST_MAX_RECORDS = 2**31
+HOST_MAX_SECONDS = 2700.0
 
 
 class BundleError(ValueError):
@@ -126,11 +134,11 @@ class Limits:
     max_seconds: float = MAX_SECONDS
 
     def __post_init__(self):
-        for value, maximum in ((self.max_bytes, MAX_BYTES), (self.max_records, MAX_RECORDS)):
+        for value, maximum in ((self.max_bytes, HOST_MAX_BYTES), (self.max_records, HOST_MAX_RECORDS)):
             if _integer(value, maximum) == 0:
                 raise BundleError("limit_must_be_positive")
         if (isinstance(self.max_seconds, bool)
-                or not 0 < self.max_seconds <= MAX_SECONDS):
+                or not 0 < self.max_seconds <= HOST_MAX_SECONDS):
             raise BundleError("invalid_time_limit")
 
 
@@ -265,7 +273,7 @@ def load_bundle(directory: Path, *, limits: Limits | None = None,
         if (not isinstance(name, str) or re.fullmatch(r"[a-zA-Z0-9_-]+\.jsonl", name) is None
                 or name.casefold() in {p.casefold() for p in hashes}):
             raise BundleError("invalid_or_duplicate_stream_path")
-        size = _integer(stream["bytes"], MAX_BYTES)
+        size = _integer(stream["bytes"], reader.limits.max_bytes)
         count = _integer(stream["records"], reader.limits.max_records)
         if len(records) + count > reader.limits.max_records:
             raise BundleError("record_count_cap")

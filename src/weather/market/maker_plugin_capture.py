@@ -81,22 +81,28 @@ class Reader:
         self.check()
         path = regular_path(path, self.root)
         before = path.stat()
+        limit = self.snapshot_size(path, before)
+        consumed = 0
         opener = gzip.open if path.suffix == ".gz" else open
         # No yielded iterator, cached handle or second open within this context.
         with opener(path, "rb") as handle:
             while True:
                 self.check()
+                if limit is not None and consumed >= limit:
+                    break
                 remaining = self.max_input_bytes - self.bytes_read
                 if remaining <= 0:
                     raise StopRun("input_byte_cap")
-                chunk = handle.read(max(1, min(65536, remaining, chunk_limit)))
+                want = max(1, min(65536, remaining, chunk_limit))
+                chunk = handle.read(want if limit is None else min(want, limit - consumed))
+                consumed += len(chunk)
                 self.bytes_read += len(chunk)
                 self.coverage["input_bytes." + source] += len(chunk)
                 if not chunk or consume(chunk):
                     break
         self.check()
         after = path.stat()
-        if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+        if not self.unchanged(path, before, after):
             raise ValueError("input_changed_during_read")
         self.coverage["files_read"] += 1
         self.coverage["files_read." + source] += 1
@@ -129,9 +135,20 @@ class Reader:
                     stopped = True
                     return True
         info = self.scan(path, consume, source)
-        if pending and not stopped:
+        if pending and not stopped and self.keep_unterminated(path, source):
             visit(bytes(pending).rstrip(b"\r"))
         return info
+
+    def snapshot_size(self, path, before):
+        """Bytes to read; None reads to EOF. Export snapshots pin an append-only prefix."""
+        return None
+
+    def unchanged(self, path, before, after):
+        return (before.st_size, before.st_mtime_ns, before.st_ino) == (after.st_size, after.st_mtime_ns, after.st_ino)
+
+    def keep_unterminated(self, path, source):
+        """Diagnostic readers parse a final unterminated line; export snapshots skip it."""
+        return True
 
     def variant(self, path):
         regular_path(path, self.root)
@@ -142,6 +159,8 @@ class Reader:
         if not path.is_file():
             return []
         raw = self.read(path, source=source)
+        if raw and not raw.endswith(b"\n") and not self.keep_unterminated(path, source):
+            raw = raw[:raw.rfind(b"\n") + 1]
         logical = path.name.removesuffix(".gz")
         source = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))) if logical.endswith(".csv") else (
             json.loads(line) for line in raw.splitlines() if line.strip())

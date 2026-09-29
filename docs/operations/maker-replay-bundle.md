@@ -55,8 +55,10 @@ market clusters and one missing book minute per day. It is not an 88a export or 
 
 ## Bounded reads and outputs
 
-`Limits` permits lowering, never raising, the reader's byte, row and time ceilings. Manifest, line, stream and condition
-counts also have fixed ceilings in the module. Streams are opened, read, and closed serially; changed size, mtime or file
+`Limits` defaults to 64 MiB, 100,000 records and 300 seconds. An explicit ceiling may be raised only up to the 16 GB
+host caps (`HOST_MAX_BYTES` = 70% of 16 GiB, 2^31 records, 2,700 seconds); a Clarification 2 manifest derives its
+ceilings from a measured calibration day and never truncates or samples to fit. Manifest, line, stream and condition
+counts keep fixed ceilings in the module. Streams are opened, read, and closed serially; changed size, mtime or file
 identity refuses admission. Symlinks, Windows junctions/reparse points, path traversal and alternate streams refuse.
 An actively hostile process swapping paths during open is outside this offline reader's trust model; source directories
 must be controlled by the operator. Do not use a growing capture file as an input.
@@ -150,7 +152,8 @@ competition without introducing a new best price. Between captures, books are
 held for at most 60 seconds; a gap withdraws quotes and produces excluded spans.
 This is a disclosed sampled-book approximation, not a live freshness relaxation:
 the shared kernel's ten-second submit freshness still applies at every decision.
-Both input event count and combined decision/span count have hard ceilings.
+Both input event count (`max_events`) and combined decision/span count have hard ceilings. The decision/span ceiling is
+`max_outputs`, or `max_events` when unset (the frozen addendum's shared value); Clarification 2 derives each separately.
 Multi-day replay spans at most 366 calendar days, including gaps. Simultaneous
 band cash admission is deterministic by condition ID, not an optimized band-selection
 claim. Inventory is held with reduced available caps; no liquidation strategy is
@@ -161,16 +164,20 @@ invented. Late prints predating the currently resting order are explicitly exclu
 `weather.market.maker_replay_bundle` reuses 110h's `maker_plugin_capture.Reader` and `Segment`, outside the pure provider
 package. Only manifested sealed 88a segments are opened; gzip, reward references and book shards are hash-verified.
 Plugin support uses the same explicit captured-table/CAS paths as 110h, not live collectors. Those supporting tables are
-not 88a seals: files must remain unchanged during and across reads through the end of projection, and original per-row
-capture clocks and raw file hashes are retained. A changed source refuses the export. No production qualification of
+not 88a seals. They are live append-only files, so `ExportReader` pins each plain file at the size first seen and every
+later read of it in the same export takes exactly that prefix. Growth by appends is accepted at recheck only when the
+pinned prefix still hashes the same (counted as `append_only_growth_accepted`); truncation, replacement or an edited
+prefix refuses. A partial final line of a live file is skipped and counted as `unterminated_tail_skipped.<source>`,
+never parsed. Gzip members, release files and sealed 88a files must stay byte-identical. Original per-row capture clocks
+and the hashes of the exact bytes used are retained. No production qualification of
 these assumptions is implied by fixture tests.
 
 ```text
 python -B -m weather.market.maker_replay_bundle bundle --date YYYY-MM-DD --data-root <data> --markets nyc --out <new-dir>
 ```
 
-The date must be closed in UTC. Input cap is 1 GiB, output cap 64 MiB including manifest/export metadata, record cap
-100,000, and time cap 300 seconds; all can be lowered. Outputs are `bundle.json`, `events.jsonl`, and `export.json`
+The date must be closed in UTC. This single-market command defaults to a 1 GiB input cap, 64 MiB output (including
+manifest/export metadata), 100,000 records and 300 seconds; explicit values may go up to the host caps. Outputs are `bundle.json`, `events.jsonl`, and `export.json`
 (the last records projection diagnostics and all source hashes). No source writes, growing 88a segments, status files,
 network calls or credentials are used. Refusal before writing produces no directory; an IO or final validation failure
 can leave an explicitly incomplete output directory, never reused. Output must be new and outside every input tree.
@@ -180,7 +187,9 @@ remain exclusions. Conditions unseen in discovery cannot be counted. Derived vie
 captures; raw plugin rows retain their original clocks. Stream coverage uses connected/inbound evidence and expires
 after 30 seconds; unrecorded PONGs cannot renew it. This deliberately excludes silence unsupported by retained health
 evidence. Public trades without venue IDs use content hashes, conservatively deduplicating identical simultaneous
-messages. A clock parse/join failure invalidates any earlier clock snapshot.
+messages. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
+projection back into the event cache entry, so each event's projection and fair-value/clock/settlement providers are
+built once per cached load, not once per book capture.
 
 Repeat `--carry-bundle <earlier-bundle>` (maximum eight) for prior descriptor/band metadata when exporting a later
 settlement day without books. It does not import account cash or lots. Such conditions have empty active intervals;
@@ -188,40 +197,47 @@ their captured reconciled facts can settle the engine's lots from earlier suppli
 The weather provider's reconciliation status `match` and neutral fixture status `reconciled` are both admitted.
 Both input and output limits still apply. Actual production bytes/day are unknown until an authorized diagnostic export.
 
-### Nightly city bundles
+### Nightly and calibration day bundles
 
 The command facade `weather.market.maker_plugin.replay_export` delegates filesystem orchestration to
 `weather.market.maker_replay_night`, outside the pure providers. It reuses the 110l exporter:
 
 ```text
-python -B -m weather.market.maker_plugin.replay_export night --day YYYY-MM-DD --data-root <data> --release-root <immutable-releases> --out <panel> --exclude-utc 05:00-08:00
+python -B -m weather.market.maker_plugin.replay_export module-hash
+python -B -m weather.market.maker_plugin.replay_export night --day YYYY-MM-DD --data-root <data> --release-root <immutable-releases> --out <panel> --expected-module-sha256 <hash>
+python -B -m weather.market.maker_plugin.replay_export calibration --day 2026-09-2[789] --data-root <data> --out <calibration> --expected-module-sha256 <hash>
 ```
 
+`module-hash` prints the SHA-256 of every repository source module the exporter process has imported (file content,
+not a Git tip) and reads no data. With `--expected-module-sha256` an export refuses before creating any output unless
+that closure matches; it also refuses if an imported module changes during the export, and records modules first
+imported during the run. The receipt always carries `module_sha256`.
+
+Each day produces **one all-city bundle directory** containing every discovered registered city, so
+`maker_core.replay.pack_io.load_days` admits one directory per UTC date. `night` keeps every record kind. `calibration`
+keeps only `descriptor`, `coverage` and `public trade` records, from the same sealed 88a sources, the same projection and
+the same hashing, and refuses any date other than the three calibration dates before reading data. A weather condition
+enters a bundle only with a captured book for both tokens (the descriptor requires them), so a calibration bundle's
+city set is the sealed per-date captured-band inventory that Clarification 2's quote-market rule names; the receipt
+lists it as `captured_band_cities`.
+
+**Bundles carry no active intervals.** Clarification 2 makes the execution manifest the only source of quote-panel
+exclusions (05:00–08:00 UTC maintenance and coverage), so the neutral reader keeps its exact field set and the former
+`--exclude-utc` flag is removed. Book gaps are reported over each condition's whole UTC day.
+
 The explicit output root must be disjoint from the entire input tree and have an existing parent. A closed, canonical
-UTC date is required. Discovery reads only sealed 88a segments, including gzip and content references. Every discovered
-registered city must export successfully. An open segment, missing projectable city, corrupt hash, changed source or
-exceeded cap refuses the entire day. The cap is 64 MiB per city including all three output files, never truncation.
-The whole invocation shares a 1 GiB input-read budget and 300-second cooperative clock, both lowerable; repeated per-city
-reads count again. The scheduled wrapper supplies the outer hard deadline. No whole-history scan or network access occurs.
+UTC date is required. Discovery reads only sealed 88a segments, including gzip and content references. An open segment,
+missing projectable city, corrupt hash, changed source, module mismatch or exceeded cap refuses the entire day, never
+truncating. Defaults are a 4 GiB input-read budget, 2 GiB of output and 2,700 seconds, each at most the host cap.
 
-The output is `<panel>/<day>/bundles/<city>/{bundle.json,events.jsonl,export.json}` plus a day `receipt.json` and an
-append-only `<panel>/panel-ledger.jsonl`. A writer lock serializes admission and ledger appends. City files start under
-`<day>/pending`; publication renames that directory only after every city passes. Only a `SEALED` ledger entry matching
-the receipt hash seals the day. A missing/torn ledger entry, `REFUSED`, or partial directory grants no completeness claim.
-Retries of any attempted day refuse; preserve the attempt for review. The exporter never deletes evidence or repairs a
-torn ledger. Each ledger row includes receipt/bundle hashes, observed free bytes before/after (before receipt/ledger
-overhead), discovered cities, book gaps, exclusions and recorded lifecycle events. A run killed before its terminal
-receipt leaves an unsealed partial directory; Scheduler failure and the retained attempt need operator review.
-
-`--exclude-utc` is repeatable, minute aligned, half open and prospective. Overlap, wrapping midnight and empty ranges
-refuse. `24:00` is accepted only as an end. Missing books outside exclusions remain gaps, never zero fills or rewards.
-With exclusions, each manifest condition gains **`active_intervals`**, an ordered list of objects with `active_from` and
-`active_until` UTC strings, contained within the existing outer interval. An empty list means no quote minutes. Existing
-outer bounds remain the envelope, not permission to quote through holes. The receipt repeats the day intervals and marks
-`reader_compatibility=REQUIRES_110R_ACTIVE_INTERVALS`. **110r owns support in the neutral reader, engine, diagnostics and
-clock baseline. Until that dependency lands, the 110l reader deliberately rejects these extra fields; never strip them
-or score using the outer bounds.** Export and byte sealing can proceed without reader adoption. No maker-core file is
-changed by the nightly exporter mission.
+The output is `<root>/<day>/bundle/{bundle.json,events.jsonl,export.json}` plus a day `receipt.json` and an append-only
+ledger (`panel-ledger.jsonl` or `calibration-ledger.jsonl`). A writer lock serializes admission and ledger appends. The
+bundle is written under `<day>/pending` and renamed to `bundle` only after it validates. Only a `SEALED` ledger entry
+matching the receipt hash seals the day. A missing/torn ledger entry, `REFUSED`, or partial directory grants no
+completeness claim. Retries of any attempted day refuse; preserve the attempt for review and export again only into a
+new output root. The exporter never deletes evidence or repairs a torn ledger. Each receipt records bundle file hashes,
+bytes, records and conditions, observed free bytes, discovered cities, book gaps, recorded lifecycle events, final
+reader coverage (growth and skipped tails), runtime and peak process memory.
 
 The optional explicit `--release-root` (also supported by the single-city exporter) supplies immutable release directories.
 `maker_replay_release.ReleaseSources` binds the captured source's release ID/content-manifest hash to the one declared
@@ -231,28 +247,30 @@ envelope also exposes the method beside `record`. Manifest/artifact reads each c
 read/time budget and are rechecked before sealing. This verifies that specific export projection, not the entire model
 graph's serving readiness. Wrong hashes, ambiguous roles, missing artifacts or a conflicting captured method refuse.
 Without an explicit release root, existing captured methods remain available and absent methods stay null; no active
-pointer or ambient artifact is consulted. Source files/clocks remain unchanged and the 88a writer is untouched. This
-fulfills the scorer preregistration's additive calibration projection without inventing identity. Run summaries supply recorded
-88a process starts; sealed stream gaps/disconnects, disk brakes and caps are retained separately. Segment rotation is not
-called a restart. Crashes without a sealed summary remain explicitly unknown, so restart coverage is never claimed complete.
+pointer or ambient artifact is consulted. Source files/clocks remain unchanged and the 88a writer is untouched. Run
+summaries supply recorded 88a process starts; sealed stream gaps/disconnects, disk brakes and caps are retained
+separately. Segment rotation is not called a restart. Crashes without a sealed summary remain explicitly unknown, so
+restart coverage is never claimed complete.
 
 ### Scheduled production export
 
 `scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It admits only the assigned capture host, holds
 the shared heavy-work lease, checks fresh commit charge below 70% and 50 GiB free, and owns the child in a kill-on-close
-Job. Starts are limited to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child is bounded to 330
-seconds and stops by 04:54:45 at the latest, reserving 15 seconds for teardown/lease release before 04:55. A 2 GiB
-monitored child memory ceiling also refuses; the exporter itself launches no descendants. Unproved teardown poisons
-the lease. A busy lease fails without waiting or automatic catch-up. The default day is yesterday in UTC, not local time.
+Job. Starts are limited to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child gets at most
+2,700 seconds of cooperative budget (`--max-seconds`) inside a 2,730-second outer deadline and stops by 04:54:45 at the
+latest, reserving 15 seconds for teardown/lease release before 04:55. A 2 GiB monitored child memory ceiling also
+refuses; the exporter itself launches no descendants. Unproved teardown poisons the lease. A busy lease fails without
+waiting or automatic catch-up. The default day is yesterday in UTC, not local time.
 
-`scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`, `-ExpectedSourceTip` and
-`-ExpectedRunnerSha256`; `-RepoRoot` defaults to its own checkout. Use `-WhatIf` first: it checks pins without touching
-Scheduler. Registration binds 00:35 daily, S4U/Limited current user, IgnoreNew, a seven-minute Scheduler ceiling and no
-StartWhenAvailable. It reads back the complete action, principal, trigger and safety settings. Both registration and
-execution require the exact Git tip and clean source/script trees, plus the wrapper hash. Re-register with reviewed pins
-after any source-tip adoption. Registration and production qualification belong to the production operator; fixture
-tests and a draft PR grant neither. The new task can contend with other heavy jobs at 00:35 and will visibly refuse a
-busy lease; choosing a different schedule needs a reviewed registrar change. Production bytes/day remain unmeasured.
+`scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`,
+`-ExpectedModuleSha256` (from `module-hash` in the same checkout) and `-ExpectedRunnerSha256`; `-RepoRoot` defaults to
+its own checkout. Use `-WhatIf` first: it checks pins without touching Scheduler. Registration binds 00:35 daily,
+S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It reads back the complete
+action, principal, trigger and safety settings. The runner is pinned by its own hash and the exporter's module-closure
+hash, not by a Git tip, so an unrelated master commit no longer stops the export; a change to any imported exporter
+module does, until the registrar is re-run with reviewed pins. Registration and production qualification belong to the
+production operator; fixture tests and a draft PR grant neither. The task can contend with other heavy jobs at 00:35
+and visibly refuses a busy lease; choosing a different schedule needs a reviewed registrar change.
 
 The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
 both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
@@ -337,15 +355,16 @@ registered dates, defines pooled sparse-city fallback, and excludes maintenance.
 are unchanged. Production must sign all three hashes before manifest construction. Publication is not that signature.
 
 `python -m maker_core.replay calibrate_hazard --help` describes bounded calibration on **calibration-only sealed
-bundles**, containing only descriptor, trade and coverage records. These use the existing bundle envelope; they must
-be prepared by the production evidence owner from the allowed 88a streams, with their original source hashes retained.
-The general weather replay exporter emits additional kinds and its output is deliberately refused as calibration
-input. Do not use an ad-hoc filter that drops gaps or invalid trade records, or open outcomes to select calibration.
+bundles**, containing only descriptor, trade and coverage records. These use the existing bundle envelope and are
+produced by `replay_export calibration` (above) from the allowed 88a streams, with their original source hashes
+retained. A panel bundle emits additional kinds and is deliberately refused as calibration input. Do not use an ad-hoc
+filter that drops gaps or invalid trade records, or open outcomes to select calibration.
 The CLI performs no network access or raw 88a export. Supplying a future seal, duplicate date, changed bytes or incorrect
 hash refuses; missing files produce a 1.0 fallback explicitly marked incomplete and cannot qualify a manifest.
 
-The quote-market JSON is a sorted unique array of stable city IDs, sealed prospectively before calibration. The
-estimator combines it with calibration discovery to freeze M. Final panel discovery must reproduce that union;
+The quote-market JSON is a sorted unique array of stable city IDs. Under Clarification 2 it is exactly the rule output of
+`quote_markets` (cities with a captured band on any calibration date); any other list refuses. The estimator combines it
+with calibration discovery to freeze M. Final panel discovery must reproduce that union;
 an unexpected city blocks verification rather than recalibrating after a scored read. Every city reports n/x/dates,
 coverage exclusions, numerical brackets, fallback reasons and the selected city/pooled bound. Empty/sparse pools and
 uncomputable numerical bounds retain 1.0. Coverage must last for the entire minute, with the exporter's 30-second
@@ -355,13 +374,13 @@ and rounding upward to twelve places; it uses no normal approximation.
 
 `python -m maker_core.replay manifest build --help` and `manifest verify --help` describe the preparation surface.
 Both require all fifteen sealed panel/settlement bundles, the three calibration bundles, the calibration JSON,
-the prospective city JSON, and a sorted universe JSON array. Each universe row contains exactly `condition_id`,
+the rule-derived city JSON, the ceiling measurement JSON, and a sorted universe JSON array. Each universe row contains exactly `condition_id`,
 `market_id`, `domain_id`, `target_date` and `local_timezone`. Every discovered condition is retained, including excluded
 conditions; the target and timezone must match the captured descriptor's local midnight close and local horizon.
 Missing descriptors or cluster mismatches block. This is a supplied domain-export binding, never a slug heuristic.
 
-The builder checks the explicit owner-decision JSON against the current DECISION_LOG row and all three document
-hashes, recomputes calibration, then binds every ReplayConfig field, fixed hurdles/bootstrap settings, exact sorted
+The builder checks the explicit owner-decision JSON against the current DECISION_LOG row and all four document
+hashes, recomputes calibration and the ceiling rule, then binds every ReplayConfig field, fixed hurdles/bootstrap settings, exact sorted
 universe, active intervals, stream/bundle hashes, source-hash digests and operational ceilings. It hashes the complete
 maker core, weather plugin/adapter/exporter sources and dependency manifest without importing weather into the core.
 Only `approved_registrations.py` is excluded from the executable hash set: enrollment cannot hash itself. The verifier
@@ -371,14 +390,48 @@ hash or execute a policy. All JSON outputs are create-only and capped; failures 
 The scored `run --compare` requires independent enrollment, the scoring date, current owner-log verification and every
 binding path. It applies the sealed intervals to every policy and clock matching, preserving carried inventory and
 settlement while keeping maintenance and the settlement-only day out of quote exposure. The report retains the
-selected clock windows. Immediately before policy invocation it rechecks the owner log and consumes
+selected clock windows. Immediately before the first policy replay it rechecks the owner log and consumes
 `attempts/<authorization_id>.json` next to the canonical sealed execution manifest. This is shared across output
-directories; failures remain consumed. Never relocate a manifest to evade this receipt. A completed receipt is
+directories; failures after it remain consumed, and earlier operational refusals are recorded without consuming
+(Clarification 2, below). Never relocate a manifest to evade this receipt. A completed receipt is
 additional evidence, never a replacement for the original consumption record. Reports expose the full hurdle
 conjunction separately from their counterfactual/transport limitations. No result authorizes live work.
+
+### Clarification 2 (v2) execution
+
+The unsigned Clarification 2 draft (`docs/research/maker-replay-clarification-2-2026-09-29.md`, carried by the 111e
+handoff branch) changes only operational execution; this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v2` must bind the
+raw SHA-256 of the registration, addendum, Clarification 1 (`clarification_sha256`) and Clarification 2
+(`clarification_2_sha256`); a v2 row without the second hash refuses, and v1 rows still verify under their old rules.
+Every manifest, run and verify command takes `--clarification-2`.
+
+- **Quote markets (rule).** `python -m maker_core.replay quote_markets --calibration-bundle <3 dirs> --out <json>`
+  writes the sorted cities of the three calibration bundles. `calibrate_hazard` and manifest build/verify refuse any
+  other list (`quote_markets_rule_mismatch`); there is no hand list.
+- **Ceilings (rule).** `measure_ceilings --bundle <2026-09-27 panel-format bundle> --calibration <json> --out <json>`
+  runs the complete scored pipeline (both fill bounds, all four policies, matched-clock trials, bootstrap and report
+  rendering) on that single calibration date and writes only input bytes, records, the largest engine event count, the
+  largest decision+span count, peak process memory and runtime, plus per-pass counts. No score, fill, reward or hurdle
+  value is written. Each ceiling is measurement × 15 × 4 rounded up to a power of two in its own unit (bytes, records,
+  seconds), compared with the host cap (input bytes and peak memory ≤ 70% of 16 GiB, runtime ≤ 2,700 s). If any cap
+  binds, the file says `executable: false` and manifest build refuses `not_executable_on_host:<field>`. The manifest
+  binds the measurement and its hash; the CLI ceilings, `ReplayConfig.max_events` and `max_outputs`, and a sampled
+  process-memory ceiling come from it. The 8 MiB report ceiling is unchanged.
+- **Rehearsal.** `rehearse` is the same score-free pipeline on one to three calibration dates. Both refuse any other
+  date from the path before a byte of the bundle is read.
+- **Look protection.** A scored run records its stage. Output-directory and host-commit preflight, bundle input,
+  manifest verification, scope binding, an engine construction check and the action-boundary recheck all precede the
+  reservation of `attempts/<id>.json`, which happens immediately before the first policy replay. A refusal in those
+  stages writes `attempts/<id>.refusal-<UTC>-<nonce>.json` (`NOT_CONSUMED_OPERATIONAL_REFUSAL`, stage, reason, Toronto
+  date) and leaves the look available; manifest build/verify refusals after the owner decision verifies do the same.
+  After reservation any stop writes `<id>.stopped.json` with its stage; the look is consumed.
+- **Late look.** A v2 look normally runs on its scoring date. It may run on a later Toronto date up to 2026-10-31 only
+  if a non-consuming refusal was recorded on the scoring date and no attempt was consumed; the owner row's `expires_at`
+  must then extend to 2026-11-01.
 
 The workstation wrapper admits exactly `maker_core.replay` as offline heavy work; no venue/runtime wildcard is added.
 An installed Codex hook with the older independent module list may still reject this command. This change does not
 alter that hook or authorize bypassing it; production must qualify its invoking path under the host-load policy.
 
-Update when the envelope, payload validation, time/byte limits, export path, scoring admission or report semantics change.
+Update when the envelope, payload validation, time/byte limits, export path, ceiling rule, scoring admission, look
+protection or report semantics change.

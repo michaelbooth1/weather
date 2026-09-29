@@ -15,11 +15,13 @@ from pathlib import Path
 
 from maker_core.evidence.journal import canonical_bytes, plain
 from maker_core.contracts import SettlementFact
-from maker_core.replay.bundle import FORMAT, MAX_BYTES, MAX_RECORDS, BundleError, Limits, load_bundle, sha256
+from maker_core.replay.bundle import (FORMAT, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, MAX_BYTES,
+                                      MAX_RECORDS, BundleError, Limits, load_bundle, sha256)
 from maker_core.replay.bundle import regular_path as neutral_path
 from maker_core.replay.payloads import market_descriptor
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, sealed_segments
+from weather.market.maker_plugin_capture import regular_path as capture_path
 from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, captured_book, reward_terms
 from weather.market.maker_plugin_sources import COVERAGE_KEYS
 from weather.market.maker_replay_release import ReleaseSources
@@ -30,10 +32,48 @@ from weather.market.market_registry import BUILTIN_SPECS
 from weather.paths import DATA_ROOT
 
 
+# Inputs are streamed, so the read budget may exceed the host memory cap.
+MAX_INPUT_BYTES = 16 * 1024**3
+# Validating an exported day uses the same host caps as a derived scored run.
+OUTPUT_LIMITS = Limits(HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS)
+CALIBRATION_KINDS = frozenset({"descriptor", "coverage", "trade"})
+
+
 class ExportReader(Reader):
+    """Hash-bound snapshot reads of live append-only inputs.
+
+    A plain (non-gzip) input is read only up to the size seen at its first read;
+    later reads of the same file take exactly that prefix. Growth by appends is
+    accepted when the prefix still hashes the same; truncation, replacement or an
+    edited prefix refuses. A partial final line in a live file is skipped and counted.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.identities, self.hashes, self.paths = {}, {}, {}
+        self.identities, self.hashes, self.paths, self.prefix = {}, {}, {}, {}
+
+    def _key(self, path):
+        return str(Path(path).absolute().relative_to(self.root)).replace("\\", "/")
+
+    def snapshot_size(self, path, before):
+        if Path(path).suffix == ".gz":
+            return None
+        pinned = self.prefix.setdefault(self._key(path), before.st_size)
+        if before.st_size < pinned:
+            raise ValueError("source_truncated_between_reads")
+        return pinned
+
+    def unchanged(self, path, before, after):
+        # Closed gzip members cannot be prefix-pinned: any change refuses. Appends
+        # during a pinned-prefix read are expected; the prefix hash is rechecked.
+        if Path(path).suffix == ".gz":
+            return super().unchanged(path, before, after)
+        return after.st_ino == before.st_ino and after.st_size >= before.st_size
+
+    def keep_unterminated(self, path, source):
+        if Path(path).suffix == ".gz":
+            return True
+        self.coverage["unterminated_tail_skipped." + source] += 1
+        return False
 
     def scan(self, path, consume, *args, **kwargs):
         # Whole reads and streamed lines both pass through scan, so every input
@@ -47,8 +87,7 @@ class ExportReader(Reader):
             stopped = bool(consume(chunk))
             return stopped
         info = super().scan(path, hashed, *args, **kwargs)
-        key = str(Path(path).absolute().relative_to(self.root)).replace("\\", "/")
-        self.remember(key, path, digest.hexdigest(), complete=not stopped, size=size)
+        self.remember(self._key(path), path, digest.hexdigest(), complete=not stopped, size=size)
         return info
 
     def read_release(self, root, path):
@@ -64,7 +103,8 @@ class ExportReader(Reader):
     def remember(self, key, path, digest, *, complete=True, size=None):
         info = Path(path).stat()
         signature = info.st_size, info.st_mtime_ns, info.st_ino
-        if key in self.identities and self.identities[key] != signature:
+        if key in self.identities and self.identities[key] != signature and not (
+                key in self.prefix and self._grown(key, info)):
             raise ValueError("source_changed_between_reads")
         value = digest if complete else f"prefix:{size}:{digest}"
         known = self.hashes.get(key)
@@ -72,20 +112,48 @@ class ExportReader(Reader):
             raise ValueError("source_changed_between_reads")
         if complete or known is None or known.startswith("prefix:"):
             self.hashes[key] = value
-        self.identities[key] = signature
+        self.identities.setdefault(key, signature)
         self.paths[key] = Path(path)
+
+    def _grown(self, key, info):
+        return info.st_ino == self.identities[key][2] and info.st_size >= self.prefix[key]
+
+    def _prefix_digest(self, path, size):
+        digest, left = hashlib.sha256(), size
+        with open(capture_path(path, self.root), "rb") as handle:
+            while left > 0:
+                self.check()
+                chunk = handle.read(min(65536, left))
+                if not chunk:
+                    break
+                digest.update(chunk)
+                left -= len(chunk)
+        self.coverage["recheck_prefix_bytes"] += size - left
+        return digest.hexdigest() if left == 0 else None
 
     def recheck(self):
         for key, signature in self.identities.items():
             self.check()
             info = self.paths[key].stat()
-            if signature != (info.st_size, info.st_mtime_ns, info.st_ino):
+            if signature == (info.st_size, info.st_mtime_ns, info.st_ino) and (
+                    key not in self.prefix or info.st_size == self.prefix[key]):
+                continue
+            if key not in self.prefix or not self._grown(key, info):
                 raise ValueError("source_changed_before_export")
+            # Growth of an append-only input: the bytes this export used must be unchanged.
+            known = self.hashes[key]
+            size, expected = ((int(known.split(":")[1]), known.split(":")[2]) if known.startswith("prefix:")
+                              else (self.prefix[key], known))
+            if self._prefix_digest(self.paths[key], size) != expected:
+                raise ValueError("source_prefix_changed_before_export")
+            self.coverage["append_only_growth_accepted"] += 1
 
 
 class Projection:
-    def __init__(self, day, max_bytes, max_records, check):
+    def __init__(self, day, max_bytes, max_records, check, kinds=None):
         self.day, self.limit, self.max_records, self.check = day, max_bytes, max_records, check
+        # None keeps every kind; a calibration export keeps descriptor/coverage/trade only.
+        self.kinds = kinds
         self.start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
         self.end = self.start + timedelta(days=1)
         self.records, self.conditions, self.descriptors, self.tokens = [], {}, {}, {}
@@ -94,6 +162,8 @@ class Projection:
 
     def add(self, cid, kind, at, payload, hashes, *, changed=False):
         self.check()
+        if self.kinds is not None and kind not in self.kinds:
+            return
         payload = plain(payload)
         key, value_hash = (cid, kind), sha256(canonical_bytes(payload))
         if changed and self.dedup.get(key) == value_hash:
@@ -198,8 +268,8 @@ def _carry_metadata(args, projection, reader):
         raise ValueError("carry_bundle_cap")
     for path in paths:
         reader.check()
-        bundle = load_bundle(path, limits=Limits(min(MAX_BYTES, args.max_input_bytes-reader.bytes_read),
-                                                 MAX_RECORDS, args.max_seconds))
+        bundle = load_bundle(path, limits=Limits(min(HOST_MAX_BYTES, args.max_input_bytes-reader.bytes_read),
+                                                 HOST_MAX_RECORDS, args.max_seconds))
         reader.bytes_read += bundle.input_bytes
         if bundle.day >= projection.day:
             raise ValueError("carry_requires_earlier_closed_day")
@@ -242,9 +312,9 @@ def export(args, *, now=None, reader=None):
     now = now or datetime.now(timezone.utc)
     if day >= now.date():
         raise ValueError("closed_utc_day_required")
-    if not 0 < args.max_seconds <= 300 or not 0 < args.max_input_bytes <= 1024**3:
+    if not 0 < args.max_seconds <= HOST_MAX_SECONDS or not 0 < args.max_input_bytes <= MAX_INPUT_BYTES:
         raise ValueError("invalid_input_limit")
-    if not 0 < args.max_output_bytes <= MAX_BYTES or not 0 < args.max_records <= MAX_RECORDS:
+    if not 0 < args.max_output_bytes <= HOST_MAX_BYTES or not 0 < args.max_records <= HOST_MAX_RECORDS:
         raise ValueError("invalid_output_limit")
     root, output = neutral_path(args.data_root), neutral_path(args.out)
     if output == root or output.is_relative_to(root) or root.is_relative_to(output):
@@ -262,7 +332,7 @@ def export(args, *, now=None, reader=None):
         if output == release_root or output.is_relative_to(release_root) or release_root.is_relative_to(output):
             raise ValueError("output_release_overlap")
     sources = ReleaseSources(reader, args.date, args.markets, release_root)
-    projection = Projection(day, args.max_output_bytes, args.max_records, reader.check)
+    projection = Projection(day, args.max_output_bytes, args.max_records, reader.check, getattr(args, "kinds", None))
     _carry_metadata(args, projection, reader)
     support_written, segments = set(), sealed_segments(reader, args.date)
     raw_support = {}
@@ -380,7 +450,7 @@ def export(args, *, now=None, reader=None):
             os.fsync(handle.fileno())
     # Output-only validation, still within the global deadline; never mutate source.
     reader.check()
-    load_bundle(output)
+    load_bundle(output, limits=OUTPUT_LIMITS)
     reader.check()
     return summary
 

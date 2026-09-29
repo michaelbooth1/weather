@@ -1,11 +1,13 @@
 # Register only after production adoption/review. WhatIf validates pins without Scheduler IO.
+# Pins: the runner's SHA-256 and the exporter module-closure hash printed by
+# `python -B -m weather.market.maker_plugin.replay_export module-hash` in this checkout.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [Parameter(Mandatory = $true)][string]$DataRoot,
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedModuleSha256,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedRunnerSha256,
     [ValidateSet('00:35')][string]$At = '00:35'
 )
@@ -41,11 +43,7 @@ $runner = Join-Path $RepoRoot 'scripts\ops\replay_bundle_export_nightly.ps1'
 if ((Get-FileHash -LiteralPath $runner -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedRunnerSha256) {
     throw 'nightly runner hash mismatch'
 }
-$tip = [string](git -C $RepoRoot rev-parse HEAD)
-if ($LASTEXITCODE -ne 0 -or $tip.Trim() -cne $ExpectedSourceTip) { throw 'source tip mismatch' }
-$dirty = @(git -C $RepoRoot status --porcelain --untracked-files=normal -- src scripts/ops)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'export source must be clean' }
-if (-not $PSCmdlet.ShouldProcess($taskName, "Register daily $At export; pin $ExpectedSourceTip")) { return }
+if (-not $PSCmdlet.ShouldProcess($taskName, "Register daily $At export; pin modules $ExpectedModuleSha256")) { return }
 if ((Get-TimeZone).Id -ne 'Eastern Standard Time') { throw 'Scheduler must use America/Toronto local time' }
 . (Join-Path $RepoRoot 'scripts\ops\workload_admission.ps1')
 $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
@@ -56,13 +54,12 @@ if ((Get-WeatherExecutionHostId) -cne [string]$assignment.dedicated_capture_exec
 $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $runner,
     '-RepoRoot', $RepoRoot, '-DataRoot', $DataRoot, '-ReleaseRoot', $ReleaseRoot, '-OutputRoot', $OutputRoot,
-    '-ExpectedSourceTip', $ExpectedSourceTip, '-ExpectedSelfSha256', $ExpectedRunnerSha256,
-    '-ExcludeUtc', '05:00-08:00')
+    '-ExpectedModuleSha256', $ExpectedModuleSha256, '-ExpectedSelfSha256', $ExpectedRunnerSha256)
 $arguments = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $RepoRoot
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Hidden -WakeToRun `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 7) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 50) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description 'Pinned sealed replay export; no catch-up, no capture mutation.' -Force | Out-Null
@@ -78,11 +75,11 @@ if ($task.TaskPath -ne '\' -or $task.State -eq 'Disabled' -or
     $triggers[0].DaysInterval -ne 1 -or -not $triggers[0].Enabled -or
     ([datetime]$triggers[0].StartBoundary).ToString('HH:mm') -ne $At -or
     -not [string]::IsNullOrWhiteSpace([string]$triggers[0].Repetition.Interval) -or
-    $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne 'PT7M' -or
+    $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne 'PT50M' -or
     $task.Settings.MultipleInstances -ne 'IgnoreNew' -or -not $task.Settings.Hidden -or
     -not $task.Settings.WakeToRun -or $task.Settings.DisallowStartIfOnBatteries -or
     $task.Settings.StopIfGoingOnBatteries -or $task.Principal.UserId -ine $env:USERNAME -or
     $task.Principal.LogonType -ne 'S4U' -or $task.Principal.RunLevel -ne 'Limited') {
     throw 'registration readback differs from pinned nightly contract'
 }
-Write-Output "Registered $taskName at $At; rerun registrar after every source-tip adoption."
+Write-Output "Registered $taskName at $At; rerun registrar after any exporter module change."

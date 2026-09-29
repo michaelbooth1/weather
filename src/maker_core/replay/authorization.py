@@ -16,6 +16,12 @@ from maker_core.replay.approved_registrations import APPROVED_REGISTRATIONS
 POLICIES = ("informed-v0", "no_quote", "blind_re1", "clock_only")
 DECISION_FIELDS = {"authorization_id", "owner", "protocol_sha256", "addendum_sha256",
                    "signed_at", "scoring_date", "expires_at"}
+# An ID listed here must bind exactly these clarification hashes; any other ID keeps
+# the original optional single clarification. Clarification 2 names v2.
+CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarification_2_sha256")}
+# Clarification 2: a look prevented on its scoring date by a non-consuming operational
+# refusal may run later, up to this Toronto date, with nothing else changed.
+LATE_LOOK_UNTIL = {"maker-replay-2026-10-15-v2": date(2026, 10, 31)}
 LOG_HEADER = "| Date | Decision | Scope / expiry | Source | Supersedes |"
 
 
@@ -46,16 +52,31 @@ def _log_lines(raw):
     return lines
 
 
+def _clarification_fields(attestation):
+    required = CLARIFIED_IDS.get(attestation.get("authorization_id"))
+    if required is not None:
+        return set(required)
+    return {"clarification_sha256"} & set(attestation)
+
+
+def scoring_date_allowed(attestation, today, late_look_permitted=False):
+    """Scoring date itself, or (listed IDs only) a later date after a recorded refusal."""
+    scoring_date = date.fromisoformat(attestation["scoring_date"])
+    until = LATE_LOOK_UNTIL.get(attestation["authorization_id"])
+    return today == scoring_date or bool(late_look_permitted and until and scoring_date < today <= until)
+
+
 def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now,
-                     clarification=None, *, require_scoring_date=True):
+                     clarification=None, *, require_scoring_date=True, clarification_2=None,
+                     late_look_permitted=False):
     attestation = doc.get("owner_decision")
-    if (not isinstance(attestation, dict) or set(attestation) not in (
-            DECISION_FIELDS, DECISION_FIELDS | {"clarification_sha256"})
+    if (not isinstance(attestation, dict) or not isinstance(attestation.get("authorization_id"), str)
+            or set(attestation) != DECISION_FIELDS | _clarification_fields(attestation)
             or attestation.get("owner") != doc["owner"]
-            or not isinstance(attestation.get("authorization_id"), str)
             or re.fullmatch(r"[A-Za-z0-9_-]{1,80}", attestation["authorization_id"]) is None):
         raise BundleError("invalid_owner_decision")
-    for field in ("protocol_sha256", "addendum_sha256", *(["clarification_sha256"] if "clarification_sha256" in attestation else [])):
+    clarifications = sorted(_clarification_fields(attestation))
+    for field in ("protocol_sha256", "addendum_sha256", *clarifications):
         if not isinstance(attestation[field], str) or re.fullmatch(r"[0-9a-f]{64}", attestation[field]) is None:
             raise BundleError("invalid_frozen_document_hash")
     signed, expires = timestamp(attestation["signed_at"]), timestamp(attestation["expires_at"])
@@ -64,8 +85,8 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
     except (ValueError, TypeError) as exc:
         raise BundleError("invalid_scoring_date") from exc
     if (scoring_date.isoformat() != attestation["scoring_date"] or not signed <= now < expires
-            or signed >= expires or (require_scoring_date and
-                now.astimezone(ZoneInfo("America/Toronto")).date() != scoring_date)):
+            or signed >= expires or (require_scoring_date and not scoring_date_allowed(
+                attestation, now.astimezone(ZoneInfo("America/Toronto")).date(), late_look_permitted))):
         raise BundleError("owner_decision_time_window")
     if doc.get("signed_at") != attestation["signed_at"]:
         raise BundleError("owner_decision_signed_at_mismatch")
@@ -98,19 +119,21 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
             or fields[2] != "offline replay only" or fields[4] != "—" or source != attestation):
         raise BundleError("owner_decision_mismatch_or_revoked")
     documents = [(frozen_protocol, "protocol_sha256"), (execution_addendum, "addendum_sha256")]
-    if "clarification_sha256" in attestation:
-        if not clarification:
-            raise BundleError("clarification_path_required")
-        documents.append((clarification, "clarification_sha256"))
-    elif clarification:
-        raise BundleError("clarification_not_attested")
+    for path, field, name in ((clarification, "clarification_sha256", "clarification"),
+                              (clarification_2, "clarification_2_sha256", "clarification_2")):
+        if field in clarifications:
+            if not path:
+                raise BundleError(name + "_path_required")
+            documents.append((path, field))
+        elif path:
+            raise BundleError(name + "_not_attested")
     for path, field in documents:
         if sha256(reader.read(path, 65536)) != attestation[field]:
             raise BundleError("frozen_document_hash_mismatch:" + field)
 
 
 def read_authorization(path, expected_hash, *, decision_log=None, frozen_protocol=None, execution_addendum=None,
-                       clarification=None):
+                       clarification=None, clarification_2=None, late_look=lambda doc: False):
     # Fail before any input IO if the requested signature/hash is not enrolled.
     if not path or expected_hash not in APPROVED_REGISTRATIONS:
         raise BundleError("owner_signed_pre_registration_hash_not_approved")
@@ -124,7 +147,8 @@ def read_authorization(path, expected_hash, *, decision_log=None, frozen_protoco
             or doc.get("clusters") != ["date", "date_x_market"]
             or doc.get("policies") != list(POLICIES)):
         raise BundleError("invalid_signed_pre_registration")
-    _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, _utc_now(), clarification)
+    _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, _utc_now(), clarification,
+                     clarification_2=clarification_2, late_look_permitted=late_look(doc))
     return doc
 
 

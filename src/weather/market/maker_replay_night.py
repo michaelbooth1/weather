@@ -1,7 +1,11 @@
-"""Create-only, fixture-tested nightly export of sealed 88a capture days.
+"""Create-only, fixture-tested exports of sealed 88a capture days.
 
-No collectors, credentials, scoring or source writes. A day is sealed only by
-its terminal SEALED ledger entry; partial directories are retained on refusal.
+``night`` writes one all-city panel bundle per closed UTC date; ``calibration``
+writes the descriptor/coverage/trade-only bundle the frozen hazard method reads,
+for calibration dates only. Bundles carry no active intervals: quote-panel
+exclusions belong to the execution manifest (Clarification 2). No collectors,
+credentials, scoring or source writes. A day is sealed only by its terminal SEALED
+ledger entry; partial directories are retained on refusal.
 """
 from __future__ import annotations
 
@@ -10,47 +14,47 @@ from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
-import re
 import shutil
+import sys
+import time
 from types import SimpleNamespace
 
 from maker_core.evidence.journal import canonical_bytes
-from maker_core.replay.bundle import MAX_BYTES, MAX_RECORDS, load_bundle, regular_path, sha256
+from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, load_bundle, regular_path, sha256
+from maker_core.replay.calibration import CALIBRATION_DATES
+from maker_core.replay.ceilings import process_memory
 from weather.market.maker_evidence_store import WriterLock
 from weather.market.maker_plugin.inputs import event_identity, timestamp
 from weather.market.maker_plugin_capture import Segment, StopRun, encoded, sealed_segments
-from weather.market.maker_replay_bundle import ExportReader, export
+from weather.market.maker_replay_bundle import (CALIBRATION_KINDS, MAX_INPUT_BYTES, OUTPUT_LIMITS, ExportReader,
+                                                export)
+from weather.paths import SRC_ROOT
 
 MAX_RECEIPT_BYTES = 8 * 1024**2
 MAX_LEDGER_BYTES = 64 * 1024**2
+DEFAULT_OUTPUT_BYTES = 2 * 1024**3
+DEFAULT_INPUT_BYTES = 4 * 1024**3
+MAX_INVENTORY_EVENTS = 100_000
+KINDS = dict(panel=dict(ledger="panel-ledger.jsonl", kinds=None),
+             calibration=dict(ledger="calibration-ledger.jsonl", kinds=CALIBRATION_KINDS))
 
 
-def active_intervals(day, exclusions):
-    """Minute-aligned half-open UTC intervals; exclusions are prospective inputs."""
-    start = datetime.combine(day, datetime.min.time(), timezone.utc)
-    spans = []
-    for value in exclusions:
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d-(?:(?:[01]\d|2[0-3]):[0-5]\d|24:00)", value):
-            raise ValueError("invalid_exclude_utc")
-        left, right = (sum(int(v) * m for v, m in zip(t.split(":"), (60, 1))) for t in value.split("-"))
-        if left >= right:
-            raise ValueError("exclude_utc_must_not_wrap_or_be_empty")
-        spans.append((left, right))
-    spans.sort()
-    cursor, result = 0, []
-    for left, right in spans:
-        if left < cursor:
-            raise ValueError("overlapping_exclude_utc")
-        if cursor < left:
-            result.append((start + timedelta(minutes=cursor), start + timedelta(minutes=left)))
-        cursor = right
-    if cursor < 1440:
-        result.append((start + timedelta(minutes=cursor), start + timedelta(days=1)))
-    return result
+def module_closure():
+    """Every repository source module this process has imported, by content hash."""
+    root = SRC_ROOT.resolve()
+    closure = {}
+    for module in list(sys.modules.values()):
+        name = getattr(module, "__file__", None)
+        if not name or not name.endswith(".py"):
+            continue
+        path = Path(name).resolve()
+        if path.is_relative_to(root):
+            closure[path.relative_to(root).as_posix()] = sha256(path.read_bytes())
+    return dict(sorted(closure.items()))
 
 
-def interval_rows(intervals):
-    return [dict(active_from=a.isoformat(), active_until=b.isoformat()) for a, b in intervals]
+def module_sha256(closure):
+    return sha256(canonical_bytes(closure))
 
 
 def _write(path, value):
@@ -118,69 +122,61 @@ def _inventory(reader, day):
                 elif name != "stream_lifecycle.jsonl" or value.get("state") != "connected":
                     gaps.append(dict(identity, reason=row["kind"].upper(),
                                      details={k: value[k] for k in ("channel", "state", "error_type", "band") if k in value}))
-                if len(gaps) + len(restarts) > MAX_RECORDS:
+                if len(gaps) + len(restarts) > MAX_INVENTORY_EVENTS:
                     raise StopRun("inventory_event_cap")
     reader.recheck()
     return sorted(cities), restarts, gaps, seals
 
 
-def _coverage(bundle, intervals):
-    """Book gaps within declared activity, without treating maintenance as zero."""
+def _coverage(bundle):
+    """Book gaps over each condition's whole active UTC day; maintenance is the manifest's."""
     minutes = {c.condition_id: set() for c in bundle.conditions}
     for row in bundle.records:
         if row.kind == "book":
             minutes[row.condition_id].add(row.captured_at.replace(second=0, microsecond=0))
     gaps = []
     for c in bundle.conditions:
-        for left, right in intervals:
-            cursor = max(left, c.active_from)
-            right = min(right, c.active_until)
-            for at in sorted(t for t in minutes[c.condition_id] if cursor <= t < right):
-                if cursor < at:
-                    gaps.append(dict(condition_id=c.condition_id, reason="MISSING_BOOK_CAPTURE",
-                                     **{"from": cursor.isoformat(), "until": at.isoformat()}))
-                cursor = at + timedelta(minutes=1)
-            if cursor < right:
+        cursor = c.active_from
+        for at in sorted(t for t in minutes[c.condition_id] if c.active_from <= t < c.active_until):
+            if cursor < at:
                 gaps.append(dict(condition_id=c.condition_id, reason="MISSING_BOOK_CAPTURE",
-                                 **{"from": cursor.isoformat(), "until": right.isoformat()}))
+                                 **{"from": cursor.isoformat(), "until": at.isoformat()}))
+            cursor = at + timedelta(minutes=1)
+        if cursor < c.active_until:
+            gaps.append(dict(condition_id=c.condition_id, reason="MISSING_BOOK_CAPTURE",
+                             **{"from": cursor.isoformat(), "until": c.active_until.isoformat()}))
     return gaps
 
 
-def _finalize_city(folder, intervals, exclusions, cap):
-    # Validate the 110l envelope before adding the 110r interval extension.
-    # The base reader rejects that extension, so it cannot silently score the
-    # maintenance window. 110r owns reader/engine support (not this mission).
-    bundle = load_bundle(folder)
-    gaps = _coverage(bundle, intervals)
-    if exclusions:
-        manifest = json.loads((folder / "bundle.json").read_bytes())
-        for condition in manifest["conditions"]:
-            left, right = timestamp(condition["active_from"]), timestamp(condition["active_until"])
-            condition["active_intervals"] = interval_rows(
-                [(max(a, left), min(b, right)) for a, b in intervals if max(a, left) < min(b, right)])
-        temporary = folder / "bundle.pending.json"
-        _write(temporary, manifest)
-        # This is still an unsealed pending output, not source or published data.
-        os.replace(temporary, folder / "bundle.json")
+def _finalize(folder, cap, kind):
+    bundle = load_bundle(folder, limits=OUTPUT_LIMITS)
     files = {}
     for path in sorted(folder.iterdir()):
         raw = path.read_bytes()
         files[path.name] = dict(bytes=len(raw), sha256=sha256(raw))
     if sum(v["bytes"] for v in files.values()) > cap:
         raise StopRun("bundle_output_cap")
-    return dict(files=files, bytes=sum(v["bytes"] for v in files.values()), gaps=gaps)
+    return dict(files=files, bytes=sum(v["bytes"] for v in files.values()), records=len(bundle.records),
+                conditions=len(bundle.conditions), gaps=_coverage(bundle) if kind == "panel" else [],
+                captured_band_cities=sorted({c.market_id for c in bundle.conditions}))
 
 
-def night(args, *, now=None):
+def export_day(args, kind, *, now=None, clock=time.monotonic):
+    started = clock()
     now = now or datetime.now(timezone.utc)
     day = date.fromisoformat(args.day)
     if day.isoformat() != args.day or day >= now.astimezone(timezone.utc).date():
         raise ValueError("closed_canonical_utc_day_required")
-    exclusions = sorted(args.exclude_utc)
-    intervals = active_intervals(day, exclusions)
-    if not 0 < args.max_output_bytes <= MAX_BYTES or not 0 < args.max_input_bytes <= 1024**3:
+    if kind == "calibration" and day not in CALIBRATION_DATES:
+        raise ValueError("calibration_export_restricted_to_calibration_dates")
+    closure = module_closure()
+    modules = module_sha256(closure)
+    expected = getattr(args, "expected_module_sha256", None)
+    if expected is not None and expected != modules:
+        raise ValueError("exporter_module_hash_mismatch")
+    if not 0 < args.max_output_bytes <= HOST_MAX_BYTES or not 0 < args.max_input_bytes <= MAX_INPUT_BYTES:
         raise ValueError("invalid_byte_limit")
-    if not 0 < args.max_seconds <= 300:
+    if not 0 < args.max_seconds <= HOST_MAX_SECONDS:
         raise ValueError("invalid_time_limit")
     root, out = regular_path(args.data_root), regular_path(args.out)
     release_root = getattr(args, "release_root", None)
@@ -194,7 +190,7 @@ def night(args, *, now=None):
         raise ValueError("existing_input_and_output_parent_required")
     out.mkdir(exist_ok=True)
     regular_path(out / ".writer.lock")
-    ledger = regular_path(out / "panel-ledger.jsonl")
+    ledger = regular_path(out / KINDS[kind]["ledger"])
     with WriterLock(out):
         day_out = regular_path(out / args.day)
         if args.day in _ledger_days(ledger) or day_out.exists():
@@ -202,12 +198,12 @@ def night(args, *, now=None):
         before = shutil.disk_usage(out).free
         day_out.mkdir()
         pending = day_out / "pending"
-        pending.mkdir()
-        receipt = dict(day=args.day, status="REFUSED", cities=[], bundles={}, gaps=[], restart_events=[],
-                       exclusions=exclusions, active_intervals=interval_rows(intervals), free_before_bytes=before,
-                       reader_compatibility="REQUIRES_110R_ACTIVE_INTERVALS" if exclusions else "110L",
+        receipt = dict(day=args.day, kind=kind, status="REFUSED", cities=[], bundle={}, gaps=[], restart_events=[],
+                       module_sha256=modules, module_files=len(closure), free_before_bytes=before,
+                       active_intervals="MANIFEST_ONLY",
                        restart_completeness="UNKNOWN: only sealed run summaries are retained; crashes may have none")
         failure = None
+        reader = None
         try:
             reader = ExportReader(root, args.max_seconds, args.max_input_bytes)
             cities, restarts, gaps, seals = _inventory(reader, args.day)
@@ -218,38 +214,44 @@ def night(args, *, now=None):
             if reader.coverage["segments.unsealed_skipped"]:
                 # Cannot silently omit a city that exists only in an open segment.
                 raise ValueError("closed_day_contains_unsealed_segments")
-            # The cap covers discovery and each city's complete 110l input pass.
-            # Separate market outputs never truncate an over-cap city/day.
-            for city in cities:
-                reader.check()
-                summary = export(SimpleNamespace(date=args.day, markets=[city], data_root=root, out=pending / city,
-                                 max_seconds=args.max_seconds, max_input_bytes=args.max_input_bytes,
-                                 max_output_bytes=args.max_output_bytes, max_records=MAX_RECORDS, carry_bundle=[],
-                                 release_root=release_root),
-                                 now=now, reader=reader)
-                receipt["bundles"][city] = _finalize_city(pending / city, intervals, exclusions, args.max_output_bytes)
-                receipt["bundles"][city]["exclusions"] = summary["support_errors"]
+            # One all-city bundle per UTC date: pack_io.load_days admits one directory per day.
+            summary = export(SimpleNamespace(date=args.day, markets=cities, data_root=root, out=pending,
+                             max_seconds=args.max_seconds, max_input_bytes=args.max_input_bytes,
+                             max_output_bytes=args.max_output_bytes, max_records=HOST_MAX_RECORDS, carry_bundle=[],
+                             release_root=release_root, kinds=KINDS[kind]["kinds"]),
+                             now=now, reader=reader)
+            receipt["bundle"] = _finalize(pending, args.max_output_bytes, kind)
+            receipt["bundle"]["support_errors"] = summary["support_errors"]
+            receipt["bundle"]["counts"] = summary["counts"]
             final_seals = {folder.name: sha256(encoded(manifest))
                            for _, folder, manifest in sealed_segments(reader, args.day)}
             if final_seals != seals or reader.coverage["segments.unsealed_skipped"]:
                 raise ValueError("segment_inventory_changed")
             reader.recheck()
             reader.check()
+            final = module_closure()
+            if any(final.get(name) != value for name, value in closure.items()):
+                raise ValueError("exporter_module_changed_during_export")
+            receipt["modules_loaded_during_export"] = sorted(set(final) - set(closure))
             receipt["input_bytes"] = reader.bytes_read
             receipt["input_hashes"] = dict(sorted(reader.hashes.items()))
-            # Check receipt bound before publishing any final bundle directory.
-            if len(canonical_bytes(receipt)) > MAX_RECEIPT_BYTES - 4096:
+            # Check receipt bound before publishing the final bundle directory.
+            if len(canonical_bytes(receipt)) > MAX_RECEIPT_BYTES - 65536:
                 raise StopRun("receipt_byte_cap")
-            pending.rename(day_out / "bundles")
+            pending.rename(day_out / "bundle")
             receipt["status"] = "SEALED"
         except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun) as exc:
             failure = exc
             receipt["reason"] = f"{type(exc).__name__}: {str(exc)[:160]}"
-            if len(canonical_bytes(receipt)) > MAX_RECEIPT_BYTES - 4096:
-                for key in ("bundles", "gaps", "restart_events", "input_hashes", "sealed_segments"):
-                    receipt.pop(key, None)
-                receipt["details_omitted"] = "receipt_byte_cap; retain pending outputs for inspection"
-        receipt["free_after_bytes"] = shutil.disk_usage(out).free
+        if reader is not None:
+            receipt["reader_coverage"] = dict(sorted(reader.coverage.items()))
+        receipt.update(runtime_seconds=clock()-started, peak_memory_bytes=process_memory()[1],
+                       free_after_bytes=shutil.disk_usage(out).free)
+        if len(canonical_bytes(receipt)) > MAX_RECEIPT_BYTES - 4096:
+            for key in ("gaps", "restart_events", "input_hashes", "sealed_segments", "reader_coverage"):
+                receipt.pop(key, None)
+            receipt.get("bundle", {}).pop("gaps", None)
+            receipt["details_omitted"] = "receipt_byte_cap; retain outputs for inspection"
         receipt_hash = _write(day_out / "receipt.json", receipt)
         entry = dict(receipt, receipt_sha256=receipt_hash)
         raw = canonical_bytes(entry)
@@ -264,22 +266,37 @@ def night(args, *, now=None):
         return receipt
 
 
+def night(args, *, now=None):
+    return export_day(args, "panel", now=now)
+
+
+def calibration(args, *, now=None):
+    return export_day(args, "calibration", now=now)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    run = commands.add_parser("night")
-    run.add_argument("--day", required=True)
-    run.add_argument("--data-root", type=Path, required=True)
-    run.add_argument("--out", type=Path, required=True)
-    run.add_argument("--release-root", type=Path, help="explicit immutable releases for calibration-method projection")
-    run.add_argument("--exclude-utc", action="append", default=[])
-    run.add_argument("--max-input-bytes", type=int, default=1024**3)
-    run.add_argument("--max-output-bytes", type=int, default=MAX_BYTES)
-    run.add_argument("--max-seconds", type=float, default=300)
+    commands.add_parser("module-hash", help="print the exporter's repository module-closure hash; reads no data")
+    for name, text in (("night", "one all-city panel bundle for a closed UTC date"),
+                       ("calibration", "descriptor/coverage/trade bundle for a calibration date")):
+        run = commands.add_parser(name, help=text)
+        run.add_argument("--day", required=True)
+        run.add_argument("--data-root", type=Path, required=True)
+        run.add_argument("--out", type=Path, required=True)
+        run.add_argument("--release-root", type=Path, help="explicit immutable releases for calibration-method projection")
+        run.add_argument("--expected-module-sha256", help="refuse unless the loaded exporter modules hash to this")
+        run.add_argument("--max-input-bytes", type=int, default=DEFAULT_INPUT_BYTES)
+        run.add_argument("--max-output-bytes", type=int, default=DEFAULT_OUTPUT_BYTES)
+        run.add_argument("--max-seconds", type=float, default=HOST_MAX_SECONDS)
     args = parser.parse_args(argv)
+    if args.command == "module-hash":
+        closure = module_closure()
+        print(json.dumps(dict(module_sha256=module_sha256(closure), files=len(closure)), sort_keys=True))
+        return 0
     try:
-        receipt = night(args)
+        receipt = (night if args.command == "night" else calibration)(args)
     except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun) as exc:
-        parser.exit(2, f"night refused: {type(exc).__name__}: {exc}\n")
-    print(json.dumps({k: receipt[k] for k in ("status", "day", "cities", "reader_compatibility")}, sort_keys=True))
+        parser.exit(2, f"{args.command} refused: {type(exc).__name__}: {exc}\n")
+    print(json.dumps({k: receipt[k] for k in ("status", "day", "kind", "cities", "module_sha256")}, sort_keys=True))
     return 0
