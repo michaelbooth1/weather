@@ -304,14 +304,17 @@ for every reader, including dynamic path consumers. The native regression
 proves identical SHA-256 and size through ordinary reads of a file over 64 MiB;
 the compression receipt repeats that proof for each real file.
 
-Capture-side integration is **design only**: `SnapshotStore` owns replay,
-snapshots, components, variants and explanation files; `MarketMicrostructureStore`
-owns token and book-summary files. Neither is modified. A close queue must
-prove event close, quiescent writer handles, replay/backfill coordination and
-durable enqueue before releasing a file to the same compressor. It must not
-compress synchronously inside a capture iteration, set inherited directory
-compression, or silently change the nightly fourteen-day protection. A
-separate reviewed close policy and production roll verdict precede that work.
+The token-tape lane is implemented as the attended
+[`-CompressOnClose` mode above](#token-tapes-after-close): an out-of-loop pass
+under its own close policy, not a capture-side queue. `MarketMicrostructureStore`
+is unchanged; `SnapshotStore` changes only which projection it writes on new
+days ([projection reader contract](snapshot-projection-readers.md)). Any future
+close queue for other families must still prove event close, quiescent writer
+handles, replay/backfill coordination and durable enqueue before releasing a
+file to the same compressor. It must not compress synchronously inside a
+capture iteration, set inherited directory compression, or silently change the
+nightly fourteen-day protection. `-CompressOnClose` and `-Nightly` are mutually
+exclusive wrapper modes and share the one workload lease.
 
 Reader/reference inventory for the proposed unchanged-path format is retained
 in the mission 91a report. Native lossless verification is the compatibility
