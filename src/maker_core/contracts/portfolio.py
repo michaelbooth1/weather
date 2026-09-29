@@ -43,18 +43,31 @@ def decimal_text(value):
     return format(amount(value), "f")
 
 
+def active_campaigns(config):
+    return [c for c in config["campaigns"] if c.get("enabled", True)]
+
+
 def validate_campaigns(config):
     if not isinstance(config, dict) or config.get("schema_version") != CAMPAIGNS_SCHEMA:
         raise ValueError("invalid_campaign_config")
     campaigns = config.get("campaigns")
     if not isinstance(campaigns, list) or not campaigns:
         raise ValueError("campaigns_required")
-    ids, contribution_ids = set(), set()
+    if config.get("account_id") is not None:
+        identity(config["account_id"])
+    ids, active_ids, contribution_ids = set(), set(), set()
     for campaign in campaigns:
         name = identity(campaign["id"])
         if name in ids:
             raise ValueError("duplicate_campaign")
         ids.add(name)
+        if not isinstance(campaign.get("enabled", True), bool):
+            raise ValueError("invalid_campaign_enabled")
+        if not campaign.get("enabled", True):
+            if any(k in campaign for k in ("start_utc", "contributions", "bleed_limit_pusd")):
+                raise ValueError("disabled_campaign_must_be_unfunded_placeholder")
+            continue
+        active_ids.add(name)
         start = instant(campaign["start_utc"])
         for contribution in campaign["contributions"]:
             cid = identity(contribution["id"])
@@ -65,19 +78,19 @@ def validate_campaigns(config):
         limit = campaign.get("bleed_limit_pusd")
         if limit is not None and (amount(limit) < 0 or name == "owner-discretionary"):
             raise ValueError("invalid_bleed_limit")
-    if "owner-discretionary" not in ids:
+    if "owner-discretionary" not in active_ids:
         raise ValueError("owner_discretionary_required")
     if config.get("default_campaign", "owner-discretionary") != "owner-discretionary":
         raise ValueError("default_must_be_owner_discretionary")
     seen = set()
     for rule in config.get("lot_overrides", []):
         tx = identity(rule["transaction_hash"])
-        if tx in seen or rule["campaign"] not in ids:
+        if tx in seen or rule["campaign"] not in active_ids:
             raise ValueError("invalid_lot_override")
         seen.add(tx)
     for rule in config.get("rules", []):
         selectors = set(rule) & {"condition_id", "event_slug_prefix"}
-        if len(selectors) != 1 or rule["campaign"] not in ids:
+        if len(selectors) != 1 or rule["campaign"] not in active_ids:
             raise ValueError("invalid_campaign_rule")
         identity(rule[next(iter(selectors))])
     amount(config["unattributed_cash_pusd"])
@@ -92,6 +105,11 @@ def validate_snapshot(snapshot):
         raise ValueError("invalid_snapshot_schema")
     now = instant(snapshot["as_of_utc"])
     identity(snapshot["account_id"])
+    unavailable = snapshot.get("unavailable_reasons", [])
+    if not isinstance(unavailable, list):
+        raise ValueError("invalid_unavailable_reasons")
+    for reason in unavailable:
+        identity(reason)
     for key in ("positions_complete", "history_complete"):
         if not isinstance(snapshot.get(key), bool):
             raise ValueError("snapshot_completeness_required")
