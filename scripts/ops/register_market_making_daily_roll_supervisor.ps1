@@ -13,6 +13,7 @@
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [switch]$AcknowledgeRetired,
     [string]$TaskName = "WeatherMarketMakingDailyRollSupervisor",
     [int]$EnsureEveryMinutes = 1,
     [string]$Timezone = "America/Toronto",
@@ -26,6 +27,10 @@ param(
     [double]$MaxBandNotional = 25.0,
     [double]$MaxEventNotional = 25.0
 )
+
+if (-not $AcknowledgeRetired) {
+    throw 'This task is retired. Registration requires explicit -AcknowledgeRetired and owner-ops resumption review.'
+}
 
 $wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
 if (-not (Test-Path $wrapper)) {

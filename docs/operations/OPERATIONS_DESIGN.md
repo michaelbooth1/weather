@@ -28,6 +28,21 @@ The replacement foundation is [maker core](maker-core-contracts.md). Production
 operations owns unregistering disabled paper tasks with backups in a separate
 operation; this retirement changes no scheduled task or capture worker.
 
+`config/scheduled_tasks.json` owns reviewed task lifecycle intent and registrar
+provenance. Its generated table is in [OPERATING_REFERENCE](OPERATING_REFERENCE.md);
+it is not a Scheduler snapshot. Missing host-local XML stays explicitly unverified.
+Nightly health reads the maker/taker lifecycle from this registry and emits
+`RETIRED` rows without reading old run folders or suggesting a forced restart.
+Resumption requires a reviewed lifecycle change as well as owner-started adoption.
+The six retired maker/taker, enrichment and disagreement registrars refuse the
+register path without `-AcknowledgeRetired`; the enrichment unregister path remains
+available. Acknowledgement alone does not grant live-trading authority.
+
+Stage A passes `--skip-taker-finalization-watchdog`,
+`--skip-taker-edge-permission-map`, and `--skip-taker-tail-casebook` alongside
+`--paper-maker-paused`. Their explicit SKIPPED receipts are non-critical at the
+settled-day barrier; missing or failed settlement evidence remains blocking.
+
 The operating setup has three layers:
 
 1. Windows Task Scheduler runs short-lived supervisors that keep three
@@ -106,7 +121,7 @@ Re-verify rather than trusting this list):
 | Task | Executes | Consequence |
 | :--- | :--- | :--- |
 | `WeatherBootRecovery` | `boot_recovery.ps1` in the linked worktree `weather-integration-attempt-recovery`, optionally pinned by `-ExpectedSelfSha256` (`register_boot_recovery.ps1 -ExpectedScriptSha256`) | A merged boot-recovery fix is inert until the task is re-registered. |
-| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The deployed watchdog is **newer than `master`**: `health_watchdog.ps1` on `master` has no `-ExpectedSelfSha256`, `-StatusScriptPath` or `-ExpectedStatusScriptSha256` parameter and `register_health_watchdog.ps1` cannot express the pins, so re-registering from `master` would replace the deployed watchdog with an older, unpinned one. Compare `git -C <deployed worktree> show HEAD:scripts/ops/health_watchdog.ps1` with `master` before touching this task. |
+| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. |
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
 

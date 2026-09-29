@@ -195,8 +195,8 @@ Drift compares each location's **set of distinct fee profiles** (`fee_schedule`,
 `fees_enabled`, `order_min_size`), ignoring profile counts. Tick sizes have a
 separate per-location set: adding or removing a distinct value is material,
 including a new value outside the usual `0.01` / `0.001` pair. Changing only
-the market counts at those ticks is not material. The drift report retains
-both snapshots' per-city counts in `market_tick_size_mixes` for diagnostics.
+the market counts at those ticks is not material. The complete per-condition
+tables in both snapshots retain the inputs for per-city tick-count diagnostics.
 Fee, rebate, exponent, taker-only, fees-enabled and minimum-order changes remain
 material when they change a location's distinct profiles.
 
@@ -206,6 +206,13 @@ table unchanged; a tick-mix change can change the hash without requiring a
 rescore. Existing accepted hashes and captured-run bindings need no migration
 or re-acceptance solely for this comparison change. Freshness, content-proof
 and exact-condition validation still apply to the current snapshot.
+
+The drift report is also sealed acceptance evidence: its exact key set and
+serialized no-drift payload remain unchanged. Tick-count diagnostics and the
+internal comparison projection are not additional acceptance-report fields.
+Candidate validation still requires exact snapshot identity and file hashes;
+a daily tick-mix shift does not authorize replacing already accepted or sealed
+files or weakening the live sealer's checks.
 
 Reward configuration is retained but cannot trigger a primary-P&L
 rescore while the enforced reward assumption remains zero.

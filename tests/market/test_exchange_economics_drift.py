@@ -1,11 +1,15 @@
 """Synthetic International economics snapshots; no venue or runtime inputs."""
 
 from copy import deepcopy
+import hashlib
 import json
+import os
+from pathlib import Path
 
 import pytest
 
 from weather.market import exchange_economics as economics
+from weather.market import mm_live_candidate_cli as candidate_cli
 
 
 NOW = "2026-09-27T12:00:00+00:00"
@@ -84,7 +88,11 @@ def test_tick_mix_shift_passes_with_previous_day_accepted_baseline(tmp_path):
     assert report["blockers"] == []
     assert report["accepted_snapshot_hash"] == accepted["accepted_gate"]["snapshot_hash"]
     assert report["current_snapshot_hash"] != report["accepted_snapshot_hash"]
-    assert report["market_tick_size_mixes"] == {
+    assert "market_tick_size_mixes" not in report
+    assert {
+        "accepted": economics._market_tick_size_mixes(accepted),
+        "current": economics._market_tick_size_mixes(current),
+    } == {
         "accepted": [
             {"location_id": "atlanta", "tick_sizes": [
                 {"tick_size": 0.001, "market_count": 12},
@@ -106,6 +114,49 @@ def test_tick_mix_shift_passes_with_previous_day_accepted_baseline(tmp_path):
             ]},
         ],
     }
+
+
+def test_acceptance_files_keep_legacy_bytes_and_sealer_contract(tmp_path, monkeypatch):
+    # Captured on unmodified master 965374a0 with these fixed relative paths.
+    # Preserve the writer's existing platform newline convention as well.
+    legacy_file_hashes = {
+        "accepted.json": "be17e9c704045a87f71f978decd02c94f33244aded843fe27e592bb26dd524c7",
+        "drift.json": "13166d41323c1b125dd83aa75421d9f150cbd5add84d372800fce5646708f7d3",
+    } if os.linesep == "\r\n" else {
+        "accepted.json": "9d7ad119a5a2f0d5f140829b3a11e2804c220f45d19c686070dceb25112668e7",
+        "drift.json": "c1dfa25d5f29ee410f6e85c51cbce4285bfc4e70c3784155078098a9dbacf8ff",
+    }
+    monkeypatch.chdir(tmp_path)
+    economics.write_json("current.json", _snapshot())
+    economics.accept_snapshot_baseline(
+        snapshot_path="current.json", accepted_snapshot_path="accepted.json",
+        drift_report_path="drift.json", target_date=TARGET_DATE, now=NOW,
+        max_age_hours=2, acknowledge_payout_asset_conflict=True,
+    )
+    original_bytes = {name: Path(name).read_bytes() for name in legacy_file_hashes}
+    assert {
+        name: hashlib.sha256(raw).hexdigest() for name, raw in original_bytes.items()
+    } == legacy_file_hashes
+    assert set(json.loads(original_bytes["drift.json"])) == candidate_cli.DRIFT_REPORT_KEYS
+    binding = candidate_cli.load_economics_acceptance_evidence(
+        "current.json", "accepted.json", "drift.json", TARGET_DATE, now=NOW,
+    )
+    acknowledgment = candidate_cli.economics_acceptance_acknowledgment(
+        TARGET_DATE, _snapshot()["markets"][0]["condition_id"], "2",
+        accepted_snapshot_file_sha256=legacy_file_hashes["accepted.json"],
+        drift_report_file_sha256=legacy_file_hashes["drift.json"],
+    )
+    binding.update(
+        operator_acknowledgment=acknowledgment,
+        required_operator_acknowledgment=acknowledgment,
+        operator_acknowledgment_matches_candidate=True,
+    )
+    assert candidate_cli.validate_bound_economics_acceptance_files(
+        "accepted.json", "drift.json", binding, target_date=TARGET_DATE,
+        current_snapshot_id=binding["accepted_snapshot_id"],
+        current_snapshot_sha256=binding["accepted_snapshot_sha256"],
+    ) == binding
+    assert {name: Path(name).read_bytes() for name in original_bytes} == original_bytes
 
 
 @pytest.mark.parametrize("field,value", [

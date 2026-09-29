@@ -10,6 +10,7 @@ from typing import Any
 
 from weather.io import sha256_file
 from weather.operations.storage_classes import classification_payload
+from weather.operations.wu_orphan_proofs import verify_record as verify_wu_orphan
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
@@ -155,6 +156,7 @@ def build_cleanup_preflight(
     *,
     root: str | Path | None = None,
     sha256_reader=None,
+    wu_orphan_verifier=None,
 ) -> dict[str, Any]:
     # Native reclaim supplies a same-handle, fully verified SHA-256 reader.
     # Ordinary callers continue hashing source bytes through the shared IO API.
@@ -182,14 +184,20 @@ def build_cleanup_preflight(
                 path.relative_to(root)
             except ValueError:
                 row_checks.append({"check": "path_within_root", "status": "BLOCK", "detail": "candidate path escapes root"})
+        is_wu_temp = any("wunderground" in {p.casefold() for p in candidate_path.parts}
+                        and candidate_path.name.casefold().endswith(".tmp")
+                        for candidate_path in (lexical_path, path))
+        needs_wu_proof = (is_wu_temp or candidate.get("artifact_family") == "wu_atomic_write_orphan"
+                          or "wu_orphan_proof" in candidate)
         if not path.exists():
             row_checks.append({"check": "file_exists", "status": "BLOCK", "detail": "candidate file is missing"})
         else:
             size = int(path.stat().st_size)
-            actual_sha = hash_source(path)
+            # WU verification hashes under a bounded exclusive handle below.
+            actual_sha = None if needs_wu_proof else hash_source(path)
             if candidate.get("bytes") is not None and int(candidate.get("bytes") or 0) != size:
                 row_checks.append({"check": "bytes", "status": "BLOCK", "expected": candidate.get("bytes"), "actual": size})
-            if candidate.get("sha256") and candidate.get("sha256") != actual_sha:
+            if not needs_wu_proof and candidate.get("sha256") and candidate.get("sha256") != actual_sha:
                 row_checks.append({"check": "sha256", "status": "BLOCK", "detail": "candidate checksum changed"})
         protected_shared_data_path = _shared_forecast_cas_data_path(
             lexical_path,
@@ -200,7 +208,22 @@ def build_cleanup_preflight(
             or _classification_path(rel_path.as_posix(), root)
         )
         declared_data_path = str(candidate.get("data_path") or "").strip()
-        derived_classification = classification_payload(derived_data_path)
+        wu_proof = None
+        # Recognize WU temps from lexical ancestry, even with an inner --root
+        # or a manifest that declares a different family. Never trust stored
+        # booleans: acquire current native process and exclusive-handle proofs.
+        if needs_wu_proof:
+            try:
+                if declared_data_path != derived_data_path or rel_path.as_posix() != derived_data_path:
+                    raise ValueError("WU proofs require the data root and exact data path")
+                wu_proof = (wu_orphan_verifier or verify_wu_orphan)(candidate, root)
+                if classification_payload(derived_data_path, wu_orphan_proof=wu_proof)["artifact_family"] != "wu_atomic_write_orphan":
+                    raise ValueError("current WU proof required")
+                row_checks.append({"check": "wu_orphan_current_proofs", "status": "PASS"})
+            except (OSError, ValueError, KeyError, TypeError):
+                row_checks.append({"check": "wu_orphan_current_proofs", "status": "BLOCK",
+                                   "detail": "current bound orphan proofs unavailable"})
+        derived_classification = classification_payload(derived_data_path, wu_orphan_proof=wu_proof)
         actual_shared_cas = (
             derived_classification["artifact_family"]
             == "shared_forecast_payload_cas"
@@ -208,7 +231,7 @@ def build_cleanup_preflight(
         classification = (
             derived_classification
             if actual_shared_cas
-            else classification_payload(declared_data_path or derived_data_path)
+            else classification_payload(declared_data_path or derived_data_path, wu_orphan_proof=wu_proof)
         )
         if (
             actual_shared_cas
