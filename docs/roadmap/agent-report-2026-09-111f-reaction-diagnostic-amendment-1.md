@@ -8,7 +8,7 @@ Follows the [111f report](agent-report-2026-09-111f-reaction-diagnostic.md) afte
   aggregate summary.
 
 Branch `codex/reaction-diagnostic-20260930`. Evidence: `agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json`
-(sha256 `c33447f5a2ff49912759241b548fe7d16f0442b55db0891fbf9edbabfb66b1cb`). It holds aggregates only:
+(sha256 of the committed LF blob `30e68a615649430cd3f43e3b06a2efd3440c80c6259243dc9e6182bb4e67be91`). It holds aggregates only:
 - no journal rows;
 - no condition, token, order or wallet identifiers;
 - bands relabelled `band-N`.
