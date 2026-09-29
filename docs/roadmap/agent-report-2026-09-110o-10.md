@@ -28,6 +28,8 @@ D5-5 and proposed ratchet 3 ([D5](audits/repo-health-audit-2026-09-26/dimensions
 | --- | --- | --- |
 | `src/weather/reporting/roadmap/roadmap_backlog.py` | roll-free (reporting CLI; confirm) | `DORMANT` in `STATUS_RE`; `dormant_item_missing_dated_disposition` lint; `stale_active_items()`; payload `dormant_items`, `stale_active_items`, summary counts; Markdown sections. Payload change is additive; `schema_version("roadmap_backlog")` and the schema registry are untouched. |
 | `tests/reporting/test_roadmap_backlog.py` | roll-free | Dormant parked outside active; missing date/reason is a lint error; flag at 46 vs 45 days, undated active, COMPLETE/DORMANT never flagged, reference date from sources. |
+| `src/weather/reporting/scorecards/settled_day_root_cause.py` | roll-sensitive until `roll_verdict.ps1` says otherwise (Stage-A reporting) | Found by PR CI: it maps issue codes to *active* roadmap owners. An issue owned only by DORMANT items would have fallen through to `complete_owner_unverified_date` and suggested a new roadmap item. New `dormant_owner` classification (checked after `active_owner`) and a `dormant_owner_items` field; additive. |
+| `tests/reporting/test_settled_day_root_cause.py` | roll-free | Items 157, 160, 161 now appear as dormant owners with `dormant_owner` classification; `new_roadmap_item_candidate_count` stays 0. |
 | 27 `docs/roadmap/items/item-*.md` headings, `docs/roadmap/ROADMAP.md` rows | roll-free | Dormant status text (BOM and line endings preserved). |
 | `docs/roadmap/active-backlog.md` | roll-free | Regenerated. |
 | `docs/roadmap/AGENTS.md` | roll-free | Item format documents `DORMANT` and the flag. |
