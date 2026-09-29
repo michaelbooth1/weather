@@ -14,7 +14,6 @@ from weather.market.mm_exchange import (  # noqa: E402
     credential_diagnostics,
     lifecycle_events_from_user_events,
 )
-from weather.market.market_making_run_support import load_open_lifecycle_orders  # noqa: E402
 from weather.market.mm_official_adapter import (  # noqa: E402
     OfficialPolymarketGlobalAdapter,
     PUSD_COLLATERAL_PROXY_ADDRESS,
@@ -25,9 +24,68 @@ from weather.market.mm_official_adapter import (  # noqa: E402
     require_official_clob_version,
 )
 from weather.market.mm_exchange_reports import confirmed_trade_set_sha256  # noqa: E402
+from weather.io import read_jsonl  # noqa: E402
+from weather.market.value_helpers import maybe_float  # noqa: E402
 
 
 NOW = "2026-06-14T16:00:00+00:00"
+
+
+# Lifecycle replay copied from the retired paper maker's
+# ``market_making_run_support.load_open_lifecycle_orders`` (deleted 2026-09-29)
+# so this test keeps checking the lifecycle rows mm_exchange appends.
+OPEN_LIFECYCLE_TRANSITIONS = {"paper_posted", "live_posted"}
+TERMINAL_LIFECYCLE_TRANSITIONS = {
+    "released",
+    "replaced",
+    "canceled",
+    "expired",
+    "blocked_by_preflight",
+    "rejected",
+}
+
+
+def _round_money(value):
+    return round(float(value or 0.0), 6)
+
+
+def lifecycle_fill_transition(open_order, event):
+    old_size = maybe_float(open_order.get("remaining_size")) or maybe_float(open_order.get("size")) or 0.0
+    old_risk = maybe_float(open_order.get("remaining_risk_usdc")) or maybe_float(open_order.get("open_risk_usdc")) or 0.0
+    fill_size = maybe_float(event.get("fill_size")) or maybe_float(event.get("filled_size")) or 0.0
+    if old_size <= 0 or fill_size <= 0:
+        return open_order
+    new_size = max(0.0, old_size - fill_size)
+    risk_per_share = old_risk / old_size if old_size > 0 else 0.0
+    updated = dict(open_order)
+    updated["remaining_size"] = round(new_size, 6)
+    updated["remaining_risk_usdc"] = _round_money(new_size * risk_per_share)
+    updated["last_fill_at_utc"] = event.get("generated_at_utc") or event.get("filled_at_utc")
+    return updated if new_size > 1e-9 else None
+
+
+def load_open_lifecycle_orders(path):
+    state = {}
+    for event in read_jsonl(path):
+        key = event.get("lifecycle_key")
+        if not key:
+            continue
+        transition = event.get("transition") or event.get("event")
+        if transition in OPEN_LIFECYCLE_TRANSITIONS:
+            opened = dict(event)
+            opened["remaining_size"] = maybe_float(opened.get("remaining_size")) or maybe_float(opened.get("size")) or 0.0
+            opened["remaining_risk_usdc"] = maybe_float(opened.get("remaining_risk_usdc")) or maybe_float(opened.get("open_risk_usdc")) or 0.0
+            state[key] = opened
+        elif transition == "filled":
+            if key in state:
+                updated = lifecycle_fill_transition(state[key], event)
+                if updated is None:
+                    state.pop(key, None)
+                else:
+                    state[key] = updated
+        elif transition in TERMINAL_LIFECYCLE_TRANSITIONS:
+            state.pop(key, None)
+    return state
 
 
 def write_json(path, payload):

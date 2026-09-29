@@ -2227,8 +2227,9 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 The MM gate cannot decide until enough maker days count toward the live-forward gate, so that
 **yield**, not elapsed calendar time, sets the date the gate can rule. Nothing reported it, so it
-was being argued from memory. `python -m weather.reporting.market.mm_countability_postmortem`
-now reports it from the `preflight_remediation.json` every maker run already writes.
+was being argued from memory. `weather.reporting.market.mm_countability_postmortem` then
+reported it from the `preflight_remediation.json` every maker run writes (module deleted with the
+retired paper maker on 2026-09-29; it remains in git history).
 
 | Measure | Value |
 | --- | ---: |

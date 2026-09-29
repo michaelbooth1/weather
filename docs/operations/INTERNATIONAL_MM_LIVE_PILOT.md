@@ -11,6 +11,16 @@ Status: canonical runbook. This runbook records the operator's 2026-08-13
 authorization to work toward a bounded International Polymarket live test. It
 does not make a blocked gate pass and it never authorizes Polymarket US.
 
+**2026-09-29 — not executable as written.** The retired paper maker
+(`weather.market.market_making_run`, `market_making_live_pilot`, `mm_paper*`,
+`mm_policy`) was deleted in 110o part 3 (owner decision 3 of the 2026-09-26
+repo-health audit). Prerequisite 7's simultaneous paper counterfactual and every
+`market_making_run` command below produced the paper-run proof that
+`mm_live_candidate_cli` and `portable_live_candidate_preflight` still require.
+No replacement producer exists yet, so Stage 0/1 cannot be prepared from this
+runbook until a reviewed replacement (for example from `maker_core`) lands; the
+commands are kept as the historical contract. Git history holds the deleted code.
+
 ## Contents — load the section you need
 
 | Section | Read when |
@@ -153,8 +163,8 @@ collateral balance or treating an unwrapped asset as pUSD.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
-  `weather.market.market_making_live_pilot` owns this mode-specific normalization;
-  the general run orchestrator delegates to it before evaluating any gate.
+  The deleted `weather.market.market_making_live_pilot` owned this mode-specific
+  normalization for the deleted general run orchestrator (see the 2026-09-29 note above).
 - The Stage 0/1 lifecycle envelope is profile-bound. `capture_colocated_v1`
   retains a 120-second session envelope and 120-second public paper proof.
   `portable_execution_v1` uses a 240-second session envelope and a 600-second

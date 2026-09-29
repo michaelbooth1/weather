@@ -72,10 +72,6 @@ def pipeline_summary(steps):
     event_metadata = ((by_name.get("event_metadata_validation") or {}).get("result") or {})
     wu_restore = ((by_name.get("public_wu_settlement_restore") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
-    taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
-    taker_edge_permission = ((by_name.get("taker_edge_permission_map") or {}).get("result") or {})
-    taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
-    maker_paper = ((by_name.get("maker_paper_score") or {}).get("result") or {})
     truth_audit = ((by_name.get("settlement_source_audit") or {}).get("result") or {})
     floor_safety = ((by_name.get("observed_floor_safety_monitor") or {}).get("result") or {})
     trading = ((by_name.get("trading_evidence") or {}).get("result") or {})
@@ -146,49 +142,6 @@ def pipeline_summary(steps):
             "error_count": wu_restore.get("error_count"),
             "blocked_market_count": wu_restore.get("blocked_market_count"),
             "blocked_markets": wu_restore.get("blocked_markets") or [],
-        },
-        "taker_finalization_watchdog": {
-            "status": taker_finalization.get("status"),
-            "run_count": taker_finalization.get("run_count"),
-            "labelable_run_count": taker_finalization.get("labelable_run_count"),
-            "needs_finalization_count": taker_finalization.get("needs_finalization_count"),
-            "finalized_run_count": taker_finalization.get("finalized_run_count"),
-            "sla_breach_count": taker_finalization.get("sla_breach_count"),
-            "pending_finalization_count": taker_finalization.get("pending_finalization_count"),
-            "bakeoff_created_count": taker_finalization.get("bakeoff_created_count"),
-            "bakeoff_fresh_count": taker_finalization.get("bakeoff_fresh_count"),
-            "champion_decision": taker_finalization.get("champion_decision"),
-            "champion_recommended_strategy_id": taker_finalization.get("champion_recommended_strategy_id"),
-        },
-        "taker_edge_permission_map": {
-            "status": taker_edge_permission.get("status"),
-            "source_tape_count": taker_edge_permission.get("source_tape_count"),
-            "record_count": taker_edge_permission.get("record_count"),
-            "edge_allowed_count": taker_edge_permission.get("edge_allowed_count"),
-            "observe_count": taker_edge_permission.get("observe_count"),
-            "deny_count": taker_edge_permission.get("deny_count"),
-        },
-        "taker_tail_casebook": {
-            "status": taker_tail.get("status"),
-            "source_run_count": taker_tail.get("source_run_count"),
-            "tail_fill_count": taker_tail.get("tail_fill_count"),
-            "losing_tail_fill_count": taker_tail.get("losing_tail_fill_count"),
-            "low_price_tail_fill_count": taker_tail.get("low_price_tail_fill_count"),
-            "warm_tail_fill_count": taker_tail.get("warm_tail_fill_count"),
-            "no_go_candidate_count": taker_tail.get("no_go_candidate_count"),
-        },
-        "maker_paper_score": {
-            "status": maker_paper.get("status"),
-            "paper_score_freshness_status": maker_paper.get("paper_score_freshness_status"),
-            "latest_completed_active_day": maker_paper.get("latest_completed_active_day"),
-            "latest_covered_active_day": maker_paper.get("latest_covered_active_day"),
-            "completed_active_run_count": maker_paper.get("completed_active_run_count"),
-            "covered_active_run_count": maker_paper.get("covered_active_run_count"),
-            "live_forward_day_count": maker_paper.get("live_forward_day_count"),
-            "conservative_fills": maker_paper.get("conservative_fills"),
-            "net_pnl_after_fees_incentives_usdc": maker_paper.get("net_pnl_after_fees_incentives_usdc"),
-            "gate_status": maker_paper.get("gate_status"),
-            "blocks_maker_evidence_countability": maker_paper.get("blocks_maker_evidence_countability"),
         },
         "settlement_source_audit": {
             "status": truth_audit.get("status"),

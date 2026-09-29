@@ -5,8 +5,8 @@ import os
 import tracemalloc
 from pathlib import Path
 
-import weather.market.taker_profitability_artifact_verification as verification_module
-from weather.market.taker_profitability_artifact_verification import (
+import weather.reporting.market.retired_trading_evidence as verification_module
+from weather.reporting.market.retired_trading_evidence import (
     FILLED_ORDER_FIELDS,
     ORDER_OPPORTUNITY_FIELDS,
     verify_taker_profitability_artifacts,

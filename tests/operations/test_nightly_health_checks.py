@@ -43,55 +43,12 @@ def _fleet_payload(loop_row=None):
     }
 
 
-def _maker_status(identity):
-    return {
-        "exists": True,
-        "path": "maker-status.json",
-        "status": "started",
-        "pid": 1001,
-        "target_date": "2026-06-18",
-        "started_at_utc": "2026-06-18T19:30:00+00:00",
-        "runs_root": "mm-runs",
-        "runtime_identity": identity,
-    }
-
-
-def _taker_status(identity, status="already_running"):
-    return {
-        "exists": True,
-        "path": "taker-status.json",
-        "status": status,
-        "pid": 2002,
-        "target_date": "2026-06-18",
-        "started_at_utc": "2026-06-18T00:05:00+00:00",
-        "runtime_identity": identity,
-        "artifact_liveness": {
-            "status": "PASS",
-            "ok": True,
-            "latest_useful_artifact": {"age_seconds": 30.0},
-        },
-    }
-
-
-def _maker_run_summary():
-    return {
-        "exists": True,
-        "status": "ok",
-        "path": "run_summary.json",
-        "age_seconds": 30.0,
-        "useful_work_liveness": {"status": "PASS", "blocker_count": 0},
-    }
-
-
 class TestNightlyHealthChecks(unittest.TestCase):
-    def test_build_payload_passes_when_loops_and_bots_are_current(self):
+    def test_build_payload_passes_when_loops_are_current(self):
         current = _identity()
 
-        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
+        payload = nightly_health_checks.build_payload(
             fleet_payload=_fleet_payload(),
-            maker_status=_maker_status(current),
-            taker_status=_taker_status(current),
-            maker_run_summary=_maker_run_summary(),
             current_identity=current,
             now="2026-06-18T23:00:00+00:00",
             target_date="2026-06-18",
@@ -99,12 +56,11 @@ class TestNightlyHealthChecks(unittest.TestCase):
 
         self.assertEqual(payload["status"], "OK")
         self.assertEqual(payload["alerts"], [])
-        self.assertEqual(payload["summary"]["running_bot_count"], 2)
-        self.assertEqual(payload["summary"]["current_code_bot_count"], 2)
+        self.assertEqual(payload["summary"]["running_bot_count"], 0)
+        self.assertEqual(payload["summary"]["retired_bot_count"], 2)
 
-    def test_build_payload_alerts_on_stale_loop_stale_maker_and_dead_taker(self):
+    def test_build_payload_alerts_on_stale_loop(self):
         current = _identity()
-        stale = _identity(source="src-old", commit="old123")
         loop_row = {
             "name": "snapshot_capture",
             "status": "BLOCK",
@@ -117,14 +73,9 @@ class TestNightlyHealthChecks(unittest.TestCase):
             "immediate_repair_commands": ["python -m weather.collection.snapshot_tracker --restart"],
             "status_path": "loop_status.json",
         }
-        taker = _taker_status(current, status="pid_missing")
-        taker["root_cause_class"] = "pid_missing"
 
-        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
+        payload = nightly_health_checks.build_payload(
             fleet_payload=_fleet_payload(loop_row),
-            maker_status=_maker_status(stale),
-            taker_status=taker,
-            maker_run_summary=_maker_run_summary(),
             current_identity=current,
             now="2026-06-18T23:00:00+00:00",
             target_date="2026-06-18",
@@ -133,16 +84,12 @@ class TestNightlyHealthChecks(unittest.TestCase):
         categories = {alert["category"] for alert in payload["alerts"]}
         self.assertEqual(payload["status"], "CRITICAL")
         self.assertIn("loop_current_code_soak", categories)
-        self.assertIn("bot_runtime_identity", categories)
-        self.assertIn("bot_liveness", categories)
+        self.assertFalse(any(category.startswith("bot_") for category in categories))
 
     def test_write_outputs_creates_dated_and_latest_alert_reports(self):
         current = _identity()
-        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
+        payload = nightly_health_checks.build_payload(
             fleet_payload=_fleet_payload(),
-            maker_status=_maker_status(current),
-            taker_status=_taker_status(current),
-            maker_run_summary=_maker_run_summary(),
             current_identity=current,
             now="2026-06-18T23:00:00+00:00",
             target_date="2026-06-18",
@@ -164,25 +111,15 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_retired_bots_do_not_read_runs_or_suggest_restarts(monkeypatch):
-    def forbidden(*args, **kwargs):
-        raise AssertionError("retired bot evidence must not be read")
-    monkeypatch.setattr(nightly_health_checks.market_making_daily_roll, "load_status", forbidden)
-    monkeypatch.setattr(nightly_health_checks.taker_bot_daily_roll, "load_status", forbidden)
-    monkeypatch.setattr(nightly_health_checks, "latest_maker_run_summary", forbidden)
+def test_retired_bots_are_reported_without_reads_or_restarts():
     payload = nightly_health_checks.build_payload(
         fleet_payload=_fleet_payload(), current_identity=_identity(), now="2026-09-26T20:00:00Z",
     )
     assert payload["status"] == "OK"
     assert payload["summary"]["retired_bot_count"] == 2
+    assert {row["component"] for row in payload["bots"]} == {"maker_bot", "taker_bot"}
     assert all(row["status"] == "RETIRED" and row["restart_command"] is None for row in payload["bots"])
-    assert "start --force" not in nightly_health_checks.render_report(payload)
-
-
-def test_inventory_cannot_silently_suppress_alerts_with_unknown_bot_state():
-    import pytest
-    with pytest.raises(ValueError, match="inventory states"):
-        nightly_health_checks.build_payload(
-            fleet_payload=_fleet_payload(), current_identity=_identity(),
-            bot_states={"maker_bot": "unknown", "taker_bot": "retired"},
-        )
+    report = nightly_health_checks.render_report(payload)
+    assert "start --force" not in report
+    assert "daily_roll" not in report
+    assert not hasattr(nightly_health_checks, "latest_maker_run_summary")

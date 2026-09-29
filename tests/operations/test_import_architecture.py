@@ -39,22 +39,11 @@ TARGET_MODULES = [
     Path("src/weather/collection/snapshot_tracker.py"),
     Path("src/weather/market/market_config.py"),
     Path("src/weather/market/market_day_labels.py"),
-    Path("src/weather/market/market_making_preflight.py"),
-    Path("src/weather/market/market_making_run.py"),
-    Path("src/weather/market/market_making_run_constants.py"),
-    Path("src/weather/market/market_making_run_support.py"),
     Path("src/weather/market/market_microstructure.py"),
     Path("src/weather/market/market_microstructure_capture.py"),
     Path("src/weather/market/market_microstructure_features.py"),
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
-    Path("src/weather/market/mm_paper.py"),
-    Path("src/weather/market/mm_paper_aggregation.py"),
-    Path("src/weather/market/mm_paper_evidence.py"),
-    Path("src/weather/market/mm_paper_reports.py"),
-    Path("src/weather/market/mm_paper_scoring.py"),
-    Path("src/weather/market/mm_policy.py"),
-    Path("src/weather/market/mm_scoring_projection.py"),
     Path("src/weather/market/polymarket_client.py"),
     Path("src/weather/model/calibration_runtime.py"),
     Path("src/weather/model/model_climatology.py"),
@@ -69,7 +58,6 @@ TARGET_MODULES = [
     Path("src/weather/model/toronto_model.py"),
     Path("src/weather/operations/daily_refresh.py"),
     Path("src/weather/operations/long_job_guard.py"),
-    Path("src/weather/operations/market_making_daily_roll.py"),
     Path("src/weather/operations/nightly_retrain.py"),
     Path("src/weather/operations/observation_trigger.py"),
     Path("src/weather/operations/ops_monitor.py"),
@@ -217,7 +205,6 @@ POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_reporting.py"),
     Path("src/weather/calibration/pooled_feature_cli.py"),
 ]
-TAKER_BOT_SPLIT_MODULES = sorted(Path("src/weather/market").glob("taker_bot_*.py"))
 PROMOTION_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("promotion_refresh_*.py"))
 PROMOTION_REFRESH_IMPL_MODULES = sorted(
     path for path in Path("src/weather/reporting/promotion").glob("*.py")
@@ -247,13 +234,13 @@ REPORTING_SCORECARD_MODULES = [
 ]
 REPORTING_CASEBOOK_MODULES = [
     Path("src/weather/reporting/casebooks/disagreement_casebook.py"),
-    Path("src/weather/reporting/casebooks/taker_tail_casebook.py"),
     Path("src/weather/reporting/casebooks/winner_underpricing_casebook.py"),
 ]
 REPORTING_MARKET_MODULES = [
     Path("src/weather/reporting/market/market_beating_objective_scoreboard.py"),
     Path("src/weather/reporting/market/market_benchmark_residual_edge.py"),
     Path("src/weather/reporting/market/operator_control_room.py"),
+    Path("src/weather/reporting/market/retired_trading_evidence.py"),
     Path("src/weather/reporting/market/market_residual_repair_program.py"),
     Path("src/weather/reporting/market/trading_evidence.py"),
 ]
@@ -406,7 +393,6 @@ REPORTING_ROOT_SHARED_MODULES = {
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
-    + TAKER_BOT_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
     + REPORTING_SAFE_SLICE_MODULES
     + DAILY_REFRESH_SPLIT_MODULES
@@ -517,29 +503,9 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.calibration\.pooled_feature_model\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/market/market_making_preflight.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.market_making_run|\.market_making_run)\s+import\b|"
-        r"import\s+weather\.market\.market_making_run\b)",
-        re.MULTILINE,
-    ),
     Path("src/weather/market/mm_exchange_reports.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.market\.mm_exchange|\.mm_exchange)\s+import\b|"
         r"import\s+weather\.market\.mm_exchange\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_evidence.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_scoring.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_aggregation.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
         re.MULTILINE,
     ),
     Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"): re.compile(
@@ -570,14 +536,6 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
         re.MULTILINE,
     )
     for path in POOLED_FEATURE_SPLIT_MODULES
-})
-EXTRACTED_MODULE_IMPORT_RULES.update({
-    path: re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.taker_bot|\.taker_bot)\s+import\b|"
-        r"import\s+weather\.market\.taker_bot\b)",
-        re.MULTILINE,
-    )
-    for path in TAKER_BOT_SPLIT_MODULES
 })
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(

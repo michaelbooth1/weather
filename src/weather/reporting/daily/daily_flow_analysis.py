@@ -446,7 +446,9 @@ def _add_root_cause_actions(actions: list[dict[str, Any]], root_cause: dict[str,
 
 
 def _add_artifact_gap_actions(actions: list[dict[str, Any]], artifacts: dict[str, Any]) -> None:
-    required = ("daily_learning", "daily_refresh_status", "trading_evidence", "taker_finalization_watchdog", "taker_tail_casebook")
+    # The retired taker artifacts (taker_finalization_watchdog, taker_tail_casebook)
+    # are still read as archived evidence, but nothing produces them any more.
+    required = ("daily_learning", "daily_refresh_status", "trading_evidence")
     missing = [name for name in required if not (artifacts.get(name) or {}).get("exists")]
     if missing:
         actions.append(_action(
@@ -455,7 +457,7 @@ def _add_artifact_gap_actions(actions: list[dict[str, Any]], artifacts: dict[str
             "ops owner",
             "daily_flow_analysis",
             "Missing required daily analysis inputs: " + ", ".join(missing),
-            "Run python -m weather.operations.daily_refresh run and verify the taker and trading evidence artifacts are produced before daily_learning.",
+            "Run python -m weather.operations.daily_refresh run and verify the trading evidence artifacts are produced before daily_learning.",
             blocks=False,
             evidence={"missing_inputs": missing},
         ))
@@ -476,7 +478,7 @@ def _add_taker_trading_actions(
             "trading owner",
             "taker_finalization_watchdog",
             f"{finalization_summary.get('sla_breach_count')} taker finalization SLA breach(es).",
-            "python -m weather.market.taker_bot finalize --watchdog",
+            "The taker is retired (runtime code deleted 2026-09-29); treat taker_finalization_watchdog.json as archived evidence and make no taker-quality claims from it.",
             blocks=True,
             evidence=finalization_summary,
         ))

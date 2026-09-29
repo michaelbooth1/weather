@@ -9,14 +9,15 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.market import exchange_economics, mm_paper
-from weather.market.taker_evidence_starvation import (
-    BLOCKING_CLASSES as TAKER_STARVATION_BLOCKING_CLASSES,
-    classify_taker_evidence_starvation,
-)
-from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
+from weather.market import exchange_economics
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.market.retired_trading_evidence import (
+    BLOCKING_CLASSES as TAKER_STARVATION_BLOCKING_CLASSES,
+    classify_taker_evidence_starvation,
+    maker_paper_score_freshness_from_report,
+    verify_taker_profitability_artifacts,
+)
 from weather.reporting.source_gates import settlement_source_audit
 from weather.schema_registry import schema_version
 
@@ -1590,7 +1591,7 @@ def build_trading_evidence_summary(
         else {"required": False, "ok": True, "status": "SKIP", "reason": "maker paper report missing"}
     )
     mm_paper_exchange_fields = exchange_economics.exchange_economics_artifact_fields(mm_paper_exchange_gate)
-    paper_score_freshness = mm_paper.maker_paper_score_freshness_from_report(
+    paper_score_freshness = maker_paper_score_freshness_from_report(
         mm_runs_root,
         mm_paper_json,
     )

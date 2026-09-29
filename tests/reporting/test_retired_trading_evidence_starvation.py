@@ -1,6 +1,6 @@
 import unittest
 
-from weather.market.taker_evidence_starvation import classify_taker_evidence_starvation
+from weather.reporting.market.retired_trading_evidence import classify_taker_evidence_starvation
 
 
 def _clob_discovery_summary(reason_counts):

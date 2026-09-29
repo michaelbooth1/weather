@@ -1322,7 +1322,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"Taker settlement finalization has {breach_count} SLA breach(es) "
                 f"and {pending_count} pending run(s)."
             ),
-            "Run python -m weather.market.taker_bot finalize --watchdog and require fresh settled_pnl plus strategy_bakeoff artifacts before taker-quality claims.",
+            "The taker is retired (runtime code deleted 2026-09-29); treat taker_finalization_watchdog.json as archived evidence and make no taker-quality claims from it.",
             evidence=taker_finalization,
             blocker=bool(breach_count),
         ))

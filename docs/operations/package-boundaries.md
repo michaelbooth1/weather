@@ -187,7 +187,7 @@ forecast-history imports remain available as re-exports.
 Large compatibility facades should remain thin. Public module names can keep
 re-exporting stable helpers, but new shared logic should move to owner modules
 such as `weather.model.calibration_runtime`, `weather.market.mm_exchange_reports`,
-`weather.market.mm_paper_reports`, `weather.reporting.data_quality.data_layer_audit_report`,
+`weather.reporting.data_quality.data_layer_audit_report`,
 `weather.operations.supervisor`,
 `weather.calibration.pooled_feature_source_state`, or the shared utility modules
 above.
