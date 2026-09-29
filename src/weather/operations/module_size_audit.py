@@ -198,6 +198,11 @@ OWNERSHIP_NOTES = {
         "boundary": "The FeatureModelMixin feature-assembly surface: building the trained feature vector from captured rows against the feature_store column contract, plus the US guidance replay diagnostics rendered from those rows.",
         "next_split": "Newly WARN in the 2026-08-09 audit at 2,014 lines, crossed when -09-43a routed eight previously dead base features. FeatureModelMixin is ~1,850 of those lines; extract the guidance-replay diagnostics builder and renderer first, since they are already standalone module-level functions with no mixin state, then split per-source feature routing from the assembled-vector contract.",
     },
+    "src/weather/operations/closed_day_projection_tiering.py": {
+        "owner": "operations",
+        "boundary": "Closed-day projection tiering: plan, rebuild proof and apply for order_books_long CSV/gzip twins against the canonical order_books.jsonl(.gz) tape, with quiescence, writer exclusion and receipts.",
+        "next_split": "Newly WARN on 2026-09-27 at 2,004 lines after 110j part B added the gzip-twin plan-twins/prove-twins lane. Extract that twin lane (selection, streaming CSV rebuild proof, UNLINK_PENDING checkpoints) into a closed_day_projection_twins owner module that does not import the CLI facade; preserve plan/apply schemas and receipts.",
+    },
     "src/weather/collection/snapshot_store_backfill.py": {
         "owner": "collection",
         "boundary": "Snapshot sidecar/cadence backfill helpers and snapshot-store utility CLI wiring.",

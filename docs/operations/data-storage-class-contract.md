@@ -41,7 +41,22 @@ Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
 `seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
 atomic global and per-market-day status files are operator caches: they can be
 reconstructed from the append-only tapes, and each status names the physical
-files and fsynced receipts it last counted.
+files and append receipts it last counted. Counters and heartbeat timestamps
+publish at most once per ten seconds; connection, seed-error, retirement and
+stop transitions publish immediately. All existing status fields remain.
+
+Execution-tape rows keep the same canonical JSONL bytes and flush to the OS
+on append. One background flusher groups `fsync` per dirty file at one-second
+monotonic deadlines, including idle files. The durability trade-off is
+**≤ 1 s of rows at risk on a crash** under normal scheduling and successful
+storage sync. Rotation and clean close force outstanding syncs and are the
+exceptions to the cadence. A sync failure fails the next capture operation;
+it is never reported as durable success. Restart rebuilds tape counters from
+the rows actually present, including rows newer than cached status; missing
+rows cannot be reconstructed from the public stream. Torn or invalid final
+rows continue to fail closed rather than being silently discarded. Status
+may lag by ten seconds, so interrupted-connection accounting conservatively
+opens the recovery gap at the last persisted heartbeat.
 
 ## Operator Rule
 
@@ -71,6 +86,12 @@ and hourly rotation/compression mechanics; the same reviewed evidence-reclaim ga
 
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from
 raw directory size, age, or duplicated-looking filenames alone.
+
+WU atomic-temp exemptions require fresh native observations, including during
+generic cleanup preflight. The bounded, exact-file caller and its lease-held
+wrapper are documented in [the retention runbook](data-retention-policy.md#wu-atomic-temporary-file-cleanup).
+Stored proof booleans alone cannot authorize deletion; the final check and delete
+share one exclusive native handle while the final sibling remains pinned.
 
 For `canonical_evidence`, the cleanup manifest must name exact files, reason,
 operator review, and checksums. For `analysis_projection`, the manifest must
