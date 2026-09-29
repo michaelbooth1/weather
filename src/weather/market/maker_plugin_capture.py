@@ -18,6 +18,7 @@ from weather.schema_registry import schema_version
 
 MAX_FILE_BYTES = 64 * 1024**2
 MAX_ROWS = 100_000
+MAX_LINE_BYTES = 1024**2
 
 
 class StopRun(Exception):
@@ -58,12 +59,29 @@ class Reader:
         if self.clock() - self.started >= self.max_seconds:
             raise StopRun("time_cap")
 
-    def read(self, path, limit=MAX_FILE_BYTES):
+    def read(self, path, limit=None, source="other"):
+        limit = MAX_FILE_BYTES if limit is None else limit
+        chunks = []
+        size = 0
+        def keep(chunk):
+            nonlocal size
+            size += len(chunk)
+            if size > limit:
+                raise ValueError("file_byte_limit")
+            chunks.append(chunk)
+        self.scan(path, keep, source, chunk_limit=limit + 1)
+        return b"".join(chunks)
+
+    def scan(self, path, consume, source="other", chunk_limit=65536):
+        """Stream one file in bounded chunks; ``consume`` returns True to stop early.
+
+        Bytes count against the run's input cap and a per-source counter. The
+        handle is closed and the file identity rechecked before returning.
+        """
         self.check()
         path = regular_path(path, self.root)
         before = path.stat()
         opener = gzip.open if path.suffix == ".gz" else open
-        chunks, size = [], 0
         # No yielded iterator, cached handle or second open within this context.
         with opener(path, "rb") as handle:
             while True:
@@ -71,30 +89,59 @@ class Reader:
                 remaining = self.max_input_bytes - self.bytes_read
                 if remaining <= 0:
                     raise StopRun("input_byte_cap")
-                chunk = handle.read(min(65536, remaining, limit - size + 1))
+                chunk = handle.read(max(1, min(65536, remaining, chunk_limit)))
                 self.bytes_read += len(chunk)
-                size += len(chunk)
-                if size > limit:
-                    raise ValueError("file_byte_limit")
-                if not chunk:
+                self.coverage["input_bytes." + source] += len(chunk)
+                if not chunk or consume(chunk):
                     break
-                chunks.append(chunk)
         self.check()
         after = path.stat()
         if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
             raise ValueError("input_changed_during_read")
         self.coverage["files_read"] += 1
-        return b"".join(chunks)
+        self.coverage["files_read." + source] += 1
+        return after
+
+    def lines(self, path, visit, source="other", line_limit=MAX_LINE_BYTES, on_chunk=None):
+        """Stream complete lines (without terminators); ``visit`` returns True to stop.
+
+        ``on_chunk`` sees every raw byte, e.g. to hash a whole file while only
+        a few lines are retained.
+        """
+        pending = bytearray()
+        stopped = False
+        def consume(chunk):
+            nonlocal stopped
+            if on_chunk is not None:
+                on_chunk(chunk)
+            pending.extend(chunk)
+            while True:
+                end = pending.find(b"\n")
+                if end < 0:
+                    if len(pending) > line_limit:
+                        raise ValueError("line_byte_limit")
+                    return False
+                line = bytes(pending[:end]).rstrip(b"\r")
+                del pending[:end + 1]
+                if len(line) > line_limit:
+                    raise ValueError("line_byte_limit")
+                if visit(line):
+                    stopped = True
+                    return True
+        info = self.scan(path, consume, source)
+        if pending and not stopped:
+            visit(bytes(pending).rstrip(b"\r"))
+        return info
 
     def variant(self, path):
         regular_path(path, self.root)
         return path if path.is_file() else path.with_name(path.name + ".gz")
 
-    def table(self, path):
+    def table(self, path, source="other"):
         path = self.variant(path)
         if not path.is_file():
             return []
-        raw = self.read(path)
+        raw = self.read(path, source=source)
         logical = path.name.removesuffix(".gz")
         source = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))) if logical.endswith(".csv") else (
             json.loads(line) for line in raw.splitlines() if line.strip())
@@ -124,7 +171,7 @@ class Segment:
         expected = self.manifest["files"][name]
         if not 0 <= expected["bytes"] <= MAX_FILE_BYTES:
             raise ValueError("file_byte_limit")
-        raw = self.reader.read(self.reader.variant(self.folder / name), expected["bytes"])
+        raw = self.reader.read(self.reader.variant(self.folder / name), expected["bytes"], "maker_evidence")
         if len(raw) != expected["bytes"] or hashlib.sha256(raw).hexdigest() != expected["sha256"]:
             raise ValueError("sealed_file_hash_or_size_mismatch")
         rows, offset, last = {}, 0, 0
@@ -141,6 +188,7 @@ class Segment:
             raise ValueError("sealed_record_count_mismatch")
         # Bound the segment cache, including constituent book files.
         if self.cache_bytes + len(raw) > MAX_FILE_BYTES:
+            self.reader.coverage["maker_evidence.cache_clears"] += 1
             self.cache.clear()
             self.cache_bytes = 0
         self.cache[name] = rows
@@ -228,7 +276,7 @@ def sealed_segments(reader, day):
         if not manifest_path.is_file():
             reader.coverage["segments.unsealed_skipped"] += 1
             continue
-        manifest = json.loads(reader.read(manifest_path, 2 * 1024**2))
+        manifest = json.loads(reader.read(manifest_path, 2 * 1024**2, "maker_evidence"))
         if manifest.get("schema_version") != schema_version("maker_evidence"):
             raise ValueError("unsupported_seal_schema")
         sealed = timestamp(manifest["sealed_at_utc"])

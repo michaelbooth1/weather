@@ -33,6 +33,7 @@ changing inventories, metrics, versions, or operational state.
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Cross-host mission rules | `docs/operations/DELEGATION_CONTRACT.md` |
+| Standing workstation session rules (dispatch preamble) | `docs/operations/WORKSTATION_SESSION_PREAMBLE.md` |
 | Text retired from always-read files (expired exceptions, spent incident modes) | `docs/operations/history/`, each file under a `HISTORICAL — not current authority` banner |
 | Durable domain invariants | `docs/operations/AGENT_CONTEXT.md` |
 | Architecture/data flow | `docs/architecture.md` |
