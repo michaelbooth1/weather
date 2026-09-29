@@ -73,7 +73,9 @@ The module entrypoint `maker_plugin.dry_run` delegates to the diagnostic
 caller `weather.market.maker_plugin_runner`, outside the provider boundary.
 That caller composes contracts and pure quoting policy; its sibling
 `maker_plugin_capture` and `maker_plugin_sources` own bounded local reads.
-They have no collector, venue or credential dependency. This is the sole IO
+They have no collector, venue or credential dependency; shared NBP bulletins
+resolve through the storage contract's ref and identity helpers in
+`weather.collection.forecast_payload_cas`, never a hand-built path. This is the sole IO
 entrypoint under the plugin package; the four provider adapters remain pure.
 See [the dry-run contract](maker-core-contracts.md#bounded-weather-plugin-dry-run).
 
