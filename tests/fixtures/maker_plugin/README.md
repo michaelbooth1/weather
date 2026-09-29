@@ -25,6 +25,14 @@ or historical weather records are used. The factories emit these writer shapes:
 - `settlement_ledger.upsert_ledger_record`: versioned label payload with revision
   hashes, supersession links, reconciliation_status and venue winning-band label.
 
+`test_maker_plugin_111a.py` drives the production writers themselves for the
+layouts the first real-data dry run exposed: `SharedForecastPayloadCAS.put` plus
+`parse_market_invariant_attestation` for `forecast_payload_cas/sha256/<xx>/<key>.blob`
+(cross-checked against `resolve_forecast_payload_bytes`), and
+`token_rows_from_event` plus `MarketMicrostructureStore.write_token_rows` for
+`clob_tokens.jsonl`/`.csv`. Over-cap token and ledger files are simulated by
+lowering the whole-file cap in the test, not by writing 64 MiB.
+
 The v2 selector oracle is copied verbatim from `abd648c7c`, without provider
 imports. It is tested against synthetic FHR layouts for all qualified stations,
 cycle hours and T+1/T+2 targets, including timezone transitions. No dependency
@@ -35,7 +43,8 @@ public parser fixtures, distinct from these invented adapter records.
 
 These are minimal required field projections of the captured shapes, not proof
 of production coverage. 88a discovery does not capture band metadata: a bounded
-real export must supply captured band rows and both-token book rules. If absent,
-the offline universe refuses construction. T+1/T+2 metadata, complete NBP
-bulletins, T+0 stage/release joins and reconciled ledger histories still need
-real-sample validation by the production agent.
+real export must supply captured band rows (snapshot long rows, or the first
+complete CLOB token batch) and both-token book rules. If absent, the offline
+universe refuses construction. T+0 stage/release joins and reconciled ledger
+histories, and the 111a token/shared-CAS paths, still need real-sample
+validation by the production agent.

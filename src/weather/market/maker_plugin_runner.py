@@ -25,8 +25,10 @@ from weather.market.maker_plugin.inputs import body, event_identity, latest, tim
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, regular_path, sealed_segments
-from weather.market.maker_plugin_sources import Sources, reason
+from weather.market.maker_plugin_sources import COVERAGE_KEYS, Sources, point_in_time_count, reason
 from weather.schema_registry import schema_version
+
+DEFAULT_CACHE_BYTES = 512 * 1024**2
 
 
 def plain(value):
@@ -131,15 +133,60 @@ def markdown(summary):
     return "\n".join(lines)
 
 
-def reward_terms(captures, cid, now):
-    candidates = []
-    for capture in captures:
-        if capture["kind"] != "rewards" or timestamp(capture["captured_at_utc"]) > now:
-            continue
-        page = body(capture)
-        for record in page["data"]:
-            if record["condition_id"].lower() == cid:
-                candidates.append(dict(captured_at_utc=capture["captured_at_utc"], record=record))
+class CaptureIndex:
+    """One pass over a verified segment; lookups equal the former full scans.
+
+    Each lookup returns every captured row at the newest clock at or before the
+    decision time, so ``latest`` still refuses same-clock conflicts. A body that
+    cannot be decoded poisons every later lookup of its kind, as a scan would.
+    """
+    def __init__(self, captures):
+        self.discovery, self.books, self.rewards = [], {}, {}
+        self.corrupt = {"books": [], "rewards": []}
+        for capture in captures:
+            when = timestamp(capture["captured_at_utc"])
+            kind = capture["kind"]
+            if kind == "discovery":
+                self.discovery.append((when, capture))
+                continue
+            try:
+                payload = body(capture)
+                if kind == "books":
+                    rows = [(str(book["asset_id"]), book) for book in payload]
+                    for token, book in rows:
+                        self.books.setdefault(token, []).append((when, capture["captured_at_utc"], book))
+                else:
+                    rows = [(record["condition_id"].lower(), record) for record in payload["data"]]
+                    for cid, record in rows:
+                        self.rewards.setdefault(cid, []).append(
+                            (when, dict(captured_at_utc=capture["captured_at_utc"], record=record)))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                self.corrupt[kind].append(when)
+
+    def _clean(self, kind, now):
+        if any(when <= now for when in self.corrupt[kind]):
+            raise ValueError("captured_" + kind + "_malformed")
+
+    def book_rows(self, token, now):
+        self._clean("books", now)
+        rows = [(when, captured, book) for when, captured, book in self.books.get(token, ()) if when <= now]
+        newest = max((when for when, _, _ in rows), default=None)
+        return [(captured, book) for when, captured, book in rows if when == newest]
+
+    def book_envelopes(self, tokens, now):
+        grouped = {}
+        for token in tokens:
+            for captured, book in self.book_rows(token, now):
+                grouped.setdefault(captured, []).append(book)
+        return [envelope(books, timestamp(captured), "books") for captured, books in sorted(grouped.items())]
+
+    def reward_rows(self, cid, now):
+        self._clean("rewards", now)
+        return [row for when, row in self.rewards.get(cid, ()) if when <= now]
+
+
+def reward_terms(index, cid, now):
+    candidates = index.reward_rows(cid, now)
     if not candidates:
         return None
     selected = latest(candidates, now)
@@ -150,14 +197,11 @@ def reward_terms(captures, cid, now):
                        Decimal(str(row["rewards_max_spread"])), sum(rates, Decimal(0)))
 
 
-def captured_book(captures, market, now):
+def captured_book(index, market, now):
     selected = []
     for outcome in ("YES", "NO"):
-        rows = []
-        for capture in captures:
-            if capture["kind"] == "books" and timestamp(capture["captured_at_utc"]) <= now:
-                rows += [dict(captured_at_utc=capture["captured_at_utc"], book=b) for b in body(capture)
-                         if str(b["asset_id"]) == market.outcome_tokens[outcome]]
+        rows = [dict(captured_at_utc=captured, book=book)
+                for captured, book in index.book_rows(market.outcome_tokens[outcome], now)]
         selected.append(latest(rows, now))
     if any(r["book"]["market"].lower() != market.condition_id for r in selected):
         raise ValueError("captured_condition_mismatch")
@@ -166,7 +210,30 @@ def captured_book(captures, market, now):
     return Book(min(timestamp(r["captured_at_utc"]) for r in selected), *levels)
 
 
-def evaluate_event(captures, event_capture, now, sources, reader, hazard):
+def band_tokens(band):
+    tokens = band.get("clobTokenIds")
+    try:
+        tokens = json.loads(tokens) if isinstance(tokens, str) else tokens
+        return [str(token) for token in tokens]
+    except (ValueError, TypeError):
+        return []  # The universe refuses the malformed mapping itself.
+
+
+def providers(support):
+    """Built once per cached event: constructors copy their inputs defensively."""
+    if "providers" not in support:
+        universe = WeatherUniverse(band_rows=support["band_rows"])
+        support["providers"] = (
+            WeatherFairValue(universe, **{k: support[k] for k in (
+                "bulletins", "forecasts", "snapshots", "explanations", "source_rows")}),
+            WeatherInformationClock(universe, triggers=support["triggers"], bulletins=support["bulletins"]),
+            WeatherSettlement(universe, ledger_rows=support["ledger_rows"]))
+        # The providers own copies now; keep one copy per cached event, not two.
+        support.update({name: () for name, _ in COVERAGE_KEYS})
+    return support["providers"]
+
+
+def evaluate_event(index, event_capture, now, sources, reader, hazard):
     event = event_capture["event"]
     slug = event["slug"]
     spec, target = event_identity(slug)
@@ -178,28 +245,10 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
                 bad_sources.add("nbp")
         except (ValueError, KeyError, TypeError):
             bad_sources.add("nbp")  # Unknown availability cannot be guessed.
-    source_coverage = {}
-    for name, time_key in (("snapshots", "captured_at_utc"), ("source_rows", "captured_at_utc"),
-                           ("forecasts", "captured_at_utc"), ("explanations", "captured_at_utc"),
-                           ("bulletins", "fetched_at"), ("triggers", "current_captured_at_utc"),
-                           ("ledger_rows", "recorded_at_utc")):
-        matched = 0
-        for row in support[name]:
-            reader.check()
-            try:
-                identity_matches = (row.get("station_id") == spec.icao and row.get("target_date") == target.isoformat()
-                                    if name == "bulletins" else row.get("event_slug") == slug)
-                matched += bool(identity_matches and timestamp(row[time_key]) <= now)
-            except (ValueError, KeyError, TypeError):
-                pass  # Provider validation owns refusal, not a guessed match.
-        source_coverage[name] = {"loaded_rows": len(support[name]), "point_in_time_rows": matched}
-    discovery = envelope([event], timestamp(event_capture["captured_at_utc"]), "discovery")
-    books = [c for c in captures if c["kind"] == "books"]
-    universe = WeatherUniverse(discovery=[discovery], books=books, band_rows=support["snapshots"])
-    provider = WeatherFairValue(universe, **{k: support[k] for k in (
-        "bulletins", "forecasts", "snapshots", "explanations", "source_rows")})
-    clock = WeatherInformationClock(universe, triggers=support["triggers"], bulletins=support["bulletins"])
-    settlement = WeatherSettlement(universe, ledger_rows=support["ledger_rows"])
+    source_coverage = {name: {"loaded_rows": support["loaded_rows"][name],
+                              "point_in_time_rows": point_in_time_count(support["coverage_times"][name], now)}
+                       for name, _ in COVERAGE_KEYS}
+    provider, clock, settlement = providers(support)
     outcomes, probabilities = [], []
     expected = sum(bool(r.get("active")) and not r.get("closed") and r.get("enableOrderBook") is not False
                    for r in event["markets"])
@@ -213,7 +262,9 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
             # Isolate missing books for one band; siblings still retain the full
             # captured partition for fair-value mass calculation.
             single = envelope([dict(event, markets=[band])], timestamp(event_capture["captured_at_utc"]), "discovery")
-            descriptor = WeatherUniverse(discovery=[single], books=books, band_rows=support["snapshots"]).describe(cid, now)
+            books = index.book_envelopes(band_tokens(band), now)
+            descriptor = WeatherUniverse(discovery=[single], books=books,
+                                         band_rows=support["band_rows"]).describe(cid, now)
             entry["descriptor"] = plain(descriptor)
             entry["joins"]["descriptor"] = True
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
@@ -247,8 +298,8 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
         entry["settlement"] = plain(fact)
         entry["joins"]["settlement_fact"] = isinstance(fact, SettlementFact)
         try:
-            book = captured_book(captures, descriptor, now)
-            terms = reward_terms(captures, cid, now)
+            book = captured_book(index, descriptor, now)
+            terms = reward_terms(index, cid, now)
             entry["joins"].update(book=True, rewards=terms is not None)
             # Explicit hypothetical caps only. Each decision starts independently.
             portfolio = Portfolio(Decimal(100), Decimal(0), Decimal(100), Decimal(100),
@@ -262,12 +313,14 @@ def evaluate_event(captures, event_capture, now, sources, reader, hazard):
         reader.check()
         outcomes.append(entry)
     return dict(market=spec.id, event=slug, as_of_utc=now.isoformat(), minute_utc=now.isoformat()[:16],
+                lead_days=(target - now.astimezone(spec.tz).date()).days,
+                band_token_batch_utc=support["band_token_batch_utc"],
                 outcomes=outcomes, source_coverage=source_coverage, probability_mass={"sum_available": math.fsum(probabilities),
                 "available_bands": len(probabilities), "expected_bands": expected,
                 "complete": len(probabilities) == expected and expected > 0})
 
 
-def process(reader, sources, report, day, markets, hazard):
+def process(reader, sources, report, day, markets, hazard, stride=1):
     summary = report.summary
     seen = set()
     for sealed, folder, manifest in sealed_segments(reader, day):
@@ -277,6 +330,7 @@ def process(reader, sources, report, day, markets, hazard):
             if any(timestamp(c["captured_at_utc"]).date().isoformat() != day or
                    timestamp(c["captured_at_utc"]) > sealed for c in captures):
                 raise ValueError("capture_outside_sealed_date_or_clock")
+            index = CaptureIndex(captures)
         except (ValueError, KeyError, TypeError, OSError, EOFError) as exc:
             increment(summary["unavailable"], "segment:" + reason(exc))
             reader.coverage["segments.rejected"] += 1
@@ -289,14 +343,18 @@ def process(reader, sources, report, day, markets, hazard):
             if c["kind"] == "books":
                 now = timestamp(c["captured_at_utc"])
                 minutes[now.replace(second=0, microsecond=0)] = now
-        for _, now in sorted(minutes.items()):
+        events, cursor = {}, 0
+        for minute, now in sorted(minutes.items()):
             reader.check()
-            events = {}
-            for capture in captures:
-                if capture["kind"] == "discovery" and timestamp(capture["captured_at_utc"]) <= now:
-                    for event in body(capture):
-                        events.setdefault(event["slug"], []).append(
-                            dict(captured_at_utc=capture["captured_at_utc"], event=event))
+            if (minute.hour * 60 + minute.minute) % stride:
+                reader.coverage["segment_minutes.skipped_by_stride"] += 1
+                continue  # Discovery below is cumulative, so a skipped minute loses nothing.
+            while cursor < len(index.discovery) and index.discovery[cursor][0] <= now:
+                capture = index.discovery[cursor][1]
+                for event in body(capture):
+                    events.setdefault(event["slug"], []).append(
+                        dict(captured_at_utc=capture["captured_at_utc"], event=event))
+                cursor += 1
             reader.coverage["segment_minutes"] += 1
             if not events:
                 increment(summary["unavailable"], "discovery:missing_point_in_time_input")
@@ -304,9 +362,10 @@ def process(reader, sources, report, day, markets, hazard):
                 reader.check()
                 try:
                     spec, target = event_identity(slug)
-                    if spec.id not in markets or not 0 <= (target - now.astimezone(spec.tz).date()).days <= 2:
+                    lead = (target - now.astimezone(spec.tz).date()).days
+                    if spec.id not in markets or not 0 <= lead <= 2:
                         continue
-                    result = evaluate_event(captures, latest(candidates, now), now, sources, reader, hazard)
+                    result = evaluate_event(index, latest(candidates, now), now, sources, reader, hazard)
                 except (ValueError, KeyError, TypeError, OSError, EOFError) as exc:
                     increment(summary["unavailable"], "event:" + reason(exc))
                     continue
@@ -323,6 +382,8 @@ def process(reader, sources, report, day, markets, hazard):
                 for entry in result["outcomes"]:
                     for code in entry["unavailable"]:
                         increment(summary["unavailable"], code)
+                        # Bounded: reason codes are sanitized, leads are 0..2.
+                        reader.coverage[("unavailable.lead" + str(lead) + "." + code)[:120]] += 1
                     for name, success in entry["joins"].items():
                         reader.coverage["join." + name + (".matched" if success else ".missing")] += 1
                     if "decision" in entry:
@@ -340,7 +401,7 @@ def run(args, *, clock=None):
     if not root.is_dir():
         raise ValueError("data_root_missing")
     if root.is_relative_to(output) or any(output.is_relative_to(root / name)
-                                         for name in ("snapshots", "settlements", "maker_evidence")):
+                                         for name in ("snapshots", "settlements", "maker_evidence", "forecast_payload_cas")):
         raise ValueError("output_overlaps_inputs")
     if output.exists() and any(output.iterdir()):
         raise ValueError("output_must_be_new_or_empty")
@@ -350,22 +411,34 @@ def run(args, *, clock=None):
         not math.isfinite(args.hypothetical_hazard_per_minute) or args.hypothetical_hazard_per_minute < 0
     ):
         raise ValueError("invalid_hypothetical_hazard")
+    max_cache_bytes = getattr(args, "max_cache_bytes", DEFAULT_CACHE_BYTES)
+    if max_cache_bytes <= 0:
+        raise ValueError("invalid_cache_budget")
+    stride = getattr(args, "minute_stride", 1)
+    if isinstance(stride, bool) or not isinstance(stride, int) or not 1 <= stride <= 60:
+        raise ValueError("invalid_minute_stride")
     reader = Reader(root, args.max_seconds, args.max_input_bytes, **({"clock": clock} if clock else {}))
-    sources = Sources(reader)
+    sources = Sources(reader, args.date, args.markets, max_cache_bytes)
     summary = dict(schema_version=schema_version("maker_plugin_dry_run"), date=args.date, profile=informed_v0.name,
         status="COMPLETE", stop_reason=None, coverage=reader.coverage, unavailable=Counter(),
         decision_reasons=Counter(), leg_counts={"0": 0, "1": 0, "2": 0}, mass_coverage=Counter(),
         max_seconds=args.max_seconds, max_output_bytes=args.max_output_bytes, max_input_bytes=args.max_input_bytes,
+        max_cache_bytes=max_cache_bytes, minute_stride=stride,
         markets=args.markets, hypothetical_hazard_per_minute=args.hypothetical_hazard_per_minute,
         assumptions="Independent diagnostic decisions: 100-unit cash/order/band/event/wallet caps, zero inventory, "
         "no resting orders or fills, captured books treated as post-only capable. No measured hazard is retained "
         "by 88a: default None preserves MISSING_CONSERVATIVE_FILL_BOUND refusal. Any supplied hazard is hypothetical. "
         "Time limit covers cooperative processing; terminal report flush may add overhead. "
-        "Input bytes count decompressed bytes, including rereads. Per-file/decoded-segment limit 64 MiB. "
-        "One sample per segment/event/captured minute; split minutes are flagged. Future source rows are PIT-filtered.")
+        "Input bytes count decompressed bytes, including rereads, per source as coverage input_bytes.*. "
+        "Whole-file reads and decoded segments are limited to 64 MiB each; CLOB token, trigger, ledger and "
+        "shared NBP blob files are streamed once per run (1 MiB line limit). Supporting rows after the run "
+        "date, and forecast/NBP rows more than 48 hours before it, cannot be point in time and are not loaded. "
+        "Per-event inputs stay cached within max_cache_bytes; evictions and reloads are counted. "
+        "One sample per segment/event/captured minute, or per stride-th UTC minute of the day when "
+        "minute_stride > 1; split minutes are flagged. Future source rows are PIT-filtered.")
     report = Report(output, args.max_output_bytes, summary)
     try:
-        process(reader, sources, report, args.date, set(args.markets), args.hypothetical_hazard_per_minute)
+        process(reader, sources, report, args.date, set(args.markets), args.hypothetical_hazard_per_minute, stride)
     except StopRun as exc:
         summary.update(status="PARTIAL", stop_reason=str(exc))
     except (ValueError, KeyError, TypeError, AttributeError, IndexError, ArithmeticError, OSError, EOFError) as exc:
@@ -387,6 +460,10 @@ def main(argv=None):
     parser.add_argument("--max-seconds", type=float, default=2700)
     parser.add_argument("--max-output-bytes", type=int, default=200_000_000)
     parser.add_argument("--max-input-bytes", type=int, default=1024**3)
+    parser.add_argument("--max-cache-bytes", type=int, default=DEFAULT_CACHE_BYTES,
+                        help="Encoded bytes of per-event supporting rows kept for the run")
+    parser.add_argument("--minute-stride", type=int, default=1,
+                        help="Evaluate every Nth UTC minute of the day (1-60); reported in the summary")
     parser.add_argument("--hypothetical-hazard-per-minute", type=float, default=None,
                         help="Optional synthetic total band shares/minute bound; never an estimate from capture")
     args = parser.parse_args(argv)
