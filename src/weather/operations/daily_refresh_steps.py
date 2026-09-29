@@ -62,6 +62,15 @@ from weather.operations.daily_refresh_trading_steps import (
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
 )
+from weather.operations.daily_refresh_gate_report_steps import (
+    run_early_hour_positive_daily_first_gate_step,
+    run_market_benchmark_residual_edge_step,
+    run_per_location_artifact_quarantine_step,
+    run_physical_feature_family_ratchet_step,
+    run_pooled_f_retrain_location_gate_step,
+    run_served_distribution_calibration_contract_step,
+    run_weather_only_model_proof_packet_step,
+)
 from weather.operations.daily_refresh_reporting_steps import (
     DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
     DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
@@ -83,16 +92,9 @@ from weather.operations.daily_refresh_reporting_steps import (
     run_market_beating_objective_scoreboard_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
-    run_per_location_artifact_quarantine_step,
-    run_physical_feature_family_ratchet_step,
-    run_pooled_f_retrain_location_gate_step,
     run_nightly_health_checks_step,
     run_price_free_model_learning_step,
     run_progress_audit_step,
-    run_served_distribution_calibration_contract_step,
-    run_early_hour_positive_daily_first_gate_step,
-    run_weather_only_model_proof_packet_step,
-    run_market_benchmark_residual_edge_step,
     run_promotion_refresh_step,
     run_proper_scoring_reliability_scorecard_step,
     run_runtime_identity_reconciliation_step,

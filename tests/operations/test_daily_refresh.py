@@ -99,6 +99,7 @@ from weather.operations.daily_refresh_settled_day import (
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
+from weather.operations import daily_refresh_gate_report_steps as refresh_gate_report_steps
 from weather.operations import daily_refresh_reporting_steps as refresh_reporting_steps
 from weather.reporting.promotion.readers import _serving_gauntlet_summary
 
@@ -1432,11 +1433,11 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(tmp)
             commands = []
             with patch.object(
-                refresh_reporting_steps,
+                refresh_gate_report_steps,
                 "_run_heavy_step_child",
                 side_effect=lambda _args, _name, command: commands.append(command) or {"returncode": 0},
             ), patch.object(
-                refresh_reporting_steps,
+                refresh_gate_report_steps,
                 "_load_child_json",
                 return_value={"status": "BLOCK", "blockers": [{"detail": "fixture input missing"}]},
             ):
