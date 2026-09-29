@@ -75,8 +75,11 @@ Workstation (32 GB, non-capture) only: fixtures, no production data, credentials
   - T+0 `book_not_captured`; single load per run; cache overflow; minute stride; fallback parity.
 - Existing plugin suites unchanged in intent: one test adapted to pass a `CaptureIndex`; `layout()` gained an
   optional uncaptured-token set.
-- Repository audits and full suite: see the PR's CI for the final head (all jobs required green before handback).
-  Local runs used `scripts\ops\workstation_heavy.ps1`.
+- Through `scripts\ops\workstation_heavy.ps1`: **1,426 passed, 12 skipped** (the existing RE-1 replay skeletons).
+  Scope: all plugin suites (110b/110c/110e/110h/111a), 88a capture, microstructure, shared-CAS and payload-persistence
+  tests, `tests/maker_core`, and the schema-registry, import-architecture, agent-docs, path-policy and module-size
+  audits. The correspondence-index `--check` passes. The full suite ran in GitHub CI (`test`, `native-launch`), which
+  was green on `90edc16c`; the final head's CI is required green before handback.
 - **Synthetic scale benchmark (scratch only, invented 2030 data, not production):**
   - Load: 11 F markets × 2 in-window events × 11 bands, 88a-like minute captures and supporting files sized like
     the evidence.
