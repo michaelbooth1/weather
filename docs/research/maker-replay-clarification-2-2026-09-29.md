@@ -25,21 +25,29 @@ volume; and a refusal inside scoring consumes the single look. These are structu
 - **Quote-market set (rule, fixed now).** The quote markets are exactly the cities with at least one 88a-captured band
   on any calibration date (2026-09-27, 09-28, 09-29), as listed in 88a's sealed per-date inventories. `M` is the count
   of that set. No city is added or removed by judgment.
-- **Operational ceilings (rule, fixed now).** Before any panel bundle is read, run one diagnostic-only export and
-  engine pass on calibration date 2026-09-27 that records only input bytes, record count, engine events, decision and
-  span counts, peak memory and runtime — no score, fill, reward or hurdle value. Each ceiling for the scored run is
-  that measurement × 15 (fourteen quote dates plus settlement) × 4, rounded up to the next power of two, and capped by
-  the host (16 GB RAM, at most 70% commit, 45 minutes). The derived ceilings are bound in the manifest. If the host
-  cap binds below the rule's value, the run is reported as not executable on this host; the panel is not sampled or
-  truncated to fit.
-- **Look protection.** A scored run refused for an operational reason (ceiling, input, bundle or host limit) before any
-  score, fill, reward or hurdle value is computed or written does not consume the look. The attempt record states the
-  stage at which it stopped. Any refusal after the first score is computed consumes it. A score-free rehearsal of the
-  full pipeline is allowed on calibration dates only, never on panel dates.
+- **Operational ceilings (rule, fixed now).** Before any panel bundle is read, run a score-free rehearsal of the full
+  scored pipeline (every bound, policy, matched-clock trial, bootstrap and report rendering) separately on each
+  calibration date 2026-09-27, 09-28 and 09-29. It records only input bytes, records, engine events, decisions plus
+  spans, report bytes, runtime, and peak memory above the interpreter's pre-input baseline; no score, fill, reward or
+  hurdle value is kept or shown. For each of those quantities, the scored-run ceiling is the largest of the three
+  per-date values × 15 (fourteen quote dates plus settlement) × 2, rounded up to the next power of two in its natural
+  unit (bytes, records, seconds). The memory ceiling is that value plus the measured baseline, which is not
+  multiplied. Decisions plus spans get their own ceiling (`max_outputs`), separate from `max_events`. Host limits:
+  memory at most 70% of 16 GiB, runtime at most 4 hours inside the 00:30–09:00 admitted window under the shared lease,
+  and a pre-reservation refusal while system commit is at or above 70%. The derived ceilings are bound in the
+  manifest. If any derived ceiling exceeds its host limit, the exam is reported as not executable on this host; the
+  panel is never sampled or truncated to fit.
+- **Look protection.** "Operational" means any refusal after the authorization verifies and before the first score,
+  fill, reward or hurdle value is computed, from manifest build, verification or the scored run. Such a refusal does
+  not consume the look; the attempt record states the stage at which it stopped. Any refusal after the first score is
+  computed, including a report-size refusal, consumes it; the report ceiling above exists to make that unlikely. A
+  score-free rehearsal of the full pipeline is allowed on calibration dates only, never on panel dates.
 - **Enrolment timing.** Calibration may run once the three calibration bundles exist. The manifest is built, verified
   and enrolled after the 2026-10-14 settlement bundle is sealed, on 2026-10-15 America/Toronto, followed by the single
-  look. If an operational refusal that does not consume the look prevents the look on 10-15, the look may run on a
-  later date up to **2026-10-31** with the same panel, hurdles and ceilings rule; no other change is permitted.
+  look. If an operational refusal recorded on 2026-10-15 (Toronto) prevents the look, it may run on a later date up to
+  **2026-10-31** with the same panel, hurdles and ceilings rule, and the authorization row expires 2026-11-01; no other
+  change is permitted. Tooling that produces the universe inventory the manifest build needs is part of the exam
+  tooling and must exist before 10-15.
 - **Competitor-reaction diagnostic (secondary, not a hurdle).** Reported with the look: the measured decay of our
   reward share after posting, from the RE-1 session journals and matching 88a books, and the lag from
   `wu_history_high_increased` capture to the first 88a mid move on the affected band, from calibration dates only.
