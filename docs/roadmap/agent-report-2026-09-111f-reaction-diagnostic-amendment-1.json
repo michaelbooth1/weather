@@ -1,0 +1,983 @@
+{
+  "baseline_seconds": 120,
+  "basis": "RE-1 per-minute modelled share_many (84b scoring of the public book with our own size removed, size-cutoff midpoint), sampled by the attended runner about every 60 s; not a venue share and not an 88a measurement",
+  "command": "reaction",
+  "dates": [
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-24",
+    "2026-09-25",
+    "2026-09-26"
+  ],
+  "horizon_minutes": 60,
+  "input": {
+    "bytes": 62081012,
+    "coverage": {}
+  },
+  "note": "The replay credits reward from captured books that never contained our quote: its accrual assumes no competitor reaction (k = 1). Quote this measured decay next to any reward result.",
+  "opening_episodes_only": {
+    "episodes_with_k": 8,
+    "k_interval": {
+      "ci95": [
+        0.28257249500424486,
+        0.8059585629239074
+      ],
+      "dates": 3,
+      "defined_draws": 1935,
+      "markets": 4,
+      "method": "crossed date x market bootstrap, weight = date multiplicity x market multiplicity",
+      "observations": 8,
+      "reps": 2000,
+      "seed": 20260930
+    },
+    "k_median_episode": 0.5194592412084802,
+    "k_pooled": 0.6712485439151317
+  },
+  "schema_version": "competitor_reaction_diagnostic_v0.1",
+  "series_re1_journal_books": {
+    "curve": [
+      {
+        "bands": 7,
+        "episodes": 9,
+        "mean_share_many": 0.5177876885741851,
+        "mean_share_single": 0.578547924522144,
+        "median_share_many": 0.5634390651085145,
+        "minute": 0,
+        "own_quote_visible_fraction": null,
+        "samples": 9,
+        "sessions": 8
+      },
+      {
+        "bands": 7,
+        "episodes": 9,
+        "mean_share_many": 0.48908346820795007,
+        "mean_share_single": 0.5522458328247077,
+        "median_share_many": 0.5044861901576609,
+        "minute": 1,
+        "own_quote_visible_fraction": null,
+        "samples": 9,
+        "sessions": 8
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.33681177187625344,
+        "mean_share_single": 0.39123473835918654,
+        "median_share_many": 0.327510917030568,
+        "minute": 2,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 5,
+        "episodes": 6,
+        "mean_share_many": 0.35474470109486766,
+        "mean_share_single": 0.39169442170986507,
+        "median_share_many": 0.2996785195100712,
+        "minute": 3,
+        "own_quote_visible_fraction": null,
+        "samples": 6,
+        "sessions": 5
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.2962561218432164,
+        "mean_share_single": 0.34594401045365636,
+        "median_share_many": 0.18980374292981061,
+        "minute": 4,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.2615874430931117,
+        "mean_share_single": 0.2902950310523439,
+        "median_share_many": 0.17009781254213074,
+        "minute": 5,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.28842558849652455,
+        "mean_share_single": 0.32803153105547794,
+        "median_share_many": 0.2302801865085288,
+        "minute": 6,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.26083471641300104,
+        "mean_share_single": 0.292840400233,
+        "median_share_many": 0.1589261770249256,
+        "minute": 7,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.26050661414705717,
+        "mean_share_single": 0.2915927246253213,
+        "median_share_many": 0.17780002107259513,
+        "minute": 8,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.25974348712083717,
+        "mean_share_single": 0.2912287900824885,
+        "median_share_many": 0.16975153405090032,
+        "minute": 9,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.26643486944913863,
+        "mean_share_single": 0.30312986388999075,
+        "median_share_many": 0.17780002107259513,
+        "minute": 10,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.25454615546398707,
+        "mean_share_single": 0.29027518916001005,
+        "median_share_many": 0.1524328279338239,
+        "minute": 11,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 6,
+        "episodes": 7,
+        "mean_share_many": 0.18327489107468947,
+        "mean_share_single": 0.2272777986429085,
+        "median_share_many": 0.15530665586806072,
+        "minute": 12,
+        "own_quote_visible_fraction": null,
+        "samples": 7,
+        "sessions": 6
+      },
+      {
+        "bands": 5,
+        "episodes": 6,
+        "mean_share_many": 0.14858310365324906,
+        "mean_share_single": 0.16929431524179037,
+        "median_share_many": 0.14630584221889179,
+        "minute": 13,
+        "own_quote_visible_fraction": null,
+        "samples": 6,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 6,
+        "mean_share_many": 0.13357215105905315,
+        "mean_share_single": 0.15752893675989652,
+        "median_share_many": 0.12371657274392336,
+        "minute": 14,
+        "own_quote_visible_fraction": null,
+        "samples": 6,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 6,
+        "mean_share_many": 0.1265591054148219,
+        "mean_share_single": 0.14698565399190106,
+        "median_share_many": 0.12193509713170472,
+        "minute": 15,
+        "own_quote_visible_fraction": null,
+        "samples": 6,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 6,
+        "mean_share_many": 0.12474274403874404,
+        "mean_share_single": 0.15146048127813175,
+        "median_share_many": 0.10907295471792929,
+        "minute": 16,
+        "own_quote_visible_fraction": null,
+        "samples": 6,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1398425771910601,
+        "mean_share_single": 0.16713409582505973,
+        "median_share_many": 0.14941561891269706,
+        "minute": 17,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.16078100349299884,
+        "mean_share_single": 0.18410456497423597,
+        "median_share_many": 0.18536724684326447,
+        "minute": 18,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.15906131858133057,
+        "mean_share_single": 0.18429963401316554,
+        "median_share_many": 0.1879584096769343,
+        "minute": 19,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.16204181457538855,
+        "mean_share_single": 0.18793965104185512,
+        "median_share_many": 0.1879584096769343,
+        "minute": 20,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.15794534877551014,
+        "mean_share_single": 0.18431080246021034,
+        "median_share_many": 0.170402047853944,
+        "minute": 21,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1443417681721397,
+        "mean_share_single": 0.16951404120554234,
+        "median_share_many": 0.16557997144665385,
+        "minute": 22,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.14494936797485353,
+        "mean_share_single": 0.16812360986681424,
+        "median_share_many": 0.15990562014952955,
+        "minute": 23,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.14465382654922626,
+        "mean_share_single": 0.17031426708848674,
+        "median_share_many": 0.15990562014952955,
+        "minute": 24,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1522776229895993,
+        "mean_share_single": 0.1767939324292608,
+        "median_share_many": 0.17468582431005572,
+        "minute": 25,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1474251742084139,
+        "mean_share_single": 0.16930316779300134,
+        "median_share_many": 0.15594388792370534,
+        "minute": 26,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1475027795364137,
+        "mean_share_single": 0.16572606740441803,
+        "median_share_many": 0.15594388792370534,
+        "minute": 27,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1539440576844837,
+        "mean_share_single": 0.17306190100750132,
+        "median_share_many": 0.17009116886651246,
+        "minute": 28,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.15423459907102885,
+        "mean_share_single": 0.173627413208748,
+        "median_share_many": 0.17052085912198178,
+        "minute": 29,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.14307313100867944,
+        "mean_share_single": 0.1603262085336479,
+        "median_share_many": 0.1740381491622964,
+        "minute": 30,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.13441281584257847,
+        "mean_share_single": 0.16321729063178916,
+        "median_share_many": 0.14895505052952523,
+        "minute": 31,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 4,
+        "episodes": 4,
+        "mean_share_many": 0.14691866815037694,
+        "mean_share_single": 0.16626927395198876,
+        "median_share_many": 0.10018640328969028,
+        "minute": 32,
+        "own_quote_visible_fraction": null,
+        "samples": 4,
+        "sessions": 4
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.14299176366769445,
+        "mean_share_single": 0.15703310841213317,
+        "median_share_many": 0.14326439577954547,
+        "minute": 33,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.14298074971688723,
+        "mean_share_single": 0.1569836524437343,
+        "median_share_many": 0.14326439577954547,
+        "minute": 34,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1682443177730741,
+        "mean_share_single": 0.19714176301684497,
+        "median_share_many": 0.1740381491622964,
+        "minute": 35,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.18264488321281835,
+        "mean_share_single": 0.20637659833249064,
+        "median_share_many": 0.1655036459840234,
+        "minute": 36,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 5,
+        "episodes": 5,
+        "mean_share_many": 0.1924260317843988,
+        "mean_share_single": 0.21941238279414726,
+        "median_share_many": 0.18272479209979212,
+        "minute": 37,
+        "own_quote_visible_fraction": null,
+        "samples": 5,
+        "sessions": 5
+      },
+      {
+        "bands": 4,
+        "episodes": 4,
+        "mean_share_many": 0.16906816380913245,
+        "mean_share_single": 0.20676578913816215,
+        "median_share_many": 0.16872368262885137,
+        "minute": 38,
+        "own_quote_visible_fraction": null,
+        "samples": 4,
+        "sessions": 4
+      },
+      {
+        "bands": 4,
+        "episodes": 4,
+        "mean_share_many": 0.16099174464797428,
+        "mean_share_single": 0.19556122453302785,
+        "median_share_many": 0.14170004699975133,
+        "minute": 39,
+        "own_quote_visible_fraction": null,
+        "samples": 4,
+        "sessions": 4
+      },
+      {
+        "bands": 4,
+        "episodes": 4,
+        "mean_share_many": 0.15745543681942975,
+        "mean_share_single": 0.188661161783984,
+        "median_share_many": 0.1342082939494121,
+        "minute": 40,
+        "own_quote_visible_fraction": null,
+        "samples": 4,
+        "sessions": 4
+      },
+      {
+        "bands": 4,
+        "episodes": 4,
+        "mean_share_many": 0.15966670099085242,
+        "mean_share_single": 0.1902524174275733,
+        "median_share_many": 0.13810865786467827,
+        "minute": 41,
+        "own_quote_visible_fraction": null,
+        "samples": 4,
+        "sessions": 4
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.17229104269302575,
+        "mean_share_single": 0.20314880687123008,
+        "median_share_many": 0.18272479209979212,
+        "minute": 42,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.1758140176713041,
+        "mean_share_single": 0.2065889893890482,
+        "median_share_many": 0.18272479209979212,
+        "minute": 43,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.17366891447338986,
+        "mean_share_single": 0.2080338287331502,
+        "median_share_many": 0.16649893440681982,
+        "minute": 44,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.16724966914325834,
+        "mean_share_single": 0.1938264749688262,
+        "median_share_many": 0.16957668634593648,
+        "minute": 45,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.16607408486295466,
+        "mean_share_single": 0.19256399862121854,
+        "median_share_many": 0.16623568526043597,
+        "minute": 46,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.16227554186414514,
+        "mean_share_single": 0.1887482508879895,
+        "median_share_many": 0.15956239717089962,
+        "minute": 47,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.16693891112865356,
+        "mean_share_single": 0.1968987283429621,
+        "median_share_many": 0.15956239717089962,
+        "minute": 48,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.1356179711947878,
+        "mean_share_single": 0.15782757359699492,
+        "median_share_many": 0.15994047844713197,
+        "minute": 49,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.12570107865469346,
+        "mean_share_single": 0.15256079835518901,
+        "median_share_many": 0.13757260776520946,
+        "minute": 50,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.13161220594621428,
+        "mean_share_single": 0.1546937155912176,
+        "median_share_many": 0.15516099965060043,
+        "minute": 51,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.11818308844250729,
+        "mean_share_single": 0.14896957559505616,
+        "median_share_many": 0.11329305135951669,
+        "minute": 52,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.0933003241463894,
+        "mean_share_single": 0.12592769638185475,
+        "median_share_many": 0.06511999444309371,
+        "minute": 53,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.09451572834687323,
+        "mean_share_single": 0.1280260359260982,
+        "median_share_many": 0.06741451839068052,
+        "minute": 54,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.08963340238940358,
+        "mean_share_single": 0.12296253564983,
+        "median_share_many": 0.07191830081027949,
+        "minute": 55,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.09117215397260553,
+        "mean_share_single": 0.12211368907065358,
+        "median_share_many": 0.07747533701771606,
+        "minute": 56,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 3,
+        "episodes": 3,
+        "mean_share_many": 0.10115755051987378,
+        "mean_share_single": 0.13204031380063583,
+        "median_share_many": 0.07747533701771606,
+        "minute": 57,
+        "own_quote_visible_fraction": null,
+        "samples": 3,
+        "sessions": 3
+      },
+      {
+        "bands": 2,
+        "episodes": 2,
+        "mean_share_many": 0.13463666791323667,
+        "mean_share_single": 0.16877625269020852,
+        "median_share_many": 0.13463666791323667,
+        "minute": 58,
+        "own_quote_visible_fraction": null,
+        "samples": 2,
+        "sessions": 2
+      },
+      {
+        "bands": 2,
+        "episodes": 2,
+        "mean_share_many": 0.13457254887661696,
+        "mean_share_single": 0.16826083453854568,
+        "median_share_many": 0.13457254887661696,
+        "minute": 59,
+        "own_quote_visible_fraction": null,
+        "samples": 2,
+        "sessions": 2
+      }
+    ],
+    "episodes": [
+      {
+        "band": "band-1",
+        "date": "2026-09-23",
+        "episode": 0,
+        "k": 0.4084915801630853,
+        "kind": "opening",
+        "market": "nyc",
+        "mean_share_over_horizon": 0.06703787716248376,
+        "minutes_covered": 42,
+        "samples": 42,
+        "session": "session-1",
+        "share_at_posting": 0.16411079301982112,
+        "share_at_selection": 0.18124059185122188
+      },
+      {
+        "band": "band-4",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 1.4597647058823546,
+        "kind": "opening",
+        "market": "miami",
+        "mean_share_over_horizon": 0.44734147642876687,
+        "minutes_covered": 2,
+        "samples": 2,
+        "session": "session-4",
+        "share_at_posting": 0.30644765873988666,
+        "share_at_selection": 1.0
+      },
+      {
+        "band": "band-4",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 0.32020622194976006,
+        "kind": "opening",
+        "market": "miami",
+        "mean_share_over_horizon": 0.1804166943373023,
+        "minutes_covered": 60,
+        "samples": 60,
+        "session": "session-5",
+        "share_at_posting": 0.5634390651085145,
+        "share_at_selection": 0.9540703467869028
+      },
+      {
+        "band": "band-4",
+        "date": "2026-09-24",
+        "episode": 1,
+        "k": 0.4878493920641362,
+        "kind": "requote",
+        "market": "miami",
+        "mean_share_over_horizon": 0.049674189997688925,
+        "minutes_covered": 17,
+        "samples": 17,
+        "session": "session-5",
+        "share_at_posting": 0.10182279778501477,
+        "share_at_selection": null
+      },
+      {
+        "band": "band-5",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 0.2661446459844207,
+        "kind": "opening",
+        "market": "atlanta",
+        "mean_share_over_horizon": 0.16964935150833993,
+        "minutes_covered": 56,
+        "samples": 56,
+        "session": "session-6",
+        "share_at_posting": 0.637432892481597,
+        "share_at_selection": 0.6314135244099794
+      },
+      {
+        "band": "band-6",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 0.9896359830499821,
+        "kind": "opening",
+        "market": "atlanta",
+        "mean_share_over_horizon": 0.8706588402048092,
+        "minutes_covered": 2,
+        "samples": 2,
+        "session": "session-8",
+        "share_at_posting": 0.8797768625202022,
+        "share_at_selection": 0.8797768625202022
+      },
+      {
+        "band": "band-7",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 0.90049263910207,
+        "kind": "opening",
+        "market": "chicago",
+        "mean_share_over_horizon": 0.8776731375263837,
+        "minutes_covered": 13,
+        "samples": 13,
+        "session": "session-9",
+        "share_at_posting": 0.9746588693957111,
+        "share_at_selection": 0.9390651085141899
+      },
+      {
+        "band": "band-8",
+        "date": "2026-09-24",
+        "episode": 0,
+        "k": 0.6304269022538751,
+        "kind": "opening",
+        "market": "miami",
+        "mean_share_over_horizon": 0.28131778391797563,
+        "minutes_covered": 38,
+        "samples": 38,
+        "session": "session-10",
+        "share_at_posting": 0.4462337868390775,
+        "share_at_selection": 0.537392571244322
+      },
+      {
+        "band": "band-10",
+        "date": "2026-09-25",
+        "episode": 0,
+        "k": 0.28257249500424486,
+        "kind": "opening",
+        "market": "chicago",
+        "mean_share_over_horizon": 0.1656345222768138,
+        "minutes_covered": 60,
+        "samples": 60,
+        "session": "session-12",
+        "share_at_posting": 0.5861664712778418,
+        "share_at_selection": 0.5601404085290704
+      }
+    ],
+    "episodes_with_k": 9,
+    "k_definition": "sum over episodes of mean share over the horizon's covered minutes / sum of share at posting (first sample within 120 s); 1 = no reaction",
+    "k_interval": {
+      "ci95": [
+        0.28257249500424486,
+        0.7965680746036841
+      ],
+      "dates": 3,
+      "defined_draws": 1935,
+      "markets": 4,
+      "method": "crossed date x market bootstrap, weight = date multiplicity x market multiplicity",
+      "observations": 9,
+      "reps": 2000,
+      "seed": 20260930
+    },
+    "k_median_episode": 0.4878493920641362,
+    "k_pooled": 0.6672412783966482
+  },
+  "sessions": [
+    {
+      "band": "band-1",
+      "date": "2026-09-23",
+      "duration_minutes": 42.1,
+      "episodes": 1,
+      "market": "nyc",
+      "minute_samples_in_horizon": 42,
+      "session": "session-1"
+    },
+    {
+      "band": "band-2",
+      "date": "2026-09-24",
+      "duration_minutes": 0.2,
+      "episodes": 1,
+      "market": "los-angeles",
+      "minute_samples_in_horizon": 0,
+      "session": "session-2"
+    },
+    {
+      "band": "band-3",
+      "date": "2026-09-24",
+      "duration_minutes": 0.2,
+      "episodes": 0,
+      "market": "san-francisco",
+      "minute_samples_in_horizon": 0,
+      "session": "session-3"
+    },
+    {
+      "band": "band-4",
+      "date": "2026-09-24",
+      "duration_minutes": 1.3,
+      "episodes": 1,
+      "market": "miami",
+      "minute_samples_in_horizon": 2,
+      "session": "session-4"
+    },
+    {
+      "band": "band-4",
+      "date": "2026-09-24",
+      "duration_minutes": 87.3,
+      "episodes": 2,
+      "market": "miami",
+      "minute_samples_in_horizon": 77,
+      "session": "session-5"
+    },
+    {
+      "band": "band-5",
+      "date": "2026-09-24",
+      "duration_minutes": 57.7,
+      "episodes": 1,
+      "market": "atlanta",
+      "minute_samples_in_horizon": 56,
+      "session": "session-6"
+    },
+    {
+      "band": "band-6",
+      "date": "2026-09-24",
+      "duration_minutes": 0.3,
+      "episodes": 1,
+      "market": "atlanta",
+      "minute_samples_in_horizon": 0,
+      "session": "session-7"
+    },
+    {
+      "band": "band-6",
+      "date": "2026-09-24",
+      "duration_minutes": 1.9,
+      "episodes": 1,
+      "market": "atlanta",
+      "minute_samples_in_horizon": 2,
+      "session": "session-8"
+    },
+    {
+      "band": "band-7",
+      "date": "2026-09-24",
+      "duration_minutes": 12.3,
+      "episodes": 1,
+      "market": "chicago",
+      "minute_samples_in_horizon": 13,
+      "session": "session-9"
+    },
+    {
+      "band": "band-8",
+      "date": "2026-09-24",
+      "duration_minutes": 38.2,
+      "episodes": 1,
+      "market": "miami",
+      "minute_samples_in_horizon": 38,
+      "session": "session-10"
+    },
+    {
+      "band": "band-9",
+      "date": "2026-09-25",
+      "duration_minutes": 0.3,
+      "episodes": 1,
+      "market": "nyc",
+      "minute_samples_in_horizon": 0,
+      "session": "session-11"
+    },
+    {
+      "band": "band-10",
+      "date": "2026-09-25",
+      "duration_minutes": 71.6,
+      "episodes": 1,
+      "market": "chicago",
+      "minute_samples_in_horizon": 60,
+      "session": "session-12"
+    }
+  ],
+  "sessions_by_mode": {
+    "live": 12
+  },
+  "sessions_found": 12,
+  "sessions_outside_allow_list": 0,
+  "sessions_refused": [],
+  "source": "re1-only",
+  "verdict": "ESTIMATED",
+  "versus_selection_share": {
+    "episodes_with_k": 8,
+    "k_definition": "opening episodes: sum of mean share over the horizon / sum of the selection-time modelled share (selection.json quote.share_many, the book before our quote was posted)",
+    "k_interval": {
+      "ci95": [
+        0.29570179147005354,
+        0.7878456054854027
+      ],
+      "dates": 3,
+      "defined_draws": 1935,
+      "markets": 4,
+      "method": "crossed date x market bootstrap, weight = date multiplicity x market multiplicity",
+      "observations": 8,
+      "reps": 2000,
+      "seed": 20260930
+    },
+    "k_median_episode": 0.4086124129180125,
+    "k_pooled": 0.5383910187991766
+  }
+}
