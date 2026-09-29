@@ -165,6 +165,16 @@ Environment variables used by operator-facing code:
 
 ## Core Commands
 
+The owner-started [read-only wallet LAN API](docs/operations/wallet-reader.md)
+provides account summaries, positions, open orders, trades and reward reads via
+`python -m weather.market.wallet_reader_client`; its runbook owns startup,
+credential selection and the scoped firewall commands.
+
+The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
+campaign books from archived reads with
+`python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
+Unmatched lots belong to owner-discretionary, outside bot bleed limits.
+
 Run commands from the repository root with the venv interpreter.
 
 ### Registry, History, And Source Data

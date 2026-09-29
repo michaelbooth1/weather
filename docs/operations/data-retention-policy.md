@@ -60,7 +60,74 @@ The normal daily refresh also writes the same artifacts:
 - `data/backtest/data_retention_inventory.json`
 - `data/backtest/data_retention_inventory_report.md`
 
+## WU atomic temporary-file cleanup
+
+The manual `scripts/ops/wu_orphan_cleanup_run.ps1` wrapper owns bounded
+`plan`, `preflight`, and `apply` commands for `weather.operations.wu_orphan_cleanup`.
+It holds the shared heavy-workload lease and a kill-on-close child Job, requires
+00:30–09:00, 50 GiB free and recent memory evidence below 70% commit, and stops at
+09:00 or its runtime deadline. It registers no task. The default limits are
+10,000 directory entries, 1 GiB of hashed temp bytes and 300 seconds; maximum
+runtime is 1,800 seconds. A capped plan records its stop reason and may select a
+bounded subset; it is never deletion authority by itself.
+
+Only ordinary single-link NTFS files matching
+`wunderground/<station>/.../final.<pid>.<time_ns>.tmp` are candidates. The planner
+stores exact relative paths, file and sibling identity, byte counts, SHA256,
+four current proofs and named refusals in a self-hashed cleanup manifest. Unknown
+or live original writers, recent files, missing final siblings, open handles,
+links and reparse points refuse. A live **later-starting** PID is acceptable only
+when its verified start is strictly after the temp's mtime and no later than the
+proof time (owner clarification, 2026-09-26). PID reuse alone is not proof.
+
+Review the exact selected files. Copy the manifest to a new reviewed JSON, retain
+the plan hash, and set `operator_review` fields `approved`, `approved_by`, `note`
+and `plan_sha256` (the last must equal the top-level hash). Do not edit candidates.
+Each preflight/apply invocation also binds the raw reviewed JSON's SHA256.
+Outputs must be new directories outside the source data root; existing attempts
+are never overwritten. Example commands from the production checkout:
+
+```powershell
+New-Item -ItemType Directory -Path .\scratch\wu-orphans-110k -ErrorAction Stop
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command plan -OutputRoot scratch/wu-orphans-110k/plan -MaxEntries 10000 -MaxBytes 1073741824 -MaxRuntimeSeconds 300
+# Review plan/manifest.json and save the exact approved copy as reviewed.json.
+$WuReviewedManifest = '.\scratch\wu-orphans-110k\reviewed.json'
+$WuReviewedSha256 = (Get-FileHash -LiteralPath $WuReviewedManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command preflight -ApprovedManifest $WuReviewedManifest -ManifestSha256 $WuReviewedSha256 -OutputRoot scratch/wu-orphans-110k/preflight -MaxRuntimeSeconds 300
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command apply -ApprovedManifest $WuReviewedManifest -ManifestSha256 $WuReviewedSha256 -OutputRoot scratch/wu-orphans-110k/apply -MaxRuntimeSeconds 300
+```
+
+Generic cleanup preflight reacquires current native proofs for WU temps; forged
+family labels or an inner cleanup root cannot bypass that requirement. Apply
+hashes through an exclusive deletion handle, pins the final sibling and ancestors,
+runs cleanup preflight, writes an fsynced per-file intent, and refreshes process,
+age and file identities immediately before native handle deletion. It never
+uses pathname unlink or recursive deletion. Each completed attempt writes a
+per-file receipt and overall result. A refusal stops further files; prior receipts
+remain. After interruption, an intent without a receipt is unresolved evidence:
+inspect it and the exact file before planning any new attempt. Never silently retry.
+
 ## Pruning Rules
+
+Owner-approved storage decision 7 (2026-09-26) adds these family rules:
+
+| Family | Retention and gate |
+| --- | --- |
+| Rotated `snapshots/clob_diagnostics.*.jsonl` and `diagnostics.*.jsonl` (including gzip) | Operator logs; verified archive and exact-path review before local reclaim. Keep active logs and incident-linked records. |
+| `fetch_fanout/` receipts, including beneath `forecast_payload_cas/` | Claims strictly older than 7 days may expire only with no active owner or evidence reference; retain other receipts in verified monthly tar.gz archives. This never permits deleting CAS blobs. |
+| `wunderground/` atomic `final.<pid>.<time_ns>.tmp` orphans | Exclude from canonical protection only when the exact PID is absent or its process start is later than file mtime, age is strictly over 24 hours, an exclusive handle check proves no open handle, and the final file exists. Unknown observations retain protection. Recheck all four immediately before exact-path cleanup; the pure registry accepts a bound `WuAtomicOrphanProof`, not a filename-based exemption. |
+| `forecast_history/` | Canonical point-in-time evidence; permanent archive. |
+| `maker_evidence/` journals and manifests (88a) | Canonical; keep forever, including compressed representations. Status and operator configuration remain caches. |
+| `observation_triggers` rotations | Protected panel B source until the through-October-8 panel is scored; no diagnostic-log exemption. |
+
+The owner's 2026-09-26 replay-cache waiver applies only to
+`data/backtest/replay_cache`: an owner-signed manifest naming exact files,
+current checksums and reason may authorize deletion without a release
+reachability manifest (production has no release pointer). Retain the signed
+manifest and apply receipt. This is a separate reviewed cleanup campaign;
+`replay_cache_retention` still fails closed without its normal reachability
+inputs. The waiver does not cover `backtest/cache/replay`, source tapes,
+settlements, artifacts, or releases.
 
 - Classify files with the
   [Data Storage Class Contract](data-storage-class-contract.md) before cleanup:
@@ -270,6 +337,47 @@ a current event-day manifest, no writer lock, at least
 and an exact byte-parity rebuild proof. Apply retains
 `order_books_long.csv.gz` and removes only the verified same-folder
 `order_books_long.csv`; it never treats the raw JSONL as disposable.
+
+### Remove a proved gzip twin (owner decision 6, 2026-09-26)
+
+`plan-twins` selects only days strictly older than 14 days with same-folder
+`order_books.jsonl.gz` and `order_books_long.csv.gz`. Any raw or long-table
+split, missing raw gzip, writer lock, non-quiescent file or invalid/currently
+stale event-day manifest retains the projection. The raw gzip is canonical;
+full-book readers use `weather.market.order_book_tape`, which already prefers
+canonical JSONL/gzip to CSV. No source reconstruction is attempted for a
+folder lacking raw JSONL. Backfill event manifests with the owning
+`weather.operations.event_day_manifest` command before planning if absent;
+never stamp PASS manually.
+
+Production runs all three phases through the manual admitted wrapper below.
+It holds the ordinary shared workload lease, checks memory and 50 GiB free,
+and kills the full child tree by its runtime bound or 09:00. It registers no
+task. Outputs must be outside `data/` and any mirror, in separate new review
+directories. Example from the production repository root:
+
+```powershell
+.\scripts\ops\closed_day_projection_twins_run.ps1 -Command plan-twins -OutputRoot scratch/twin-review/selection -MaxBytes 1073741824
+.\scripts\ops\closed_day_projection_twins_run.ps1 -Command prove-twins -ApprovedManifest scratch/twin-review/selection/closed_day_projection_tiering_plan.json -OutputRoot scratch/twin-review/proof
+# Owner reviews the proved plan and completes its operator_review fields,
+# binding approved_plan_hash to the new plan_hash, before this final phase.
+.\scripts\ops\closed_day_projection_twins_run.ps1 -Command apply -ApprovedManifest scratch/twin-review/proof/closed_day_projection_twins_proved.json -OutputRoot scratch/twin-review/apply
+```
+
+The proof reconstructs the original CSV byte stream (column order, CRLF,
+JSONL record order and original bid/ask level order) and compares its SHA-256
+and length against the decompressed twin. Apply repeats the proof under the
+raw writer lock, writes an UNLINK_PENDING receipt, then repeats identities and
+parity immediately before exact-file unlink. It refreshes and validates the
+event-day manifest afterwards. A refresh failure remains BLOCK with the
+receipt recording that unlink already happened; it is never a clean PASS.
+
+The plan's `--max-bytes` defaults to 1 GiB of compressed twins. A fixed
+`data/logs/projection-twin-budget-<local-date>.json` reserves that amount
+before mutation across every plan that night; the first limit cannot be
+raised by a later plan. Failed attempts consume reservations, and the same
+plan cannot be reapplied. Preserve the ledger and receipts. This is a bounded
+manual campaign, not permission to schedule unreviewed cleanup.
 
 ### Running the tiering plan: preconditions and known traps
 

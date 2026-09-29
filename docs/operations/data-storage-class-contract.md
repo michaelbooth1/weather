@@ -18,7 +18,7 @@ class before a writer adds a new file family under `data/`.
 | Storage class | Purpose | Examples | Retention and deletion gate |
 | :--- | :--- | :--- | :--- |
 | `canonical_evidence` | Append-only or source-of-truth evidence that cannot be safely rebuilt later. | Snapshot JSONL, replay inputs, shared raw forecast payloads, settlement ledgers, market-making lifecycle and risk ledgers, taker run ledgers, raw CLOB books, websocket messages, execution-tape trade/dedupe/gap/seed parts, price-history source evidence, CLOB token maps. | Permanent archive unless a family-specific reviewed bounded-retention policy applies. Local deletion requires exact paths, reason, operator authorization, and checksums. |
-| `analysis_projection` | Tables, partitions, or indexes derived from canonical evidence for faster reads and reports. | Snapshot CSV long tables, CLOB summary/long CSVs, price-history CSVs, closed-day Parquet partitions, taker incremental SQLite checkpoints, large backtest row exports, model artifacts with rebuild manifests. | Rebuildable, but not disposable by size alone. Deletion requires a reviewed cleanup manifest and named rebuild source. `order_books_long` is rebuilt exactly from `order_books.jsonl`; gzip is its retained serving projection. |
+| `analysis_projection` | Tables, partitions, or indexes derived from canonical evidence for faster reads and reports. | Snapshot CSV long tables, CLOB summary/long CSVs, price-history CSVs, closed-day Parquet partitions, taker incremental SQLite checkpoints, large backtest row exports, model artifacts with rebuild manifests. | Rebuildable, but not disposable by size alone. Deletion requires a reviewed cleanup manifest and named rebuild source. `order_books_long` is rebuilt exactly from canonical JSONL. A gzip twin may be removed only under the older-than-14-day, unsplit, exact-rebuild workflow in the retention policy; its same-folder `order_books.jsonl.gz` remains canonical. |
 | `operator_cache` | Reports, dashboards, status files, provider/runtime caches, console logs, and local workflow outputs. | `data/backtest/*_report.md`, `fleet_observability.json`, replay-cache entries, `data/logs/*.log`, provider cache folders, bounded observation-trigger source caches. | TTL or cleanup-manifest driven. Replay-cache cleanup is stricter: exact full-key reachability only, with ambiguity retained; never age or LRU. Incident-linked logs or reports must be named in an incident or cleanup manifest before deletion. |
 
 ## Code Registry
@@ -41,9 +41,42 @@ Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
 `seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
 atomic global and per-market-day status files are operator caches: they can be
 reconstructed from the append-only tapes, and each status names the physical
-files and fsynced receipts it last counted.
+files and append receipts it last counted. Counters and heartbeat timestamps
+publish at most once per ten seconds; connection, seed-error, retirement and
+stop transitions publish immediately. All existing status fields remain.
+
+Execution-tape rows keep the same canonical JSONL bytes and flush to the OS
+on append. One background flusher groups `fsync` per dirty file at one-second
+monotonic deadlines, including idle files. The durability trade-off is
+**≤ 1 s of rows at risk on a crash** under normal scheduling and successful
+storage sync. Rotation and clean close force outstanding syncs and are the
+exceptions to the cadence. A sync failure fails the next capture operation;
+it is never reported as durable success. Restart rebuilds tape counters from
+the rows actually present, including rows newer than cached status; missing
+rows cannot be reconstructed from the public stream. Torn or invalid final
+rows continue to fail closed rather than being silently discarded. Status
+may lag by ten seconds, so interrupted-connection accounting conservatively
+opens the recovery gap at the last persisted heartbeat.
 
 ## Operator Rule
+
+Owner storage decision 7 (2026-09-26) classifies rotated `clob_diagnostics.*`
+and `diagnostics.*` JSONL as operator logs eligible for verified archive.
+The active logs and every `observation_triggers` rotation remain protected;
+the latter supplies panel B through October 8 scoring. `forecast_history/`
+is canonical point-in-time evidence, never a routine provider cache.
+
+`fetch_fanout` claims have a strictly greater than seven-day TTL; other fanout
+receipts use monthly tar.gz archives. WU atomic-write temporary files remain
+canonical by default. `WuAtomicOrphanProof` can classify an exact temporary
+path as an operator orphan only with all four action-time proofs documented
+in [the retention policy](data-retention-policy.md). Registry classification
+does not perform cleanup or collect those proofs.
+
+The owner's 2026-09-26 waiver permits `backtest/replay_cache` removal from an
+owner-signed exact-path checksum manifest without a release reachability
+manifest, because production has no release pointer. It does not change the
+general reachability tool or the alternate `backtest/cache/replay` policy.
 
 Passive maker journals and manifests under `data/maker_evidence/<UTC-day>/`
 are canonical evidence, including gzip representations. Its atomic status and
@@ -53,6 +86,12 @@ and hourly rotation/compression mechanics; the same reviewed evidence-reclaim ga
 
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from
 raw directory size, age, or duplicated-looking filenames alone.
+
+WU atomic-temp exemptions require fresh native observations, including during
+generic cleanup preflight. The bounded, exact-file caller and its lease-held
+wrapper are documented in [the retention runbook](data-retention-policy.md#wu-atomic-temporary-file-cleanup).
+Stored proof booleans alone cannot authorize deletion; the final check and delete
+share one exclusive native handle while the final sibling remains pinned.
 
 For `canonical_evidence`, the cleanup manifest must name exact files, reason,
 operator review, and checksums. For `analysis_projection`, the manifest must

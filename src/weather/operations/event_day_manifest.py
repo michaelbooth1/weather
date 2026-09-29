@@ -135,7 +135,7 @@ EVENT_DAY_ARTIFACT_FAMILIES = (
     EventDayArtifactFamily("clob_tokens", ("clob_tokens.csv", "clob_tokens.jsonl")),
     EventDayArtifactFamily(
         "order_books",
-        ("order_books.jsonl", "order_books_summary.csv", "order_books_long.csv", "order_books_long.csv.gz"),
+        ("order_books.jsonl", "order_books.jsonl.gz", "order_books_summary.csv", "order_books_long.csv", "order_books_long.csv.gz"),
     ),
     EventDayArtifactFamily(
         "price_history",
@@ -391,9 +391,10 @@ def _inspect_file(path: Path) -> dict[str, Any]:
     name = path.name.lower()
     suffix = path.suffix.lower()
     try:
-        if suffix == ".jsonl":
+        if suffix == ".jsonl" or name.endswith(".jsonl.gz"):
             row_count = 0
-            with path.open("r", encoding="utf-8") as handle:
+            opener = gzip.open if name.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8") as handle:
                 for line_number, line in enumerate(handle, start=1):
                     text = line.strip()
                     if not text:
@@ -463,8 +464,9 @@ def _row_count(path: Path) -> int | None:
     name = path.name.lower()
     suffix = path.suffix.lower()
     try:
-        if suffix == ".jsonl":
-            with path.open("r", encoding="utf-8") as handle:
+        if suffix == ".jsonl" or name.endswith(".jsonl.gz"):
+            opener = gzip.open if name.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8") as handle:
                 return sum(1 for line in handle if line.strip())
         if suffix == ".json":
             payload = json.loads(path.read_text(encoding="utf-8"))

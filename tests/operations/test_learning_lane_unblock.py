@@ -84,6 +84,20 @@ def test_paused_maker_is_explicit_not_applicable_without_loading_runs(tmp_path, 
     assert chain['steps'][0]['result']['status'] == 'NOT_APPLICABLE'
 
 
+def test_retired_taker_skips_are_noncritical_to_settled_day_learning(tmp_path, ready_freshness):
+    args = _args(str(tmp_path), paper_maker_paused=True, settled_analysis_target_date=TARGET)
+    names = {"taker_finalization_watchdog", "taker_edge_permission_map", "taker_tail_casebook"}
+    steps = _settled_barrier_dependency_steps(TARGET)
+    for step in steps:
+        if step["name"] in names:
+            step["result"] = {"status": "SKIPPED", "reason": "explicit_skip"}
+    payload = barrier.build_settled_day_analysis_barrier(args, steps_so_far=steps)
+    assert payload["learning_status"] == "PASS"
+    rows = [row for row in payload["dependencies"] if row["step"] in names]
+    assert len(rows) == 3
+    assert all(row["non_critical"] and not row["blocker"] for row in rows)
+
+
 def test_old_blocked_receipt_remains_closed_until_barrier_reruns():
     steps = [{'name': 'settled_day_analysis_barrier', 'status': 'error',
               'root_cause_class': 'settled_day_analysis_barrier',
