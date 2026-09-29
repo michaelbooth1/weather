@@ -32,7 +32,9 @@ when the digest, a numbered item, or the user's task names it. Adjacent
 `.json`/`.csv`/`.sha256` files are the evidence artifacts a report cites.
 
 [Correspondence index](correspondence-index.md) is generated from filenames,
-H1 titles, citations and Git-added dates. Reports reuse the exact handoff id;
+H1 titles, citations and Git-added dates, one shard per Git-added month under
+`correspondence-index/`; the root lists the months only, and regeneration
+rewrites only shards whose rows changed. Reports reuse the exact handoff id;
 legacy collisions are listed as multiple possible answers, not inferred matches.
 Name new audits `<scope>-audit-<date>.md` and add their row to
 [the audit index](audits/README.md) in the same commit.
