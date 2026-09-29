@@ -149,6 +149,40 @@ from the official contracts page. Never schedule automatic acceptance.
 
 ## Drift check
 
+### Re-accept after reviewed rule drift
+
+When Stage A's `exchange_economics_rule_drift` blocks the settled-day barrier,
+review the current snapshot against the accepted baseline: per-market fee
+profiles, minimum order size, tick size, rebate and payout terms. Record the
+owner's decision, including whether historical evidence needs rescoring.
+Keep the barrier closed until the reviewed acceptance and a new drift check
+both pass; never change gate fields by hand.
+
+Before acceptance, preserve the old baseline and drift report in a new,
+non-overwriting incident directory, then run:
+
+```powershell
+$targetDate = Get-Date -Format yyyy-MM-dd
+$saved = "data/alerts/economics-baseline-$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+New-Item -ItemType Directory -Path $saved -ErrorAction Stop | Out-Null
+Copy-Item -LiteralPath data/backtest/exchange_economics_accepted_snapshot.json -Destination $saved -ErrorAction Stop
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date $targetDate --acknowledge-payout-asset-conflict
+.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date $targetDate
+```
+
+Inspect the resulting JSON status, current gate and `rescore_required`; the
+CLI process exit alone is not proof. Resume Stage A through its existing
+bounded recovery procedure only after those checks pass. Acceptance does not
+authorize trading or retroactively bind historical runs.
+
+Production precedent supplied by handoff 110j: on 2026-09-26 the owner approved
+re-acceptance of a baseline dating from June 27 after fee profiles, minimum
+size 5 and rebate terms drifted; production retained the old baseline under
+`data/alerts/economics-baseline-20260926/`. This records the supplied event,
+not a workstation verification of production files.
+
+### Check the accepted baseline
+
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date <yyyy-mm-dd>
 ```
@@ -157,8 +191,30 @@ Healthy state requires a passing current gate, a present reviewed baseline, and
 `rescore_required = false`. Exact condition and token identity is revalidated
 on every collection and changes normally as daily weather markets roll. It is
 part of the snapshot hash, but identity rotation alone is not economics drift.
-Location-level fee, rebate, fee-curve, tick, or minimum-order profile changes
-are material. Reward configuration is retained but cannot trigger a primary-P&L
+Drift compares each location's **set of distinct fee profiles** (`fee_schedule`,
+`fees_enabled`, `order_min_size`), ignoring profile counts. Tick sizes have a
+separate per-location set: adding or removing a distinct value is material,
+including a new value outside the usual `0.01` / `0.001` pair. Changing only
+the market counts at those ticks is not material. The complete per-condition
+tables in both snapshots retain the inputs for per-city tick-count diagnostics.
+Fee, rebate, exponent, taker-only, fees-enabled and minimum-order changes remain
+material when they change a location's distinct profiles.
+
+Both raw snapshots are projected at comparison time, including previously
+accepted baselines. Snapshot hashing still binds the complete per-condition
+table unchanged; a tick-mix change can change the hash without requiring a
+rescore. Existing accepted hashes and captured-run bindings need no migration
+or re-acceptance solely for this comparison change. Freshness, content-proof
+and exact-condition validation still apply to the current snapshot.
+
+The drift report is also sealed acceptance evidence: its exact key set and
+serialized no-drift payload remain unchanged. Tick-count diagnostics and the
+internal comparison projection are not additional acceptance-report fields.
+Candidate validation still requires exact snapshot identity and file hashes;
+a daily tick-mix shift does not authorize replacing already accepted or sealed
+files or weakening the live sealer's checks.
+
+Reward configuration is retained but cannot trigger a primary-P&L
 rescore while the enforced reward assumption remains zero.
 
 ## Update this file when

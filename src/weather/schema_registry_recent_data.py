@@ -6,6 +6,17 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("portfolio_snapshot", "portfolio_snapshot_v0.1", "maker_core.contracts.portfolio", "active",
+               "Neutral account snapshots with explicit history coverage and fee availability."),
+    SchemaSpec("portfolio_campaigns", "portfolio_campaigns_v0.1", "maker_core.contracts.portfolio", "active",
+               "Recorded campaign contributions, ordered attribution rules and report-only limits."),
+    SchemaSpec("portfolio_ledger", "portfolio_ledger_v0.1", "maker_core.portfolio.journal", "active",
+               "Create-only hash-chained portfolio books with per-campaign FIFO accounting."),
+    SchemaSpec(
+        "wallet_reader_request", "wallet_reader_request_v1",
+        "weather.market.wallet_reader_transport", "active",
+        "GET-only wallet reader request intent and result; no headers or response bodies.",
+    ),
     SchemaSpec(
         "maker_plugin_dry_run", "maker_plugin_dry_run_v0.1",
         "weather.market.maker_plugin_runner", "active",
@@ -22,6 +33,16 @@ RECENT_REGISTERED_SCHEMAS = (
         "Hourly public journals with inline offsets/reply hashes and sealed file manifests.",
         supersedes=("maker_evidence_v1",),
         migration_notes="Use a fresh v2 root; retain v1 journals with their original reader.",
+    ),
+    SchemaSpec(
+        "cold_snapshot_nightly_policy", "cold_snapshot_nightly_policy_v1",
+        "weather.operations.cold_snapshot_nightly", "active",
+        "Expiring host-bound nightly lossless compression budget; no deletion authority.",
+    ),
+    SchemaSpec(
+        "cold_snapshot_nightly_receipt", "cold_snapshot_nightly_receipt_v1",
+        "weather.operations.cold_snapshot_nightly", "active",
+        "Nightly inventory, bounded batches and verified retained-file allocation savings.",
     ),
     SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",

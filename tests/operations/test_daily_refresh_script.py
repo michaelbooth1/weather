@@ -82,6 +82,9 @@ def _expected_child_tokens(
             "--skip-fleet-runtime-identity-replay",
             "--skip-fleet-trading-replay",
             "--paper-maker-paused",
+            "--skip-taker-finalization-watchdog",
+            "--skip-taker-edge-permission-map",
+            "--skip-taker-tail-casebook",
         ]
         producer_sla = "14400"
     else:
@@ -203,6 +206,8 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
     assert '"--skip-fleet-runtime-identity-replay"' in contract
     assert '"--skip-fleet-trading-replay"' in contract
     assert '"--paper-maker-paused"' in contract
+    for flag in ("finalization-watchdog", "edge-permission-map", "tail-casebook"):
+        assert f'"--skip-taker-{flag}"' in contract
     stage_b_settings = registration.split(
         "$stageBSettings = New-ScheduledTaskSettingsSet", 1
     )[1].split("Register-ScheduledTask", 1)[0]
@@ -243,6 +248,9 @@ def test_daily_refresh_parser_accepts_delegated_child_contract():
         "--skip-fleet-runtime-identity-replay",
         "--skip-fleet-trading-replay",
         "--paper-maker-paused",
+        "--skip-taker-finalization-watchdog",
+        "--skip-taker-edge-permission-map",
+        "--skip-taker-tail-casebook",
         "--scheduler-invocation-topology",
         "delegated_child",
         "--scheduler-task-name",

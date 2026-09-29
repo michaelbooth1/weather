@@ -46,9 +46,17 @@ caller inputs, so the neutral package never imports `weather.paths`.
 - `dotenv` imports belong only to `maker_core.runtime.credentials`, never venue.
 - Environment/vault credential access belongs only to
   `maker_core.runtime.credentials`; that module does not exist in Phase 0.
-- `quoting` and `portfolio` cannot import `venue` or `runtime`. `quoting` may
+- `quoting` and portfolio library modules cannot import `venue` or `runtime`.
+  The executable-only `maker_core.portfolio.__main__` shim has one explicit edge
+  to `maker_core.runtime.portfolio_report.main` for the required `python -m`
+  command. It contains no accounting or adapter logic; the ratchet continues to
+  reject execution imports in every portfolio library module and any other
+  execution import in the shim. `quoting` may
   import contracts, its kernels and the evidence canonical serializer; evidence
-  imports contracts for UTC validation. The other packages remain stubs.
+  imports contracts for UTC validation. Portfolio accounting and its explicit-path
+  journal use additive neutral contracts; runtime owns file orchestration and
+  venue owns saved-read adaptation and optional LAN HTTP reads. See the
+  [portfolio ledger](portfolio-ledger.md).
 - `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 
@@ -65,7 +73,9 @@ The module entrypoint `maker_plugin.dry_run` delegates to the diagnostic
 caller `weather.market.maker_plugin_runner`, outside the provider boundary.
 That caller composes contracts and pure quoting policy; its sibling
 `maker_plugin_capture` and `maker_plugin_sources` own bounded local reads.
-They have no collector, venue or credential dependency. This is the sole IO
+They have no collector, venue or credential dependency; shared NBP bulletins
+resolve through the storage contract's ref and identity helpers in
+`weather.collection.forecast_payload_cas`, never a hand-built path. This is the sole IO
 entrypoint under the plugin package; the four provider adapters remain pure.
 See [the dry-run contract](maker-core-contracts.md#bounded-weather-plugin-dry-run).
 

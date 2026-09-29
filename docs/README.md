@@ -34,7 +34,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Acting on the production capture host | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical guide |
 | A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
-| Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
+| Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [workstation session preamble](operations/WORKSTATION_SESSION_PREAMBLE.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
@@ -46,6 +46,8 @@ research established) · **Generated** (edit the generator) · **History**
 | Understanding system boundaries and data flow | [Architecture](architecture.md) | Canonical guide |
 | Setting up, testing, or checking the definition of done | [Development](development.md), [Python runtime audit gate](operations/PYTHON_RUNTIME_AUDIT_GATE.md), [Research audit harness](operations/RESEARCH_AUDIT_HARNESS.md) | Canonical guide |
 | Looking up product purpose, setup, dashboard, or an operator command | [Root README](../README.md) | Canonical guide |
+| Starting or using the read-only account LAN service | [Wallet reader](operations/wallet-reader.md) | Canonical runbook |
+| Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
 | Changing or adding documentation | [Documentation maintenance](documentation-maintenance.md), [docs/AGENTS.md](AGENTS.md) | Canonical guide |
 
 ## Durable technical contracts
