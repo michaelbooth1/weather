@@ -1,6 +1,6 @@
 # 110o part 10 — dormant roadmap items (owner decision 10, D5-5) [DONE]
 
-**Verdict: DONE, roll-free. Roadmap items gain a `DORMANT YYYY-MM-DD - reason` status (dated disposition required, lint
+**Verdict: DONE; roll-free except `settled_day_root_cause.py` (production takes `roll_verdict.ps1`). Roadmap items gain a `DORMANT YYYY-MM-DD - reason` status (dated disposition required, lint
 error otherwise), `roadmap_backlog` lists dormant items apart from the active backlog, and it flags an active item with no
 disposition within 45 days. 27 items are marked dormant 2026-09-29: the 25 listed in D5-5 plus 321 and 328.** Active
 items fall from 38 to 11; the new flag lists 3 of them (224, 323, 333).
