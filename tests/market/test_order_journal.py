@@ -361,3 +361,19 @@ def test_runner_records_into_state_root_without_reader_config(tmp_path):
         assert row["errors"]["summary"] == "config" and row["reads"]["public_gets_used"] == 0
     finally:
         os.rmdir(link)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
+def test_registrar_whatif_by_file_uses_its_own_root_and_prints_the_action(tmp_path):
+    """-File without -RepoRoot, as the owner runs it; -WhatIf must still hash and never register."""
+    runner, modules = fixture_repo(tmp_path)
+    script = str(tmp_path / "scripts/ops/register_manual_order_journal.ps1")
+    base = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
+    preview = subprocess.run(base + ["-ExpectedRunnerSha256", runner, "-ExpectedModulesSha256", modules, "-WhatIf"],
+                             capture_output=True, text=True, timeout=60)
+    assert preview.returncode == 0, preview.stdout + preview.stderr
+    assert "What if: register WeatherManualOrderJournal every 5 minutes" in preview.stdout
+    assert f"-RepoRoot \"{tmp_path}\"" in preview.stdout and runner in preview.stdout
+    unpinned = subprocess.run(base + ["-WhatIf"], capture_output=True, text=True, timeout=60)
+    flat = "".join((unpinned.stdout + unpinned.stderr).split())
+    assert unpinned.returncode != 0 and f"currentrunner{runner},modules{modules}" in flat

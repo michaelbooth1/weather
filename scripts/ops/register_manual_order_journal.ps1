@@ -12,7 +12,7 @@
 # refuses a later unreviewed edit. -WhatIf prints the exact action and the current hashes only.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$StateRoot = "",
     [string]$ExpectedRunnerSha256 = "",
     [string]$ExpectedModulesSha256 = "",
@@ -20,7 +20,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 leaks -WhatIf into Get-FileHash (null hash); decide preview explicitly instead.
+$preview = [bool]$WhatIfPreference
+$WhatIfPreference = $false
 $taskName = "WeatherManualOrderJournal"
+# $PSScriptRoot is empty inside param() defaults under Windows PowerShell 5.1 -File; resolve here.
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $repo = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\')
 $state = if ([string]::IsNullOrWhiteSpace($StateRoot)) { $repo } else { [IO.Path]::GetFullPath($StateRoot).TrimEnd('\') }
 $runner = Join-Path $repo "scripts\ops\manual_order_journal.ps1"
@@ -43,7 +48,8 @@ function Get-ModulesSha256([string]$Root) {
 }
 
 if ($Unregister) {
-    if ($PSCmdlet.ShouldProcess($taskName, 'Unregister-ScheduledTask')) {
+    if ($preview) { Write-Output "What if: Unregister-ScheduledTask $taskName" }
+    else {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         Write-Output "unregistered $taskName"
     }
@@ -60,7 +66,8 @@ $ExpectedRunnerSha256 = $ExpectedRunnerSha256.ToLowerInvariant()
 $ExpectedModulesSha256 = $ExpectedModulesSha256.ToLowerInvariant()
 $executable = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`" -RepoRoot `"$repo`" -StateRoot `"$state`" -ExpectedSelfSha256 $ExpectedRunnerSha256 -ExpectedModulesSha256 $ExpectedModulesSha256"
-if (-not $PSCmdlet.ShouldProcess($taskName, "Register every 5 minutes: $executable $arguments")) {
+if ($preview) {
+    Write-Output "What if: register $taskName every 5 minutes: $executable $arguments"
     exit 0
 }
 
