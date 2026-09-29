@@ -1,4 +1,4 @@
-# 233. Validate-What-You-Serve Early-Hour Calibration Head [PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]
+# 233. Validate-What-You-Serve Early-Hour Calibration Head [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]
 
 Goal: replace isolated early-hour postprocessors with a calibration head that
 is trained and validated on the final served distribution.

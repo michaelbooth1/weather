@@ -1,4 +1,4 @@
-# 134. Early-Day Forecast Profile Calibration [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]
+# 134. Early-Day Forecast Profile Calibration [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]
 
 Goal: turn the strongest measured early-day signal, the forecast-profile
 family, into a deliberately calibrated model lane rather than letting it be one

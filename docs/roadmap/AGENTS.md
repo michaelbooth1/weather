@@ -72,7 +72,12 @@ superseded handoff as current instruction.
 - Update the owning numbered item instead of copying item state into a new
   narrative file.
 - Keep item headings in the form `# N. Title [STATUS]`, where status is
-  `OPEN`, `PARTIAL`, or `COMPLETE` with an optional dated disposition.
+  `OPEN`, `PARTIAL`, or `COMPLETE` with an optional dated disposition, or
+  `DORMANT YYYY-MM-DD - reason` (date and reason required). A dormant item is
+  parked, not closed: revive it by restoring `OPEN`/`PARTIAL` with a fresh dated
+  disposition. `active-backlog.md` lists dormant items apart from active ones
+  and flags an active item whose disposition is more than 45 days older than the
+  newest disposition date in the roadmap; refresh it or mark it dormant.
 - Preserve historical command transcripts. Current commands must use the
   canonical `python -m weather...` package surface.
 - When adding or moving an item, update its primary row in `ROADMAP.md` in the

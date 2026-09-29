@@ -1,4 +1,4 @@
-# 176. Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]
+# 176. Local Generated State And Tooling Cleanup Sweep [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-07-12, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]
 
 Goal: remove or quarantine stale local generated state, retired research
 stubs, and scratch outputs after active agents finish.
