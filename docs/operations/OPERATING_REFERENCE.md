@@ -24,7 +24,7 @@ so they cannot drift. A renamed or deleted constant fails this generator loudly.
 | --- | --- | --- | --- |
 | **12:00-18:00 local** | Graded capture window | The streak verdict is computed here (see AFTERNOON_START/END_HOUR). Never merge a roll-sensitive branch, run the chain, backfill, or reboot inside it. | `weather.collection.collection_health` |
 | **01:00-04:00 local** | Quiet merge window | The only window a ROLL-SENSITIVE branch may be merged, because landing one makes the capture supervisors readopt code. Roll-free branches do not need it. | `scripts/ops/quiet_window_merge.ps1` |
-| **18:00-00:30 local** | Near-close capture and daily roll-over | Near-close fast CLOB capture, MM quoting, settlement watch, then the 00:05-00:30 taker/MM daily roll-over. Policy says nothing heavy, ever; the workload lease refuses every hour outside 00:30-09:00. | `docs/operations/HOST_LOAD_POLICY.md` |
+| **18:00-00:30 local** | Near-close capture and settlement watch | Near-close fast CLOB capture and settlement watch protect evidence through midnight. Policy admits no ad-hoc heavy work here; the workload lease refuses every hour outside 00:30-09:00. | `docs/operations/HOST_LOAD_POLICY.md` |
 
 ## Derived rules — the relationships that bite
 
@@ -48,6 +48,56 @@ and no single constant expresses it, so it cannot be found by grepping.
 | **`COMPLETE_DAY_MIN_ROWS`**<br/>`weather.backtesting.settlement_ledger` line 34 | `18` | Minimum hourly rows for a settlement day to count as complete. | This is NOT a knob: it decides both whether settlement trusts the daily summary and whether a day counts toward the streak. Lowering it to unblock a retrain silently changes settlement truth. |
 | **`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS`**<br/>`weather.calibration.pooled_training` line 54 | `7` | Maximum age, in days, of the selection universe's latest target date when a production point-in-time lock is taken. | THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous complete days stops being usable for a production PIT lock once its LATEST day is older than this. So a stalled settlement chain does not merely delay the retrain — it ages out evidence already earned. Found 2026-08-09; it was written nowhere and the relationship to the settlement backlog is invisible from either number alone. |
 | **`MATERIAL_COVERAGE_WINDOW`**<br/>`weather.backtesting.settlement_ledger` line 45 | `12:00-18:00 local` | Human-readable coverage window for material capture. | Should agree with the afternoon window above; disagreement is a defect. |
+
+## Scheduled-task inventory
+
+Lifecycle intent from `config/scheduled_tasks.json`; host registration is unverified.
+Active means maintained, not enabled. Owner holds and one-shot receipts still govern.
+
+| Task or pattern | State | Expected disabled | Registrar | Owner |
+| --- | --- | --- | --- | --- |
+| WeatherAgentOvernight1030 | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherAgentQuietWindow | active | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherBootRecovery | active | False | scripts/ops/register_boot_recovery.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherCapturePriorityGuard | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherClobBookLoopSupervisor | active | False | scripts/ops/register_clob_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherClobEnrichmentLoop | retired | True | scripts/ops/register_clob_enrichment.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherClobRawTapeTiering | active | False | scripts/ops/register_clob_raw_tape_tiering.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherClobTiering | active | False | scripts/ops/register_clob_tiering.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherColdSnapshotNightly | active | False | scripts/ops/register_cold_snapshot_nightly.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherDailySettlementPromotionRefresh | active | False | scripts/ops/register_daily_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherDataMirror | active | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherEveningEvidenceRefresh | active | True | scripts/ops/register_daily_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherExchangeEconomicsSnapshotRefresh | active | False | scripts/ops/register_exchange_economics_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherExecutionTapeSupervisor | active | False | scripts/ops/register_execution_tape_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherHostHealthWatchdog | active | False | scripts/ops/register_health_watchdog.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherIntegrationMerge_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherIntegrationRecoveryBootstrapMerge0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherIntegrationRecoveryBootstrapSuite0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMarketMakingDailyRoll | retired | True | scripts/ops/register_market_making_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMarketMakingDailyRollSupervisor | retired | True | scripts/ops/register_market_making_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMemoryCommitGuard | active | False | scripts/ops/register_memory_commit_guard.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMergeQueueDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMergeSensitiveDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMirrorRestoreVerify | active | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherModelMarketDisagreementAnalysis | retired | True | scripts/ops/register_model_market_disagreement_analysis.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherNightlyRetrainValidatePromote | active | True | scripts/ops/register_nightly_retrain.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherObservationTriggerSupervisor | active | False | scripts/ops/register_observation_trigger_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherOneShotMirror | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherOneShotPush | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherSnapshotLoopSupervisor | active | False | scripts/ops/register_snapshot_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherStalenessSweep | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherStorageRecovery-* | one-shot | False | scripts/ops/register_storage_recovery_night.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherStreakCaptureMonitor | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherSuite0969a | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRoll | retired | True | scripts/ops/register_taker_bot_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRollSupervisor | retired | True | scripts/ops/register_taker_bot_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTrainingWindow | active | True | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTrainingWindowReenable* | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTrainingWindowRestore | active | False | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 
 ## Live timetable
 

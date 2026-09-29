@@ -115,7 +115,11 @@ function Get-DailyRefreshChildTokens {
             # this explicit flag 95c's settlement-only learning lane stays coupled to
             # maker readiness and the learning artifacts never refresh. Remove it when
             # the paper maker is resumed.
-            "--paper-maker-paused"
+            "--paper-maker-paused",
+            # Retired taker artifacts must not block settled-day learning.
+            "--skip-taker-finalization-watchdog",
+            "--skip-taker-edge-permission-map",
+            "--skip-taker-tail-casebook"
         )
         $producerSlaSeconds = 14400
     } else {

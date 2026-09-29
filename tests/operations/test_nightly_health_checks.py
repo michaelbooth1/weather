@@ -87,7 +87,7 @@ class TestNightlyHealthChecks(unittest.TestCase):
     def test_build_payload_passes_when_loops_and_bots_are_current(self):
         current = _identity()
 
-        payload = nightly_health_checks.build_payload(
+        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
             fleet_payload=_fleet_payload(),
             maker_status=_maker_status(current),
             taker_status=_taker_status(current),
@@ -120,7 +120,7 @@ class TestNightlyHealthChecks(unittest.TestCase):
         taker = _taker_status(current, status="pid_missing")
         taker["root_cause_class"] = "pid_missing"
 
-        payload = nightly_health_checks.build_payload(
+        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
             fleet_payload=_fleet_payload(loop_row),
             maker_status=_maker_status(stale),
             taker_status=taker,
@@ -138,7 +138,7 @@ class TestNightlyHealthChecks(unittest.TestCase):
 
     def test_write_outputs_creates_dated_and_latest_alert_reports(self):
         current = _identity()
-        payload = nightly_health_checks.build_payload(
+        payload = nightly_health_checks.build_payload(bot_states={"maker_bot": "active", "taker_bot": "active"},
             fleet_payload=_fleet_payload(),
             maker_status=_maker_status(current),
             taker_status=_taker_status(current),
@@ -162,3 +162,27 @@ class TestNightlyHealthChecks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_retired_bots_do_not_read_runs_or_suggest_restarts(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("retired bot evidence must not be read")
+    monkeypatch.setattr(nightly_health_checks.market_making_daily_roll, "load_status", forbidden)
+    monkeypatch.setattr(nightly_health_checks.taker_bot_daily_roll, "load_status", forbidden)
+    monkeypatch.setattr(nightly_health_checks, "latest_maker_run_summary", forbidden)
+    payload = nightly_health_checks.build_payload(
+        fleet_payload=_fleet_payload(), current_identity=_identity(), now="2026-09-26T20:00:00Z",
+    )
+    assert payload["status"] == "OK"
+    assert payload["summary"]["retired_bot_count"] == 2
+    assert all(row["status"] == "RETIRED" and row["restart_command"] is None for row in payload["bots"])
+    assert "start --force" not in nightly_health_checks.render_report(payload)
+
+
+def test_inventory_cannot_silently_suppress_alerts_with_unknown_bot_state():
+    import pytest
+    with pytest.raises(ValueError, match="inventory states"):
+        nightly_health_checks.build_payload(
+            fleet_payload=_fleet_payload(), current_identity=_identity(),
+            bot_states={"maker_bot": "unknown", "taker_bot": "retired"},
+        )
