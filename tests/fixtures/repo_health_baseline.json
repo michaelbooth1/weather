@@ -2626,6 +2626,9 @@
       "taker_fee_rate": 3,
       "taker_only": 1
     },
+    "tests/market/test_exchange_economics_drift.py": {
+      "taker_only": 1
+    },
     "tests/market/test_maker_incentive_feasibility.py": {
       "polymarket_us": 1
     },
