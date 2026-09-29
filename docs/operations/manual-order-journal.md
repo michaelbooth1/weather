@@ -112,6 +112,12 @@ A wrong or missing pin makes `-WhatIf` and a real run print the current hashes. 
 code checkout. `-StateRoot` (default `-RepoRoot`) supplies `venv`, `config\local` and `data\`. A
 detached reviewed worktree can therefore journal into the production checkout before its branch
 merges, following the pinned-worktree pattern in the [operations design](OPERATIONS_DESIGN.md).
+
+The pins cover `-RepoRoot\src` only, and the state venv's editable `.pth` can point at another
+checkout's `src`. So the runner starts Python with `-P -B` and sets `PYTHONPATH` to `-RepoRoot\src`,
+for the child only. Before recording, it probes `weather.market.order_journal.__file__`. If that path
+is not under `-RepoRoot\src`, including when the import fails, the runner refuses: exit 3, `refused`
+in `runner.log`, and no record is written.
 Each run appends one line to `data/manual_order_journal/runner.log`.
 
 ## Update when

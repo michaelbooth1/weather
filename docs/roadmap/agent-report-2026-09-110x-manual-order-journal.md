@@ -74,7 +74,10 @@ https://github.com/michaelbooth1/weather/pull/127. The runbook
 
 ## Verification
 
-- Focused tests on the workstation: `tests/market/test_order_journal.py`, 28 passed. The
+- Focused tests on the workstation: `tests/market/test_order_journal.py`, 29 passed. This includes
+  a fixture whose interpreter resolves `weather` from another checkout's editable install and must
+  refuse. The positive runner test succeeds only by importing the worktree's modules: the
+  interpreter's `.pth` points at a checkout that has no `order_journal`. The
   PowerShell cases cover:
   - registrar pins against a mock Scheduler;
   - by-file `-WhatIf` with no `-RepoRoot`;
@@ -83,7 +86,8 @@ https://github.com/michaelbooth1/weather/pull/127. The runbook
 - Repo-wide audits: `agent_docs_audit` PASS. `schema_registry audit --strict` found 0 unregistered.
   `module_size_audit` passed, and the new modules are 141-329 lines. `roadmap_backlog --fail-on-lint
   --check` OK.
-- Wrapped audit test run (`workstation_heavy.ps1`, `-Kind pytest`, head `dc4e658d`): **305 passed**. It
+- Wrapped audit test run (`workstation_heavy.ps1`, `-Kind pytest`): **305 passed** on `dc4e658d`, and **306 passed**
+  after the option-B isolation fix. It
   covered the journal and wallet-reader tests plus the repo-wide ratchets:
   - schema registry;
   - import architecture and release import boundary;
@@ -101,7 +105,7 @@ https://github.com/michaelbooth1/weather/pull/127. The runbook
 Pins at this branch. The report commit changes none of the pinned files.
 
 - runner `scripts/ops/manual_order_journal.ps1`:
-  `d2fbf68b52f725fc9099e7e9d3b84af3da02d346b9b0b8c60835f9a398a19737`
+  `a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1`
 - modules digest: `9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6`
 
 Prerequisites:
@@ -115,12 +119,19 @@ values.
 **Option A: after the branch merges (quiet window if roll-sensitive), from the production checkout:**
 
 ```powershell
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 d2fbf68b52f725fc9099e7e9d3b84af3da02d346b9b0b8c60835f9a398a19737 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 d2fbf68b52f725fc9099e7e9d3b84af3da02d346b9b0b8c60835f9a398a19737 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
 ```
 
 **Option B: before the merge, pinned detached worktree, production venv/config/data.** Worktree
 creation and task registration do not change the production working tree, so this is roll-free.
+The production venv's editable `.pth` points at the production `src`. The runner therefore launches
+`python -P -B` with `PYTHONPATH=<worktree>\src` for the child only. It first probes
+`weather.market.order_journal.__file__` and refuses (exit 3, logged, nothing recorded) unless that
+path is under `<worktree>\src`. This closes the defect production review found in the first
+runner, which would have imported production's modules, absent before the merge and unpinned
+after. Check `runner.log`: the first line after registration must be `recorded`. A `refused` line
+naming a path outside the worktree means the isolation failed.
 Substitute the PR's reviewed head SHA:
 
 ```powershell
@@ -128,8 +139,8 @@ $env:GIT_LFS_SKIP_SMUDGE = '1'
 git fetch origin codex/manual-order-journal-20260928
 git worktree add --detach ..\weather-manual-order-journal-deployed-<sha8> <reviewed-head-sha>
 $wt = (Resolve-Path ..\weather-manual-order-journal-deployed-<sha8>).Path
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 d2fbf68b52f725fc9099e7e9d3b84af3da02d346b9b0b8c60835f9a398a19737 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 d2fbf68b52f725fc9099e7e9d3b84af3da02d346b9b0b8c60835f9a398a19737 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
 ```
 
 Check it with the following commands, and read the last lines of `data\manual_order_journal\runner.log`:

@@ -334,11 +334,9 @@ def test_runner_refuses_unpinned_source_before_python(tmp_path, case):
     assert line["status"] == "refused" and expected in line["detail"]
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
-def test_runner_records_into_state_root_without_reader_config(tmp_path):
-    """Real runner and interpreter; the reader config is absent, so no network read happens."""
+def junction_venv(state):
+    """State root whose venv is the test interpreter (its editable install points elsewhere)."""
     import sys
-    state = tmp_path / "state"
     state.mkdir()
     if sys.prefix != sys.base_prefix:
         link, target = state / "venv", Path(sys.prefix)
@@ -346,6 +344,34 @@ def test_runner_records_into_state_root_without_reader_config(tmp_path):
         (state / "venv").mkdir()
         link, target = state / "venv" / "Scripts", Path(sys.executable).parent
     subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+    return link
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
+def test_runner_refuses_when_the_journal_module_resolves_outside_the_pinned_checkout(tmp_path):
+    """Pinned files exist in RepoRoot, but the interpreter imports weather from another checkout."""
+    runner, modules = fixture_repo(tmp_path / "code")
+    link = junction_venv(tmp_path / "state")
+    try:
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                                 str(tmp_path / "code/scripts/ops/manual_order_journal.ps1"),
+                                 "-RepoRoot", str(tmp_path / "code"), "-StateRoot", str(tmp_path / "state"),
+                                 "-ExpectedSelfSha256", runner, "-ExpectedModulesSha256", modules],
+                                capture_output=True, text=True, timeout=120)
+        assert result.returncode == 3, result.stdout + result.stderr
+        journal = tmp_path / "state/data/manual_order_journal"
+        line = json.loads((journal / "runner.log").read_text(encoding="utf-8-sig").splitlines()[-1])
+        assert line["status"] == "refused" and "does not resolve under the pinned checkout" in line["detail"]
+        assert not list(journal.glob("*.jsonl"))
+    finally:
+        os.rmdir(link)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
+def test_runner_records_into_state_root_without_reader_config(tmp_path):
+    """Real runner and interpreter; the reader config is absent, so no network read happens."""
+    state = tmp_path / "state"
+    link = junction_venv(state)
     try:
         runner = hashlib.sha256((ROOT / "scripts/ops/manual_order_journal.ps1").read_bytes()).hexdigest()
         result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
@@ -359,6 +385,7 @@ def test_runner_records_into_state_root_without_reader_config(tmp_path):
         assert line["status"] == "recorded"
         [row] = verify_chain(journal)[0]
         assert row["errors"]["summary"] == "config" and row["reads"]["public_gets_used"] == 0
+        assert row["schema_version"] == "manual_order_journal_v0.1"
     finally:
         os.rmdir(link)
 

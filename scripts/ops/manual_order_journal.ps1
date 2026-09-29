@@ -73,12 +73,29 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 # Native stderr lines arrive as ErrorRecords under Windows PowerShell 5.1; keep them non-terminating
 # and log their text (the client emits fixed reason codes only, never tokens).
 $ErrorActionPreference = "Continue"
+# The pins cover $repo\src only. The state venv may carry an editable .pth to another checkout's src,
+# so the child runs with -P -B and PYTHONPATH=$repo\src (child scope), and a probe must resolve the
+# journal module under $repo\src before anything is recorded.
+$pinnedSrc = [IO.Path]::GetFullPath((Join-Path $repo "src")).TrimEnd('') + ''
+$savedPythonPath = $env:PYTHONPATH
+$env:PYTHONPATH = $pinnedSrc.TrimEnd('')
 Push-Location $repo
 try {
-    $output = & $python -m weather.market.order_journal record --out $outDir --reader-config $readerConfig 2>&1
+    $probe = @(& $python -P -B -c "import weather.market.order_journal as m; print(m.__file__)" 2>&1 |
+        ForEach-Object { "$_" })
+    $probeCode = $LASTEXITCODE
+    $resolved = if ($probe.Count) { $probe[-1].Trim() } else { "" }
+    $resolvedFull = try { [IO.Path]::GetFullPath($resolved) } catch { "" }
+    if ($probeCode -ne 0 -or -not $resolvedFull -or
+            -not $resolvedFull.StartsWith($pinnedSrc, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-RunLog 'refused' 3 ("journal module does not resolve under the pinned checkout {0}: {1}" -f $pinnedSrc, (($probe -join ' ').Trim()))
+        exit 3
+    }
+    $output = & $python -P -B -m weather.market.order_journal record --out $outDir --reader-config $readerConfig 2>&1
     $code = $LASTEXITCODE
 } finally {
     Pop-Location
+    $env:PYTHONPATH = $savedPythonPath
 }
 $detail = ((@($output) | ForEach-Object { "$_" }) -join ' ').Trim()
 if ($detail.Length -gt 2000) { $detail = $detail.Substring($detail.Length - 2000) }
