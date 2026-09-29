@@ -18,6 +18,12 @@ DEFAULT_REPORT = data_path("backtest", "config_inventory_report.md")
 DEFAULT_LOCATIONS_MAX_AGE_DAYS = 7
 
 CONFIG_POLICIES = {
+    "scheduled_tasks.json": {
+        "owner": "weather.operations.operating_reference",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "review_with_registrar_lifecycle_or_status_classification_changes",
+        "max_age_days": None,
+    },
     "locations.json": {
         "owner": "weather.market",
         "classification": "durable_location_registry",
