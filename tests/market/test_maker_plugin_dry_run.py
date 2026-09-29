@@ -35,7 +35,7 @@ def csv_rows(path, rows):
         writer.writerows(rows)
 
 
-def layout(tmp_path, *, lead=1, minutes=1, compressed=False):
+def layout(tmp_path, *, lead=1, minutes=1, compressed=False, uncaptured_tokens=()):
     root = tmp_path / "inputs"
     _, rows, spec, target, discovery, books = fixture(lead=lead, now=NOW)
     folder = root / "snapshots" / rows[0]["event_slug"]
@@ -52,7 +52,8 @@ def layout(tmp_path, *, lead=1, minutes=1, compressed=False):
     jsonl(folder / "snapshot_explanations.jsonl", [explanation])
     now = NOW
     store = EvidenceStore(root / "maker_evidence", clock=lambda: now)
-    book_payload = json.loads(books["body_utf8"])
+    # 88a books only its selected bands; omitted tokens model an unselected band.
+    book_payload = [b for b in json.loads(books["body_utf8"]) if b["asset_id"] not in uncaptured_tokens]
     for book in book_payload:
         book["bids"] = [{"price": ".49", "size": "75"}]
         book["asks"] = [{"price": ".51", "size": "75"}]
@@ -282,11 +283,11 @@ def test_book_age_is_not_replaced_with_decision_time(tmp_path):
     reader = Reader(args.data_root, 60, 1000000)
     _, folder, manifest = sealed_segments(reader, args.date)[0]
     captures = Segment(reader, folder, manifest).captures()
-    from weather.market.maker_plugin_runner import captured_book
+    from weather.market.maker_plugin_runner import CaptureIndex, captured_book
     from weather.market.maker_plugin.universe import WeatherUniverse
     from datetime import timedelta
     _, rows, _, _, _, _ = fixture(now=NOW)
     universe = WeatherUniverse(discovery=[r for r in captures if r["kind"] == "discovery"],
         books=[r for r in captures if r["kind"] == "books"], band_rows=rows)
     descriptor = universe.discover(NOW, 2).markets[0]
-    assert captured_book(captures, descriptor, NOW + timedelta(minutes=1)).as_of_utc == NOW
+    assert captured_book(CaptureIndex(captures), descriptor, NOW + timedelta(minutes=1)).as_of_utc == NOW
