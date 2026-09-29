@@ -21,7 +21,6 @@ import re
 from weather.paths import data_path
 
 
-SCHEMA = "owner_cockpit_snapshot_v1"
 HOST_HEALTH_PATH = data_path("alerts", "host_health_latest.json")
 DISK_TRAIL_PATH = data_path("alerts", "disk_free_trail.jsonl")
 MAKER_EVIDENCE_ROOT = data_path("maker_evidence")
@@ -359,8 +358,8 @@ def collect_cockpit_snapshot(*, now=None, host_health_path=HOST_HEALTH_PATH, dis
         decision_log = worktrack.DEFAULT_DECISIONS if decision_log is None else decision_log
     maker = _guard(read_maker_evidence, maker_evidence_root, now)
     closed = maker.get("closed_dates") if maker.get("available") else None
+    # In-memory page payload, never persisted: deliberately no registered schema version.
     return {
-        "schema_version": SCHEMA,
         "generated_at_utc": now.isoformat(),
         "money": _guard(read_wallet, wallet_reader, now),
         "work": _guard(read_work, work_root, decision_log, now),
