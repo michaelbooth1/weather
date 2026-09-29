@@ -448,3 +448,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-111e | handoff | [Workstation handoff 2026-09-111e — make the signed replay exam executable](workstation-handoff-2026-09-111e-exam-executability.md) | 2026-09-29 | none in tree | — | — |
 | 2026-09-111f | handoff | [Workstation handoff 2026-09-111f — competitor-reaction and decidedness-latency diagnostic](workstation-handoff-2026-09-111f-competitor-reaction-diagnostic.md) | 2026-09-29 | none in tree | 10m | — |
 | 2026-09-111g | handoff | [Workstation handoff 2026-09-111g — bring 110j C (compress on close) to a green PR](workstation-handoff-2026-09-111g-compress-on-close-landing.md) | 2026-09-29 | none in tree | — | — |
+| 2026-09-111h | handoff | [Workstation handoff 2026-09-111h — does corrected NBM guidance at all hours double the morning effect?](workstation-handoff-2026-09-111h-corrected-guidance-all-hours.md) | 2026-09-29 | none in tree | 10h, 10j, 10k, 10l | — |
