@@ -62,12 +62,41 @@ def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert (
-        "[string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))"
+        "$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)"
         in text
     )
     assert "$repo = [IO.Path]::GetFullPath($RepoRoot)" in text
     assert 'Join-Path $env:USERPROFILE "ops\\mirror_status.json"' in text
     assert "C:\\Users\\micha" not in text
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("explicit_root", [False, True])
+def test_status_native_file_startup_resolves_the_selected_checkout(
+    tmp_path: Path, explicit_root: bool
+) -> None:
+    checkout = tmp_path / "checkout with spaces"
+    script = checkout / "scripts" / "ops" / "status.ps1"
+    script.parent.mkdir(parents=True)
+    startup = SCRIPT.read_text(encoding="utf-8-sig").split(
+        "function Get-WeatherIntegrationValidatedEvidence", 1
+    )[0]
+    script.write_text(
+        startup + "[pscustomobject]@{repo = $repo} | ConvertTo-Json -Compress\n",
+        encoding="utf-8",
+    )
+    selected_root = tmp_path / "explicit checkout" if explicit_root else checkout
+    selected_root.mkdir(exist_ok=True)
+    command = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script), "-Json"
+    ]
+    if explicit_root:
+        command.extend(["-RepoRoot", str(selected_root)])
+    result = subprocess.run(
+        command, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert Path(json.loads(result.stdout)["repo"]) == selected_root
 
 
 def test_unpushed_guidance_has_one_affirmative_push_path() -> None:
