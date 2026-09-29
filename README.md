@@ -175,6 +175,11 @@ campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
 Unmatched lots belong to owner-discretionary, outside bot bleed limits.
 
+The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
+resting orders read-only with
+`python -m weather.market.order_journal record --out data\manual_order_journal` and reports
+rewards, fills and markouts with `python -m weather.market.order_journal report --out <dir>`.
+
 Run commands from the repository root with the venv interpreter.
 
 ### Registry, History, And Source Data

@@ -27,6 +27,7 @@ If you add a file, link it here in the same change.
 | [Git workflow SOP](../git-workflow.md) | Branches, worktrees, commits, pushes, merges, branch retirement. Single owner of git authority. |
 | [wallet-reader.md](wallet-reader.md) | Starting the owner-run read-only wallet LAN API, scoped firewall rule, or production client. |
 | [portfolio-ledger.md](portfolio-ledger.md) | Rebuilding one-wallet campaign books, FIFO lots and reconciliation from recorded account reads. |
+| [manual-order-journal.md](manual-order-journal.md) | Journaling and reporting the owner's manual resting orders (rewards, fills, markouts); `WeatherManualOrderJournal`. |
 
 ## Accumulated knowledge
 

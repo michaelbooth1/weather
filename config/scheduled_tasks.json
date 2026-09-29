@@ -200,6 +200,15 @@
       "registration_evidence": "repository registrar; host action and enablement unverified"
     },
     {
+      "name": "WeatherManualOrderJournal",
+      "owner": "docs/operations/manual-order-journal.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_manual_order_journal.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
       "name": "WeatherMarketMakingDailyRoll",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "retired",
