@@ -147,6 +147,7 @@ class ExecutionTapeCaptureTests(unittest.TestCase):
                     received_at=started + timedelta(seconds=2),
                 )
                 status = coordinator.stores[seed.key].status_payload(now=started + timedelta(seconds=2))
+                coordinator.persist_status(now=started + timedelta(seconds=2))
                 global_status = read_capture_status(tmp)
                 trade_rows = list(coordinator.stores[seed.key].trades.iter_rows())
                 dedupe_rows = list(coordinator.stores[seed.key].dedupe.iter_rows())
@@ -517,7 +518,7 @@ class ExecutionTapeCaptureTests(unittest.TestCase):
         self.assertEqual(status["evidence_interpretation"], "TRADES_WITH_COVERAGE_GAPS")
         self.assertEqual(
             status["last_counted"]["counter_basis"],
-            "physical JSONL scan at open plus fsynced append receipts",
+            "physical JSONL scan at open plus append receipts (fsync grouped at 1 s)",
         )
 
     def test_live_session_uses_documented_public_subscription_frame(self):

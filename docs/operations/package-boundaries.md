@@ -46,9 +46,17 @@ caller inputs, so the neutral package never imports `weather.paths`.
 - `dotenv` imports belong only to `maker_core.runtime.credentials`, never venue.
 - Environment/vault credential access belongs only to
   `maker_core.runtime.credentials`; that module does not exist in Phase 0.
-- `quoting` and `portfolio` cannot import `venue` or `runtime`. `quoting` may
+- `quoting` and portfolio library modules cannot import `venue` or `runtime`.
+  The executable-only `maker_core.portfolio.__main__` shim has one explicit edge
+  to `maker_core.runtime.portfolio_report.main` for the required `python -m`
+  command. It contains no accounting or adapter logic; the ratchet continues to
+  reject execution imports in every portfolio library module and any other
+  execution import in the shim. `quoting` may
   import contracts, its kernels and the evidence canonical serializer; evidence
-  imports contracts for UTC validation. The other packages remain stubs.
+  imports contracts for UTC validation. Portfolio accounting and its explicit-path
+  journal use additive neutral contracts; runtime owns file orchestration and
+  venue owns saved-read adaptation and optional LAN HTTP reads. See the
+  [portfolio ledger](portfolio-ledger.md).
 - A future `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 

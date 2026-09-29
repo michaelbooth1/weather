@@ -1,4 +1,7 @@
 import unittest
+from dataclasses import replace
+
+import pytest
 
 from weather.operations.closed_market_day_archive import ARTIFACT_FAMILY_NAMES
 from weather.operations.storage_classes import (
@@ -8,7 +11,49 @@ from weather.operations.storage_classes import (
     STORAGE_CLASSES,
     classify_storage_path,
     storage_class_contracts_payload,
+    WuAtomicOrphanProof,
 )
+
+
+def test_storage_decision_7_families_keep_live_and_panel_b_evidence():
+    for name in ("clob_diagnostics", "diagnostics"):
+        assert classify_storage_path(f"snapshots/{name}.20260925T010000Z.jsonl").storage_class == OPERATOR_CACHE
+        assert classify_storage_path(f"snapshots/{name}.jsonl").protected
+    assert classify_storage_path("snapshots/observation_triggers.20260925.jsonl").protected
+    assert classify_storage_path("forecast_history/toronto/2026-09-01.json").protected
+    assert classify_storage_path("fetch_fanout/run/x.claim").retention_class == "ttl_strictly_older_than_7_days"
+    assert classify_storage_path("fetch_fanout/run/result.json").retention_class == "monthly_tar_gz_archive"
+    assert classify_storage_path("maker_evidence/2026-09-01/updates.jsonl.gz").protected
+
+
+@pytest.mark.parametrize("change", [
+    {"writer_alive": None}, {"writer_alive": True}, {"no_open_handle": False},
+    {"final_exists": False}, {"checked_at": 86401}, {"writer_pid": 43},
+    {"path": "wunderground/other.json.42.123.tmp"}, {"mtime": float("nan")},
+])
+def test_wu_temp_orphans_fail_closed_without_each_proof(change):
+    path = "wunderground/cyyz/day.json.42.123.tmp"
+    proof = WuAtomicOrphanProof(path, 42, False, None, 1, 86402, True, True)
+    assert classify_storage_path(path).protected
+    assert not classify_storage_path(path, wu_orphan_proof=proof).protected
+    assert classify_storage_path(path, wu_orphan_proof=replace(proof, **change)).protected
+
+
+def test_wu_orphan_pid_reuse_and_non_wu_scope():
+    path = "wunderground/cyyz/day.json.42.123.tmp"
+    proof = WuAtomicOrphanProof(path, 42, True, 2, 1, 86402, True, True)
+    assert not classify_storage_path(path, wu_orphan_proof=proof).protected
+    assert classify_storage_path(path, wu_orphan_proof=replace(proof, writer_started_at=1)).protected
+    assert classify_storage_path("wunderground/cyyz/day.tmp", wu_orphan_proof=proof).protected
+
+
+def test_retired_paper_maker_tasks_are_expected_disabled():
+    from weather.paths import repo_path
+
+    text = repo_path("scripts", "ops", "status.ps1").read_text(encoding="utf-8")
+    expected = text.split("$expDisabled = @(", 1)[1].split("\n)", 1)[0]
+    assert '"WeatherMarketMakingDailyRoll"' in expected
+    assert '"WeatherMarketMakingDailyRollSupervisor"' in expected
 
 
 class TestStorageClassRegistry(unittest.TestCase):

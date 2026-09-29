@@ -33,6 +33,7 @@ changing inventories, metrics, versions, or operational state.
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Cross-host mission rules | `docs/operations/DELEGATION_CONTRACT.md` |
+| Standing workstation session rules (dispatch preamble) | `docs/operations/WORKSTATION_SESSION_PREAMBLE.md` |
 | Text retired from always-read files (expired exceptions, spent incident modes) | `docs/operations/history/`, each file under a `HISTORICAL — not current authority` banner |
 | Durable domain invariants | `docs/operations/AGENT_CONTEXT.md` |
 | Architecture/data flow | `docs/architecture.md` |
@@ -41,6 +42,8 @@ changing inventories, metrics, versions, or operational state.
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
+| Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
+| One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
 | Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
 | Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |
 | Current engineering work | generated roadmap active backlog |
