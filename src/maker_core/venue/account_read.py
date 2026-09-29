@@ -1,11 +1,11 @@
 """Whitelist adapter for saved wallet-reader JSON; no SDK, secrets or IO.
 
-An archive is {account_id, captured_at_utc, summary, trades}. Unknown completeness
-and fees remain unknown. A neutral snapshot can also be supplied directly.
+Archives may wrap reader results in reads, or use the legacy top-level shape.
+Unknown completeness and fees remain unknown. No account is inferred from rows.
 """
 from datetime import datetime, timezone
 
-from maker_core.contracts.portfolio import SNAPSHOT_SCHEMA, instant, validate_snapshot
+from maker_core.contracts.portfolio import SNAPSHOT_SCHEMA, identity, instant, validate_snapshot
 
 
 def timestamp(value):
@@ -14,17 +14,43 @@ def timestamp(value):
     return instant(value).isoformat()
 
 
-def adapt_archive(value):
+def adapt_archive(value, *, account_id=None):
+    if not isinstance(value, dict):
+        raise ValueError("invalid_reader_archive")
+    envelope = "reads" in value
+    payload = value.get("reads", value)
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_reader_archive")
+    summary = payload.get("summary", payload)
+    if not isinstance(summary, dict):
+        raise ValueError("invalid_reader_archive")
+    if envelope and account_id is None:
+        raise ValueError("explicit_account_id_required")
+    accounts = [identity(a) for a in (account_id, value.get("account_id"), summary.get("account_id"))
+                if a is not None]
+    if not accounts or len({a.lower() for a in accounts}) != 1:
+        raise ValueError("missing_or_conflicting_account_id")
+    account = accounts[0]
     if value.get("schema_version") == SNAPSHOT_SCHEMA:
         return validate_snapshot(value)
-    summary = value.get("summary", value)
-    trades = value.get("trades", {})
-    if not isinstance(summary, dict) or not isinstance(trades, dict):
+    trades = payload.get("trades", {})
+    if isinstance(trades, list):
+        # A saved recent page is useful evidence, never a coverage assertion.
+        trades = {"account_activity": trades}
+    if not isinstance(trades, dict):
         raise ValueError("invalid_reader_archive")
-    account = value.get("account_id", summary.get("account_id"))
     as_of = timestamp(value.get("captured_at_utc", summary.get("captured_at_utc")))
+    summary = dict(summary)
+    inventory = payload.get("positions")
+    if envelope and isinstance(inventory, dict):
+        for key in ("positions", "resolved_positions", "unclassified_positions"):
+            if key not in summary and key in inventory:
+                summary[key] = inventory[key]
     positions, history = [], []
+    reasons = set()
     complete = not summary.get("errors", {}).get("positions") and isinstance(summary.get("positions"), list)
+    if summary.get("inventory_complete") is False or isinstance(inventory, dict) and inventory.get("inventory_complete") is False:
+        complete = False
     resolved = summary.get("resolved_positions", [])
     if summary.get("resolved_count", len(resolved)) != len(resolved):
         complete = False
@@ -37,6 +63,8 @@ def adapt_archive(value):
     # fills require a separate maker-order allocation; never guess their side.
     source = trades.get("account_activity", trades.get("recent_activity", []))
     history_complete = trades.get("history_complete") is True and isinstance(source, list)
+    if not history_complete:
+        reasons.add("history_completeness_unproven")
     for row in source if isinstance(source, list) else []:
         try:
             if str(row.get("proxyWallet", "")).lower() != str(account).lower():
@@ -62,7 +90,8 @@ def adapt_archive(value):
             history.append(event)
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError, OSError):
             history_complete = False
+            reasons.add("activity_row_unavailable")
     return validate_snapshot(dict(schema_version=SNAPSHOT_SCHEMA, account_id=account, as_of_utc=as_of,
         cash_pusd=summary.get("cash_pusd"), positions=positions, trades=history,
         positions_complete=complete, history_complete=history_complete,
-        history_start_utc=trades.get("history_start_utc")))
+        history_start_utc=trades.get("history_start_utc"), unavailable_reasons=sorted(reasons)))

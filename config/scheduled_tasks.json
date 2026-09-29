@@ -1,0 +1,401 @@
+{
+  "format_version": 1,
+  "scope": "Reviewed repository lifecycle intent, not a Scheduler snapshot or authority to arm a task. Active means maintained; expected_disabled represents operator holds. Patterns cover per-attempt task names. Registrar defaults may be explicitly overridden.",
+  "source": "110n, repo-health D6 at 2c8b90618; host registry unverified",
+  "tasks": [
+    {
+      "name": "WeatherAgentOvernight1030",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherAgentQuietWindow",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherBootRecovery",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_boot_recovery.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherCapturePriorityGuard",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherClobBookLoopSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_clob_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherClobEnrichmentLoop",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_clob_enrichment.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherClobRawTapeTiering",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_clob_raw_tape_tiering.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherClobTiering",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_clob_tiering.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherColdSnapshotNightly",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_cold_snapshot_nightly.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherDailySettlementPromotionRefresh",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [
+        "0x2",
+        "0x4B"
+      ],
+      "registrar": "scripts/ops/register_daily_refresh.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherDataMirror",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherEveningEvidenceRefresh",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [
+        "0x2"
+      ],
+      "registrar": "scripts/ops/register_daily_refresh.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherExchangeEconomicsSnapshotRefresh",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_exchange_economics_refresh.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherExecutionTapeSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_execution_tape_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherHostHealthWatchdog",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [
+        "0x2"
+      ],
+      "registrar": "scripts/ops/register_health_watchdog.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherIntegrationMerge_*",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_integration_attempt.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherIntegrationRecoveryBootstrapMerge0822",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherIntegrationRecoveryBootstrapSuite0822",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherIntegrationSuite_*",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_integration_attempt.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherLocationConfigRefresh",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_location_config_refresh.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherMakerEvidenceCapture",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_maker_evidence_capture.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherMarketMakingDailyRoll",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_market_making_daily_roll.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherMarketMakingDailyRollSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_market_making_daily_roll_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherMemoryCommitGuard",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_memory_commit_guard.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherMergeQueueDriver",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherMergeSensitiveDriver",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherMirrorRestoreVerify",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherModelMarketDisagreementAnalysis",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_model_market_disagreement_analysis.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherNightlyRetrainValidatePromote",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_nightly_retrain.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherObservationTriggerSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_observation_trigger_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherOneShotMirror",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherOneShotPush",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [
+        "0x1",
+        "0x0",
+        "0x41306"
+      ],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherSnapshotLoopSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_snapshot_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherStalenessSweep",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [
+        "0x1",
+        "0x2"
+      ],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherStorageRecovery-*",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_storage_recovery_night.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherStreakCaptureMonitor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherSuite0969a",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherTakerBotDailyRoll",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_taker_bot_daily_roll.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherTakerBotDailyRollSupervisor",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "retired",
+      "expected_disabled": true,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_taker_bot_daily_roll_supervisor.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherTrainingWindow",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": true,
+      "expected_nonzero": [
+        "0x2"
+      ],
+      "registrar": "scripts/ops/register_training_window.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherTrainingWindowReenable*",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "one-shot",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+    },
+    {
+      "name": "WeatherTrainingWindowRestore",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_training_window.ps1",
+      "registration_evidence": "repository registrar; host action and enablement unverified"
+    }
+  ]
+}

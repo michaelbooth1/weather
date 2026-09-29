@@ -1,0 +1,19 @@
+{
+  "schema_version": "portfolio_campaigns_v0.1",
+  "account_id": null,
+  "default_campaign": "owner-discretionary",
+  "unattributed_cash_pusd": "0",
+  "reconciliation_tolerance_pusd": "0.000001",
+  "campaigns": [
+    {
+      "id": "owner-discretionary",
+      "enabled": true,
+      "start_utc": "1970-01-01T00:00:00Z",
+      "contributions": []
+    },
+    {"id": "weather-maker", "enabled": false},
+    {"id": "youtube-maker", "enabled": false}
+  ],
+  "lot_overrides": [],
+  "rules": []
+}

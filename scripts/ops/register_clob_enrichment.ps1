@@ -25,6 +25,7 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [switch]$AcknowledgeRetired,
     [string]$StartAt = "01:00",
     [int]$IntervalSeconds = 900,
     # Defaults sample the WebSocket for 1s capped at 5 messages, which in a thin book is
@@ -46,6 +47,10 @@ if ($Unregister) {
     Write-Output "unregistered $taskName"
     exit 0
 }
+if (-not $AcknowledgeRetired) {
+    throw 'This task is retired. Registration requires explicit -AcknowledgeRetired and owner-ops resumption review.'
+}
+
 if (-not (Test-Path $python)) { throw "missing $python" }
 
 $arguments = "-m weather.market.market_microstructure enrichment-loop " +
