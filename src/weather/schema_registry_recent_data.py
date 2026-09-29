@@ -1456,4 +1456,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "wu_orphan_cleanup_receipt",
+        "wu_orphan_cleanup_receipt_v0.1",
+        "weather.operations.wu_orphan_cleanup",
+        "active",
+        "Exact WU temporary-file preflight and apply receipts with current orphan proofs.",
+    ),
 )
