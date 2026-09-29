@@ -43,6 +43,7 @@ changing inventories, metrics, versions, or operational state.
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
 | Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
+| Read-only reward-opportunity scan, its allow-list and output | `docs/operations/reward-scan.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
 | Current work | generated roadmap active backlog |
 | Item status/scope/evidence | numbered roadmap item file |
