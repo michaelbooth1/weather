@@ -101,9 +101,9 @@ Any retrain that changes artifacts must publish both
 `artifacts/manifests/model_artifact_promotion_preflight.json`, before artifact
 promotion or commit. Model loading still resolves artifacts through
 `weather.artifacts`, so applying this policy does not change runtime lookup
-paths. The host nightly-retrain module does not run these commands itself; the
-manual-only GitHub `retrain.yml` workflow (daily schedule disabled 2026-07-29)
-runs `registry` and `size-audit`. Run all four by hand before a promotion.
+paths. The host nightly-retrain module does not run these commands itself, and
+no GitHub workflow runs them (the manual `retrain.yml` workflow was removed on
+2026-09-29). Run all four by hand before a promotion.
 
 ## Restore
 
