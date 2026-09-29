@@ -1,5 +1,9 @@
 # Weather Market Platform
 
+For the attended public-only maker shadow runner and closed-session agreement,
+use the [shadow start commands and admission contract](docs/operations/maker-shadow-runner-design.md#installed-entry-points).
+The owner starts sessions; this lane emits no economic score or live order.
+
 Coding agents should start with [AGENTS.md](AGENTS.md) (Claude Code loads it
 through `CLAUDE.md`), then [the state of play](docs/operations/STATE_OF_PLAY.md)
 for what is true today, and load task-specific context through the

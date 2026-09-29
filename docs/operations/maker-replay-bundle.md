@@ -90,14 +90,17 @@ intervals; omitted conditions or narrowed intervals cannot be discovered by this
 not the count of captured books. Present but malformed books do not become valid decisions. No P&L, rewards, fill rates,
 returns, comparisons or confidence intervals are emitted. Parity is explicitly `NOT_RUN`.
 
-`--compare` requires `--pre-registration` and `--pre-registration-sha256`. The exact raw-byte hash and owner must first
+`--compare` requires `--pre-registration` and `--pre-registration-sha256` for its execution JSON manifest, plus
+`--decision-log`, `--frozen-protocol` and `--execution-addendum`. The exact raw-byte manifest hash and owner must first
 be enrolled in `replay.authorization.APPROVED_REGISTRATIONS` through a separate owner-approved code review. The table
 is deliberately empty in this fixture-only build. An arbitrary caller hash, boolean or synthetic label cannot enroll an
-approval, and an unenrolled request refuses before bundle or registration IO. This is **review-attested hash pinning**,
-not cryptographic signature verification. The owner signs the registration in the review process; the signature field
-records its review reference and is not itself trusted. No key, private material or signing identity is invented here.
+approval, and an unenrolled request refuses before bundle or registration IO. The owner's signature is a DECISION_LOG
+row binding the raw-byte SHA-256 of the frozen protocol and execution addendum. The CLI verifies the exact row,
+document hashes and scoring time before bundle IO. This is review-attested authorization, without a signing key.
+The [verifier contract](maker-replay-authorization-verifier-design-2026-09-27.md) owns the row format and remaining
+one-look gates; real enrollment remains blocked until those gates are implemented and reviewed.
 
-An approved artifact must specify owner, signature reference, UTC signed_at, hurdles, dates, market clusters, all four
+An approved artifact must specify owner, owner_decision, UTC signed_at, hurdles, dates, market clusters, all four
 policies, both clustering schemes, replay_config, bootstrap_replicates, bootstrap_seed, and both net metrics. Exact scope
 and configuration equality is checked before scoring. Repeat `--bundle` for closed UTC days in comparison mode; total
 bytes/records and the whole-run clock remain bounded. `--hazard-per-minute`, `--initial-cash`, bootstrap options and all
@@ -194,6 +197,14 @@ Reports must distinguish all such limitations from passed checks and retain the 
 
 ### Scoring
 
+`replay.pull_efficiency.pull_efficiency` reports the registered five-minute YES-midpoint move endpoint alongside
+economic intervals under both fill bounds. It samples the post-decision resting state at each UTC minute, forms a
+common covered opportunity set, verifies its own one-minute pull-count match, and resamples paired counts by date
+and crossed date x market. Zero pull denominators or zero clock removed moves are UNIDENTIFIED. The point ratio
+threshold and all endpoint conventions are owned by the [registration](../research/maker-replay-hurdles-preregistration-2026-09-27.md)
+and [execution addendum](../research/maker-replay-execution-addendum-2026-09-27.md); endpoint success is not a combined
+economics/admission verdict. JSON contains counts, exclusions, band-days, intervals and omitted replicate counts.
+
 Inference sums paired band-day net differences within each market/UTC-date and
 averages complete market/date cells. Any incomplete/unpaired band drops its entire
 cell. Date bootstrap resamples whole dates; crossed bootstrap independently draws
@@ -252,5 +263,56 @@ last bundle's UTC boundary; unresolved inventory is explicitly counted. No carry
 inventory is assumed. Missing coverage or unresolved fills suppress modeled net
 totals for that band-day. Cash-hours, observed pull fraction, replacements and
 inside/outside-event fill counts are retained separately from economics.
+
+## Clarified execution pack
+
+The [unsigned prospective Clarification 1](../research/maker-replay-clarification-1-2026-09-27.md) shifts the
+registered dates, defines pooled sparse-city fallback, and excludes maintenance. The frozen registration and addendum
+are unchanged. Production must sign all three hashes before manifest construction. Publication is not that signature.
+
+`python -m maker_core.replay calibrate_hazard --help` describes bounded calibration on **calibration-only sealed
+bundles**, containing only descriptor, trade and coverage records. These use the existing bundle envelope; they must
+be prepared by the production evidence owner from the allowed 88a streams, with their original source hashes retained.
+The general weather replay exporter emits additional kinds and its output is deliberately refused as calibration
+input. Do not use an ad-hoc filter that drops gaps or invalid trade records, or open outcomes to select calibration.
+The CLI performs no network access or raw 88a export. Supplying a future seal, duplicate date, changed bytes or incorrect
+hash refuses; missing files produce a 1.0 fallback explicitly marked incomplete and cannot qualify a manifest.
+
+The quote-market JSON is a sorted unique array of stable city IDs, sealed prospectively before calibration. The
+estimator combines it with calibration discovery to freeze M. Final panel discovery must reproduce that union;
+an unexpected city blocks verification rather than recalibrating after a scored read. Every city reports n/x/dates,
+coverage exclusions, numerical brackets, fallback reasons and the selected city/pooled bound. Empty/sparse pools and
+uncomputable numerical bounds retain 1.0. Coverage must last for the entire minute, with the exporter's 30-second
+expiry. Identical trade IDs count once across the window; conflicting duplicates exclude every affected capture minute.
+The CP CDF is evaluated with the pinned SciPy regularized beta and inverted by bisection, retaining the upper endpoint
+and rounding upward to twelve places; it uses no normal approximation.
+
+`python -m maker_core.replay manifest build --help` and `manifest verify --help` describe the preparation surface.
+Both require all fifteen sealed panel/settlement bundles, the three calibration bundles, the calibration JSON,
+the prospective city JSON, and a sorted universe JSON array. Each universe row contains exactly `condition_id`,
+`market_id`, `domain_id`, `target_date` and `local_timezone`. Every discovered condition is retained, including excluded
+conditions; the target and timezone must match the captured descriptor's local midnight close and local horizon.
+Missing descriptors or cluster mismatches block. This is a supplied domain-export binding, never a slug heuristic.
+
+The builder checks the explicit owner-decision JSON against the current DECISION_LOG row and all three document
+hashes, recomputes calibration, then binds every ReplayConfig field, fixed hurdles/bootstrap settings, exact sorted
+universe, active intervals, stream/bundle hashes, source-hash digests and operational ceilings. It hashes the complete
+maker core, weather plugin/adapter/exporter sources and dependency manifest without importing weather into the core.
+Only `approved_registrations.py` is excluded from the executable hash set: enrollment cannot hash itself. The verifier
+checks the raw manifest hash and regenerates all bindings. It may run before the scoring date and does not enroll a
+hash or execute a policy. All JSON outputs are create-only and capped; failures never truncate or select a sample.
+
+The scored `run --compare` requires independent enrollment, the scoring date, current owner-log verification and every
+binding path. It applies the sealed intervals to every policy and clock matching, preserving carried inventory and
+settlement while keeping maintenance and the settlement-only day out of quote exposure. The report retains the
+selected clock windows. Immediately before policy invocation it rechecks the owner log and consumes
+`attempts/<authorization_id>.json` next to the canonical sealed execution manifest. This is shared across output
+directories; failures remain consumed. Never relocate a manifest to evade this receipt. A completed receipt is
+additional evidence, never a replacement for the original consumption record. Reports expose the full hurdle
+conjunction separately from their counterfactual/transport limitations. No result authorizes live work.
+
+The workstation wrapper admits exactly `maker_core.replay` as offline heavy work; no venue/runtime wildcard is added.
+An installed Codex hook with the older independent module list may still reject this command. This change does not
+alter that hook or authorize bypassing it; production must qualify its invoking path under the host-load policy.
 
 Update when the envelope, payload validation, time/byte limits, export path, scoring admission or report semantics change.

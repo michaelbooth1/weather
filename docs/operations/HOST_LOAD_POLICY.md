@@ -14,6 +14,13 @@ be rescheduled — is never starved.
 
 ## Workstation and portable-executor scope
 
+The attended `scripts/ops/workstation_shadow.ps1` launcher uses the distinct
+`workstation_public_shadow` profile for public maker evidence and offline
+agreement. It shares the exact non-capture host/principal checks, mutex, durable
+ACTIVE/TEARDOWN_PENDING poison and child-tree cleanup below. It grants no order
+or credential capability, adds no network permission to the offline profile,
+and registers no task. See [the shadow contract](maker-shadow-runner-design.md#installed-entry-points).
+
 This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
@@ -47,8 +54,8 @@ the child tree. A later attended admission may clear that state only after the
 exact owner process identity is proved gone and a bounded scan proves zero
 residual heavy processes while the mutex is owned. That recovery rejects once
 and requires retrying the exact operation. No marker means ordinary admission
-does not perform the recovery scan. This state machine applies only to the
-portable/offline profiles; capture-colocated admission keeps its existing
+does not perform the recovery scan. This state machine applies to the portable,
+offline and public-shadow profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 

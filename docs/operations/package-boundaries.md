@@ -91,6 +91,14 @@ rules are owned by the [replay bundle contract](maker-replay-bundle.md).
 
 ## Shared Utilities
 
+The shadow entrypoint's transitive local import closure is tested separately.
+`maker_core.shadow` reuses `replay.lifecycle`, never the RE-1 composition in
+`replay.engine`. Its sole venue dependency is `venue.public_read`, exposing only
+fixed public GET endpoints and market-stream subscription/ping. Runtime,
+credential, account, RE-1 and economic-scoring adapters are unreachable. Weather
+composition remains outside the pure provider package; core imports no weather.
+See [the shadow contract](maker-shadow-runner-design.md).
+
 These packages are intentionally importable by any owner package:
 
 - `weather.artifacts`
