@@ -40,6 +40,7 @@ changing inventories, metrics, versions, or operational state.
 | Package edges and facade ownership | operations boundary/ownership docs |
 | Domain-neutral maker plugin contracts, pure inputs and evidence format | `operations/maker-core-contracts.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
+| Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
 | Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
