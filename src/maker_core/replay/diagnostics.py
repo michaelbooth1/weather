@@ -28,18 +28,19 @@ def coverage_report(bundle: Bundle, policy: str, *, check=lambda: None) -> dict:
     coverage = []
     for condition in bundle.conditions:
         check()
-        cursor, exclusions = condition.active_from, []
-        observed = sorted(t for t in book_minutes[condition.condition_id]
-                          if condition.active_from <= t < condition.active_until)
-        for minute in observed:
-            check()
-            if minute > cursor:
-                exclusions.append({"from": cursor, "until": minute, "reason": "MISSING_BOOK_CAPTURE"})
-            cursor = minute + timedelta(minutes=1)
-        if cursor < condition.active_until:
-            exclusions.append({"from": cursor, "until": condition.active_until,
-                               "reason": "MISSING_BOOK_CAPTURE"})
-        expected = int((condition.active_until - condition.active_from).total_seconds() / 60)
+        exclusions, observed, expected = [], [], 0
+        for start, end in bundle.windows(condition):
+            cursor = start
+            minutes = sorted(t for t in book_minutes[condition.condition_id] if start <= t < end)
+            observed.extend(minutes)
+            for minute in minutes:
+                check()
+                if minute > cursor:
+                    exclusions.append({"from": cursor, "until": minute, "reason": "MISSING_BOOK_CAPTURE"})
+                cursor = minute + timedelta(minutes=1)
+            if cursor < end:
+                exclusions.append({"from": cursor, "until": end, "reason": "MISSING_BOOK_CAPTURE"})
+            expected += int((end-start).total_seconds()/60)
         coverage.append({"condition_id": condition.condition_id, "market_id": condition.market_id,
                          "domain_id": condition.domain_id, "expected_minutes": expected,
                          "book_capture_minutes": len(observed), "excluded_minutes": expected - len(observed),

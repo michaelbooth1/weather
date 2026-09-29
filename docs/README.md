@@ -60,6 +60,7 @@ Read the one that owns the thing you are changing.
 | A domain-neutral maker plugin, pure decision or evidence journal | [Maker core contracts](operations/maker-core-contracts.md) |
 | Neutral maker replay inputs and diagnostic admission | [Replay bundle contract](operations/maker-replay-bundle.md) |
 | Workstation public-read shadow proposals, replay agreement and drills | [Shadow runner design](operations/maker-shadow-runner-design.md) (proposed implementation contract) |
+| First informed-maker replay hurdles, frozen execution choices and owner attestation | [Frozen pre-registration](research/maker-replay-hurdles-preregistration-2026-09-27.md), [execution addendum](research/maker-replay-execution-addendum-2026-09-27.md), [verifier contract and remaining gates](operations/maker-replay-authorization-verifier-design-2026-09-27.md) |
 | A large module or facade split | [Large-module ownership map](operations/module-ownership-map.md) |
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
