@@ -179,7 +179,8 @@ adapters consume caller-supplied captured records without provider or filesystem
 
 `python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data>
 --output <new-dir> [--markets nyc chicago] [--max-seconds 2700]
-[--max-output-bytes 200000000] [--max-input-bytes 1073741824]` is an offline diagnostic caller.
+[--max-output-bytes 200000000] [--max-input-bytes 1073741824]
+[--max-cache-bytes 536870912] [--minute-stride 1]` is an offline diagnostic caller.
 Use the topic's installed packages, or set `PYTHONPATH` to its absolute `src` directory.
 The interpreter's `-B` is required for the no-writes-outside-output invocation:
 it suppresses import-cache writes even before the entrypoint loads.
@@ -199,23 +200,51 @@ For registered events, explicit supporting paths beneath `--data-root` are:
 - `snapshots/<event>/snapshots_long.csv[.gz]` for captured bands and probabilities;
 - `forecasts_long.csv[.gz]`, `snapshot_explanations.jsonl[.gz]`,
   `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
-- retained NBP blobs at `forecast_payloads/sha256/<prefix>/<payload_hash>.json[.gz]`,
-  addressed by the forecast manifest, with both blob and NBP text hashes checked;
-- `snapshots/observation_triggers.jsonl[.gz]` and `settlements/<market>/ledger.jsonl[.gz]`.
+- `snapshots/<event>/clob_tokens.jsonl[.gz]`, else `clob_tokens.csv[.gz]`, for band
+  metadata before the event has point-in-time snapshot rows (T+1/T+2): the first complete
+  token batch (both outcomes of every condition, identical native bin fields, no negative
+  label) is streamed and the read stops there; a batch after the decision minute is a
+  reported coverage limit, never a guess;
+- shared NBP bulletins (`payload_storage_scope=shared_market_invariant`) at
+  `forecast_payload_cas/sha256/<prefix>/<payload_hash>.blob`, the path produced by the
+  store's own `shared_payload_ref`; the manifest's CAS kind, raw-bytes hash algorithm,
+  encoding, media type, ref and station/target identity are checked, and the SHA-256 and
+  byte count cover the exact national blob bytes (strict UTF-8). Each blob is streamed
+  once per run and only requested station blocks are kept; the provider receives the
+  verified station extract with the national hash as lineage. Legacy market-local rows
+  still use `forecast_payloads/sha256/<prefix>/<payload_hash>.json[.gz]` (hash over the
+  JSON bytes without the trailing newline). `raw_payload_path` is never followed;
+- `snapshots/observation_triggers.jsonl[.gz]` and `settlements/<market>/ledger.jsonl[.gz]`,
+  each streamed once per run and indexed by run-window event.
 
 The source manifests supply release lineage; the runner never manufactures the
 missing `release_calibration_method` projection or reads ambient model artifacts.
 All provider joins are point-in-time. A payload's first manifest capture also
 bounds its availability. Missing joins produce explicit coverage/Unavailable
 reasons; corrupt NBP or clock inputs cannot silently become fallback or an empty clock.
-Append/change during a file read refuses that input. Files above 64 MiB decoded
-or 100,000 rows refuse with a reported input reason; decoded segment bodies and
-the per-segment journal cache each have a 64 MiB limit.
+Append/change during a file read refuses that input. Whole-file reads (the per-event
+tables above) above 64 MiB decoded or 100,000 rows refuse with a reported input reason;
+decoded segment bodies and the per-segment journal cache each have a 64 MiB limit.
+Streamed files (tokens, triggers, ledgers, shared blobs) keep one 1 MiB line in memory
+and at most 100,000 retained rows. Rows that cannot be point in time for any minute of
+the run date are not loaded: anything captured/recorded after the date, and forecast
+or NBP manifest rows more than 48 hours before it (a daily-high forecast or NBP issue
+is eligible for at most 24 hours after issue, and issue precedes capture).
+
+Each event's supporting inputs are loaded once per run and kept within
+`--max-cache-bytes` (encoded rows); over-budget events are reloaded and counted
+(`cache.*`). Providers are built once per cached event. Each segment is indexed once,
+so a minute reads no files. Coverage reports `input_bytes.<source>` and
+`files_read.<source>` for every source, and `unavailable.lead<N>.<reason>` by local lead.
+`--minute-stride N` evaluates only UTC minutes of the day divisible by N; it is recorded
+in the summary and counted as `segment_minutes.skipped_by_stride`.
 
 The last books capture in each segment's minute is the decision clock. Split
 minutes across segment boundaries are explicitly flagged, not silently deduplicated.
 Each discovered active band gets a descriptor attempt; missing both-token rules
-do not erase valid siblings. The JSON and Markdown contain available probability
+do not erase valid siblings. 88a books only its selected, reward-eligible bands
+(at most ten per city), judged on the UTC date; a band with no captured book is
+`descriptor:book_not_captured`, a capture coverage limit rather than an input fault. The JSON and Markdown contain available probability
 mass sums, expected/available bands, partial-mass flags, joins, provider refusals,
 clock events (JSON), settlement Pending/facts, policy reasons and leg counts.
 Not-evaluable inputs are counted separately from a policy decision with zero legs.
