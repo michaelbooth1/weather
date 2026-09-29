@@ -53,6 +53,11 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   `wu_history_high_increased` capture to the first 88a mid move on the affected band, from calibration dates only.
   The report states the replay's reward accrual assumes no competitor reaction and quotes the measured decay next to
   any reward-based result. It changes no hurdle, estimator or decision rule.
+- **Measured-reaction sensitivity (reported, not a hurdle).** Every reward-based endpoint is also reported at
+  **k = 0.3**, the long-horizon reward multiplier measured from the RE-1 journals' per-minute share samples (sessions
+  near one hour kept k 0.27–0.32; 111f amendment 1, `agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json`
+  SHA-256 `30e68a615649430cd3f43e3b06a2efd3440c80c6259243dc9e6182bb4e67be91` at commit `ef6a0a6fcbad7a1bcafc560898bb2f13d72cecf1` (PR #143)), beside the registered k = 1 and k = 0.5. It changes no hurdle, estimator or
+  decision rule.
 
 Everything else remains unchanged, including every hurdle, estimator, bootstrap setting, policy, pricing, fill and
 net-screen semantic, the calibration dates and method, the panel dates, and the one-look restriction.
