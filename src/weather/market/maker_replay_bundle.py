@@ -10,6 +10,7 @@ import hashlib
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 
 from maker_core.evidence.journal import canonical_bytes, plain
@@ -20,7 +21,8 @@ from maker_core.replay.payloads import market_descriptor
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, sealed_segments
 from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, captured_book, reward_terms
-from weather.market.maker_plugin_sources import COVERAGE_KEYS, Sources
+from weather.market.maker_plugin_sources import COVERAGE_KEYS
+from weather.market.maker_replay_release import ReleaseSources
 from weather.market.maker_plugin.exposure import WeatherExposure
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
@@ -31,7 +33,7 @@ from weather.paths import DATA_ROOT
 class ExportReader(Reader):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.identities, self.hashes = {}, {}
+        self.identities, self.hashes, self.paths = {}, {}, {}
 
     def scan(self, path, consume, *args, **kwargs):
         # Whole reads and streamed lines both pass through scan, so every input
@@ -45,24 +47,38 @@ class ExportReader(Reader):
             stopped = bool(consume(chunk))
             return stopped
         info = super().scan(path, hashed, *args, **kwargs)
-        complete = not stopped
         key = str(Path(path).absolute().relative_to(self.root)).replace("\\", "/")
+        self.remember(key, path, digest.hexdigest(), complete=not stopped, size=size)
+        return info
+
+    def read_release(self, root, path):
+        # Explicit second read-only root, sharing the whole night's budgets.
+        other = Reader(root, self.max_seconds, self.max_input_bytes, clock=self.clock)
+        other.started, other.bytes_read = self.started, self.bytes_read
+        raw = other.read(path, 2 * 1024**2)
+        self.bytes_read = other.bytes_read
+        key = "release:" + Path(path).relative_to(root).as_posix()
+        self.remember(key, path, sha256(raw))
+        return raw
+
+    def remember(self, key, path, digest, *, complete=True, size=None):
+        info = Path(path).stat()
         signature = info.st_size, info.st_mtime_ns, info.st_ino
         if key in self.identities and self.identities[key] != signature:
             raise ValueError("source_changed_between_reads")
-        value = digest.hexdigest() if complete else f"prefix:{size}:{digest.hexdigest()}"
+        value = digest if complete else f"prefix:{size}:{digest}"
         known = self.hashes.get(key)
         if complete and known is not None and not known.startswith("prefix:") and known != value:
             raise ValueError("source_changed_between_reads")
         if complete or known is None or known.startswith("prefix:"):
             self.hashes[key] = value
         self.identities[key] = signature
-        return info
+        self.paths[key] = Path(path)
 
     def recheck(self):
         for key, signature in self.identities.items():
             self.check()
-            info = (self.root / key).stat()
+            info = self.paths[key].stat()
             if signature != (info.st_size, info.st_mtime_ns, info.st_ino):
                 raise ValueError("source_changed_before_export")
 
@@ -167,8 +183,12 @@ def _support_records(projection, cid, support, hashes):
             projection.check()
             at = timestamp(row[time_key])
             if at < projection.end:
-                projection.add(cid, "plugin_input", max(at, projection.start),
-                    dict(source=name, original_captured_at=at, record=row), hashes)
+                payload = dict(source=name, original_captured_at=at, record=row)
+                if name == "source_rows":
+                    # Additive projection of captured lineage only. Missing is
+                    # explicitly null, never an invented identity calibration.
+                    payload["release_calibration_method"] = row.get("release_calibration_method")
+                projection.add(cid, "plugin_input", max(at, projection.start), payload, hashes)
 
 
 def _carry_metadata(args, projection, reader):
@@ -217,7 +237,7 @@ def _carry_metadata(args, projection, reader):
                         projection.add(cid, "settlement", at, fact, hashes)
 
 
-def export(args, *, now=None):
+def export(args, *, now=None, reader=None):
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     if day >= now.date():
@@ -235,8 +255,14 @@ def export(args, *, now=None):
         source = neutral_path(path)
         if output == source or output.is_relative_to(source) or source.is_relative_to(output):
             raise ValueError("output_carry_overlap")
-    reader = ExportReader(root, args.max_seconds, args.max_input_bytes)
-    sources, projection = Sources(reader, args.date, args.markets), Projection(day, args.max_output_bytes, args.max_records, reader.check)
+    reader = reader or ExportReader(root, args.max_seconds, args.max_input_bytes)
+    release_root = getattr(args, "release_root", None)
+    if release_root is not None:
+        release_root = neutral_path(release_root)
+        if output == release_root or output.is_relative_to(release_root) or release_root.is_relative_to(output):
+            raise ValueError("output_release_overlap")
+    sources = ReleaseSources(reader, args.date, args.markets, release_root)
+    projection = Projection(day, args.max_output_bytes, args.max_records, reader.check)
     _carry_metadata(args, projection, reader)
     support_written, segments = set(), sealed_segments(reader, args.date)
     raw_support = {}
@@ -350,6 +376,8 @@ def export(args, *, now=None):
     for name, content in (("events.jsonl", raw), ("bundle.json", manifest_bytes), ("export.json", summary_bytes)):
         with (output/name).open("xb") as handle:
             handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
     # Output-only validation, still within the global deadline; never mutate source.
     reader.check()
     load_bundle(output)
@@ -365,6 +393,7 @@ def main(argv=None):
     run.add_argument("--data-root", type=Path, default=DATA_ROOT)
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--markets", nargs="+", choices=[s.id for s in BUILTIN_SPECS], required=True)
+    run.add_argument("--release-root", type=Path, help="explicit immutable releases for hash-bound calibration projection")
     run.add_argument("--carry-bundle", action="append", type=Path, default=[],
                      help="prior closed-day neutral bundle: descriptor/band metadata for later settlement only")
     run.add_argument("--max-seconds", type=float, default=300)
@@ -374,7 +403,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         result = export(args)
-    except (ValueError, KeyError, TypeError, ArithmeticError, OSError, StopRun, BundleError) as exc:
+    except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun, BundleError) as exc:
         parser.exit(2, f"bundle refused: {type(exc).__name__}: {exc}\n")
     print(json.dumps({k: result[k] for k in ("status", "day", "counts", "input_bytes")}, sort_keys=True))
     return 0
