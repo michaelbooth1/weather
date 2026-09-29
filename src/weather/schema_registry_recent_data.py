@@ -1456,4 +1456,9 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "competitor_reaction_diagnostic", "competitor_reaction_diagnostic_v0.1",
+        "weather.market.reaction_diagnostic", "active",
+        "Secondary maker-replay diagnostic: reward-share decay after posting and trigger-to-mid latency.",
+    ),
 )
