@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from weather.projection_io import projection_glob, projection_source
-
 import gc
 import json
 import sys
@@ -66,6 +64,7 @@ from weather.operations.daily_refresh_locks import (
     write_json,
 )
 from weather.operations.long_job_guard import run_isolated_subprocess
+from weather.projection_io import projection_glob, projection_source
 from weather.reporting.candidate_lifecycle import active_variant_shadow_refresh
 from weather.reporting.data_quality import data_auditor
 from weather.reporting.data_quality import data_layer_audit
@@ -874,12 +873,11 @@ def _live_variant_settlement_tape_paths(args, target_date):
     if configured:
         return [Path(path) for path in configured], "configured"
     selected = []
-    root = Path(args.snapshots_root)
-    if root.exists():
-        for path in projection_glob(root, '*/variant_predictions_long.csv'):
-            folder_date = date_from_event_slug(path.parent.name)
-            if folder_date is not None and folder_date.isoformat() == target_date:
-                selected.append(path)
+    # projection_glob yields nothing for a missing snapshots root.
+    for path in projection_glob(args.snapshots_root, "*/variant_predictions_long.csv"):
+        folder_date = date_from_event_slug(path.parent.name)
+        if folder_date is not None and folder_date.isoformat() == target_date:
+            selected.append(path)
     return sorted(selected), "settled_target_date"
 
 

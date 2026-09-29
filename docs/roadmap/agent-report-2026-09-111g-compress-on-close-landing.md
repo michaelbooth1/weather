@@ -113,11 +113,18 @@ $hash = (Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvar
 
 ## Verification
 
-- Local focused suite through `scripts\ops\workstation_heavy.ps1 -Kind pytest` covered the branch tests,
-  the 91a cold-snapshot compression, wrapper, nightly and verification tests, storage classes, and the audits
-  (agent docs, import architecture, knowledge structure, module size, path policy, schema registry, Python
-  runtime). The result is in the handback reply, because the heavy lease was held by a parallel session
-  when this report was written.
+- Local focused suite, through `scripts\ops\workstation_heavy.ps1 -Kind pytest` with `--basetemp C:\tmp\pt111g`:
+  **440 passed, 59 subtests passed.** It covered the branch tests, the 91a cold-snapshot compression,
+  wrapper, nightly and verification tests, storage classes, daily refresh, the live-variant settlement
+  scorecard, and the audits (agent docs, import architecture, knowledge structure, module size, path policy,
+  schema registry, Python runtime).
+- **Merge-induced failure fixed:** the merge left `daily_refresh_reporting_steps.py` at 2,001 lines, over
+  the module-size warning threshold (≥ 2,000). The branch's stray top-of-file import moved into the
+  `weather.*` group, and a now-redundant `exists()` guard came out, because `projection_glob` yields nothing
+  for a missing root. The file is back to 1,999 lines, and the audit's allowance is untouched.
+- A first run with a ~180-character `--basetemp` failed both native `test_compress_on_close` cases with
+  `FileNotFoundError` on the writer-lock path, because the path passed Windows MAX_PATH. That was a test-harness path artefact
+  and not a product defect. The cases pass with a short basetemp, as the 110j C qualification also used.
 - Full GitHub CI on PR #142: conclusion in the handback reply.
 
 ## What was NOT done
