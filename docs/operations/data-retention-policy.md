@@ -60,6 +60,53 @@ The normal daily refresh also writes the same artifacts:
 - `data/backtest/data_retention_inventory.json`
 - `data/backtest/data_retention_inventory_report.md`
 
+## WU atomic temporary-file cleanup
+
+The manual `scripts/ops/wu_orphan_cleanup_run.ps1` wrapper owns bounded
+`plan`, `preflight`, and `apply` commands for `weather.operations.wu_orphan_cleanup`.
+It holds the shared heavy-workload lease and a kill-on-close child Job, requires
+00:30–09:00, 50 GiB free and recent memory evidence below 70% commit, and stops at
+09:00 or its runtime deadline. It registers no task. The default limits are
+10,000 directory entries, 1 GiB of hashed temp bytes and 300 seconds; maximum
+runtime is 1,800 seconds. A capped plan records its stop reason and may select a
+bounded subset; it is never deletion authority by itself.
+
+Only ordinary single-link NTFS files matching
+`wunderground/<station>/.../final.<pid>.<time_ns>.tmp` are candidates. The planner
+stores exact relative paths, file and sibling identity, byte counts, SHA256,
+four current proofs and named refusals in a self-hashed cleanup manifest. Unknown
+or live original writers, recent files, missing final siblings, open handles,
+links and reparse points refuse. A live **later-starting** PID is acceptable only
+when its verified start is strictly after the temp's mtime and no later than the
+proof time (owner clarification, 2026-09-26). PID reuse alone is not proof.
+
+Review the exact selected files. Copy the manifest to a new reviewed JSON, retain
+the plan hash, and set `operator_review` fields `approved`, `approved_by`, `note`
+and `plan_sha256` (the last must equal the top-level hash). Do not edit candidates.
+Each preflight/apply invocation also binds the raw reviewed JSON's SHA256.
+Outputs must be new directories outside the source data root; existing attempts
+are never overwritten. Example commands from the production checkout:
+
+```powershell
+New-Item -ItemType Directory -Path .\scratch\wu-orphans-110k -ErrorAction Stop
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command plan -OutputRoot scratch/wu-orphans-110k/plan -MaxEntries 10000 -MaxBytes 1073741824 -MaxRuntimeSeconds 300
+# Review plan/manifest.json and save the exact approved copy as reviewed.json.
+$WuReviewedManifest = '.\scratch\wu-orphans-110k\reviewed.json'
+$WuReviewedSha256 = (Get-FileHash -LiteralPath $WuReviewedManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command preflight -ApprovedManifest $WuReviewedManifest -ManifestSha256 $WuReviewedSha256 -OutputRoot scratch/wu-orphans-110k/preflight -MaxRuntimeSeconds 300
+.\scripts\ops\wu_orphan_cleanup_run.ps1 -Command apply -ApprovedManifest $WuReviewedManifest -ManifestSha256 $WuReviewedSha256 -OutputRoot scratch/wu-orphans-110k/apply -MaxRuntimeSeconds 300
+```
+
+Generic cleanup preflight reacquires current native proofs for WU temps; forged
+family labels or an inner cleanup root cannot bypass that requirement. Apply
+hashes through an exclusive deletion handle, pins the final sibling and ancestors,
+runs cleanup preflight, writes an fsynced per-file intent, and refreshes process,
+age and file identities immediately before native handle deletion. It never
+uses pathname unlink or recursive deletion. Each completed attempt writes a
+per-file receipt and overall result. A refusal stops further files; prior receipts
+remain. After interruption, an intent without a receipt is unresolved evidence:
+inspect it and the exact file before planning any new attempt. Never silently retry.
+
 ## Pruning Rules
 
 Owner-approved storage decision 7 (2026-09-26) adds these family rules:
