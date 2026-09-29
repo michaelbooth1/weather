@@ -199,8 +199,9 @@ def test_edited_truncated_or_replaced_live_input_refuses(tmp_path, monkeypatch, 
         elif edit == "truncate":
             path.write_bytes(raw[:-2])
         else:
+            # A replacement may reuse the inode on Linux; its different prefix still refuses.
             path.unlink()
-            path.write_bytes(raw + b'{"more": 1}\n')
+            path.write_bytes(b'{"replaced": true}\n' + raw)
     grow_after_read(monkeypatch, args, mutate)
     with pytest.raises(ValueError, match="source_"):
         night(args, now=LATER)

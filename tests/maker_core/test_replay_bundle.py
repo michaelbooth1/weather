@@ -8,7 +8,8 @@ import pytest
 from maker_core.evidence.journal import canonical_bytes, digest
 from maker_core.quoting.policy import decide
 from maker_core.replay.__main__ import main
-from maker_core.replay.bundle import BundleError, Limits, load_bundle, sha256
+from maker_core.replay.bundle import (BundleError, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, Limits,
+                                      load_bundle, sha256)
 from maker_core.replay.diagnostics import coverage_report, report_bytes, write_report
 from maker_core.replay.timeline import Timeline
 from .fixtures.replay_bundle import seal, write_day, write_three_days
@@ -166,7 +167,7 @@ def test_record_corruption_refuses_even_with_resealed_stream(tmp_path, change, r
         load_bundle(root)
 
 
-def test_caps_are_enforced_and_cannot_be_raised(tmp_path):
+def test_caps_are_enforced_and_cannot_exceed_the_host(tmp_path):
     root = tmp_path / "day"
     write_day(root)
     with pytest.raises(BundleError, match="input_byte_cap"):
@@ -176,8 +177,11 @@ def test_caps_are_enforced_and_cannot_be_raised(tmp_path):
     ticks = iter([0, 1])
     with pytest.raises(BundleError, match="time_cap"):
         load_bundle(root, limits=Limits(max_seconds=.5), clock=lambda: next(ticks))
-    for limits in ({"max_bytes": 2**30}, {"max_records": 1_000_000},
-                   {"max_seconds": float("nan")}, {"max_seconds": float("inf")}):
+    # Explicit ceilings may exceed the diagnostic defaults only up to the 16 GB host caps.
+    Limits(max_bytes=2**30, max_records=1_000_000, max_seconds=2700)
+    for limits in ({"max_bytes": HOST_MAX_BYTES + 1}, {"max_records": HOST_MAX_RECORDS + 1},
+                   {"max_seconds": HOST_MAX_SECONDS + 1}, {"max_seconds": float("nan")},
+                   {"max_seconds": float("inf")}):
         with pytest.raises(BundleError):
             Limits(**limits)
 
