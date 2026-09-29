@@ -56,8 +56,8 @@ market clusters and one missing book minute per day. It is not an 88a export or 
 ## Bounded reads and outputs
 
 `Limits` defaults to 64 MiB, 100,000 records and 300 seconds. An explicit ceiling may be raised only up to the 16 GB
-host caps (`HOST_MAX_BYTES` = 70% of 16 GiB, 2^31 records, 2,700 seconds); a Clarification 2 manifest derives its
-ceilings from a measured calibration day and never truncates or samples to fit. Manifest, line, stream and condition
+host caps (`HOST_MAX_BYTES` = 70% of 16 GiB, 2^31 records, four hours); a Clarification 2 manifest derives its
+ceilings from rehearsed calibration dates and never truncates or samples to fit. Manifest, line, stream and condition
 counts keep fixed ceilings in the module. Streams are opened, read, and closed serially; changed size, mtime or file
 identity refuses admission. Symlinks, Windows junctions/reparse points, path traversal and alternate streams refuse.
 An actively hostile process swapping paths during open is outside this offline reader's trust model; source directories
@@ -408,18 +408,25 @@ Every manifest, run and verify command takes `--clarification-2`.
 - **Quote markets (rule).** `python -m maker_core.replay quote_markets --calibration-bundle <3 dirs> --out <json>`
   writes the sorted cities of the three calibration bundles. `calibrate_hazard` and manifest build/verify refuse any
   other list (`quote_markets_rule_mismatch`); there is no hand list.
-- **Ceilings (rule).** `measure_ceilings --bundle <2026-09-27 panel-format bundle> --calibration <json> --out <json>`
+- **Rehearsal.** `rehearse --bundle <one calibration-date panel-format bundle> --calibration <json> --out <json>`
   runs the complete scored pipeline (both fill bounds, all four policies, matched-clock trials, bootstrap and report
-  rendering) on that single calibration date and writes only input bytes, records, the largest engine event count, the
-  largest decision+span count, peak process memory and runtime, plus per-pass counts. No score, fill, reward or hurdle
-  value is written. Each ceiling is measurement × 15 × 4 rounded up to a power of two in its own unit (bytes, records,
-  seconds), compared with the host cap (input bytes and peak memory ≤ 70% of 16 GiB, runtime ≤ 2,700 s). If any cap
-  binds, the file says `executable: false` and manifest build refuses `not_executable_on_host:<field>`. The manifest
-  binds the measurement and its hash; the CLI ceilings, `ReplayConfig.max_events` and `max_outputs`, and a sampled
-  process-memory ceiling come from it. The 8 MiB report ceiling is unchanged.
-- **Rehearsal.** `rehearse` is the same score-free pipeline on one to three calibration dates. Both refuse any other
-  date from the path before a byte of the bundle is read.
-- **Look protection.** A scored run records its stage. Output-directory and host-commit preflight, bundle input,
+  rendering) score-free on that one date. Run it once per calibration date, each in a fresh process, so peak memory is
+  per date. It keeps only input bytes, records, the largest engine event count, the largest decisions+spans count,
+  rendered report bytes, runtime, peak memory above the pre-input baseline and that baseline, plus per-pass counts.
+  Any other date refuses from the path before a byte of the bundle is read.
+- **Ceilings (rule).** `derive_ceilings --rehearsal <09-27> --rehearsal <09-28> --rehearsal <09-29> --out <json>`
+  takes each quantity's largest date × 15 × 2, rounded up to a power of two in its natural unit (bytes, records,
+  seconds). The memory ceiling is that value for peak-above-baseline plus the largest baseline, not multiplied.
+  Decisions+spans bind `ReplayConfig.max_outputs`, separately from `max_events`; report bytes bind the report ceiling.
+  Host limits: memory and memory-resident input/report bytes ≤ 70% of 16 GiB, runtime ≤ 4 h, counts ≤ 2^31. If any
+  ceiling exceeds its limit the file says `executable: false` and manifest build refuses
+  `not_executable_on_host:<field>`. The manifest binds the measurement (per-date values, rehearsal hashes) and derives
+  every CLI ceiling, the engine ceilings and a sampled process-memory ceiling from it.
+- **Universe.** `python -m weather.market.maker_plugin.replay_export universe --bundle <15 panel dirs> --out <json>`
+  lists every condition in the bundles with its registered city, target date and IANA timezone from the captured
+  descriptor's event slug. The manifest's descriptor check verifies it; it is create-only.
+- **Look protection.** A scored run records its stage. Output-directory preflight, the host preflight (system commit
+  below 70%, and the whole runtime ceiling fitting inside 00:30–09:00 Toronto), bundle input,
   manifest verification, scope binding, an engine construction check and the action-boundary recheck all precede the
   reservation of `attempts/<id>.json`, which happens immediately before the first policy replay. A refusal in those
   stages writes `attempts/<id>.refusal-<UTC>-<nonce>.json` (`NOT_CONSUMED_OPERATIONAL_REFUSAL`, stage, reason, Toronto

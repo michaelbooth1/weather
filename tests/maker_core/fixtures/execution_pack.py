@@ -34,12 +34,20 @@ def calibration_days(root, minutes=480, markets=("a",), occupied=10):
 
 # Fictional resource counts sized so the rule admits the fixture panel.
 MEASURED = dict(input_bytes=16*1024**2, records=20000, engine_events=50000, decisions_spans=50000,
-                peak_memory_bytes=64*1024**2, runtime_seconds=1.0)
+                report_bytes=100*1024, runtime_seconds=1.0, peak_memory_above_baseline_bytes=32*1024**2,
+                baseline_memory_bytes=100*1024**2)
+
+
+def per_date(measured=MEASURED):
+    # The 09-28 rehearsal is the smallest; the rule takes each quantity's largest date.
+    small = {k: v // 2 if isinstance(v, int) else v / 2 for k, v in measured.items()}
+    return {d.isoformat(): dict(small if d.day == 28 else measured) for d in CALIBRATION_DATES}
 
 
 def measurement(measured=MEASURED):
-    return dict(format=ceilings.FORMAT, date=ceilings.MEASUREMENT_DATE.isoformat(), measured=dict(measured),
-                detail={}, measured_at="2026-09-30T08:00:00+00:00", derived=ceilings.derive(dict(measured)))
+    dates = per_date(measured)
+    return dict(format=ceilings.FORMAT, per_date=dates, rehearsal_sha256={d: "0"*64 for d in dates},
+                calibration_sha256="0"*64, derived=ceilings.derive(dates))
 
 
 def pack(root, measured=MEASURED):

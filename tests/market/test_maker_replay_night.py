@@ -355,3 +355,24 @@ def test_calibration_projection_fails_closed(tmp_path, fault):
     with pytest.raises(ValueError):
         night(args, now=LATER)
     assert receipt(args)["status"] == "REFUSED"
+
+
+def test_universe_inventory_is_domain_bound_and_verifies_against_descriptors(tmp_path, capsys):
+    from maker_core.replay.execution_manifest import _inventory
+    from weather.market.maker_replay_universe import universe
+    args, _ = setup(tmp_path, multi=True)
+    night(args, now=LATER)
+    folder = args.out / args.day / "bundle"
+    rows = universe([folder])
+    bundle = load_bundle(folder)
+    assert [r["condition_id"] for r in rows] == sorted(c.condition_id for c in bundle.conditions)
+    assert {r["market_id"] for r in rows} == {"chicago", "nyc"}
+    assert {r["local_timezone"] for r in rows} == {"America/Chicago", "America/New_York"}
+    # The manifest's own binding check accepts the produced inventory.
+    assert set(_inventory([bundle], rows, check=lambda: None)) == {r["condition_id"] for r in rows}
+    out = tmp_path / "universe.json"
+    assert main(["universe", "--bundle", str(folder), "--out", str(out)]) == 0
+    assert json.loads(out.read_bytes()) == rows
+    assert json.loads(capsys.readouterr().out)["universe_sha256"] == sha256(out.read_bytes())
+    with pytest.raises(SystemExit):
+        main(["universe", "--bundle", str(folder), "--out", str(out)])  # Create-only.

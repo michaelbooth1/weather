@@ -24,7 +24,6 @@ SETTLEMENT_DATE = date(2026, 10, 14)
 FROZEN_CONFIG = dict(policy="informed-v0", initial_cash="100", band_cap="100", order_cap="60",
                      wallet_cap="100", event_cap="100", factor_cap="100", max_book_gap_seconds=60,
                      fill_bound="strictly_through", clock_pulls=())
-MAX_OUTPUT_BYTES = 8*1024**2
 CEILING_FIELDS = {"max_input_bytes", "max_records", "max_seconds", "max_output_bytes", "max_memory_bytes"}
 HURDLES = dict(primary_fill_bound="strictly_through", primary_metric="modeled_net_k1",
                economic_baselines=["blind_re1", "no_quote"], economic_lower_bound_strictly_above=0,
@@ -124,10 +123,9 @@ def quote_market_rule(calibration_bundles):
 
 def measured_limits(measurement):
     """Validate the resource-only measurement and re-apply the fixed rule."""
-    if (not isinstance(measurement, dict) or measurement.get("format") != ceiling_rule.FORMAT
-            or measurement.get("date") != ceiling_rule.MEASUREMENT_DATE.isoformat()):
+    if not isinstance(measurement, dict) or measurement.get("format") != ceiling_rule.FORMAT:
         raise BundleError("invalid_ceiling_measurement")
-    derived = ceiling_rule.derive(measurement.get("measured"))
+    derived = ceiling_rule.derive(measurement.get("per_date"))
     if measurement.get("derived") != derived:
         raise BundleError("ceiling_derivation_mismatch")
     return ceiling_rule.run_limits(derived)
@@ -135,12 +133,10 @@ def measured_limits(measurement):
 
 def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_decision, measurement, *,
                    calibration_sha256, inventory_sha256, quote_inventory_sha256, measurement_sha256,
-                   max_output_bytes=MAX_OUTPUT_BYTES, check=lambda: None):
+                   check=lambda: None):
     bundles = tuple(sorted(bundles, key=lambda b: b.day))
     if tuple(b.day for b in bundles) != (*QUOTE_DATES, SETTLEMENT_DATE):
         raise BundleError("manifest_requires_fourteen_quote_dates_and_settlement_only")
-    if (type(max_output_bytes) is not int or not 1 <= max_output_bytes <= MAX_OUTPUT_BYTES):
-        raise BundleError("invalid_output_ceiling")
     run = measured_limits(measurement)
     if not isinstance(calibration, dict):
         raise BundleError("invalid_calibration_json")
@@ -181,7 +177,7 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
                 source_hashes=source_hashes(check=check), quote_market_rule="captured_band_on_any_calibration_date",
                 ceiling_measurement=measurement, ceiling_measurement_sha256=measurement_sha256,
                 ceilings=dict(max_input_bytes=run["max_input_bytes"], max_records=run["max_records"],
-                              max_seconds=run["max_seconds"], max_output_bytes=max_output_bytes,
+                              max_seconds=run["max_seconds"], max_output_bytes=run["max_output_bytes"],
                               max_memory_bytes=run["max_memory_bytes"]))
 
 
@@ -203,7 +199,7 @@ def verify_manifest(doc, bundles, calibration_bundles, *, calibration_path, inve
         raise BundleError("incomplete_ceiling_bindings")
     expected = build_manifest(bundles, calibration_bundles, calibration, inventory, doc["owner_decision"], measurement,
         calibration_sha256=calibration_hash, inventory_sha256=inventory_hash, quote_inventory_sha256=quote_hash,
-        measurement_sha256=measurement_hash, max_output_bytes=doc["ceilings"]["max_output_bytes"], check=check)
+        measurement_sha256=measurement_hash, check=check)
     if doc != expected:
         raise BundleError("execution_manifest_binding_mismatch")
     return expected

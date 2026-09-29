@@ -29,14 +29,14 @@ MAX_RECORDS = 100_000
 MAX_STREAMS = 64
 MAX_CONDITIONS = 2_000
 MAX_SECONDS = 300.0
-# Clarification 2 ceilings are derived from a measured calibration day and capped
-# by the 16 GB host: bytes held in memory at most 70% of RAM, 45 minutes. The
-# defaults above stay the ordinary diagnostic ceilings; only these host caps bound
-# an explicitly derived ceiling. Raising a limit never truncates or samples input.
+# Clarification 2 ceilings are derived from rehearsed calibration dates and limited
+# by the 16 GB host: bytes held in memory at most 70% of RAM, four hours of runtime.
+# The defaults above stay the ordinary diagnostic ceilings; only these host limits
+# bound an explicitly derived ceiling. Raising a limit never truncates or samples input.
 HOST_RAM_BYTES = 16 * 1024**3
 HOST_MAX_BYTES = HOST_RAM_BYTES * 7 // 10
 HOST_MAX_RECORDS = 2**31
-HOST_MAX_SECONDS = 2700.0
+HOST_MAX_SECONDS = 4 * 3600.0
 
 
 class BundleError(ValueError):

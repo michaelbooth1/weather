@@ -115,6 +115,7 @@ def main(argv=None):
             _output_preflight(args.out, args.bundle)
             stage = "host_preflight"
             ceiling_rule.host_preflight()
+            ceiling_rule.window_preflight(pack_cli._now(), args.max_seconds)
         if args.diagnostic_only and len(args.bundle) != 1:
             raise BundleError("diagnostic_mode_requires_one_bundle_per_report")
         stage = "input"

@@ -12,11 +12,17 @@ from maker_core.replay.bundle import BundleError, sha256
 from maker_core.replay.engine import replay, ReplayConfig
 from maker_core.replay.execution_manifest import apply_manifest, verify_manifest
 from maker_core.replay.execution_receipt import reserve_attempt, evaluate_hurdles
-from .fixtures.execution_pack import MEASURED, measurement, pack
+from .fixtures.execution_pack import MEASURED, measurement, pack, per_date
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
 FLAGS = dict(calibration_path="calibration", inventory_path="universe", quote_inventory_path="quote-markets",
              measurement_path="ceiling-measurement")
+
+
+@pytest.fixture(autouse=True)
+def small_process(monkeypatch):
+    # The pytest process itself exceeds the fixture's memory ceiling; the guard is tested separately.
+    monkeypatch.setattr(ceilings, "process_memory", lambda: (1, 1))
 
 
 def binding_args(tmp_path, bundles, cb, paths):
@@ -84,30 +90,39 @@ def test_modified_config_stream_source_and_calibration_refuse(tmp_path):
 
 def test_ceilings_follow_the_rule_and_bind_engine_and_cli(tmp_path):
     doc, _, _, _, _, _ = pack(tmp_path)
-    assert doc["ceilings"] == dict(max_input_bytes=1024**3, max_records=2**21, max_seconds=64.0,
-                                   max_output_bytes=8*1024**2, max_memory_bytes=4*1024**3)
-    assert (doc["replay_config"]["max_events"], doc["replay_config"]["max_outputs"]) == (2**22, 2**22)
-    assert doc["ceiling_measurement"]["measured"] == MEASURED
-    assert ceilings.next_power_of_two(1.0*60) == 64 and ceilings.next_power_of_two(64) == 64
+    # Largest date x 15 x 2, next power of two; memory adds the unmultiplied baseline.
+    assert doc["ceilings"] == dict(max_input_bytes=2**29, max_records=2**20, max_seconds=32.0,
+                                   max_output_bytes=4*1024**2, max_memory_bytes=2**30 + 100*1024**2)
+    assert (doc["replay_config"]["max_events"], doc["replay_config"]["max_outputs"]) == (2**21, 2**21)
+    assert doc["ceiling_measurement"]["per_date"]["2026-09-27"] == MEASURED
+    assert doc["ceiling_measurement"]["derived"]["largest"] == MEASURED
+    assert ceilings.next_power_of_two(1.0*30) == 32 and ceilings.next_power_of_two(64) == 64
     assert ceilings.next_power_of_two(65) == 128 and ceilings.next_power_of_two(0.2) == 1
 
 
-@pytest.mark.parametrize("field, value", [("runtime_seconds", 46.0), ("peak_memory_bytes", 200*1024**2),
-                                          ("input_bytes", 200*1024**2)])
-def test_binding_host_cap_is_not_executable_never_truncated(field, value):
-    # 46 s x 60 = 2760 s -> 4096 s > 45 min; 200 MiB x 60 -> 16 GiB > 70% of 16 GiB.
-    derived = ceilings.derive(dict(MEASURED, **{field: value}))
-    assert derived["executable"] is False and derived["host_cap_binding"] == [field]
-    assert derived["ceilings"] is None
-    with pytest.raises(BundleError, match="not_executable_on_host:"+field):
+@pytest.mark.parametrize("field, value, binding", [
+    ("runtime_seconds", 481.0, "runtime_seconds"),                      # 14,430 s -> 16,384 s > 4 h
+    ("peak_memory_above_baseline_bytes", 400*1024**2, "memory_bytes"),  # 16 GiB + baseline > 70% of 16 GiB
+    ("input_bytes", 400*1024**2, "input_bytes")])
+def test_binding_host_limit_is_not_executable_never_truncated(field, value, binding):
+    derived = ceilings.derive(per_date(dict(MEASURED, **{field: value})))
+    assert derived["executable"] is False and derived["host_limit_binding"] == [binding]
+    with pytest.raises(BundleError, match="not_executable_on_host:"+binding):
         ceilings.run_limits(derived)
+
+
+def test_baseline_is_added_not_multiplied():
+    derived = ceilings.derive(per_date(dict(MEASURED, baseline_memory_bytes=2*1024**3)))
+    assert derived["ceilings"]["memory_bytes"] == 2**30 + 2*1024**3 and derived["executable"]
+    with pytest.raises(BundleError, match="incomplete"):
+        ceilings.derive({"2026-09-27": MEASURED})
 
 
 def test_manifest_refuses_unexecutable_or_rederived_measurement(tmp_path):
     (tmp_path/"a").mkdir()
     (tmp_path/"b").mkdir()
     with pytest.raises(BundleError, match="not_executable_on_host"):
-        pack(tmp_path/"a", measured=dict(MEASURED, runtime_seconds=46.0))
+        pack(tmp_path/"a", measured=dict(MEASURED, runtime_seconds=481.0))
     doc, bundles, cb, paths, _, _ = pack(tmp_path/"b")
     value = measurement()
     value["derived"]["ceilings"]["runtime_seconds"] = 2048
@@ -289,12 +304,15 @@ def test_scoring_cli_verifies_then_consumes_before_failed_policy_call(tmp_path, 
 
 
 @pytest.mark.parametrize("fault, stage", [("output_exists", "output_preflight"), ("commit", "host_preflight"),
+                                          ("window", "host_preflight"),
                                           ("missing_bundle", "input"), ("ceiling_flag", "ceiling_binding"),
                                           ("calibration", "manifest_verification"), ("source", "action_boundary")])
 def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, monkeypatch, fault, stage):
     import maker_core.replay.__main__ as cli
     from maker_core.replay import execution_manifest
-    doc, args, attempts = scored(tmp_path, monkeypatch, commit=85.0 if fault == "commit" else 10.0)
+    late = datetime(2026, 10, 15, 12, 59, 50, tzinfo=timezone.utc)  # 08:59:50 Toronto: 32 s would pass 09:00.
+    doc, args, attempts = scored(tmp_path, monkeypatch, commit=85.0 if fault == "commit" else 10.0,
+                                 now=late if fault == "window" else NOW)
     good = list(args)
     if fault == "output_exists":
         (tmp_path/"result").mkdir()
@@ -324,6 +342,7 @@ def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, 
     if fault == "output_exists":
         (tmp_path/"result").rmdir()
     monkeypatch.setattr(ceilings, "commit_percent", lambda: 10.0)
+    monkeypatch.setattr(pack_cli, "_now", lambda: NOW)
     if fault == "source":
         monkeypatch.setattr(execution_manifest, "source_hashes", original)
     def stop(*a, **k):
@@ -337,7 +356,7 @@ def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, 
 
 def test_late_look_needs_a_recorded_refusal_on_the_scoring_date(tmp_path, monkeypatch):
     import maker_core.replay.__main__ as cli
-    later = datetime(2026, 10, 17, 16, tzinfo=timezone.utc)
+    later = datetime(2026, 10, 17, 10, tzinfo=timezone.utc)  # 06:00 Toronto, inside the window.
     doc, args, attempts = scored(tmp_path, monkeypatch, now=later)
     monkeypatch.setattr(cli, "comparison_report", lambda *a, **k: pytest.fail("scored"))
     with pytest.raises(SystemExit):
@@ -355,7 +374,7 @@ def test_late_look_needs_a_recorded_refusal_on_the_scoring_date(tmp_path, monkey
     assert authorization.scoring_date_allowed(v1, datetime(2026, 10, 16).date(), True) is False
 
 
-def test_rehearsal_and_measurement_are_calibration_dates_only_and_score_free(tmp_path, monkeypatch, capsys):
+def test_rehearsals_are_per_calibration_date_score_free_and_derive_the_rule(tmp_path, monkeypatch, capsys):
     from maker_core.replay.calibration import CALIBRATION_DATES
     from .fixtures.replay_scenario import Scenario
     monkeypatch.setattr(pack_cli, "_now", lambda: NOW)
@@ -363,30 +382,30 @@ def test_rehearsal_and_measurement_are_calibration_dates_only_and_score_free(tmp
     for day in CALIBRATION_DATES:
         (tmp_path/"cal-panel"/day.isoformat()).mkdir(parents=True)
         Scenario(day, markets=("a",), minutes=60).bundle(tmp_path/"cal-panel"/day.isoformat()/"bundle")
-    for command, days in (("measure_ceilings", ["2026-09-30"]), ("rehearse", ["2026-09-27", "2026-10-01"])):
+    for day in ("2026-09-30", "2026-10-13"):
         with pytest.raises(SystemExit):
-            main([command, *[a for d in days for a in ("--bundle", str(tmp_path/"never-read"/d/"bundle"))],
-                  "--calibration", str(paths["calibration_path"]), "--out", str(tmp_path/(command+".json"))])
+            main(["rehearse", "--bundle", str(tmp_path/"never-read"/day/"bundle"),
+                  "--calibration", str(paths["calibration_path"]), "--out", str(tmp_path/"x.json")])
         assert "rehearsal_restricted_to_calibration_dates" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
-        main(["measure_ceilings", "--bundle", str(tmp_path/"cal-panel"/"2026-09-28"/"bundle"),
-              "--calibration", str(paths["calibration_path"]), "--out", str(tmp_path/"m.json")])
-    assert main(["measure_ceilings", "--bundle", str(tmp_path/"cal-panel"/"2026-09-27"/"bundle"),
-                 "--calibration", str(paths["calibration_path"]), "--out", str(tmp_path/"m.json")]) == 0
-    value = json.loads((tmp_path/"m.json").read_bytes())
-    assert set(value["measured"]) == set(ceilings.MEASURED)
-    assert value["derived"] == ceilings.derive(value["measured"]) and value["date"] == "2026-09-27"
-    assert value["measured"]["engine_events"] > 0 and value["measured"]["decisions_spans"] > 0
-    assert len(value["detail"]["engine_passes"]) >= 8
-    assert all(set(p) == {"policy", "fill_bound", "events", "decisions", "spans"} for p in value["detail"]["engine_passes"])
-    assert set(value) == {"format", "date", "measured", "detail", "measured_at", "derived", "interpretation"}
-    assert set(value["detail"]) == {"dates", "conditions", "engine_passes", "input_hashes", "calibration_sha256",
-                                    "peak_memory_before_input_bytes"}
-    rehearse = ["rehearse", "--calibration", str(paths["calibration_path"]), "--out", str(tmp_path/"r.json")]
+    outs = []
     for day in CALIBRATION_DATES:
-        rehearse += ["--bundle", str(tmp_path/"cal-panel"/day.isoformat()/"bundle")]
-    assert main(rehearse) == 0
-    assert json.loads((tmp_path/"r.json").read_bytes())["detail"]["dates"] == [d.isoformat() for d in CALIBRATION_DATES]
+        out = tmp_path/f"rehearsal-{day.isoformat()}.json"
+        assert main(["rehearse", "--bundle", str(tmp_path/"cal-panel"/day.isoformat()/"bundle"),
+                     "--calibration", str(paths["calibration_path"]), "--out", str(out)]) == 0
+        value = json.loads(out.read_bytes())
+        assert set(value) == {"format", "date", "measured", "detail", "measured_at", "interpretation"}
+        assert set(value["measured"]) == set(ceilings.MEASURED) and value["date"] == day.isoformat()
+        assert set(value["detail"]) == {"dates", "conditions", "engine_passes", "input_hashes", "calibration_sha256"}
+        assert len(value["detail"]["engine_passes"]) >= 8 and value["measured"]["report_bytes"] > 0
+        assert all(set(p) == {"policy", "fill_bound", "events", "decisions", "spans"}
+                   for p in value["detail"]["engine_passes"])
+        outs += ["--rehearsal", str(out)]
+    with pytest.raises(SystemExit):  # Two rehearsals cannot derive the rule.
+        main(["derive_ceilings", *outs[:4], "--out", str(tmp_path/"partial.json")])
+    assert main(["derive_ceilings", *outs, "--out", str(tmp_path/"m.json")]) == 0
+    value = json.loads((tmp_path/"m.json").read_bytes())
+    assert value["derived"] == ceilings.derive(value["per_date"]) and set(value["rehearsal_sha256"]) == set(
+        value["per_date"])
 
 
 def test_memory_guard_and_host_commit_refuse():

@@ -54,13 +54,15 @@ def add_commands(commands):
     calibration.add_argument("--quote-markets", type=Path, required=True, help="sealed sorted city inventory JSON array")
     calibration.add_argument("--out", type=Path, required=True, help="new calibration JSON file")
     _limits(calibration)
-    for name, text in (("rehearse", "score-free full-pipeline rehearsal on calibration dates only"),
-                       ("measure_ceilings", "Clarification 2 ceiling measurement on 2026-09-27 only; no scores")):
-        child = commands.add_parser(name, help=text)
-        child.add_argument("--bundle", type=Path, action="append", required=True,
-                           help="panel-format all-city bundle directory for a calibration date")
-        child.add_argument("--calibration", type=Path, required=True, help="sealed calibration JSON (hazard)")
-        child.add_argument("--out", type=Path, required=True, help="new resource-only JSON file")
+    rehearsal = commands.add_parser("rehearse", help="score-free full-pipeline rehearsal of ONE calibration date; "
+                                    "run each date in a fresh process")
+    rehearsal.add_argument("--bundle", type=Path, required=True,
+                           help="panel-format all-city bundle directory for one calibration date")
+    rehearsal.add_argument("--calibration", type=Path, required=True, help="sealed calibration JSON (hazard)")
+    rehearsal.add_argument("--out", type=Path, required=True, help="new resource-only JSON file")
+    derive = commands.add_parser("derive_ceilings", help="Clarification 2 ceilings from the three date rehearsals")
+    derive.add_argument("--rehearsal", type=Path, action="append", required=True)
+    derive.add_argument("--out", type=Path, required=True, help="new ceiling measurement JSON file")
     manifest = commands.add_parser("manifest", help="build or preflight a complete manifest; does not enroll it")
     actions = manifest.add_subparsers(dest="manifest_action", required=True)
     for action in ("build", "verify"):
@@ -75,7 +77,6 @@ def add_commands(commands):
         else:
             child.add_argument("--manifest", type=Path, required=True)
             child.add_argument("--manifest-sha256", required=True)
-        child.add_argument("--max-output-bytes", type=int)
 
 
 def verification_args(args):
@@ -107,6 +108,7 @@ def rehearse(paths, calibration_path, *, dates=CALIBRATION_DATES, now, clock=tim
     """
     from maker_core.replay.report import comparison_report, report_bytes
     started = clock()
+    # Interpreter plus imports, before any input: the unmultiplied memory baseline.
     baseline = (memory or ceiling_rule.process_memory)()[1]
     check = deadline(HOST_MAX_SECONDS)
     allowed = {d.isoformat() for d in dates}
@@ -126,37 +128,49 @@ def rehearse(paths, calibration_path, *, dates=CALIBRATION_DATES, now, clock=tim
                           max_events=MAX_ENGINE_EVENTS, max_outputs=MAX_ENGINE_EVENTS)
     with collect_stats() as passes:
         report = comparison_report(_maintenance(bundles), config, check=check)
-        report_bytes(report)  # Exercise rendering; its size and content are discarded.
-    del report
+        raw, markdown = report_bytes(report)  # Only the rendered size is kept.
+    rendered = len(raw) + len(markdown)
+    del report, raw, markdown
     runtime = clock()-started
     _, peak = (memory or ceiling_rule.process_memory)()
     measured = dict(input_bytes=sum(b.input_bytes for b in bundles), records=sum(len(b.records) for b in bundles),
                     engine_events=max((p["events"] for p in passes), default=0),
                     decisions_spans=max((p["decisions"]+p["spans"] for p in passes), default=0),
-                    peak_memory_bytes=peak, runtime_seconds=runtime)
+                    report_bytes=rendered, runtime_seconds=runtime,
+                    peak_memory_above_baseline_bytes=max(0, peak-baseline), baseline_memory_bytes=baseline)
     detail = dict(dates=[b.day.isoformat() for b in bundles], conditions=sum(len(b.conditions) for b in bundles),
                   engine_passes=[dict(policy=p["policy"], fill_bound=p["fill_bound"], events=p["events"],
                                       decisions=p["decisions"], spans=p["spans"]) for p in passes],
                   input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
-                  calibration_sha256=calibration_hash, peak_memory_before_input_bytes=baseline)
+                  calibration_sha256=calibration_hash)
     return measured, detail
 
 
 def execute(args):
     check, now = deadline(HOST_MAX_SECONDS), _now()
-    if args.command in ("rehearse", "measure_ceilings"):
-        dates = (ceiling_rule.MEASUREMENT_DATE,) if args.command == "measure_ceilings" else CALIBRATION_DATES
-        if args.command == "measure_ceilings" and len(args.bundle) != 1:
-            raise BundleError("measurement_requires_one_calibration_date")
-        measured, detail = rehearse(args.bundle, args.calibration, dates=dates, now=now)
-        value = dict(format=ceiling_rule.FORMAT if args.command == "measure_ceilings" else
-                     "maker_core.replay.rehearsal.v1", measured=measured, detail=detail, measured_at=now.isoformat(),
-                     interpretation="Resource counts only; no score, fill, reward or hurdle value.")
-        if args.command == "measure_ceilings":
-            value.update(date=ceiling_rule.MEASUREMENT_DATE.isoformat(), derived=ceiling_rule.derive(measured))
-        key = write_json(args.out, value)
-        print(args.command+"_sha256="+key+("; executable_on_host="+str(value["derived"]["executable"])
-                                          if args.command == "measure_ceilings" else ""))
+    if args.command == "rehearse":
+        measured, detail = rehearse([args.bundle], args.calibration, now=now)
+        key = write_json(args.out, dict(format=ceiling_rule.REHEARSAL_FORMAT, date=detail["dates"][0],
+                         measured=measured, detail=detail, measured_at=now.isoformat(),
+                         interpretation="Resource counts only; no score, fill, reward or hurdle value."))
+        print("rehearsal_sha256="+key)
+        return 0
+    if args.command == "derive_ceilings":
+        per_date, hashes, calibrations = {}, {}, set()
+        for path in args.rehearsal:
+            value, key = read_json(path)
+            if (not isinstance(value, dict) or value.get("format") != ceiling_rule.REHEARSAL_FORMAT
+                    or value.get("date") in per_date):
+                raise BundleError("invalid_or_duplicate_rehearsal")
+            per_date[value["date"]], hashes[value["date"]] = value["measured"], key
+            calibrations.add(value["detail"]["calibration_sha256"])
+        if len(calibrations) != 1:
+            raise BundleError("rehearsals_used_different_calibrations")
+        derived = ceiling_rule.derive(per_date)
+        key = write_json(args.out, dict(format=ceiling_rule.FORMAT, per_date=per_date, rehearsal_sha256=hashes,
+                         calibration_sha256=calibrations.pop(), derived=derived))
+        print("ceiling_measurement_sha256="+key+"; executable_on_host="+str(derived["executable"])
+              + ("" if derived["executable"] else "; binding="+",".join(derived["host_limit_binding"])))
         return 0
     limit_defaults(args)
     if type(args.max_output_bytes) is not int or not 1 <= args.max_output_bytes <= 8*1024**2:
@@ -230,7 +244,7 @@ def _manifest(args, doc, key, now):
             raise BundleError("quote_inventory_mismatch")
         doc = build_manifest(bundles, calibration_bundles, calibration, inventory, doc["owner_decision"], measurement,
             calibration_sha256=calibration_hash, inventory_sha256=inventory_hash, quote_inventory_sha256=markets_hash,
-            measurement_sha256=measurement_hash, max_output_bytes=args.max_output_bytes or 8*1024**2, check=check)
+            measurement_sha256=measurement_hash, check=check)
     verify_manifest(doc, bundles, calibration_bundles, **verification_args(args), now=now, check=check)
     check()
     if args.manifest_action == "build":

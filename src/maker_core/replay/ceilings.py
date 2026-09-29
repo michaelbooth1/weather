@@ -1,10 +1,12 @@
-"""Clarification 2 operational ceilings: one measured calibration day, a fixed rule, host caps.
+"""Clarification 2 operational ceilings: three rehearsed calibration dates, a fixed rule, host limits.
 
-The measurement is resource-only: bytes, records, engine events, decision/span
-counts, peak memory and runtime. It never carries a score, fill, reward or hurdle
-value. Each ceiling is ``measurement x 15 x 4`` rounded up to a power of two in the
-ceiling's own unit, then compared with the 16 GB host cap. A binding host cap makes
-the scored run not executable here; the panel is never sampled or truncated to fit.
+Each calibration date gets its own score-free full-pipeline rehearsal (a fresh
+process, so peak memory is per date). A rehearsal keeps only input bytes, records,
+engine events, decisions plus spans, report bytes, runtime and peak memory above the
+interpreter's pre-input baseline, never a score, fill, reward or hurdle value.
+Each ceiling is the largest per-date value x 15 x 2, rounded up to a power of two in
+its natural unit; the memory ceiling adds the unmultiplied baseline. A ceiling above
+its host limit makes the scored run not executable here; nothing is sampled or truncated.
 """
 from __future__ import annotations
 
@@ -12,21 +14,25 @@ import math
 import os
 import sys
 import time
-from datetime import date
 
 from maker_core.replay.bundle import BundleError, HOST_MAX_BYTES, HOST_MAX_SECONDS, HOST_RAM_BYTES
+from maker_core.replay.calibration import CALIBRATION_DATES
 from maker_core.replay.engine import MAX_ENGINE_EVENTS
 
-FORMAT = "maker_core.replay.ceiling_measurement.v1"
-RULE = "clarification_2_measurement_x15_x4_next_power_of_two_host_capped"
-MEASUREMENT_DATE = date(2026, 9, 27)
-MULTIPLIER = 15 * 4
+FORMAT = "maker_core.replay.ceiling_measurement.v2"
+REHEARSAL_FORMAT = "maker_core.replay.rehearsal.v2"
+RULE = "clarification_2_max_of_three_dates_x15_x2_next_power_of_two_plus_baseline_host_limited"
+MULTIPLIER = 15 * 2
 MAX_COMMIT_PERCENT = 70.0
-# The unit of each field is the unit of the ceiling it derives.
-MEASURED = ("input_bytes", "records", "engine_events", "decisions_spans", "peak_memory_bytes", "runtime_seconds")
-HOST_CAPS = dict(input_bytes=HOST_MAX_BYTES, records=MAX_ENGINE_EVENTS, engine_events=MAX_ENGINE_EVENTS,
-                 decisions_spans=MAX_ENGINE_EVENTS, peak_memory_bytes=HOST_MAX_BYTES,
-                 runtime_seconds=int(HOST_MAX_SECONDS))
+# Multiplied quantities, each in the unit of the ceiling it derives.
+MULTIPLIED = ("input_bytes", "records", "engine_events", "decisions_spans", "report_bytes", "runtime_seconds",
+              "peak_memory_above_baseline_bytes")
+MEASURED = (*MULTIPLIED, "baseline_memory_bytes")
+# Host limits named by the clarification (memory, runtime); bytes/counts are also bounded by
+# what the tooling can represent in memory, reported under the same binding list.
+HOST_LIMITS = dict(memory_bytes=HOST_MAX_BYTES, runtime_seconds=int(HOST_MAX_SECONDS),
+                   input_bytes=HOST_MAX_BYTES, report_bytes=HOST_MAX_BYTES, records=MAX_ENGINE_EVENTS,
+                   engine_events=MAX_ENGINE_EVENTS, decisions_spans=MAX_ENGINE_EVENTS)
 HOST = dict(ram_bytes=HOST_RAM_BYTES, max_commit_percent=MAX_COMMIT_PERCENT, max_seconds=HOST_MAX_SECONDS)
 
 
@@ -36,24 +42,28 @@ def next_power_of_two(value):
     return 1 if value <= 1 else 2 ** math.ceil(math.log2(value))
 
 
-def derive(measured):
-    """Apply the rule; ``executable`` is False when any host cap binds below it."""
-    if not isinstance(measured, dict) or set(measured) != set(MEASURED):
+def derive(per_date):
+    """Apply the rule to {date: measured}; ``executable`` is False when any host limit binds."""
+    if (not isinstance(per_date, dict) or sorted(per_date) != [d.isoformat() for d in CALIBRATION_DATES]
+            or any(not isinstance(m, dict) or set(m) != set(MEASURED) for m in per_date.values())):
         raise BundleError("incomplete_ceiling_measurement")
-    rule = {name: next_power_of_two(measured[name] * MULTIPLIER) for name in MEASURED}
-    binding = sorted(name for name in MEASURED if rule[name] > HOST_CAPS[name])
-    return dict(rule=RULE, multiplier=MULTIPLIER, host=HOST, host_caps=HOST_CAPS, rule_values=rule,
-                host_cap_binding=binding, executable=not binding, ceilings=None if binding else rule)
+    largest = {name: max(m[name] for m in per_date.values()) for name in MEASURED}
+    rule = {name: next_power_of_two(largest[name] * MULTIPLIER) for name in MULTIPLIED}
+    ceilings = {k: v for k, v in rule.items() if k != "peak_memory_above_baseline_bytes"}
+    ceilings["memory_bytes"] = rule["peak_memory_above_baseline_bytes"] + int(largest["baseline_memory_bytes"])
+    binding = sorted(name for name, limit in HOST_LIMITS.items() if ceilings[name] > limit)
+    return dict(rule=RULE, multiplier=MULTIPLIER, host=HOST, host_limits=HOST_LIMITS, largest=largest,
+                ceilings=ceilings, host_limit_binding=binding, executable=not binding)
 
 
 def run_limits(derived):
-    """CLI/engine ceilings bound by a manifest; refuse when the host cap binds."""
+    """CLI/engine ceilings bound by a manifest; refuse when a host limit binds."""
     if not derived.get("executable"):
-        raise BundleError("not_executable_on_host:" + ",".join(derived.get("host_cap_binding", ())))
+        raise BundleError("not_executable_on_host:" + ",".join(derived.get("host_limit_binding", ())))
     c = derived["ceilings"]
     return dict(max_input_bytes=c["input_bytes"], max_records=c["records"], max_seconds=float(c["runtime_seconds"]),
                 max_events=c["engine_events"], max_outputs=c["decisions_spans"],
-                max_memory_bytes=c["peak_memory_bytes"])
+                max_output_bytes=c["report_bytes"], max_memory_bytes=c["memory_bytes"])
 
 
 def _windows_process_memory():
@@ -128,6 +138,17 @@ def host_preflight(*, commit=None):
     if value is None or not math.isfinite(value) or not 0 <= value < MAX_COMMIT_PERCENT:
         raise BundleError("host_commit_charge_not_below_70_percent")
     return value
+
+
+def window_preflight(now, max_seconds):
+    """Operational refusal before any score unless the whole ceiling fits 00:30-09:00 Toronto."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    local = now.astimezone(ZoneInfo("America/Toronto"))
+    opens = datetime.combine(local.date(), datetime.min.time(), local.tzinfo) + timedelta(minutes=30)
+    closes = datetime.combine(local.date(), datetime.min.time(), local.tzinfo) + timedelta(hours=9)
+    if not opens <= local or local + timedelta(seconds=max_seconds) > closes:
+        raise BundleError("scored_run_must_fit_admitted_window_00_30_09_00")
 
 
 def guarded(check, max_memory_bytes, *, memory=None, clock=time.monotonic, interval=0.25):

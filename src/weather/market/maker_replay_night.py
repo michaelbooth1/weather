@@ -34,6 +34,8 @@ MAX_RECEIPT_BYTES = 8 * 1024**2
 MAX_LEDGER_BYTES = 64 * 1024**2
 DEFAULT_OUTPUT_BYTES = 2 * 1024**3
 DEFAULT_INPUT_BYTES = 4 * 1024**3
+# The accepted nightly budget (45 minutes), well inside the host's four-hour limit.
+DEFAULT_SECONDS = 2700.0
 MAX_INVENTORY_EVENTS = 100_000
 KINDS = dict(panel=dict(ledger="panel-ledger.jsonl", kinds=None),
              calibration=dict(ledger="calibration-ledger.jsonl", kinds=CALIBRATION_KINDS))
@@ -278,6 +280,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("module-hash", help="print the exporter's repository module-closure hash; reads no data")
+    inventory = commands.add_parser("universe", help="manifest universe JSON from the sealed panel bundles")
+    inventory.add_argument("--bundle", type=Path, action="append", required=True)
+    inventory.add_argument("--out", type=Path, required=True, help="new sorted universe JSON file")
     for name, text in (("night", "one all-city panel bundle for a closed UTC date"),
                        ("calibration", "descriptor/coverage/trade bundle for a calibration date")):
         run = commands.add_parser(name, help=text)
@@ -288,8 +293,17 @@ def main(argv=None):
         run.add_argument("--expected-module-sha256", help="refuse unless the loaded exporter modules hash to this")
         run.add_argument("--max-input-bytes", type=int, default=DEFAULT_INPUT_BYTES)
         run.add_argument("--max-output-bytes", type=int, default=DEFAULT_OUTPUT_BYTES)
-        run.add_argument("--max-seconds", type=float, default=HOST_MAX_SECONDS)
+        run.add_argument("--max-seconds", type=float, default=DEFAULT_SECONDS)
     args = parser.parse_args(argv)
+    if args.command == "universe":
+        from maker_core.replay.pack_io import write_json
+        from weather.market.maker_replay_universe import universe
+        try:
+            key = write_json(args.out, universe(args.bundle), 8 * 1024**2)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            parser.exit(2, f"universe refused: {type(exc).__name__}: {exc}\n")
+        print(json.dumps(dict(universe_sha256=key), sort_keys=True))
+        return 0
     if args.command == "module-hash":
         closure = module_closure()
         print(json.dumps(dict(module_sha256=module_sha256(closure), files=len(closure)), sort_keys=True))
