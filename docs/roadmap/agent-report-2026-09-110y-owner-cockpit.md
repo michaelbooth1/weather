@@ -61,7 +61,13 @@ host-health BOM and staleness; closed-date counting; exam phases across the cale
 page; load exception fails closed; retired `?market=` route still opens the Control Room. Existing app tests updated
 for three pages and the new label.
 
-RESULTS_PLACEHOLDER
+Workstation results under `scripts\ops\workstation_heavy.ps1`: the focused set below, including the repo-wide
+schema-registry, import-architecture, agent-docs, path-policy, module-size, knowledge-structure and structure-inventory
+audits, **118 passed**. `compileall` over `app`, `src/weather/reporting/market`, `tests/app` and `tests/reporting` is
+clean, and `weather.operations.agent_docs_audit` PASSES. The first run caught an unregistered `owner_cockpit_snapshot_v1`
+literal. The snapshot is never persisted, so the fix removed the version. Registering one would have put a
+`schema_registry*` change, which enters all four closures, into a roll-free branch. GitHub CI for PR #132 is reported
+in the handback reply.
 
 ## Per-file roll verdict
 
