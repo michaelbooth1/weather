@@ -32,6 +32,8 @@ import subprocess
 from collections import namedtuple
 from pathlib import Path
 
+from weather.paths import config_path
+
 
 ConstantSpec = namedtuple("ConstantSpec", "module attribute meaning matters_because")
 
@@ -136,9 +138,9 @@ PROTECTED_WINDOWS = (
     ),
     (
         "18:00-00:30 local",
-        "Near-close capture and daily roll-over",
-        "Near-close fast CLOB capture, MM quoting, settlement watch, then the 00:05-00:30 "
-        "taker/MM daily roll-over. Policy says nothing heavy, ever; the workload lease "
+        "Near-close capture and settlement watch",
+        "Near-close fast CLOB capture and settlement watch protect evidence through midnight. "
+        "Policy admits no ad-hoc heavy work here; the workload lease "
         "refuses every hour outside 00:30-09:00.",
         "docs/operations/HOST_LOAD_POLICY.md",
     ),
@@ -293,6 +295,15 @@ def render_markdown(constants):
             f"{row['meaning']} | {row['matters_because']} |"
         )
 
+    lines += ["", "## Scheduled-task inventory", "",
+              "Lifecycle intent from `config/scheduled_tasks.json`; host registration is unverified.",
+              "Active means maintained, not enabled. Owner holds and one-shot receipts still govern.", "",
+              "| Task or pattern | State | Expected disabled | Registrar | Owner |",
+              "| --- | --- | --- | --- | --- |"]
+    inventory = json.loads(config_path("scheduled_tasks.json").read_text(encoding="utf-8"))
+    for row in inventory["tasks"]:
+        registrar = row["registrar"] or "Host-local; XML not in repository"
+        lines.append(f"| {row['name']} | {row['state']} | {row['expected_disabled']} | {registrar} | {row['owner']} |")
     lines += [
         "",
         "## Live timetable",

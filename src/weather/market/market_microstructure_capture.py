@@ -54,6 +54,7 @@ from weather.market.clob_capture_cache import capture_event as cached_capture_ev
 from weather.market.clob_token_cadence import write_complete_batch
 from weather.io import request_with_retries
 from weather.schema_registry import schema_version
+from weather.units import parse_temperature_band
 
 
 CLOB_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_capture_status")
@@ -142,26 +143,13 @@ def price_for_outcome(name, outcomes, prices):
 
 
 def label_bin_metadata(label, unit):
-    import re
-
-    digits = [int(value) for value in re.findall(r"\d+", str(label or ""))]
-    if not digits:
+    band = parse_temperature_band(label, expected_unit=unit)
+    if band is None:
         return {"bin_kind": None, "bin_value": None, "bin_value_hi": None, "unit": unit}
-    lower_label = str(label).lower()
-    value = digits[0]
-    value_hi = digits[-1]
-    if "below" in lower_label:
-        kind = "lte"
-        value_hi = value
-    elif "higher" in lower_label or "above" in lower_label:
-        kind = "gte"
-        value_hi = value
-    else:
-        kind = "eq"
     return {
-        "bin_kind": kind,
-        "bin_value": value,
-        "bin_value_hi": value_hi,
+        "bin_kind": band.kind,
+        "bin_value": band.value,
+        "bin_value_hi": band.value_hi,
         "unit": unit,
     }
 

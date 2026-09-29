@@ -15,7 +15,7 @@ from weather.operations.bot_run_liveness import (
     DEFAULT_STARTUP_GRACE_SECONDS as BOT_STARTUP_GRACE_SECONDS,
     RUNNING_STATUSES,
 )
-from weather.paths import data_path
+from weather.paths import config_path, data_path
 from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from weather.schema_registry import schema_version
 
@@ -251,10 +251,18 @@ def _bot_row_and_alerts(
     now,
     status_command,
     restart_command,
+    retired=False,
     maker_run_summary=None,
     max_activity_age_seconds=DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
 ):
+    if retired:
+        return {
+            "component": component, "label": label, "status": "RETIRED",
+            "running": False, "runtime_code_state": "not_applicable",
+            "expected_target_date": expected_target_date,
+            "restart_command": None, "status_command": None,
+        }, []
     status = dict(status or {})
     alerts = []
     exists = _status_exists(status)
@@ -440,26 +448,38 @@ def build_payload(
     taker_status_path=taker_bot_daily_roll.DEFAULT_STATUS_PATH,
     max_bot_activity_age_seconds=DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    bot_states=None,
 ):
     generated_at = utc_iso(now)
     current_identity = current_identity or get_runtime_identity()
     expected_date = target_date or _local_date(now=now, timezone_name=timezone_name)
-    if maker_status is None:
+    if bot_states is None:
+        tasks = {row["name"]: row for row in read_json(config_path("scheduled_tasks.json"))["tasks"]}
+        bot_states = {"maker_bot": tasks["WeatherMarketMakingDailyRoll"]["state"],
+                      "taker_bot": tasks["WeatherTakerBotDailyRoll"]["state"]}
+    if set(bot_states) != {"maker_bot", "taker_bot"} or any(
+        state not in {"active", "retired"} for state in bot_states.values()
+    ):
+        raise ValueError("bot monitoring requires explicit active/retired inventory states")
+    maker_retired = bot_states["maker_bot"] == "retired"
+    taker_retired = bot_states["taker_bot"] == "retired"
+    if maker_status is None and not maker_retired:
         maker_status = market_making_daily_roll.load_status(maker_status_path, now=now)
-    if taker_status is None:
+    if taker_status is None and not taker_retired:
         taker_status = taker_bot_daily_roll.load_status(
             taker_status_path,
             now=now,
             max_activity_age_seconds=max_bot_activity_age_seconds,
             startup_grace_seconds=startup_grace_seconds,
         )
-    if maker_run_summary is None:
+    if maker_run_summary is None and not maker_retired:
         maker_root = (maker_status or {}).get("runs_root") or market_making_daily_roll.DEFAULT_RUNS_ROOT
         maker_run_summary = latest_maker_run_summary(maker_root, expected_date, now=now)
 
     loop_rows, alerts = _loop_rows_and_alerts(fleet_payload or {})
     maker_row, maker_alerts = _bot_row_and_alerts(
         component="maker_bot",
+        retired=maker_retired,
         label="Maker bot",
         status=maker_status,
         expected_target_date=expected_date,
@@ -473,6 +493,7 @@ def build_payload(
     )
     taker_row, taker_alerts = _bot_row_and_alerts(
         component="taker_bot",
+        retired=taker_retired,
         label="Taker bot",
         status=taker_status,
         expected_target_date=expected_date,
@@ -519,6 +540,7 @@ def build_payload(
             "loop_count": len(loop_rows),
             "blocking_loop_count": sum(1 for row in loop_rows if row.get("status") != "PASS"),
             "running_bot_count": sum(1 for row in [maker_row, taker_row] if row.get("running")),
+            "retired_bot_count": sum(1 for row in [maker_row, taker_row] if row.get("status") == "RETIRED"),
             "current_code_bot_count": sum(
                 1 for row in [maker_row, taker_row] if row.get("runtime_code_state") == "current"
             ),

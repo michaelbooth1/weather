@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from maker_core.contracts.portfolio import instant, validate_campaigns
+from maker_core.contracts.portfolio import active_campaigns, instant, validate_campaigns
 from maker_core.portfolio.ledger import build_book
 from maker_core.portfolio.journal import append_book
 from maker_core.evidence.journal import canonical_bytes, digest
@@ -18,6 +18,7 @@ def main(argv=None):
     report.add_argument("--snapshots", required=True, type=Path)
     report.add_argument("--campaigns", required=True, type=Path)
     report.add_argument("--out", required=True, type=Path)
+    report.add_argument("--account-id", help="Explicit public account identity for saved reads envelopes")
     report.add_argument("--reader-url")
     report.add_argument("--client-config", type=Path)
     args = parser.parse_args(argv)
@@ -25,16 +26,20 @@ def main(argv=None):
         if args.out.resolve().is_relative_to(args.snapshots.resolve()):
             raise ValueError("journal_must_be_outside_snapshots")
         config = validate_campaigns(read_json(args.campaigns))
+        account = args.account_id or config.get("account_id")
+        if args.account_id and config.get("account_id") and args.account_id.lower() != config["account_id"].lower():
+            raise ValueError("campaign_account_mismatch")
         if not args.snapshots.is_dir() or args.snapshots.is_symlink():
             raise ValueError("snapshot_directory_required")
-        snapshots = [adapt_archive(read_json(path)) for path in sorted(args.snapshots.glob("*.json"))]
+        snapshots = [adapt_archive(read_json(path), account_id=account) for path in sorted(args.snapshots.glob("*.json"))]
         if bool(args.reader_url) != bool(args.client_config):
             raise ValueError("reader_url_and_client_config_required")
         if args.reader_url:
             from maker_core.runtime.credentials import reader_credentials
             from maker_core.venue.portfolio_client import read_archive
-            since = int(min(instant(c["start_utc"]) for c in config["campaigns"]).timestamp())
-            captured = adapt_archive(read_archive(args.reader_url, reader_credentials(args.client_config), since))
+            since = int(min(instant(c["start_utc"]) for c in active_campaigns(config)).timestamp())
+            captured = adapt_archive(read_archive(args.reader_url, reader_credentials(args.client_config), since),
+                                     account_id=account)
             archive = args.snapshots / (digest(captured) + ".json")
             with archive.open("xb") as handle:
                 handle.write(canonical_bytes(captured))
