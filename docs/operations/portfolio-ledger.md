@@ -14,7 +14,8 @@ IO. Runtime orchestration supplies explicit paths and optional LAN reads. The
 point; importing the portfolio package does not load it. Existing v0.1 contracts
 are unchanged; the portfolio contracts are additive.
 
-From the production checkout, after the owner supplies the campaign configuration:
+From the production checkout, after the owner supplies the campaign configuration
+and its explicit public `account_id`:
 
 ```powershell
 .\venv\Scripts\python.exe -m maker_core.portfolio report --snapshots .\data\wallet_ledger --campaigns .\config\local\portfolio_campaigns.json --out .\data\portfolio_ledger
@@ -57,7 +58,18 @@ event ID; multiple same-asset events at the same instant make affected campaigns
 INCOMPLETE because the tie break cannot prove FIFO order. Inputs and config are
 hashed; rebuilds are independent of file order.
 
-Reader archives are `{account_id, captured_at_utc, summary, trades}`. A direct
+Saved helper envelopes with `captured_at_utc` and
+`reads: {summary, trades, positions, open-orders}` are accepted. Their account must
+come from `--account-id` or the campaigns config's `account_id`; it is never guessed
+from positions or trade rows. Conflicting explicit or embedded identities refuse
+the run. A raw trades list is a recent activity page with **unproven completeness**,
+even when empty. The book records `history_completeness_unproven` and remains
+INCOMPLETE; missing fees and unsupported raw fill rows remain unknown.
+`reads.positions` can supply omitted position arrays (including resolved holdings);
+missing resolved rows/count mismatches still invalidate completeness. No source
+file is rewritten and no network request is needed.
+
+Legacy reader archives are `{account_id, captured_at_utc, summary, trades}`. A direct
 summary object is also accepted if it carries `account_id`; missing trades mean
 incomplete history. `summary.positions`, `resolved_positions`, and
 `unclassified_positions` are normalized; omitted resolved rows are a missing
@@ -73,24 +85,20 @@ Unknown archive layouts are refused; missing evidence is never synthesized.
 
 ## Campaign configuration
 
-Schema `portfolio_campaigns_v0.1`. Store the owner's actual records at the
-explicit config path; the following is a structural example, not capital advice:
+Schema `portfolio_campaigns_v0.1`. Copy the reviewed structural
+[example](../../config/examples/portfolio_campaigns.json) to ignored
+`config/local/portfolio_campaigns.json`; the production agent supplies the owner's
+public account ID, actual manual-history start, recorded contributions and reserve.
+The epoch in the example is only a conservative coverage lower bound and its
+empty contributions do not claim funded capital. No reconciliation amount is invented.
 
-```json
-{
-  "schema_version": "portfolio_campaigns_v0.1",
-  "default_campaign": "owner-discretionary",
-  "unattributed_cash_pusd": "0",
-  "reconciliation_tolerance_pusd": "0.000001",
-  "campaigns": [
-    {"id":"weather-maker","start_utc":"2026-09-22T00:00:00Z","contributions":[],"bleed_limit_pusd":"40"},
-    {"id":"youtube-maker","start_utc":"2026-09-22T00:00:00Z","contributions":[]},
-    {"id":"owner-discretionary","start_utc":"2026-09-22T00:00:00Z","contributions":[]}
-  ],
-  "lot_overrides": [],
-  "rules": [{"event_slug_prefix":"highest-temperature-in-","campaign":"weather-maker"}]
-}
-```
+Only `owner-discretionary` is enabled in the example. The owner confirmed on
+2026-09-26 that all trades to that point were manual, including weather and video
+positions. `weather-maker` and `youtube-maker` are disabled placeholders without
+starts, contributions or limits. Disabled campaigns cannot receive rules or
+overrides and are absent from computed books. Before a future automated campaign,
+the owner supplies its real start, capital and attribution rules and enables it.
+Omitting `enabled` retains the legacy enabled behavior.
 
 Each recorded contribution is `{id, at_utc, amount_pusd}`; negative amounts are
 withdrawals and future contributions are not yet counted. `unattributed_cash_pusd`
