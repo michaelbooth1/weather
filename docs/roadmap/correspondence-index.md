@@ -442,3 +442,4 @@ legacy collisions may have several answers. Citations are extracted, not validat
 | 2026-09-110x | handoff | [Workstation handoff 2026-09-110x — journal of the owner's manual one-sided orders](workstation-handoff-2026-09-110x-manual-order-journal.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110y | handoff | [Workstation handoff 2026-09-110y — owner cockpit page](workstation-handoff-2026-09-110y-owner-cockpit.md) | 2026-09-27 | none in tree | — | — |
 | 2026-09-110z | handoff | [Workstation handoff 2026-09-110z — reward-opportunity scanner, settlement watcher, PR hygiene report](workstation-handoff-2026-09-110z-reward-scan-and-read-tools.md) | 2026-09-27 | none in tree | — | — |
+| 2026-09-111c | report | [Agent report 2026-09-111c — storage classification for 5f/5g disk relief](agent-report-2026-09-111c-storage-class-5g.md) | 2026-09-29 | [agent-report-2026-09-111c-storage-class-5g.md](agent-report-2026-09-111c-storage-class-5g.md) | — | — |
