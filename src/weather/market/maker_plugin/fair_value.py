@@ -38,6 +38,7 @@ class WeatherFairValue:
         self.snapshots = records(snapshots)
         self.explanations = records(explanations)
         self.source_rows = records(source_rows)
+        self._daily_high_rows = {}
 
     def evaluate(self, market, as_of_utc):
         utc_time(as_of_utc)
@@ -85,21 +86,58 @@ class WeatherFairValue:
         stdev = math.sqrt(p * (1 - p)) * ((as_of - issue).total_seconds() / 86400 + .25)
         return OutcomeView(market.condition_id, p, stdev, joint, as_of, expiry, digest(inputs), model, "none")
 
-    def _fallback(self, market, spec, target, as_of, bands):
+    def _daily_highs(self, event_id, spec, target):
+        """Parse one event's daily-high rows once; refusals keep their row order.
+
+        Entries carry a deferred error, or the capture clock and the issue clock
+        (None without one, False when not a lead-one issue). Evaluation
+        applies the same checks, in the same order, as a scan of every row.
+        """
+        key = (event_id, target)
+        if key not in self._daily_high_rows:
+            parsed = []
+            for row in self.forecasts:
+                if (row.get("target_date") != target.isoformat() or row.get("event_slug") != event_id
+                        or row.get("forecast_kind") != "daily_high"):
+                    continue
+                try:
+                    captured = timestamp(row["captured_at_utc"])
+                except (ValueError, KeyError, TypeError) as exc:
+                    parsed.append(("captured", (type(exc), exc.args), None, None, row))
+                    continue
+                issue_text = row.get("provider_issue_time") or row.get("provider_update_time")
+                if not issue_text:
+                    parsed.append((None, None, captured, None, row))
+                    continue
+                try:
+                    issue = timestamp(issue_text)
+                except (ValueError, KeyError, TypeError) as exc:
+                    parsed.append(("issue", (type(exc), exc.args), captured, None, row))
+                    continue
+                lead_one = (target - issue.astimezone(spec.tz).date()).days == 1
+                parsed.append((None, None, captured, issue if lead_one else False, row))
+            self._daily_high_rows[key] = parsed
+        return self._daily_high_rows[key]
+
+    def _fallback_candidates(self, event_id, spec, target, as_of):
         candidates = []
-        for row in self.forecasts:
-            if row.get("target_date") != target.isoformat() or row.get("event_slug") != market.event_id:
+        for failed, error, captured, issue, row in self._daily_highs(event_id, spec, target):
+            if failed == "captured":
+                raise error[0](*error[1])
+            if captured > as_of:
                 continue
-            if row.get("forecast_kind") != "daily_high" or timestamp(row["captured_at_utc"]) > as_of:
-                continue
-            issue_text = row.get("provider_issue_time") or row.get("provider_update_time")
-            if not issue_text:
-                continue
-            issue = timestamp(issue_text)
-            if (target - issue.astimezone(spec.tz).date()).days != 1:
-                continue
-            if issue <= timestamp(row["captured_at_utc"]) <= as_of < issue + timedelta(hours=24):
+            if failed == "issue":
+                raise error[0](*error[1])
+            if issue is None:
+                continue  # No provider issue clock.
+            if issue is False:
+                continue  # Not a lead-one issue.
+            if issue <= captured <= as_of < issue + timedelta(hours=24):
                 candidates.append({"issue": issue.isoformat(), "row": row})
+        return candidates
+
+    def _fallback(self, market, spec, target, as_of, bands):
+        candidates = self._fallback_candidates(market.event_id, spec, target, as_of)
         if not candidates:
             raise ValueError("missing_point_in_time_forecast")
         issue = max(timestamp(c["issue"]) for c in candidates)
