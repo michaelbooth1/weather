@@ -89,7 +89,8 @@ Maker scoring projections (`mm_runs/<date>/<run>/mm_scoring_projection.csv` and
 source is the sibling `quote_intents_long.csv` /
 `model_variant_quote_intents_long.csv`, bound by size+mtime in
 `mm_scoring_projection_manifest.json`. Readers fail closed to the canonical tapes
-when that binding does not validate. The manifest itself is retained. The
+when that binding does not validate, and cleanup preflight blocks a projection
+candidate unless that same run-level binding validates. The manifest itself is retained. The
 `backtest/active_variant_shadow_attribution.jsonl` sidecar has the same class and
 family (`backtest_row_exports`) as its sibling `active_variant_shadow_long.csv`.
 
