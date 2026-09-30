@@ -1,4 +1,4 @@
-﻿# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]
+﻿# 161. Loop Restart Noise And Current-Code Cadence Proof [DORMANT 2026-09-29 - SOAK PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]
 
 Goal: reduce supervisor restart noise and prove that current-code loops can
 hold cadence across a full active day.

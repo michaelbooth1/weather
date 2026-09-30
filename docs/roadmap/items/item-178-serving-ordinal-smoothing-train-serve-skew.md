@@ -1,4 +1,4 @@
-﻿# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]
+﻿# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]
 
 Goal: eliminate the train/serve skew where serving de-sharpens the feature-model
 distribution with an ordinal-smoothing layer that the per-hour temperature/blend
