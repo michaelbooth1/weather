@@ -210,8 +210,8 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
   [`OVERNIGHT_BRIEFINGS.md`](OVERNIGHT_BRIEFINGS.md) is a **dormant** hand-written narrative log
   (last entry 2026-08-11); it is history, not a channel.
 - Other generated daily reads under `data/alerts/`: `STALENESS_SWEEP.md`
-  (`staleness_sweep.ps1`), `MM_COUNTABILITY.md` (`mm_countability_report.ps1`),
-  `OPERATING_SCHEDULE.md`; and `data/backtest/daily_refresh_report.md`. Task Scheduler owns their
+  (`staleness_sweep.ps1`), `OPERATING_SCHEDULE.md` (`mm_countability_report.ps1`; its maker
+  post-mortem was retired 2026-09-29, so `MM_COUNTABILITY.md` is no longer refreshed); and `data/backtest/daily_refresh_report.md`. Task Scheduler owns their
   times.
 - **Scheduled spine:** use `status.ps1` and Task Scheduler as dynamic truth. The legacy
   `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are held Disabled because their

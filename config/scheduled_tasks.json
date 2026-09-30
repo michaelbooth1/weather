@@ -205,8 +205,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_market_making_daily_roll.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherMarketMakingDailyRollSupervisor",
@@ -214,8 +214,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_market_making_daily_roll_supervisor.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherMemoryCommitGuard",
@@ -356,8 +356,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_taker_bot_daily_roll.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherTakerBotDailyRollSupervisor",
@@ -365,8 +365,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_taker_bot_daily_roll_supervisor.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherTrainingWindow",

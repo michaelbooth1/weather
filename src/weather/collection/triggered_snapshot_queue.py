@@ -18,6 +18,7 @@ from pathlib import Path
 from weather.operations.supervisor import atomic_write_json
 from weather.paths import data_path
 from weather.schema_registry import schema_version
+from weather.time import utc_now as _utc_now
 
 
 DEFAULT_TRIGGER_QUEUE_ROOT = data_path() / "snapshots" / "triggered_snapshot_queue"
@@ -27,10 +28,6 @@ COMPLETED_DIR = "completed"
 ACKNOWLEDGED_DIR = "acknowledged"
 ACK_TOMBSTONE_LIMIT = 4096
 QUEUE_SCHEMA_VERSION = schema_version("observation_trigger")
-
-
-def _utc_now():
-    return datetime.now(timezone.utc)
 
 
 def _queue_root(queue_root=None):

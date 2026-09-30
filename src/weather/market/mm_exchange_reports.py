@@ -11,7 +11,7 @@ import math
 import re
 from urllib.parse import parse_qs, urlsplit
 
-from weather.market.mm_policy import bool_value, maybe_float
+from weather.market.value_helpers import bool_value, maybe_float
 from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS
 
 

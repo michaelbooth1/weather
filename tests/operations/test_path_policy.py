@@ -11,6 +11,9 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     nightly_retrain = importlib.import_module("weather.operations.nightly_retrain")
     observation_trigger = importlib.import_module("weather.operations.observation_trigger")
     market_making_constants = importlib.import_module("weather.market.market_making_run_constants")
+    retired_trading_evidence = importlib.import_module(
+        "weather.reporting.market.retired_trading_evidence"
+    )
     progress_audit = importlib.import_module("weather.reporting.scorecards.progress_audit")
     variant_registry = importlib.import_module("weather.reporting.candidate_lifecycle.variant_registry")
     operator_control_room = importlib.import_module(
@@ -22,6 +25,8 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     assert nightly_retrain.DEFAULT_SNAPSHOTS_ROOT == data_path("snapshots")
     assert observation_trigger.DEFAULT_BACKTEST_ROOT == data_path("backtest")
     assert market_making_constants.DEFAULT_RUNS_ROOT == data_path("mm_runs")
+    assert retired_trading_evidence.DEFAULT_MM_RUNS_ROOT == data_path("mm_runs")
+    assert retired_trading_evidence.DEFAULT_MM_PAPER_JSON == data_path("backtest", "mm_paper_report.json")
     assert progress_audit.DEFAULT_ROADMAP == docs_path("roadmap", "ROADMAP.md")
     assert variant_registry.DEFAULT_REGISTRY_PATH == config_path("model_variant_registry.json")
     assert operator_control_room.RUNS_ROOT == data_path("mm_runs")

@@ -26,7 +26,7 @@ the evidence and release gates.
 | `weather.sources` | Provider fetch/parsing, historical stores, source schemas |
 | `weather.model` | Serving-time source assembly, features, distributions, calibration application |
 | `weather.calibration` | Training, candidate replay/scoring, calibration, artifact production |
-| `weather.market` | Market registry, Polymarket/CLOB access, settlement labeling, maker/taker policy |
+| `weather.market` | Market registry, Polymarket/CLOB access, settlement labeling, live maker adapters and policy |
 | `weather.collection` | Snapshot/forecast capture, persistence, health, and backfill |
 | `weather.backtesting` | Settlement ledger IO, frozen-tape scoring, replay, evaluation |
 | `weather.reporting` | Audits, reports, scorecards, promotion and serving gates |
@@ -77,20 +77,14 @@ risk-setting actions. The frontend intentionally contains only this Control
 Room and the active Roadmap; retired market, history, overview, and operations
 views are not hidden routes or retained application code.
 
-The taker track is paused by owner decision (maker focus); read
-[STATE_OF_PLAY](operations/STATE_OF_PLAY.md) for whether it is running. Its storage contract still binds the code
-and the evidence already on disk. The paper taker writes `orders_long.csv` and its counterfactual tape by append.
-Real order evidence is permanent. Counterfactual replay detail has a specific
-date-bounded policy: daily-roll startup removes only hash-bound allowlisted raw
-and settled detail CSVs after both their target date and mtime exceed the
-configured retention, without waiting for settlement. Compact P&L, strategy,
-report, plan, and apply receipts remain.
-`incremental_state.sqlite3` is a rebuildable intent index and cumulative
-checkpoint, not canonical evidence: ordinary ticks use it to materialize only
-new rows and the bounded filled-position set, while explicit maintenance
-recovery may stream the canonical tapes. Per-tick memory, tape-I/O, duration,
-and post-warmup slope diagnostics are advisory observability and do not change
-daily-roll liveness classification.
+The paper taker and the paper maker were retired and their runtime code deleted on
+2026-09-29 (110o part 3), except the paper-run tool `weather.market.market_making_run`,
+retained only for the International live-pilot Stage 0/1 paper proof. Their run folders under `data/taker_runs` and `data/mm_runs`
+remain append-only evidence: real order evidence is permanent, and the taker's
+bounded counterfactual detail is governed by the
+[storage class contract](operations/data-storage-class-contract.md). The retained
+`trading_evidence` report reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module.
 
 ## Sources of truth
 

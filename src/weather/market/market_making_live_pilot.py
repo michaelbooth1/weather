@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import math
 
-from weather.market.market_making_run_constants import (
-    DEFAULT_QUOTE_TTL_SECONDS,
-    MAX_OPERATOR_PILOT_BUDGET_USDC,
-)
-from weather.market.mm_policy import DEFAULT_POLICY_CONFIG
+from weather.market.execution_contract import DEFAULT_QUOTE_TTL_SECONDS
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.quote_policy_defaults import DEFAULT_POLICY_CONFIG
 
 
 MARKET_HARVEST_QUOTE_TTL_SECONDS = 600.0

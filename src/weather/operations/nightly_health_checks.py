@@ -9,22 +9,18 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.io import read_json, write_json_atomic
-from weather.operations import market_making_daily_roll, taker_bot_daily_roll
-from weather.operations.bot_run_liveness import (
-    DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
-    DEFAULT_STARTUP_GRACE_SECONDS as BOT_STARTUP_GRACE_SECONDS,
-    RUNNING_STATUSES,
-)
-from weather.paths import config_path, data_path
-from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.paths import data_path
+from weather.runtime_identity import format_runtime_identity, get_runtime_identity
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("nightly_health_checks")
 DEFAULT_ALERT_ROOT = data_path("alerts")
 DEFAULT_TIMEZONE = "America/Toronto"
-DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS = DEFAULT_MAX_ACTIVITY_AGE_SECONDS
-DEFAULT_STARTUP_GRACE_SECONDS = BOT_STARTUP_GRACE_SECONDS
+# The taker and paper-maker bots were retired and their runtime code deleted on
+# 2026-09-29.  They stay listed as RETIRED rows so the report keeps its shape,
+# but nothing is read for them and no restart is ever suggested.
+RETIRED_BOTS = (("maker_bot", "Maker bot"), ("taker_bot", "Taker bot"))
 
 
 def _parse_utc(value):
@@ -39,38 +35,12 @@ def _parse_utc(value):
     return parsed.astimezone(timezone.utc)
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def utc_iso(now=None):
     parsed = _parse_utc(now) or utc_now()
     return parsed.astimezone(timezone.utc).isoformat()
-
-
-def _age_seconds(value, *, now):
-    parsed = _parse_utc(value)
-    if parsed is None:
-        return None
-    current = _parse_utc(now) or utc_now()
-    return max(0.0, (current - parsed).total_seconds())
-
-
-def _mtime_row(path, *, now):
-    path = Path(path)
-    try:
-        stat = path.stat()
-    except OSError:
-        return {"exists": False, "path": str(path)}
-    modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
-    current = _parse_utc(now) or utc_now()
-    return {
-        "exists": True,
-        "path": str(path),
-        "modified_at_utc": modified.isoformat(),
-        "age_seconds": round(max(0.0, (current - modified).total_seconds()), 3),
-        "size_bytes": int(getattr(stat, "st_size", 0) or 0),
-    }
 
 
 def _local_date(now=None, timezone_name=DEFAULT_TIMEZONE):
@@ -89,12 +59,6 @@ def _overall_status(alerts):
     if any(row.get("severity") == "warning" for row in alerts):
         return "WARN"
     return "OK"
-
-
-def _runtime_code_state(runtime_identity, current_identity):
-    if not runtime_identity:
-        return "unknown"
-    return "current" if identities_match(runtime_identity, current_identity) else "stale_code"
 
 
 def _alert(severity, component, category, message, detail=None, remediation_command=None):
@@ -185,249 +149,13 @@ def _loop_rows_and_alerts(fleet_payload):
     return rows, alerts
 
 
-def _run_summary_candidates(runs_root, target_date):
-    day_root = Path(runs_root) / str(target_date)
-    if not day_root.exists():
-        return []
-    candidates = []
-    try:
-        folders = list(day_root.iterdir())
-    except OSError:
-        return []
-    for folder in folders:
-        if not folder.is_dir() or folder.name.startswith(".") or folder.name == "_quarantine":
-            continue
-        summary_path = folder / "run_summary.json"
-        if summary_path.exists():
-            candidates.append(summary_path)
-    return candidates
-
-
-def latest_maker_run_summary(runs_root, target_date, *, now=None):
-    candidates = _run_summary_candidates(runs_root, target_date)
-    if not candidates:
-        return {
-            "exists": False,
-            "path": None,
-            "run_folder": None,
-            "status": "missing",
-        }
-    latest = max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name))
-    payload = read_json(latest, default={}) or {}
-    liveness = payload.get("useful_work_liveness") or {}
+def _retired_bot_row(component, label, expected_target_date):
     return {
-        **_mtime_row(latest, now=now),
-        "run_folder": str(latest.parent),
-        "status": "ok",
-        "run_id": payload.get("run_id"),
-        "generated_at_utc": payload.get("generated_at_utc"),
-        "preflight_status": payload.get("preflight_status"),
-        "live_forward_gate_status": payload.get("live_forward_gate_status"),
-        "quote_permission_rows": payload.get("quote_permission_rows"),
-        "row_count": payload.get("row_count"),
-        "useful_work_liveness": {
-            "status": liveness.get("status"),
-            "reason": liveness.get("reason"),
-            "blocker_count": liveness.get("blocker_count"),
-            "root_cause_counts": liveness.get("root_cause_counts") or {},
-            "first_blocker": (liveness.get("blockers") or [{}])[0] if liveness.get("blockers") else {},
-        },
-    }
-
-
-def _status_exists(status):
-    if not status:
-        return False
-    return bool(status.get("exists", True))
-
-
-def _bot_row_and_alerts(
-    *,
-    component,
-    label,
-    status,
-    expected_target_date,
-    current_identity,
-    now,
-    status_command,
-    restart_command,
-    retired=False,
-    maker_run_summary=None,
-    max_activity_age_seconds=DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
-    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
-):
-    if retired:
-        return {
-            "component": component, "label": label, "status": "RETIRED",
-            "running": False, "runtime_code_state": "not_applicable",
-            "expected_target_date": expected_target_date,
-            "restart_command": None, "status_command": None,
-        }, []
-    status = dict(status or {})
-    alerts = []
-    exists = _status_exists(status)
-    status_value = status.get("status") if exists else "missing"
-    running = bool(exists and status_value in RUNNING_STATUSES)
-    runtime_identity = status.get("runtime_identity") or {}
-    runtime_state = _runtime_code_state(runtime_identity, current_identity)
-    target_date = status.get("target_date")
-    target_matches = bool(expected_target_date and target_date == expected_target_date)
-    started_age = _age_seconds(status.get("started_at_utc") or status.get("generated_at_utc"), now=now)
-    activity_status = None
-    latest_activity_age = None
-    useful_work_status = None
-
-    if not exists:
-        alerts.append(_alert(
-            "critical",
-            component,
-            "bot_status_file",
-            f"{label} daily-roll status file is missing",
-            {"status_path": status.get("path")},
-            status_command,
-        ))
-    elif not running:
-        alerts.append(_alert(
-            "critical",
-            component,
-            "bot_liveness",
-            f"{label} is not running: status={status_value}",
-            {
-                "status": status_value,
-                "pid": status.get("pid"),
-                "target_date": target_date,
-                "root_cause_class": status.get("root_cause_class"),
-                "first_failing_gate": status.get("first_failing_gate"),
-                "status_path": status.get("path") or status.get("status_path"),
-            },
-            status.get("remediation_command") or restart_command,
-        ))
-    if exists and expected_target_date and not target_matches:
-        alerts.append(_alert(
-            "critical",
-            component,
-            "bot_target_date",
-            f"{label} target date is {target_date or 'unknown'}, expected {expected_target_date}",
-            {"target_date": target_date, "expected_target_date": expected_target_date},
-            restart_command,
-        ))
-    if exists and runtime_state == "stale_code":
-        alerts.append(_alert(
-            "critical",
-            component,
-            "bot_runtime_identity",
-            f"{label} is running stale code",
-            {
-                "running_code": format_runtime_identity(runtime_identity),
-                "current_code": format_runtime_identity(current_identity),
-                "status_path": status.get("path") or status.get("status_path"),
-            },
-            restart_command,
-        ))
-    elif exists and runtime_state == "unknown":
-        alerts.append(_alert(
-            "warning",
-            component,
-            "bot_runtime_identity",
-            f"{label} status does not include runtime identity",
-            {"status_path": status.get("path") or status.get("status_path")},
-            status_command,
-        ))
-
-    artifact = status.get("artifact_liveness") or {}
-    if artifact:
-        activity_status = artifact.get("status")
-        latest_activity_age = (
-            (artifact.get("latest_useful_artifact") or {}).get("age_seconds")
-            or artifact.get("latest_useful_write_age_seconds")
-        )
-        if artifact.get("ok") is False:
-            alerts.append(_alert(
-                "critical",
-                component,
-                "bot_activity",
-                f"{label} artifact liveness is {artifact.get('status')}",
-                {
-                    "root_cause_class": artifact.get("root_cause_class"),
-                    "detail": artifact.get("detail"),
-                    "latest_run_folder": artifact.get("latest_run_folder"),
-                    "latest_useful_artifact": artifact.get("latest_useful_artifact"),
-                },
-                status.get("remediation_command") or restart_command,
-            ))
-
-    if maker_run_summary is not None:
-        activity_status = maker_run_summary.get("status")
-        latest_activity_age = maker_run_summary.get("age_seconds")
-        useful_work = maker_run_summary.get("useful_work_liveness") or {}
-        useful_work_status = useful_work.get("status")
-        if not maker_run_summary.get("exists"):
-            if running and (started_age is None or started_age > float(startup_grace_seconds)):
-                alerts.append(_alert(
-                    "critical",
-                    component,
-                    "bot_activity",
-                    f"{label} has no latest run_summary.json for {expected_target_date}",
-                    {
-                        "runs_root": status.get("runs_root"),
-                        "target_date": expected_target_date,
-                        "started_age_seconds": round(started_age, 3) if started_age is not None else None,
-                    },
-                    restart_command,
-                ))
-        elif latest_activity_age is not None and latest_activity_age > float(max_activity_age_seconds):
-            alerts.append(_alert(
-                "critical",
-                component,
-                "bot_activity",
-                f"{label} run_summary.json is stale",
-                {
-                    "run_summary_path": maker_run_summary.get("path"),
-                    "age_seconds": latest_activity_age,
-                    "max_activity_age_seconds": float(max_activity_age_seconds),
-                },
-                restart_command,
-            ))
-        if useful_work_status == "BLOCK":
-            first = useful_work.get("first_blocker") or {}
-            alerts.append(_alert(
-                "critical",
-                component,
-                "bot_useful_work",
-                f"{label} useful-work liveness is BLOCK",
-                {
-                    "reason": useful_work.get("reason"),
-                    "blocker_count": useful_work.get("blocker_count"),
-                    "root_cause_counts": useful_work.get("root_cause_counts") or {},
-                    "first_blocker": first,
-                },
-                first.get("suggested_command") or first.get("remediation_command") or restart_command,
-            ))
-
-    row = {
-        "component": component,
-        "label": label,
-        "status": status_value,
-        "running": running,
-        "pid": status.get("pid"),
-        "target_date": target_date,
+        "component": component, "label": label, "status": "RETIRED",
+        "running": False, "runtime_code_state": "not_applicable",
         "expected_target_date": expected_target_date,
-        "target_date_matches": target_matches,
-        "runtime_code_state": runtime_state,
-        "running_code": format_runtime_identity(runtime_identity),
-        "current_code": format_runtime_identity(current_identity),
-        "started_at_utc": status.get("started_at_utc"),
-        "started_age_seconds": round(started_age, 3) if started_age is not None else None,
-        "activity_status": activity_status,
-        "latest_activity_age_seconds": latest_activity_age,
-        "useful_work_status": useful_work_status,
-        "status_path": status.get("path") or status.get("status_path"),
-        "restart_command": restart_command,
-        "status_command": status_command,
-        "maker_run_summary": maker_run_summary or {},
-        "artifact_liveness": artifact,
+        "restart_command": None, "status_command": None,
     }
-    return row, alerts
 
 
 def load_fleet_payload(path):
@@ -437,75 +165,19 @@ def load_fleet_payload(path):
 def build_payload(
     *,
     fleet_payload=None,
-    maker_status=None,
-    taker_status=None,
-    maker_run_summary=None,
     current_identity=None,
     now=None,
     timezone_name=DEFAULT_TIMEZONE,
     target_date=None,
-    maker_status_path=market_making_daily_roll.DEFAULT_STATUS_PATH,
-    taker_status_path=taker_bot_daily_roll.DEFAULT_STATUS_PATH,
-    max_bot_activity_age_seconds=DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
-    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
-    bot_states=None,
 ):
     generated_at = utc_iso(now)
     current_identity = current_identity or get_runtime_identity()
     expected_date = target_date or _local_date(now=now, timezone_name=timezone_name)
-    if bot_states is None:
-        tasks = {row["name"]: row for row in read_json(config_path("scheduled_tasks.json"))["tasks"]}
-        bot_states = {"maker_bot": tasks["WeatherMarketMakingDailyRoll"]["state"],
-                      "taker_bot": tasks["WeatherTakerBotDailyRoll"]["state"]}
-    if set(bot_states) != {"maker_bot", "taker_bot"} or any(
-        state not in {"active", "retired"} for state in bot_states.values()
-    ):
-        raise ValueError("bot monitoring requires explicit active/retired inventory states")
-    maker_retired = bot_states["maker_bot"] == "retired"
-    taker_retired = bot_states["taker_bot"] == "retired"
-    if maker_status is None and not maker_retired:
-        maker_status = market_making_daily_roll.load_status(maker_status_path, now=now)
-    if taker_status is None and not taker_retired:
-        taker_status = taker_bot_daily_roll.load_status(
-            taker_status_path,
-            now=now,
-            max_activity_age_seconds=max_bot_activity_age_seconds,
-            startup_grace_seconds=startup_grace_seconds,
-        )
-    if maker_run_summary is None and not maker_retired:
-        maker_root = (maker_status or {}).get("runs_root") or market_making_daily_roll.DEFAULT_RUNS_ROOT
-        maker_run_summary = latest_maker_run_summary(maker_root, expected_date, now=now)
-
     loop_rows, alerts = _loop_rows_and_alerts(fleet_payload or {})
-    maker_row, maker_alerts = _bot_row_and_alerts(
-        component="maker_bot",
-        retired=maker_retired,
-        label="Maker bot",
-        status=maker_status,
-        expected_target_date=expected_date,
-        current_identity=current_identity,
-        now=now,
-        status_command="python -m weather.operations.market_making_daily_roll status",
-        restart_command="python -m weather.operations.market_making_daily_roll start --force",
-        maker_run_summary=maker_run_summary,
-        max_activity_age_seconds=max_bot_activity_age_seconds,
-        startup_grace_seconds=startup_grace_seconds,
-    )
-    taker_row, taker_alerts = _bot_row_and_alerts(
-        component="taker_bot",
-        retired=taker_retired,
-        label="Taker bot",
-        status=taker_status,
-        expected_target_date=expected_date,
-        current_identity=current_identity,
-        now=now,
-        status_command="python -m weather.operations.taker_bot_daily_roll status",
-        restart_command="python -m weather.operations.taker_bot_daily_roll start --force",
-        max_activity_age_seconds=max_bot_activity_age_seconds,
-        startup_grace_seconds=startup_grace_seconds,
-    )
-    alerts.extend(maker_alerts)
-    alerts.extend(taker_alerts)
+    bot_rows = [
+        _retired_bot_row(component, label, expected_date)
+        for component, label in RETIRED_BOTS
+    ]
     status = _overall_status(alerts)
     fleet_summary = (fleet_payload or {}).get("summary") or {}
     return {
@@ -521,7 +193,7 @@ def build_payload(
             "taker_bot": expected_date,
         },
         "loops": loop_rows,
-        "bots": [maker_row, taker_row],
+        "bots": bot_rows,
         "fleet_observability": {
             "status": (fleet_payload or {}).get("status"),
             "generated_at_utc": (fleet_payload or {}).get("generated_at_utc"),
@@ -539,10 +211,10 @@ def build_payload(
             "severity_counts": _severity_counts(alerts),
             "loop_count": len(loop_rows),
             "blocking_loop_count": sum(1 for row in loop_rows if row.get("status") != "PASS"),
-            "running_bot_count": sum(1 for row in [maker_row, taker_row] if row.get("running")),
-            "retired_bot_count": sum(1 for row in [maker_row, taker_row] if row.get("status") == "RETIRED"),
+            "running_bot_count": sum(1 for row in bot_rows if row.get("running")),
+            "retired_bot_count": sum(1 for row in bot_rows if row.get("status") == "RETIRED"),
             "current_code_bot_count": sum(
-                1 for row in [maker_row, taker_row] if row.get("runtime_code_state") == "current"
+                1 for row in bot_rows if row.get("runtime_code_state") == "current"
             ),
             "first_alert": alerts[0] if alerts else {},
         },

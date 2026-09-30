@@ -10,17 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
-from weather.market import exchange_economics, mm_paper
-from weather.market.taker_bot import ORDER_COLUMNS
+from weather.market import exchange_economics
 from weather.market.market_config import event_slug_for_date
-from weather.market.mm_scoring_projection import (
-    BASE_PROJECTION_FILENAME,
-    LIVE_APPEND_PREFIX_BINDING_MODE,
-    MODEL_VARIANT_PROJECTION_FILENAME,
-    SCORING_COLUMNS,
-    resolve_run_scoring_inputs,
-    write_run_scoring_projections,
-)
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     _captured_input_parity_preflight,
@@ -42,7 +33,6 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_june23_location_bias_repair_step,
     run_live_variant_settlement_scorecard_step,
     run_market_day_labels_finalize,
-    run_maker_paper_score_step,
     run_market_beating_objective_scoreboard_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
@@ -57,9 +47,6 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_settled_day_analysis_barrier_step,
     run_settled_day_root_cause_step,
     run_settlement_source_audit_step,
-    run_taker_edge_permission_map_step,
-    run_taker_finalization_watchdog_step,
-    run_taker_tail_casebook_step,
     run_trading_evidence_step,
     run_winner_rank_parity_step,
     pipeline_summary,
@@ -244,30 +231,11 @@ def _args(tmp, **overrides):
         "june23_location_bias_repair_date": "2026-06-23",
         "taker_root": str(root / "taker_runs"),
         "mm_root": str(root / "mm_runs"),
-        "skip_taker_finalization_watchdog": False,
-        "taker_finalization_date": "",
-        "taker_finalization_sla_hours": 4.0,
-        "taker_finalization_min_free_bytes": 0,
-        "taker_finalization_no_finalize": False,
-        "skip_taker_bakeoff": False,
-        "taker_bakeoff_strategies": "raw_edge_control,small_order_probe",
-        "taker_champion_strategy_id": "raw_edge_control",
-        "taker_champion_min_complete_label_days": 3,
-        "taker_champion_min_settled_orders": 5,
         "skip_exchange_economics_rule_drift": False,
         "exchange_economics_snapshot": str(root / "backtest" / "exchange_economics_snapshot.json"),
         "exchange_economics_accepted_snapshot": str(root / "backtest" / "exchange_economics_accepted_snapshot.json"),
         "exchange_economics_platform": exchange_economics.DEFAULT_PLATFORM,
         "event_metadata_config": str(root / "config" / "location_market_events.json"),
-        "skip_taker_tail_casebook": False,
-        "skip_taker_edge_permission_map": False,
-        "taker_edge_permission_map_out": str(root / "backtest" / "taker_edge_permission_map.json"),
-        "taker_edge_permission_min_settled_orders": 5,
-        "taker_edge_permission_min_independent_days": 3,
-        "taker_edge_permission_min_after_fee_skill": 0.0,
-        "taker_tail_casebook_date": "",
-        "taker_tail_casebook_max_runs": 0,
-        "skip_maker_paper_score": False,
         "skip_settlement_source_audit": False,
         "fail_on_observed_floor_safety": False,
         "skip_trading_evidence": False,
@@ -322,8 +290,6 @@ def _args(tmp, **overrides):
         "nightly_health_alert_root": str(root / "alerts"),
         "nightly_health_timezone": "America/Toronto",
         "nightly_health_date": "",
-        "nightly_health_max_bot_activity_age_seconds": 300.0,
-        "nightly_health_startup_grace_seconds": 180.0,
         "data_layer_historical_start": "2000-01-01",
         "data_layer_historical_end": "",
     }
@@ -357,97 +323,6 @@ def _collect_test_exchange_snapshot(**kwargs):
         "target_date": kwargs["target_date"],
         "payload": payload,
     }
-
-
-def _write_order_tape(path, rows):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=ORDER_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            full = {column: "" for column in ORDER_COLUMNS}
-            full.update(row)
-            writer.writerow(full)
-
-
-def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
-    run = Path(root) / "mm_runs" / target_date / run_id
-    run.mkdir(parents=True)
-    token_id = f"token-{run_id}"
-    captured_payload = exchange_economics.build_snapshot_payload(
-        target_date=target_date,
-        verified_at_utc=f"{target_date}T15:55:00+00:00",
-        token_ids=[token_id, f"other-{run_id}"],
-    )
-    captured_path = run / exchange_economics.RUN_CAPTURE_FILENAME
-    exchange_economics.write_json(captured_path, captured_payload)
-    captured_gate = exchange_economics.load_exchange_economics_gate(
-        captured_path,
-        target_date,
-        now=f"{target_date}T20:00:00+00:00",
-    )
-    captured_economics = {
-        "status": "CAPTURED",
-        "captured": True,
-        "path": str(captured_path),
-        "filename": exchange_economics.RUN_CAPTURE_FILENAME,
-        "snapshot_id": captured_gate["snapshot_id"],
-        "snapshot_hash": captured_gate["snapshot_hash"],
-        "source_hash": captured_gate["source_hash"],
-        "file_sha256": hashlib.sha256(captured_path.read_bytes()).hexdigest(),
-    }
-    run_config = {
-        "schema_version": "mm_run_v0.2",
-        "run_id": run_id,
-        "created_at_utc": f"{target_date}T20:00:00+00:00",
-        "mode": "paper-live-forward",
-        "target_date": target_date,
-        "policy_hash": f"policy-{run_id}",
-        "exchange_economics_capture": captured_economics,
-    }
-    (run / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
-    summary = {
-        **run_config,
-        "evidence_mode": "active_day_live_forward",
-        "counts_toward_live_forward_gate": True,
-        "preflight_status": "PASS",
-        "generated_at_utc": f"{target_date}T20:00:00+00:00",
-    }
-    (run / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
-    quote_row = {
-        "run_id": run_id,
-        "target_date": target_date,
-        "run_mode": "paper-live-forward",
-        "generated_at_utc": f"{target_date}T16:00:00+00:00",
-        "captured_at_utc": f"{target_date}T15:59:30+00:00",
-        "policy_hash": f"policy-{run_id}",
-        "quote_permission": "True",
-        "market_id": "atlanta",
-        "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
-        "range_label": "80-81 F",
-        "bin_kind": "eq",
-        "bin_value": "80",
-        "bin_value_hi": "81",
-        "clob_token_id": token_id,
-        "exchange_economics_snapshot_id": captured_gate["snapshot_id"],
-        "exchange_economics_hash": captured_gate["snapshot_hash"],
-        "fair_probability": "0.50",
-        "market_mid": "0.50",
-        "bid_price": "0.49",
-        "bid_size": "5",
-        "ask_price": "0.51",
-        "ask_size": "5",
-        "regime": "harvest",
-        "source_fresh": "True",
-        "book_imbalance_1pct": "0.10",
-        "min_order_size": "1",
-        "reason_code": "QUOTE_HARVEST_MID",
-    }
-    with (run / "quote_intents_long.csv").open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(quote_row.keys()))
-        writer.writeheader()
-        writer.writerow(quote_row)
-    return run
 
 
 def _stage_a_promotion_receipts(target_date, *, overrides=None):
@@ -511,10 +386,6 @@ def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_afte
                 "settled_analysis_target_date": target_date,
             },
         },
-        {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
-        {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
-        {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
-        {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
         {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -1101,17 +972,17 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(
                 tmp,
                 stage="settlement",
-                resume_from_step="maker_paper_score",
+                resume_from_step="settlement_source_audit",
                 continue_on_error=True,
                 disable_long_job_guard=True,
                 skip_production_readiness_gate=False,
                 stage_a_manifest=str(Path(tmp) / "backtest" / "stage_a.json"),
                 stage_b_manifest=str(Path(tmp) / "backtest" / "stage_b.json"),
             )
-            maker_runner = dict(DEFAULT_RUNNERS)["maker_paper_score"]
+            isolated_runner = dict(DEFAULT_RUNNERS)["settlement_source_audit"]
 
             def later(_args):
-                calls.append("settlement_source_audit")
+                calls.append("observed_floor_safety_monitor")
                 return {"status": "PASS"}
 
             with patch(
@@ -1123,14 +994,14 @@ class TestDailyRefresh(unittest.TestCase):
                 payload, _status, _report = run_daily_refresh(
                     args,
                     runners=[
-                        ("maker_paper_score", maker_runner),
-                        ("settlement_source_audit", later),
+                        ("settlement_source_audit", isolated_runner),
+                        ("observed_floor_safety_monitor", later),
                     ],
                 )
 
         self.assertEqual(calls, [])
         self.assertEqual(payload["status"], "error")
-        self.assertEqual(payload["steps"][-1]["name"], "maker_paper_score")
+        self.assertEqual(payload["steps"][-1]["name"], "settlement_source_audit")
         self.assertEqual(payload["production_readiness"]["status"], "SKIPPED")
         readiness.assert_not_called()
 
@@ -2157,7 +2028,7 @@ class TestDailyRefresh(unittest.TestCase):
                         "active": True,
                         "pid": -999,
                         "progress": {
-                            "last_completed_step": "taker_tail_casebook",
+                            "last_completed_step": "exchange_economics_rule_drift",
                             "last_completed_step_status": "ok",
                         },
                     }),
@@ -2167,13 +2038,13 @@ class TestDailyRefresh(unittest.TestCase):
                     backtest
                     / "daily_refresh_step_children"
                     / "run-1"
-                    / "maker_paper_score.result.json"
+                    / "settlement_source_audit.result.json"
                 )
                 result_path.parent.mkdir(parents=True)
                 terminal = {
                     "schema_version": "daily_refresh_step_child_v0.2",
                     "status": "ok",
-                    "step": "maker_paper_score",
+                    "step": "settlement_source_audit",
                     "pid": receipt_pid,
                     "started_at_utc": "2026-07-13T14:00:00+00:00",
                     "finished_at_utc": "2026-07-13T14:01:00+00:00",
@@ -2194,11 +2065,11 @@ class TestDailyRefresh(unittest.TestCase):
                         },
                         "steps": [],
                         "current_step": {
-                            "name": "maker_paper_score",
+                            "name": "settlement_source_audit",
                             "child_pid": 4321,
                         },
                         "resource_steps": [{
-                            "step": "maker_paper_score",
+                            "step": "settlement_source_audit",
                             "status": "running",
                             "child_pid": 4321,
                             "child_invocation": {"result_json": str(result_path)},
@@ -2214,13 +2085,13 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertTrue(repair["daily_refresh_status"]["updated"])
             self.assertTrue(recovered["recovered"])
             self.assertEqual(recovered["pid_match_mode"], expected_mode)
-            self.assertEqual(saved["steps"][-1]["name"], "maker_paper_score")
+            self.assertEqual(saved["steps"][-1]["name"], "settlement_source_audit")
             self.assertEqual(saved["steps"][-1]["status"], "ok")
             self.assertTrue(saved["steps"][-1]["recovered_from_child_terminal"])
             validation = saved["resource_steps"][-1]["child_terminal_validation"]
             self.assertEqual(validation["status"], "PASS")
             self.assertEqual(validation["pid_match_mode"], expected_mode)
-            self.assertEqual(saved["current_step"]["name"], "settlement_source_audit")
+            self.assertEqual(saved["current_step"]["name"], "observed_floor_safety_monitor")
             self.assertIn(
                 "--settled-analysis-target-date 2026-07-12",
                 saved["current_step"]["resume_command"],
@@ -2233,14 +2104,14 @@ class TestDailyRefresh(unittest.TestCase):
                 backtest
                 / "daily_refresh_step_children"
                 / "run-1"
-                / "maker_paper_score.result.json"
+                / "settlement_source_audit.result.json"
             )
             result_path.parent.mkdir(parents=True)
             result_path.write_text(
                 json.dumps({
                     "schema_version": "daily_refresh_step_child_v0.2",
                     "status": "ok",
-                    "step": "maker_paper_score",
+                    "step": "settlement_source_audit",
                     "pid": 5432,
                     "parent_pid": 9876,
                     "grandparent_pid": 4321,
@@ -2253,11 +2124,11 @@ class TestDailyRefresh(unittest.TestCase):
                 "config": {"backtest_root": str(backtest)},
                 "steps": [],
                 "current_step": {
-                    "name": "maker_paper_score",
+                    "name": "settlement_source_audit",
                     "child_pid": 4321,
                 },
                 "resource_steps": [{
-                    "step": "maker_paper_score",
+                    "step": "settlement_source_audit",
                     "child_pid": 4321,
                     "child_invocation": {"result_json": str(result_path)},
                 }],
@@ -3579,10 +3450,6 @@ class TestDailyRefresh(unittest.TestCase):
                     "result": {"status": "PASS", "target_date": target_date},
                 },
                 {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 0}},
-                {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
                 {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -3679,10 +3546,6 @@ class TestDailyRefresh(unittest.TestCase):
                     },
                 },
                 {"name": "exchange_economics_rule_drift", "status": "ok", "result": {"status": "PASS"}},
-                {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
-                {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
                 {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -3774,10 +3637,6 @@ class TestDailyRefresh(unittest.TestCase):
                 },
             },
             {"name": "exchange_economics_rule_drift", "status": "ok", "result": {"status": "PASS"}},
-            {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
-            {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
-            {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
-            {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
             {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -3925,8 +3784,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
-        self.assertEqual(args.maker_paper_latest_active_runs, 14)
-        self.assertEqual(args.maker_paper_max_input_bytes, 512 * 1024 * 1024)
+        self.assertFalse(hasattr(args, "maker_paper_latest_active_runs"))
+        self.assertFalse(hasattr(args, "paper_maker_paused"))
 
         disabled = parser.parse_args([
             "run",
@@ -3938,17 +3797,11 @@ class TestDailyRefresh(unittest.TestCase):
             "256",
             "--capture-resource-mode",
             "offline_host",
-            "--maker-paper-latest-active-runs",
-            "3",
-            "--maker-paper-max-input-bytes",
-            "1024",
         ])
         self.assertFalse(disabled.heavy_step_subprocess)
         self.assertEqual(disabled.heavy_step_timeout_seconds, 5)
         self.assertEqual(disabled.heavy_step_working_set_max_mb, 256)
         self.assertEqual(disabled.capture_resource_mode, "offline_host")
-        self.assertEqual(disabled.maker_paper_latest_active_runs, 3)
-        self.assertEqual(disabled.maker_paper_max_input_bytes, 1024)
 
     def test_cli_run_injects_lock_diagnostic_before_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4018,12 +3871,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("event_metadata_validation"), names.index("trading_evidence"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("exchange_economics_rule_drift"))
-        self.assertLess(names.index("exchange_economics_rule_drift"), names.index("taker_finalization_watchdog"))
-        self.assertLess(names.index("exchange_economics_rule_drift"), names.index("maker_paper_score"))
-        self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_edge_permission_map"))
-        self.assertLess(names.index("taker_edge_permission_map"), names.index("taker_tail_casebook"))
-        self.assertLess(names.index("taker_tail_casebook"), names.index("maker_paper_score"))
-        self.assertLess(names.index("maker_paper_score"), names.index("settlement_source_audit"))
+        self.assertLess(names.index("exchange_economics_rule_drift"), names.index("settlement_source_audit"))
+        for retired in ("taker_finalization_watchdog", "taker_edge_permission_map", "taker_tail_casebook", "maker_paper_score"):
+            self.assertNotIn(retired, names)
         self.assertLess(names.index("settlement_source_audit"), names.index("observed_floor_safety_monitor"))
         self.assertLess(names.index("observed_floor_safety_monitor"), names.index("trading_evidence"))
         self.assertLess(names.index("settlement_source_audit"), names.index("trading_evidence"))
@@ -5330,295 +5180,6 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(issues_exists)
         self.assertIn("MODEL_TOP_WARM_SIDE_MISS", result["issue_counts"])
 
-    def test_taker_finalization_watchdog_step_writes_settled_artifacts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run = root / "taker_runs" / "2026-06-19" / "taker-1"
-            event_slug = "highest-temperature-in-seattle-on-june-19-2026"
-            _write_order_tape(
-                run / "orders_long.csv",
-                [
-                    {
-                        "schema_version": "taker_bot_run_v0.1",
-                        "run_id": "taker-1",
-                        "target_date": "2026-06-19",
-                        "generated_at_utc": "2026-06-19T20:00:00+00:00",
-                        "market_id": "seattle",
-                        "event_slug": event_slug,
-                        "range_label": "80-81 F",
-                        "bin_kind": "eq",
-                        "bin_value": "80",
-                        "bin_value_hi": "81",
-                        "clob_token_id": "token-seattle-80",
-                        "order_status": "FILLED",
-                        "action": "BUY",
-                        "fair_probability": "0.80",
-                        "best_ask": "0.60",
-                        "fill_price": "0.60",
-                        "fill_size": "10",
-                        "fill_notional_usdc": "6.0",
-                        "total_spent_usdc": "6.0",
-                        "fee_usdc": "0",
-                        "reason_code": "BUY_EDGE",
-                        "strategy_id": "raw_edge_control",
-                        "strategy_family": "control",
-                    }
-                ],
-            )
-            (run / "run_summary.json").write_text(
-                json.dumps(
-                    {
-                        "run_id": "taker-1",
-                        "target_date": "2026-06-19",
-                        "summary": {
-                            "budget_usdc": 100,
-                            "cumulative_filled_orders": 1,
-                            "cumulative_net_pnl_usdc": 0.0,
-                        },
-                        "pnl": {"summary": {"filled_order_count": 1, "unsettled_order_count": 1}},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            labels = root / "backtest" / "market_day_labels.csv"
-            labels.parent.mkdir(parents=True)
-            labels.write_text(
-                "\n".join(
-                    [
-                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
-                        f"{event_slug},seattle,2026-06-19,80,80-81 F,complete",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            args = _args(
-                tmp,
-                labels_csv=str(labels),
-                settled_analysis_target_date="2026-06-19",
-                taker_finalization_min_free_bytes=0,
-                skip_taker_bakeoff=True,
-            )
-
-            result = run_taker_finalization_watchdog_step(args)
-            settled_exists = (run / "settled_pnl.json").exists()
-            json_exists = Path(result["json_out"]).exists()
-            report_exists = Path(result["report_out"]).exists()
-
-        self.assertEqual(result["status"], "OK")
-        self.assertEqual(result["finalized_run_count"], 1)
-        self.assertTrue(settled_exists)
-        self.assertTrue(json_exists)
-        self.assertTrue(report_exists)
-
-    def test_taker_finalization_watchdog_step_finalizes_zero_fill_and_writes_dated_artifacts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run = root / "taker_runs" / "2026-06-19" / "taker-zero"
-            event_slug = "highest-temperature-in-seattle-on-june-19-2026"
-            base_row = {
-                "schema_version": "taker_bot_run_v0.1",
-                "run_id": "taker-zero",
-                "target_date": "2026-06-19",
-                "generated_at_utc": "2026-06-19T20:00:00+00:00",
-                "captured_at_utc": "2026-06-19T20:00:00+00:00",
-                "market_id": "seattle",
-                "event_slug": event_slug,
-                "range_label": "80-81 F",
-                "bin_kind": "eq",
-                "bin_value": "80",
-                "bin_value_hi": "81",
-                "clob_token_id": "token-seattle-80",
-                "fair_probability": "0.80",
-                "best_ask": "0.60",
-                "reason_code": "NO_TRADE_EDGE_TOO_SMALL",
-                "strategy_id": "strict_edge_probe",
-                "strategy_family": "probe",
-            }
-            _write_order_tape(
-                run / "orders_long.csv",
-                [{**base_row, "order_status": "SKIPPED", "action": "NO_TRADE"}],
-            )
-            _write_order_tape(
-                run / "counterfactual_orders_long.csv",
-                [
-                    {
-                        **base_row,
-                        "order_status": "FILLED",
-                        "action": "BUY",
-                        "fill_price": "0.60",
-                        "fill_size": "10",
-                        "fill_notional_usdc": "6.0",
-                        "total_spent_usdc": "6.0",
-                        "reason_code": "BUY_EDGE",
-                        "strategy_id": "raw_edge_control",
-                    }
-                ],
-            )
-            (run / "run_config.json").write_text(
-                json.dumps({
-                    "run_id": "taker-zero",
-                    "target_date": "2026-06-19",
-                    "budget_usdc": 12,
-                    "active_strategy_id": "strict_edge_probe",
-                    "strategy_ids": ["strict_edge_probe"],
-                    "policy_config": {"min_edge": 0.25, "max_order_usdc": 10},
-                }),
-                encoding="utf-8",
-            )
-            (run / "run_summary.json").write_text(
-                json.dumps(
-                    {
-                        "run_id": "taker-zero",
-                        "target_date": "2026-06-19",
-                        "summary": {
-                            "budget_usdc": 12,
-                            "latest_tick_rows": 1,
-                            "latest_tick_filled_orders": 0,
-                            "cumulative_filled_orders": 0,
-                            "cumulative_net_pnl_usdc": 0.0,
-                            "reason_counts": {"NO_TRADE_EDGE_TOO_SMALL": 1},
-                            "root_cause_class": "policy_no_edge",
-                        },
-                        "pnl": {"summary": {"filled_order_count": 0, "unsettled_order_count": 0}},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            labels = root / "backtest" / "market_day_labels.csv"
-            labels.parent.mkdir(parents=True)
-            labels.write_text(
-                "\n".join(
-                    [
-                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
-                        f"{event_slug},seattle,2026-06-19,80,80-81 F,complete",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            args = _args(
-                tmp,
-                labels_csv=str(labels),
-                settled_analysis_target_date="2026-06-19",
-                taker_finalization_min_free_bytes=0,
-            )
-
-            result = run_taker_finalization_watchdog_step(args)
-            settled_exists = (run / "settled_pnl.json").exists()
-            bakeoff_exists = (run / "strategy_bakeoff.json").exists()
-            detail_json_exists = Path(result["detail_json_out"]).exists()
-            detail_report_exists = Path(result["detail_report_out"]).exists()
-
-        self.assertEqual(result["status"], "OK")
-        self.assertEqual(result["target_date"], "2026-06-19")
-        self.assertEqual(result["finalized_run_count"], 1)
-        self.assertTrue(settled_exists)
-        self.assertTrue(bakeoff_exists)
-        self.assertTrue(detail_json_exists)
-        self.assertTrue(detail_report_exists)
-
-    def test_taker_edge_permission_map_step_rebuilds_from_settled_tapes(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run = root / "taker_runs" / "2026-06-19" / "taker-map"
-            run.mkdir(parents=True)
-            rows = []
-            for index in range(5):
-                rows.append({
-                    "target_date": f"2026-06-{14 + index:02d}",
-                    "market_id": "atlanta",
-                    "captured_at_utc": f"2026-06-{14 + index:02d}T16:00:00+00:00",
-                    "capture_hour_local": "12",
-                    "side": "YES_BUY",
-                    "source_freshness_state": "all_fresh",
-                    "snapshot_cadence_quality_state": "clean",
-                    "current_high_trusted": "True",
-                    "current_high_band_distance": "0",
-                    "model_variant_id": "served_current",
-                    "fair_probability": "0.90",
-                    "market_mid": "0.55",
-                    "best_ask": "0.60",
-                    "settlement_outcome": "1",
-                })
-            with (run / "settled_counterfactual_orders_long.csv").open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
-            args = _args(
-                tmp,
-                taker_edge_permission_map_out=str(root / "backtest" / "taker_edge_permission_map.json"),
-            )
-
-            result = run_taker_edge_permission_map_step(args)
-            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
-
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["source_tape_count"], 1)
-        self.assertEqual(result["record_count"], 1)
-        self.assertEqual(result["edge_allowed_count"], 1)
-        self.assertEqual(payload["records"][0]["permission"], "edge_allowed")
-
-    def test_taker_tail_casebook_step_writes_no_go_artifact(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            event_slug = "highest-temperature-in-atlanta-on-june-21-2026"
-            run = root / "taker_runs" / "2026-06-21" / "taker-tail"
-            _write_order_tape(
-                run / "orders_long.csv",
-                [
-                    {
-                        "run_id": "taker-tail",
-                        "target_date": "2026-06-21",
-                        "market_id": "atlanta",
-                        "event_slug": event_slug,
-                        "captured_at_utc": "2026-06-21T20:00:00+00:00",
-                        "order_status": "FILLED",
-                        "range_label": "84-85 F",
-                        "bin_kind": "eq",
-                        "bin_value": "84",
-                        "bin_value_hi": "85",
-                        "clob_token_id": "token-atlanta-84",
-                        "fair_probability": "0.40",
-                        "best_ask": "0.01",
-                        "fill_size": "10",
-                        "fill_notional_usdc": "0.1",
-                        "total_spent_usdc": "0.1",
-                        "low_price_tail": "True",
-                        "source_freshness_state": "all_fresh",
-                    }
-                ],
-            )
-            labels = root / "backtest" / "market_day_labels.csv"
-            labels.parent.mkdir(parents=True)
-            labels.write_text(
-                "\n".join(
-                    [
-                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
-                        f"{event_slug},atlanta,2026-06-21,80,80-81 F,complete",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            result = run_taker_tail_casebook_step(
-                _args(tmp, labels_csv=str(labels), settled_analysis_target_date="2026-06-21")
-            )
-            json_exists = Path(result["json_out"]).exists()
-            report_exists = Path(result["report_out"]).exists()
-            detail_json_exists = Path(result["detail_json_out"]).exists()
-            detail_report_exists = Path(result["detail_report_out"]).exists()
-
-        self.assertEqual(result["status"], "BLOCK_BAD_TAIL_SLICES")
-        self.assertEqual(result["target_date"], "2026-06-21")
-        self.assertEqual(result["tail_fill_count"], 1)
-        self.assertEqual(result["no_go_candidate_count"], 1)
-        self.assertTrue(json_exists)
-        self.assertTrue(report_exists)
-        self.assertTrue(detail_json_exists)
-        self.assertTrue(detail_report_exists)
-
     def test_trading_evidence_step_writes_summary_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -5991,288 +5552,6 @@ class TestDailyRefresh(unittest.TestCase):
             rows["highest-temperature-in-chicago-on-july-4-2026"]["reconciliation_status"],
             "match",
         )
-
-    def test_maker_paper_score_step_writes_fresh_standard_report(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            _write_active_mm_run(tmp)
-            args = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
-            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
-
-            result = run_maker_paper_score_step(args)
-            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
-            report = Path(result["report_out"]).read_text(encoding="utf-8")
-            fills_exists = Path(result["fills_out"]).exists()
-
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["paper_score_freshness_status"], "PASS")
-        self.assertEqual(result["latest_completed_active_day"], "2026-06-19")
-        self.assertEqual(result["latest_covered_active_day"], "2026-06-19")
-        self.assertEqual(result["selected_run_count"], 1)
-        self.assertTrue(fills_exists)
-        self.assertEqual(payload["summary"]["paper_score_freshness_status"], "PASS")
-        self.assertTrue(payload["summary"]["bounded_run_selection"])
-        self.assertEqual(payload["summary"]["run_folder_selection"]["latest_n"], 14)
-        self.assertEqual(
-            payload["summary"]["run_folder_selection"]["evidence_mode"],
-            "active_day_live_forward",
-        )
-        self.assertEqual(payload["summary"]["input_preflight"]["status"], "PASS")
-        self.assertEqual(
-            payload["input_preflight"]["selected_run_folders"],
-            payload["run_folder_selection"]["selected_run_folders"],
-        )
-        self.assertIn("Paper-score freshness", report)
-
-    def test_maker_paper_score_step_blocks_before_loading_over_budget_inputs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            _write_active_mm_run(tmp)
-            args = _args(
-                tmp,
-                as_of="2026-06-20T12:00:00+00:00",
-                maker_paper_max_input_bytes=1,
-            )
-
-            with patch(
-                "weather.operations.daily_refresh_trading_steps.mm_paper.build_paper_payload"
-            ) as build_payload:
-                result = run_maker_paper_score_step(args)
-
-        # Not even the single newest run fits, so nothing is admitted and the
-        # step still fails loudly rather than scoring an empty corpus.
-        self.assertEqual(result["status"], "BLOCK")
-        self.assertEqual(result["reason"], "maker_paper_input_budget_exceeded")
-        self.assertGreater(result["candidate_input_bytes"], result["max_input_bytes"])
-        self.assertEqual(result["input_bytes"], 0)
-        self.assertEqual(result["selected_run_count"], 0)
-        self.assertEqual(result["input_preflight"]["latest_run_limit"], 14)
-        build_payload.assert_not_called()
-
-    def test_maker_paper_score_step_trims_oldest_runs_to_fit_input_budget(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            oldest = _write_active_mm_run(tmp, target_date="2026-06-17", run_id="mm-oldest")
-            middle = _write_active_mm_run(tmp, target_date="2026-06-18", run_id="mm-middle")
-            latest = _write_active_mm_run(tmp, target_date="2026-06-19", run_id="mm-latest")
-
-            sizing = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
-            _write_exchange_snapshot(Path(sizing.exchange_economics_snapshot))
-            per_run_bytes = sum(
-                int(receipt["input_bytes"])
-                for receipt in (
-                    resolve_run_scoring_inputs(folder)
-                    for folder in (oldest, middle, latest)
-                )
-            ) // 3
-
-            # Budget fits the two newest runs but not all three.
-            args = _args(
-                tmp,
-                as_of="2026-06-20T12:00:00+00:00",
-                maker_paper_max_input_bytes=per_run_bytes * 2,
-            )
-            result = run_maker_paper_score_step(args)
-            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
-
-        preflight = payload["input_preflight"]
-        # The step proceeds on the freshest evidence instead of blocking, and
-        # the admitted set never exceeds the memory guard.
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["candidate_run_count"], 3)
-        self.assertEqual(result["input_budget_trimmed_run_count"], 1)
-        self.assertEqual(result["selected_run_count"], 2)
-        self.assertLessEqual(result["input_bytes"], result["max_input_bytes"])
-        self.assertEqual(
-            preflight["selected_run_folders"],
-            [str(middle), str(latest)],
-        )
-        self.assertEqual(
-            preflight["input_budget_trimmed_run_folders"],
-            [str(oldest)],
-        )
-        # Provenance stays consistent with what was actually scored.
-        self.assertEqual(
-            payload["run_folder_selection"]["selected_run_folders"],
-            preflight["selected_run_folders"],
-        )
-        self.assertEqual(payload["run_folder_selection"]["input_budget_trimmed_run_count"], 1)
-        self.assertEqual(payload["summary"]["run_folders"], 2)
-        self.assertEqual(list(payload["run_configs"]), [str(middle), str(latest)])
-
-    def test_maker_paper_score_step_scores_exact_preflight_selection(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            _write_active_mm_run(tmp, target_date="2026-06-18", run_id="mm-older")
-            latest = _write_active_mm_run(
-                tmp,
-                target_date="2026-06-19",
-                run_id="mm-latest",
-            )
-            args = _args(
-                tmp,
-                as_of="2026-06-20T12:00:00+00:00",
-                maker_paper_latest_active_runs=1,
-            )
-            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
-
-            result = run_maker_paper_score_step(args)
-            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
-
-        selected = payload["input_preflight"]["selected_run_folders"]
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(selected, [str(latest)])
-        self.assertEqual(payload["run_folder_selection"]["selected_run_folders"], selected)
-        self.assertEqual(payload["summary"]["run_folders"], 1)
-        self.assertEqual(list(payload["run_configs"]), [str(latest)])
-        self.assertEqual(payload["summary"]["quote_rows"], 1)
-
-    def test_maker_paper_score_step_uses_mixed_scoring_inputs_and_byte_receipts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            fallback = _write_active_mm_run(
-                tmp,
-                target_date="2026-06-18",
-                run_id="mm-canonical-fallback",
-            )
-            projected = _write_active_mm_run(
-                tmp,
-                target_date="2026-06-19",
-                run_id="mm-projected",
-            )
-            for run_folder in (fallback, projected):
-                canonical_projection_source = run_folder / "quote_intents_long.csv"
-                with canonical_projection_source.open(
-                    "r", encoding="utf-8", newline=""
-                ) as handle:
-                    source_row = next(csv.DictReader(handle))
-                with canonical_projection_source.open(
-                    "w", encoding="utf-8", newline=""
-                ) as handle:
-                    writer = csv.DictWriter(handle, fieldnames=SCORING_COLUMNS)
-                    writer.writeheader()
-                    writer.writerow({
-                        column: source_row.get(column, "")
-                        for column in SCORING_COLUMNS
-                    })
-            fallback_variant_source = fallback / "model_variant_quote_intents_long.csv"
-            fallback_variant_source.write_bytes(
-                (fallback / "quote_intents_long.csv").read_bytes()
-            )
-            write_run_scoring_projections(fallback)
-            (fallback / MODEL_VARIANT_PROJECTION_FILENAME).write_text(
-                "corrupt_header\ncorrupt_value\n",
-                encoding="utf-8",
-            )
-            write_run_scoring_projections(projected)
-            expected_paths = {
-                str(fallback): {
-                    "base": str(fallback / "quote_intents_long.csv"),
-                    "model_variant": str(
-                        fallback / "model_variant_quote_intents_long.csv"
-                    ),
-                },
-                str(projected): {
-                    "base": str(projected / BASE_PROJECTION_FILENAME),
-                    "model_variant": str(
-                        projected / MODEL_VARIANT_PROJECTION_FILENAME
-                    ),
-                },
-            }
-            fallback_input_bytes = sum(
-                path.stat().st_size
-                for path in (
-                    fallback / "quote_intents_long.csv",
-                    fallback_variant_source,
-                )
-            )
-            projected_input_bytes = sum(
-                path.stat().st_size
-                for path in (
-                    projected / BASE_PROJECTION_FILENAME,
-                    projected / MODEL_VARIANT_PROJECTION_FILENAME,
-                )
-            )
-            expected_input_bytes = fallback_input_bytes + projected_input_bytes
-            projected_canonical_bytes = (
-                projected / "quote_intents_long.csv"
-            ).stat().st_size
-            expected_canonical_bytes = (
-                fallback_input_bytes + projected_canonical_bytes
-            )
-
-            args = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
-            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
-            with patch(
-                "weather.operations.daily_refresh_trading_steps.mm_paper.build_paper_payload",
-                wraps=mm_paper.build_paper_payload,
-            ) as build_payload:
-                result = run_maker_paper_score_step(args)
-                passed_paths = build_payload.call_args.kwargs[
-                    "scoring_input_paths_by_folder"
-                ]
-                passed_bindings = build_payload.call_args.kwargs[
-                    "scoring_input_bindings_by_folder"
-                ]
-            payload = json.loads(
-                Path(result["json_out"]).read_text(encoding="utf-8")
-            )
-        preflight = payload["input_preflight"]
-        selected_inputs = {
-            receipt["run_folder"]: receipt
-            for receipt in preflight["selected_inputs"]
-        }
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(passed_paths, expected_paths)
-        self.assertEqual(
-            {folder: receipt["input_paths"] for folder, receipt in selected_inputs.items()},
-            expected_paths,
-        )
-        self.assertEqual(
-            passed_bindings,
-            {folder: receipt["input_bindings"] for folder, receipt in selected_inputs.items()},
-        )
-        fallback_receipt = selected_inputs[str(fallback)]
-        projected_receipt = selected_inputs[str(projected)]
-        self.assertEqual(fallback_receipt["input_mode"], "canonical_fallback")
-        self.assertEqual(
-            {
-                binding.get("binding_mode")
-                for binding in fallback_receipt["input_bindings"].values()
-            },
-            {LIVE_APPEND_PREFIX_BINDING_MODE},
-        )
-        self.assertTrue(
-            all(
-                len(binding.get("sha256") or "") == 64
-                for binding in fallback_receipt["input_bindings"].values()
-            )
-        )
-        self.assertEqual(
-            fallback_receipt["projection_reason"],
-            "model_variant_projection_binding_mismatch",
-        )
-        self.assertEqual(fallback_receipt["input_bytes"], fallback_input_bytes)
-        self.assertEqual(fallback_receipt["canonical_bytes"], fallback_input_bytes)
-        self.assertEqual(projected_receipt["input_mode"], "projection")
-        self.assertTrue(
-            all(
-                "binding_mode" not in binding
-                for binding in projected_receipt["input_bindings"].values()
-            )
-        )
-        self.assertEqual(projected_receipt["input_bytes"], projected_input_bytes)
-        self.assertEqual(
-            projected_receipt["canonical_bytes"], projected_canonical_bytes
-        )
-        self.assertEqual(preflight["projection_run_count"], 1)
-        self.assertEqual(preflight["canonical_fallback_run_count"], 1)
-        self.assertEqual(preflight["input_file_count"], 4)
-        self.assertEqual(preflight["input_bytes"], expected_input_bytes)
-        self.assertEqual(preflight["canonical_input_bytes"], expected_canonical_bytes)
-        self.assertEqual(
-            preflight["projected_vs_canonical_byte_ratio"],
-            expected_input_bytes / expected_canonical_bytes,
-        )
-        self.assertEqual(result["input_bytes"], expected_input_bytes)
-        self.assertEqual(result["canonical_input_bytes"], expected_canonical_bytes)
-        self.assertEqual(result["projection_run_count"], 1)
-        self.assertEqual(result["canonical_fallback_run_count"], 1)
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

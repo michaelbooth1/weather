@@ -119,8 +119,7 @@ def runtime_sidecar_rotation_policy() -> dict[Path, str]:
     }
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def read_status(path: str | Path = STATUS_PATH) -> dict[str, Any] | None:

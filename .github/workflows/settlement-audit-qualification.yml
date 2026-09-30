@@ -78,8 +78,7 @@ jobs:
           tests/operations/test_import_architecture.py
           tests/test_io_streaming.py
           tests/test_io_streaming_limits.py
-          tests/market/test_taker_profitability_artifact_verification_streaming.py
-          tests/market/test_taker_finalization_bounded_streaming.py
+          tests/reporting/test_retired_trading_evidence_profitability_streaming.py
           tests/backtesting/test_settlement_ledger.py
           --junitxml=evidence/tests.xml
           --basetemp=${{ runner.temp }}/settlement-audit-tests

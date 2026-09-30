@@ -186,8 +186,7 @@ def runtime_clob_sidecar_rotation_policy():
     }
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def read_clob_loop_status(path=None):
@@ -811,8 +810,6 @@ def clob_runtime_matches_current(status, current_identity=None):
         return True
     current_identity = current_identity or current_identity_for(status.get("runtime_identity"))
     return identities_match(status.get("runtime_identity"), current_identity)
-
-
 
 
 def target_close_time(config):
@@ -1790,8 +1787,6 @@ def run_book_loop(
     finally:
         sleep_inhibitor.stop()
         release_writer_lock(writer_lock)
-
-
 
 
 def run_enrichment_loop(
