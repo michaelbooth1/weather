@@ -30,8 +30,10 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   calibration date 2026-09-27, 09-28 and 09-29. It records only input bytes, records, engine events, decisions plus
   spans, report bytes, runtime, and peak memory above the interpreter's pre-input baseline; no score, fill, reward or
   hurdle value is kept or shown. For each of those quantities, the scored-run ceiling is the largest of the three
-  per-date values × 15 (fourteen quote dates plus settlement) × 2, rounded up to the next power of two in its natural
-  unit (bytes, records, seconds). The memory ceiling is that value plus the measured baseline, which is not
+  per-date values × 15 (fourteen quote dates plus settlement), rounded up to the next power of two in its natural
+  unit (bytes, records, seconds); the rounding supplies up to 2× headroom. With the 4-hour runtime limit (largest power
+  of two within it: 8,192 s) this means each calibration date's rehearsal must finish in at most ~546 s; with the
+  memory limit (8 GiB power of two) each must peak at most ~546 MiB above the baseline. The memory ceiling is that value plus the measured baseline, which is not
   multiplied. Decisions plus spans get their own ceiling (`max_outputs`), separate from `max_events`. Host limits:
   memory at most 70% of 16 GiB, runtime at most 4 hours inside the 00:30–09:00 admitted window under the shared lease,
   and a pre-reservation refusal while system commit is at or above 70%; input and report bytes are also bounded by
@@ -63,6 +65,9 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   is 0.67 (95% interval 0.28–0.81), raised by short sessions that ended before the decay (111f amendment 1, `agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json`
   SHA-256 `30e68a615649430cd3f43e3b06a2efd3440c80c6259243dc9e6182bb4e67be91` at commit `ef6a0a6fcbad7a1bcafc560898bb2f13d72cecf1` (PR #143)), beside the registered k = 1 and k = 0.5. It changes no hurdle, estimator or
   decision rule.
+  The report also carries, beside the unchanged status, a flag stating whether the k = 0.3 and k = 0.5 lower bounds
+  are positive (strictly_through, both baselines); a REPLAY_HURDLES_MET status with a non-positive k = 0.3 lower bound
+  is labelled `hurdles_met_not_positive_at_measured_k`. This label changes no status, hurdle or decision rule.
 
 Everything else remains unchanged, including every hurdle, estimator, bootstrap setting, policy, pricing, fill and
 net-screen semantic, the calibration dates and method, the panel dates, and the one-look restriction.
