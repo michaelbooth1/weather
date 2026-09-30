@@ -393,13 +393,15 @@ Stage-A, workstation or live authority is added.
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. A user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
-   suites use the repository-owned 25-file bounded wrapper. Never use
+   suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
    exact definition on the next session.
-7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
+7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
+   `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
+   restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
    point it at a directory you own outside `data\`, and delete that directory
    when the run ends — pass or fail. Measure free space on the volume before
    and after (`(Get-PSDrive C).Free`, or `df`), not `du` of the directory you

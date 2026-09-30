@@ -21,35 +21,10 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Historical Toronto late-day analysis over local archived WU rows.",
     },
-    "audit_band.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live Toronto one-off; use snapshot evaluation or disagreement casebook.",
-    },
     "audit_data.py": {
         "status": "fixture-only",
         "smoke": "compile",
         "notes": "Local data-count summary; no live model claim.",
-    },
-    "audit_lowend.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live Toronto one-off; stale source-field assumptions.",
-    },
-    "audit_responsiveness.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live Toronto one-off; superseded by observation trigger replay.",
-    },
-    "audit_toronto.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live Toronto one-off; use canonical reporting modules.",
-    },
-    "check_chicago_history.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Ad-hoc Chicago history probe with stale unit assumptions.",
     },
     "chicago_audit.py": {
         "status": "retired",
@@ -61,16 +36,6 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Pinned local replay slice decomposition for a historical Toronto case.",
     },
-    "fix_app.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Obsolete local app patch helper.",
-    },
-    "full_audit.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live all-market probe; use promotion refresh and fleet reports.",
-    },
     "inspect_data.py": {
         "status": "fixture-only",
         "smoke": "compile",
@@ -80,16 +45,6 @@ SCRIPT_INVENTORY = {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
         "notes": "Historical local input-importance audit; durable outputs feed items 134-138.",
-    },
-    "model_market_disagreement_analysis.py": {
-        "status": "retired",
-        "smoke": "compile_main_guard",
-        "notes": "Compatibility wrapper; use weather.reporting.candidate_lifecycle.model_market_disagreement_analysis.",
-    },
-    "model_market_disagreement_audit.py": {
-        "status": "retired",
-        "smoke": "compile_main_guard",
-        "notes": "Compatibility wrapper; use weather.reporting.candidate_lifecycle.model_market_disagreement_audit.",
     },
     "nyc_audit.py": {
         "status": "retired",
@@ -106,11 +61,6 @@ SCRIPT_INVENTORY = {
         "smoke": "help",
         "notes": "Maintained manifest, validation, and smoke runner for this directory.",
     },
-    "run_live_model.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live default-market one-off; use package CLIs or dashboard.",
-    },
     "summary.py": {
         "status": "fixture-only",
         "smoke": "compile",
@@ -120,36 +70,6 @@ SCRIPT_INVENTORY = {
         "status": "retired",
         "smoke": "compile_main_guard",
         "notes": "Compatibility wrapper; use weather.reporting.hourly.ten_minute_model_performance.",
-    },
-    "retired_analogs_live.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live default-market one-off; analog diagnostics moved to model reports.",
-    },
-    "retired_continuation.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live continuation one-off; use late-day continuation report.",
-    },
-    "retired_feature_model_live.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live default-market one-off; use promotion gauntlet/replay.",
-    },
-    "retired_freshness.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Live source freshness one-off; use fleet observability.",
-    },
-    "train_all.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Obsolete bulk training wrapper; use nightly retrain/daily refresh.",
-    },
-    "train_all2.py": {
-        "status": "retired",
-        "smoke": "help",
-        "notes": "Obsolete bulk training wrapper; use nightly retrain/daily refresh.",
     },
     # Campaign mission scripts, kept as one block rather than scattered alphabetically so the
     # class is reviewable. Each is the executable evidence for one numbered mission and must not

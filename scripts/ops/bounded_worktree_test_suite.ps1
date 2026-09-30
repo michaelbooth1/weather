@@ -304,6 +304,24 @@ function Invoke-SuiteCheckedLocalGit {
     }
 }
 
+function Enter-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $saved = @{ TEMP = $env:TEMP; TMP = $env:TMP }
+    $childTemp = Join-Path $Root "temp"
+    New-Item -ItemType Directory -Path $childTemp -ErrorAction Stop | Out-Null
+    $env:TEMP = $childTemp
+    $env:TMP = $childTemp
+    return $saved
+}
+
+function Exit-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][hashtable]$Saved)
+
+    $env:TEMP = $Saved.TEMP
+    $env:TMP = $Saved.TMP
+}
+
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
@@ -671,7 +689,7 @@ try {
         )) {
             throw "chunk $ordinal JUnit temp/evidence paths must share one volume"
         }
-        # Per-chunk pytest temp root on a short path, removed after the chunk.
+        # Both pytest and tempfile stay in this chunk's short, cleaned root.
         # Without it pytest keeps its temp trees in %TEMP% (2026-09-23: ~2.6 GB
         # after 10 chunks pushed the host under this suite's own disk floor).
         $chunkBaseTempParent = Join-Path $env:SystemDrive "pt"
@@ -682,17 +700,22 @@ try {
         if (Test-Path -LiteralPath $chunkBaseTemp) {
             throw "chunk $ordinal pytest basetemp unexpectedly already exists: $chunkBaseTemp"
         }
+        # Pytest clears --basetemp on first use. Keep TEMP/TMP in a sibling
+        # beneath the chunk root so that cleanup cannot erase the active TEMP.
+        $chunkPytestBaseTemp = Join-Path $chunkBaseTemp "pytest"
         $tokens = @(
             "-m", "pytest", "-q", "-p", "no:cacheprovider",
             "--junitxml", $junitTempPath
-        ) + @("--basetemp", $chunkBaseTemp) + @($chunks[$index])
+        ) + @("--basetemp", $chunkPytestBaseTemp) + @($chunks[$index])
         $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) starting files=$($chunks[$index].Count) junit=$junitPath"
 
         $childJob = $null
         $child = $null
         $exitCode = $null
+        $chunkTempEnvironment = $null
         try {
+            $chunkTempEnvironment = Enter-SuiteChunkTemp -Root $chunkBaseTemp
             $childJob = New-WeatherKillOnCloseJob
             $child = Start-WeatherProcessInJob `
                 -Job $childJob `
@@ -738,6 +761,9 @@ try {
             }
         }
         finally {
+            if ($null -ne $chunkTempEnvironment) {
+                Exit-SuiteChunkTemp -Saved $chunkTempEnvironment
+            }
             if ($childJob) { $childJob.Dispose() }
             if ($child) { $child.Dispose() }
             if (Test-Path -LiteralPath $junitTempPath) {

@@ -49,3 +49,16 @@ Thumbs.db
 # Machine-local secrets (e.g. wallet reader client token); never commit.
 config/local/
 .claude/settings.local.json
+
+# Agent harness state identified by the repo-health audit (D8-F9).
+**/.claude/scheduled_tasks.lock
+**/.claude/scheduled_tasks.json
+**/.claude/routines/.state/
+**/.claude/worktrees/
+**/.claude/checkpoints/
+**/.claude/mailbox/
+**/.claude/agent-registry.json
+**/.claude/agent-memory-local
+**/.claude/first-run
+**/.claude/assistant-daemon-state.json
+.ruff_cache/
