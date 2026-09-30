@@ -18,6 +18,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "GET-only wallet reader request intent and result; no headers or response bodies.",
     ),
     SchemaSpec(
+        "reward_scan", "reward_scan_v1",
+        "weather.market.reward_scan", "active",
+        "Owner-discretionary read-only per-outcome reward terms, book geometry and pool share.",
+    ),
+    SchemaSpec(
         "maker_evidence_v1_legacy", "maker_evidence_v1",
         "weather.market.maker_evidence_store", "legacy",
         "Original daily journals, retained without migration; use their bound reader.",

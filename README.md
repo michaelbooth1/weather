@@ -170,6 +170,11 @@ provides account summaries, positions, open orders, trades and reward reads via
 `python -m weather.market.wallet_reader_client`; its runbook owns startup,
 credential selection and the scoped firewall commands.
 
+The read-only [reward-opportunity scanner](docs/operations/reward-scan.md)
+(`python -m weather.market.reward_scan scan`, looped on the workstation by
+`scripts/ops/run_reward_scan.ps1`) lists per-outcome reward terms, book geometry
+and pool share for owner-discretionary quoting; it places no orders.
+
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.

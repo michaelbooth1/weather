@@ -1249,3 +1249,77 @@ def test_model_runtime_uses_calibration_runtime_boundary():
             offenders[str(path)] = matches
 
     assert offenders == {}
+
+
+def first_party_import_closure(root_module):
+    """Static first-party closure, including function-local imports and package inits."""
+    def module_file(name):
+        base = Path("src", *name.split("."))
+        for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+            if candidate.is_file():
+                return candidate
+        return None
+
+    seen, third_party, pending = set(), set(), [root_module]
+    while pending:
+        name = pending.pop()
+        parts = name.split(".")
+        for depth in range(1, len(parts) + 1):
+            prefix = ".".join(parts[:depth])
+            if prefix not in seen and module_file(prefix) is not None:
+                seen.add(prefix)
+                pending.append(prefix)
+        path = module_file(name)
+        if path is None:
+            continue
+        package = name if path.name == "__init__.py" else name.rsplit(".", 1)[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            targets = []
+            if isinstance(node, ast.Import):
+                targets = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = node.module or ""
+                if node.level:
+                    anchor = package.split(".")[:len(package.split(".")) - node.level + 1]
+                    base = ".".join(anchor + ([base] if base else []))
+                targets = [base] + [base + "." + alias.name for alias in node.names]
+            elif (isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) in
+                  {"import_module", "__import__"} and node.args and isinstance(node.args[0], ast.Constant)):
+                targets = [node.args[0].value]
+            for target in targets:
+                if module_file(target) is not None:
+                    if target not in seen:
+                        seen.add(target)
+                        pending.append(target)
+                elif target and target.split(".")[0] not in {"weather", "maker_core"}:
+                    third_party.add(target.split(".")[0])
+    return seen, third_party
+
+
+READ_ONLY_TOOL_FORBIDDEN = re.compile(
+    r"(^|\.)(mm_[a-z_]+|[a-z_]*credential[a-z_]*|wallet_reader[a-z_]*|[a-z_]*live[a-z_]*|[a-z_]*sdk[a-z_]*|"
+    r"[a-z_]*order[a-z_]*|[a-z_]*sign[a-z_]*|re_?1[a-z_]*|maker_plugin|market_making[a-z_]*|taker_bot[a-z_]*)($|\.)"
+    r"|^maker_core\.(venue|runtime|quoting)|^weather\.(model|calibration)(\.|$)")
+READ_ONLY_TOOL_FORBIDDEN_THIRD_PARTY = {
+    "py_clob_client", "eth_account", "web3", "polymarket", "dotenv", "keyring", "winreg", "websocket", "websockets",
+}
+
+
+def test_reward_scan_cannot_reach_order_signing_re1_credential_policy_or_fair_value_modules():
+    modules, third_party = first_party_import_closure("weather.market.reward_scan")
+    assert "weather.market.reward_share_estimate" in modules and "weather.schema_registry" in modules
+    assert sorted(m for m in modules if READ_ONLY_TOOL_FORBIDDEN.search(m)) == []
+    assert third_party & READ_ONLY_TOOL_FORBIDDEN_THIRD_PARTY == set()
+    source = Path("src/weather/market/reward_scan.py").read_text(encoding="utf-8")
+    assert "load_owner_credentials" not in source and "os.environ" not in source and ".env" not in source
+
+
+def test_read_only_tool_ratchet_detects_forbidden_modules():
+    for name in ("weather.market.mm_exchange", "weather.market.mm_credentials", "maker_core.runtime.credentials",
+                 "weather.market.wallet_reader_transport", "weather.market.live_sdk_overlay",
+                 "maker_core.venue.account_read", "maker_core.quoting.policy", "weather.market.maker_plugin.fair_value",
+                 "weather.market.re1_orders", "weather.model.serving", "weather.market.market_making_live_pilot"):
+        assert READ_ONLY_TOOL_FORBIDDEN.search(name), name
+    for name in ("weather.market.reward_scan", "weather.market.reward_share_estimate", "weather.paths",
+                 "weather.schema_registry_recent_data"):
+        assert not READ_ONLY_TOOL_FORBIDDEN.search(name), name
