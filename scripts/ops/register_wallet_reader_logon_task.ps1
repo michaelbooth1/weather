@@ -16,6 +16,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $taskName = 'WeatherWalletReader'
+$identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $WhatIfPreference -and
+    -not $identity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Run from an elevated PowerShell session (S4U task registration needs administrator rights).'
+}
 
 if ($Unregister) {
     if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
@@ -73,7 +78,8 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 if ($PSCmdlet.ShouldProcess($taskName, 'Register logon task for the read-only wallet reader')) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
         -Principal $principal -Settings $settings `
-        -Description 'Read-only wallet LAN reader (docs/operations/wallet-reader.md); starts at owner logon' | Out-Null
+        -Description 'Read-only wallet LAN reader (docs/operations/wallet-reader.md); starts at owner logon' `
+        -ErrorAction Stop | Out-Null
 
     $t = Get-ScheduledTask -TaskName $taskName
     if (@($t.Actions).Count -ne 1 -or $t.Actions[0].Execute -ine $python -or
