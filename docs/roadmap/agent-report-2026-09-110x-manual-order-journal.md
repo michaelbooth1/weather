@@ -111,9 +111,32 @@ such as `<worktree>\src2` passed. The runner now compares whole path segments, a
 (it fails against the previous runner with exit 0). Only the runner pin changed; the modules digest
 is unchanged. Production re-registers the running task with the new runner pin.
 
+Follow-up 2026-09-30 (public 403): **PASS — the journal's public CLOB reads now send an explicit
+User-Agent.** Since 2026-09-29 22:00Z the venue answered them with HTTP 403 while 88a's public reads
+from the same host succeeded; `PublicClob.get` sent the urllib default User-Agent, whereas
+`maker_evidence_public.py` sends `Mozilla/5.0 weather-passive-maker-evidence/1` (the RE-1 lesson).
+Every public request now sends `PUBLIC_USER_AGENT` (`Mozilla/5.0 weather-manual-order-journal/1`);
+the fixture opener asserts the header on every request of every test run and
+`test_every_public_read_sends_the_explicit_user_agent` pins the exact header set. Only
+`order_journal_sources.py` changed, so only the modules digest moved; the runner pin is unchanged.
+Production re-registers the running task with the new modules pin.
+
+The wallet reader's 503s on `summary`/`trades`/`rewards` since 00:11Z 09-30 are **not** the same
+kind of failure, so its `weather-wallet-reader` User-Agent was left unchanged. Read-only evidence on
+the workstation: the reader's request journal (`scratch\w\wallet-110f\data\wallet_reader\`,
+09-26..09-30) holds 672 upstream `200`s, one data-api `/activity` `429` and no `403`, ending at
+00:00:06Z 09-30. The workstation itself lost power (Kernel-Power 41; unexpected shutdown 19:38 local,
+reboot 20:11:33 local = 00:11:33Z) and rebooted again at 14:20 local 09-30. The reader was not
+running between those boots unless started by hand; it now runs from the new logon task
+`WeatherWalletReader` (main checkout, started 14:21 local, no campaign flags), and that checkout
+has no `data\wallet_reader` journal yet, so it has made no upstream attempt since. The reader
+answers `503 read_unavailable` for any local exception, before any upstream call. The production
+journal's exact client error codes over the window would settle what it saw. Not done: no probe of
+the reader or of any venue, no restart, no Scheduler change.
+
 - runner `scripts/ops/manual_order_journal.ps1`:
   `3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf`
-- modules digest: `9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6`
+- modules digest: `f935f59f93ae2e9619ef67ce0f27749cb28bc1ef65485bd139b2ae1e925499b7`
 
 Prerequisites:
 - `config\local\wallet_reader_client.json` exists in the production checkout.
@@ -126,8 +149,8 @@ values.
 **Option A: after the branch merges (quiet window if roll-sensitive), from the production checkout:**
 
 ```powershell
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 f935f59f93ae2e9619ef67ce0f27749cb28bc1ef65485bd139b2ae1e925499b7 -WhatIf
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 f935f59f93ae2e9619ef67ce0f27749cb28bc1ef65485bd139b2ae1e925499b7
 ```
 
 **Option B: before the merge, pinned detached worktree, production venv/config/data.** Worktree
@@ -146,8 +169,8 @@ $env:GIT_LFS_SKIP_SMUDGE = '1'
 git fetch origin codex/manual-order-journal-20260928
 git worktree add --detach ..\weather-manual-order-journal-deployed-<sha8> <reviewed-head-sha>
 $wt = (Resolve-Path ..\weather-manual-order-journal-deployed-<sha8>).Path
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 f935f59f93ae2e9619ef67ce0f27749cb28bc1ef65485bd139b2ae1e925499b7 -WhatIf
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 f935f59f93ae2e9619ef67ce0f27749cb28bc1ef65485bd139b2ae1e925499b7
 ```
 
 Check it with the following commands, and read the last lines of `data\manual_order_journal\runner.log`:
