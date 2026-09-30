@@ -42,7 +42,7 @@ changing inventories, metrics, versions, or operational state.
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
-| Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
+| Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
 | Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
 | Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |
