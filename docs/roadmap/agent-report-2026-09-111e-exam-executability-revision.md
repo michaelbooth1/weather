@@ -16,6 +16,37 @@ Each follows from the largest power of two under the host limit (8,192 s under 4
 divided by 30. That is about 8× looser on runtime and 2× on memory than the first draft. It still may not hold for a
 real all-city day; the rehearsals decide.
 
+## Follow-up 2026-09-30: failed reservation and the latest draft
+
+**Verdict: FIXED on fixtures. A reservation that fails before writing its receipt now leaves the look available and
+permits the late look; one that wrote its receipt is consumed.** Aligned with draft commit `794656c20`.
+
+- **Reservation refusal.** Before, the refusal handler in `src/maker_core/replay/__main__.py` recorded nothing when
+  `reserve_attempt` raised. A failure before `attempts/<authorization_id>.json` existed then neither consumed the look
+  nor left the record `late_look_permitted` needs, so a later look was impossible. Now:
+  - no receipt written by this call: `record_refusal(..., "reservation", ...)`, a `NOT_CONSUMED_OPERATIONAL_REFUSAL`;
+  - receipt written, then a failure (for example during fsync): `record_stop` at stage `reservation`, consumed;
+  - receipt already present from an earlier run (`authorization_attempt_already_consumed`): nothing new is written.
+    That run's own receipt remains the authority.
+- **Test.** `test_failed_reservation_consumes_only_when_it_wrote_the_receipt` in
+  `tests/maker_core/test_replay_execution_pack.py` covers both branches. With no receipt written, it asserts a
+  `NOT_CONSUMED_OPERATIONAL_REFUSAL` record at stage `reservation` and that `late_look_permitted` then returns True.
+  With a receipt written, it asserts a `CONSUMED_STOPPED` record and that `late_look_permitted` returns False. Both
+  cases fail without the fix.
+- **Draft `794656c20` alignment.**
+  - k = 0.3 is described as the per-session multiplier of the three RE-1 sessions that ran about one hour
+    (0.27–0.32), beside the pooled 60-minute k of 0.67. The wording is updated in `score.py` and
+    `docs/operations/maker-replay-bundle.md`. The value, and the rule that it is reported only, are unchanged.
+  - The host limits for bytes (input and report ≤ 70% of 16 GiB) and counts (≤ 2^31) were already enforced. Their
+    comment now cites the clarification, and the host-limit test adds report-byte, record-count and decisions+spans
+    cases.
+- **Verification.** Run under `scripts\ops\workstation_heavy.ps1` after merging `origin/master`: `tests/maker_core`,
+  both exporter suites and the repo-wide audits (schema registry, import architecture, release import boundary,
+  agent docs, path policy, module size). CI on PR #144 is the check of record.
+- **Roll verdict.** Unchanged: the change is expected to be roll-free, because no capture loop imports
+  `maker_core.replay`. Production derives it with `scripts\opsoll_verdict.ps1`.
+- No signed `docs/research/maker-replay-*` file and no production state was touched.
+
 ## Changes in this revision
 
 - **Rehearsal per date.**
