@@ -112,7 +112,7 @@ function Test-WritableFolder([string]$Folder) {
     $probe = Join-Path $Folder ('.write-probe-' + [guid]::NewGuid().ToString('N'))
     try {
         [IO.File]::WriteAllBytes($probe, [byte[]]@())
-        Remove-Item -LiteralPath $probe -ErrorAction Stop
+        [IO.File]::Delete($probe)  # not Remove-Item: -WhatIf would leave the probe behind
         $true
     } catch { $false }
 }

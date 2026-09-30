@@ -84,6 +84,7 @@ def test_dedicated_worktree_at_reviewed_commit_plans_main_venv_python(tmp_path):
     assert f"commit={commit}" in plan and str(worktree / "data" / "wallet_reader") in plan
     assert "-m weather.market.wallet_reader serve --bind 192.168.1.20 --allow 192.168.1.30" in plan
     assert not (worktree / "data").exists()  # -WhatIf creates no journal folder
+    assert not list(worktree.rglob(".write-probe-*"))  # the writability probe leaves nothing behind
 
 
 @pytest.mark.parametrize("case,message", [
