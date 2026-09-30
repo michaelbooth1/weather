@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-29 02:00 America/Toronto (ALL LIVE TRADING PAUSED; replay exam signed: panel 09-30..10-13, look 10-15; second integration landed; plugin + harness still held; 91 GiB free).**
+**Last updated: 2026-09-30 01:30 America/Toronto (ALL LIVE TRADING PAUSED; exam integration #134 HELD: plugin re-run evaluated no bands; disk is the exam's main risk; ~97 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -18,54 +18,57 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **No live trading (owner 2026-09-25).** The owner starts any future live run personally; pause and bleed limit go into code
   first. The owner's manual trades share the wallet and stay `owner-discretionary`, outside automated data.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges 01:00-04:00.
-- **Exam-period merge policy (2026-09-27):** during panel UTC days 09-30..10-13 only disk-relief (110j C) and exam-tooling
+- **Exam-period merge policy (2026-09-27):** during panel UTC days 09-30..10-13 only disk-relief and exam-tooling
   roll-sensitive merges land; everything else waits until after 10-13. Nothing joins an integration branch before its CI is green.
-- All 2026-09-26/27 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md): storage 1-9 (10 keep, 11 no), economics baseline
-  re-accepted, one-wallet ledger, 10 repo-health decisions, replay pre-registration + Clarification 1 signed, efficiency
-  approvals, YouTube plugin, one-sided second candidate, wallet reader stays on the workstation, tools 110y/110z.
+  (A same-day "source freeze" claim was wrong: source hashes bind only from manifest build to the scored run, both ~10-15.)
+- 2026-09-26/27 decisions and the 2026-09-29 decisions (watchdog adoption, 5f approval, 5g after #128, part 3 keeps the
+  Stage 0/1 paper-run tool, GitHub hardening, Clarification 2 drafting with k = 0.3, 111f/111g/111h, order-journal
+  deployment) are rows in [DECISION_LOG](DECISION_LOG.md).
+- **Workstation sessions are Claude Code** (Codex lapsed 2026-09-29); dispatch prompts start from
+  [the session preamble](WORKSTATION_SESSION_PREAMBLE.md).
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` `85092752a` (2026-09-29 01:23, quiet-window tool, bounded suite 23/23 on tip
-  `c5b3a5a6a`, PR #126): 110k ledger adapter (#98) and WU orphan caller (#99), 110m part 1 signed-band capture (#101), 110n
-  watchdog alarm path (#102), fresh 110q economics tick-mix fix (#123; #111 closed as superseded), 110v part 1 execution-tape
-  write throttle (#116). Capture workers and execution tape recovered; 88a did not restart (pid 17840). Previous landing
-  `fbf4d436c` (09-28): 91a, 110f, 110g centering OFF, 110i, 110j A/B.
-- **Watchdog (#102) is not yet adopted:** the scheduled task still runs the `weather-watchdog-deployed-aa99048` copy. The
-  re-registration command in the 110n report (reviewed tip `1fc7ba35`, hashes verified against master 09-29) waits for owner review.
-- **Stage-A 09-29** is the first run with the tick-mix fix; its economics drift gate is expected to pass.
-- **Disk:** ~91 GiB free 09-29 01:25 (102 after the 09-28 reclaims; receipts `data/alerts/storage-decisions-20260928/`). 88a
-  stops < 40 GiB, the suite < 50 GiB. Taker counterfactual detail (5 files, 3.18 GiB) deletes 09-29/30 now #102 has landed.
-- **5f/5g review manifests** (built 09-29, nothing deleted, `data/alerts/storage-decisions-20260929/`): 5f backtest shadow exports
-  15 files 5.47 GiB, blocked only by owner review and one unclassified file (`active_variant_shadow_attribution.jsonl`, 1.9 GiB);
-  5g mm_runs scoring projections 282 files 5.45 GiB (latest 14 runs kept), all unclassified in `storage_classes`, so a
-  classification change must land before any delete.
-- **Host:** housekeeping 2026-09-28: 18 spent/retired tasks unregistered, WeatherBootRecovery runs from the production tree
-  (hash-pinned), 88a trigger PT5M (registrar still asserts PT1M: follow-up), explorer restarted (2.7 GB -> 0.2 GB), Defender
-  excludes venv, C:\tmp, C:\pt. Execution-tape worker writes ~3.7 MB/s of status (fix 110v part 1).
+- **Production source:** `master` = `origin/master` `b0032a907` (docs); code tip `85092752a` (2026-09-29 01:23): 110k, 110m
+  part 1, 110n, fresh 110q, 110v part 1. Integration #134 (exam line + #128, tip `0ec3f157f`, CI green) was NOT merged
+  2026-09-30: the 111a production re-run (09-26 data, COMPLETE in 130 s) evaluated no band end to end: 0 legs on 7,371
+  decisions, `fair_value:served_snapshot_release_unbound` on 7,367, `missing_captured_band_metadata` 65,912
+  (`data/alerts/weather-plugin-111a-20260926/`). The plugin sits inside #100, so the exam line waits for a fix.
+- **Watchdog adopted 2026-09-29 13:35** from `weather-watchdog-deployed-110n-1fc7ba35` (pins verified). Order journal (110x)
+  runs every 5 min from a pinned worktree `weather-manual-order-journal-deployed-4ccc92de` (option B; option A after 10-13).
+- **Host incident 2026-09-29 ~19:50-20:05:** short power outage (owner-confirmed; Kernel-Power 41, 6008), no dump; boot recovery 0x0; 88a now
+  pid 3860; ~20 min of 88a lost (last minutes of calibration day 09-29, first 9 min of panel day 09-30: coverage
+  exclusions, not zeros). Stage-A 09-29 economics gate PASSED (110q works); exit 2 now from a promotion-lane block.
+- **Disk:** ~97 GiB free after 09-30 deletes (taker detail 3.18 GiB logical/1.8 on disk, 5f 3.53 GiB; receipts
+  `data/alerts/storage-decisions-20260929/`). Measured net decline ~11-12 GiB/day (not the watchdog's 7); the reboot's
+  +10 GiB was pagefile reset (16 GiB, may regrow to 32). Pessimistic: 50 GiB suite floor ~10-04, 88a 40 GiB stop ~10-05,
+  inside the panel. **91a nightly (09-30):** dry run PASS filled the 32 GiB budget (4,851 closed-day files); the 1 GiB
+  first apply compressed 7 files at 3-4:1 then stopped on a 385-byte MFT-resident file (zero savings stops the batch):
+  fix 111i (owner 09-30: select closed market-days after 2 days, not 14), then register. Other levers: 5g after #128, 111g #142 (~0.9 GiB/day), owner-signed manifests.
 - **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
 - **Wallet (recorded reads, `data/wallet_ledger/`):** 09-28 01:40Z cash 283.95, no positions, no open orders; the owner's manual
   one-sided resting orders earned 8.25 pUSD of rewards on 09-27 UTC (orders now gone). Reader status INCOMPLETE is expected.
-- **Maker core:** contracts v0.1; weather plugin, 110h dry-run CLI, replay harness (313/313 minute parity with RE-1), execution
-  pack (#112), bundle export (#114), shadow runner (110t), T+1 scorer (#113) are still on branches, held for 111a (plugin dry-run
-  fixes: NBP CAS path, band metadata, T+0 PIT input, ledger read cap, input budget). They are exam tooling.
-- **Replay exam (signed):** calibration 09-27..09-29, panel 09-30..10-13, settlement 10-14, single look **2026-10-15**
-  (`maker-replay-2026-10-15-v1`; 10-12 authorization revoked). Production calibrates, builds and verifies the manifest and
-  enrols its hash on 09-30. A second candidate (`one-sided-edge-v0`, 110w) gets its own exam 10-16..10-29, look 10-31.
+- **Maker core / exam tooling:** harness, prereg, execution pack, T+1 scorer, bundle export, storage classes are in #134;
+  111e (#144) makes the exam executable per the unsigned Clarification 2 draft
+  (`docs/research/maker-replay-clarification-2-2026-09-29.md` on branch `codex/exam-fixes-handoffs-20260929`); 111f measured competitor reaction (share halves in 2-4 min; ~1 h sessions k 0.27-0.32).
+- **Replay exam (signed v1):** calibration 09-27..29, panel 09-30..10-13, settlement 10-14, single look **2026-10-15**. As
+  frozen it cannot execute (2026-09-29 deep audit): bundle field refused, no calibration producer, unmeasured ceilings, a
+  refusal inside scoring spends the look; enrolment is only possible on 10-15. Clarification 2 (owner signs) fixes the
+  mechanics only. Second candidate (#137) exam 10-16..10-29, look 10-31.
 - **One-sided thesis review (2026-09-27):** one-sidedness concentrates informed flow; the model trails the market in every
   measured slice; observation decidedness is the only directional signal; one-sided reward score is S/3 inside a 0.10-0.90 mid.
-- **Forecast:** NBM layers 2/3 queued (after 10-13); T+1/T+2 fair value frozen pre-registration, scored 10-15 by 110u.
-- **YouTube:** its model may feed the maker later (read-only); capture moves here after 10-15 with measured disk (~10-05).
+- **Forecast:** 111h (#146) re-derives NBM guidance with parser v2 at all hours from retained bulletins (extract on production,
+  analysis on the workstation); NBM layers 2/3 after 10-13.
+- **YouTube:** its model may feed the maker later (read-only); capture moves here after 10-15 with a measured 7-day disk cost.
 
 ## Ordered critical path
 
-1. **111a** (workstation) fixes the plugin dry run; then plugin + harness + #109 (frozen) + #112/#113/#114 land as exam tooling
-   in the next 01:00-04:00 window; then register the nightly bundle export and backfill 09-27..09-29.
-2. **09-30:** hazard calibration, panel inventory seal, manifest verify, hash enrolment; this needs #112 and #114 landed, so a
-   late 111a moves enrolment. Keep 88a >= 40 GiB every day to 10-13.
-3. **Disk:** taker files 09-29/30; owner reviews the 5f/5g manifests; register 91a after a dry run; 110j C during the exam.
-4. **Workstation queue:** 110o (after landings), 110v parts 2-6, 110w, 110x, 110y, 110z.
-5. **Canon and ops:** tracker (#110) lands roll-free; nightly docs step; RE-1 PR chain closes 10-01.
+1. **Disk (exam at risk):** 91a dry run -> low-budget apply -> register by 10-02; land #142 (111g) and 5g after #128.
+2. **Exam line:** fix the plugin's release binding and band metadata (workstation), re-run on production, then land #134 +
+   #144 (+#142, #143) in one quiet window; owner signs Clarification 2; calibration export and ceiling rehearsal.
+3. **10-15:** universe inventory, manifest build/verify/enrol, single look (late look to 10-31 only on an operational refusal).
+4. **Roll-free batch 09-30 06:30:** #132 (carries #110), #130, #131, #135, #136, #138, #139, #140; #141 alone on 10-01.
+5. **Research:** 111h extract (night 09-30/10-01); everything roll-sensitive and non-exam after 10-13.
 
 ## Standing decisions
 
