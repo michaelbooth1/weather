@@ -34,7 +34,8 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   unit (bytes, records, seconds). The memory ceiling is that value plus the measured baseline, which is not
   multiplied. Decisions plus spans get their own ceiling (`max_outputs`), separate from `max_events`. Host limits:
   memory at most 70% of 16 GiB, runtime at most 4 hours inside the 00:30–09:00 admitted window under the shared lease,
-  and a pre-reservation refusal while system commit is at or above 70%. The derived ceilings are bound in the
+  and a pre-reservation refusal while system commit is at or above 70%; input and report bytes are also bounded by
+  70% of 16 GiB and every count by the tooling's 2^31 representation limit. The derived ceilings are bound in the
   manifest. If any derived ceiling exceeds its host limit, the exam is reported as not executable on this host; the
   panel is never sampled or truncated to fit.
 - **Look protection.** "Operational" means any refusal after the authorization verifies and before the first score,
@@ -54,8 +55,9 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   The report states the replay's reward accrual assumes no competitor reaction and quotes the measured decay next to
   any reward-based result. It changes no hurdle, estimator or decision rule.
 - **Measured-reaction sensitivity (reported, not a hurdle).** Every reward-based endpoint is also reported at
-  **k = 0.3**, the long-horizon reward multiplier measured from the RE-1 journals' per-minute share samples (sessions
-  near one hour kept k 0.27–0.32; 111f amendment 1, `agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json`
+  **k = 0.3**, the per-session reward multiplier of the three RE-1 sessions that ran about one hour (0.27–0.32),
+  from the RE-1 journals' per-minute modelled share samples; the pooled 60-minute k over all nine posting episodes
+  is 0.67 (95% interval 0.28–0.81), raised by short sessions that ended before the decay (111f amendment 1, `agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json`
   SHA-256 `30e68a615649430cd3f43e3b06a2efd3440c80c6259243dc9e6182bb4e67be91` at commit `ef6a0a6fcbad7a1bcafc560898bb2f13d72cecf1` (PR #143)), beside the registered k = 1 and k = 0.5. It changes no hurdle, estimator or
   decision rule.
 
