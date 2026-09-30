@@ -30,6 +30,7 @@ from weather.model.feature_store import (
 )
 from weather.collection.snapshot_store import snapshot_id_for_captured_at
 from weather.collection.snapshot_tracker import SnapshotStore
+from weather.io import read_csv_rows
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 
@@ -833,7 +834,8 @@ class TestFeatureStore(unittest.TestCase):
             }
 
             result = store.write(event, model, model_client, captured_at)
-            explanation_rows = list(csv.DictReader((root / "snapshot_explanations_long.csv").open(encoding="utf-8", newline="")))
+            explanation_rows = read_csv_rows(root / "snapshot_explanations_long.csv")
+            self.assertFalse((root / "snapshot_explanations_long.csv").exists())
             explanation_payload = json.loads((root / "snapshot_explanations.jsonl").read_text(encoding="utf-8").strip())
             observation_rows = list(csv.DictReader((root / "observation_payloads_long.csv").open(encoding="utf-8", newline="")))
             observation_payload = json.loads((root / "observation_payloads.jsonl").read_text(encoding="utf-8").strip())
@@ -844,7 +846,7 @@ class TestFeatureStore(unittest.TestCase):
 
         snapshot_id = snapshot_id_for_captured_at(captured_at)
         self.assertEqual(result["snapshot_explanation_rows"], len(explanation_rows))
-        self.assertEqual(result["snapshot_explanations_path"], str(root / "snapshot_explanations_long.csv"))
+        self.assertEqual(result["snapshot_explanations_path"], str(root / "snapshot_explanations.jsonl"))
         self.assertEqual(result["snapshot_explanations_jsonl_path"], str(root / "snapshot_explanations.jsonl"))
         self.assertEqual(result["observation_payload_rows"], 1)
         self.assertEqual(result["observation_payloads_path"], str(root / "observation_payloads_long.csv"))
@@ -906,7 +908,8 @@ class TestFeatureStore(unittest.TestCase):
 
             first = store.backfill_snapshot_explanations()
             second = store.backfill_snapshot_explanations()
-            rows = list(csv.DictReader((root / "snapshot_explanations_long.csv").open(encoding="utf-8", newline="")))
+            rows = read_csv_rows(root / "snapshot_explanations_long.csv")
+            self.assertFalse((root / "snapshot_explanations_long.csv").exists())
             payload = json.loads((root / "snapshot_explanations.jsonl").read_text(encoding="utf-8").strip())
 
         self.assertEqual(first["written_snapshot_count"], 1)

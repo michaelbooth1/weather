@@ -884,7 +884,7 @@ class SnapshotStore:
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
             variant_prediction_error = f"{type(exc).__name__}: {exc}"
-        self.append_projection(self.long_path, LONG_COLUMNS, long_rows)
+        self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
             self.wide_columns(long_rows),
@@ -933,7 +933,7 @@ class SnapshotStore:
                 },
                 feature_vector,
             )
-            self.append_projection(self.features_long_path, FEATURE_AUDIT_COLUMNS, [feature_row])
+            self.append_csv(self.features_long_path, FEATURE_AUDIT_COLUMNS, [feature_row])
             self.append_jsonl(self.features_jsonl_path, feature_row)
 
         component_rows = self.component_rows(
@@ -1003,7 +1003,7 @@ class SnapshotStore:
             self.append_jsonl(self.replay_inputs_path, replay_input_payload)
 
         if variant_prediction_rows:
-            self.append_projection(
+            self.append_csv(
                 self.variant_predictions_long_path,
                 LIVE_VARIANT_PREDICTION_COLUMNS,
                 variant_prediction_rows,
@@ -2485,7 +2485,12 @@ class SnapshotStore:
             return self.safe_filename_part(value)
 
     def append_projection(self, path, columns, rows):
-        """Keep existing legacy days complete; new days use canonical JSONL."""
+        """Keep existing legacy days complete; new days use canonical JSONL.
+
+        Only snapshot_explanations_long.csv is retired this way. The snapshot,
+        feature and variant-prediction CSVs are still read directly by live and
+        daily-refresh readers, so capture keeps writing them.
+        """
         if path.exists():
             self.append_csv(path, columns, rows)
 
@@ -2871,7 +2876,7 @@ class SnapshotStore:
                 continue
             self.append_jsonl(self.snapshot_explanations_jsonl_path, explanation_payload)
             if explanation_rows:
-                self.append_csv(
+                self.append_projection(
                     self.snapshot_explanations_long_path,
                     SNAPSHOT_EXPLANATION_COLUMNS,
                     explanation_rows,

@@ -1026,12 +1026,12 @@ def read_jsonl_tail_with_diagnostics(
 ) -> tuple[list[Any], dict[str, Any]]:
     """Read a complete bounded JSONL suffix and reject malformed evidence."""
 
+    # Native JSONL records keep their JSON types; only the CSV tail reader
+    # projects canonical JSONL into csv.DictReader-style string rows.
     logical_path = Path(path)
-    path = projection_source(path)
+    path = resolve_local_path(path)
     diagnostics = _bounded_tail_diagnostics(path, max_bytes)
     diagnostics["path"] = str(logical_path)
-    if path.name in PROJECTIONS.values() and path.exists():
-        return canonical_tail(path, max_bytes=max_bytes, diagnostics=diagnostics)
     if not path.exists():
         return [], diagnostics
     try:

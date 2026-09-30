@@ -1,20 +1,35 @@
 # Canonical snapshot projection readers
 
-- **Owns:** the four retired capture CSV views, their JSONL read adapters and consumer inventory.
+- **Owns:** the four capture CSV views with JSONL read adapters, which of them capture still writes, and the consumer inventory.
 - **Read when:** adding a snapshot consumer or changing capture's duplicate CSV output.
 - **Read instead:** [cold snapshot compression](cold-snapshot-compression.md) for retained-path NTFS compression;
   [storage classes](data-storage-class-contract.md) for deletion authority.
 - **Verify with:** `weather.projection_io`, `SnapshotStore.append_projection`, and `tests/test_projection_io.py`.
 
-| Retired new-day capture CSV | Canonical source | Row interpretation |
-| --- | --- | --- |
-| `snapshots_long.csv` | `snapshots.jsonl` | Ordered `bands` rows from each capture record |
-| `features_long.csv` | `features.jsonl` | One feature audit row per record |
-| `variant_predictions_long.csv` | `variant_predictions.jsonl` | One variant row per record |
-| `snapshot_explanations_long.csv` | `snapshot_explanations.jsonl` | Shared capture/reader explanation flattening |
+| Capture CSV view | Canonical source | Row interpretation | New-day capture writes CSV? |
+| --- | --- | --- | --- |
+| `snapshots_long.csv` | `snapshots.jsonl` | Ordered `bands` rows from each capture record | Yes |
+| `features_long.csv` | `features.jsonl` | One feature audit row per record | Yes |
+| `variant_predictions_long.csv` | `variant_predictions.jsonl` | One variant row per record | Yes |
+| `snapshot_explanations_long.csv` | `snapshot_explanations.jsonl` | Shared capture/reader explanation flattening | **No (retired)** |
 
-New capture days write those canonical tapes without creating these four CSVs.
-An existing CSV continues receiving rows for the remainder of its day. Readers
+Only `snapshot_explanations_long.csv` is retired: new capture days, and the
+`backfill-explanations` command, write `snapshot_explanations.jsonl` without
+creating it. The other three are still written because production readers
+remain that parse them as CSV directly or discover folders by the CSV name:
+
+- `collection_health.snapshot_times` runs `csv.DictReader` over the resolved
+  source (live cadence, fleet health, data-layer audit).
+- `live_variant_settlement_scorecard.read_rows` parses canonical `.jsonl` with
+  `json.loads` after `open_projection` has turned it into CSV text.
+- `settled_day_root_cause` opens the resolved snapshot source raw.
+- `feature_quality_quarantine.discover_snapshot_folders` globs CSV names only,
+  and `backfill-core-sidecars` would create a partial `features_long.csv` that
+  shadows `features.jsonl`.
+
+Retiring any of those three needs those readers fixed first, then a new
+reader trace. The `projection_io` fallback stays in place for all four.
+For the retired view, an existing CSV continues receiving rows for the remainder of its day. Readers
 prefer that existing CSV, so historical settlement hashes and partially
 migrated days do not acquire mixed provenance. This retires creation, not
 historical retention. Explicit legacy backfill commands may still rebuild a
@@ -136,8 +151,8 @@ freeze source while testing. The native 81 MiB compression fixture checks
 retained path, SHA-256, file identity and timestamp for the larger token limit.
 
 Treat source changes as roll-sensitive until the production closure verdict
-is obtained. Apply the reader migration together with the small capture writer
-switch; adopting only the writer change would hide days from older readers.
+is obtained. Apply the reader migration together with the capture writer switch for
+snapshot explanations; adopting only the writer change would hide days from older readers.
 The compression wrapper is roll-free, but its Python dependency must be present
 at the reviewed source tip before invocation. No scheduler registration,
 production inventory, production compression or evidence removal is performed
