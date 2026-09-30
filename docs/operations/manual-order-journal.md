@@ -15,7 +15,9 @@ token file. The [portfolio ledger](portfolio-ledger.md) owns campaign books.
   `rewards`), using the existing ignored client file `config/local/wallet_reader_client.json`.
   Market data comes only from GET-only public CLOB reads against an exact allowlist: `/book`,
   `/prices-history`, `/rewards/markets/<condition>` and `/markets/<condition>`. These reads send no
-  auth headers and use no proxy, redirects or retries. Each run is capped at 40 public GETs and
+  auth headers and use no proxy, redirects or retries. Every public read sends the explicit
+  User-Agent `PUBLIC_USER_AGENT` in `order_journal_sources.py`: the venue answers the urllib default
+  with HTTP 403 (journal outage from 2026-09-29 22:00Z; same lesson as RE-1 and 88a). Each run is capped at 40 public GETs and
   150 seconds. Anything left over is deferred to the next run and recorded under `errors`; nothing
   is lost.
 - No venue credentials, SDK, order, cancel or signing path exists in these modules. A test

@@ -13,7 +13,7 @@ from weather.market import order_journal
 from weather.market.order_journal import record
 from weather.market.order_journal_io import JournalError, WriterLock, read_tail, verify_chain
 from weather.market.order_journal_report import build_report, markdown
-from weather.market.order_journal_sources import PublicClob, SourceError, check_public
+from weather.market.order_journal_sources import PUBLIC_USER_AGENT, PublicClob, SourceError, check_public
 from weather.market.wallet_reader_client import ClientError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +49,8 @@ class Opener:
     def open(self, request, timeout):
         url = request.full_url
         assert request.get_method() == "GET" and "Authorization" not in request.headers
+        # Every public read names itself; the urllib default User-Agent gets HTTP 403.
+        assert request.get_header("User-agent") == PUBLIC_USER_AGENT
         self.urls.append(url)
         path = url.split("clob.polymarket.com", 1)[1]
         key = path if path.startswith("/book") else path.split("?", 1)[0]
@@ -229,6 +231,21 @@ def test_cli_refuses_clock_regression_and_verifies(tmp_path, capsys):
 def test_public_reads_are_an_exact_get_allowlist(path, params):
     with pytest.raises(SourceError, match="public_request_refused"):
         check_public(path, params)
+
+
+def test_every_public_read_sends_the_explicit_user_agent(tmp_path):
+    results = run_all(tmp_path)
+    assert all(opener.urls for _, _, opener in results)  # the opener asserted the header on each
+    assert PUBLIC_USER_AGENT.startswith("Mozilla/5.0 ") and "Python-urllib" not in PUBLIC_USER_AGENT
+    seen = []
+
+    class Recording(Opener):
+        def open(self, request, timeout):
+            seen.append(request.header_items())
+            return super().open(request, timeout)
+
+    PublicClob(budget=1, deadline_seconds=150, opener=Recording({"/book?token_id=1": {}})).get("/book", token_id="1")
+    assert seen == [[("Accept", "application/json"), ("User-agent", PUBLIC_USER_AGENT)]]
 
 
 def test_journal_modules_have_no_order_signing_or_credential_path():

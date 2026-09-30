@@ -3,7 +3,9 @@
 The reader side is ``wallet_reader_client.read_account`` (fixed GET routes, the
 existing client token file). The public side is a GET-only fetcher bound to the
 public CLOB host and four exact paths with no auth headers, proxies, redirects or
-retries. Nothing here can place, cancel or sign an order.
+retries. Every public request sends an explicit browser-style User-Agent: the
+urllib default is refused with HTTP 403 (the RE-1 / 88a lesson). Nothing here can
+place, cancel or sign an order.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ PUBLIC_QUERY = {
 MAX_BODY = 2_000_000
 PUBLIC_TIMEOUT = 10
 BOOK_LEVELS = 5
+PUBLIC_USER_AGENT = "Mozilla/5.0 weather-manual-order-journal/1"
 
 
 class SourceError(RuntimeError):
@@ -82,7 +85,8 @@ class PublicClob:
 
         from weather.market.wallet_reader_transport import NoRedirect
         opener = self.opener or build_opener(ProxyHandler({}), NoRedirect())
-        request = Request(target, method="GET", headers={"Accept": "application/json"})
+        request = Request(target, method="GET", headers={"Accept": "application/json",
+                                                           "User-Agent": PUBLIC_USER_AGENT})
         try:
             with opener.open(request, timeout=PUBLIC_TIMEOUT) as response:
                 raw = response.read(MAX_BODY + 1)
