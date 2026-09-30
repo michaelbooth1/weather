@@ -1,0 +1,27 @@
+{
+  "id": "W-0040",
+  "title": "110o remaining owner-decision implementation parts",
+  "workstream": "repo-health",
+  "status": "handed-off",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/d52969fa28ea7aa871e85d26888fcba326046da2/docs/roadmap/workstation-handoff-2026-09-110o-repo-health-owner-decisions.md",
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [
+    "W-0017",
+    "W-0018",
+    "W-0043"
+  ],
+  "landing_slot": null,
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Parts 2 unscheduled producers, 4 CI workflows, 5 workstation-only repack, 7 branch lifecycle, 8 market universe, 9 US mutation refusal, 10 dormant items. Split into per-part records when exact branches arrive."
+  ]
+}

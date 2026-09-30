@@ -1,0 +1,33 @@
+{
+  "id": "W-0038",
+  "title": "110o part 6 split correspondence index",
+  "workstream": "canon",
+  "status": "handed-off",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/d52969fa28ea7aa871e85d26888fcba326046da2/docs/roadmap/workstation-handoff-2026-09-110o-repo-health-owner-decisions.md",
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "free",
+  "depends_on": [
+    "W-0010",
+    "W-0012",
+    "W-0013",
+    "W-0014",
+    "W-0017",
+    "W-0018",
+    "W-0043"
+  ],
+  "landing_slot": {
+    "date": "2026-09-27",
+    "window": "one clean boundary immediately after combined integration"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification."
+  ]
+}

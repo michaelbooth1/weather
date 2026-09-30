@@ -4,6 +4,10 @@ These instructions apply to `docs/roadmap/`.
 
 ## Sources Of Truth
 
+- `work/W-####.yaml` owns mission status, owner, dependencies, landing slots and
+  owner requests; [work registry](work/README.md) owns its CLI and checks. Only
+  production regenerates `work-board.md` in its docs step. Workstations update
+  their records and link handbacks; a handback is not verification.
 - `active-backlog.md` is the generated view of current `OPEN` and `PARTIAL`
   work. Use it to decide what is active now.
 - Each file under `items/` is authoritative for that item's title, status,
@@ -98,6 +102,7 @@ Run the focused tests:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests/reporting/test_roadmap_backlog.py -q
+.\venv\Scripts\python.exe -m pytest tests/reporting/test_worktrack.py -q
 ```
 
 After adding correspondence, commit the source file, then regenerate its index

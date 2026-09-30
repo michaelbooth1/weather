@@ -1,0 +1,30 @@
+{
+  "id": "W-0045",
+  "title": "Record all prior trades manual; automated campaign starts at next bot campaign",
+  "workstream": "wallet",
+  "status": "blocked",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": null,
+  "needs_owner": [
+    {
+      "question": "Record all prior trades manual; automated campaign starts at next bot campaign",
+      "status": "approved",
+      "since": "2026-09-26T23:30:00Z",
+      "decision": null
+    }
+  ],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Owner approval is attested by seed; production docs step must append its DECISION_LOG row and link the exact date/text here."
+  ]
+}
