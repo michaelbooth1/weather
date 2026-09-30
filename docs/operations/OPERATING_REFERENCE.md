@@ -98,6 +98,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherTrainingWindow | active | True | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowReenable* | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowRestore | active | False | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherWalletReader | active | False | scripts/ops/register_wallet_reader_logon_task.ps1 | docs/operations/wallet-reader.md |
 
 ## Live timetable
 

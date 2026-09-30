@@ -48,6 +48,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
 - **Wallet (recorded reads, `data/wallet_ledger/`):** 09-28 01:40Z cash 283.95, no positions, no open orders; the owner's manual
   one-sided resting orders earned 8.25 pUSD of rewards on 09-27 UTC (orders now gone). Reader status INCOMPLETE is expected.
+  The reader now starts at the owner's workstation logon (task `WeatherWalletReader`, [runbook](wallet-reader.md)).
 - **Maker core / exam tooling:** harness, prereg, execution pack, T+1 scorer, bundle export, storage classes are in #134;
   111e (#144) makes the exam executable per the unsigned Clarification 2 draft
   (`docs/research/maker-replay-clarification-2-2026-09-29.md` on branch `codex/exam-fixes-handoffs-20260929`); 111f measured competitor reaction (share halves in 2-4 min; ~1 h sessions k 0.27-0.32).
