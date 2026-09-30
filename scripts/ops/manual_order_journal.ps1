@@ -76,9 +76,9 @@ $ErrorActionPreference = "Continue"
 # The pins cover $repo\src only. The state venv may carry an editable .pth to another checkout's src,
 # so the child runs with -P -B and PYTHONPATH=$repo\src (child scope), and a probe must resolve the
 # journal module under $repo\src before anything is recorded.
-$pinnedSrc = [IO.Path]::GetFullPath((Join-Path $repo "src")).TrimEnd('') + ''
+$pinnedSrc = [IO.Path]::GetFullPath((Join-Path $repo "src")).TrimEnd('\') + '\'
 $savedPythonPath = $env:PYTHONPATH
-$env:PYTHONPATH = $pinnedSrc.TrimEnd('')
+$env:PYTHONPATH = $pinnedSrc.TrimEnd('\')
 Push-Location $repo
 try {
     $probe = @(& $python -P -B -c "import weather.market.order_journal as m; print(m.__file__)" 2>&1 |

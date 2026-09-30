@@ -104,8 +104,15 @@ https://github.com/michaelbooth1/weather/pull/127. The runbook
 
 Pins at this branch. The report commit changes none of the pinned files.
 
+Follow-up 2026-09-30: the probe's prefix check built `<worktree>\src` without its trailing
+separator (`.TrimEnd('') + ''` where `.TrimEnd('\') + '\'` was meant), so a module under a sibling
+such as `<worktree>\src2` passed. The runner now compares whole path segments, and
+`test_runner_refuses_a_sibling_src2_that_shares_the_pinned_prefix` proves a sibling `src2` is refused
+(it fails against the previous runner with exit 0). Only the runner pin changed; the modules digest
+is unchanged. Production re-registers the running task with the new runner pin.
+
 - runner `scripts/ops/manual_order_journal.ps1`:
-  `a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1`
+  `3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf`
 - modules digest: `9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6`
 
 Prerequisites:
@@ -119,8 +126,8 @@ values.
 **Option A: after the branch merges (quiet window if roll-sensitive), from the production checkout:**
 
 ```powershell
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
+.\scripts\ops\register_manual_order_journal.ps1 -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
 ```
 
 **Option B: before the merge, pinned detached worktree, production venv/config/data.** Worktree
@@ -139,8 +146,8 @@ $env:GIT_LFS_SKIP_SMUDGE = '1'
 git fetch origin codex/manual-order-journal-20260928
 git worktree add --detach ..\weather-manual-order-journal-deployed-<sha8> <reviewed-head-sha>
 $wt = (Resolve-Path ..\weather-manual-order-journal-deployed-<sha8>).Path
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
-& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 a38c7868ecd88905d32e77da6c53dbff3239a8fc41e12a6bf3d2d465c3569eb1 -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6 -WhatIf
+& "$wt\scripts\ops\register_manual_order_journal.ps1" -RepoRoot $wt -StateRoot (Get-Location).Path -ExpectedRunnerSha256 3d12c5c7dc9b3120aad9a40d1d5db6753e18a2c5e42e6f11e5636a2acfc99eaf -ExpectedModulesSha256 9432b4db02e7e525ba36a7b345aba1bdfaba0986e8b58f49251c9e0060b1e8c6
 ```
 
 Check it with the following commands, and read the last lines of `data\manual_order_journal\runner.log`:

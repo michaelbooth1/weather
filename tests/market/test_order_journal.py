@@ -368,6 +368,31 @@ def test_runner_refuses_when_the_journal_module_resolves_outside_the_pinned_chec
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
+def test_runner_refuses_a_sibling_src2_that_shares_the_pinned_prefix(tmp_path):
+    """<repo>\\src2 starts with the text <repo>\\src; the check must compare whole path segments."""
+    import sys
+    runner, modules = fixture_repo(tmp_path / "code")
+    sibling = tmp_path / "code/src2/weather/market"
+    sibling.mkdir(parents=True)
+    for name in (sibling.parent / "__init__.py", sibling / "__init__.py", sibling / "order_journal.py"):
+        name.write_text("", encoding="utf-8")
+    state = tmp_path / "state"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(state / "venv")], check=True,
+                   capture_output=True, timeout=120)
+    (state / "venv/Lib/site-packages/sibling.pth").write_text(str(tmp_path / "code/src2") + "\n", encoding="utf-8")
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                             str(tmp_path / "code/scripts/ops/manual_order_journal.ps1"),
+                             "-RepoRoot", str(tmp_path / "code"), "-StateRoot", str(state),
+                             "-ExpectedSelfSha256", runner, "-ExpectedModulesSha256", modules],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 3, result.stdout + result.stderr
+    journal = state / "data/manual_order_journal"
+    line = json.loads((journal / "runner.log").read_text(encoding="utf-8-sig").splitlines()[-1])
+    assert line["status"] == "refused" and "does not resolve under the pinned checkout" in line["detail"]
+    assert "src2" in line["detail"] and not list(journal.glob("*.jsonl"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 def test_runner_records_into_state_root_without_reader_config(tmp_path):
     """Real runner and interpreter; the reader config is absent, so no network read happens."""
     state = tmp_path / "state"
