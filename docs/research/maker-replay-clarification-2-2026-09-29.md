@@ -40,14 +40,17 @@ volume; and a refusal inside scoring consumes the single look. These are structu
   panel is never sampled or truncated to fit.
 - **Look protection.** "Operational" means any refusal after the authorization verifies and before the first score,
   fill, reward or hurdle value is computed, from manifest build, verification or the scored run. Such a refusal does
-  not consume the look; the attempt record states the stage at which it stopped. Any refusal after the first score is
+  not consume the look; a refusal record names the stage at which it stopped. A run that never reaches a recorded
+  refusal (host loss, process kill, enrolment not yet landed) likewise consumes nothing: the look is consumed only by the
+  reservation written immediately before the first policy replay. Any refusal after the first score is
   computed, including a report-size refusal, consumes it; the report ceiling above exists to make that unlikely. A
   score-free rehearsal of the full pipeline is allowed on calibration dates only, never on panel dates.
 - **Enrolment timing.** Calibration may run once the three calibration bundles exist. The manifest is built, verified
-  and enrolled after the 2026-10-14 settlement bundle is sealed, on 2026-10-15 America/Toronto, followed by the single
-  look. If an operational refusal recorded on 2026-10-15 (Toronto) prevents the look, it may run on a later date up to
-  **2026-10-31** with the same panel, hurdles and ceilings rule, and the authorization row expires 2026-11-01; no other
-  change is permitted. Tooling that produces the universe inventory the manifest build needs is part of the exam
+  and enrolled after the 2026-10-14 settlement bundle is sealed, on or after 2026-10-15 America/Toronto, followed by the
+  single look. The look may run on any America/Toronto date from 2026-10-15 to **2026-10-31** inclusive, provided no
+  attempt has been reserved; a reservation consumes the look whatever the date. The same panel, hurdles, ceilings rule,
+  manifest and authorization apply on every permitted date; the authorization row expires 2026-11-01. No other change
+  is permitted. Tooling that produces the universe inventory the manifest build needs is part of the exam
   tooling and must exist before 10-15.
 - **Competitor-reaction diagnostic (secondary, not a hurdle).** Reported with the look: the measured decay of our
   reward share after posting, from the RE-1 session journals and matching 88a books, and the lag from
