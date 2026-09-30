@@ -48,13 +48,18 @@ STEP_REGISTRY = (
     ("runtime_identity_reconciliation", LANE_LEARNING, True),
     ("live_variant_settlement_scorecard", LANE_PROMOTION, True),
     ("fleet_observability", LANE_LEARNING, True),
+    ("per_location_artifact_quarantine", LANE_LEARNING, False),
+    ("physical_feature_family_ratchet", LANE_LEARNING, False),
     ("promotion_refresh", LANE_PROMOTION, True),
+    ("pooled_f_retrain_location_gate", LANE_LEARNING, False),
+    ("served_distribution_calibration_contract", LANE_LEARNING, False),
     ("shadow_ab_monitor", LANE_LEARNING, False),
     ("active_variant_shadow", LANE_LEARNING, False),
     ("proper_scoring_reliability_scorecard", LANE_LEARNING, False),
     ("frozen_baseline_replay_trend", LANE_LEARNING, False),
     ("model_variant_evidence_growth", LANE_LEARNING, False),
     ("progress_audit", LANE_LEARNING, False),
+    ("early_hour_positive_daily_first_gate", LANE_LEARNING, False),
     ("disagreement_casebook", LANE_LEARNING, False),
     ("daily_roll_log_hygiene", LANE_LEARNING, False),
     ("nightly_health_checks", LANE_LEARNING, False),
@@ -66,6 +71,8 @@ STEP_REGISTRY = (
     ("june23_location_bias_repair", LANE_LEARNING, False),
     ("data_retention_inventory", LANE_LEARNING, False),
     ("daily_learning", LANE_LEARNING, False),
+    ("weather_only_model_proof_packet", LANE_LEARNING, False),
+    ("market_benchmark_residual_edge", LANE_LEARNING, False),
     ("market_beating_objective_scoreboard", LANE_LEARNING, False),
     ("daily_flow_analysis", LANE_LEARNING, False),
 )
@@ -103,12 +110,17 @@ STEP_LEARNING_COVERAGE_MODES = {
     "model_market_disagreement_rehydration": COVERAGE_OWN,
     "runtime_identity_reconciliation": COVERAGE_OWN,
     "fleet_observability": COVERAGE_NOT_APPLICABLE,
+    "per_location_artifact_quarantine": COVERAGE_NOT_APPLICABLE,
+    "physical_feature_family_ratchet": COVERAGE_NOT_APPLICABLE,
     "shadow_ab_monitor": COVERAGE_DEPENDENCIES,
     "active_variant_shadow": COVERAGE_OWN,
     "proper_scoring_reliability_scorecard": COVERAGE_DEPENDENCIES,
+    "pooled_f_retrain_location_gate": COVERAGE_DEPENDENCIES,
+    "served_distribution_calibration_contract": COVERAGE_DEPENDENCIES,
     "frozen_baseline_replay_trend": COVERAGE_OWN,
     "model_variant_evidence_growth": COVERAGE_OWN,
     "progress_audit": COVERAGE_DEPENDENCIES,
+    "early_hour_positive_daily_first_gate": COVERAGE_DEPENDENCIES,
     "disagreement_casebook": COVERAGE_OWN,
     "daily_roll_log_hygiene": COVERAGE_NOT_APPLICABLE,
     "nightly_health_checks": COVERAGE_NOT_APPLICABLE,
@@ -120,6 +132,8 @@ STEP_LEARNING_COVERAGE_MODES = {
     "june23_location_bias_repair": COVERAGE_NOT_APPLICABLE,
     "data_retention_inventory": COVERAGE_NOT_APPLICABLE,
     "daily_learning": COVERAGE_OWN,
+    "weather_only_model_proof_packet": COVERAGE_DEPENDENCIES,
+    "market_benchmark_residual_edge": COVERAGE_DEPENDENCIES,
     "market_beating_objective_scoreboard": COVERAGE_DEPENDENCIES,
     "daily_flow_analysis": COVERAGE_DEPENDENCIES,
 }
@@ -130,6 +144,24 @@ STEP_LEARNING_COVERAGE_DEPENDENCIES = {
         "active_variant_shadow",
         "hourly_model_performance",
         "ten_minute_model_performance",
+    ),
+    "pooled_f_retrain_location_gate": ("promotion_refresh",),
+    "served_distribution_calibration_contract": (
+        "pooled_f_retrain_location_gate",
+        "promotion_refresh",
+    ),
+    "early_hour_positive_daily_first_gate": (
+        "progress_audit",
+        "served_distribution_calibration_contract",
+    ),
+    "weather_only_model_proof_packet": (
+        "daily_learning",
+        "early_hour_positive_daily_first_gate",
+        "served_distribution_calibration_contract",
+    ),
+    "market_benchmark_residual_edge": (
+        "active_variant_shadow",
+        "trading_evidence",
     ),
     "progress_audit": ("promotion_refresh",),
     "snapshot_evaluation": ("promotion_refresh",),
@@ -219,7 +251,7 @@ STAGE_ALL = "all"
 STAGE_SETTLEMENT = "settlement"
 STAGE_EVIDENCE = "evidence"
 STAGE_CHOICES = (STAGE_ALL, STAGE_SETTLEMENT, STAGE_EVIDENCE)
-STAGE_A_END_STEP = "fleet_observability"
+STAGE_A_END_STEP = "physical_feature_family_ratchet"
 STAGE_B_START_STEP = "promotion_refresh"
 
 

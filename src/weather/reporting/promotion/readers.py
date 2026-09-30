@@ -42,7 +42,7 @@ from weather.reporting.promotion.promotion_corpus import (
     parse_quality_grades,
     write_manifest,
 )
-from weather.reporting.promotion.promotion_gauntlet import DEFAULT_FORECAST_TRACKER, run_promotion_gauntlet
+from weather.reporting.promotion.promotion_gauntlet import run_promotion_gauntlet
 from weather.backtesting.replay_backtest import DEFAULT_BASELINE, FIDELITY_FAITHFUL_L1
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
 SCHEMA_VERSION = "promotion_refresh_v0.1"
@@ -319,7 +319,6 @@ def _serving_gauntlet_summary(report, report_path, replay_report_path):
         "corpus_ok": report.get("corpus_ok"),
         "fidelity_ok": report.get("fidelity_ok"),
         "baseline_ok": report.get("baseline_ok"),
-        "forecast_tracker": report.get("forecast_tracker") or {},
         "market_rows": report.get("market_rows") or [],
         "decomposition": report.get("decomposition") or {},
         "corpus_identity": report.get("corpus_identity") or {},
