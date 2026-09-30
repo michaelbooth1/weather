@@ -27,7 +27,7 @@ from pathlib import Path
 import sys
 import time
 
-from weather.backtesting.settlement_io import resolve_market_day_label
+from weather.backtesting.settlement_io import SettlementAuthorityError, resolve_market_day_label
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.reporting.research.guidance_extract_parser import PinnedParser
@@ -49,6 +49,7 @@ FEATURE_NUMERIC = (
        "open_meteo_hrrr_high_delta", "forecast_high"]
 )
 FEATURE_TEXT = ("guidance_impossible_features", "guidance_impossible_sources", "cutoff_hour")
+V1_FIELDS = ("cycle_key", "status", "parser_version", "provider_issue_time", "provider_update_time")
 
 
 class BudgetExceeded(RuntimeError):
@@ -193,14 +194,15 @@ def build_bulletin_index(data_root, first, last, budget):
         for row in rows:
             if row.get("source") != NBM_SOURCE:
                 continue
-            v1_rows[(folder.name, row.get("snapshot_id"))] = row
+            v1_rows[(folder.name, row.get("snapshot_id"))] = {k: row.get(k) for k in V1_FIELDS}
             digest = str(row.get("payload_hash") or "")
             if not digest or not row.get("payload_ref") or row.get("payload_storage_scope") != "shared_market_invariant":
                 continue
             seen, basis = availability(row)
             entry = bulletins.setdefault(digest, {
                 "payload_hash": digest, "payload_ref": row["payload_ref"],
-                "cycle_key": row.get("cycle_key"), "available_at": seen, "available_basis": basis,
+                "cycle_key": row.get("cycle_key"), "issue": cycle_time(row.get("cycle_key")),
+                "available_at": seen, "available_basis": basis,
                 "manifest_rows": 0})
             entry["manifest_rows"] += 1
             if seen is not None and (entry["available_at"] is None or seen < entry["available_at"]):
@@ -236,7 +238,7 @@ def select_v2(bulletins, parsed, station, target, captured, lookback):
     """Newest bulletin available at capture holding today's maximum under v2."""
     candidates, skipped = [], Counter()
     for digest, entry in bulletins.items():
-        issue = cycle_time(entry["cycle_key"])
+        issue = entry["issue"] if "issue" in entry else cycle_time(entry["cycle_key"])
         if issue is None or issue > captured or captured - issue > lookback:
             continue
         if entry["available_at"] is None or entry["available_at"] > captured:
@@ -478,7 +480,12 @@ def run(args):
             bulletins, v1_rows = build_bulletin_index(data_root, first, last, budget)
             parsed, bulletin_status = parse_bulletins(bulletins, data_root, parser, stations, first, last, budget)
             for folder, spec, target in us_folders(data_root, first, last):
-                audit = extract_folder(folder, spec, target, bulletins, parsed, v1_rows, lookback, budget, write)
+                try:
+                    audit = extract_folder(folder, spec, target, bulletins, parsed, v1_rows, lookback, budget, write)
+                except (SettlementAuthorityError, ValueError, OSError, csv.Error, UnicodeDecodeError) as exc:
+                    # One unreadable market-day must not end a bounded run; it is recorded, never scored.
+                    audit = {"event_slug": folder.name, "market": spec.id, "target_date": target.isoformat(),
+                             "admitted": False, "reason": f"folder_error:{type(exc).__name__}", "detail": str(exc)[:500]}
                 audit_out.write(json.dumps(audit, separators=(",", ":")) + "\n")
                 counts["market_days_seen"] += 1
                 counts["market_days_admitted"] += bool(audit.get("admitted"))
