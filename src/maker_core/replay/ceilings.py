@@ -28,8 +28,8 @@ MAX_COMMIT_PERCENT = 70.0
 MULTIPLIED = ("input_bytes", "records", "engine_events", "decisions_spans", "report_bytes", "runtime_seconds",
               "peak_memory_above_baseline_bytes")
 MEASURED = (*MULTIPLIED, "baseline_memory_bytes")
-# Host limits named by the clarification (memory, runtime); bytes/counts are also bounded by
-# what the tooling can represent in memory, reported under the same binding list.
+# Host limits named by Clarification 2: memory, input and report bytes at most 70% of 16 GiB,
+# runtime at most 4 h, and every count by the tooling's 2^31 representation limit.
 HOST_LIMITS = dict(memory_bytes=HOST_MAX_BYTES, runtime_seconds=int(HOST_MAX_SECONDS),
                    input_bytes=HOST_MAX_BYTES, report_bytes=HOST_MAX_BYTES, records=MAX_ENGINE_EVENTS,
                    engine_events=MAX_ENGINE_EVENTS, decisions_spans=MAX_ENGINE_EVENTS)

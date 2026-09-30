@@ -76,6 +76,7 @@ def main(argv=None):
     started = time.monotonic()
     supplied = {name: getattr(args, name) for name in pack_cli.DEFAULT_LIMITS}
     stage, attempt, registration, refusal_root = "authorization", None, None, None
+    reserved, preexisting = None, True
     try:
         from maker_core.replay.execution_receipt import late_look_permitted
         registration = (None if args.diagnostic_only else
@@ -172,6 +173,8 @@ def main(argv=None):
                 raise BundleError("executable_sources_changed_before_policy:" + ",".join(changed[:5]))
             # The first policy replay computes fills: the look is consumed from here on.
             stage = "reservation"
+            reserved = refusal_root / (registration["owner_decision"]["authorization_id"] + ".json")
+            preexisting = reserved.exists()
             attempt = reserve_attempt(args.pre_registration, registration, args.pre_registration_sha256, pack_cli._now())
         stage = "scoring"
         report = comparison_report(bundles, config, replicates=args.bootstrap_replicates,
@@ -193,9 +196,12 @@ def main(argv=None):
         reason = f"{type(exc).__name__}: {exc}"
         try:
             from maker_core.replay.execution_receipt import record_refusal, record_stop
+            if attempt is None and stage == "reservation" and not preexisting and reserved.exists():
+                attempt = reserved  # The reservation was written before it failed: the look is consumed.
             if attempt is not None:
                 record_stop(attempt, stage, reason, pack_cli._now())
-            elif refusal_root is not None and stage != "reservation":
+            elif refusal_root is not None and not (stage == "reservation" and preexisting):
+                # A reservation that wrote nothing consumed nothing; a pre-existing one keeps its own receipt.
                 record_refusal(refusal_root, registration["owner_decision"]["authorization_id"], stage, reason,
                                pack_cli._now(), args.pre_registration_sha256)
         except REFUSALS as record_exc:

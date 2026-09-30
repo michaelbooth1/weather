@@ -103,7 +103,10 @@ def test_ceilings_follow_the_rule_and_bind_engine_and_cli(tmp_path):
 @pytest.mark.parametrize("field, value, binding", [
     ("runtime_seconds", 481.0, "runtime_seconds"),                      # 14,430 s -> 16,384 s > 4 h
     ("peak_memory_above_baseline_bytes", 400*1024**2, "memory_bytes"),  # 16 GiB + baseline > 70% of 16 GiB
-    ("input_bytes", 400*1024**2, "input_bytes")])
+    ("input_bytes", 400*1024**2, "input_bytes"),
+    ("report_bytes", 400*1024**2, "report_bytes"),                     # Clarification 2 byte limits
+    ("records", 80_000_000, "records"),                                  # 2.4e9 -> 2^32 > 2^31 count limit
+    ("decisions_spans", 80_000_000, "decisions_spans")])
 def test_binding_host_limit_is_not_executable_never_truncated(field, value, binding):
     derived = ceilings.derive(per_date(dict(MEASURED, **{field: value})))
     assert derived["executable"] is False and derived["host_limit_binding"] == [binding]
@@ -352,6 +355,36 @@ def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, 
     with pytest.raises(SystemExit):
         main(good)
     assert scoring == [True] and (attempts/"maker-replay-2026-10-15-v2.json").exists()
+
+
+@pytest.mark.parametrize("writes", [False, True])
+def test_failed_reservation_consumes_only_when_it_wrote_the_receipt(tmp_path, monkeypatch, writes):
+    import maker_core.replay.__main__ as cli
+    from maker_core.replay import execution_receipt
+    doc, args, attempts = scored(tmp_path, monkeypatch)
+    manifest = tmp_path/"manifest.json"
+    original = execution_receipt.reserve_attempt
+    def failing(*a, **k):
+        if writes:
+            original(*a, **k)
+        raise OSError("fixture_reservation_failure")
+    monkeypatch.setattr(execution_receipt, "reserve_attempt", failing)
+    monkeypatch.setattr(cli, "comparison_report", lambda *a, **k: pytest.fail("scored"))
+    with pytest.raises(SystemExit) as exc:
+        main(args)
+    assert exc.value.code == 2
+    refusals = list(attempts.glob("maker-replay-2026-10-15-v2.refusal-*.json"))
+    stopped = attempts/"maker-replay-2026-10-15-v2.stopped.json"
+    if writes:
+        assert not refusals
+        assert json.loads(stopped.read_bytes())["stage"] == "reservation"
+        assert execution_receipt.late_look_permitted(manifest, doc) is False
+    else:
+        record, = refusals
+        assert not stopped.exists() and not (attempts/"maker-replay-2026-10-15-v2.json").exists()
+        body = json.loads(record.read_bytes())
+        assert (body["status"], body["stage"]) == ("NOT_CONSUMED_OPERATIONAL_REFUSAL", "reservation")
+        assert execution_receipt.late_look_permitted(manifest, doc) is True
 
 
 def test_late_look_needs_a_recorded_refusal_on_the_scoring_date(tmp_path, monkeypatch):

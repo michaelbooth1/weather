@@ -337,7 +337,9 @@ Default CLI execution remains diagnostic-only, behind the existing score gate.
 `replay.score.score(result)` produces per-policy, per-condition, UTC-day rows.
 Reward accrual uses contemporaneous share and terms, with the registered k=1 and k=0.5,
 plus Clarification 2's measured-reaction sensitivity k=0.3 (`reward_k03`/`modeled_net_k03`
-and their paired intervals). k=0.3 is reported only: no hurdle, estimator or decision reads it. Maker fees
+and their paired intervals): the per-session reward multiplier of the three RE-1 sessions that ran about one hour
+(0.27–0.32); the pooled 60-minute k over all nine posting episodes is 0.67, raised by short sessions that ended
+before the decay (111f amendment 1). k=0.3 is reported only: no hurdle, estimator or decision reads it. Maker fees
 are zero; the nominal rebate is `shares * .25 * .05 * p * (1-p)` (EF §10o), not a
 cash credit. The engine has no taker-exit strategy or optional builder fee.
 Markouts use each bought token's first two-sided midpoint at/after 1/5/30 minutes,
@@ -433,7 +435,9 @@ Every manifest, run and verify command takes `--clarification-2`.
   reservation of `attempts/<id>.json`, which happens immediately before the first policy replay. A refusal in those
   stages writes `attempts/<id>.refusal-<UTC>-<nonce>.json` (`NOT_CONSUMED_OPERATIONAL_REFUSAL`, stage, reason, Toronto
   date) and leaves the look available; manifest build/verify refusals after the owner decision verifies do the same.
-  After reservation any stop writes `<id>.stopped.json` with its stage; the look is consumed.
+  A failed reservation that wrote no `attempts/<id>.json` records the same non-consuming refusal at stage
+  `reservation`; one that wrote it is consumed. After reservation any stop writes `<id>.stopped.json` with its stage;
+  the look is consumed.
 - **Late look.** A v2 look normally runs on its scoring date. It may run on a later Toronto date up to 2026-10-31 only
   if a non-consuming refusal was recorded on the scoring date and no attempt was consumed; the owner row's `expires_at`
   must then extend to 2026-11-01.
