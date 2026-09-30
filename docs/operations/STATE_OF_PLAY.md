@@ -36,7 +36,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   (`data/alerts/weather-plugin-111a-20260926/`). The plugin sits inside #100, so the exam line waits for a fix.
 - **Watchdog adopted 2026-09-29 13:35** from `weather-watchdog-deployed-110n-1fc7ba35` (pins verified). Order journal (110x)
   runs every 5 min from a pinned worktree `weather-manual-order-journal-deployed-4ccc92de` (option B; option A after 10-13).
-- **Host incident 2026-09-29 ~19:50-20:05:** unexpected shutdown (Kernel-Power 41, 6008), no dump; boot recovery 0x0; 88a now
+- **Host incident 2026-09-29 ~19:50-20:05:** short power outage (owner-confirmed; Kernel-Power 41, 6008), no dump; boot recovery 0x0; 88a now
   pid 3860; ~20 min of 88a lost (last minutes of calibration day 09-29, first 9 min of panel day 09-30: coverage
   exclusions, not zeros). Stage-A 09-29 economics gate PASSED (110q works); exit 2 now from a promotion-lane block.
 - **Disk:** ~97 GiB free after 09-30 deletes (taker detail 3.18 GiB logical/1.8 on disk, 5f 3.53 GiB; receipts
@@ -44,7 +44,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   +10 GiB was pagefile reset (16 GiB, may regrow to 32). Pessimistic: 50 GiB suite floor ~10-04, 88a 40 GiB stop ~10-05,
   inside the panel. **91a nightly (09-30):** dry run PASS filled the 32 GiB budget (4,851 closed-day files); the 1 GiB
   first apply compressed 7 files at 3-4:1 then stopped on a 385-byte MFT-resident file (zero savings stops the batch):
-  fix 111i, then register. Other levers: 5g after #128, 111g #142 (~0.9 GiB/day), owner-signed manifests.
+  fix 111i (owner 09-30: select closed market-days after 2 days, not 14), then register. Other levers: 5g after #128, 111g #142 (~0.9 GiB/day), owner-signed manifests.
 - **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
 - **Wallet (recorded reads, `data/wallet_ledger/`):** 09-28 01:40Z cash 283.95, no positions, no open orders; the owner's manual
   one-sided resting orders earned 8.25 pUSD of rewards on 09-27 UTC (orders now gone). Reader status INCOMPLETE is expected.
