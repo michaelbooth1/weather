@@ -39,6 +39,21 @@ class WeatherFairValue:
         self.explanations = records(explanations)
         self.source_rows = records(source_rows)
         self._daily_high_rows = {}
+        self._parsed = {}
+
+    def _parse(self, raw, station, target):
+        """``nbp.parse`` is pure in these fields; replay repeats it every minute."""
+        key = (raw["payload_hash"], raw["text"], raw["fetched_at"], raw["station_id"], raw["target_date"],
+               station, target)
+        if key not in self._parsed:
+            try:
+                self._parsed[key] = (True, nbp.parse(raw, station, target))
+            except ValueError as exc:
+                self._parsed[key] = (False, str(exc))
+        ok, value = self._parsed[key]
+        if not ok:
+            raise ValueError(value)
+        return value
 
     def evaluate(self, market, as_of_utc):
         utc_time(as_of_utc)
@@ -58,7 +73,7 @@ class WeatherFairValue:
                         or timestamp(raw["fetched_at"]) > as_of_utc):
                     continue
                 try:
-                    issue, knots, slot = nbp.parse(raw, spec.icao, target)
+                    issue, knots, slot = self._parse(raw, spec.icao, target)
                 except ValueError as exc:
                     if str(exc) in {"target_max_not_in_cycle", "target_max_incomplete_rows"}:
                         continue  # Older complete maxima can still be eligible.
@@ -74,7 +89,9 @@ class WeatherFairValue:
                 joint = integrate(bands, lambda x: percentile_cdf(knots, x))
                 return self._view(market, as_of_utc, issue, nbp.valid_until(issue), joint,
                                   {"payload": raw["payload_hash"], "fetched_at": raw["fetched_at"],
-                                   "slot": list(slot[:3]), "bands": {k: [str(v) for v in b] for k, b in bands.items()}},
+                                   "source_payload": raw.get("source_payload_hash"),
+                                   "slot": list(slot[:3]), "bands": {k: [str(v) for v in b] for k, b in bands.items()},
+                                   "band_basis": self.universe.band_basis(market.event_id, as_of_utc)},
                                   "nbp-v2-piecewise-linear")
             return self._fallback(market, spec, target, as_of_utc, bands)
         except (ValueError, KeyError, TypeError, StopIteration, OverflowError) as exc:
@@ -154,6 +171,7 @@ class WeatherFairValue:
         inputs = {key: row.get(key) for key in ("event_slug", "target_date", "source", "forecast_kind",
                   "captured_at_utc", "provider_issue_time", "provider_update_time", "forecast_high_c")}
         inputs["bands"] = {k: [str(v) for v in b] for k, b in bands.items()}
+        inputs["band_basis"] = self.universe.band_basis(market.event_id, as_of)
         return self._view(market, as_of, issue, issue + timedelta(hours=24), joint, inputs,
                           "pit-lead1-normal-fixed-2C-equivalent")
 

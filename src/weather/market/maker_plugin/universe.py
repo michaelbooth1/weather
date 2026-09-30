@@ -14,14 +14,36 @@ from weather.market.maker_plugin.inputs import band, body, digest, event_identit
 
 
 class WeatherUniverse:
-    def __init__(self, *, discovery=(), books=(), band_rows=()):
+    """``identity_band_rows`` hold one event's complete CLOB token batch.
+
+    A condition's band is part of its immutable question, so a batch captured
+    after the decision minute still describes the same contract. It is used
+    only when no band capture exists at or before the minute, and only after
+    ``identity_matches`` confirms that the point-in-time discovery lists
+    exactly the batch's conditions with the same YES/NO tokens. It never
+    supplies partition membership, prices or any other time-varying input.
+    """
+    def __init__(self, *, discovery=(), books=(), band_rows=(), identity_band_rows=()):
         self.discovery = records(discovery)
         self.books = records(books)
         self.band_rows = records(band_rows)
+        self.identity_band_rows = records(identity_band_rows)
+
+    def _captured(self, event_slug, as_of):
+        return [r for r in self.band_rows if r["event_slug"] == event_slug
+                and timestamp(r["captured_at_utc"]) <= as_of]
+
+    def band_basis(self, event_slug, as_of):
+        if self._captured(event_slug, as_of):
+            return "point_in_time_capture"
+        if any(r["event_slug"] == event_slug for r in self.identity_band_rows):
+            return "condition_identity"
+        return None
 
     def bands(self, event_slug, as_of):
-        candidates = [r for r in self.band_rows if r["event_slug"] == event_slug
-                      and timestamp(r["captured_at_utc"]) <= as_of]
+        candidates = self._captured(event_slug, as_of)
+        if not candidates:
+            candidates = [r for r in self.identity_band_rows if r["event_slug"] == event_slug]
         if not candidates:
             raise ValueError("missing_captured_band_metadata")
         when = max(timestamp(r["captured_at_utc"]) for r in candidates)
@@ -33,6 +55,22 @@ class WeatherUniverse:
                 raise ValueError("duplicate_band_identity")
             result[identity] = band(row)
         return result
+
+    def identity_matches(self, event):
+        """Point-in-time discovery lists exactly the identity batch's contracts."""
+        rows = {r["condition_id"].lower(): r["tokens"] for r in self.identity_band_rows
+                if r["event_slug"] == event["slug"]}
+        listed = {}
+        for row in event["markets"]:
+            outcomes, tokens = row.get("outcomes"), row.get("clobTokenIds")
+            outcomes = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
+            tokens = json.loads(tokens) if isinstance(tokens, str) else tokens
+            if (not isinstance(outcomes, list) or not isinstance(tokens, list) or len(tokens) != 2
+                    or len(outcomes) != 2 or set(outcomes) != {"Yes", "No"}):
+                return False
+            listed[str(row["conditionId"]).lower()] = {name.upper(): str(tokens[outcomes.index(name)])
+                                                       for name in outcomes}
+        return bool(rows) and rows == listed
 
     def _events(self, as_of):
         events = {}
@@ -83,6 +121,10 @@ class WeatherUniverse:
                 books = [self._book(token, as_of_utc) for token in pair.values()]
                 if any(b["market"].lower() != cid for b in books) or cid not in bands:
                     raise ValueError("captured_condition_mismatch")
+                if self.band_basis(event["slug"], as_of_utc) == "condition_identity" and pair not in (
+                        r["tokens"] for r in self.identity_band_rows
+                        if r["event_slug"] == event["slug"] and r["condition_id"].lower() == cid):
+                    raise ValueError("band_identity_mismatch")
                 terms = {(Decimal(str(b["tick_size"])), Decimal(str(b["min_order_size"]))) for b in books}
                 if len(terms) != 1:
                     raise ValueError("ambiguous_book_rules")
@@ -92,6 +134,7 @@ class WeatherUniverse:
                     "weather", event["slug"], cid, pair, tick, size, event["slug"], close, None,
                     spec.unit, PLUGIN_VERSION, {"discovery": digest(captured),
                     "band": digest([str(v) for v in bands[cid]]),
+                    "band_basis": self.band_basis(event["slug"], as_of_utc),
                     "book_rules": digest([str(tick), str(size)])}, group_relation="partition"))
         ordered = tuple(sorted(markets, key=lambda m: m.condition_id))
         return UniverseSnapshot(ordered, as_of_utc, {"descriptors": digest([

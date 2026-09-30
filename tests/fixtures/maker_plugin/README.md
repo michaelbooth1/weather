@@ -33,6 +33,13 @@ layouts the first real-data dry run exposed: `SharedForecastPayloadCAS.put` plus
 `clob_tokens.jsonl`/`.csv`. Over-cap token and ledger files are simulated by
 lowering the whole-file cap in the test, not by writing 64 MiB.
 
+`test_maker_plugin_111j.py` reproduces production's local-T+0-only capture: the
+T+1 event folder is empty, the shared NBP manifest (one national cycle holding
+T+0 and T+1 maxima) sits in the T+0 event folder, and the CLOB token batch is
+written after the run date. Served T+0 release lineage comes from
+`release_serving.get_process_active_serving_bundle` and `serving_bundle_lineage`
+on a host with no release pointer (`research_unbound_non_countable`).
+
 The v2 selector oracle is copied verbatim from `abd648c7c`, without provider
 imports. It is tested against synthetic FHR layouts for all qualified stations,
 cycle hours and T+1/T+2 targets, including timezone transitions. No dependency

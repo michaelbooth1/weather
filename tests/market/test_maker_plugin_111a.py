@@ -20,7 +20,7 @@ from weather.market import maker_plugin_capture
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.maker_plugin_capture import Reader
 from weather.market.maker_plugin_runner import run
-from weather.market.maker_plugin_sources import Sources, compress_bands, token_batch
+from weather.market.maker_plugin_sources import BAND_FIELDS, Sources, compress_bands, token_batch
 from weather.market.market_microstructure_capture import MarketMicrostructureStore, token_rows_from_event
 from weather.schema_registry import schema_version
 from weather.sources.nbm_probabilistic_tmax import nbp_raw_payload
@@ -160,13 +160,17 @@ def test_t1_band_metadata_streams_first_token_batch_from_over_cap_file(tmp_path,
     assert {r["band_token_batch_utc"] for r in report(args)["records"]} == {first.isoformat()}
 
 
-def test_token_batch_after_minute_is_a_reported_coverage_limit(tmp_path):
+def test_token_batch_after_minute_is_identity_only(tmp_path):
+    # 111j: a later batch describes the same immutable contracts, so it is used
+    # as condition identity (see test_maker_plugin_111j), never as a capture at
+    # the minute: the report keeps the batch's own clock.
     args, folder, _ = layout(tmp_path)
     (folder / "snapshots_long.csv").unlink()
     write_tokens(folder, [token_rows(NOW + timedelta(hours=1))], "jsonl")
     summary = run(args)
-    assert summary["unavailable"]["descriptor:missing_captured_band_metadata"] == 3
-    assert summary["coverage"]["unavailable.lead1.descriptor:missing_captured_band_metadata"] == 3
+    assert "descriptor:missing_captured_band_metadata" not in summary["unavailable"]
+    assert summary["coverage"]["band_basis.lead1.condition_identity"] == 3
+    assert {r["band_token_batch_utc"] for r in report(args)["records"]} == {(NOW + timedelta(hours=1)).isoformat()}
 
 
 def test_token_batches_refuse_ambiguous_metadata():
@@ -184,7 +188,8 @@ def test_token_batches_refuse_ambiguous_metadata():
     # Unchanged repeats compress away; a changed capture is always retained.
     repeat = [dict(r, captured_at_utc=(NOW + timedelta(minutes=1)).isoformat()) for r in bands]
     changed = [dict(repeat[0], captured_at_utc=(NOW + timedelta(minutes=2)).isoformat(), bin_value_c=68)]
-    assert compress_bands(bands + repeat + changed) == bands + changed
+    projected = [{k: r[k] for k in BAND_FIELDS} for r in bands + changed]  # Token ids are identity-only.
+    assert compress_bands(bands + repeat + changed) == projected
 
 
 def test_over_cap_ledger_is_streamed_once_for_run_events_only(tmp_path, monkeypatch):

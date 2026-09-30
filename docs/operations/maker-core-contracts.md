@@ -202,9 +202,24 @@ For registered events, explicit supporting paths beneath `--data-root` are:
   `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
 - `snapshots/<event>/clob_tokens.jsonl[.gz]`, else `clob_tokens.csv[.gz]`, for band
   metadata before the event has point-in-time snapshot rows (T+1/T+2): the first complete
-  token batch (both outcomes of every condition, identical native bin fields, no negative
-  label) is streamed and the read stops there; a batch after the decision minute is a
-  reported coverage limit, never a guess;
+  token batch (both outcomes of every condition, identical native bin fields, numeric token
+  ids, no negative label) is streamed and the read stops there. Production capture is
+  local-T+0 only (the snapshot loop's pre-local-day guard; the CLOB loop's
+  `market_local_date`), so a T+1/T+2 event's first batch is normally captured after the run
+  date. A batch at or before the minute is a point-in-time band capture. A later batch is
+  used only as **condition identity** (a band is part of its condition's immutable
+  question): only when no band capture exists at the minute, and only when that minute's
+  88a discovery lists exactly the batch's conditions with the same YES/NO token ids;
+  otherwise every band is `descriptor:band_identity_mismatch`. Partition membership, books
+  and prices stay point in time. The basis is reported per band (`band_basis`), in the
+  descriptor's `source_hashes` and in the fair-value input digest; no batch at all remains
+  `descriptor:missing_captured_band_metadata`;
+- NBP manifests from every run-window event folder of the market
+  (`snapshots/<event>/forecast_payloads.jsonl`, read once per market per run as
+  `nbp_pool_manifests`): an NBP cycle is a national product, and the copy captured for the
+  T+0 event also carries T+1/T+2 maxima. Each manifest is verified against the event it was
+  captured for; the provider selects its own target's slot and skips a cycle without it.
+  An unreadable pooled manifest makes that market's fair value and clock corrupt, never fallback;
 - shared NBP bulletins (`payload_storage_scope=shared_market_invariant`) at
   `forecast_payload_cas/sha256/<prefix>/<payload_hash>.blob`, the path produced by the
   store's own `shared_payload_ref`; the manifest's CAS kind, raw-bytes hash algorithm,
@@ -238,6 +253,14 @@ so a minute reads no files. Coverage reports `input_bytes.<source>` and
 `files_read.<source>` for every source, and `unavailable.lead<N>.<reason>` by local lead.
 `--minute-stride N` evaluates only UTC minutes of the day divisible by N; it is recorded
 in the summary and counted as `segment_minutes.skipped_by_stride`.
+`band_basis.lead<N>.<basis>` counts band-minutes by band basis, and `end_to_end.lead<N>`
+counts bands whose descriptor, fair value (`OutcomeView`), clock, settlement join, book,
+terms and policy decision all ran. At the default hazard every informed decision is
+`MISSING_CONSERVATIVE_FILL_BOUND` (0 legs) by design, and `informed-v0` refuses T+0
+(`HORIZON_NOT_ELIGIBLE`) before reading fair value; legs need an explicit hypothetical hazard.
+On a host without an active release pointer, served T+0 rows carry
+`release_identity_status=research_unbound_non_countable` and stay
+`served_snapshot_release_unbound`; no release is inferred.
 
 The last books capture in each segment's minute is the decision clock. Split
 minutes across segment boundaries are explicitly flagged, not silently deduplicated.

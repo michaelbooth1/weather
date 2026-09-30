@@ -222,7 +222,7 @@ def band_tokens(band):
 def providers(support):
     """Built once per cached event: constructors copy their inputs defensively."""
     if "providers" not in support:
-        universe = WeatherUniverse(band_rows=support["band_rows"])
+        universe = WeatherUniverse(band_rows=support["band_rows"], identity_band_rows=support["identity_band_rows"])
         support["providers"] = (
             WeatherFairValue(universe, **{k: support[k] for k in (
                 "bulletins", "forecasts", "snapshots", "explanations", "source_rows")}),
@@ -249,6 +249,11 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                               "point_in_time_rows": point_in_time_count(support["coverage_times"][name], now)}
                        for name, _ in COVERAGE_KEYS}
     provider, clock, settlement = providers(support)
+    lead = (target - now.astimezone(spec.tz).date()).days
+    basis = provider.universe.band_basis(slug, now)
+    # Identity bands are only usable when this minute's discovery lists exactly
+    # the same contracts; otherwise the partition itself could differ.
+    identity_mismatch = basis == "condition_identity" and not provider.universe.identity_matches(event)
     outcomes, probabilities = [], []
     expected = sum(bool(r.get("active")) and not r.get("closed") and r.get("enableOrderBook") is not False
                    for r in event["markets"])
@@ -257,14 +262,20 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
         if band.get("closed") or not band.get("active") or band.get("enableOrderBook") is False:
             continue
         cid = str(band.get("conditionId", "")).lower()
-        entry = {"condition_id": cid, "unavailable": [], "joins": {}}
+        entry = {"condition_id": cid, "unavailable": [], "joins": {}, "band_basis": basis}
+        reader.coverage[f"band_basis.lead{lead}.{basis or 'none'}"] += 1
+        if identity_mismatch:
+            entry["unavailable"].append("descriptor:band_identity_mismatch")
+            entry["joins"]["descriptor"] = False
+            outcomes.append(entry)
+            continue
         try:
             # Isolate missing books for one band; siblings still retain the full
             # captured partition for fair-value mass calculation.
             single = envelope([dict(event, markets=[band])], timestamp(event_capture["captured_at_utc"]), "discovery")
             books = index.book_envelopes(band_tokens(band), now)
-            descriptor = WeatherUniverse(discovery=[single], books=books,
-                                         band_rows=support["band_rows"]).describe(cid, now)
+            descriptor = WeatherUniverse(discovery=[single], books=books, band_rows=support["band_rows"],
+                                         identity_band_rows=support["identity_band_rows"]).describe(cid, now)
             entry["descriptor"] = plain(descriptor)
             entry["joins"]["descriptor"] = True
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
@@ -308,12 +319,15 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                 (target - now.astimezone(spec.tz).date()).days, events, informed_v0, hazard))
             entry["decision"] = plain(decision)
             entry["leg_count"] = len(decision.legs)
+            if isinstance(view, OutcomeView):
+                # Descriptor, fair value, clock, settlement join, book, terms and policy all ran.
+                reader.coverage[f"end_to_end.lead{lead}"] += 1
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
             entry["unavailable"].append("decision_input:" + reason(exc))
         reader.check()
         outcomes.append(entry)
     return dict(market=spec.id, event=slug, as_of_utc=now.isoformat(), minute_utc=now.isoformat()[:16],
-                lead_days=(target - now.astimezone(spec.tz).date()).days,
+                lead_days=lead, band_basis=basis,
                 band_token_batch_utc=support["band_token_batch_utc"],
                 outcomes=outcomes, source_coverage=source_coverage, probability_mass={"sum_available": math.fsum(probabilities),
                 "available_bands": len(probabilities), "expected_bands": expected,
