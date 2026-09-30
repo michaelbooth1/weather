@@ -5,9 +5,18 @@
 # the owner logs on and runs until stopped (no execution time limit). Registration
 # refuses an existing task instead of silently replacing it, and requires the matching
 # firewall rule from register_wallet_reader_firewall.ps1. Run from an elevated session.
+#
+# The reader runs from a dedicated linked worktree at a reviewed commit (-RepoRoot,
+# -ExpectedCommit) with the main checkout's venv interpreter (-PythonPath, default: the
+# common checkout's venv). The main checkout's data\ is the write-protected workstation
+# mirror, so a reader started there cannot write its request journal and answers every
+# read with 503. Registration refuses the main checkout, a dirty or different commit, a
+# reader module that does not import from -RepoRoot\src, and an unwritable journal folder.
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium', DefaultParameterSetName = 'Register')]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$ExpectedCommit,
+    [Parameter(ParameterSetName = 'Register')][string]$PythonPath = '',
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$Bind,
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$AllowIp,
     [Parameter(ParameterSetName = 'Register')][ValidateRange(1, 65535)][int]$Port = 8765,
@@ -55,12 +64,69 @@ if (-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)) {
     throw 'Register the matching firewall rule first (register_wallet_reader_firewall.ps1).'
 }
 
-$repo = [IO.Path]::GetFullPath($RepoRoot)
-$python = Join-Path $repo 'venv\Scripts\python.exe'
+$repo = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\')
 if ($repo -match '["\r\n]') { throw 'unsafe quoted task path' }
-if (-not (Test-Path -LiteralPath $python -PathType Leaf) -or
-    -not (Test-Path -LiteralPath (Join-Path $repo 'src\weather\market\wallet_reader.py') -PathType Leaf)) {
-    throw 'RepoRoot must be a checkout of current master with its venv (for example the main checkout).'
+if (-not (Test-Path -LiteralPath (Join-Path $repo 'src\weather\market\wallet_reader.py') -PathType Leaf)) {
+    throw 'RepoRoot must be a checkout that contains src\weather\market\wallet_reader.py.'
+}
+function Invoke-Git([string[]]$GitArgs) {
+    $out = & git -C $repo @GitArgs 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'RepoRoot must be a git checkout readable by git.' }
+    @($out)
+}
+$top = [IO.Path]::GetFullPath(@(Invoke-Git @('rev-parse', '--show-toplevel'))[0]).TrimEnd('\')
+$gitDir = [IO.Path]::GetFullPath(@(Invoke-Git @('rev-parse', '--path-format=absolute', '--git-dir'))[0]).TrimEnd('\')
+$commonDir = [IO.Path]::GetFullPath(@(Invoke-Git @('rev-parse', '--path-format=absolute', '--git-common-dir'))[0]).TrimEnd('\')
+if ($top -ine $repo) { throw 'RepoRoot must be the top level of its checkout.' }
+if ($gitDir -ieq $commonDir) {
+    throw 'RepoRoot must be a dedicated linked worktree, not the main checkout (its data\ is the write-protected mirror).'
+}
+if ($ExpectedCommit -notmatch '^[0-9a-f]{40}$') { throw 'ExpectedCommit must be a full lowercase commit SHA.' }
+$head = @(Invoke-Git @('rev-parse', 'HEAD'))[0]
+if ($head -cne $ExpectedCommit) { throw "RepoRoot HEAD $head is not the reviewed ExpectedCommit." }
+if ((Invoke-Git @('status', '--porcelain', '--untracked-files=no')) -join '') {
+    throw 'RepoRoot has uncommitted changes to tracked files.'
+}
+if ([string]::IsNullOrWhiteSpace($PythonPath)) {
+    $PythonPath = Join-Path (Split-Path -Parent $commonDir) 'venv\Scripts\python.exe'
+}
+$python = [IO.Path]::GetFullPath($PythonPath)
+if ($python -match '["\r\n]') { throw 'unsafe quoted task path' }
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw 'PythonPath (default: the main checkout venv interpreter) does not exist.'
+}
+# The task runs `-m` with RepoRoot as its working directory, so the reader must import from there.
+Push-Location -LiteralPath $repo
+try {
+    $origin = & $python -c "import importlib.util as u; print(u.find_spec('weather.market.wallet_reader').origin)" 2>$null
+    $probeExit = $LASTEXITCODE
+} finally { Pop-Location }
+$srcPrefix = $repo + '\src\'
+if ($probeExit -ne 0 -or -not $origin -or
+    -not ([IO.Path]::GetFullPath([string]@($origin)[-1])).StartsWith($srcPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The reader module does not import from RepoRoot\src with this interpreter.'
+}
+# The reader journals every upstream GET before sending it; an unwritable folder means 503 on every read.
+$journal = Join-Path $repo 'data\wallet_reader'
+function Test-WritableFolder([string]$Folder) {
+    $probe = Join-Path $Folder ('.write-probe-' + [guid]::NewGuid().ToString('N'))
+    try {
+        [IO.File]::WriteAllBytes($probe, [byte[]]@())
+        Remove-Item -LiteralPath $probe -ErrorAction Stop
+        $true
+    } catch { $false }
+}
+if ((Test-Path -LiteralPath $journal) -and -not (Test-Path -LiteralPath $journal -PathType Container)) {
+    throw 'The journal path RepoRoot\data\wallet_reader exists but is not a folder.'
+}
+if (-not (Test-Path -LiteralPath $journal -PathType Container) -and -not $WhatIfPreference) {
+    try { New-Item -ItemType Directory -Path $journal -ErrorAction Stop | Out-Null }
+    catch { throw 'The journal folder RepoRoot\data\wallet_reader cannot be created (write-protected data?).' }
+}
+$probeFolder = $journal
+while (-not (Test-Path -LiteralPath $probeFolder -PathType Container)) { $probeFolder = Split-Path -Parent $probeFolder }
+if (-not (Test-WritableFolder $probeFolder)) {
+    throw 'The journal folder RepoRoot\data\wallet_reader is not writable (write-protected data?).'
 }
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     throw 'Task already exists; unregister it before replacing it.'
@@ -75,10 +141,11 @@ $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -Ru
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
 
+Write-Output ("plan {0}: python={1} workdir={2} commit={3} journal={4} args={5}" -f $taskName, $python, $repo, $ExpectedCommit, $journal, $arguments)
 if ($PSCmdlet.ShouldProcess($taskName, 'Register logon task for the read-only wallet reader')) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
         -Principal $principal -Settings $settings `
-        -Description 'Read-only wallet LAN reader (docs/operations/wallet-reader.md); starts at owner logon' `
+        -Description "Read-only wallet LAN reader (docs/operations/wallet-reader.md); starts at owner logon; commit $ExpectedCommit" `
         -ErrorAction Stop | Out-Null
 
     $t = Get-ScheduledTask -TaskName $taskName

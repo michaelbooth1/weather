@@ -23,11 +23,17 @@ with interpolation disabled, selects the named fields, and discards the mapping.
 This is the RE-1 loader shape with the private-key selection removed.
 
 The reader runs on the **workstation** only (it holds L2 credentials; the capture
-host stays credential-free). Start it from a workstation checkout of current
-`master`, normally the main checkout after `git pull --ff-only`. A stale checkout
-without `src/weather/market/wallet_reader.py` cannot start it. Use the project's
-existing interpreter (set `$python` to its absolute `venv\Scripts\python.exe`
-path). The addresses below are examples: find the real values with
+host stays credential-free). Start it from a **dedicated linked worktree** at a
+reviewed `master` commit, never from the main checkout: the main checkout's
+`data\` is the write-protected workstation mirror (deny-write ACL), and the reader
+journals every upstream GET under `<checkout>\data\wallet_reader\` *before*
+sending it. From the main checkout that journal write fails, no upstream call is
+made, and every read answers `503 read_unavailable` (the 2026-09-30 outage). A
+stale checkout without `src/weather/market/wallet_reader.py` cannot start it.
+Use the main checkout's interpreter (set `$python` to its absolute
+`venv\Scripts\python.exe` path) with the worktree as the working directory; the
+root `weather/__init__.py` shim then imports the worktree's `src`, and `.env` is
+still read from the common checkout. The addresses below are examples: find the real values with
 [the restart checklist](#is-it-running-restart-after-a-stop-or-reboot).
 
 ```powershell
@@ -84,19 +90,36 @@ logon or a manual start, and the production client then reports `refused` or
 `timeout`. The task carries only `--bind`, `--allow`, `--port` and
 `--signature-type`. Campaign flags need a foreground run instead.
 
-After registering the firewall rule, the owner registers the task in an elevated
-PowerShell at the root of the checkout it should run from, normally the main
-checkout on current `master`. The registrar refuses a bind address this PC does
-not hold, a missing matching firewall rule, a checkout without its venv or the
-reader module, and an existing task. To change any value, unregister and
-register again:
+After registering the firewall rule, the owner creates a dedicated detached
+worktree at the reviewed commit and registers the task from it in an elevated
+PowerShell at the main checkout. The task runs the main checkout's
+`venv\Scripts\python.exe` (`-PythonPath`, default: the common checkout's venv)
+with the worktree as its working directory, so its journal lands in the
+worktree's own `data\wallet_reader\`. The registrar refuses a bind address this
+PC does not hold, a missing matching firewall rule, the main checkout (or any
+non-linked checkout), a worktree whose `HEAD` is not `-ExpectedCommit` or has
+uncommitted tracked changes, a missing interpreter, a reader module that does not
+import from `<worktree>\src`, an unwritable `data\wallet_reader\` (checked by
+creating and deleting a probe file; a real run creates the folder), and an
+existing task. `-WhatIf` prints the planned interpreter, working directory,
+commit and journal path. To change any value, or to move to a newer reviewed
+commit, unregister and register again (the task description records the commit):
 
 ```powershell
-.\scripts\ops\register_wallet_reader_logon_task.ps1 -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3 -WhatIf
-.\scripts\ops\register_wallet_reader_logon_task.ps1 -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3
+$env:GIT_LFS_SKIP_SMUDGE = '1'
+git fetch origin
+$sha = git rev-parse origin/master   # the reviewed commit
+git worktree add --detach "..\weather-wallet-reader-$($sha.Substring(0,8))" $sha
+$wt = (Resolve-Path "..\weather-wallet-reader-$($sha.Substring(0,8))").Path
+& "$wt\scripts\ops\register_wallet_reader_logon_task.ps1" -RepoRoot $wt -ExpectedCommit $sha -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3 -WhatIf
+& "$wt\scripts\ops\register_wallet_reader_logon_task.ps1" -RepoRoot $wt -ExpectedCommit $sha -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3
 Start-ScheduledTask -TaskName WeatherWalletReader   # start now instead of at next logon
-.\scripts\ops\register_wallet_reader_logon_task.ps1 -Unregister   # stops and removes it
+& "$wt\scripts\ops\register_wallet_reader_logon_task.ps1" -Unregister   # stops and removes it
 ```
+
+Keep the worktree while the task points at it. After re-registering on a newer
+worktree, the older worktree (and its `data\wallet_reader\` journal, which is
+account-read evidence) is retired only deliberately, never deleted casually.
 
 1. **Check.** On the workstation, a live reader shows one listener:
    `Get-NetTCPConnection -LocalPort 8765 -State Listen`. From the production PC,
@@ -122,6 +145,10 @@ Start-ScheduledTask -TaskName WeatherWalletReader   # start now instead of at ne
    prints only `{"error": "wallet_reader_failed"}` and exits 1, because details
    are suppressed. Recheck that the bind IP belongs to this PC, that port 8765 is
    free, that the `.env` fields exist, and that `--campaigns` JSON validates.
+   If the reader listens but production gets `http_503` on every read and
+   `<checkout>\data\wallet_reader\` gains no new lines, the journal cannot be
+   written (for example a reader started from the write-protected main checkout):
+   re-register from a dedicated worktree as above.
    Stop it with Ctrl+C, then `Start-ScheduledTask -TaskName WeatherWalletReader`.
 4. **Confirm.** Repeat step 1.
 
