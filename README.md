@@ -183,6 +183,10 @@ provides account summaries, positions, open orders, trades, reward and settlemen
 `python -m weather.market.wallet_reader_client`; its runbook owns startup,
 credential selection and the scoped firewall commands.
 
+The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
+(`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
+conflicts, age, linked work, roll heuristic and a proposed action; it changes nothing.
+
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
