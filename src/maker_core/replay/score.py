@@ -128,7 +128,9 @@ def score(result, *, check=lambda: None):
         r["cash_hours"] = r["reserved_cash_hours"] + r["inventory_cash_hours"]
         r["pulled_minute_fraction"] = r["pulled_seconds"] / r["covered_seconds"] if r["covered_seconds"] else None
         r["reward_k05"] = r["reward_k1"] / 2
-        for k in ("k1", "k05"):
+        # Clarification 2 measured-reaction sensitivity (RE-1 long-horizon share): reported only.
+        r["reward_k03"] = r["reward_k1"] * D("0.3")
+        for k in ("k1", "k05", "k03"):
             r["modeled_net_" + k] = (r["reward_" + k] + r["nominal_rebate"] + r["settled_inventory_pnl"]
                                       if r["status"] == "COVERED" and not r["unresolved_fills"] else None)
         for m in r["markouts"].values():

@@ -2,7 +2,7 @@
 
 Correction and successor to `agent-report-2026-09-111e-exam-executability.md`, which stays unedited as the record of
 the first handback. This revision answers the production review of PR #144. It implements the revised draft
-`docs/research/maker-replay-clarification-2-2026-09-29.md` at commit `7118ca0c` on `codex/exam-fixes-handoffs-20260929`,
+`docs/research/maker-replay-clarification-2-2026-09-29.md` at commits `7118ca0c` and `5743c613` on `codex/exam-fixes-handoffs-20260929`,
 which settled A1–A8. Branch `codex/exam-executability-20260930`, PR #144.
 
 **Verdict: IMPLEMENTED on fixtures to the revised rule, and the universe producer now exists. Whether the exam can run
@@ -52,11 +52,17 @@ real all-city day; the rehearsals decide.
     captured descriptor's event slug and the built-in registry.
   - It refuses a condition without a descriptor or with a changed binding. Output is create-only.
   - The test proves the manifest's own `_inventory` check accepts its output.
+- **k = 0.3 sensitivity (draft commit `5743c613`).** `score` adds `reward_k03` and `modeled_net_k03`, the
+  comparison report adds paired intervals for `modeled_net_k03` against every baseline, and the Markdown shows a
+  labelled k=.3 column. `evaluate_hurdles` and the manifest's registered metrics still read only k = 1 and k = 0.5. A
+  test shows that removing every k = 0.3 contrast leaves the decision unchanged.
 - **Nightly export.** Its default budget is pinned at the accepted 45 minutes (`DEFAULT_SECONDS`), independent of the
   4 h host limit.
 
 ## Verification
 
+- Under `scripts\ops\workstation_heavy.ps1`, `tests/maker_core` plus both exporter suites: 920 passed, 1 skipped,
+  5 xfailed.
 - Focused files pass locally:
   - `tests/maker_core/test_replay_execution_pack.py`: 37 passed.
   - `tests/maker_core/test_replay_bundle.py`: 31 passed, 1 skipped.

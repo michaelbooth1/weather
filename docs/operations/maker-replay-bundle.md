@@ -335,7 +335,9 @@ parity. The recorded-session tests instead consume retained acknowledgment facts
 Default CLI execution remains diagnostic-only, behind the existing score gate.
 
 `replay.score.score(result)` produces per-policy, per-condition, UTC-day rows.
-Reward accrual uses contemporaneous share and terms, with k=1 and k=0.5. Maker fees
+Reward accrual uses contemporaneous share and terms, with the registered k=1 and k=0.5,
+plus Clarification 2's measured-reaction sensitivity k=0.3 (`reward_k03`/`modeled_net_k03`
+and their paired intervals). k=0.3 is reported only: no hurdle, estimator or decision reads it. Maker fees
 are zero; the nominal rebate is `shares * .25 * .05 * p * (1-p)` (EF §10o), not a
 cash credit. The engine has no taker-exit strategy or optional builder fee.
 Markouts use each bought token's first two-sided midpoint at/after 1/5/30 minutes,
