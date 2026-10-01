@@ -1,4 +1,13 @@
-"""Roadmap item parser, active backlog report, and docs lint."""
+"""Roadmap item parser, active backlog report, and docs lint.
+
+Statuses are OPEN, PARTIAL (both active), COMPLETE and DORMANT. DORMANT is a
+parked item: it needs a dated disposition and is listed apart from the active
+backlog. An active item whose disposition date is more than
+``DORMANT_FLAG_DAYS`` older than the newest disposition date in the roadmap is
+flagged (never failed) so it gets a fresh disposition or a DORMANT marker. The
+reference date comes from the sources, not the clock, so ``--check`` stays
+reproducible.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +16,7 @@ import difflib
 import json
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +37,7 @@ INDEX_ROW_RE = re.compile(
 )
 INDEX_LABEL_RE = re.compile(r"^(?P<title>.+) \[(?P<status_text>[^\]]+)\]$")
 STATUS_RE = re.compile(
-    r"^(?P<status>OPEN|PARTIAL|COMPLETE)"
+    r"^(?P<status>OPEN|PARTIAL|COMPLETE|DORMANT)"
     r"(?: (?P<date>\d{4}-\d{2}-\d{2}))?"
     r"(?: - (?P<disposition>.*))?$"
 )
@@ -42,6 +51,7 @@ COMPLETION_NOTES_RE = re.compile(
     r"^(?:##\s+.*completion notes|completion notes:)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+DORMANT_FLAG_DAYS = 45
 REQUIRED_ACTIVE_MARKERS = {
     "goal": re.compile(r"^Goal:", re.MULTILINE),
     "source": re.compile(r"^Source:", re.MULTILINE),
@@ -207,6 +217,14 @@ def lint_item(item: dict[str, Any]) -> list[dict[str, Any]]:
                     "path": item.get("path"),
                     "detail": f"active roadmap item is missing required {key} section",
                 })
+    if item.get("status") == "DORMANT" and not (item.get("date") and item.get("disposition")):
+        issues.append({
+            "severity": "error",
+            "category": "dormant_item_missing_dated_disposition",
+            "item": item.get("number"),
+            "path": item.get("path"),
+            "detail": "dormant roadmap item needs 'DORMANT YYYY-MM-DD - reason'",
+        })
     if item.get("status") == "COMPLETE" and not item.get("parse_errors"):
         if not item.get("completion_notes_present"):
             issues.append({
@@ -333,6 +351,27 @@ def lint_roadmap_index(items: list[dict[str, Any]], index: dict[str, Any]) -> li
     return issues
 
 
+def stale_active_items(
+    items: list[dict[str, Any]],
+    *,
+    flag_days: int = DORMANT_FLAG_DAYS,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Return the roadmap as-of date and active items with no disposition inside ``flag_days`` of it."""
+
+    dates = [date.fromisoformat(item["date"]) for item in items if item.get("date")]
+    if not dates:
+        return None, []
+    as_of = max(dates)
+    stale = []
+    for item in items:
+        if not item.get("active"):
+            continue
+        age = (as_of - date.fromisoformat(item["date"])).days if item.get("date") else None
+        if age is None or age > flag_days:
+            stale.append({"number": item.get("number"), "age_days": age, "item": item})
+    return as_of.isoformat(), stale
+
+
 def build_payload(
     roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
     *,
@@ -341,6 +380,8 @@ def build_payload(
     items = [parse_item(path, root=roadmap_root) for path in item_files(roadmap_root)]
     items.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, row.get("path") or ""))
     active_items = [row for row in items if row.get("active")]
+    dormant_items = [row for row in items if row.get("status") == "DORMANT"]
+    as_of_date, stale_active = stale_active_items(items)
     roadmap_index = parse_roadmap_index(roadmap_root)
     issues = [issue for item in items for issue in lint_item(item)]
     issues.extend(lint_roadmap_index(items, roadmap_index))
@@ -358,6 +399,9 @@ def build_payload(
             "open_item_count": active_status_counts.get("OPEN", 0),
             "partial_item_count": active_status_counts.get("PARTIAL", 0),
             "complete_item_count": status_counts.get("COMPLETE", 0),
+            "dormant_item_count": len(dormant_items),
+            "disposition_as_of_date": as_of_date,
+            "stale_active_item_count": len(stale_active),
             "roadmap_index_row_count": len(roadmap_index_rows),
             "roadmap_index_primary_row_count": sum(1 for row in roadmap_index_rows if row.get("primary")),
             "metadata_manifest_count": len(metadata_manifest),
@@ -365,6 +409,11 @@ def build_payload(
         },
         "status_counts": dict(sorted(status_counts.items())),
         "active_items": active_items,
+        "dormant_items": dormant_items,
+        "stale_active_items": [
+            {"number": row["number"], "age_days": row["age_days"], "path": row["item"].get("path")}
+            for row in stale_active
+        ],
         "metadata_manifest": metadata_manifest,
         "items": items,
         "roadmap_index": roadmap_index,
@@ -416,6 +465,8 @@ def summarize_roadmap_status(
         "closed_item_count": summary.get("complete_item_count", 0),
         "active_item_count": len(active_item_rows),
         "partial_item_count": summary.get("partial_item_count", 0),
+        "dormant_item_count": summary.get("dormant_item_count", 0),
+        "stale_active_item_count": summary.get("stale_active_item_count", 0),
         "open_item_count": len(open_item_rows),
         "active_blocked_item_count": active_blocked_count,
         "active_unblocked_item_count": len(active_item_rows) - active_blocked_count,
@@ -448,7 +499,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "",
         "Generated from numbered roadmap item files. Completed historical items",
         "remain searchable in `docs/roadmap/items/` but are intentionally omitted",
-        "from this default active backlog scan.",
+        "from this default active backlog scan. DORMANT items are parked with a dated",
+        "disposition and listed separately.",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: `{payload.get('status')}`",
@@ -463,6 +515,11 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 ["OPEN", summary.get("open_item_count")],
                 ["PARTIAL", summary.get("partial_item_count")],
                 ["COMPLETE", summary.get("complete_item_count")],
+                ["DORMANT", summary.get("dormant_item_count")],
+                [
+                    f"Active, no disposition within {DORMANT_FLAG_DAYS} days of {summary.get('disposition_as_of_date')}",
+                    summary.get("stale_active_item_count"),
+                ],
                 ["ROADMAP rows", summary.get("roadmap_index_row_count")],
                 ["ROADMAP primary rows", summary.get("roadmap_index_primary_row_count")],
                 ["Metadata manifest rows", summary.get("metadata_manifest_count")],
@@ -486,9 +543,43 @@ def render_markdown(payload: dict[str, Any]) -> str:
             ],
         ),
         "",
-        "## Lint Issues",
+        f"## Active Items Without A Disposition In {DORMANT_FLAG_DAYS} Days",
+        "",
+        "Measured against the newest disposition date in the roadmap. Refresh the dated",
+        "disposition or mark the item `DORMANT YYYY-MM-DD - reason`.",
         "",
     ]
+    stale_rows = payload.get("stale_active_items") or []
+    items_by_number = {item.get("number"): item for item in payload.get("active_items") or []}
+    if stale_rows:
+        lines.extend(markdown_table(
+            ["Item", "Status", "Date", "Days", "File"],
+            [
+                [
+                    row.get("number"),
+                    items_by_number.get(row.get("number"), {}).get("status"),
+                    items_by_number.get(row.get("number"), {}).get("date") or "-",
+                    row.get("age_days") if row.get("age_days") is not None else "undated",
+                    _item_link(items_by_number.get(row.get("number"), {})),
+                ]
+                for row in stale_rows
+            ],
+        ))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Dormant Items", ""])
+    dormant = payload.get("dormant_items") or []
+    if dormant:
+        lines.extend(markdown_table(
+            ["Item", "Date", "Disposition", "File"],
+            [
+                [item.get("number"), item.get("date") or "-", item.get("disposition") or "-", _item_link(item)]
+                for item in dormant
+            ],
+        ))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Lint Issues", ""])
     issues = payload.get("lint_issues") or []
     if issues:
         lines.extend(markdown_table(

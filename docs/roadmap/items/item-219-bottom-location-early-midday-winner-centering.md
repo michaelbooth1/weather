@@ -1,4 +1,4 @@
-# 219. Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]
+# 219. Bottom-Location Early/Midday Winner-Centering Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-07-12, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]
 
 Goal: build a no-market centering candidate for the bottom locations,
 especially Seattle, NYC, and Miami, focused on early and midday winner mass

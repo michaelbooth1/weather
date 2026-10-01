@@ -1,4 +1,4 @@
-# 188. Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]
+# 188. Aerosol & Wildfire-Smoke Suppression Features [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-24, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]
 
 Goal: stop the model being blind to wildfire smoke, a regime that suppresses
 the daytime maximum by dimming surface heating and producing one-sided warm

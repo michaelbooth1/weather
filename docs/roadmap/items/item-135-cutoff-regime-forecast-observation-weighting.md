@@ -1,4 +1,4 @@
-# 135. Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]
+# 135. Cutoff-Regime Forecast/Observation Weighting [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]
 
 Goal: make the model explicitly switch weight between forecast-profile evidence
 and observed-temperature-path evidence by cutoff regime.
