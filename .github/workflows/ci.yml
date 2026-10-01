@@ -24,8 +24,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # The audits read the tree and `git ls-files`, never history.
-          fetch-depth: 1
+          # The agent-docs audit checks correspondence history; a shallow
+          # clone fails it.
+          fetch-depth: 0
           lfs: false
 
       - name: Set up Python
