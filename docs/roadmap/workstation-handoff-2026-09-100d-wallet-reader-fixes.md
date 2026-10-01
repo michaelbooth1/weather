@@ -1,8 +1,8 @@
 # Workstation handoff 2026-09-100d — wallet reader fixes from the first live use
 
 Written 2026-09-25 by the production agent after the first real use of the 100a reader
-(`codex/wallet-public-reader-20260925` @ `1e89fc250`, served by the owner at 192.168.1.106:8765, called from the production PC
-192.168.1.247). The LAN path, token, IP allowlist, cash, fills, activity and open orders all worked. Three defects:
+(`codex/wallet-public-reader-20260925` @ `1e89fc250`, served by the owner at 192.0.2.10:8765, called from the production PC
+192.0.2.20). The LAN path, token, IP allowlist, cash, fills, activity and open orders all worked. Three defects:
 
 1. **No marks at all, even for live markets.** `/summary` returned every position with `bid/ask/mid = null` and errors
    `book_mark_unavailable`, `reward_terms_unavailable` — including the live Chicago 68-69°F Sep 25 YES. The wallet holds ~104
