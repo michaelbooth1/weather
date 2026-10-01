@@ -1,10 +1,10 @@
 # Registers the split daily settlement/evidence refresh as Windows Scheduled Tasks.
 #
 # Stage A runs settlement truth through fleet observability at 09:30.
-# Stage B runs evidence recomputation and learning once overnight at 05:00,
-# after every recurring overnight lease holder's hard end and before the 09:00
-# deadline. Registration refuses while any enabled lease holder's scheduled
-# window overlaps Stage B's. Stage B remains disabled unless
+# Stage B runs evidence recomputation and learning once at 06:45, after every
+# recurring overnight lease holder's hard end and before the 09:00 deadline.
+# Registration refuses while any enabled task that runs a lease-taking script
+# has a scheduled window overlapping Stage B's. Stage B remains disabled unless
 # -EnableEvidenceTask is supplied explicitly.
 #
 # Full registration keeps the release-#1 production-evidence inputs mandatory.
@@ -21,8 +21,8 @@ param(
     [string]$TaskName = "WeatherDailySettlementPromotionRefresh",
     [string]$EvidenceTaskName = "WeatherEveningEvidenceRefresh",
     [string]$At = "09:30",
-    [ValidateSet("05:00")]
-    [string]$EvidenceAt = "05:00",
+    [ValidateSet("06:45")]
+    [string]$EvidenceAt = "06:45",
     [string]$PowerShellExecutable = "powershell.exe",
     [switch]$EnableEvidenceTask,
     [Parameter(Mandatory = $true, ParameterSetName = "Full")]
@@ -74,40 +74,13 @@ if (-not (
     throw "evidence schedule must compose SLA + lease wait < wrapper span < Scheduler limit"
 }
 
-# Refuse before registering anything while an enabled overnight lease holder
+# Refuse before registering anything while any enabled scheduled task that
+# runs a lease-taking script or module (derived from source, not a hand list)
 # could still own the shared lease inside Stage B's scheduled window.
-$overnightHolders = @()
-foreach ($pattern in $evidenceSchedule.OvernightLeaseHolderTaskPatterns) {
-    foreach ($task in @(Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue)) {
-        if ([string]$task.State -eq "Disabled") { continue }
-        foreach ($trigger in @($task.Triggers)) {
-            if ($trigger.Enabled -eq $false) { continue }
-            $triggerClass = [string]$trigger.CimClass.CimClassName
-            $limit = [string]$task.Settings.ExecutionTimeLimit
-            $repeats = [bool]($trigger.Repetition -and $trigger.Repetition.Interval)
-            $isOnce = $triggerClass -ceq "MSFT_TaskTimeTrigger" -and -not $repeats
-            if ($triggerClass -cnotin @("MSFT_TaskDailyTrigger", "MSFT_TaskTimeTrigger") -or
-                $repeats -or -not $trigger.StartBoundary) {
-                # A boot, logon, event or repeating holder has no fixed clock
-                # window to clear; treat it as unbounded so it fails closed.
-                $limit = ""
-            }
-            # Compare wall clocks as registered: both tasks carry the same
-            # registration-time offset, so a DST conversion would skew only one.
-            $boundary = if ($trigger.StartBoundary) {
-                [datetime]::ParseExact(
-                    ([string]$trigger.StartBoundary).Substring(0, 19), "s",
-                    [Globalization.CultureInfo]::InvariantCulture)
-            } else { (Get-Date).Date }
-            $overnightHolders += [pscustomobject]@{
-                TaskName = [string]$task.TaskName
-                StartBoundary = $boundary
-                Recurring = -not $isOnce
-                ExecutionTimeLimit = $limit
-            }
-        }
-    }
-}
+$overnightHolders = @(Get-DailyRefreshEvidenceLeaseHolders `
+    -Tasks @(Get-ScheduledTask) `
+    -LeaseEntryPoints @(Get-WeatherSharedLeaseEntryPoints -RepoRoot $RepoRoot) `
+    -ExcludeTaskNames @($EvidenceTaskName))
 $evidenceCollisions = @(Get-DailyRefreshEvidenceTriggerCollisions `
     -Holders $overnightHolders `
     -EvidenceAt $EvidenceAt `

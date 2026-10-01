@@ -94,7 +94,7 @@ def _expected_child_tokens(
             "--report-out",
             r"data\backtest\daily_refresh_evidence_report.md",
         ]
-        producer_sla = "12900"
+        producer_sla = "6600"
     tokens += [
         "--scheduler-invocation-topology",
         "delegated_child",
@@ -196,9 +196,9 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
     registration = REGISTER.read_text(encoding="utf-8-sig")
     contract = CONTRACT.read_text(encoding="utf-8-sig")
 
-    assert '[string]$EvidenceAt = "05:00"' in registration
-    assert '[ValidateSet("05:00")]' in registration
-    assert 'TriggerAt = "05:00"' in contract
+    assert '[string]$EvidenceAt = "06:45"' in registration
+    assert '[ValidateSet("06:45")]' in registration
+    assert 'TriggerAt = "06:45"' in contract
     assert "$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt" in registration
     assert "foreach ($time in $EvidenceAt)" not in registration
     assert '"--disable-stage-trigger"' in contract
@@ -221,22 +221,23 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
         "$stageASettings = New-ScheduledTaskSettingsSet", 1
     )[1].split("$principal =", 1)[0]
     assert "-StartWhenAvailable" in stage_a_settings
-    assert "ProducerSlaSeconds = 12900" in contract
-    assert "SchedulerLimitMinutes = 255" in contract
-    assert 'SchedulerLimitIso = "PT4H15M"' in contract
+    assert "ProducerSlaSeconds = 6600" in contract
+    assert "SchedulerLimitMinutes = 150" in contract
+    assert 'SchedulerLimitIso = "PT2H30M"' in contract
     assert "LeaseWaitSeconds = 240" in contract
-    producer_sla_seconds = 12900
+    trigger_minute = 6 * 60 + 45
+    producer_sla_seconds = 6600
     lease_wait_seconds = 240
-    wrapper_span_seconds = ((9 * 60) - (5 * 60)) * 60
-    scheduler_limit_seconds = 255 * 60
+    wrapper_span_seconds = ((9 * 60) - trigger_minute) * 60
+    scheduler_limit_seconds = 150 * 60
     assert (
         producer_sla_seconds + lease_wait_seconds
         < wrapper_span_seconds
         < scheduler_limit_seconds
     )
     # Endpoints stay 08:35 / 09:00 / 09:15, before the 09:30 Stage-A start.
-    assert 5 * 60 + producer_sla_seconds // 60 == 8 * 60 + 35
-    assert 5 * 60 + scheduler_limit_seconds // 60 == 9 * 60 + 15
+    assert trigger_minute + producer_sla_seconds // 60 == 8 * 60 + 35
+    assert trigger_minute + scheduler_limit_seconds // 60 == 9 * 60 + 15
 
 
 def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
