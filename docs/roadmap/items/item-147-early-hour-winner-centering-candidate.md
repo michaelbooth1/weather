@@ -1,4 +1,4 @@
-# 147. Early-Hour Winner-Centering Candidate [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY BASELINE]
+# 147. Early-Hour Winner-Centering Candidate [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY BASELINE]
 
 Goal: build and evaluate an early-hour candidate that improves winner-band
 centering and rank, not just generic probability sharpness.

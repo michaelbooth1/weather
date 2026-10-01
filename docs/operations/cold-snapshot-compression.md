@@ -2,7 +2,8 @@
 
 - **Owns:** the attended compress-and-retain lane for old snapshot files
   (`cold_snapshot_compression_run.ps1`), its request schema, bounds, receipts,
-  the read-only `-VerifyRetained` mode and the batch planner.
+  the read-only `-VerifyRetained` mode, the batch planner, the nightly
+  selection and the failed-nightly resolution record.
 - **Read when:** the owner asks for more retained-file capacity, or you must
   reconcile an interrupted compression attempt.
 - **Do not use for:** replay-cache files
@@ -209,12 +210,26 @@ at most 31 days. The approved policy's file and SHA-256 and the reviewed full
 source SHA are frozen into the scheduled action; renewal requires a new
 create-only policy and reviewed re-registration. No policy changes itself.
 
-Selection is oldest built-in event first, strictly older than fourteen local
-calendar days. Only immediate ordinary nonempty JSON/JSONL/CSV files qualify;
-each must also be unchanged for fourteen days. Nested directories, RE-1
-campaigns, mm_runs, payload CAS, settlement roots, links and already-compressed
-files are excluded. The metadata inventory's original CLI still uses thirty
-days; only this separate nightly consumer selects its fourteen-day profile.
+Selection is oldest built-in event first, once the closed market-day is at
+least two local calendar days old (owner decision 2026-09-30 in
+[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at 00:30 on day D+2 the
+market-day D is selectable, D+1 and later are not. Only immediate ordinary
+nonempty JSON/JSONL/CSV files qualify; each must also be unchanged for two full
+days, so a file last written late on D is picked up a night later and a later
+backfill waits out its own two days. Nested directories, RE-1 campaigns,
+mm_runs, payload CAS, settlement roots, links and already-compressed files are
+excluded. The metadata inventory's original CLI still uses thirty days; only
+this separate nightly consumer selects its two-day profile (`HOT_WINDOW_DAYS`
+and `UNCHANGED_SECONDS` in `cold_snapshot_nightly.py`). Every hash, identity,
+writer-exclusion and admission check is unchanged by the shorter age.
+
+Files that cannot shrink are skipped at selection: logical size below one
+4 KiB cluster (including files NTFS keeps resident in their MFT record) or
+allocation not above one cluster. They are never opened, compressed or counted
+against the budget; each night records them with a reason in
+`skipped-NNNN.json` (bound to its inventory hash, inside the 64 MiB evidence
+bound) and counts them as `files_skipped_unshrinkable`. A selected file that
+still reclaims nothing stops its batch exactly as before.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
@@ -229,10 +244,38 @@ hash-bound exact batch selections, flushed before/after file journals and
 batch/night/wrapper results. Count only verified allocation differences;
 uncompleted batches can have per-file proofs but receive no aggregate credit.
 Any failure stops expansion. A failed or unfinished prior nightly attempt
-blocks subsequent automatic runs; production must inspect and explicitly
-resolve it through the retained-file verification contract. Never delete or
-rename a failed attempt to clear this interlock. A second scheduled-entrypoint
-attempt on the same local date refuses, so the budget is not reset by a retry.
+blocks subsequent automatic runs. Never delete or rename a failed attempt to
+clear this interlock. A second scheduled-entrypoint attempt on the same local
+date refuses, so the budget is not reset by a retry, and a resolved attempt
+still consumes its date.
+
+### Resolving a failed nightly attempt
+
+After inspecting the attempt, production records a resolution with the
+reviewed source (read-only over the attempt's receipts; no lease needed, no
+source payload read):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.cold_snapshot_nightly_resolution `
+  --production-repo-root $productionRepo --attempt nightly-YYYYMMDD-... `
+  --approved-by "<reviewer>"
+```
+
+It refuses unless the wrapper receipt is `FAILED` with proved teardown and no
+hard stop, the child result is the bound `FAILED_RETAIN_AND_INSPECT`, and every
+started file in every batch has both journals, follows its hash-bound
+selection in order, and has an after-journal `VERIFIED` with the preimage
+SHA-256, unchanged identity fields and LZNT1 format. It writes one create-only
+`scratch/cold_snapshot_compression/resolved-nightly/<attempt>.json` binding the
+attempt's `wrapper-result.json` SHA-256. The scheduled runner accepts a failed
+prior attempt only when that record exists and its hash matches. The record's
+`verified_reclaimed_bytes` is for reconciliation and is never added to a
+nightly total; its files are already compressed and can never be selected again.
+
+An attempt with a started but unfinished file (a before-journal without its
+after-journal) is refused and stays blocking. `-VerifyRetained` currently binds
+only attended-lane journals, not nightly batch journals, so such an attempt
+needs a reviewed extension before it can be cleared.
 
 Production registration, after creating and reviewing the policy and proving
 the exact source tip (all paths absolute):
@@ -268,7 +311,7 @@ owns token and book-summary files. Neither is modified. A close queue must
 prove event close, quiescent writer handles, replay/backfill coordination and
 durable enqueue before releasing a file to the same compressor. It must not
 compress synchronously inside a capture iteration, set inherited directory
-compression, or silently change the nightly fourteen-day protection. A
+compression, or silently change the nightly two-day protection. A
 separate reviewed close policy and production roll verdict precede that work.
 
 Reader/reference inventory for the proposed unchanged-path format is retained

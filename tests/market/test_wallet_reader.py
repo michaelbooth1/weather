@@ -402,8 +402,10 @@ def test_no_signing_imports_and_no_unapproved_file_access():
                  "pathlib", "re", "subprocess", "threading", "time", "urllib", "weather", "maker_core"}
     weather_allowed = {"weather.market.wallet_reader", "weather.market.wallet_reader_security",
                        "weather.market.wallet_reader_transport", "weather.market.wallet_reader_server",
+                       "weather.market.wallet_reader_settlement",
                        "weather.operations.live_path_security", "weather.paths", "weather.schema_registry"}
-    for name in ("wallet_reader", "wallet_reader_security", "wallet_reader_transport", "wallet_reader_server", "wallet_reader_client"):
+    for name in ("wallet_reader", "wallet_reader_security", "wallet_reader_transport", "wallet_reader_server", "wallet_reader_client",
+                 "wallet_reader_settlement"):
         source = (REPO_ROOT / "src/weather/market" / (name + ".py")).read_text()
         tree = ast.parse(source)
         for node in ast.walk(tree):

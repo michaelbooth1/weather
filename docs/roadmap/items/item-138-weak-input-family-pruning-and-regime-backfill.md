@@ -1,4 +1,4 @@
-# 138. Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]
+# 138. Weak Input-Family Pruning And Regime Backfill [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]
 
 Goal: reduce overfit risk by pruning or quarantining broad input families that
 do not currently show durable value, while defining targeted backfills for
