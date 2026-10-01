@@ -214,8 +214,9 @@ positions, fills, and Gamma `/markets` in chunks of at most 20 conditions. Per m
   native `settlement_unit`, winning band, source and the ledger's own reconciliation
   status). The location comes from `config/location_market_events.json` event slug
   prefixes; non-weather markets are `proxy_not_applicable`. The root defaults to
-  `data/settlements`; `serve --settlement-root <dir>` points elsewhere. The file is
-  read directly (64 MiB cap); no settlement or model module is imported.
+  `data/settlements`; `serve --settlement-root <dir>` points elsewhere. Each location's
+  file is streamed once per request with no size cap (memory is bounded by a 1 MiB per-line limit;
+  longer lines are skipped); no settlement or model module is imported.
 
 Flags: `disagreements` (the proxy's winning band and the venue's winner disagree about
 this band, compared by label text), `unredeemed_winners` (a held token whose terminal
