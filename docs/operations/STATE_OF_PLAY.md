@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-01 02:30 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batch landed; exam line #134 still HELD: plugin mass incomplete; 91a nightly registered; ~107 GiB free).**
+**Last updated: 2026-10-01 11:30 America/Toronto (ALL LIVE TRADING PAUSED; Clarification 2 SIGNED; exam line #134 still HELD: plugin mass incomplete; 91a nightly registered; ~107 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -35,7 +35,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   (lead 1: 2,512; lead 2: 2,539; band-identity mismatch 0), but all 9,268 records have only partial probability mass:
   `book_not_captured` 24,615 (88a books selected bands only), `nonincreasing_percentile_knots` 7,325,
   `missing_point_in_time_forecast` 1,584; 0 legs (`data/alerts/weather-plugin-111j-20260926/`). Landing needs a workstation
-  fix for the knots and a ruling on partial mass under selected-band capture. #134 and #128 also conflict on the index.
+  fix for the knots; owner 10-01: mass must be complete over the captured band set. #134 and #128 conflict on the index.
 - **Pinned deployments (detached, locked worktrees):** watchdog `weather-watchdog-deployed-110n-1fc7ba35`; order journal
   `weather-manual-order-journal-deployed-ebe72984` (User-Agent fix #127; runner `3d12c5c7`, modules `f935f59f`); cold-snapshot
   nightly `weather-cold-snapshot-deployed-979c0e7` (task `WeatherColdSnapshotNightly`, 00:30, 32 GiB policy `a049bf01`
@@ -55,9 +55,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   yet landed; #149/#150 conflict with master). Journal clean at 09-30 21:44Z: 9 fills recovered, 0 open orders.
 - **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
 - **Replay exam (signed v1):** calibration 09-27..29, panel 09-30..10-13, settlement 10-14, single look **2026-10-15**. As
-  frozen it cannot execute (2026-09-29 deep audit). Clarification 2 draft `a8c0b846b` (branch
-  `codex/exam-fixes-handoffs-20260929`; late look to 10-31 while unreserved, ×15 power-of-two ceilings, k = 0.3 label) is
-  unsigned; the owner signs after reading; 111e (#144) implements it. Candidate 2 (#137) runs from a pinned worktree.
+  frozen it cannot execute (2026-09-29 deep audit). **Clarification 2 SIGNED 2026-10-01** (bytes at `a8c0b846b`, SHA-256
+  `1719fd1e…`; late look to 10-31 while unreserved, ×15 power-of-two ceilings, k = 0.3 label); the v2 authorization row
+  follows once 111e (#144) teaches the verifier a second clarification. Candidate 2 (#137) runs from a pinned worktree.
 - **One-sided thesis review (2026-09-27):** one-sidedness concentrates informed flow; the model trails the market in every
   measured slice; observation decidedness is the only directional signal; one-sided reward score is S/3 inside a 0.10-0.90 mid.
 - **Swarm audit 2026-09-30:** 23 agents, verified synthesis and corrections in
@@ -65,8 +65,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Ordered critical path
 
-1. **Exam line:** workstation fixes plugin knots and partial-mass handling -> production re-run -> land #134 + #144 (+#142,
-   #143) after index resync in one quiet window; owner signs Clarification 2; calibration export and ceiling rehearsal.
+1. **Exam line:** workstation fixes plugin knots and captured-set mass verdict -> production re-run -> land #134 + #144 (+#142,
+   #143) after index resync in one quiet window; v2 authorization rows; calibration export and ceiling rehearsal.
 2. **Disk:** watch the first 91a nightly receipt (10-02); land #142 (111g); 5g after #128.
 3. **10-15:** universe inventory, manifest build/verify/enrol, single look (late look to 10-31 while unreserved).
 4. **Learning lane:** give Stage B a non-colliding trigger, then re-enable it.
