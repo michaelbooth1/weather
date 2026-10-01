@@ -1,0 +1,32 @@
+{
+  "id": "W-0003",
+  "title": "110f wallet reader incomplete P&L",
+  "workstream": "wallet",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/d52969fa28ea7aa871e85d26888fcba326046da2/docs/roadmap/workstation-handoff-2026-09-110f-wallet-reader-incomplete-pnl.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/7c3184e8193ce60f2797200ded8857a1494944aa/docs/roadmap/agent-report-2026-09-100d-wallet-reader-fixes.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/wallet-public-reader-20260925",
+  "tip": "7c3184e8193ce60f2797200ded8857a1494944aa",
+  "pr": "https://github.com/michaelbooth1/weather/pull/94",
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "01:00-04:00 America/Toronto; suite 00:30 first"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Included in W-0001. python-dotenv pin 1.2.3 versus production venv 1.2.2; do not pip-install that night."
+  ]
+}

@@ -1668,6 +1668,15 @@ def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
     assert "Get-Content -LiteralPath $ledger -Tail 400" not in text
 
 
+def test_merged_branch_retirement_is_a_warning_not_a_verdict() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    section = text.split("# ---- merged branch retirement", 1)[1].split("# ---- sweep findings", 1)[0]
+
+    assert "weather.operations.merged_branch_retirement --repo-root $repo --json" in section
+    assert "$warns.Add(" in section
+    assert "$flags.Add(" not in section
+
+
 def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

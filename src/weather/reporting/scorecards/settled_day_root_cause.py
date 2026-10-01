@@ -861,6 +861,7 @@ def classify_roadmap_mapping(
 ) -> dict[str, Any]:
     item_rows = [inventory.get(str(item)) or {"item": str(item), "status": "MISSING"} for item in roadmap_items]
     active_items = [row["item"] for row in item_rows if row.get("active")]
+    dormant_items = [row["item"] for row in item_rows if row.get("status") == "DORMANT"]
     parsed_issue_date = _parse_roadmap_date(issue_date)
     completed_dates = [
         parsed
@@ -873,6 +874,10 @@ def classify_roadmap_mapping(
     if active_items:
         classification = "active_owner"
         detail = "issue has active OPEN/PARTIAL roadmap owner(s)"
+    elif dormant_items:
+        # A parked owner still owns the issue: revive it rather than open a new item.
+        classification = "dormant_owner"
+        detail = "issue is owned by DORMANT roadmap item(s); revive with a fresh dated disposition"
     elif not roadmap_items:
         classification = "unmapped_no_owner"
         detail = "issue has no roadmap mapping"
@@ -898,6 +903,7 @@ def classify_roadmap_mapping(
         "classification_detail": detail,
         "roadmap_item_statuses": item_rows,
         "active_owner_items": active_items,
+        "dormant_owner_items": dormant_items,
         "completed_item_dates": sorted(str(value) for value in completed_dates),
         "suggested_new_item_title": suggested_title,
     }
