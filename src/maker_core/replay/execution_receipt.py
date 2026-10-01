@@ -3,6 +3,7 @@
 Clarification 2: a refusal before any score, fill, reward or hurdle value is computed
 leaves a non-consuming refusal record naming its stage. Reservation immediately
 precedes the first policy replay; any later stop consumes the look and says where.
+Until a reservation exists the look may run on any permitted date.
 """
 from datetime import timezone
 import os
@@ -12,9 +13,6 @@ from zoneinfo import ZoneInfo
 
 from maker_core.replay.bundle import BundleError, regular_path
 from maker_core.replay.pack_io import read_json, write_json
-
-MAX_REFUSAL_RECORDS = 1000
-
 
 def attempts_root(manifest_path):
     # Production must retain its canonical sealed manifest directory. A relocated
@@ -58,25 +56,22 @@ def record_refusal(root, authorization_id, stage, reason, now, manifest_sha256=N
 
 
 def late_look_permitted(manifest_path, doc):
-    """True only when a non-consuming refusal was recorded on the scoring date itself."""
+    """True while no attempt is reserved for this authorization (Clarification 2 late look).
+
+    The look may run on any permitted Toronto date while unreserved; a reservation
+    consumes it whatever the date. Refusal records do not gate it. Fails closed on an
+    unreadable or irregular attempts directory.
+    """
     decision = doc.get("owner_decision") if isinstance(doc, dict) else None
-    if not isinstance(decision, dict) or not isinstance(decision.get("authorization_id"), str):
+    if (not isinstance(decision, dict) or not isinstance(decision.get("authorization_id"), str)
+            or re.fullmatch(r"[A-Za-z0-9_-]{1,80}", decision["authorization_id"]) is None):
         return False
-    root = Path(manifest_path).parent / "attempts"
+    root = attempts_root(manifest_path)
+    if not root.exists():
+        return True
     if not root.is_dir():
         return False
-    found = sorted(root.glob(decision["authorization_id"]+".refusal-*.json"))
-    if len(found) > MAX_REFUSAL_RECORDS:
-        raise BundleError("refusal_record_cap")
-    if (root / (decision["authorization_id"]+".json")).exists():
-        return False
-    for path in found:
-        record, _ = read_json(path, 65536)
-        if (record.get("status") == "NOT_CONSUMED_OPERATIONAL_REFUSAL"
-                and record.get("authorization_id") == decision["authorization_id"]
-                and record.get("toronto_date") == decision.get("scoring_date")):
-            return True
-    return False
+    return not (root / (decision["authorization_id"]+".json")).exists()
 
 
 def evaluate_hurdles(report):
@@ -116,5 +111,37 @@ def evaluate_hurdles(report):
         status = "UNDERPOWERED"
     elif pull.get("status") in ("UNMATCHED", "UNIDENTIFIED"):
         status = pull["status"]
+    sensitivity = measured_k_sensitivity(primary)
+    label = ("hurdles_met_not_positive_at_measured_k"
+             if status == "REPLAY_HURDLES_MET" and not sensitivity["k03_lower_bounds_positive"] else None)
     return dict(status=status, economic_hurdle_met=economic_ok, pull_hurdle_met=pull_ok,
-                reasons=reasons, interpretation="Modeled replay hurdles only; no live or profitability authority.")
+                reasons=reasons, measured_k_sensitivity=sensitivity, label=label,
+                interpretation="Modeled replay hurdles only; no live or profitability authority.")
+
+
+SENSITIVITY_KS = (("k03", "modeled_net_k03"), ("k05", "modeled_net_k05"))
+
+
+def measured_k_sensitivity(primary):
+    """Clarification 2 flag: are the k = 0.3 and k = 0.5 lower bounds positive?
+
+    strictly_through, both economic baselines, both clusters. A missing or non-OK
+    estimate is not positive. Reported beside the status; it never changes a status,
+    hurdle, reason or decision rule.
+    """
+    result, cells = {}, {}
+    for name, metric in SENSITIVITY_KS:
+        positive = True
+        for baseline in ("blind_re1", "no_quote"):
+            estimates = primary.get("intervals", {}).get(baseline+":"+metric, {}).get("intervals") or {}
+            for cluster in ("date", "date_x_market"):
+                e = estimates.get(cluster) or {}
+                interval = e.get("interval")
+                lower = interval[0] if e.get("status") == "OK" and interval else None
+                ok = lower is not None and lower > 0
+                cells[name+":"+baseline+":"+cluster] = dict(status=e.get("status", "MISSING"), lower_bound=lower,
+                                                            positive=ok)
+                positive = positive and ok
+        result[name+"_lower_bounds_positive"] = positive
+    return dict(**result, fill_bound="strictly_through", cells=cells,
+                interpretation="Reported sensitivity only; changes no status, hurdle or decision rule.")

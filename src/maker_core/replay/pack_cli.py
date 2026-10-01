@@ -1,9 +1,10 @@
 """Offline calibration, ceiling measurement, rehearsal and manifest subcommands. No enrollment or score output."""
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import re
 import time
+from zoneinfo import ZoneInfo
 
 from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.bundle import (BundleError, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, Limits,
@@ -170,8 +171,10 @@ def execute(args):
         key = write_json(args.out, dict(format=ceiling_rule.FORMAT, per_date=per_date, rehearsal_sha256=hashes,
                          calibration_sha256=calibrations.pop(), derived=derived))
         print("ceiling_measurement_sha256="+key+"; executable_on_host="+str(derived["executable"])
-              + ("" if derived["executable"] else "; binding="+",".join(derived["host_limit_binding"])))
-        return 0
+              + ("" if derived["executable"] else "; binding="+",".join(derived["host_limit_binding"]))
+              + "; verdict="+derived["verdict"])
+        # The record is kept either way; a binding host limit stops the exam line here.
+        return 0 if derived["executable"] else 3
     limit_defaults(args)
     if type(args.max_output_bytes) is not int or not 1 <= args.max_output_bytes <= 8*1024**2:
         raise BundleError("invalid_output_ceiling")
@@ -215,6 +218,10 @@ def execute(args):
     authorization._verify_decision(doc, _Reader(Limits(458752, 1, 5), time.monotonic),
         args.decision_log, args.frozen_protocol, args.execution_addendum, now, args.clarification,
         require_scoring_date=False, clarification_2=args.clarification_2)
+    # Clarification 2: the manifest is built, verified and enrolled on or after the
+    # scoring date (America/Toronto), once the settlement bundle is sealed.
+    if now.astimezone(ZoneInfo("America/Toronto")).date() < date.fromisoformat(doc["owner_decision"]["scoring_date"]):
+        raise BundleError("manifest_before_scoring_date_toronto")
     try:
         return _manifest(args, doc, key, now)
     except (ValueError, OSError, KeyError, TypeError, ArithmeticError, MemoryError) as exc:

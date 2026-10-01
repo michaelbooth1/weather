@@ -19,8 +19,19 @@ DECISION_FIELDS = {"authorization_id", "owner", "protocol_sha256", "addendum_sha
 # An ID listed here must bind exactly these clarification hashes; any other ID keeps
 # the original optional single clarification. Clarification 2 names v2.
 CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarification_2_sha256")}
-# Clarification 2: a look prevented on its scoring date by a non-consuming operational
-# refusal may run later, up to this Toronto date, with nothing else changed.
+# Clarification 2's Authorization section: v2 binds the raw-byte SHA-256 of the signed
+# registration, addendum, Clarification 1 and Clarification 2 (signed 2026-10-01, bytes at
+# a8c0b846b), for the 2026-10-15 scoring date, expiring 2026-11-01 (00:00 Toronto). A row
+# binding any other document, date or later expiry is not this authorization.
+SIGNED_BINDINGS = {"maker-replay-2026-10-15-v2": dict(
+    protocol_sha256="0380212d8e82474281afbed1197161263f794570ec06cf51fec99a3c6c03a6bf",
+    addendum_sha256="074a0e56b87770eff9f574232819b5d95ecd7073e450f27adac7bf555a43410b",
+    clarification_sha256="37d2fd8e34462a77d6209ee4018e3685bf91a81a93e2cb08df6986985811fa0e",
+    clarification_2_sha256="1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0",
+    scoring_date="2026-10-15")}
+EXPIRES_NO_LATER_THAN = {"maker-replay-2026-10-15-v2": datetime(2026, 11, 1, 4, tzinfo=timezone.utc)}
+# Clarification 2: the look may run on any Toronto date from its scoring date to this
+# date inclusive, provided no attempt has been reserved; a reservation consumes it.
 LATE_LOOK_UNTIL = {"maker-replay-2026-10-15-v2": date(2026, 10, 31)}
 LOG_HEADER = "| Date | Decision | Scope / expiry | Source | Supersedes |"
 
@@ -60,7 +71,7 @@ def _clarification_fields(attestation):
 
 
 def scoring_date_allowed(attestation, today, late_look_permitted=False):
-    """Scoring date itself, or (listed IDs only) a later date after a recorded refusal."""
+    """Scoring date itself, or (listed IDs only) a later date up to the limit while no attempt is reserved."""
     scoring_date = date.fromisoformat(attestation["scoring_date"])
     until = LATE_LOOK_UNTIL.get(attestation["authorization_id"])
     return today == scoring_date or bool(late_look_permitted and until and scoring_date < today <= until)
@@ -79,7 +90,14 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
     for field in ("protocol_sha256", "addendum_sha256", *clarifications):
         if not isinstance(attestation[field], str) or re.fullmatch(r"[0-9a-f]{64}", attestation[field]) is None:
             raise BundleError("invalid_frozen_document_hash")
+    pinned = SIGNED_BINDINGS.get(attestation["authorization_id"], {})
+    for field, value in pinned.items():
+        if attestation[field] != value:
+            raise BundleError("signed_binding_mismatch:" + field)
     signed, expires = timestamp(attestation["signed_at"]), timestamp(attestation["expires_at"])
+    limit = EXPIRES_NO_LATER_THAN.get(attestation["authorization_id"])
+    if limit is not None and expires > limit:
+        raise BundleError("owner_decision_expiry_after_signed_limit")
     try:
         scoring_date = date.fromisoformat(attestation["scoring_date"])
     except (ValueError, TypeError) as exc:

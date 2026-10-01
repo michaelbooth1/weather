@@ -83,8 +83,15 @@ def report_bytes(report):
              "no live or promotion verdict follows from replay.", "",
               "Registration SHA-256: " + str(report["pre_registration_sha256"]), ""]
     if "registered_decision" in report:
-        lines += ["Registered decision: **"+report["registered_decision"]["status"]+"**.",
-                  "Reasons: "+", ".join(report["registered_decision"]["reasons"]), ""]
+        decision = report["registered_decision"]
+        lines += ["Registered decision: **"+decision["status"]+"**.",
+                  "Reasons: "+", ".join(decision["reasons"]), ""]
+        sensitivity = decision.get("measured_k_sensitivity")
+        if sensitivity is not None:
+            lines += ["Measured-reaction sensitivity (strictly_through, both baselines, reported only): "
+                      f"k=0.3 lower bounds positive: {sensitivity['k03_lower_bounds_positive']}; "
+                      f"k=0.5 lower bounds positive: {sensitivity['k05_lower_bounds_positive']}.",
+                      "Label: " + (decision.get("label") or "none") + " (changes no status, hurdle or decision rule).", ""]
     for bound, result in report["bounds"].items():
         lines += ["## " + bound, "", "Clock match: " + result["clock_match"]["status"], "",
                   "| Policy | Date | Condition | Coverage | Reward k=1 | Reward k=.5 | Reward k=.3 (sensitivity) | Nominal rebate | Settlement P&L | Cash-hours | Pull fraction | Fills |",

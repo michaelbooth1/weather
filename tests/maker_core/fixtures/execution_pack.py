@@ -1,6 +1,7 @@
-"""Synthetic execution-pack inputs; no retained capture, ledger or wallet reads."""
+"""Synthetic execution-pack inputs plus the signed documents' exact bytes; no capture, ledger or wallet reads."""
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 
 from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay import authorization, ceilings
@@ -32,9 +33,16 @@ def calibration_days(root, minutes=480, markets=("a",), occupied=10):
     return tuple(bundles)
 
 
+RESEARCH = Path(__file__).resolve().parents[3]/"docs"/"research"
+SIGNED_DOCUMENTS = dict(frozen_protocol="maker-replay-hurdles-preregistration-2026-09-27.md",
+                        execution_addendum="maker-replay-execution-addendum-2026-09-27.md",
+                        clarification="maker-replay-clarification-1-2026-09-27.md",
+                        clarification_2="maker-replay-clarification-2-2026-09-29.md")
+
+
 # Fictional resource counts sized so the rule admits the fixture panel.
 MEASURED = dict(input_bytes=16*1024**2, records=20000, engine_events=50000, decisions_spans=50000,
-                report_bytes=100*1024, runtime_seconds=1.0, peak_memory_above_baseline_bytes=32*1024**2,
+                report_bytes=100*1024, runtime_seconds=2.0, peak_memory_above_baseline_bytes=32*1024**2,
                 baseline_memory_bytes=100*1024**2)
 
 
@@ -82,9 +90,10 @@ def pack(root, measured=MEASURED):
                  inventory_path=universe_path, quote_inventory_path=quote_markets, measurement_path=measurement_path)
     decision = dict(authorization_id="maker-replay-2026-10-15-v2", owner="michaelbooth1",
         signed_at="2026-09-29T12:00:00Z", scoring_date="2026-10-15", expires_at="2026-11-01T04:00:00Z")
+    # v2 pins the four signed documents' hashes, so the fixture copies their exact bytes.
     for field, name in (("protocol_sha256", "frozen_protocol"), ("addendum_sha256", "execution_addendum"),
                         ("clarification_sha256", "clarification"), ("clarification_2_sha256", "clarification_2")):
-        raw = b"# FICTIONAL TEST DOCUMENT ONLY\n" + name.encode() + b"\n"
+        raw = (RESEARCH/SIGNED_DOCUMENTS[name]).read_bytes()
         paths[name].write_bytes(raw)
         decision[field] = sha256(raw)
     row = "| 2026-09-29 | APPROVE_MAKER_REPLAY | offline replay only | `"+json.dumps(decision)+"` | — |\n"

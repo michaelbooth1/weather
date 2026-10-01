@@ -96,4 +96,7 @@ def test_k03_measured_reaction_sensitivity_is_reported_never_decisive(tmp_path):
     changed = dict(report, bounds={name: dict(bound, intervals={k: v for k, v in bound["intervals"].items()
                                                               if not k.endswith(":modeled_net_k03")})
                                    for name, bound in report["bounds"].items()})
-    assert evaluate_hurdles(changed) == decision
+    # Only the reported k = 0.3 flag may differ; status, hurdle flags and reasons may not.
+    keys = ("status", "economic_hurdle_met", "pull_hurdle_met", "reasons")
+    assert {k: evaluate_hurdles(changed)[k] for k in keys} == {k: decision[k] for k in keys}
+    assert evaluate_hurdles(changed)["measured_k_sensitivity"]["k03_lower_bounds_positive"] is False

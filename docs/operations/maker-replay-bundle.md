@@ -388,8 +388,8 @@ hashes, recomputes calibration and the ceiling rule, then binds every ReplayConf
 universe, active intervals, stream/bundle hashes, source-hash digests and operational ceilings. It hashes the complete
 maker core, weather plugin/adapter/exporter sources and dependency manifest without importing weather into the core.
 Only `approved_registrations.py` is excluded from the executable hash set: enrollment cannot hash itself. The verifier
-checks the raw manifest hash and regenerates all bindings. It may run before the scoring date and does not enroll a
-hash or execute a policy. All JSON outputs are create-only and capped; failures never truncate or select a sample.
+checks the raw manifest hash and regenerates all bindings. Under Clarification 2 the CLI refuses before the scoring date
+(below); verification does not enroll a hash or execute a policy. All JSON outputs are create-only and capped; failures never truncate or select a sample.
 
 The scored `run --compare` requires independent enrollment, the scoring date, current owner-log verification and every
 binding path. It applies the sealed intervals to every policy and clock matching, preserving carried inventory and
@@ -403,10 +403,13 @@ conjunction separately from their counterfactual/transport limitations. No resul
 
 ### Clarification 2 (v2) execution
 
-The unsigned Clarification 2 draft (`docs/research/maker-replay-clarification-2-2026-09-29.md`, carried by the 111e
-handoff branch) changes only operational execution; this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v2` must bind the
-raw SHA-256 of the registration, addendum, Clarification 1 (`clarification_sha256`) and Clarification 2
-(`clarification_2_sha256`); a v2 row without the second hash refuses, and v1 rows still verify under their old rules.
+[Clarification 2](../research/maker-replay-clarification-2-2026-09-29.md), signed by the owner on 2026-10-01
+(DECISION_LOG), changes only operational execution; this section describes the tooling built to it. Authorization ID
+`maker-replay-2026-10-15-v2` must bind the raw SHA-256 of the registration, addendum, Clarification 1
+(`clarification_sha256`) and Clarification 2 (`clarification_2_sha256`). The verifier pins those four signed hashes,
+scoring date 2026-10-15 and an `expires_at` no later than 2026-11-01T04:00:00Z (`SIGNED_BINDINGS` and
+`EXPIRES_NO_LATER_THAN` in `src/maker_core/replay/authorization.py`): a v2 row missing the second hash, or binding any
+other hash, date or later expiry, refuses. v1 rows still verify under their old rules.
 Every manifest, run and verify command takes `--clarification-2`.
 
 - **Quote markets (rule).** `python -m maker_core.replay quote_markets --calibration-bundle <3 dirs> --out <json>`
@@ -419,12 +422,15 @@ Every manifest, run and verify command takes `--clarification-2`.
   rendered report bytes, runtime, peak memory above the pre-input baseline and that baseline, plus per-pass counts.
   Any other date refuses from the path before a byte of the bundle is read.
 - **Ceilings (rule).** `derive_ceilings --rehearsal <09-27> --rehearsal <09-28> --rehearsal <09-29> --out <json>`
-  takes each quantity's largest date × 15 × 2, rounded up to a power of two in its natural unit (bytes, records,
-  seconds). The memory ceiling is that value for peak-above-baseline plus the largest baseline, not multiplied.
+  takes each quantity's largest date × 15 (fourteen quote dates plus settlement), rounded up to the next power of two in
+  its natural unit (bytes, records, seconds); the rounding is the only headroom. So each calibration date's rehearsal
+  must finish in about 546 s or less (8,192 s is the largest power of two within 4 h) and peak about 546 MiB or less
+  above the baseline (8 GiB plus the baseline within 70% of 16 GiB). The memory ceiling is that value for peak-above-baseline plus the largest baseline, not multiplied.
   Decisions+spans bind `ReplayConfig.max_outputs`, separately from `max_events`; report bytes bind the report ceiling.
   Host limits: memory and memory-resident input/report bytes ≤ 70% of 16 GiB, runtime ≤ 4 h, counts ≤ 2^31. If any
-  ceiling exceeds its limit the file says `executable: false` and manifest build refuses
-  `not_executable_on_host:<field>`. The manifest binds the measurement (per-date values, rehearsal hashes) and derives
+  ceiling exceeds its limit the file says `executable: false` and `verdict: "not executable on this host"`,
+  `derive_ceilings` exits 3, and manifest build refuses `not_executable_on_host:<field> (not executable on this host)`.
+  The panel is never sampled or truncated to fit. The manifest binds the measurement (per-date values, rehearsal hashes) and derives
   every CLI ceiling, the engine ceilings and a sampled process-memory ceiling from it.
 - **Universe.** `python -m weather.market.maker_plugin.replay_export universe --bundle <15 panel dirs> --out <json>`
   lists every condition in the bundles with its registered city, target date and IANA timezone from the captured
@@ -438,9 +444,16 @@ Every manifest, run and verify command takes `--clarification-2`.
   A failed reservation that wrote no `attempts/<id>.json` records the same non-consuming refusal at stage
   `reservation`; one that wrote it is consumed. After reservation any stop writes `<id>.stopped.json` with its stage;
   the look is consumed.
-- **Late look.** A v2 look normally runs on its scoring date. It may run on a later Toronto date up to 2026-10-31 only
-  if a non-consuming refusal was recorded on the scoring date and no attempt was consumed; the owner row's `expires_at`
-  must then extend to 2026-11-01.
+- **Manifest timing.** `manifest build` and `manifest verify` refuse before the scoring date in America/Toronto
+  (`manifest_before_scoring_date_toronto`); the manifest is built, verified and enrolled on or after 2026-10-15.
+- **Late look.** A v2 look may run on any America/Toronto date from 2026-10-15 to 2026-10-31 inclusive while no
+  `attempts/<id>.json` reservation exists beside the canonical manifest; a reservation consumes the look whatever the
+  date. Refusal records do not gate it. The same panel, hurdles, ceilings, manifest and authorization apply on every
+  permitted date; the v2 row expires 2026-11-01.
+- **Measured-k label.** The registered decision carries `measured_k_sensitivity`: whether the k = 0.3 and k = 0.5
+  lower bounds are positive (strictly_through, both economic baselines, both clusters; a missing or non-OK estimate
+  is not positive), with per-cell detail. A `REPLAY_HURDLES_MET` status whose k = 0.3 bounds are not all positive gets
+  `label: "hurdles_met_not_positive_at_measured_k"`. Neither changes a status, hurdle, reason or decision rule.
 
 The workstation wrapper admits exactly `maker_core.replay` as offline heavy work; no venue/runtime wildcard is added.
 An installed Codex hook with the older independent module list may still reject this command. This change does not

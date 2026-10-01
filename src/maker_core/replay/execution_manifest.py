@@ -15,7 +15,7 @@ from maker_core.replay.pack_io import read_json
 from maker_core.replay.payloads import decode
 
 # Clarification 2 (v2): manifest-only intervals, measured ceilings, rule-derived
-# quote markets, look protection. Built on the scoring date after settlement seals.
+# quote markets, look protection. Built on or after the scoring date once settlement seals.
 FORMAT = "maker_core.replay.execution.v2"
 AUTHORIZATION_ID = "maker-replay-2026-10-15-v2"
 QUOTE_DATES = tuple(date(2026, 9, 30)+timedelta(days=i) for i in range(14))
