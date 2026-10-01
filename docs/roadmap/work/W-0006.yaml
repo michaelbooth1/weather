@@ -1,0 +1,32 @@
+{
+  "id": "W-0006",
+  "title": "110j A storage registry corrections",
+  "workstream": "storage",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/ed075014161e6e0b0f8d3e9d0fc8dd265356d2c2/docs/roadmap/workstation-handoff-2026-09-110j-storage-decisions-code.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/a65195268d5b4ebffd1d9fdd44648f2895ece968/docs/roadmap/agent-report-2026-09-110j-a.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/storage-registry-corrections-20260926",
+  "tip": "a65195268d5b4ebffd1d9fdd44648f2895ece968",
+  "pr": null,
+  "roll": "sensitive",
+  "depends_on": [],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "01:00-04:00 America/Toronto; suite 00:30 first"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Included in W-0001. Re-check replay_cache preflight after merge; WU tmp still requires W-0014."
+  ]
+}

@@ -748,7 +748,6 @@ FIRST_PARTY_SHIM_CALL_SCAN_EXCLUDED = {
 
 ACTIVE_DOC_FILES = [
     Path("README.md"),
-    Path(".github/workflows/retrain.yml"),
     Path("docs/operations/AGENT_CONTEXT.md"),
     Path("docs/operations/HISTORY_DATA_DESIGN.md"),
     Path("docs/operations/OPERATIONS_DESIGN.md"),

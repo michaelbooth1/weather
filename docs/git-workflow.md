@@ -93,6 +93,35 @@ worktree may be removed with the guarded procedure in
 [§7](#7-post-merge-adoption-and-cleanup); its branch is then retired with the
 next recorded batch, not ad hoc.
 
+**Branch lifecycle (owner decision 2026-09-26, repo-health audit decision 7).**
+
+1. A merged `codex/*` branch (an ancestor of `origin/master`) is retired within
+   **7 days of landing**. `scripts\ops\status.ps1` warns when one is overdue; the
+   list comes from `python -m weather.operations.merged_branch_retirement`
+   (read-only, over cached remote-tracking refs; `git fetch --prune` first).
+   The age runs from the landing commit on `master`, not from the branch tip.
+2. A branch whose tip is **not** contained in `master` is never deleted as it
+   stands. When it is stale (older than 14 days, no open PR, no canon mention),
+   `codex/<topic>` first gets an `archive/<topic>` tag at its tip, which is
+   pushed and verified with `git ls-remote --tags origin` before the branch is
+   listed for deletion.
+3. Every retired branch is listed in a committed recorded-retirement manifest
+   (name, tip SHA, ancestry proof or archive tag). The production operations
+   agent then deletes the listed remote refs through the guarded one-shot push
+   task, and the task's receipt is filed next to the manifest. Task agents
+   write manifests and archive tags; they do not delete remote branches.
+4. Held branches and every `preserve/*` branch are never auto-retired.
+
+Reserved ref namespaces:
+
+| Namespace | Kind | Meaning |
+| --- | --- | --- |
+| `archive/*` | tag | The tip of a retired branch that was not contained in `master`; restore with `git branch codex/<topic> archive/<topic>`. |
+| `deployed/*` | tag | The exact source a one-shot or scheduled task executed on production (for example `deployed/health-watchdog-aa99048`); written for every executed one-shot source and never moved. |
+| `preserve/*` | branch | A snapshot the owner asked to keep; outside the lifecycle rule. |
+
+Tags in these namespaces are never deleted or re-pointed.
+
 ## Workflow
 
 Read top to bottom. The center path is the normal flow; side branches are stop

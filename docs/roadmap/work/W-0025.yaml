@@ -1,0 +1,30 @@
+{
+  "id": "W-0025",
+  "title": "Storage 5b eight FAIL_CLOSED staging tarballs",
+  "workstream": "storage",
+  "status": "handed-off",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [
+    "W-0001",
+    "W-0047"
+  ],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "00:30-04:55 after 5a"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "e10d1/e10d2/e10d5/e10r6 and p11b-e; preserve every receipt and all four PASS stages.",
+    "Measure free bytes before/after; exact SHA256 manifest and receipt; file-by-file only. If suite rebuilt without 91a, 5a-5c move after dry run and economics in 06:30-09:00."
+  ]
+}
