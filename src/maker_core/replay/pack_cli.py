@@ -72,6 +72,7 @@ def add_commands(commands):
         binding_arguments(child)
         for name in ("decision-log", "frozen-protocol", "execution-addendum", "clarification", "clarification-2"):
             child.add_argument("--"+name, type=Path, required=True)
+        child.add_argument("--clarification-3", type=Path, help="Clarification 3, required by a v3 authorization")
         if action == "build":
             child.add_argument("--owner-decision", type=Path, required=True, help="exact Source JSON from the signed row")
             child.add_argument("--out", type=Path, required=True)
@@ -85,7 +86,7 @@ def verification_args(args):
                 quote_inventory_path=args.quote_markets, measurement_path=args.ceiling_measurement,
                 decision_log=args.decision_log, frozen_protocol=args.frozen_protocol,
                 execution_addendum=args.execution_addendum, clarification=args.clarification,
-                clarification_2=args.clarification_2)
+                clarification_2=args.clarification_2, clarification_3=args.clarification_3)
 
 
 def _maintenance(bundles):
@@ -217,7 +218,7 @@ def execute(args):
         root = args.manifest.parent / "attempts"
     authorization._verify_decision(doc, _Reader(Limits(458752, 1, 5), time.monotonic),
         args.decision_log, args.frozen_protocol, args.execution_addendum, now, args.clarification,
-        require_scoring_date=False, clarification_2=args.clarification_2)
+        require_scoring_date=False, clarification_2=args.clarification_2, clarification_3=args.clarification_3)
     # Clarification 2: the manifest is built, verified and enrolled on or after the
     # scoring date (America/Toronto), once the settlement bundle is sealed.
     if now.astimezone(ZoneInfo("America/Toronto")).date() < date.fromisoformat(doc["owner_decision"]["scoring_date"]):

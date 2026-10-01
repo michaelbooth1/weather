@@ -17,8 +17,13 @@ POLICIES = ("informed-v0", "no_quote", "blind_re1", "clock_only")
 DECISION_FIELDS = {"authorization_id", "owner", "protocol_sha256", "addendum_sha256",
                    "signed_at", "scoring_date", "expires_at"}
 # An ID listed here must bind exactly these clarification hashes; any other ID keeps
-# the original optional single clarification. Clarification 2 names v2.
-CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarification_2_sha256")}
+# the original optional single clarification. Clarification 2 names v2; Clarification 3 names v3.
+CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarification_2_sha256"),
+                 "maker-replay-2026-10-15-v3": ("clarification_sha256", "clarification_2_sha256",
+                                                "clarification_3_sha256")}
+# Production replaces this with the signed Clarification 3's raw-byte SHA-256 after the owner
+# signs it. Until then no v3 attestation (always 64 hex characters) can match: v3 fails closed.
+CLARIFICATION_3_SHA256 = "PENDING_OWNER_SIGNATURE"
 # Clarification 2's Authorization section: v2 binds the raw-byte SHA-256 of the signed
 # registration, addendum, Clarification 1 and Clarification 2 (signed 2026-10-01, bytes at
 # a8c0b846b), for the 2026-10-15 scoring date, expiring 2026-11-01 (00:00 Toronto). A row
@@ -29,10 +34,15 @@ SIGNED_BINDINGS = {"maker-replay-2026-10-15-v2": dict(
     clarification_sha256="37d2fd8e34462a77d6209ee4018e3685bf91a81a93e2cb08df6986985811fa0e",
     clarification_2_sha256="1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0",
     scoring_date="2026-10-15")}
-EXPIRES_NO_LATER_THAN = {"maker-replay-2026-10-15-v2": datetime(2026, 11, 1, 4, tzinfo=timezone.utc)}
+# Clarification 3's Authorization section: v3 binds v2's four documents plus Clarification 3,
+# with v2's scoring date, late-look limit and expiry unchanged.
+SIGNED_BINDINGS["maker-replay-2026-10-15-v3"] = dict(SIGNED_BINDINGS["maker-replay-2026-10-15-v2"],
+                                                     clarification_3_sha256=CLARIFICATION_3_SHA256)
+EXPIRES_NO_LATER_THAN = {name: datetime(2026, 11, 1, 4, tzinfo=timezone.utc)
+                         for name in ("maker-replay-2026-10-15-v2", "maker-replay-2026-10-15-v3")}
 # Clarification 2: the look may run on any Toronto date from its scoring date to this
 # date inclusive, provided no attempt has been reserved; a reservation consumes it.
-LATE_LOOK_UNTIL = {"maker-replay-2026-10-15-v2": date(2026, 10, 31)}
+LATE_LOOK_UNTIL = {name: date(2026, 10, 31) for name in ("maker-replay-2026-10-15-v2", "maker-replay-2026-10-15-v3")}
 LOG_HEADER = "| Date | Decision | Scope / expiry | Source | Supersedes |"
 
 
@@ -79,7 +89,7 @@ def scoring_date_allowed(attestation, today, late_look_permitted=False):
 
 def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now,
                      clarification=None, *, require_scoring_date=True, clarification_2=None,
-                     late_look_permitted=False):
+                     late_look_permitted=False, clarification_3=None):
     attestation = doc.get("owner_decision")
     if (not isinstance(attestation, dict) or not isinstance(attestation.get("authorization_id"), str)
             or set(attestation) != DECISION_FIELDS | _clarification_fields(attestation)
@@ -138,7 +148,8 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
         raise BundleError("owner_decision_mismatch_or_revoked")
     documents = [(frozen_protocol, "protocol_sha256"), (execution_addendum, "addendum_sha256")]
     for path, field, name in ((clarification, "clarification_sha256", "clarification"),
-                              (clarification_2, "clarification_2_sha256", "clarification_2")):
+                              (clarification_2, "clarification_2_sha256", "clarification_2"),
+                              (clarification_3, "clarification_3_sha256", "clarification_3")):
         if field in clarifications:
             if not path:
                 raise BundleError(name + "_path_required")
@@ -151,7 +162,7 @@ def _verify_decision(doc, reader, decision_log, frozen_protocol, execution_adden
 
 
 def read_authorization(path, expected_hash, *, decision_log=None, frozen_protocol=None, execution_addendum=None,
-                       clarification=None, clarification_2=None, late_look=lambda doc: False):
+                       clarification=None, clarification_2=None, late_look=lambda doc: False, clarification_3=None):
     # Fail before any input IO if the requested signature/hash is not enrolled.
     if not path or expected_hash not in APPROVED_REGISTRATIONS:
         raise BundleError("owner_signed_pre_registration_hash_not_approved")
@@ -166,7 +177,8 @@ def read_authorization(path, expected_hash, *, decision_log=None, frozen_protoco
             or doc.get("policies") != list(POLICIES)):
         raise BundleError("invalid_signed_pre_registration")
     _verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, _utc_now(), clarification,
-                     clarification_2=clarification_2, late_look_permitted=late_look(doc))
+                     clarification_2=clarification_2, late_look_permitted=late_look(doc),
+                     clarification_3=clarification_3)
     return doc
 
 

@@ -410,7 +410,7 @@ conjunction separately from their counterfactual/transport limitations. No resul
 scoring date 2026-10-15 and an `expires_at` no later than 2026-11-01T04:00:00Z (`SIGNED_BINDINGS` and
 `EXPIRES_NO_LATER_THAN` in `src/maker_core/replay/authorization.py`): a v2 row missing the second hash, or binding any
 other hash, date or later expiry, refuses. v1 rows still verify under their old rules.
-Every manifest, run and verify command takes `--clarification-2`.
+Every manifest, run and verify command takes `--clarification-2` (v3, below, also takes `--clarification-3`).
 
 - **Quote markets (rule).** `python -m maker_core.replay quote_markets --calibration-bundle <3 dirs> --out <json>`
   writes the sorted cities of the three calibration bundles. `calibrate_hazard` and manifest build/verify refuse any
@@ -454,6 +454,28 @@ Every manifest, run and verify command takes `--clarification-2`.
   lower bounds are positive (strictly_through, both economic baselines, both clusters; a missing or non-OK estimate
   is not positive), with per-cell detail. A `REPLAY_HURDLES_MET` status whose k = 0.3 bounds are not all positive gets
   `label: "hurdles_met_not_positive_at_measured_k"`. Neither changes a status, hurdle, reason or decision rule.
+
+### Clarification 3 (v3) reporting
+
+[Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) is an **unsigned draft**. It is reporting
+only, and this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v3` binds v2's four
+hashes plus `clarification_3_sha256`, with v2's scoring date, late-look limit and expiry. Its pin
+`CLARIFICATION_3_SHA256` in `src/maker_core/replay/authorization.py` is the placeholder `PENDING_OWNER_SIGNATURE`
+until production writes the signed file's raw SHA-256. Until then every v3 attestation refuses
+(`signed_binding_mismatch:clarification_3_sha256`). v1 and v2 rows still verify. A v2 row given `--clarification-3`
+refuses `clarification_3_not_attested`. Manifest build and verify, and `run`, take `--clarification-3`, which a v3 row
+requires. The manifest builder accepts a v2 or v3 owner decision.
+
+- **Quote presence.** Every comparison report's `bounds.<bound>.quote_presence` gives, for each policy and city-market,
+  plus pooled, the covered active seconds, the seconds with a leg resting, and their fraction. The Markdown renders it
+  in band-minutes.
+- **Decision fields.** A scored look's `registered_decision` is `evaluate_hurdles` unchanged, plus one key,
+  `clarification_3` (`maker_core.replay.clarification_3.registered_decision`). That key holds the quote presence, the
+  four primary economic cells' SE, `mde_80` and non-significance statement with the binding MDE, and the screen label
+  `NOT_MET_SCREEN_SUPPRESSED`. The label applies to `HURDLE_NOT_MET` when informed-v0's pooled strictly_through quoted
+  fraction is below 0.5. Status, flags and reasons are tested byte-identical with and without these fields.
+- These modules are under `src/maker_core`, so they change the manifest's source hashes. Land them before the ceiling
+  rehearsal and before the manifest build.
 
 The workstation wrapper admits exactly `maker_core.replay` as offline heavy work; no venue/runtime wildcard is added.
 An installed Codex hook with the older independent module list may still reject this command. This change does not
