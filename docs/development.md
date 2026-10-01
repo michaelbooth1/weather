@@ -68,8 +68,8 @@ package contract, and `requires-python` is `>=3.11`.
 
 The baseline commands are not authority to run a direct full suite or parallel verification here.
 [HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) is the contract. In short: focused tests run serially and only
-inside 00:30-09:00 local; the user-layer Codex hook rejects direct unbounded pytest at every hour and rejects
-pytest/compileall outside that window. A full suite runs only through
+inside 00:30-09:00 local; in Codex sessions the user-layer hook rejects direct unbounded pytest at every hour and
+rejects pytest/compileall outside that window (Claude Code has no hook; the S4U guard is its only backstop). A full suite runs only through
 `scripts/ops/bounded_worktree_test_suite.ps1`, against a clean worktree at an exact commit. Its enforced limits
 (read the script, not this list, if they matter to a decision):
 
