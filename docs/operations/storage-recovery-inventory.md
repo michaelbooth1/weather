@@ -99,7 +99,8 @@ exact-file cleanup remain required by the archive contract.
 ## Nightly compression consumer
 
 The separate `weather.operations.cold_snapshot_nightly` consumer calls the
-same bounded inventory with `min_age_days=14` and `immediate_files` under its
+same bounded inventory with `min_age_days=1` (a one-day hot window: a market-day
+is selectable once at least two local days old) and `immediate_files` under its
 own approved nightly policy, shared lease and 00:30-04:45 deadline. This does
 not change the attended inventory CLI's thirty-day selection contract or
 give inventory receipts deletion authority. See

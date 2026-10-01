@@ -1,4 +1,4 @@
-"""Two-page Streamlit router for the local operator frontend."""
+"""Three-page Streamlit router for the local owner/operator frontend."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import streamlit as st
 
 LIVE_REFRESH_SECONDS = 300
 PAGE_LABELS = {
-    "Control Room": "control",
+    "Cockpit": "cockpit",
+    "Control Room (historical pilot view)": "control",
     "Roadmap": "roadmap",
 }
 
@@ -23,8 +24,8 @@ st.set_page_config(
 def _default_page():
     if "roadmap" in st.query_params:
         return "roadmap"
-    requested = st.query_params.get("market")
-    return requested if requested in PAGE_LABELS.values() else "control"
+    # Any ?market= value, including retired routes, keeps the Control Room.
+    return "control" if "market" in st.query_params else "cockpit"
 
 
 def _selected_page():
@@ -36,19 +37,24 @@ def _selected_page():
         if PAGE_LABELS[label] == default_page
     )
     st.sidebar.markdown("### Weather Operations")
-    st.sidebar.caption("International maker pilot")
+    st.sidebar.caption("Owner cockpit and International maker pilot")
     selected = st.sidebar.selectbox("Page", labels, index=default_index)
     st.sidebar.caption("Read-only frontend")
     return PAGE_LABELS[selected]
 
 
 def _sync_query_params(page):
+    if page == "cockpit":
+        if set(st.query_params) != {"cockpit"}:
+            st.query_params.clear()
+            st.query_params["cockpit"] = ""
+        return
     if page == "roadmap":
         if "roadmap" not in st.query_params or st.query_params.get("market"):
             st.query_params.clear()
             st.query_params["roadmap"] = ""
         return
-    if "roadmap" in st.query_params or st.query_params.get("market") != "control":
+    if set(st.query_params) != {"market"} or st.query_params.get("market") != "control":
         st.query_params.clear()
         st.query_params["market"] = "control"
 
@@ -60,6 +66,10 @@ def main():
         from app.views.roadmap import render_roadmap_page
 
         render_roadmap_page()
+    elif page == "cockpit":
+        from app.views.cockpit import render_cockpit_page
+
+        render_cockpit_page()
     else:
         from app.views.control_room import render_control_room_page
 

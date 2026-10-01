@@ -1,4 +1,4 @@
-﻿# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]
+﻿# 32. Reanalysis And Synoptic Feature Layer [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]
 
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
