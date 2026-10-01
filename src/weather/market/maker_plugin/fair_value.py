@@ -12,20 +12,24 @@ def percentile_cdf(knots, x):
     """Right-continuous piecewise-linear CDF through p10/p25/p50/p75/p90.
 
     Equal knots are atoms (the 79a reading, ``quantile_cdf``). The first and
-    last segments extend linearly to probability zero and one; a tied end
-    segment is vertical, so its tail mass sits on the atom. Band edges are
-    half degrees and NBP knots whole degrees, so no edge meets an atom.
+    last segments extend linearly to probability zero and one. NBP prints
+    whole degrees, so a tied end pair is read one degree apart (T+1
+    Amendment 2): its 10% tail falls at the frozen .15 per degree and ends
+    2/3 degree beyond the knot. Band edges are half degrees and NBP knots
+    whole degrees, so no edge meets an atom.
     """
     qs = (.10, .25, .50, .75, .90)
+    if knots[0] == knots[4]:
+        raise ValueError("degenerate_percentile_knots")
     if not math.isfinite(x):
         return 0.0 if x < 0 else 1.0
     if x < knots[0]:
         if knots[1] == knots[0]:
-            return 0.0
+            return max(0., qs[0] - (knots[0] - x) * (qs[1] - qs[0]))
         index = 0
     elif x >= knots[4]:
         if knots[4] == knots[3]:
-            return 1.0
+            return min(1., qs[4] + (x - knots[4]) * (qs[4] - qs[3]))
         index = 3
     else:
         index = max(i for i in range(4) if knots[i] <= x)
@@ -34,9 +38,15 @@ def percentile_cdf(knots, x):
 
 
 def model_id(knots):
-    """Strictly increasing knots keep the frozen 110b estimator's identity."""
+    """Strictly increasing knots keep the frozen 110b estimator's identity.
+
+    Only a tied end pair changes value under Amendment 2, so only it takes
+    the new identity; interior-only ties keep Amendment 1's.
+    """
     if all(a < b for a, b in zip(knots, knots[1:])):
         return "nbp-v2-piecewise-linear"
+    if knots[0] == knots[1] or knots[3] == knots[4]:
+        return "nbp-v2-piecewise-linear-atoms-resolution-tails"
     return "nbp-v2-piecewise-linear-atoms"
 
 

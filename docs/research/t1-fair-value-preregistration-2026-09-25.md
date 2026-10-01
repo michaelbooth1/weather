@@ -116,3 +116,37 @@ any tie is labelled `nbp-v2-piecewise-linear-atoms`. A decreasing knot remains
 unavailable (`decreasing_percentile_knots`). "Repeated percentile knots ... are
 unavailable" above is superseded by this amendment; nothing else changes, and no
 result was read before it.
+
+## Amendment 2 — 2026-10-01, mission 111l (before any panel export, owner decision)
+
+Owner decision 2026-10-01 (option A of the 111l review). Motivation: the
+2026-10-01 review of Amendment 1 found a structural rounding artefact; no
+export, score or result was read. When the first or last pair of knots ties
+(KAUS 2026-09-17 01Z: P75 = P90 = 100 F), Amendment 1 makes that end segment
+vertical, so the open tail band is exactly 0 (its complement exactly 1). NBP
+prints whole degrees, so a printed P90 of 100 means the true P90 lies in
+[99.5, 100.5) and the mass above 100.5 is not 0. Clarification 1 turns a 0/1
+marginal into `stdev=0`, which `informed_v0` reads as a veto.
+
+Estimator rule: a tied end pair is read as one degree apart, the print
+resolution. Its outer segment uses the frozen 0.15-per-degree slope
+(P75 -> P90 at the top, P10 -> P25 at the bottom): above p90 the CDF is
+0.90 + 0.15 * (x - p90), below p10 it is 0.10 - 0.15 * (p10 - x), clamped to
+[0, 1]. The tail therefore reaches 2/3 degree beyond the knot (KAUS 01Z:
+>=101 F = 0.025, >=102 F = 0). Interior atoms are unchanged. If every knot ties
+the read is unavailable (`degenerate_percentile_knots`), never repaired.
+
+Strictly increasing knots are unchanged: they give exactly the frozen values
+above and keep `model_id` `nbp-v2-piecewise-linear`. Their exact 0/1 bands beyond
+the linear extension's support also remain, as frozen behaviour; this amendment
+does not change them. Ties only inside the curve keep the Amendment 1 values and
+`nbp-v2-piecewise-linear-atoms`. A read whose first or last pair ties is labelled
+`nbp-v2-piecewise-linear-atoms-resolution-tails`.
+
+Scoring: tied reads must be scored, not silently dropped as an unknown model. The
+T+1 scorer accepts both tied identities and reports each as its own stratum,
+per lead, beside the plain-NBP and fallback strata: `nbp_atoms` for
+`-atoms` and `nbp_resolution_tails` for `-atoms-resolution-tails`. They are never
+pooled into the primary NBP strata or into the pooled descriptive table, which
+keeps exactly its frozen membership (plain NBP and fallback). An event still
+uses one estimator for all its bands. Nothing else changes.

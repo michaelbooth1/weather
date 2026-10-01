@@ -271,11 +271,15 @@ On a host without an active release pointer, served T+0 rows carry
 `served_snapshot_release_unbound`; no release is inferred.
 
 T+1/T+2 NBP knots are whole degrees, so adjacent percentiles often tie. A tie is an
-atom of the piecewise-linear CDF and a tied end segment puts its tail mass on the atom
-([amendment 1](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-1--2026-10-01-mission-111k-before-scoring-owner-decision));
-strictly increasing knots keep `nbp-v2-piecewise-linear`, tied ones report
-`nbp-v2-piecewise-linear-atoms`, counted as `fair_value_model.lead<N>.<model_id>`. Only a
-decreasing knot refuses (`decreasing_percentile_knots`). Each
+atom of the piecewise-linear CDF
+([amendment 1](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-1--2026-10-01-mission-111k-before-scoring-owner-decision)).
+A tied end pair is read one degree apart, the print resolution, so its tail falls at the
+frozen 0.15 per degree and ends 2/3 degree beyond the knot
+([amendment 2](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-2--2026-10-01-mission-111l-before-any-panel-export-owner-decision)).
+Strictly increasing knots keep `nbp-v2-piecewise-linear`, interior-only ties report
+`nbp-v2-piecewise-linear-atoms`, a tied end pair `nbp-v2-piecewise-linear-atoms-resolution-tails`,
+counted as `fair_value_model.lead<N>.<model_id>`. A decreasing knot refuses
+(`decreasing_percentile_knots`), and so do all-equal knots (`degenerate_percentile_knots`). Each
 `fair_value:missing_point_in_time_forecast` carries a `forecast_gap`, counted as
 `missing_forecast.lead<N>.<gap>`: `expired_next_cycle_fetched_late` (the newest
 target-bearing issue passed its pre-registered expiry, next cycle + 1 h, before the next
