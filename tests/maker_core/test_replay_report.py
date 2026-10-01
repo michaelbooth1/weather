@@ -79,3 +79,24 @@ def test_pinned_fixture_registration_binds_scope_and_diagnostic_stays_default(tm
     path.write_bytes(raw + b" ")
     with pytest.raises(ValueError, match="hash_mismatch"):
         authorization.read_authorization(path, key)
+
+
+def test_k03_measured_reaction_sensitivity_is_reported_never_decisive(tmp_path):
+    from maker_core.replay.execution_receipt import evaluate_hurdles
+    report = comparison_report(panel(tmp_path), ReplayConfig(hazard_per_minute=0), replicates=100)
+    for bound in report["bounds"].values():
+        for baseline in ("no_quote", "blind_re1", "clock_only"):
+            assert {baseline + ":" + m for m in ("modeled_net_k1", "modeled_net_k05", "modeled_net_k03")} <= set(
+                bound["intervals"])
+        assert all("reward_k03" in r and "modeled_net_k03" in r for rows in bound["scores"].values() for r in rows)
+    markdown = report_bytes(report)[1]
+    assert b"Reward k=.3 (sensitivity)" in markdown and b"never a hurdle" in markdown
+    # Removing or corrupting every k=0.3 contrast leaves the registered decision unchanged.
+    decision = evaluate_hurdles(report)
+    changed = dict(report, bounds={name: dict(bound, intervals={k: v for k, v in bound["intervals"].items()
+                                                              if not k.endswith(":modeled_net_k03")})
+                                   for name, bound in report["bounds"].items()})
+    # Only the reported k = 0.3 flag may differ; status, hurdle flags and reasons may not.
+    keys = ("status", "economic_hurdle_met", "pull_hurdle_met", "reasons")
+    assert {k: evaluate_hurdles(changed)[k] for k in keys} == {k: decision[k] for k in keys}
+    assert evaluate_hurdles(changed)["measured_k_sensitivity"]["k03_lower_bounds_positive"] is False

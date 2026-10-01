@@ -6,6 +6,8 @@ wall clock, source file or plugin IO is reachable from this engine.
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -22,6 +24,20 @@ from maker_core.replay.re1_counterfactual import tick as blind_tick
 
 D = Decimal
 EPSILON = timedelta(microseconds=1)
+MAX_ENGINE_EVENTS = 2**31
+# Resource counts for a score-free rehearsal; never read by policy or scoring.
+_STATS = ContextVar("maker_replay_engine_stats", default=None)
+
+
+@contextmanager
+def collect_stats():
+    """Collect per-pass event/decision/span counts, and nothing a score is made of."""
+    sink = []
+    token = _STATS.set(sink)
+    try:
+        yield sink
+    finally:
+        _STATS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -38,6 +54,9 @@ class ReplayConfig:
     max_events: int = 500_000
     fill_bound: str = "strictly_through"
     clock_pulls: tuple = ()  # Predeclared (condition_id, from, until) UTC windows.
+    # Combined decision/span ceiling; None keeps the addendum's shared max_events.
+    # Clarification 2 derives it separately from the measured decision/span count.
+    max_outputs: int | None = None
 
     def __post_init__(self):
         if self.policy not in ("informed-v0", "blind_re1", "no_quote", "clock_only"):
@@ -47,7 +66,9 @@ class ReplayConfig:
         for name in ("initial_cash", "band_cap", "order_cap", "wallet_cap", "event_cap", "factor_cap"):
             object.__setattr__(self, name, number(getattr(self, name)))
         if (type(self.max_book_gap_seconds) is not int or not 1 <= self.max_book_gap_seconds <= 60
-                or type(self.max_events) is not int or not 1 <= self.max_events <= 500_000):
+                or type(self.max_events) is not int or not 1 <= self.max_events <= MAX_ENGINE_EVENTS
+                or (self.max_outputs is not None and (type(self.max_outputs) is not int
+                                                      or not 1 <= self.max_outputs <= MAX_ENGINE_EVENTS))):
             raise BundleError("invalid_engine_limit")
         if self.hazard_per_minute is not None:
             number(self.hazard_per_minute, maximum=D(1))
@@ -134,6 +155,7 @@ class ReplayEngine:
         self.settlements = {}
         self.trades_seen = {}
         self.processed = 0
+        self.output_cap = config.max_events if config.max_outputs is None else config.max_outputs
         self.end = max(c.active_until for b in bundles for c in b.conditions)
         self.horizon = datetime.combine(max(b.day for b in bundles) + timedelta(days=1),
                                         datetime.min.time(), tzinfo=timezone.utc)
@@ -216,7 +238,7 @@ class ReplayEngine:
 
     def record_decision(self, cid, at, decision):
         self.check()
-        if len(self.decisions) + len(self.spans) >= self.config.max_events:
+        if len(self.decisions) + len(self.spans) >= self.output_cap:
             raise BundleError("engine_output_cap")
         state = self.states[cid]
         state.decision, state.reason = decision, decision.reasons[0]
@@ -435,7 +457,7 @@ class ReplayEngine:
                 for cid, state in sorted(self.states.items()):
                     if self.active(cid, previous) or state.inventory_cost:
                         self.check()
-                        if len(self.decisions) + len(self.spans) >= self.config.max_events:
+                        if len(self.decisions) + len(self.spans) >= self.output_cap:
                             raise BundleError("engine_output_cap")
                         terms = state.latest.get("terms")
                         self.spans.append(Span(previous, at, cid, self.conditions[cid].market_id,
@@ -462,6 +484,10 @@ class ReplayEngine:
                     self.tick(cid, at)
             previous = at
         hashes = {b.day.isoformat(): dict(b.input_hashes) for b in self.bundles}
+        sink = _STATS.get()
+        if sink is not None:
+            sink.append(dict(policy=self.config.policy, fill_bound=self.config.fill_bound,
+                             events=self.processed, decisions=len(self.decisions), spans=len(self.spans)))
         return ReplayResult(self.config, tuple(self.decisions), tuple(self.spans), tuple(self.fills),
                             tuple(self.exclusions), hashes, self.cash, self.settlements, tuple(self.books))
 

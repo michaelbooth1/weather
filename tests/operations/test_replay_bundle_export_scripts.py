@@ -49,7 +49,7 @@ def test_deadline_uses_toronto_and_reserves_teardown_across_dst():
         if(($deadline-$now).TotalSeconds -ne 46){throw 'teardown reserve wrong'}
     }
     $start=[datetime]::Parse('2030-01-10T05:30:00Z').ToUniversalTime()
-    if(((Get-ReplayExportDeadline $start)-$start).TotalSeconds -ne 330){throw 'runtime not bounded'}
+    if(((Get-ReplayExportDeadline $start)-$start).TotalSeconds -ne 2730){throw 'runtime not bounded'}
     """
     ps(source)
 
@@ -75,7 +75,7 @@ def test_lease_release_follows_proved_job_teardown(teardown_fails):
     ps(source)
 
 
-@pytest.mark.parametrize("mode", ["whatif", "register", "wrong_hash", "wrong_tip", "bad_readback"])
+@pytest.mark.parametrize("mode", ["whatif", "register", "wrong_hash", "bad_module_pin", "bad_readback"])
 def test_pinned_registrar_with_mock_scheduler(tmp_path, mode):
     (tmp_path / "data").mkdir()
     (tmp_path / "releases").mkdir()
@@ -96,10 +96,7 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
     source = r"""
     $ErrorActionPreference='Stop'
     $script:registered=0
-    function git {
-        $global:LASTEXITCODE=0
-        if($args -contains 'rev-parse'){ return ('a'*40) }
-    }
+    function git { throw 'the export is pinned by wrapper and module hashes, never a Git tip' }
     function Get-TimeZone { return @{Id='Eastern Standard Time'} }
     function New-ScheduledTaskAction {param($Execute,$Argument,$WorkingDirectory)
         return @{Execute=$Execute;Arguments=$Argument;WorkingDirectory=$WorkingDirectory}}
@@ -110,7 +107,7 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
         param($MultipleInstances,[switch]$Hidden,[switch]$WakeToRun,$ExecutionTimeLimit,
               [switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries)
         return @{MultipleInstances=$MultipleInstances;Hidden=[bool]$Hidden;WakeToRun=[bool]$WakeToRun;
-            ExecutionTimeLimit='PT7M';StartWhenAvailable=$false;
+            ExecutionTimeLimit='PT50M';StartWhenAvailable=$false;
             DisallowStartIfOnBatteries=-not [bool]$AllowStartIfOnBatteries;
             StopIfGoingOnBatteries=-not [bool]$DontStopIfGoingOnBatteries}}
     function New-ScheduledTaskPrincipal {param($UserId,$LogonType,$RunLevel)
@@ -119,9 +116,10 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
         $script:registered++
         $script:task=@{TaskPath=[string][char]92;State='Ready';Actions=@($Action);Triggers=@($Trigger);
             Settings=$Settings;Principal=$Principal}
-        if($Action.Arguments -notlike '*-ExpectedSelfSha256*' -or
-           $Action.Arguments -notlike '*-ExpectedSourceTip*' -or
-           $Action.Arguments -notlike '*05:00-08:00*'){throw 'missing pins'}
+        if($Action.Arguments -notlike ('*-ExpectedSelfSha256|*') -or
+           $Action.Arguments -notlike ('*-ExpectedModuleSha256|' + ('c'*64) + '*') -or
+           $Action.Arguments -like '*ExpectedSourceTip*' -or
+           $Action.Arguments -like '*05:00-08:00*' -or $Action.Arguments -like '*ExcludeUtc*'){throw 'missing pins'}
     }
     function Get-ScheduledTask {param($TaskName,$ErrorAction)
         BAD_READBACK
@@ -134,12 +132,19 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
     """
     invoke = (f"& '{registrar}' -RepoRoot '{tmp_path}' -DataRoot '{tmp_path / 'data'}' "
               f"-ReleaseRoot '{tmp_path / 'releases'}' -OutputRoot '{tmp_path / 'panel'}' "
-              f"-ExpectedSourceTip '{('b' if mode == 'wrong_tip' else 'a')*40}' "
+              f"-ExpectedModuleSha256 '{'g'*64 if mode == 'bad_module_pin' else 'c'*64}' "
               f"-ExpectedRunnerSha256 '{'0'*64 if mode == 'wrong_hash' else expected}' "
               + ("-WhatIf" if mode == "whatif" else ""))
     source = source.replace("$script:", "$global:")
     source = source.replace("INVOKE", invoke).replace("EXPECT_FAILURE", "$true" if mode in
-                           {"wrong_hash", "wrong_tip", "bad_readback"} else "$false")
+                           {"wrong_hash", "bad_module_pin", "bad_readback"} else "$false")
     source = source.replace("EXPECT_COUNT", "1" if mode in {"register", "bad_readback"} else "0")
     source = source.replace("BAD_READBACK", "$script:task.Settings.StartWhenAvailable=$true" if mode == "bad_readback" else "")
     ps(source)
+
+
+def test_runner_pins_modules_not_a_git_tip_and_has_no_interval_flag():
+    text = (OPS / "replay_bundle_export_nightly.ps1").read_text(encoding="utf-8")
+    assert "'--expected-module-sha256', $ExpectedModuleSha256" in text and "'--max-seconds'" in text
+    for retired in ("ExpectedSourceTip", "rev-parse", "--exclude-utc", "ExcludeUtc"):
+        assert retired not in text

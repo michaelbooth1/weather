@@ -16,6 +16,10 @@ def test_rewards_terms_change_and_half_sensitivity(tmp_path):
     shares = [x.share_many for x in result.spans if x.legs]
     assert r["reward_k1"] == (D(100)*D(str(shares[0])) + D(50)*D(str(shares[1]))) / 1440
     assert r["reward_k05"] == r["reward_k1"] / 2
+    assert r["reward_k03"] == r["reward_k1"] * D("0.3")
+    for k in ("k05", "k03"):  # Only the reward term scales with k.
+        if r["modeled_net_k1"] is not None:
+            assert r["modeled_net_k1"] - r["modeled_net_" + k] == r["reward_k1"] - r["reward_" + k]
     assert r["covered_seconds"] == 120
     assert r["maker_fees"] == 0
 

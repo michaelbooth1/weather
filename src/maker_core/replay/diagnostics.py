@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from maker_core.evidence.journal import canonical_bytes
-from maker_core.replay.bundle import Bundle, BundleError, regular_path
+from maker_core.replay.bundle import HOST_MAX_BYTES, Bundle, BundleError, regular_path
 
 REPORT_FORMAT = "maker_core.replay.diagnostics.v0.1"
 MAX_REPORT_BYTES = 8 * 1024**2
@@ -74,7 +74,8 @@ def report_bytes(report: dict) -> tuple[bytes, bytes]:
 def write_report(directory: Path, report: dict, *, input_directory: Path,
                  max_bytes: int = MAX_REPORT_BYTES, check=lambda: None, render=report_bytes,
                  other_inputs=()) -> None:
-    if type(max_bytes) is not int or not 1 <= max_bytes <= MAX_REPORT_BYTES:
+    # A Clarification 2 manifest may derive a larger report ceiling, up to the host memory limit.
+    if type(max_bytes) is not int or not 1 <= max_bytes <= HOST_MAX_BYTES:
         raise BundleError("invalid_report_byte_cap")
     check()
     output, source = regular_path(directory), regular_path(input_directory)

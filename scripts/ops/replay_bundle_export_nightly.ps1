@@ -1,15 +1,15 @@
-# Export yesterday's sealed UTC evidence without touching capture or Scheduler.
-# Exact source tip + self hash are pinned by the registrar. 110r owns interval readers.
+# Export yesterday's sealed UTC evidence as one all-city bundle without touching capture or Scheduler.
+# The registrar pins this wrapper's hash and the exporter's module-closure hash (not a Git tip),
+# so unrelated master commits do not stop the export. Active intervals are manifest-only.
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [Parameter(Mandatory = $true)][string]$DataRoot,
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedModuleSha256,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedSelfSha256,
-    [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$Day = '',
-    [ValidateSet('05:00-08:00')][string]$ExcludeUtc = '05:00-08:00'
+    [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$Day = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
@@ -24,7 +24,8 @@ function Get-ReplayExportDeadline {
         throw 'REFUSED: nightly export starts only 00:30-04:54 America/Toronto'
     }
     $boundary = [TimeZoneInfo]::ConvertTimeToUtc($local.Date.AddMinutes(295), $zone)
-    $deadline = $NowUtc.AddSeconds(330)
+    # 45 minutes of export plus 30 seconds of Python/Job startup, never past 04:54:45.
+    $deadline = $NowUtc.AddSeconds(2730)
     if ($deadline -gt $boundary.AddSeconds(-15)) { $deadline = $boundary.AddSeconds(-15) }
     return $deadline
 }
@@ -48,10 +49,7 @@ function Assert-ReplayExportPath {
 }
 
 function Assert-ReplayExportSource {
-    $tip = [string](git -C $RepoRoot rev-parse HEAD)
-    if ($LASTEXITCODE -ne 0 -or $tip.Trim() -cne $ExpectedSourceTip) { throw 'source tip mismatch' }
-    $dirty = @(git -C $RepoRoot status --porcelain --untracked-files=normal -- src scripts/ops)
-    if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'export source must be clean' }
+    # The exporter itself refuses unless its loaded module closure hashes to ExpectedModuleSha256.
     $hash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($hash -cne $ExpectedSelfSha256) { throw 'nightly wrapper hash mismatch' }
 }
@@ -106,9 +104,12 @@ try {
         [double]$memory.commit_percent -lt 0) { throw 'commit charge must be measured below 70 percent' }
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($OutputRoot))
     if ($drive.AvailableFreeSpace -lt 50GB) { throw '50 GiB free required for capture headroom' }
+    $budget = [Math]::Floor(($deadline - [DateTime]::UtcNow).TotalSeconds) - 30
+    if ($budget -lt 60) { throw 'deadline elapsed during admission' }
+    if ($budget -gt 2700) { $budget = 2700 }
     $tokens = @('-B', '-m', 'weather.market.maker_plugin.replay_export', 'night', '--day', $Day,
-        '--data-root', $DataRoot, '--release-root', $ReleaseRoot, '--out', $OutputRoot, '--exclude-utc', $ExcludeUtc)
-    if ([DateTime]::UtcNow -ge $deadline) { throw 'deadline elapsed during admission' }
+        '--data-root', $DataRoot, '--release-root', $ReleaseRoot, '--out', $OutputRoot,
+        '--expected-module-sha256', $ExpectedModuleSha256, '--max-seconds', [string]$budget)
     $job = New-WeatherKillOnCloseJob
     $child = Start-WeatherProcessInJob -Job $job -FilePath $python `
         -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $tokens) -WorkingDirectory $RepoRoot

@@ -25,6 +25,12 @@ REPLAY_ASSUMPTIONS = (
 )
 
 
+# k=1 and k=0.5 are registered; k=0.3 (Clarification 2) is a reported sensitivity that
+# no hurdle, estimator or decision reads.
+REPORTED_METRICS = ("modeled_net_k1", "modeled_net_k05", "modeled_net_k03")
+SENSITIVITY_METRICS = ("modeled_net_k03",)
+
+
 def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=20260926,
                       registration_hash=None, check=lambda: None):
     bundles = tuple(sorted(bundles, key=lambda b: b.day))
@@ -47,7 +53,7 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
         scores = {name: score(results[name], check=check) for name in POLICIES}
         intervals = {}
         for baseline in POLICIES[1:]:
-            for metric in ("modeled_net_k1", "modeled_net_k05"):
+            for metric in REPORTED_METRICS:
                 key = baseline + ":" + metric
                 if baseline == "clock_only" and matching["status"] != "MATCHED":
                     intervals[key] = dict(status="UNMATCHED_CLOCK_CONTROL", intervals=None)
@@ -77,18 +83,26 @@ def report_bytes(report):
              "no live or promotion verdict follows from replay.", "",
               "Registration SHA-256: " + str(report["pre_registration_sha256"]), ""]
     if "registered_decision" in report:
-        lines += ["Registered decision: **"+report["registered_decision"]["status"]+"**.",
-                  "Reasons: "+", ".join(report["registered_decision"]["reasons"]), ""]
+        decision = report["registered_decision"]
+        lines += ["Registered decision: **"+decision["status"]+"**.",
+                  "Reasons: "+", ".join(decision["reasons"]), ""]
+        sensitivity = decision.get("measured_k_sensitivity")
+        if sensitivity is not None:
+            lines += ["Measured-reaction sensitivity (strictly_through, both baselines, reported only): "
+                      f"k=0.3 lower bounds positive: {sensitivity['k03_lower_bounds_positive']}; "
+                      f"k=0.5 lower bounds positive: {sensitivity['k05_lower_bounds_positive']}.",
+                      "Label: " + (decision.get("label") or "none") + " (changes no status, hurdle or decision rule).", ""]
     for bound, result in report["bounds"].items():
         lines += ["## " + bound, "", "Clock match: " + result["clock_match"]["status"], "",
-                  "| Policy | Date | Condition | Coverage | Reward k=1 | Reward k=.5 | Nominal rebate | Settlement P&L | Cash-hours | Pull fraction | Fills |",
-                  "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+                  "| Policy | Date | Condition | Coverage | Reward k=1 | Reward k=.5 | Reward k=.3 (sensitivity) | Nominal rebate | Settlement P&L | Cash-hours | Pull fraction | Fills |",
+                  "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
         for policy, rows in result["scores"].items():
             for r in rows:
-                values = [policy, r["date"], r["condition_id"], r["status"], r["reward_k1"], r["reward_k05"],
+                values = [policy, r["date"], r["condition_id"], r["status"], r["reward_k1"], r["reward_k05"], r["reward_k03"],
                           r["nominal_rebate"], r["settled_inventory_pnl"], r["cash_hours"], r["pulled_minute_fraction"], r["fills"]]
                 lines.append("| " + " | ".join(_safe(v) for v in values) + " |")
-        lines += ["", "### Paired 90% intervals", ""]
+        lines += ["", "### Paired 90% intervals", "",
+                  "`modeled_net_k03` is the measured-reaction sensitivity (k=0.3): reported only, never a hurdle.", ""]
         for comparator, entry in result["intervals"].items():
             if entry.get("intervals") is None:
                 lines.append("- " + comparator + ": " + entry["status"])

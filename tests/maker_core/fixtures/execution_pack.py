@@ -1,9 +1,10 @@
-"""Synthetic execution-pack inputs; no retained capture, ledger or wallet reads."""
+"""Synthetic execution-pack inputs plus the signed documents' exact bytes; no capture, ledger or wallet reads."""
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 
 from maker_core.evidence.journal import canonical_bytes
-from maker_core.replay import authorization
+from maker_core.replay import authorization, ceilings
 from maker_core.replay.bundle import load_bundle, sha256
 from maker_core.replay.calibration import CALIBRATION_DATES, calibrate
 from maker_core.replay.execution_manifest import QUOTE_DATES, SETTLEMENT_DATE, build_manifest
@@ -32,7 +33,32 @@ def calibration_days(root, minutes=480, markets=("a",), occupied=10):
     return tuple(bundles)
 
 
-def pack(root):
+RESEARCH = Path(__file__).resolve().parents[3]/"docs"/"research"
+SIGNED_DOCUMENTS = dict(frozen_protocol="maker-replay-hurdles-preregistration-2026-09-27.md",
+                        execution_addendum="maker-replay-execution-addendum-2026-09-27.md",
+                        clarification="maker-replay-clarification-1-2026-09-27.md",
+                        clarification_2="maker-replay-clarification-2-2026-09-29.md")
+
+
+# Fictional resource counts sized so the rule admits the fixture panel.
+MEASURED = dict(input_bytes=16*1024**2, records=20000, engine_events=50000, decisions_spans=50000,
+                report_bytes=100*1024, runtime_seconds=2.0, peak_memory_above_baseline_bytes=32*1024**2,
+                baseline_memory_bytes=100*1024**2)
+
+
+def per_date(measured=MEASURED):
+    # The 09-28 rehearsal is the smallest; the rule takes each quantity's largest date.
+    small = {k: v // 2 if isinstance(v, int) else v / 2 for k, v in measured.items()}
+    return {d.isoformat(): dict(small if d.day == 28 else measured) for d in CALIBRATION_DATES}
+
+
+def measurement(measured=MEASURED):
+    dates = per_date(measured)
+    return dict(format=ceilings.FORMAT, per_date=dates, rehearsal_sha256={d: "0"*64 for d in dates},
+                calibration_sha256="0"*64, derived=ceilings.derive(dates))
+
+
+def pack(root, measured=MEASURED):
     calibration_root, panel_root = root/"calibration-bundles", root/"panel"
     calibration_root.mkdir()
     panel_root.mkdir()
@@ -56,20 +82,25 @@ def pack(root):
     inventory.sort(key=lambda r: r["condition_id"])
     universe_path = root/"universe.json"
     inventory_hash = write_json(universe_path, inventory)
+    measurement_path = root/"ceiling-measurement.json"
+    measurement_hash = write_json(measurement_path, measurement(measured))
     paths = dict(decision_log=root/"DECISION_LOG.md", frozen_protocol=root/"protocol.md",
                  execution_addendum=root/"addendum.md", clarification=root/"clarification.md",
-                 calibration_path=calibration_path, inventory_path=universe_path, quote_inventory_path=quote_markets)
-    decision = dict(authorization_id="maker-replay-2026-10-15-v1", owner="michaelbooth1",
-        signed_at="2026-09-27T00:00:00Z", scoring_date="2026-10-15", expires_at="2026-10-16T04:00:00Z")
+                 clarification_2=root/"clarification-2.md", calibration_path=calibration_path,
+                 inventory_path=universe_path, quote_inventory_path=quote_markets, measurement_path=measurement_path)
+    decision = dict(authorization_id="maker-replay-2026-10-15-v2", owner="michaelbooth1",
+        signed_at="2026-09-29T12:00:00Z", scoring_date="2026-10-15", expires_at="2026-11-01T04:00:00Z")
+    # v2 pins the four signed documents' hashes, so the fixture copies their exact bytes.
     for field, name in (("protocol_sha256", "frozen_protocol"), ("addendum_sha256", "execution_addendum"),
-                        ("clarification_sha256", "clarification")):
-        raw = b"# FICTIONAL TEST DOCUMENT ONLY\n" + name.encode() + b"\n"
+                        ("clarification_sha256", "clarification"), ("clarification_2_sha256", "clarification_2")):
+        raw = (RESEARCH/SIGNED_DOCUMENTS[name]).read_bytes()
         paths[name].write_bytes(raw)
         decision[field] = sha256(raw)
-    row = "| 2026-09-27 | APPROVE_MAKER_REPLAY | offline replay only | `"+json.dumps(decision)+"` | — |\n"
+    row = "| 2026-09-29 | APPROVE_MAKER_REPLAY | offline replay only | `"+json.dumps(decision)+"` | — |\n"
     paths["decision_log"].write_text(authorization.LOG_HEADER+"\n| --- | --- | --- | --- | --- |\n"+row, encoding="utf8")
-    doc = build_manifest(bundles, cb, calibration, inventory, decision, calibration_sha256=calibration_hash,
-                         inventory_sha256=inventory_hash, quote_inventory_sha256=quote_hash)
+    doc = build_manifest(bundles, cb, calibration, inventory, decision, measurement(measured),
+                         calibration_sha256=calibration_hash, inventory_sha256=inventory_hash,
+                         quote_inventory_sha256=quote_hash, measurement_sha256=measurement_hash)
     manifest = root/"manifest.json"
     key = write_json(manifest, doc)
     return doc, tuple(bundles), cb, paths, manifest, key

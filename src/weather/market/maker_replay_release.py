@@ -48,6 +48,8 @@ class ReleaseSources(Sources):
 
     def for_event(self, slug):
         support = super().for_event(slug)
+        if support.get("release_projected"):
+            return support  # A cache hit: projected once, providers built once.
         market, _ = event_identity(slug)
         projected = []
         for row in support["source_rows"]:
@@ -63,4 +65,10 @@ class ReleaseSources(Sources):
             else:
                 row.setdefault("release_calibration_method", None)
             projected.append(row)
-        return dict(support, source_rows=projected)
+        result = dict(support, source_rows=projected, release_projected=True)
+        # Replace the cached entry in place (same budget accounting) so the next
+        # minute reuses this projection and the providers built on it, instead of
+        # rebuilding both for every book capture.
+        if slug in self.cache and self.cache[slug][1] is support:
+            self.cache[slug] = (self.cache[slug][0], result)
+        return result
