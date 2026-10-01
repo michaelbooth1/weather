@@ -194,6 +194,12 @@ Unmatched lots belong to owner-discretionary, outside bot bleed limits.
 
 Run commands from the repository root with the venv interpreter.
 
+The offline maker-plugin diagnostic entrypoint is
+`python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data> --output <new-dir>`.
+It consumes sealed captures and writes bounded JSON/Markdown reports. See the
+[input paths, limits and policy assumptions](docs/operations/maker-core-contracts.md#bounded-weather-plugin-dry-run);
+production execution still requires the host-load lease.
+
 ### Registry, History, And Source Data
 
 ```powershell
