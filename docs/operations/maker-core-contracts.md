@@ -207,9 +207,27 @@ For registered events, explicit supporting paths beneath `--data-root` are:
   `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
 - `snapshots/<event>/clob_tokens.jsonl[.gz]`, else `clob_tokens.csv[.gz]`, for band
   metadata before the event has point-in-time snapshot rows (T+1/T+2): the first complete
-  token batch (both outcomes of every condition, identical native bin fields, no negative
-  label) is streamed and the read stops there; a batch after the decision minute is a
-  reported coverage limit, never a guess;
+  token batch (both outcomes of every condition, identical native bin fields, numeric token
+  ids, no negative label) is streamed and the read stops there. Production capture is
+  local-T+0 only (the snapshot loop's pre-local-day guard; the CLOB loop's
+  `market_local_date`), so a T+1/T+2 event's first batch is normally captured after the run
+  date. A batch at or before the minute is a point-in-time band capture. A later batch is
+  used only as **condition identity** (a band is part of its condition's immutable
+  question): only when no band capture exists at the minute, and only when that minute's
+  88a discovery lists exactly the batch's conditions with the same YES/NO token ids.
+  `WeatherUniverse.bands` enforces this for every caller (descriptors, fair value, clock,
+  settlement) against the discovery the universe holds at that minute: other contracts are
+  `band_identity_mismatch`, no discovery at the minute is `band_identity_unverified`. The
+  runner feeds each event's replayed discovery to the shared universe (one capture per
+  content change). Partition membership, books and prices stay point in time. The basis is reported per band (`band_basis`), in the
+  descriptor's `source_hashes` and in the fair-value input digest; no batch at all remains
+  `descriptor:missing_captured_band_metadata`;
+- NBP manifests from every run-window event folder of the market
+  (`snapshots/<event>/forecast_payloads.jsonl`, read once per market per run as
+  `nbp_pool_manifests`): an NBP cycle is a national product, and the copy captured for the
+  T+0 event also carries T+1/T+2 maxima. Each manifest is verified against the event it was
+  captured for; the provider selects its own target's slot and skips a cycle without it.
+  An unreadable pooled manifest makes that market's fair value and clock corrupt, never fallback;
 - shared NBP bulletins (`payload_storage_scope=shared_market_invariant`) at
   `forecast_payload_cas/sha256/<prefix>/<payload_hash>.blob`, the path produced by the
   store's own `shared_payload_ref`; the manifest's CAS kind, raw-bytes hash algorithm,
@@ -243,6 +261,29 @@ so a minute reads no files. Coverage reports `input_bytes.<source>` and
 `files_read.<source>` for every source, and `unavailable.lead<N>.<reason>` by local lead.
 `--minute-stride N` evaluates only UTC minutes of the day divisible by N; it is recorded
 in the summary and counted as `segment_minutes.skipped_by_stride`.
+`band_basis.lead<N>.<basis>` counts band-minutes by band basis, and `end_to_end.lead<N>`
+counts bands whose descriptor, fair value (`OutcomeView`), clock, settlement join, book,
+terms and policy decision all ran. At the default hazard every informed decision is
+`MISSING_CONSERVATIVE_FILL_BOUND` (0 legs) by design, and `informed-v0` refuses T+0
+(`HORIZON_NOT_ELIGIBLE`) before reading fair value; legs need an explicit hypothetical hazard.
+On a host without an active release pointer, served T+0 rows carry
+`release_identity_status=research_unbound_non_countable` and stay
+`served_snapshot_release_unbound`; no release is inferred.
+
+T+1/T+2 NBP knots are whole degrees, so adjacent percentiles often tie. A tie is an
+atom of the piecewise-linear CDF and a tied end segment puts its tail mass on the atom
+([amendment 1](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-1--2026-10-01-mission-111k-before-scoring-owner-decision));
+strictly increasing knots keep `nbp-v2-piecewise-linear`, tied ones report
+`nbp-v2-piecewise-linear-atoms`, counted as `fair_value_model.lead<N>.<model_id>`. Only a
+decreasing knot refuses (`decreasing_percentile_knots`). Each
+`fair_value:missing_point_in_time_forecast` carries a `forecast_gap`, counted as
+`missing_forecast.lead<N>.<gap>`: `expired_next_cycle_fetched_late` (the newest
+target-bearing issue passed its pre-registered expiry, next cycle + 1 h, before the next
+cycle was captured), `expired_next_cycle_not_captured`, `fetched_after_expiry`,
+`no_cycle_with_target` or `no_bulletin`. Each pooled station extract's earliest capture is
+also counted against its expected availability (`nbp_capture_vs_expected_availability.<bucket>`:
+`on_time`, `late_0_15m`, `late_15_30m`, `late_30_60m`, `late_over_60m`); a late cycle is a
+gap in which the previous issue has already expired.
 
 The last books capture in each segment's minute is the decision clock. Split
 minutes across segment boundaries are explicitly flagged, not silently deduplicated.
@@ -252,6 +293,20 @@ do not erase valid siblings. 88a books only its selected, reward-eligible bands
 `descriptor:book_not_captured`, a capture coverage limit rather than an input fault. The JSON and Markdown contain available probability
 mass sums, expected/available bands, partial-mass flags, joins, provider refusals,
 clock events (JSON), settlement Pending/facts, policy reasons and leg counts.
+
+Probability mass is judged over **the band set 88a captures** (owner bar, DECISION_LOG
+2026-10-01): a band is captured when both token books exist at or before the minute
+(`captured_by_88a`). A record's `probability_mass.captured_set` is `complete_unit_mass`
+when every captured band has a fair value, all from one joint over the full partition,
+and that joint sums to one; otherwise `partial`, `complete_without_one_joint`,
+`complete_nonunit_mass` or `no_captured_bands`. The summary counts these by lead
+(`captured_set_mass`), the reasons on captured bands (`captured_set_reasons`), and,
+beside them, the all-band classes by lead (`all_band_mass`; `mass_coverage` keeps the
+lead-free all-band count). The summary's `verdict`, the first section of `report.md`,
+computes the exam-line bar: status COMPLETE, `end_to_end.lead1` > 0, no
+`band_identity_mismatch` or `band_identity_unverified`, and at least one lead-1 record
+with complete unit mass over the captured set. The hand check of one T+1 fair value
+against its bulletin stays manual.
 Not-evaluable inputs are counted separately from a policy decision with zero legs.
 
 `informed_v0` supplies profile name `informed-v0`. Every decision is independent

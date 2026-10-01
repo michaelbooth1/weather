@@ -24,8 +24,10 @@ from weather.collection.forecast_payload_cas import (
     validate_nbm_shared_manifest_identity,
 )
 from weather.forecast_payload_contracts import NBM_NBP_ENCODING, NBM_NBP_MEDIA_TYPE, NBM_NBP_SOURCE
+from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.maker_plugin.inputs import band, event_identity, timestamp
+from weather.market.maker_plugin.nbp import issue_time
 from weather.market.maker_plugin_capture import MAX_FILE_BYTES, MAX_ROWS, encoded
 
 LOAD_ERRORS = (ValueError, KeyError, TypeError, AttributeError, OSError, EOFError, csv.Error)
@@ -93,14 +95,18 @@ def token_batch(rows, slug):
         outcome = row.get("outcome")
         if outcome not in ("Yes", "No") or outcome in pairs.setdefault(cid, {}):
             raise ValueError("token_outcome_invalid")
-        pairs[cid][outcome] = (meta, edges)
+        token = str(row.get("clob_token_id") or "")
+        if not re.fullmatch(r"[0-9]{1,100}", token):
+            raise ValueError("token_id_invalid")
+        pairs[cid][outcome] = (meta, edges, token)
     result = []
     for cid, sides in sorted(pairs.items()):
         if set(sides) != {"Yes", "No"} or sides["Yes"][1] != sides["No"][1]:
             raise ValueError("token_band_incomplete_pair")
         kind, value, hi = sides["Yes"][0]
         result.append({"event_slug": slug, "captured_at_utc": when, "condition_id": cid,
-                       "bin_kind": kind, "bin_value_c": value, "bin_value_hi_c": hi})
+                       "bin_kind": kind, "bin_value_c": value, "bin_value_hi_c": hi,
+                       "tokens": {"YES": sides["Yes"][2], "NO": sides["No"][2]}})
     return result
 
 
@@ -124,6 +130,7 @@ class Sources:
         self.triggers_by_event = None
         self.trigger_error = False
         self.ledgers = {}
+        self.pools = {}
 
     def error(self, source, exc):
         key = source + ":" + reason(exc)
@@ -252,9 +259,10 @@ class Sources:
                     if finish():
                         return True
                     batch = []
-                when = optional_time(row.get("captured_at_utc"))
-                if when is None or when > self.day_end:
-                    return True  # Unordered or post-run capture: stop, never guess.
+                if optional_time(row.get("captured_at_utc")) is None:
+                    return True  # Unordered capture: stop, never guess.
+                # A batch after the run date still carries the conditions'
+                # immutable bands; the universe uses it only as identity.
                 batch.append(row)
                 return False
             try:
@@ -348,12 +356,55 @@ class Sources:
             raise ValueError("retained_payload_identity_mismatch")
         return payload
 
-    def bulletins(self, manifests, root, spec, target):
-        bulletins, seen, size, nbp_errors = [], set(), 0, []
-        for row in sorted(manifests, key=lambda r: str(r.get("captured_at_utc", ""))):
-            self.reader.check()
-            if row.get("source") != NBM_NBP_SOURCE:
+    def window_slugs(self, spec):
+        first, last = self.target_window
+        return [event_slug_for_date(first + timedelta(days=n), spec.id) for n in range((last - first).days + 1)]
+
+    def market_bulletins(self, spec):
+        """One station's NBP bulletins from every run-window event folder of its market.
+
+        Snapshot capture is local-T+0 only (``snapshot_tracker`` pre-local-day
+        guard), so a T+1/T+2 event folder holds no rows before its local day.
+        An NBP bulletin is a national cycle product: the copy captured for the
+        T+0 event also carries later targets' maxima. Each manifest is verified
+        against the event it was captured for; the provider then selects the
+        slot for its own target and skips a cycle that does not hold it.
+        """
+        if spec.id not in self.pools:
+            manifests, errors = [], []
+            for slug in self.window_slugs(spec):
+                root = self.reader.root / "snapshots" / slug
+                before = set(self.bad_sources)
+                rows = self.table(root / "forecast_payloads.jsonl", "nbp_pool_manifests", lookback=True)
+                if "nbp_pool_manifests" in self.bad_sources - before:
+                    errors.append({"captured_at_utc": None})  # Unreadable: availability unknown.
+                self.bad_sources = before
+                manifests.extend((root, slug, row) for row in rows if row.get("source") == NBM_NBP_SOURCE)
+            bulletins, nbp_errors = self.bulletins(manifests, spec)
+            self.fetch_lateness(bulletins)
+            self.pools[spec.id] = (bulletins, errors + nbp_errors)
+        return self.pools[spec.id]
+
+    def fetch_lateness(self, bulletins):
+        """Earliest capture of each station extract against its expected availability.
+
+        A cycle's expected availability (issue + 1 h, pre-registered) is also the
+        previous cycle's expiry, so a late capture is a gap with no eligible issue.
+        """
+        for bulletin in bulletins:
+            try:
+                issue = issue_time(bulletin["text"].partition("\n")[0])
+            except ValueError:
                 continue
+            late = (timestamp(bulletin["fetched_at"]) - issue - timedelta(hours=1)).total_seconds() / 60
+            bucket = next((name for limit, name in ((0, "on_time"), (15, "late_0_15m"), (30, "late_15_30m"),
+                                                    (60, "late_30_60m")) if late <= limit), "late_over_60m")
+            self.reader.coverage["nbp_capture_vs_expected_availability." + bucket] += 1
+
+    def bulletins(self, manifests, spec):
+        found, seen, size, nbp_errors = {}, set(), 0, []
+        for root, slug, row in sorted(manifests, key=lambda m: str(m[2].get("captured_at_utc", ""))):
+            self.reader.check()
             captured, fetched = optional_time(row.get("captured_at_utc")), optional_time(row.get("fetched_at"))
             if captured is not None and captured < self.lookback_start and (fetched is None or fetched < self.lookback_start):
                 self.reader.coverage["nbp.rows_before_lookback"] += 1
@@ -362,25 +413,33 @@ class Sources:
                 key = row["payload_hash"]
                 if not re.fullmatch(r"[0-9a-f]{64}", str(key)):
                     raise ValueError("invalid_retained_payload_hash")
-                if key in seen:
+                if row.get("event_slug") not in (None, "", slug):
+                    raise ValueError("retained_payload_identity_mismatch")
+                _, captured_for = event_identity(slug)
+                if (key, slug) in seen:
                     continue
                 if row.get("payload_storage_scope") == SHARED_FORECAST_PAYLOAD_SCOPE:
-                    payload = self.shared_bulletin(row, spec, target)
+                    payload = self.shared_bulletin(row, spec, captured_for)
                 else:
-                    payload = self.legacy_bulletin(row, root, spec, target)
+                    payload = self.legacy_bulletin(row, root, spec, captured_for)
                 # The manifest's capture is an additional availability bound.
                 fetched = max(timestamp(payload["fetched_at"]), timestamp(row["captured_at_utc"]))
                 payload["fetched_at"] = fetched.isoformat()
-                size += len(payload["text"])
-                if size > MAX_FILE_BYTES:
-                    raise ValueError("bulletin_memory_limit")
-                bulletins.append(payload)
-                seen.add(key)
+                payload["captured_for_target_date"] = payload.pop("target_date")
+                seen.add((key, slug))
+                # One station extract per text; its earliest availability wins.
+                prior = found.get(payload["payload_hash"])
+                if prior is None:
+                    size += len(payload["text"])
+                    if size > MAX_FILE_BYTES:
+                        raise ValueError("bulletin_memory_limit")
+                if prior is None or fetched < timestamp(prior["fetched_at"]):
+                    found[payload["payload_hash"]] = payload
             except LOAD_ERRORS as exc:
                 self.error("nbp", exc)
                 nbp_errors.append({"captured_at_utc": row.get("captured_at_utc")})
-        self.reader.coverage["nbp.rows"] += len(bulletins)
-        return bulletins, nbp_errors
+        self.reader.coverage["nbp.rows"] += len(found)
+        return list(found.values()), nbp_errors
 
     def coverage_times(self, result, slug, spec, target):
         """Sorted identity-matched clocks, so per-minute coverage is a bisection."""
@@ -410,25 +469,31 @@ class Sources:
         explanations = self.table(root / "snapshot_explanations.jsonl", "explanations")
         manifests = self.table(root / "forecast_payloads.jsonl", "nbp_manifests")
         observation_sources = self.table(root / "observation_payloads.jsonl", "observation_sources")
-        bulletins, nbp_errors = self.bulletins(manifests, root, spec, target)
+        pool, nbp_errors = self.market_bulletins(spec)
+        # Station extracts are target-independent; the provider selects this
+        # event's slot and refuses a cycle that does not hold its maximum.
+        bulletins = [dict(b, target_date=target.isoformat()) for b in pool]
         triggers = self.triggers(slug)
         ledger = self.ledger(spec, slug)
-        tokens = self.token_bands(root, slug)
+        identity = self.token_bands(root, slug)
+        if identity and optional_time(identity[0]["captured_at_utc"]) > self.day_end:
+            self.reader.coverage["band_tokens.batch_after_run_date"] += 1
         snapshot_times = {optional_time(r.get("captured_at_utc")) for r in snapshots}
-        tokens = [r for r in tokens if optional_time(r["captured_at_utc"]) not in snapshot_times]
+        tokens = [r for r in identity if optional_time(r["captured_at_utc"]) not in snapshot_times
+                  and optional_time(r["captured_at_utc"]) <= self.day_end]
         # Source payload manifests carry captured release fields. In production
         # release_calibration_method may be absent: never fabricate that projection.
         result = dict(snapshots=snapshots, source_rows=manifests + observation_sources, forecasts=forecasts,
                       explanations=explanations, bulletins=bulletins, triggers=triggers,
                       ledger_rows=[r for r in ledger if r.get("event_slug") == slug],
-                      band_rows=compress_bands(snapshots + tokens),
-                      band_token_batch_utc=tokens[0]["captured_at_utc"] if tokens else None,
+                      band_rows=compress_bands(snapshots + tokens), identity_band_rows=identity,
+                      band_token_batch_utc=identity[0]["captured_at_utc"] if identity else None,
                       bad_sources=sorted(self.bad_sources - {"nbp"}), nbp_errors=nbp_errors)
         result["coverage_times"] = self.coverage_times(result, slug, spec, target)
         result["loaded_rows"] = {name: len(result[name]) for name, _ in COVERAGE_KEYS}
         size = 0
         for name in ("snapshots", "source_rows", "forecasts", "explanations", "bulletins", "triggers",
-                     "ledger_rows", "band_rows"):
+                     "ledger_rows", "band_rows", "identity_band_rows"):
             for row in result[name]:
                 self.reader.check()
                 size += len(encoded(row))
