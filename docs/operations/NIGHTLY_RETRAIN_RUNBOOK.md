@@ -614,7 +614,7 @@ config commit; a busy lease therefore leaves both Git and capture untouched.
 
 `weather.operations.ops_monitor.nightly_retrain_status_rows` exposes the same
 attested task, exact occurrence, freshness, blocker count, and first P0 gate
-for compatibility consumers. The current two-page Streamlit UI does not call
+for compatibility consumers. The current three-page Streamlit UI does not call
 that helper or render a Nightly Self-Improvement table; use the persisted
 nightly status/report and the repository operations status surfaces until a
 deliberate UI route is added.

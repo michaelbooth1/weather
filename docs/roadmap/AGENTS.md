@@ -4,6 +4,10 @@ These instructions apply to `docs/roadmap/`.
 
 ## Sources Of Truth
 
+- `work/W-####.yaml` owns mission status, owner, dependencies, landing slots and
+  owner requests; [work registry](work/README.md) owns its CLI and checks. Only
+  production regenerates `work-board.md` in its docs step. Workstations update
+  their records and link handbacks; a handback is not verification.
 - `active-backlog.md` is the generated view of current `OPEN` and `PARTIAL`
   work. Use it to decide what is active now.
 - Each file under `items/` is authoritative for that item's title, status,
@@ -74,7 +78,12 @@ superseded handoff as current instruction.
 - Update the owning numbered item instead of copying item state into a new
   narrative file.
 - Keep item headings in the form `# N. Title [STATUS]`, where status is
-  `OPEN`, `PARTIAL`, or `COMPLETE` with an optional dated disposition.
+  `OPEN`, `PARTIAL`, or `COMPLETE` with an optional dated disposition, or
+  `DORMANT YYYY-MM-DD - reason` (date and reason required). A dormant item is
+  parked, not closed: revive it by restoring `OPEN`/`PARTIAL` with a fresh dated
+  disposition. `active-backlog.md` lists dormant items apart from active ones
+  and flags an active item whose disposition is more than 45 days older than the
+  newest disposition date in the roadmap; refresh it or mark it dormant.
 - Preserve historical command transcripts. Current commands must use the
   canonical `python -m weather...` package surface.
 - When adding or moving an item, update its primary row in `ROADMAP.md` in the
@@ -100,6 +109,7 @@ Run the focused tests:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests/reporting/test_roadmap_backlog.py -q
+.\venv\Scripts\python.exe -m pytest tests/reporting/test_worktrack.py -q
 ```
 
 After adding correspondence, commit the source file, then regenerate its index

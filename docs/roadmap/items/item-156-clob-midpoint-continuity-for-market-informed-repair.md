@@ -1,4 +1,4 @@
-﻿# 156. CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]
+﻿# 156. CLOB Midpoint Continuity For Market-Informed Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-20, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]
 
 Goal: make market-informed CLOB repairs usable as split-stable evidence by
 collecting and auditing raw token/book tapes with enough midpoint coverage on

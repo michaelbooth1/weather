@@ -8,6 +8,7 @@ from weather.reporting.roadmap.roadmap_backlog import (
     markdown_parity_diff,
     summarize_roadmap_status,
     parse_item,
+    render_markdown,
     write_json,
     write_markdown,
 )
@@ -85,6 +86,55 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(item["number"], 123)
         self.assertEqual(item["status"], "OPEN")
         self.assertEqual(item["parse_errors"], [])
+
+    def test_dormant_items_are_parked_outside_the_active_backlog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _item(root / "item-1-demo.md", 1, "DORMANT 2026-09-29 - TAKER RETIRED; WAS PARTIAL 2026-07-16 - X")
+            _item(root / "item-2-demo.md", 2, "PARTIAL 2026-09-20 - LIVE")
+
+            payload = build_payload(root)
+            markdown = render_markdown(payload)
+
+        self.assertEqual([item["number"] for item in payload["active_items"]], [2])
+        self.assertEqual([item["number"] for item in payload["dormant_items"]], [1])
+        self.assertEqual(payload["summary"]["dormant_item_count"], 1)
+        self.assertEqual(payload["status"], "OK")
+        self.assertIn("## Dormant Items", markdown)
+        self.assertIn("| 1 | 2026-09-29 | TAKER RETIRED; WAS PARTIAL 2026-07-16 - X |", markdown)
+
+    def test_dormant_item_without_dated_disposition_is_a_lint_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _item(root / "item-1-demo.md", 1, "DORMANT")
+            _item(root / "item-2-demo.md", 2, "DORMANT 2026-09-29")
+
+            payload = build_payload(root)
+
+        categories = [issue["category"] for issue in payload["lint_issues"]]
+        self.assertEqual(categories.count("dormant_item_missing_dated_disposition"), 2)
+        self.assertEqual(payload["status"], "ERROR")
+
+    def test_stale_active_flag_uses_newest_roadmap_date_not_the_clock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _item(root / "item-1-demo.md", 1, "PARTIAL 2026-08-14 - FORTY SIX DAYS")
+            _item(root / "item-2-demo.md", 2, "PARTIAL 2026-08-15 - FORTY FIVE DAYS")
+            _item(root / "item-3-demo.md", 3, "OPEN")
+            _item(root / "item-4-demo.md", 4, "COMPLETE 2026-09-29 - DONE")
+            _item(root / "item-5-demo.md", 5, "DORMANT 2026-01-01 - PARKED")
+
+            payload = build_payload(root)
+            markdown = render_markdown(payload)
+
+        self.assertEqual(payload["summary"]["disposition_as_of_date"], "2026-09-29")
+        self.assertEqual(
+            [(row["number"], row["age_days"]) for row in payload["stale_active_items"]],
+            [(1, 46), (3, None)],
+        )
+        self.assertEqual(payload["summary"]["stale_active_item_count"], 2)
+        self.assertEqual(payload["status"], "OK")
+        self.assertIn("| 3 | OPEN | - | undated |", markdown)
 
     def test_build_payload_includes_only_open_and_partial_active_items(self):
         with tempfile.TemporaryDirectory() as tmp:

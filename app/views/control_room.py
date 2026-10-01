@@ -111,6 +111,7 @@ def render_control_room_page(refresh_seconds=300):
         unsafe_allow_html=True,
     )
     st.title("Operator Control Room")
+    st.info("Historical pilot view. The Owner Cockpit is the default page; this view is kept as the record of the capped International maker pilot.")
     st.caption(
         "A decision surface for the first capped maker-rebate test. This page reads persisted evidence only: "
         "it has no order, cancel, credential, promotion, or risk-setting controls."
