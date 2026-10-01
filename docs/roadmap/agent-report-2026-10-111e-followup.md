@@ -1,0 +1,253 @@
+# Agent report 2026-10 — 111e follow-up: signed Clarification 2 implemented
+
+**Verdict: IMPLEMENTED on fixtures, with no rule weakened. Every operational rule in the signed Clarification 2 that
+#144 did not yet cover now exists in code with tests, and the verifier binds the second clarification as
+`maker-replay-2026-10-15-v2`. #134's correspondence-index conflict is resynced. No rule was found unimplementable. One
+instruction could not be followed literally: `resync_branch.ps1` does not exist in this repository or its history, so
+the resync used its documented equivalent (below). Five execution risks are listed under "Risks", none resolved by
+judgment. The most time-critical is risk 5: the panel export backlog must be cleared before 10-15.**
+
+Signed text: `docs/research/maker-replay-clarification-2-2026-09-29.md`, bytes at `a8c0b846b`, raw SHA-256
+`1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0` (DECISION_LOG 2026-10-01). #144 had been aligned
+to draft `794656c20`. The signed bytes differ from that draft in four places, and all four are implemented here. This
+branch adds the signed file unchanged, byte for byte from `a8c0b846b`; a test pins its hash. The three signed 09-27
+files are unchanged (carried by #134 with hashes `0380212d…`, `074a0e56…`, `37d2fd8e…`).
+
+## Rules implemented
+
+| Signed rule | Before (draft 794656c20) | Now | Where |
+| --- | --- | --- | --- |
+| Ceilings = largest calibration date × 15, rounded up to the next power of two | × 15 × 2, then power of two | × 15, then power of two; the rounding is the only headroom | `ceilings.py` (`MULTIPLIER = 15`, `RULE`, measurement format `v3`) |
+| A derived ceiling above its host limit → "not executable on this host"; never sample or truncate | `executable: false`, `not_executable_on_host:<field>` | Same, plus `verdict: "not executable on this host"` in the measurement; `derive_ceilings` prints the verdict and exits 3; `run_limits` refusal names it | `ceilings.derive`, `ceilings.run_limits`, `pack_cli.execute` |
+| Per-date allowance ~546 s and ~546 MiB above baseline | (implied ~273 s / 273 MiB under × 30) | 546 → 8,190 → 8,192 s fits under 4 h; 547 → 16,384 does not. Same for MiB against 70% of 16 GiB plus baseline | `test_per_date_allowance_is_about_546_seconds_and_546_mib` |
+| Late look: any America/Toronto date 10-15..10-31 while no attempt is reserved; a reservation consumes the look whatever the date | Only after a non-consuming refusal recorded on 10-15 | `late_look_permitted` is true exactly while `attempts/<id>.json` does not exist; refusal records no longer gate it. `LATE_LOOK_UNTIL` stays 10-31 | `execution_receipt.late_look_permitted`, `authorization.scoring_date_allowed` |
+| Manifest built, verified and enrolled on or after 2026-10-15 Toronto | Not enforced by the CLI | `manifest build` and `manifest verify` refuse before the Toronto scoring date (`manifest_before_scoring_date_toronto`), before any panel read and without a refusal record | `pack_cli.execute` |
+| Runs that never reach a recorded refusal consume nothing; only the reservation consumes | Already true in #144 | Unchanged; now also covered by the late-look test (a 10-17 look with no prior record) | — |
+| k = 0.3 and k = 0.5 lower-bound flag (strictly_through, both baselines); `hurdles_met_not_positive_at_measured_k` when REPLAY_HURDLES_MET with a non-positive k = 0.3 lower bound; changes no status | k = 0.3 rows and intervals reported, no flag or label | `registered_decision.measured_k_sensitivity` (two booleans plus per-cell status and lower bound), `registered_decision.label`. Status, hurdle flags and reasons are computed exactly as before. Rendered in the Markdown report and kept in the completed receipt | `execution_receipt.measured_k_sensitivity`, `evaluate_hurdles`, `report.report_bytes` |
+| Authorization: v2 binds registration, addendum, Clarification 1 and Clarification 2; row expires 2026-11-01 | v2 required the two clarification fields and checked them against the supplied bytes | Additionally pins the four signed hashes, scoring date 2026-10-15 and `expires_at` ≤ `2026-11-01T04:00:00Z` (00:00 Toronto) for v2. A row with any other hash, date or later expiry refuses even if its bytes agree with it. v1 rows verify unchanged | `authorization.SIGNED_BINDINGS`, `EXPIRES_NO_LATER_THAN` |
+
+Two interpretation choices, both fail-closed and neither weakening a rule:
+
+- **Flag scope.** "Lower bounds … (strictly_through, both baselines)" is read as both economic baselines (`blind_re1`,
+  `no_quote`) × both registered clusters (`date`, `date_x_market`). That is the same cell set the economic hurdle reads.
+  A missing or non-OK estimate counts as not positive, so the label fires on any REPLAY_HURDLES_MET without four
+  positive k = 0.3 bounds. The flag never adds a reason or changes a status. A test proves that removing every
+  k = 0.3 contrast leaves status, hurdle flags and reasons identical.
+- **Expiry instant.** "Expires 2026-11-01" uses the v1 convention: 04:00Z is 00:00 America/Toronto (EDT still applies;
+  DST ends 02:00 that day). An earlier `expires_at` is accepted; a later one refuses.
+
+## Tests (fixtures built with the production writers)
+
+The fixture now copies the four signed documents' exact bytes, because v2 pins their hashes.
+`tests/maker_core/test_replay_execution_pack.py` adds or changes:
+
+- **v2 binding.** `test_v1_rows_still_verify_and_v2_requires_clarification_2`:
+  - a v1 row still verifies;
+  - a v2 row missing `clarification_2_sha256` refuses (`invalid_owner_decision`);
+  - a v2 row whose Clarification 2 hash matches its own supplied bytes but not the signed hash refuses
+    (`signed_binding_mismatch:clarification_2_sha256`);
+  - another scoring date refuses, and so does a later expiry;
+  - tampered bytes refuse; revoking v1 leaves v2 valid; revoking v2 refuses.
+- **Pinned hashes.** `test_signed_documents_on_disk_match_the_pinned_v2_hashes` checks the pins against the files in
+  `docs/research/`.
+- **Late look.**
+  - `test_late_look_runs_on_any_permitted_date_while_unreserved`: with no prior record, a 10-17 look reserves and is
+    consumed. Afterwards 10-15 and 10-20 refuse, and write nothing new.
+  - `test_late_look_window_is_toronto_10_15_to_10_31_and_v2_only`: 10-14, 11-01, a reserved attempt and v1 later dates
+    are all refused.
+- **Manifest timing.** `test_manifest_cli_refuses_before_the_toronto_scoring_date`, for build and verify: 10-14 23:59
+  Toronto refuses and writes nothing; 10-15 00:00 passes.
+- **Ceilings.** These tests reflect the new rule:
+  - `test_ceilings_follow_the_rule_and_bind_engine_and_cli`;
+  - `test_binding_host_limit_is_not_executable_never_truncated`, with the new verdict;
+  - `test_per_date_allowance_is_about_546_seconds_and_546_mib`;
+  - `test_derive_ceilings_cli_reports_not_executable_and_exits_nonzero`.
+- **k = 0.3 label.**
+  - `test_measured_k_label_is_reported_beside_an_unchanged_status`: the label fires at k = 0.3 bounds of 0 and −1. A
+    negative bound on `clock_only` or `at_price` does not trigger it. A missing estimate counts as not positive. The
+    label never appears on a non-MET status.
+  - `test_completed_look_carries_the_measured_k_flag_in_report_and_receipt`: a full scored v2 look via the CLI writes
+    the flag into `report.json`, the Markdown and `.completed.json`.
+- `tests/maker_core/test_replay_report.py::test_k03_measured_reaction_sensitivity_is_reported_never_decisive` now
+  compares status, hurdle flags and reasons rather than the whole decision, since the decision now carries the flag.
+
+Run under `scripts\ops\workstation_heavy.ps1` (workstation, `--basetemp C:\tmp\bt111e`, deleted after):
+`tests/maker_core` plus both exporter suites and `test_replay_bundle_export_scripts.py`, plus the repo-wide audits:
+schema registry, import architecture, agent docs, path policy, module size, release import boundary and
+correspondence index. Result: 1,003 passed, 1 skipped, 5 xfailed. The one failure was the correspondence index,
+stale until this report's commit, and it was regenerated after. The full suite is the PR's GitHub CI.
+
+## Resync of #134 (correspondence index)
+
+There is no `scripts/ops/resync_branch.ps1` on `origin/master`, on any remote or local branch, or in history
+(`git log --all -S resync_branch` is empty). The documented equivalent was used. On `codex/integration-20260929`:
+
+1. merge `origin/master` (`819f8148`); the only conflict was `docs/roadmap/correspondence-index.md`;
+2. regenerate the index with `python -m weather.reporting.roadmap.correspondence_index` and commit (`994d15d0`);
+3. regenerate after that commit (`77d0196b`); `--check` then reports OK.
+
+Pushed as a fast-forward to `codex/integration-20260929`. The plugin head was **not** merged into #134. #144
+(`codex/exam-executability-20260930`) then merged the resynced #134 the same way. If a resync script was meant to
+exist, it is a missing tool, not a step skipped.
+
+## Risks the signed text leaves open (not resolved by judgment)
+
+1. **Input and record ceilings vs. calibration bundles.** The rehearsal measures one panel-format calibration date.
+   The scored run and the manifest build load 15 panel days **plus** the three calibration bundles under the same
+   `max_input_bytes` and `max_records`. Power-of-two rounding usually gives room. If the 15× figure lands just under a
+   power of two, the build refuses `manifest_input_ceiling`. That is an operational refusal before any score, and the
+   exam would then not be executable as signed. Nothing is truncated to fit.
+2. **Linear memory.** × 15 assumes peak memory grows with the number of days. The memory guard refuses rather than
+   swaps, but before reservation that refusal does not consume the look; after it, it does (look protection as signed).
+3. **Reservation scope.** The reservation lives in `attempts/` beside the manifest. A relocated manifest copy would not
+   see it; the canonical-directory rule in `maker-replay-bundle.md` remains the control.
+4. **Source data age.** Calibration exports read 88a segments from 09-27..29. Those segments must still be sealed and
+   readable after the 91a cold-snapshot nightly; gzip is supported by the reader. Verify the receipts say `SEALED`.
+5. **Panel export backlog.** The panel nightly is not registered on master. Every panel day from 2026-09-30 to the
+   registration date must be exported by hand with `night`, before 10-15. Each run can take up to the 2,700 s default,
+   inside the 00:30–09:00 lease window and beside the 91a nightly. Spread the backlog across nights now; a panel day
+   that cannot be exported `SEALED` blocks the build (the manifest requires all fifteen days).
+
+## Production runbook (exact commands)
+
+Preconditions: #134 and #144 landed on production master via the guarded path; production derives the per-file roll
+verdict with `scripts\ops\roll_verdict.ps1`. Expected: roll-free, since no capture loop imports `maker_core.replay`;
+the changed files are `src/maker_core/replay/*`, tests and docs. Every heavy step runs 00:30–09:00 Toronto under the
+shared lease, serially, and never on a night with a 00:30 integration suite unless the nightly is staggered (STATE_OF_PLAY).
+
+Set once per PowerShell session on the capture host. `$Data` and `$Releases` are the 88a data root and immutable
+release root. `$Panel` is the panel output root: the `-OutputRoot` production gives `register_replay_bundle_export_nightly.ps1`
+when it registers `WeatherReplayBundleExportNightly` (carried by #134; not registered on master at the time of writing).
+Once registered, `(Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly).Actions[0].Arguments` shows all three.
+
+```powershell
+$Repo = '<production repo root>'; $Py = Join-Path $Repo 'venv\Scripts\python.exe'
+$Data = '<-DataRoot>'; $Releases = '<-ReleaseRoot>'; $Panel = '<-OutputRoot>'
+$Exam = Join-Path (Split-Path -Parent $Panel) 'maker-replay-exam-c2'   # sibling of the panel root, outside $Data
+New-Item -ItemType Directory -Path $Exam | Out-Null
+$Docs = @('--decision-log', "$Repo\docs\operations\DECISION_LOG.md",
+  '--frozen-protocol', "$Repo\docs\research\maker-replay-hurdles-preregistration-2026-09-27.md",
+  '--execution-addendum', "$Repo\docs\research\maker-replay-execution-addendum-2026-09-27.md",
+  '--clarification', "$Repo\docs\research\maker-replay-clarification-1-2026-09-27.md",
+  '--clarification-2', "$Repo\docs\research\maker-replay-clarification-2-2026-09-29.md")
+. "$Repo\scripts\ops\workload_admission.ps1"; . "$Repo\scripts\ops\windows_kill_on_close_job.ps1"
+function Invoke-ExamStep([string]$Name, [string[]]$Tokens) {
+  $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $Repo -Workload "maker_replay_exam_$Name" `
+    -ExpectedExecutionHostId (Get-WeatherExecutionHostId)
+  if ($null -eq $lease) { throw 'REFUSED: shared heavy-work lease busy' }
+  $job = $null; $child = $null; $proved = $false
+  try {
+    $job = New-WeatherKillOnCloseJob
+    $child = Start-WeatherInteractiveProcessInJob -Job $job -FilePath $Py -WorkingDirectory $Repo `
+      -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens (@('-B') + $Tokens))
+    $null = $child.Handle; $child.WaitForExit(); $code = $child.ExitCode
+  } finally {
+    try { if ($job) { $job.TerminateAndWait(5000) }; $proved = $true }
+    finally { if ($child) { $child.Dispose() }; if ($job) { $job.Dispose() }
+      if ($proved) { Exit-WeatherHeavyWorkloadLease -Lease $lease } else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease } }
+  }
+  if ($code -ne 0) { throw "$Name exited $code" }
+}
+$Cal = '2026-09-27', '2026-09-28', '2026-09-29'
+```
+
+### A. Calibration export 09-27..29 (as soon as landed; one night)
+
+```powershell
+& $Py -B -m weather.market.maker_plugin.replay_export module-hash        # copy the printed hash
+$Mod = '<module hash>'
+foreach ($d in $Cal) { Invoke-ExamStep "calibration_$d" @('-m','weather.market.maker_plugin.replay_export','calibration',
+  '--day',$d,'--data-root',$Data,'--out',"$Exam\calibration",'--expected-module-sha256',$Mod) }
+# Rehearsal input: panel-format (night) bundles of the same three dates, in a separate root.
+foreach ($d in $Cal) { Invoke-ExamStep "rehearsal_panel_$d" @('-m','weather.market.maker_plugin.replay_export','night',
+  '--day',$d,'--data-root',$Data,'--release-root',$Releases,'--out',"$Exam\rehearsal-panel",'--expected-module-sha256',$Mod) }
+foreach ($d in $Cal) { (Get-Content "$Exam\calibration\$d\receipt.json" -Raw | ConvertFrom-Json).status }  # all SEALED
+```
+
+Any `REFUSED` receipt stops the line. Retries of an attempted day refuse in the same root; never delete, and export
+again only into a new root.
+
+### B. Quote markets, hazard calibration, ceiling rehearsal
+
+Size the read limits from the three calibration receipts. The CLI defaults (64 MiB, 100,000 records) are diagnostic
+values, not exam values.
+
+```powershell
+$r = $Cal | ForEach-Object { (Get-Content "$Exam\calibration\$_\receipt.json" -Raw | ConvertFrom-Json).bundle }
+$Bytes = [string](($r | Measure-Object bytes -Sum).Sum); $Recs = [string](($r | Measure-Object records -Sum).Sum)
+$CalB = $Cal | ForEach-Object { '--calibration-bundle', "$Exam\calibration\$_\bundle" }
+$Lim = @('--max-input-bytes',$Bytes,'--max-records',$Recs,'--max-seconds','2700','--max-output-bytes','8388608')
+Invoke-ExamStep 'quote_markets' (@('-m','maker_core.replay','quote_markets') + $CalB + @('--out',"$Exam\quote-markets.json") + $Lim)
+Invoke-ExamStep 'calibrate' (@('-m','maker_core.replay','calibrate_hazard') + ($Cal | ForEach-Object { '--bundle', "$Exam\calibration\$_\bundle" }) +
+  @('--quote-markets',"$Exam\quote-markets.json",'--out',"$Exam\calibration.json") + $Lim)
+foreach ($d in $Cal) { Invoke-ExamStep "rehearse_$d" @('-m','maker_core.replay','rehearse','--bundle',"$Exam\rehearsal-panel\$d\bundle",
+  '--calibration',"$Exam\calibration.json",'--out',"$Exam\rehearsal-$d.json") }      # one fresh process per date
+& $Py -B -m maker_core.replay derive_ceilings --rehearsal "$Exam\rehearsal-2026-09-27.json" `
+  --rehearsal "$Exam\rehearsal-2026-09-28.json" --rehearsal "$Exam\rehearsal-2026-09-29.json" --out "$Exam\ceiling-measurement.json"
+```
+
+`derive_ceilings` is light: it reads three small JSON files. Exit 0 with `verdict=executable on this host` lets the
+line continue. **Exit 3 (`verdict=not executable on this host`, `binding=<fields>`) ends the exam on this host as
+signed.** Report it; do not re-rehearse to fit, and never sample or truncate.
+
+### C. 10-15 build / verify / enrol / look
+
+1. **Authorization rows (production, after #144 lands, any day before the look).** Append to `DECISION_LOG.md`:
+   - `| <date> | REVOKE_MAKER_REPLAY | offline replay only | `{"authorization_id":"maker-replay-2026-10-15-v1"}` | — |`
+   - `| <date> | APPROVE_MAKER_REPLAY | offline replay only | `<json>` | — |`, where `<json>` is
+     `{"authorization_id":"maker-replay-2026-10-15-v2","owner":"michaelbooth1","protocol_sha256":"0380212d8e82474281afbed1197161263f794570ec06cf51fec99a3c6c03a6bf","addendum_sha256":"074a0e56b87770eff9f574232819b5d95ecd7073e450f27adac7bf555a43410b","clarification_sha256":"37d2fd8e34462a77d6209ee4018e3685bf91a81a93e2cb08df6986985811fa0e","clarification_2_sha256":"1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0","signed_at":"<UTC approval time>","scoring_date":"2026-10-15","expires_at":"2026-11-01T04:00:00Z"}`.
+
+   The APPROVE row's Date column must equal the UTC date of `signed_at`. Save the exact JSON as
+   `$Exam\owner-decision.json` (UTF-8, no BOM).
+2. **Panel completeness (10-15, after the 10-14 UTC day closes and is exported).** All fifteen
+   `$Panel\<day>\receipt.json` for 2026-09-30..2026-10-14 must be `SEALED`, each with a matching `SEALED` ledger
+   entry. Export each day the nightly did not cover (risk 5) one per lease, into the same root:
+   `Invoke-ExamStep "panel_$d" @('-m','weather.market.maker_plugin.replay_export','night','--day',$d,'--data-root',$Data,'--release-root',$Releases,'--out',$Panel,'--expected-module-sha256',$Mod)`.
+   A day already attempted in `$Panel` refuses; a failed day is never retried in place.
+3. **Universe, build, verify (10-15 or later, 00:30–09:00).**
+
+   ```powershell
+   $Days = 0..14 | ForEach-Object { ([datetime]'2026-09-30').AddDays($_).ToString('yyyy-MM-dd') }
+   $PanB = $Days | ForEach-Object { '--bundle', "$Panel\$_\bundle" }
+   $Bind = $CalB + @('--calibration',"$Exam\calibration.json",'--universe',"$Exam\universe.json",
+     '--quote-markets',"$Exam\quote-markets.json",'--ceiling-measurement',"$Exam\ceiling-measurement.json") + $Docs
+   New-Item -ItemType Directory -Path "$Exam\manifest" | Out-Null      # canonical directory; never relocate
+   Invoke-ExamStep 'universe' (@('-m','weather.market.maker_plugin.replay_export','universe') + $PanB + @('--out',"$Exam\universe.json"))
+   Invoke-ExamStep 'manifest_build' (@('-m','maker_core.replay','manifest','build') + $PanB + $Bind +
+     @('--owner-decision',"$Exam\owner-decision.json",'--out',"$Exam\manifest\manifest.json"))
+   $Key = (Get-FileHash "$Exam\manifest\manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+   Invoke-ExamStep 'manifest_verify' (@('-m','maker_core.replay','manifest','verify') + $PanB + $Bind +
+     @('--manifest',"$Exam\manifest\manifest.json",'--manifest-sha256',$Key))   # requires VERIFIED_PREFLIGHT_ONLY
+   ```
+
+4. **Enrol.** Follow `docs/research/maker-replay-enrollment-template-2026-09-27.md` steps 4–6, with `v2` in place of
+   `v1`: enter exactly `$Key` → `michaelbooth1` in `src/maker_core/replay/approved_registrations.py`, on its own topic
+   branch, with independent review and a production roll verdict. Land it. Then re-run the `manifest_verify` step.
+5. **The single look.** Run it on any Toronto date 2026-10-15..2026-10-31 while `$Exam\manifest\attempts\maker-replay-2026-10-15-v2.json`
+   does not exist. Start at or after 00:30, early enough that the manifest's `max_seconds` ends before 09:00 (the CLI
+   refuses otherwise, without consuming). System commit must be below 70%.
+
+   ```powershell
+   Invoke-ExamStep 'look' (@('-m','maker_core.replay','run','--compare','--pre-registration',"$Exam\manifest\manifest.json",
+     '--pre-registration-sha256',$Key,'--out',"$Exam\look") + $PanB + $Bind)
+   ```
+
+   Read the outcome only from `$Exam\look\` and `attempts\`. A `*.refusal-*.json` means not consumed: fix the
+   operational cause and run again on a permitted date, into a new `--out`. `maker-replay-2026-10-15-v2.json` without
+   `.completed.json` means consumed and stopped: no retry. `registered_decision.status` is the result;
+   `measured_k_sensitivity` and `label` are reported beside it and change nothing.
+
+## What was NOT done
+
+- No registration or enrollment.
+- No DECISION_LOG row.
+- No production read or write, and no Scheduler change.
+- No merge to master, and the plugin head was not merged into #134.
+- No signed byte modified: the Clarification 2 file was added unchanged.
+- No real data read.
+
+## Commits
+
+- #134 `codex/integration-20260929`: `994d15d0` (merge `819f8148`), `77d0196b` (index).
+- #144 `codex/exam-executability-20260930`: merge of the resynced #134, then `71716c29` (implementation). This report
+  and the index regeneration follow; the final head SHA is in the handback reply.
