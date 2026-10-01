@@ -40,11 +40,14 @@ changing inventories, metrics, versions, or operational state.
 | Package edges and facade ownership | operations boundary/ownership docs |
 | Domain-neutral maker plugin contracts, pure inputs and evidence format | `operations/maker-core-contracts.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
+| Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
-| Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
+| Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
-| Current work | generated roadmap active backlog |
+| Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
+| Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |
+| Current engineering work | generated roadmap active backlog |
 | Item status/scope/evidence | numbered roadmap item file |
 | Exact versions, counts, hashes, and active state | code, config, manifests, generated reports |
 
@@ -84,6 +87,9 @@ changing inventories, metrics, versions, or operational state.
 - Artifact or release lifecycle: update artifact/release runbooks and gates.
 - New work or changed status: update the numbered item and regenerate the
   active backlog; do not put project status in `AGENTS.md`.
+- Mission dispatch/handback/verification/landing: update its W record. Preserve
+  request/receipt ages; approvals reference an exact `DECISION_LOG` row.
+  Production runs `worktrack check` and regenerates the board in its docs step.
 
 ## Automated checks
 

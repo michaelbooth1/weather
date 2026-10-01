@@ -174,13 +174,15 @@ ambient proxy, and sends only these fixed GET routes. The default timeout is
 & $python -m weather.market.wallet_reader_client positions --include-resolved --timeout 20
 & $python -m weather.market.wallet_reader_client trades --since 1790294400
 & $python -m weather.market.wallet_reader_client rewards --date 2026-09-25
+& $python -m weather.market.wallet_reader_client settlement --since 1790294400
 ```
 
 The server also supports `/health` and `/balance` with the same authentication.
 `/health` proves the server responds, not venue access. No query parameters are
-accepted except `since` on trades, `date` on rewards, and `include_resolved=true`
-or `false` on summary/positions. Defaults are the last 24 hours, the current UTC
-day, and hidden resolved rows. Unknown paths and methods never reach upstream.
+accepted except `since` on trades and settlement, `date` on rewards, and
+`include_resolved=true` or `false` on summary/positions. Defaults are the last 24
+hours (trades), the last 7 days (settlement), the current UTC day, and hidden
+resolved rows. Unknown paths and methods never reach upstream.
 Client failures retain `wallet_reader_client_failed` and add a safe `reason`:
 `timeout`, `http_<status>`, `refused`, or `config`; raw exceptions stay suppressed.
 
@@ -281,6 +283,35 @@ already in cash and does not add unverified reward accrual. It is meaningful onl
 wallet with a reconciled baseline; unrelated holdings/transfers invalidate that
 interpretation. Cash < 60 or known campaign P&L < -40 yields `BLEED_LIMIT`.
 Other missing campaign information yields `INCOMPLETE`, never a trading go-ahead.
+## Settlement watcher (`/settlement`)
+
+`/settlement?since=<unix seconds>` covers every market currently held (data-api
+positions) or filled since `since` (authenticated CLOB `/data/trades` for the funder),
+inside one 24-GET/16-second composite plan using only the allow-listed routes above:
+positions, fills, and Gamma `/markets` in chunks of at most 20 conditions. Per market:
+
+- venue `resolution_state`: `resolved` only when Gamma says `closed` and every outcome
+  price is exactly 0 or 1 summing to 1; otherwise `closed_awaiting_terminal_price`,
+  `open`, `unknown` or `metadata_unavailable`. Also `umaResolutionStatus`, the declared
+  `resolutionSource` and `venue_outcome_basis` (`weather_gov`, `wunderground`, `other`);
+- `venue_winning_outcome`, and per held token its size, `redeemable` flag and terminal price;
+- `settlement_proxy`: the latest-revision row of the local WU settlement ledger
+  `<settlement root>/<location>/ledger.jsonl` for the event (settlement high and its
+  native `settlement_unit`, winning band, source and the ledger's own reconciliation
+  status). The location comes from `config/location_market_events.json` event slug
+  prefixes; non-weather markets are `proxy_not_applicable`. The root defaults to
+  `data/settlements`; `serve --settlement-root <dir>` points elsewhere. The file is
+  read directly (64 MiB cap); no settlement or model module is imported.
+
+Flags: `disagreements` (the proxy's winning band and the venue's winner disagree about
+this band, compared by label text), `unredeemed_winners` (a held token whose terminal
+price is 1) and `resolved_unreconciled` (a venue-resolved holding with no proxy label
+or a ledger status other than `match`). The weather.gov page itself is **not** fetched:
+for a `weather_gov` basis the venue's resolved outcome *is* the weather.gov outcome.
+A reader on the workstation reads the workstation's ledger copy, which may lag
+production; a missing label shows as `proxy_label_absent`, never as agreement.
+Failures leave `status: PARTIAL` with an `errors` map; nothing is inferred.
+
 The owner restarts the service after adopting reader changes (`Stop-ScheduledTask`
 then `Start-ScheduledTask -TaskName WeatherWalletReader`); implementation and
 tests do not access an account or restart a real reader.

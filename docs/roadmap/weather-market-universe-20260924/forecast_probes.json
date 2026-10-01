@@ -1,0 +1,125 @@
+[
+  {
+    "city": "Jinan",
+    "response": {
+      "url": "https://api.open-meteo.com/v1/forecast?daily=temperature_2m_max%2Ctemperature_2m_min&forecast_days=3&latitude=36.856&longitude=117.206&timezone=Asia%2FShanghai",
+      "retrieved_at": "2026-09-24T20:26:45.033328+00:00",
+      "status": 200,
+      "body": {
+        "latitude": 36.871704,
+        "longitude": 117.23685,
+        "generationtime_ms": 0.7226467132568359,
+        "utc_offset_seconds": 28800,
+        "timezone": "Asia/Shanghai",
+        "timezone_abbreviation": "GMT+8",
+        "elevation": 25.0,
+        "daily_units": {
+          "time": "iso8601",
+          "temperature_2m_max": "°C",
+          "temperature_2m_min": "°C"
+        },
+        "daily": {
+          "time": [
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27"
+          ],
+          "temperature_2m_max": [
+            27.8,
+            30.0,
+            29.5
+          ],
+          "temperature_2m_min": [
+            20.9,
+            18.5,
+            20.2
+          ]
+        }
+      },
+      "body_sha256": "65edd1bc2f6617d1bc777221c79f2729aa07c40e17f98f55bfa94c1946230123"
+    },
+    "role": "Free supporting guidance, never settlement authority"
+  },
+  {
+    "city": "Taipei",
+    "response": {
+      "url": "https://api.open-meteo.com/v1/forecast?daily=temperature_2m_max%2Ctemperature_2m_min&forecast_days=3&latitude=25.069&longitude=121.552&timezone=Asia%2FTaipei",
+      "retrieved_at": "2026-09-24T20:40:18.138690+00:00",
+      "status": 200,
+      "body": {
+        "latitude": 25.06151,
+        "longitude": 121.5194,
+        "generationtime_ms": 0.032901763916015625,
+        "utc_offset_seconds": 28800,
+        "timezone": "Asia/Taipei",
+        "timezone_abbreviation": "GMT+8",
+        "elevation": 4.0,
+        "daily_units": {
+          "time": "iso8601",
+          "temperature_2m_max": "°C",
+          "temperature_2m_min": "°C"
+        },
+        "daily": {
+          "time": [
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27"
+          ],
+          "temperature_2m_max": [
+            33.0,
+            33.1,
+            33.6
+          ],
+          "temperature_2m_min": [
+            22.7,
+            22.5,
+            23.5
+          ]
+        }
+      },
+      "body_sha256": "804738b4b080ebd724ad7fdc3937796306fb2494941d014622efe4ffa54815ed"
+    },
+    "role": "Free supporting guidance, never settlement authority"
+  },
+  {
+    "city": "Zhengzhou",
+    "response": {
+      "url": "https://api.open-meteo.com/v1/forecast?daily=temperature_2m_max%2Ctemperature_2m_min&forecast_days=3&latitude=34.52&longitude=113.834&timezone=Asia%2FShanghai",
+      "retrieved_at": "2026-09-24T20:26:46.083486+00:00",
+      "status": 200,
+      "body": {
+        "latitude": 34.551846,
+        "longitude": 113.83354,
+        "generationtime_ms": 0.7545948028564453,
+        "utc_offset_seconds": 28800,
+        "timezone": "Asia/Shanghai",
+        "timezone_abbreviation": "GMT+8",
+        "elevation": 149.0,
+        "daily_units": {
+          "time": "iso8601",
+          "temperature_2m_max": "°C",
+          "temperature_2m_min": "°C"
+        },
+        "daily": {
+          "time": [
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27"
+          ],
+          "temperature_2m_max": [
+            22.7,
+            25.9,
+            25.6
+          ],
+          "temperature_2m_min": [
+            18.3,
+            18.5,
+            18.1
+          ]
+        }
+      },
+      "body_sha256": "8ccdea7ee3d83b8328a33f7e5dbabfcdbcd9e4417a3018c192d22c7c28e6bff9"
+    },
+    "role": "Free supporting guidance, never settlement authority"
+  }
+]

@@ -25,9 +25,9 @@ dynamically, which is how the per-city models load. **Do not prune these as unre
 
 ## Rules
 
-1. **Never set `lfs: true` in a workflow.** `retrain.yml` (daily) and `ci.yml` (every master
-   push and PR) once did, which exhausted a **1 GB/month** included allowance many times over.
-   All three workflows now pin `lfs: false`; keep it that way. The test suite stubs these artifacts and never reads
+1. **Never set `lfs: true` in a workflow.** A former `retrain.yml` (daily; removed 2026-09-29) and
+   `ci.yml` (every master push and PR) once did, which exhausted a **1 GB/month** included allowance
+   many times over. Every workflow now pins `lfs: false`; keep it that way. The test suite stubs these artifacts and never reads
    their bytes.
 2. **Never delete `.git/lfs`.** It looks like a rebuildable cache. Rebuilding it costs metered
    bandwidth, so deleting it during a disk cleanup converts free disk into a billed download.
