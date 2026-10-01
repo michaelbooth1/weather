@@ -12,7 +12,8 @@ import re
 from zoneinfo import ZoneInfo
 
 from maker_core.replay.bundle import BundleError, regular_path
-from maker_core.replay.pack_io import read_json, write_json
+from maker_core.replay.pack_io import write_json
+
 
 def attempts_root(manifest_path):
     # Production must retain its canonical sealed manifest directory. A relocated
