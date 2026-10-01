@@ -1,9 +1,11 @@
 # Registers the split daily settlement/evidence refresh as Windows Scheduled Tasks.
 #
 # Stage A runs settlement truth through fleet observability at 09:30.
-# Stage B runs evidence recomputation and learning once overnight, after Stage
-# A has released the shared heavy-work lease and before the 09:00 deadline. It
-# remains disabled unless -EnableEvidenceTask is supplied explicitly.
+# Stage B runs evidence recomputation and learning once overnight at 05:00,
+# after every recurring overnight lease holder's hard end and before the 09:00
+# deadline. Registration refuses while any enabled lease holder's scheduled
+# window overlaps Stage B's. Stage B remains disabled unless
+# -EnableEvidenceTask is supplied explicitly.
 #
 # Full registration keeps the release-#1 production-evidence inputs mandatory.
 # Before those reviewed inputs exist, the explicit -ProvenanceOnly parameter set
@@ -19,8 +21,8 @@ param(
     [string]$TaskName = "WeatherDailySettlementPromotionRefresh",
     [string]$EvidenceTaskName = "WeatherEveningEvidenceRefresh",
     [string]$At = "09:30",
-    [ValidateSet("00:35")]
-    [string]$EvidenceAt = "00:35",
+    [ValidateSet("05:00")]
+    [string]$EvidenceAt = "05:00",
     [string]$PowerShellExecutable = "powershell.exe",
     [switch]$EnableEvidenceTask,
     [Parameter(Mandatory = $true, ParameterSetName = "Full")]
@@ -56,6 +58,66 @@ $contractScript = Resolve-RequiredFile `
     (Join-Path $RepoRoot "scripts\ops\daily_refresh_contract.ps1") `
     "daily refresh contract"
 . $contractScript
+
+$evidenceSchedule = Get-DailyRefreshEvidenceSchedule
+if ($EvidenceAt -cne $evidenceSchedule.TriggerAt) {
+    throw "EvidenceAt $EvidenceAt disagrees with the evidence schedule contract"
+}
+$evidenceStartMinute = [int]$EvidenceAt.Substring(0, 2) * 60 + [int]$EvidenceAt.Substring(3, 2)
+$evidenceWrapperSpanSeconds = ($evidenceSchedule.TeardownMinute - $evidenceStartMinute) * 60
+$evidenceLimitSeconds = $evidenceSchedule.SchedulerLimitMinutes * 60
+if (-not (
+    $evidenceSchedule.ProducerSlaSeconds + $evidenceSchedule.LeaseWaitSeconds -lt $evidenceWrapperSpanSeconds -and
+    $evidenceWrapperSpanSeconds -lt $evidenceLimitSeconds -and
+    [System.Xml.XmlConvert]::ToTimeSpan($evidenceSchedule.SchedulerLimitIso).TotalSeconds -eq $evidenceLimitSeconds
+)) {
+    throw "evidence schedule must compose SLA + lease wait < wrapper span < Scheduler limit"
+}
+
+# Refuse before registering anything while an enabled overnight lease holder
+# could still own the shared lease inside Stage B's scheduled window.
+$overnightHolders = @()
+foreach ($pattern in $evidenceSchedule.OvernightLeaseHolderTaskPatterns) {
+    foreach ($task in @(Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue)) {
+        if ([string]$task.State -eq "Disabled") { continue }
+        foreach ($trigger in @($task.Triggers)) {
+            if ($trigger.Enabled -eq $false) { continue }
+            $triggerClass = [string]$trigger.CimClass.CimClassName
+            $limit = [string]$task.Settings.ExecutionTimeLimit
+            $repeats = [bool]($trigger.Repetition -and $trigger.Repetition.Interval)
+            $isOnce = $triggerClass -ceq "MSFT_TaskTimeTrigger" -and -not $repeats
+            if ($triggerClass -cnotin @("MSFT_TaskDailyTrigger", "MSFT_TaskTimeTrigger") -or
+                $repeats -or -not $trigger.StartBoundary) {
+                # A boot, logon, event or repeating holder has no fixed clock
+                # window to clear; treat it as unbounded so it fails closed.
+                $limit = ""
+            }
+            # Compare wall clocks as registered: both tasks carry the same
+            # registration-time offset, so a DST conversion would skew only one.
+            $boundary = if ($trigger.StartBoundary) {
+                [datetime]::ParseExact(
+                    ([string]$trigger.StartBoundary).Substring(0, 19), "s",
+                    [Globalization.CultureInfo]::InvariantCulture)
+            } else { (Get-Date).Date }
+            $overnightHolders += [pscustomobject]@{
+                TaskName = [string]$task.TaskName
+                StartBoundary = $boundary
+                Recurring = -not $isOnce
+                ExecutionTimeLimit = $limit
+            }
+        }
+    }
+}
+$evidenceCollisions = @(Get-DailyRefreshEvidenceTriggerCollisions `
+    -Holders $overnightHolders `
+    -EvidenceAt $EvidenceAt `
+    -EvidenceLimitMinutes $evidenceSchedule.SchedulerLimitMinutes)
+if ($evidenceCollisions.Count -gt 0) {
+    $detail = ($evidenceCollisions | ForEach-Object {
+        "{0} at {1} limit {2}" -f $_.TaskName, $_.StartBoundary, $_.ExecutionTimeLimit
+    }) -join "; "
+    throw "evidence trigger $EvidenceAt overlaps an enabled shared-lease holder: $detail"
+}
 
 $powerShellCommand = Get-Command $PowerShellExecutable `
     -CommandType Application -ErrorAction Stop
@@ -174,7 +236,7 @@ $stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt
 $stageBSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -Hidden `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 8 -Minutes 40) `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes $evidenceSchedule.SchedulerLimitMinutes) `
     -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
@@ -203,9 +265,9 @@ $evidenceTaskTriggers = @($evidenceTaskReadback[0].Triggers)
 if (
     $evidenceTaskTriggers.Count -ne 1 -or
     ([datetime]$evidenceTaskTriggers[0].StartBoundary).ToString("HH:mm") -ne $EvidenceAt -or
-    [string]$evidenceTaskReadback[0].Settings.ExecutionTimeLimit -ne "PT8H40M"
+    [string]$evidenceTaskReadback[0].Settings.ExecutionTimeLimit -ne $evidenceSchedule.SchedulerLimitIso
 ) {
-    throw "evidence task '$EvidenceTaskName' trigger or PT8H40M cleanup limit disagrees"
+    throw "evidence task '$EvidenceTaskName' trigger or $($evidenceSchedule.SchedulerLimitIso) cleanup limit disagrees"
 }
 if (-not $EnableEvidenceTask -and $evidenceTaskState -ne "Disabled") {
     throw "evidence task '$EvidenceTaskName' must remain disabled without -EnableEvidenceTask"

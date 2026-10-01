@@ -94,7 +94,7 @@ def _expected_child_tokens(
             "--report-out",
             r"data\backtest\daily_refresh_evidence_report.md",
         ]
-        producer_sla = "28800"
+        producer_sla = "12900"
     tokens += [
         "--scheduler-invocation-topology",
         "delegated_child",
@@ -196,8 +196,9 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
     registration = REGISTER.read_text(encoding="utf-8-sig")
     contract = CONTRACT.read_text(encoding="utf-8-sig")
 
-    assert '[string]$EvidenceAt = "00:35"' in registration
-    assert '[ValidateSet("00:35")]' in registration
+    assert '[string]$EvidenceAt = "05:00"' in registration
+    assert '[ValidateSet("05:00")]' in registration
+    assert 'TriggerAt = "05:00"' in contract
     assert "$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt" in registration
     assert "foreach ($time in $EvidenceAt)" not in registration
     assert '"--disable-stage-trigger"' in contract
@@ -212,15 +213,30 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
         "$stageBSettings = New-ScheduledTaskSettingsSet", 1
     )[1].split("Register-ScheduledTask", 1)[0]
     assert "-StartWhenAvailable" not in stage_b_settings
-    assert "-ExecutionTimeLimit (New-TimeSpan -Hours 8 -Minutes 40)" in stage_b_settings
+    assert (
+        "-ExecutionTimeLimit (New-TimeSpan -Minutes $evidenceSchedule.SchedulerLimitMinutes)"
+        in stage_b_settings
+    )
     stage_a_settings = registration.split(
         "$stageASettings = New-ScheduledTaskSettingsSet", 1
     )[1].split("$principal =", 1)[0]
     assert "-StartWhenAvailable" in stage_a_settings
-    producer_sla_seconds = 8 * 60 * 60
-    wrapper_span_seconds = ((9 * 60) - 35) * 60
-    scheduler_limit_seconds = (8 * 60 + 40) * 60
-    assert producer_sla_seconds < wrapper_span_seconds < scheduler_limit_seconds
+    assert "ProducerSlaSeconds = 12900" in contract
+    assert "SchedulerLimitMinutes = 255" in contract
+    assert 'SchedulerLimitIso = "PT4H15M"' in contract
+    assert "LeaseWaitSeconds = 240" in contract
+    producer_sla_seconds = 12900
+    lease_wait_seconds = 240
+    wrapper_span_seconds = ((9 * 60) - (5 * 60)) * 60
+    scheduler_limit_seconds = 255 * 60
+    assert (
+        producer_sla_seconds + lease_wait_seconds
+        < wrapper_span_seconds
+        < scheduler_limit_seconds
+    )
+    # Endpoints stay 08:35 / 09:00 / 09:15, before the 09:30 Stage-A start.
+    assert 5 * 60 + producer_sla_seconds // 60 == 8 * 60 + 35
+    assert 5 * 60 + scheduler_limit_seconds // 60 == 9 * 60 + 15
 
 
 def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
@@ -231,7 +247,10 @@ def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
     assert "Enable-ScheduledTask -TaskName $EvidenceTaskName" in registration
     assert "Disable-ScheduledTask -TaskName $EvidenceTaskName" in registration
     assert "$evidenceTaskReadback = @(Get-ScheduledTask" in registration
-    assert 'Settings.ExecutionTimeLimit -ne "PT8H40M"' in registration
+    assert (
+        "Settings.ExecutionTimeLimit -ne $evidenceSchedule.SchedulerLimitIso"
+        in registration
+    )
     assert 'StartBoundary).ToString("HH:mm") -ne $EvidenceAt' in registration
     assert '$evidenceTaskState -ne "Disabled"' in registration
     assert '$evidenceTaskState -eq "Disabled"' in registration

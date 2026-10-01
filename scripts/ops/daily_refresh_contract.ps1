@@ -11,6 +11,118 @@ if (-not (Test-Path -LiteralPath $trainingWindowContract -PathType Leaf)) {
 }
 . $trainingWindowContract
 
+# Stage B's one overnight schedule. 00:35 collided with the 00:30 cold-snapshot
+# nightly, which holds the shared lease until its absolute 04:45 teardown, so
+# Stage B refused every night. 05:00 follows every recurring overnight lease
+# holder's hard end (training window and restore by 04:45, quiet merges by
+# 04:00) and keeps the 08:35 SLA / 09:00 teardown / 09:15 Scheduler-limit
+# endpoints: 12900 < 14400 < 15300 seconds from the trigger. The lease wait
+# stays inside the 300-second scheduler correlation so provenance still binds.
+$script:DailyRefreshEvidenceSchedule = [ordered]@{
+    TriggerAt = "05:00"
+    ProducerSlaSeconds = 12900
+    TeardownMinute = 9 * 60
+    SchedulerLimitIso = "PT4H15M"
+    SchedulerLimitMinutes = 255
+    LeaseWaitSeconds = 240
+    LeaseRetrySeconds = 15
+    OvernightLeaseHolderTaskPatterns = @(
+        "WeatherColdSnapshotNightly",
+        "WeatherTrainingWindow",
+        "WeatherNightlyRetrainValidatePromote",
+        "WeatherIntegrationSuite_*",
+        "WeatherIntegrationMerge_*"
+    )
+}
+
+function Get-DailyRefreshEvidenceSchedule {
+    return $script:DailyRefreshEvidenceSchedule
+}
+
+function Get-DailyRefreshEvidenceTriggerCollisions {
+    # Returns every scheduled lease-holder window that overlaps Stage B's
+    # [trigger, trigger + Scheduler limit) clock interval. Each holder row has
+    # TaskName, StartBoundary, Recurring and ExecutionTimeLimit (ISO 8601).
+    # A one-shot whose start has passed can no longer fire; an absent or zero
+    # limit is unbounded and therefore always collides.
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Holders,
+        [Parameter(Mandatory = $true)]
+        [string]$EvidenceAt,
+        [Parameter(Mandatory = $true)]
+        [int]$EvidenceLimitMinutes,
+        [datetime]$Now = (Get-Date)
+    )
+
+    $evidenceStart = [datetime]::ParseExact(
+        $EvidenceAt, "HH:mm", [Globalization.CultureInfo]::InvariantCulture
+    )
+    $bStart = $evidenceStart.Hour * 60 + $evidenceStart.Minute
+    $bEnd = $bStart + $EvidenceLimitMinutes
+    $collisions = @()
+    foreach ($holder in $Holders) {
+        $start = [datetime]$holder.StartBoundary
+        if (-not [bool]$holder.Recurring -and $start -le $Now) {
+            continue
+        }
+        $limitText = [string]$holder.ExecutionTimeLimit
+        $limitMinutes = $null
+        if (-not [string]::IsNullOrWhiteSpace($limitText)) {
+            $limitMinutes = [System.Xml.XmlConvert]::ToTimeSpan($limitText).TotalMinutes
+        }
+        $hStart = $start.Hour * 60 + $start.Minute
+        $overlaps = $true
+        if ($null -ne $limitMinutes -and $limitMinutes -gt 0) {
+            $hEnd = $hStart + $limitMinutes
+            $overlaps = $false
+            foreach ($shift in @(-1440, 0, 1440)) {
+                if ($hStart + $shift -lt $bEnd -and $bStart -lt $hEnd + $shift) {
+                    $overlaps = $true
+                }
+            }
+        }
+        if ($overlaps) {
+            $collisions += [pscustomobject]@{
+                TaskName = [string]$holder.TaskName
+                StartBoundary = $start.ToString("s")
+                ExecutionTimeLimit = $limitText
+            }
+        }
+    }
+    return $collisions
+}
+
+function Enter-DailyRefreshLeaseWithin {
+    # Polls the non-blocking shared-lease acquisition until it succeeds or the
+    # wait budget is spent. It never waits past the budget and never takes the
+    # lease from its holder; on expiry it returns $null so the caller refuses.
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Acquire,
+        [Parameter(Mandatory = $true)]
+        [int]$WaitSeconds,
+        [Parameter(Mandatory = $true)]
+        [int]$RetrySeconds,
+        [scriptblock]$Sleep = { param($seconds) Start-Sleep -Seconds $seconds },
+        [scriptblock]$Clock = { [DateTime]::UtcNow }
+    )
+
+    $deadline = (& $Clock).AddSeconds($WaitSeconds)
+    while ($true) {
+        $lease = & $Acquire
+        if ($null -ne $lease) {
+            return $lease
+        }
+        $remaining = ($deadline - (& $Clock)).TotalSeconds
+        if ($remaining -le 0) {
+            return $null
+        }
+        & $Sleep ([int][Math]::Ceiling([Math]::Min([double]$RetrySeconds, $remaining)))
+    }
+}
+
 function Get-DailyRefreshTaskActionTokens {
     [CmdletBinding(DefaultParameterSetName = "Full")]
     param(
@@ -127,9 +239,10 @@ function Get-DailyRefreshChildTokens {
             "--status-out", "data\backtest\daily_refresh_evidence_status.json",
             "--report-out", "data\backtest\daily_refresh_evidence_report.md"
         )
-        # The child SLA ends at 08:35, leaving 25 minutes for the wrapper's
-        # 09:00 teardown and 40 minutes before Scheduler's 09:15 hard limit.
-        $producerSlaSeconds = 28800
+        # From the 05:00 trigger the child SLA ends at 08:35, leaving 25
+        # minutes for the wrapper's 09:00 teardown and 40 minutes before
+        # Scheduler's 09:15 hard limit.
+        $producerSlaSeconds = $script:DailyRefreshEvidenceSchedule.ProducerSlaSeconds
     }
 
     $releasePointer = Join-Path $RepoRoot "artifacts\releases\current_release.json"
