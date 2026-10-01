@@ -3,6 +3,7 @@ from dataclasses import replace
 from maker_core.evidence.journal import canonical_bytes, digest
 from maker_core.replay.authorization import POLICIES
 from maker_core.replay.baselines import matched_clock
+from maker_core.replay.clarification_3 import quote_presence
 from maker_core.replay.diagnostics import ASSUMPTIONS, coverage_report
 from maker_core.replay.engine import ReplayConfig, replay
 from maker_core.replay.fill_model import BOUNDS
@@ -62,6 +63,7 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
                 intervals[key] = dict(excluded_market_dates=excluded,
                     intervals=cluster_intervals(cells, replicates=replicates, seed=seed, check=check))
         report["bounds"][bound] = dict(scores=scores, intervals=intervals, clock_match=matching,
+            quote_presence=quote_presence(scores),
             pull_efficiency=pull_efficiency(results["informed-v0"], results["clock_only"], matching,
                                            replicates=replicates, seed=seed, check=check),
             traces={name: dict(decision_count=len(r.decisions), decision_sha256=digest(r.decisions),
@@ -92,6 +94,19 @@ def report_bytes(report):
                       f"k=0.3 lower bounds positive: {sensitivity['k03_lower_bounds_positive']}; "
                       f"k=0.5 lower bounds positive: {sensitivity['k05_lower_bounds_positive']}.",
                       "Label: " + (decision.get("label") or "none") + " (changes no status, hurdle or decision rule).", ""]
+        c3 = decision.get("clarification_3")
+        if c3 is not None:
+            screen, mde = c3["screen"], c3["economic_mde"]
+            lines += ["Clarification 3 (reported only; changes no status, hurdle or decision rule): "
+                      f"informed-v0 strictly_through quoted fraction {screen['informed_quoted_fraction']} "
+                      f"(pull common set {screen['pull_common_set_quoted_fraction']}; expected pull-ratio ceiling "
+                      f"{screen['expected_pull_ratio_ceiling']}); threshold {screen['threshold']}; "
+                      "screen label: " + (screen["label"] or "none") + ".",
+                      f"Economic MDE (80%, strictly_through, k=1; binding {mde['binding_mde_80']}):"]
+            lines += [f"- {name}: lower {cell['lower_bound']}; SE {cell['bootstrap_standard_error']}; MDE {cell['mde_80']}"
+                      + ("; " + cell["statement"] if cell["statement"] else "") + "."
+                      for name, cell in mde["cells"].items()]
+            lines.append("")
     for bound, result in report["bounds"].items():
         lines += ["## " + bound, "", "Clock match: " + result["clock_match"]["status"], "",
                   "| Policy | Date | Condition | Coverage | Reward k=1 | Reward k=.5 | Reward k=.3 (sensitivity) | Nominal rebate | Settlement P&L | Cash-hours | Pull fraction | Fills |",
@@ -109,7 +124,15 @@ def report_bytes(report):
             else:
                 for cluster, estimate in entry["intervals"].items():
                     lines.append(f"- {comparator} / {cluster}: {estimate['status']}; mean {estimate['estimate']}; "
-                                 f"90% {estimate['interval']}; dates={estimate['date_clusters']}, markets={estimate['market_clusters']}.")
+                                 f"90% {estimate['interval']}; dates={estimate['date_clusters']}, markets={estimate['market_clusters']}; "
+                                 f"SE {estimate['bootstrap_standard_error']}; MDE80 {estimate['mde_80_normal_approx']}.")
+        lines += ["", "### Quote presence (Clarification 3, reported only)", "",
+                  "| Policy | City-market | Eligible band-minutes | Quoted band-minutes | Quoted fraction |",
+                  "| --- | --- | ---: | ---: | ---: |"]
+        for policy, presence in result["quote_presence"].items():
+            for market, entry in (*presence["markets"].items(), ("all", presence["pooled"])):
+                values = [policy, market, entry["eligible_seconds"] / 60, entry["quoted_seconds"] / 60, entry["quoted_fraction"]]
+                lines.append("| " + " | ".join(_safe(v) for v in values) + " |")
         pull = result["pull_efficiency"]
         lines += ["", "### Pull efficiency", "",
                   f"{pull['status']}; ratio {pull['ratio']}; common opportunities {pull['counts']['opportunities']}; "

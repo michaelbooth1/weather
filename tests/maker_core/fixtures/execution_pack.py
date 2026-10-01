@@ -38,6 +38,8 @@ SIGNED_DOCUMENTS = dict(frozen_protocol="maker-replay-hurdles-preregistration-20
                         execution_addendum="maker-replay-execution-addendum-2026-09-27.md",
                         clarification="maker-replay-clarification-1-2026-09-27.md",
                         clarification_2="maker-replay-clarification-2-2026-09-29.md")
+# The unsigned draft; v3 pins its hash only after the owner signs these bytes.
+CLARIFICATION_3_DOCUMENT = "maker-replay-clarification-3-2026-10-01.md"
 
 
 # Fictional resource counts sized so the rule admits the fixture panel.
@@ -58,7 +60,7 @@ def measurement(measured=MEASURED):
                 calibration_sha256="0"*64, derived=ceilings.derive(dates))
 
 
-def pack(root, measured=MEASURED):
+def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2"):
     calibration_root, panel_root = root/"calibration-bundles", root/"panel"
     calibration_root.mkdir()
     panel_root.mkdir()
@@ -88,7 +90,7 @@ def pack(root, measured=MEASURED):
                  execution_addendum=root/"addendum.md", clarification=root/"clarification.md",
                  clarification_2=root/"clarification-2.md", calibration_path=calibration_path,
                  inventory_path=universe_path, quote_inventory_path=quote_markets, measurement_path=measurement_path)
-    decision = dict(authorization_id="maker-replay-2026-10-15-v2", owner="michaelbooth1",
+    decision = dict(authorization_id=authorization_id, owner="michaelbooth1",
         signed_at="2026-09-29T12:00:00Z", scoring_date="2026-10-15", expires_at="2026-11-01T04:00:00Z")
     # v2 pins the four signed documents' hashes, so the fixture copies their exact bytes.
     for field, name in (("protocol_sha256", "frozen_protocol"), ("addendum_sha256", "execution_addendum"),
@@ -96,6 +98,11 @@ def pack(root, measured=MEASURED):
         raw = (RESEARCH/SIGNED_DOCUMENTS[name]).read_bytes()
         paths[name].write_bytes(raw)
         decision[field] = sha256(raw)
+    if authorization_id == "maker-replay-2026-10-15-v3":
+        paths["clarification_3"] = root/"clarification-3.md"
+        raw = (RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()
+        paths["clarification_3"].write_bytes(raw)
+        decision["clarification_3_sha256"] = sha256(raw)
     row = "| 2026-09-29 | APPROVE_MAKER_REPLAY | offline replay only | `"+json.dumps(decision)+"` | — |\n"
     paths["decision_log"].write_text(authorization.LOG_HEADER+"\n| --- | --- | --- | --- | --- |\n"+row, encoding="utf8")
     doc = build_manifest(bundles, cb, calibration, inventory, decision, measurement(measured),

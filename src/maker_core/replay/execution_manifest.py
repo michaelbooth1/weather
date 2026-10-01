@@ -17,7 +17,8 @@ from maker_core.replay.payloads import decode
 # Clarification 2 (v2): manifest-only intervals, measured ceilings, rule-derived
 # quote markets, look protection. Built on or after the scoring date once settlement seals.
 FORMAT = "maker_core.replay.execution.v2"
-AUTHORIZATION_ID = "maker-replay-2026-10-15-v2"
+# v3 adds Clarification 3 (reporting only); v2 stays buildable until production revokes it.
+AUTHORIZATION_IDS = ("maker-replay-2026-10-15-v2", "maker-replay-2026-10-15-v3")
 QUOTE_DATES = tuple(date(2026, 9, 30)+timedelta(days=i) for i in range(14))
 SETTLEMENT_DATE = date(2026, 10, 14)
 # max_events and max_outputs are the measured ceilings, not frozen values.
@@ -154,9 +155,9 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
     quote_markets = sorted({c.market_id for b in bundles if b.day in QUOTE_DATES for c in b.conditions})
     if sorted(set(quote_markets) | {c.market_id for b in calibration_bundles for c in b.conditions}) != calibration["markets"]:
         raise BundleError("calibration_city_union_mismatch")
-    if (not isinstance(owner_decision, dict)
-            or set(owner_decision) != authorization.DECISION_FIELDS | set(authorization.CLARIFIED_IDS[AUTHORIZATION_ID])
-            or owner_decision["authorization_id"] != AUTHORIZATION_ID
+    if (not isinstance(owner_decision, dict) or owner_decision.get("authorization_id") not in AUTHORIZATION_IDS
+            or set(owner_decision) != authorization.DECISION_FIELDS | set(
+                authorization.CLARIFIED_IDS[owner_decision["authorization_id"]])
             or owner_decision["scoring_date"] != "2026-10-15" or owner_decision["owner"] != "michaelbooth1"):
         raise BundleError("clarified_owner_decision_required")
     windows, exclusions = active_intervals(bundles, inventory, check=check)
@@ -183,10 +184,11 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
 
 def verify_manifest(doc, bundles, calibration_bundles, *, calibration_path, inventory_path,
                     quote_inventory_path, measurement_path, decision_log, frozen_protocol, execution_addendum,
-                    clarification, clarification_2, now, check=lambda: None):
+                    clarification, clarification_2, now, clarification_3=None, check=lambda: None):
     reader = _Reader(Limits(458752, 1, 5), time.monotonic)
     authorization._verify_decision(doc, reader, decision_log, frozen_protocol, execution_addendum, now,
-                                   clarification, require_scoring_date=False, clarification_2=clarification_2)
+                                   clarification, require_scoring_date=False, clarification_2=clarification_2,
+                                   clarification_3=clarification_3)
     calibration, calibration_hash = read_json(calibration_path)
     inventory, inventory_hash = read_json(inventory_path, 8*1024**2)
     quote_inventory, quote_hash = read_json(quote_inventory_path)

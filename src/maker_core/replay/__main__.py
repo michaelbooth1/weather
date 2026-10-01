@@ -43,7 +43,8 @@ def main(argv=None):
     run.add_argument("--frozen-protocol", type=Path, help="frozen hurdle Markdown file")
     run.add_argument("--execution-addendum", type=Path, help="frozen execution-method Markdown file")
     run.add_argument("--clarification", type=Path, help="optional owner-attested clarification")
-    run.add_argument("--clarification-2", type=Path, help="Clarification 2, required by a v2 authorization")
+    run.add_argument("--clarification-2", type=Path, help="Clarification 2, required by a v2 or v3 authorization")
+    run.add_argument("--clarification-3", type=Path, help="Clarification 3, required by a v3 authorization")
     run.add_argument("--calibration-bundle", type=Path, action="append")
     run.add_argument("--calibration", type=Path)
     run.add_argument("--universe", type=Path)
@@ -67,7 +68,8 @@ def main(argv=None):
     # A user-supplied hash or synthetic label cannot enroll an approval.
     if args.diagnostic_only and (args.pre_registration or args.pre_registration_sha256
                                 or args.decision_log or args.frozen_protocol or args.execution_addendum
-                                or args.clarification or args.clarification_2 or args.calibration_bundle
+                                or args.clarification or args.clarification_2 or args.clarification_3
+                                or args.calibration_bundle
                                 or args.calibration or args.universe or args.quote_markets
                                 or args.ceiling_measurement):
         parser.error("registration flags require explicit --compare; use diagnostic-only without registration flags")
@@ -84,6 +86,7 @@ def main(argv=None):
                                            decision_log=args.decision_log, frozen_protocol=args.frozen_protocol,
                                            execution_addendum=args.execution_addendum, clarification=args.clarification,
                                            clarification_2=args.clarification_2,
+                                           clarification_3=args.clarification_3,
                                            late_look=lambda doc: late_look_permitted(args.pre_registration, doc)))
         fmt = registration.get("format") if registration else None
         execution = isinstance(fmt, str) and fmt.startswith(EXECUTION_PREFIX)
@@ -164,7 +167,7 @@ def main(argv=None):
             read_authorization(args.pre_registration, args.pre_registration_sha256,
                 decision_log=args.decision_log, frozen_protocol=args.frozen_protocol,
                 execution_addendum=args.execution_addendum, clarification=args.clarification,
-                clarification_2=args.clarification_2,
+                clarification_2=args.clarification_2, clarification_3=args.clarification_3,
                 late_look=lambda doc: late_look_permitted(args.pre_registration, doc))
             current = source_hashes(check=check)
             if current != registration["source_hashes"]:
@@ -181,9 +184,9 @@ def main(argv=None):
                                    seed=args.bootstrap_seed, registration_hash=args.pre_registration_sha256, check=check)
         report["owner_registration"] = registration
         if attempt is not None:
-            from maker_core.replay.execution_receipt import evaluate_hurdles
+            from maker_core.replay.clarification_3 import registered_decision
             stage = "decision"
-            report["registered_decision"] = evaluate_hurdles(report)
+            report["registered_decision"] = registered_decision(report)
             report["attempt_receipt"] = attempt.name
         stage = "report_output"
         write_report(args.out, report, input_directory=args.bundle[0], other_inputs=args.bundle[1:],
