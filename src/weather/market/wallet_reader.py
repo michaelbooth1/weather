@@ -8,12 +8,14 @@ import argparse
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
+from pathlib import Path
 import re
 
 from weather.market.wallet_reader_security import (
     CLOB, DATA, GAMMA, CONDITION, ReaderError, lan_ip, load_owner_credentials,
 )
 from weather.market.wallet_reader_transport import ReadTransport
+from weather.paths import config_path, data_path
 
 GAMMA_CHUNK_SIZE = 20
 
@@ -127,7 +129,8 @@ dedicated campaign wallet is required. Reward accrual is not added to cash.
 
 
 class WalletReader:
-    def __init__(self, transport, *, signature_type, campaign_capital=None, campaign_start_utc=None, campaigns=None):
+    def __init__(self, transport, *, signature_type, campaign_capital=None, campaign_start_utc=None, campaigns=None,
+                 settlement_root=None, events_config_path=None):
         if signature_type not in (2, 3):
             raise ReaderError("signature_type_must_be_2_or_3")
         if campaign_capital is not None and number(campaign_capital) < 0:
@@ -138,6 +141,9 @@ class WalletReader:
         self.campaign_start = campaign_start(campaign_start_utc) if campaign_start_utc is not None else None
         self.funder = transport.fields["FUNDER_ADDRESS"]
         self.campaigns = campaigns
+        self.settlement_root = settlement_root if settlement_root is not None else data_path("settlements")
+        self.events_config_path = (events_config_path if events_config_path is not None
+                                   else config_path("location_market_events.json"))
         if campaigns is not None:
             from maker_core.contracts.portfolio import validate_campaigns
             validate_campaigns(campaigns)
@@ -368,6 +374,19 @@ class WalletReader:
                 "percentages": self.get(CLOB, "/rewards/user/percentages", signature_type=self.signature_type),
                 "payment_verified": False}
 
+    def settlement(self, since):
+        """Venue resolution vs the local WU settlement proxy; docs/operations/wallet-reader.md."""
+        valid_since(since)
+        from weather.market.wallet_reader_settlement import settlement
+        try:
+            events = json.loads(self.events_config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            events = {}
+        with self.transport.composite() as plan:
+            result = settlement(self, since, ledger_root=self.settlement_root, events_config=events)
+            result["plan"] = dict(max_gets=plan["max_gets"], used_gets=plan["used_gets"])
+            return result
+
     def _unredeemed(self, resolved):
         # Positive resolved holdings are still held. redeemable=False does not
         # prove redemption; a zero-size/absent lot is already represented in cash.
@@ -499,6 +518,7 @@ def main(argv=None):
     serve.add_argument("--campaign-capital", help="Campaign-start equity plus net deposits/withdrawals in pUSD; omit for unknown P&L")
     serve.add_argument("--campaign-start-utc", help="Explicit timezone-aware campaign baseline instant; required to date unredeemed lots")
     serve.add_argument("--campaigns", help="Explicit portfolio campaign JSON; replaces single-campaign status with campaign books")
+    serve.add_argument("--settlement-root", help="Settlement ledger root for /settlement (default data/settlements)")
     args = parser.parse_args(argv)
     try:
         lan_ip(args.bind)
@@ -517,7 +537,7 @@ def main(argv=None):
         fields, guard = load_owner_credentials()
         reader = WalletReader(ReadTransport(fields, guard), signature_type=args.signature_type,
                               campaign_capital=args.campaign_capital, campaign_start_utc=args.campaign_start_utc,
-                              campaigns=campaigns)
+                              campaigns=campaigns, settlement_root=Path(args.settlement_root) if args.settlement_root else None)
         from weather.market.wallet_reader_server import serve_reader
         serve_reader(reader, guard, fields["READER_TOKEN"], bind=args.bind, allow=args.allow, port=args.port)
     except KeyboardInterrupt:

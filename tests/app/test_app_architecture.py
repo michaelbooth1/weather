@@ -57,7 +57,7 @@ def test_app_files_decode_as_utf8_without_mojibake_fragments():
     assert offenders == {}
 
 
-def test_streamlit_router_stays_thin_and_exposes_only_two_pages():
+def test_streamlit_router_stays_thin_and_exposes_only_three_pages():
     router_text = ROUTER_PATH.read_text(encoding="utf-8")
     router_forbidden = [
         "SnapshotStore",
@@ -74,8 +74,9 @@ def test_streamlit_router_stays_thin_and_exposes_only_two_pages():
     ]
 
     view_files = {path.name for path in VIEW_ROOT.glob("*.py")}
-    assert view_files == {"__init__.py", "control_room.py", "roadmap.py"}
+    assert view_files == {"__init__.py", "cockpit.py", "control_room.py", "roadmap.py"}
     assert len(router_text.splitlines()) <= 100
+    assert "render_cockpit_page" in router_text
     assert "render_control_room_page" in router_text
     assert "render_roadmap_page" in router_text
     assert all(pattern not in router_text for pattern in router_forbidden)
