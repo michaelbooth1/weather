@@ -48,8 +48,8 @@ The operating setup has three layers:
 1. Windows Task Scheduler runs short-lived supervisors that keep three
    streak-critical capture loops healthy and, when explicitly armed, one
    auxiliary public execution-tape producer healthy.
-2. A lightweight desktop launcher starts the two-page Streamlit dashboard and
-   opens the read-only Control Room.
+2. A lightweight desktop launcher starts the three-page Streamlit dashboard and
+   opens the read-only Owner Cockpit.
 3. The Control Room and status CLIs expose health and code-version evidence;
    supported CLIs and runbooks remain the only recovery/control surfaces.
 

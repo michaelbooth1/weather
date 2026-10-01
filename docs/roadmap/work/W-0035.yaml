@@ -1,0 +1,23 @@
+{
+  "id": "W-0035",
+  "title": "Autumn PIT collection: author the handoff",
+  "workstream": "model",
+  "status": "proposed",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": null,
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "No handoff yet (110p). Existing owner approval in DECISION_LOG 2026-09-25; implementation scope still to be written."
+  ]
+}

@@ -342,11 +342,14 @@ class SettledDayRootCauseTests(unittest.TestCase):
         self.assertIn("195", by_issue["RAMP_WINDOW_WARM_TAIL_SPREAD"]["roadmap_items"])
         self.assertIn("193", by_issue["WU_CURRENT_MAX_ANOMALY"]["roadmap_items"])
         self.assertEqual(by_issue["WU_CURRENT_MAX_ANOMALY"]["classification"], "historical_closure_evidence")
-        self.assertIn("160", by_issue["MODEL_WEAK_HOUR_SLOT"]["active_owner_items"])
+        # Items 157, 160 and 161 were parked DORMANT on 2026-09-29 (110o part 10): they still own
+        # these issues, so no new roadmap item is suggested.
+        self.assertIn("160", by_issue["MODEL_WEAK_HOUR_SLOT"]["dormant_owner_items"])
+        self.assertEqual(by_issue["MODEL_WEAK_HOUR_SLOT"]["classification"], "dormant_owner")
         self.assertNotIn("192", by_issue["MODEL_WEAK_HOUR_SLOT"]["roadmap_items"])
         self.assertIn("210", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["roadmap_items"])
-        self.assertIn("161", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["active_owner_items"])
-        self.assertIn("157", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["active_owner_items"])
+        self.assertIn("161", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["dormant_owner_items"])
+        self.assertIn("157", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["dormant_owner_items"])
         self.assertIn("161", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["roadmap_items"])
         self.assertIn("157", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["roadmap_items"])
         self.assertNotIn("198", by_issue["MM_PREFLIGHT_STALE_BOOKS"]["roadmap_items"])

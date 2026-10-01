@@ -54,7 +54,7 @@ if (-not $isListening) {
     Start-Sleep -Seconds 2
 }
 
-$url = "http://localhost:$Port/?market=control"
+$url = "http://localhost:$Port/?cockpit"
 if (-not $NoBrowser) {
     Start-Process $url | Out-Null
 }

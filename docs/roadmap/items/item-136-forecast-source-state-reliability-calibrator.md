@@ -1,4 +1,4 @@
-# 136. Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]
+# 136. Forecast Source-State Reliability Calibrator [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]
 
 Goal: convert forecast source count, source disagreement, and freshness state
 from broad diagnostics into a calibrated reliability layer that adjusts

@@ -75,8 +75,16 @@ def event_date(slug: str) -> date:
         raise InventoryRefused("invalid event date") from exc
 
 
+HOT_WINDOW_WORDS = {1: "one", 30: "thirty"}
+
+
 def validate_folders(folders, *, as_of: date, min_age_days=30):
-    if min_age_days not in (14, 30):
+    """Refuse events inside the hot window: those not strictly older than N days.
+
+    The attended CLI uses thirty. The nightly consumer uses one, so a market-day
+    is selectable once it is at least two local calendar days old.
+    """
+    if min_age_days not in HOT_WINDOW_WORDS:
         raise InventoryRefused("unsupported cold-day age")
     if not isinstance(folders, list) or not 1 <= len(folders) <= MAX_FOLDERS:
         raise InventoryRefused("name one to twelve exact folders")
@@ -97,8 +105,7 @@ def validate_folders(folders, *, as_of: date, min_age_days=30):
         else:
             raise InventoryRefused("folder is outside the recovery inventory contract")
         if target is not None and target >= as_of - timedelta(days=min_age_days):
-            raise InventoryRefused("event is inside the thirty-day hot window" if min_age_days == 30
-                                   else "event is inside the fourteen-day hot window")
+            raise InventoryRefused(f"event is inside the {HOT_WINDOW_WORDS[min_age_days]}-day hot window")
         if name.casefold() in seen:
             raise InventoryRefused("duplicate folder")
         seen.add(name.casefold())

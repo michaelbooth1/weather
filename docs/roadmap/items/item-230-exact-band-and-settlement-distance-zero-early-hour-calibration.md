@@ -1,4 +1,4 @@
-# 230. Exact-Band And Settlement-Distance-0 Early-Hour Calibration [PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]
+# 230. Exact-Band And Settlement-Distance-0 Early-Hour Calibration [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]
 
 Goal: repair the exact-band and settlement-distance-0 early-hour calibration
 gap without causing one-above, ramp, or late-day regressions.
