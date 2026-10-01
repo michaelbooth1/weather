@@ -82,6 +82,13 @@ See [the dry-run contract](maker-core-contracts.md#bounded-weather-plugin-dry-ru
 The new AST ratchet resolves relative imports and import aliases, and refuses
 computed dynamic imports. It is a source boundary check, not a general sandbox.
 
+`maker_core.replay` reads only explicit neutral bundles and writes create-only
+diagnostics or gated comparison reports. It imports contracts, pure quoting and
+the evidence canonical serializer, never weather, venue, runtime or credentials.
+`weather.market.maker_replay_bundle` owns the weather-side projection using the
+110h reader/providers; it is outside the pure provider package. Its capture-time snapshot and envelope
+rules are owned by the [replay bundle contract](maker-replay-bundle.md).
+
 ## Shared Utilities
 
 These packages are intentionally importable by any owner package:

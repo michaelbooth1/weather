@@ -125,12 +125,14 @@ Net uses hazard times adverse loss times size, with no rebate credit. Its unit
 contract is a conservative upper bound on total band shares filled per minute;
 it must include either-leg exposure. No empirical hazard estimator ships here.
 
-`blind_re1` freezes 1.5-cent outward pricing, the [1,3]-cent hold window,
-20/30/50/75 sizes, one band and first-fill termination. Historical public quote
-fixtures prove **first-minute price parity only**. Per-leg replacement and the
-RE-1 five-requote limit are not reproduced; account, transport and full-minute
-runtime parity are not claimed. The attempt-1..12 replay skeleton is skipped
-until an authorized sanitized journal export is available.
+`blind_re1` freezes RE-1's 1.5-cent outward pricing, inclusive [1,3]-cent hold
+window, 20/30/50/75 sizes, one band and first-fill termination. Its resting
+observer has no share-floor pull; the informed 5% rule above does not apply.
+The offline lifecycle implements affected-leg cancel-then-post and ends before
+the fifth requote. Recorded fixtures match all 313 minute projections; terminal
+findings remain explicit strict xfails with an evidenced ledger. See the
+[replay contract](maker-replay-bundle.md#scoring) for timing, sizing, transport
+assumptions and the boundary between projected equality and full qualification.
 `inventory_action` is advisory hold/resting-sell/exit-review using the
 specified taker fee, not a live liquidation path.
 
@@ -169,10 +171,13 @@ the existing capture writer. T+1/T+2 estimators remain independent of market
 prices; T+0 is outside their frozen scoring protocol. See the
 [dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
-The fictional replay lives in tests. Production evidence loading, portfolio
-accounting, venue/credential access, session control, fitted hazard estimation,
-YouTube plugins, shadow scoring and live execution are later phases. The weather
+Portfolio accounting and saved-read orchestration are owned by the
+[portfolio ledger contract](portfolio-ledger.md). The additive
+[replay bundle contract](maker-replay-bundle.md) supplies a bounded neutral
+envelope reader, capture-time snapshots and a diagnostic-only CLI; scored
+replay and weather bundle export remain unfinished. The fictional decision
+replay lives in tests. Session control, fitted hazard estimation, YouTube
+plugins, shadow scoring and live execution are later phases. The weather
 adapters consume caller-supplied captured records without provider or filesystem IO.
 
 ## Bounded weather plugin dry run

@@ -17,6 +17,7 @@ from maker_core.quoting.prices import (
     QuoteRefused, _levels, qualified_mid, outward, touch_buffer, price_sized_reward_quote,
 )
 from maker_core.quoting.rewards import order_score, q_min, share_of, side_score
+from maker_core.quoting.re1 import observe as re1_observe, reserve_budget
 
 D = Decimal
 
@@ -210,6 +211,23 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
         return result("SAFETY_BUDGET")
     if p.max_bands is not None and portfolio.active_other_bands >= p.max_bands:
         return result("ONE_BAND_ONLY")
+    if not p.informed and i.existing:
+        # RE-1's minute observer is different from selection and submit-time
+        # validation. Informed gates below must not leak into the blind hold.
+        if (len(i.existing) != 2 or tuple(v.outcome for v in i.existing) != ('YES', 'NO')
+                or i.existing[0].size != i.existing[1].size):
+            return result('RE1_PAIR_REQUIRED')
+        try:
+            observation = re1_observe(i.book, i.terms, tuple(v.price for v in i.existing), i.existing[0].size)
+        except QuoteRefused as exc:
+            return result(str(exc).upper())
+        mid = observation.adjusted_mid
+        if observation.requote_legs:
+            # QuoteDecision retains its existing coarse CANCEL vocabulary.
+            # The RE-1 lifecycle owns the exact affected-leg cancellation list.
+            return result('OUTSIDE_REQUOTE_WINDOW', share=observation.share_many, net=observation.per_minute_many)
+        return result('WITHIN_REQUOTE_WINDOW', action='HOLD', legs=i.existing,
+                      share=observation.share_many, net=observation.per_minute_many)
     if not 0 <= (i.now - i.book.as_of_utc).total_seconds() <= 10:
         return result("BOOK_STALE_OR_FUTURE")
     t = i.terms
@@ -330,6 +348,11 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
 
     desired = None
     rejection = "NO_ELIGIBLE_SIZE"
+    if not p.informed:
+        try:
+            re1_budget = reserve_budget(portfolio.cash - portfolio.reserved_elsewhere)
+        except QuoteRefused as exc:
+            return result(str(exc).upper())
     for size in reversed(p.sizes):
         if size > size_cap or size < max(t.min_size, i.market.min_order_size):
             continue
@@ -343,6 +366,9 @@ def decide(inputs: DecisionInputs) -> QuoteDecision:
                     per_order_ceiling=min(portfolio.order_cap, D(".8") * size),
                     per_band_ceiling=min(portfolio.band_cap, D(size)))
                 legs = (QuoteLeg("YES", quote.yes_buy, D(size)), QuoteLeg("NO", quote.no_buy, D(size)))
+                if quote.reserve_pusd > re1_budget:
+                    rejection = 'INSUFFICIENT_SIZE_RESERVE'
+                    continue
             except QuoteRefused as exc:
                 rejection = str(exc).upper()
                 continue
