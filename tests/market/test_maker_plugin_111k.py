@@ -50,13 +50,13 @@ def test_real_kaus_bulletin_tie_traced_from_text_to_band_probabilities():
     parsed_issue, knots, slot = parse(raw_bulletin(text, "KAUS", target, issue + timedelta(hours=1)), "KAUS", target)
     assert parsed_issue == issue and slot[:3] == (0, 0, 23.0)
     assert knots == (97., 98., 99., 100., 100.)  # P75 = P90: whole-degree rounding, not a parse error.
-    assert model_id(knots) == "nbp-v2-piecewise-linear-atoms"
+    assert model_id(knots) == "nbp-v2-piecewise-linear-atoms-resolution-tails"
     bands = {"le96": (-math.inf, 96.5), "97": (96.5, 97.5), "98": (97.5, 98.5), "99": (98.5, 99.5),
              "100": (99.5, 100.5), "ge101": (100.5, math.inf)}
     joint = integrate(bands, lambda x: percentile_cdf(knots, x))
     # By hand: F(96.5) = .10 - .5 * .15; F(97.5) = .175; F(98.5) = .375; F(99.5) = .625;
-    # F(100.5) = 1 (vertical last segment: the upper tail sits on the 100 atom).
-    expected = {"le96": .025, "97": .15, "98": .2, "99": .25, "100": .375, "ge101": 0.}
+    # F(100.5) = .90 + .5 * .15: the tied P75/P90 pair is read one degree apart (Amendment 2).
+    expected = {"le96": .025, "97": .15, "98": .2, "99": .25, "100": .35, "ge101": .025}
     assert joint == pytest.approx(expected, abs=1e-12)
     assert math.fsum(joint.values()) == pytest.approx(1, abs=1e-12)
 
@@ -69,8 +69,8 @@ def test_strictly_increasing_knots_keep_the_frozen_110b_values_and_identity():
 
 
 @pytest.mark.parametrize("knots, below, above", [
-    ((70., 70., 72., 74., 76.), 0., None),   # Tied first segment: lower tail on the atom.
-    ((70., 72., 74., 76., 76.), None, 1.),   # Tied last segment.
+    ((70., 70., 72., 74., 76.), .025, None),  # Tied first pair: tail at .15 per degree (Amendment 2).
+    ((70., 72., 74., 76., 76.), None, .975),  # Tied last pair.
     ((70., 72., 72., 72., 76.), None, None),  # Interior atom of mass .50.
 ])
 def test_tied_knots_are_atoms_of_a_monotone_cdf(knots, below, above):
@@ -78,9 +78,9 @@ def test_tied_knots_are_atoms_of_a_monotone_cdf(knots, below, above):
     values = [percentile_cdf(knots, x) for x in xs]
     assert values == sorted(values) and values[0] == 0 and values[-1] == 1
     if below is not None:
-        assert percentile_cdf(knots, knots[0] - .5) == below
+        assert percentile_cdf(knots, knots[0] - .5) == pytest.approx(below)
     if above is not None:
-        assert percentile_cdf(knots, knots[4] + .5) == above
+        assert percentile_cdf(knots, knots[4] + .5) == pytest.approx(above)
     if knots[1:4] == (72., 72., 72.):
         # F(72.5) = .75 + .5 * .15 / 4 and F(71.5) = .10 + 1.5 * .15 / 2: the .50 atom plus both slopes.
         assert percentile_cdf(knots, 72.5) - percentile_cdf(knots, 71.5) == pytest.approx(.76875 - .2125)
