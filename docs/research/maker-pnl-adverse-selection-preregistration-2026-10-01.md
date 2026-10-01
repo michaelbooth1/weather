@@ -157,3 +157,120 @@ For band-day `b`, horizon `h`:
 Production exports the inputs and copies them to the workstation by scp, never through git. The exact selection,
 refusals and checksums are in the [transfer manifest](maker-pnl-adverse-selection-transfer-manifest-2026-10-01.md). The
 analysis records this file's freezing commit and the manifest's `SHA256SUMS` hash in its report.
+
+## Clarification 1 (2026-10-01, before any input is transferred or read; owner-approved)
+
+**Data seen: none.** No input named in the transfer manifest had been transferred or read when this clarification was
+committed. The pilot, the panel and the 110x journal stratum are all unread. The owner approved these four changes on
+2026-10-01 after reviewing the frozen design. They bind exactly like the rules above and supersede them where they differ.
+The 111f share table cited in point 4 is prior repository evidence, already committed, not an input of this study.
+
+### 1. Both fill rules bind a positive verdict
+
+The frozen text calls the strictly-through rule "conservative". That holds only if fills are benign. If fills are toxic,
+fewer fills means less adverse selection, so strictly-through is the *optimistic* rule for the sign question. The two
+rules are renamed by what they do:
+
+- **strictly-through** (formerly "conservative"): a print strictly through the leg price fills; fewer fills;
+- **at-price** (formerly "optimistic"): a print at or through the leg price fills; more fills.
+
+Both use the same bootstrap draws (same seed, same resampled dates). **`MAKER_POSITIVE` requires the 90% lower bound of
+θ above zero under both rules.** `MAKER_NEGATIVE` still reads the strictly-through rule (the frozen primary), and the
+at-price result is reported beside it. When the two rules' intervals do not exclude zero on the same side, the verdict
+carries `_FILL_RULE_DEPENDENT`; the flag is reported, not overridden. The power rule (point 3) and `σ_d` use
+strictly-through.
+
+### 2. RE-1-faithful reported stratum: the first fill ends the band-day
+
+The frozen quote re-places both legs at full size at every book sample, so a band-day can accumulate unbounded inventory.
+RE-1 did not quote that way: a session stopped on its fills. A second stratum is reported beside the continuous one:
+
+- Same bands, admissible minutes, quote, prices, reward terms, markouts, horizons and exclusions as the continuous stratum.
+- **Band-day inclusion** (at least 60 admissible minutes) is decided on the untruncated admissible minutes, so whether a
+  band-day enters never depends on when or whether it filled.
+- **The first qualifying print** of the band-day, in venue-timestamp order, fills `min(print size, 75)` on its leg. Both
+  legs are withdrawn at that print's timestamp. Later prints fill nothing, including prints at the same timestamp, and no
+  quote is re-placed that band-day. Inventory is therefore at most 75 shares per band-day.
+- **Reward** accrues on admissible minutes before the minute that contains the first fill. That minute and every later
+  minute earn nothing (the option that lowers `Rew`). A band-day with no fill quotes all its admissible minutes, as in the
+  continuous stratum.
+- The per-60-quote-minute rate uses the minutes actually quoted.
+- Every estimand, both fill rules, every `k_share`, and the interval and flags are computed for this stratum. Its label
+  from the verdict table in point 4 is reported as `RE1_FAITHFUL_<label>` and never replaces the primary. A disagreement
+  with the primary is reported as such. It does not enter `σ_d` or the power rule.
+
+### 3. Power rule, undecidable panels, and δ
+
+**The quantile.** `σ_d` is the sample standard deviation (denominator `n − 1`) of the pilot's date-mean `NP_S` under the
+primary (continuous stratum, strictly-through, `k_share` 0.3), over the `n` surviving pilot dates. `σ_up` is its
+**one-sided** 90% upper confidence bound:
+
+    σ_up = σ_d · sqrt((n − 1) / c),   c = the 0.10 lower-tail quantile of chi-square with n − 1 degrees of freedom
+
+It is not the upper end of a two-sided 90% interval, which would use the 0.05 quantile. For example, `n = 4` gives
+`c ≈ 0.584` and `σ_up ≈ 2.27 σ_d`. `N_req` keeps its frozen formula, with `z` values 1.645 and 0.842 and no
+t-correction. The report states `n`, `σ_d`, `c`, `σ_up` and `N_req`.
+
+**`UNDECIDABLE_AT_DELTA` (`N_req` > 28).** The panel runs on its base 14 event dates, 2026-10-17..2026-10-30. It is not
+extended, because an extension cannot reach the required size. Every estimand, interval, stratum and flag is computed and
+reported, and the outcome is labelled `UNDECIDABLE_AT_DELTA`. The verdict table is **not** applied:
+- no `MAKER_POSITIVE`, `MAKER_NEGATIVE` or `INCONCLUSIVE` label is issued;
+- no point estimate or interval may be cited as the maker's P&L sign.
+
+**Achieved MDE (every panel outcome).** `MDE = (1.645 + 0.842) · SE`, where `SE` is the standard deviation of the
+10,000 date-clustered bootstrap draws of θ under the primary. It is reported in pUSD per band-day beside δ. Beside it
+goes the planned MDE `(1.645 + 0.842) · σ_up / sqrt(N)` at the panel's date count `N`. This definition also serves the
+frozen "achieved MDE stated" for `INCONCLUSIVE`.
+
+**δ = 1.0 pUSD per band-day is kept, on a design basis.** It is derived from the frozen quote, not from any data:
+
+- **One lot's half-spread.** One full fill of the 75-share lot at the 1.5 c target distance captures
+  75 × 0.015 = 1.125 pUSD of half-spread. δ = 1.0 is 1.33 c per share on one lot, below the 1.5 c half-spread the quote
+  is built to earn. A true θ smaller than δ is smaller than the edge of a single full fill. It cannot be told apart from
+  the quote-construction choice itself, and is not worth deciding the sign for.
+- **Capital at risk.** RE-1's reserve model caps posted collateral per band at 75 pUSD (EF §10n). δ = 1.0 is about 1.3%
+  of that cap per band-day. Edges smaller than that are within the range the excluded terms could move: capital cost,
+  unmeasured rebates and simultaneous-fill limits.
+
+Neither the pilot, the swarm range, nor any RE-1 or 111f number sets δ.
+
+### 4. Decay-curve k, and what `MAKER_NEGATIVE` means
+
+**Decay-curve `k` (reported beside `k_share` 0.3; never a verdict input).** The reward term for a minute uses `k(τ)` in
+place of `k_share`:
+
+    k(τ) = curve(τ) / curve(0)                    for τ = 0..59
+    k(τ) = mean of curve(50..59) / curve(0)       for τ ≥ 60
+
+- `curve(τ)` is `mean_share_many` by minute since posting, from `series_re1_journal_books.curve` in
+  `docs/roadmap/agent-report-2026-09-111f-reaction-diagnostic-amendment-1.json` on branch
+  `codex/reaction-diagnostic-20260930`. Its committed LF blob has sha256
+  `30e68a615649430cd3f43e3b06a2efd3440c80c6259243dc9e6182bb4e67be91`. The τ ≥ 60 tail value is about 0.215.
+- **τ** is whole minutes since the band-day's first admissible minute. It never resets across withdrawals or
+  non-admissible gaps. Resetting would return k to 1 after every gap; not resetting lowers `Rew`.
+- It applies to both strata and both fill rules.
+- **Caveat, reported with it:** the curve thins from 9 episodes at minute 0 to 2 at minute 59. Its later minutes mix
+  fewer, longer sessions from one campaign on 3 dates and 4 markets.
+
+**Verdict table.** It supersedes the Part 2 table. The primary is the continuous stratum, NP at S, `k_share` 0.3.
+
+| Verdict | Condition | Reads as |
+| --- | --- | --- |
+| `MAKER_POSITIVE` | 90% lower bound of θ > 0 under **both** strictly-through and at-price | positive even under the pessimistic choices below |
+| `MAKER_NEGATIVE` | 90% upper bound of θ < 0 under strictly-through | **"not shown positive" under stacked pessimism**, not "the maker loses money" |
+| `INCONCLUSIVE` | otherwise, with the achieved MDE stated | — |
+| `UNDECIDABLE_AT_DELTA` | `N_req` > 28 (point 3) | no sign label; descriptive only |
+
+`MAKER_NEGATIVE` is read under stacked pessimism:
+
+- `k_share` 0.3, which already removes about 70% of modelled share;
+- rebates excluded;
+- the settlement horizon holds every fill to resolution;
+- the owner's resting orders count as competition;
+- every implementation gap is resolved toward lower `Rew` or higher `AS`.
+
+It therefore means the maker is **not shown positive** under those assumptions. It is never reported as proof that the
+maker loses money. The report places the `k_share` 1.0, decay-curve `k`, at-price and rebate sensitivities next to it.
+
+The flags `_NOT_SIGN_CONSISTENT`, `_NOT_ROBUST_TO_MARKET_CLUSTERING` and `_FILL_RULE_DEPENDENT`, and the
+`UNDERPOWERED` rule, apply as stated above. `_NOT_SIGN_CONSISTENT` and `UNDERPOWERED` still force `INCONCLUSIVE`.
