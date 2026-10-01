@@ -35,10 +35,10 @@ Do not read this log to learn the current state. Its distilled conclusions are i
 when the digest, a numbered item, or the user's task names it. Adjacent
 `.json`/`.csv`/`.sha256` files are the evidence artifacts a report cites.
 
-[Correspondence index](correspondence-index.md) is generated from filenames,
-H1 titles, citations and Git-added dates. Reports reuse the exact handoff id;
-legacy collisions are listed as multiple possible answers, not inferred matches.
-Name new audits `<scope>-audit-<date>.md` and add their row to
+[Correspondence index](correspondence-index.md) lists months; each Git-added month is a shard
+under `correspondence-index/` generated from filenames, H1 titles, citations and Git-added
+dates. Reports reuse the exact handoff id; legacy collisions are listed as multiple possible
+answers, not inferred matches. Name new audits `<scope>-audit-<date>.md` and add their row to
 [the audit index](audits/README.md) in the same commit.
 
 Reading rules:
