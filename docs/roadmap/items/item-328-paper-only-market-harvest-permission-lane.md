@@ -1,4 +1,4 @@
-# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]
+# 328. Paper-Only Market-Harvest Permission Lane [DORMANT 2026-09-29 - PAPER MAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]
 
 Goal: make the approved market-centered rebate experiment reachable without
 misrepresenting model promotion or manufacturing model edge.

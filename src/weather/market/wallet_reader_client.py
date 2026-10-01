@@ -14,7 +14,7 @@ from weather.market.wallet_reader_transport import NoRedirect
 from weather.operations.live_path_security import validate_regular_nonreparse_file
 from weather.paths import config_path
 
-CLIENT_ROUTES = {"summary", "open-orders", "positions", "trades", "rewards"}
+CLIENT_ROUTES = {"summary", "open-orders", "positions", "trades", "rewards", "settlement"}
 
 
 class ClientError(ReaderError):
@@ -26,7 +26,7 @@ class ClientError(ReaderError):
 def read_account(command, *, since=None, day=None, config=None, opener=None, timeout=20, include_resolved=False):
     """No arbitrary path, URL, header, or method accepted from the caller."""
     try:
-        if (command not in CLIENT_ROUTES or since is not None and command != "trades" or day is not None and command != "rewards"
+        if (command not in CLIENT_ROUTES or since is not None and command not in {"trades", "settlement"} or day is not None and command != "rewards"
                 or include_resolved and command not in {"summary", "positions"}
                 or isinstance(timeout, bool) or not math.isfinite(timeout) or not 5 <= timeout <= 120):
             raise ClientError("refused")
@@ -87,7 +87,7 @@ def read_account(command, *, since=None, day=None, config=None, opener=None, tim
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(CLIENT_ROUTES))
-    parser.add_argument("--since", help="Unix seconds; trades only")
+    parser.add_argument("--since", help="Unix seconds; trades and settlement only")
     parser.add_argument("--date", help="UTC YYYY-MM-DD; rewards only")
     parser.add_argument("--include-resolved", action="store_true", help="Include resolved inventory; summary/positions only")
     parser.add_argument("--timeout", type=float, default=20, help="LAN read timeout in seconds (5-120; default 20)")

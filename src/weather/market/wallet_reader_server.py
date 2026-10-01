@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from weather.market.wallet_reader_security import ReaderError, lan_ip
 
-ROUTES = {"/health", "/summary", "/positions", "/open-orders", "/trades", "/balance", "/rewards"}
+ROUTES = {"/health", "/summary", "/positions", "/open-orders", "/trades", "/balance", "/rewards", "/settlement"}
 
 
 def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
@@ -30,7 +30,7 @@ def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
         if parts.scheme or parts.netloc or parts.fragment or parts.path not in ROUTES:
             return 404, {"error": "not_found"}
         query = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
-        allowed = ({"since"} if parts.path == "/trades" else {"date"} if parts.path == "/rewards"
+        allowed = ({"since"} if parts.path in {"/trades", "/settlement"} else {"date"} if parts.path == "/rewards"
                    else {"include_resolved"} if parts.path in {"/positions", "/summary"} else set())
         if not set(query) <= allowed or any(len(v) != 1 for v in query.values()):
             return 400, {"error": "invalid_query"}
@@ -45,6 +45,11 @@ def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
             from weather.market.wallet_reader import valid_since
             valid_since(since)
             value = reader.trades(since)
+        elif parts.path == "/settlement":
+            since = query.get("since", [str(int(datetime.now(timezone.utc).timestamp()) - 7 * 86400)])[0]
+            from weather.market.wallet_reader import valid_since
+            valid_since(since)
+            value = reader.settlement(since)
         elif parts.path == "/rewards":
             day = query.get("date", [datetime.now(timezone.utc).date().isoformat()])[0]
             from weather.market.wallet_reader import valid_date
