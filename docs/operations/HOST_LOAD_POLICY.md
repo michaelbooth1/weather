@@ -134,7 +134,7 @@ a committed timetable.
 | Window | Load class |
 | --- | --- |
 | 00:00–00:30 | **PROTECTED for ad-hoc work — tail of the near-close window.** 00:05–00:30 is the taker/MM daily roll-over spike (scheduled, brief). The lease does not open until 00:30 |
-| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 06:45 trigger (after the 04:45 cold-snapshot nightly and the 05:00/06:00 CLOB tiering jobs) and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:00 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch. Continues through 00:30 (first row) |
@@ -149,10 +149,15 @@ literals in `src/weather/operations/operating_reference.py` (`PROTECTED_WINDOWS`
 constants; if that page ever disagrees with the lease code, **the lease code wins** — fix the
 literal.
 
-When Stage B is explicitly enabled, its exact 00:35 trigger composes an
-eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
-Scheduler `PT8H40M` cleanup limit (09:15). This leaves 15 minutes before the
-09:30 Stage-A exception; `StartWhenAvailable` is forbidden.
+When Stage B is explicitly enabled, its exact 06:45 trigger composes a
+1h50m child SLA (08:35), the wrapper's 09:00 teardown (2h15m), and the
+Scheduler `PT2H30M` cleanup limit (09:15). This leaves 15 minutes before the
+09:30 Stage-A exception; `StartWhenAvailable` is forbidden. The registrar
+refuses while any enabled task that runs a lease-taking script or module
+(derived from source) has a scheduled window overlapping 06:45-09:15, and the
+wrapper waits at most 240 seconds for the lease before
+refusing, so Stage B never shares the lease window
+([operations design](OPERATIONS_DESIGN.md#daily-refresh-delegated-child-tasks)).
 
 Stage-A settlement safeguards: the daily taker edge-permission aggregation is
 single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
