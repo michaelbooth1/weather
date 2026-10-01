@@ -594,6 +594,22 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
   complete stream, so every mutating/fetch Git call temporarily scopes native stderr to Continue
   and still checks the actual process exit code.
 
+**Docs-only light path.** A branch that `roll_verdict.ps1` calls ROLL-FREE and whose diff is
+only `docs/**/*.md` lands with `scripts/ops/docs_light_path.ps1 -Branch origin/<b>
+-ExpectedTip <sha>` at any hour, without the lease, quiet window or marker (Operations agent
+role §6 rule 2). It refuses unless local `master` is checked out with `HEAD == origin/master`
+(and the `ls-remote` master when reachable), no `MERGE_HEAD`, no quiet-merge marker, nothing
+staged and no modified tracked `docs/` file, the branch is at the exact tip and not yet merged,
+both the branch diff and the resulting merge diff are only `docs/**/*.md`, the roll verdict
+exits 0, and `WeatherOneShotPush` is Ready. It then merges `--no-ff` locally, starts
+`WeatherOneShotPush`, waits for a new run with result 0, and proves `origin/master` is the
+merge commit. Exit 0 is published; 1 is a refusal (nothing changed, or its own unpublished
+merge was undone with `git reset --keep`); 3 is merged locally but publication unproven:
+retry only `WeatherOneShotPush` and re-check `origin/master`. Every outcome after the merge
+writes an immutable `docs-light-<ts>-<tip12>.json` receipt
+(`docs_light_path_receipt_v0.1`) to `data/alerts/quiet_window_merge_reconciliations/`; status
+retirement scans ignore that name. `-CheckOnly` runs every precondition and changes nothing.
+
 For ordinary synchronized integrations only, `stage: merged_unpushed` means the
 credential-bearing `WeatherOneShotPush` task did not acknowledge
 the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
