@@ -54,6 +54,13 @@ def parse_pair_row(line):
     return pairs
 
 
+def issue_time(header):
+    match = re.search(r"GUIDANCE\s+(\d{1,2}/\d{1,2}/\d{4})\s+(\d{4})\s+UTC", header)
+    if match is None:
+        raise ValueError("nbp_issue_time_not_found")
+    return datetime.strptime(" ".join(match.groups()), "%m/%d/%Y %H%M").replace(tzinfo=timezone.utc)
+
+
 def parse(raw, station, target):
     text = raw["text"]
     if hashlib.sha256(text.encode()).hexdigest() != raw["payload_hash"]:
@@ -71,10 +78,7 @@ def parse(raw, station, target):
             active.append(line)
     if len(blocks) != 1:
         raise ValueError("missing_or_ambiguous_station_block")
-    match = re.search(r"GUIDANCE\s+(\d{1,2}/\d{1,2}/\d{4})\s+(\d{4})\s+UTC", blocks[0][0])
-    if match is None:
-        raise ValueError("nbp_issue_time_not_found")
-    issue = datetime.strptime(" ".join(match.groups()), "%m/%d/%Y %H%M").replace(tzinfo=timezone.utc)
+    issue = issue_time(blocks[0][0])
     if timestamp(raw["fetched_at"]) < issue:
         raise ValueError("nbp_capture_precedes_issue")
     rows = {}
@@ -96,8 +100,11 @@ def parse(raw, station, target):
         if value is None or value == -99 or (code == "TXNSD" and value < 0):
             raise ValueError("target_max_incomplete_rows")
         values.append(value)
-    if any(a >= b for a, b in zip(values[:4], values[1:5])):
-        raise ValueError("nonincreasing_percentile_knots")
+    # NBP prints whole degrees, so adjacent percentiles of a narrow forecast
+    # round to the same value (KAUS 9/17/2026 01Z: P75 = P90 = 100). A tie is
+    # an atom of the CDF, never a defect; only a decrease is contradictory.
+    if any(a > b for a, b in zip(values[:4], values[1:5])):
+        raise ValueError("decreasing_percentile_knots")
     return issue, tuple(values[:5]), slot
 
 

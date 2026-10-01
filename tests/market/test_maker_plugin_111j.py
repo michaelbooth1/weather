@@ -36,9 +36,9 @@ def two_day_bulletin(spec, shift=0):
     return "\n".join(lines) + "\n"
 
 
-def t1_layout(tmp_path, *, text=None, minutes=1):
+def t1_layout(tmp_path, *, text=None, minutes=1, uncaptured_tokens=()):
     """T+1 event with an empty own folder; the T+0 folder holds the shared NBP manifest."""
-    args, folder, segment = layout(tmp_path, minutes=minutes)
+    args, folder, segment = layout(tmp_path, minutes=minutes, uncaptured_tokens=uncaptured_tokens)
     for name in ("snapshots_long.csv", "forecast_payloads.jsonl", "snapshot_explanations.jsonl"):
         (folder / name).unlink()
     _, rows, spec, target, _, _ = fixture(lead=1, now=NOW)

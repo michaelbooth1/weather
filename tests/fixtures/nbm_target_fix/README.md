@@ -9,6 +9,7 @@ explicitly requests these fixtures. `sha256.json` pins their bytes.
 
 `test_maker_plugin_110c.py` compares every FHR/TXN pair row against the verbatim
 row parser from that commit, then checks selected T+1/T+2 percentiles using the
-existing v2 slot oracle. Repeated percentile knots still fail closed; the plugin
+existing v2 slot oracle. Tied (whole-degree) knots parse as CDF atoms since 111k;
+only a decrease fails closed. The plugin
 deliberately rejects three-token groups rather than silently dropping a token.
 No network, runtime data directory, or external checkout is needed to run tests.

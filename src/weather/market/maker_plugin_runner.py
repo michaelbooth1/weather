@@ -21,9 +21,9 @@ from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, RewardTer
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.maker_plugin.clock import WeatherInformationClock
 from weather.market.maker_plugin.fair_value import WeatherFairValue
-from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
+from weather.market.maker_plugin.inputs import body, digest, event_identity, latest, timestamp
 from weather.market.maker_plugin.settlement import WeatherSettlement
-from weather.market.maker_plugin.universe import WeatherUniverse
+from weather.market.maker_plugin.universe import WeatherUniverse, is_open
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, regular_path, sealed_segments
 from weather.market.maker_plugin_sources import COVERAGE_KEYS, Sources, point_in_time_count, reason
 from weather.schema_registry import schema_version
@@ -121,12 +121,20 @@ def markdown(summary):
     lines = ["# Weather plugin dry run", "", "**" + summary["status"] + "**", "",
              "Offline diagnostics; no fills, account/portfolio replay, scoring or edge claim.",
              "Detailed descriptors, clocks, fair values, settlements, mass sums and decisions are in report.json.", ""]
+    verdict = summary["verdict"]
+    lines += ["## Verdict", "", f'**Exam-line plugin bar: {verdict["bar"]}.** {verdict["mass_statement"]}', "",
+              "| Check | Value | Pass |", "| --- | ---: | --- |"]
+    lines += [f'| {c["check"]} | {c["value"]} | {c["pass"]} |' for c in verdict["checks"]]
+    lines += ["", verdict["note"], ""]
     for name in ("date", "profile", "stop_reason", "records_written", "elapsed_seconds", "input_bytes_read", "output_bytes"):
         lines.append(f"- {name}: {summary.get(name)}")
     lines += ["", "## Coverage and joins", "", "| Source / join | Count |", "| --- | ---: |"]
     lines += [f"| {key} | {value} |" for key, value in sorted(summary["coverage"].items())]
     for title, key in (("Unavailable and input reasons", "unavailable"), ("Policy reason codes", "decision_reasons"),
-                       ("Leg counts", "leg_counts"), ("Probability mass coverage", "mass_coverage")):
+                       ("Leg counts", "leg_counts"), ("Probability mass coverage", "mass_coverage"),
+                       ("Probability mass over all listed bands, by lead", "all_band_mass"),
+                       ("Probability mass over the captured band set", "captured_set_mass"),
+                       ("Reasons on captured bands", "captured_set_reasons")):
         lines += ["", "## " + title, "", "| Reason | Count |", "| --- | ---: |"]
         lines += [f"| {k} | {v} |" for k, v in sorted(summary[key].items())]
     lines += ["", "## Diagnostic assumptions", "", summary["assumptions"], ""]
@@ -220,7 +228,12 @@ def band_tokens(band):
 
 
 def providers(support):
-    """Built once per cached event: constructors copy their inputs defensively."""
+    """Built once per cached event: constructors copy their inputs defensively.
+
+    The shared universe receives this event's replayed discovery (one capture
+    per content change), so ``bands`` verifies an identity batch for fair
+    value, clock and settlement exactly as for descriptors.
+    """
     if "providers" not in support:
         universe = WeatherUniverse(band_rows=support["band_rows"], identity_band_rows=support["identity_band_rows"])
         support["providers"] = (
@@ -249,33 +262,31 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                               "point_in_time_rows": point_in_time_count(support["coverage_times"][name], now)}
                        for name, _ in COVERAGE_KEYS}
     provider, clock, settlement = providers(support)
+    discovery = envelope([event], timestamp(event_capture["captured_at_utc"]), "discovery")
+    content = digest(event)
+    if support.get("discovery_content") != content:
+        provider.universe.observe_discovery([discovery])
+        support["discovery_content"] = content
     lead = (target - now.astimezone(spec.tz).date()).days
     basis = provider.universe.band_basis(slug, now)
-    # Identity bands are only usable when this minute's discovery lists exactly
-    # the same contracts; otherwise the partition itself could differ.
-    identity_mismatch = basis == "condition_identity" and not provider.universe.identity_matches(event)
-    outcomes, probabilities = [], []
-    expected = sum(bool(r.get("active")) and not r.get("closed") and r.get("enableOrderBook") is not False
-                   for r in event["markets"])
-    for band in event["markets"]:
+    open_bands = [band for band in event["markets"] if is_open(band)]
+    # One descriptor universe per event-minute: the full point-in-time event
+    # (identity is verified per event) and this minute's books.
+    universe = WeatherUniverse(discovery=[discovery], books=index.book_envelopes(
+        [token for band in open_bands for token in band_tokens(band)], now),
+        band_rows=support["band_rows"], identity_band_rows=support["identity_band_rows"])
+    outcomes, probabilities, views, captured = [], [], {}, []
+    expected = len(open_bands)
+    for band in open_bands:
         reader.check()
-        if band.get("closed") or not band.get("active") or band.get("enableOrderBook") is False:
-            continue
         cid = str(band.get("conditionId", "")).lower()
-        entry = {"condition_id": cid, "unavailable": [], "joins": {}, "band_basis": basis}
+        entry = {"condition_id": cid, "unavailable": [], "joins": {}, "band_basis": basis,
+                 "captured_by_88a": band_captured(index, band, now)}
         reader.coverage[f"band_basis.lead{lead}.{basis or 'none'}"] += 1
-        if identity_mismatch:
-            entry["unavailable"].append("descriptor:band_identity_mismatch")
-            entry["joins"]["descriptor"] = False
-            outcomes.append(entry)
-            continue
+        if entry["captured_by_88a"]:
+            captured.append(cid)
         try:
-            # Isolate missing books for one band; siblings still retain the full
-            # captured partition for fair-value mass calculation.
-            single = envelope([dict(event, markets=[band])], timestamp(event_capture["captured_at_utc"]), "discovery")
-            books = index.book_envelopes(band_tokens(band), now)
-            descriptor = WeatherUniverse(discovery=[single], books=books, band_rows=support["band_rows"],
-                                         identity_band_rows=support["identity_band_rows"]).describe(cid, now)
+            descriptor = universe.describe(cid, now)
             entry["descriptor"] = plain(descriptor)
             entry["joins"]["descriptor"] = True
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
@@ -283,6 +294,7 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
             entry["joins"]["descriptor"] = False
             outcomes.append(entry)
             continue
+        provider.last_nbp_read = None
         view = provider.evaluate(descriptor, now)
         if bad_sources & {"nbp", "nbp_manifests", "forecasts", "snapshots", "explanations", "observation_sources"}:
             view = Unavailable("corrupt_supporting_input", now, kind="corrupt")
@@ -291,8 +303,16 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
         entry["joins"]["fair_value"] = isinstance(view, OutcomeView)
         if isinstance(view, Unavailable):
             entry["unavailable"].append("fair_value:" + view.reason)
+            if view.reason == "missing_point_in_time_forecast":
+                gap = provider.forecast_gap(descriptor, now)
+                entry["forecast_gap"] = gap
+                reader.coverage[f"missing_forecast.lead{lead}.{gap}"] += 1
         else:
             probabilities.append(view.p_yes)
+            views[cid] = view
+            if provider.last_nbp_read is not None:
+                entry["nbp_read"] = provider.last_nbp_read  # Blob hash, issue, slot, knots, bands.
+            reader.coverage[f"fair_value_model.lead{lead}.{view.model_id}"[:120]] += 1
         try:
             if bad_sources & {"triggers", "nbp", "nbp_manifests"}:
                 raise ValueError("corrupt_clock_input")
@@ -331,7 +351,38 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                 band_token_batch_utc=support["band_token_batch_utc"],
                 outcomes=outcomes, source_coverage=source_coverage, probability_mass={"sum_available": math.fsum(probabilities),
                 "available_bands": len(probabilities), "expected_bands": expected,
-                "complete": len(probabilities) == expected and expected > 0})
+                "complete": len(probabilities) == expected and expected > 0,
+                "captured_set": captured_set_mass(captured, views)})
+
+
+def band_captured(index, band, now):
+    """88a holds both token books at or before the minute (its selected set)."""
+    tokens = band_tokens(band)
+    try:
+        return len(tokens) == 2 and all(index.book_rows(token, now) for token in tokens)
+    except ValueError:
+        return True  # A malformed capture is still captured; evaluation refuses it.
+
+
+def captured_set_mass(captured, views):
+    """Owner bar 2026-10-01: mass complete over the bands 88a actually captures.
+
+    Every captured band needs a fair value, all from one joint over the full
+    event partition, and that joint must sum to one.
+    """
+    available = [views[cid] for cid in captured if cid in views]
+    joints = {digest(sorted(dict(v.joint).items())) if v.joint is not None else None for v in available}
+    joint_sum = math.fsum(dict(available[0].joint).values()) if available and None not in joints else None
+    if not captured:
+        kind = "no_captured_bands"
+    elif len(available) != len(captured):
+        kind = "partial"
+    elif None in joints or len(joints) != 1:
+        kind = "complete_without_one_joint"
+    else:
+        kind = "complete_unit_mass" if abs(joint_sum - 1) <= 1e-9 else "complete_nonunit_mass"
+    return {"bands": len(captured), "available_bands": len(available),
+            "sum_available": math.fsum(v.p_yes for v in available), "joint_sum": joint_sum, "class": kind}
 
 
 def process(reader, sources, report, day, markets, hazard, stride=1):
@@ -393,8 +444,12 @@ def process(reader, sources, report, day, markets, hazard, stride=1):
                 mass_key = "partial" if not mass["complete"] else (
                     "complete_unit_mass" if abs(mass["sum_available"] - 1) <= 1e-9 else "complete_nonunit_mass")
                 increment(summary["mass_coverage"], mass_key)
+                increment(summary["all_band_mass"], f"lead{lead}.{mass_key}")
+                increment(summary["captured_set_mass"], f'lead{lead}.{mass["captured_set"]["class"]}')
                 for entry in result["outcomes"]:
                     for code in entry["unavailable"]:
+                        if entry["captured_by_88a"]:
+                            increment(summary["captured_set_reasons"], f"lead{lead}.{code}")
                         increment(summary["unavailable"], code)
                         # Bounded: reason codes are sanitized, leads are 0..2.
                         reader.coverage[("unavailable.lead" + str(lead) + "." + code)[:120]] += 1
@@ -406,6 +461,37 @@ def process(reader, sources, report, day, markets, hazard, stride=1):
                             increment(summary["decision_reasons"], code)
                     else:
                         reader.coverage["decisions.not_evaluable"] += 1
+
+
+def verdict(summary):
+    """The owner's exam-line plugin bar (DECISION_LOG 2026-10-01), computed, not inferred.
+
+    Lead-1 end-to-end evaluation, no band-identity mismatch, and probability
+    mass complete over the band set 88a captures, reported beside the
+    all-band count. The hand check of one T+1 fair value stays manual.
+    """
+    coverage, unavailable = summary["coverage"], summary["unavailable"]
+    captured, all_bands = summary["captured_set_mass"], summary["all_band_mass"]
+    lead1 = coverage.get("end_to_end.lead1", 0)
+    mismatch = unavailable.get("descriptor:band_identity_mismatch", 0)
+    unverified = unavailable.get("descriptor:band_identity_unverified", 0)
+    complete = captured.get("lead1.complete_unit_mass", 0)
+    with_bands = sum(v for k, v in captured.items() if k.startswith("lead1.") and k != "lead1.no_captured_bands")
+    checks = [
+        {"check": "status", "value": summary["status"], "pass": summary["status"] == "COMPLETE"},
+        {"check": "end_to_end.lead1 > 0", "value": lead1, "pass": lead1 > 0},
+        {"check": "descriptor:band_identity_mismatch == 0", "value": mismatch, "pass": mismatch == 0},
+        {"check": "descriptor:band_identity_unverified == 0", "value": unverified, "pass": unverified == 0},
+        {"check": "lead-1 records with complete unit mass over the captured band set > 0",
+         "value": complete, "pass": complete > 0},
+    ]
+    statement = (f"Captured-set mass: complete with unit mass on {complete} of {with_bands} lead-1 records that "
+                 f"have captured bands ({captured.get('lead2.complete_unit_mass', 0)} at lead 2). All-band mass "
+                 f"(every listed band, reported beside it): complete on {all_bands.get('lead1.complete_unit_mass', 0)} "
+                 f"lead-1 records and {summary['mass_coverage'].get('complete_unit_mass', 0)} records in total.")
+    return {"bar": "PASS" if all(c["pass"] for c in checks) else "FAIL", "checks": checks,
+            "mass_statement": statement,
+            "note": "Still required by hand: one T+1 fair value checked against its bulletin text."}
 
 
 def run(args, *, clock=None):
@@ -436,6 +522,7 @@ def run(args, *, clock=None):
     summary = dict(schema_version=schema_version("maker_plugin_dry_run"), date=args.date, profile=informed_v0.name,
         status="COMPLETE", stop_reason=None, coverage=reader.coverage, unavailable=Counter(),
         decision_reasons=Counter(), leg_counts={"0": 0, "1": 0, "2": 0}, mass_coverage=Counter(),
+        all_band_mass=Counter(), captured_set_mass=Counter(), captured_set_reasons=Counter(),
         max_seconds=args.max_seconds, max_output_bytes=args.max_output_bytes, max_input_bytes=args.max_input_bytes,
         max_cache_bytes=max_cache_bytes, minute_stride=stride,
         markets=args.markets, hypothetical_hazard_per_minute=args.hypothetical_hazard_per_minute,
@@ -461,6 +548,7 @@ def run(args, *, clock=None):
         increment(summary["unavailable"], key, count)
     if not report.count and summary["status"] == "COMPLETE":
         summary.update(status="NO_COVERAGE", stop_reason="no_evaluable_event_minutes")
+    summary["verdict"] = verdict(summary)
     report.finish(reader)
     return summary
 

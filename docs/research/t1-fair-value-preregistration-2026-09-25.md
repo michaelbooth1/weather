@@ -99,3 +99,20 @@ detected bulletin arrivals at fetch +10 minutes. New-high pulls retain their
 existing lifetime pending fresh evidence; determined-band vetoes remain permanent. Core safety and
 freshness checks still govern re-entry. These are fixture-verified interface and
 clock repairs, not a scored estimator change, new panel, or live authority.
+
+## Amendment 1 — 2026-10-01, mission 111k (before scoring, owner decision)
+
+Owner decision (DECISION_LOG 2026-10-01): non-increasing percentile knots are a
+defect to fix, not to exclude. Traced on a tracked public bulletin (KAUS
+2026-09-17 01Z, `tests/fixtures/nbm_target_fix`): NBP prints whole degrees, so
+adjacent percentiles of a narrow forecast round to the same value (P75 = P90 =
+100 F). Of the 396 complete 00Z columns in the 44 tracked bulletins, 60 tie and
+none decrease. Tied knots are therefore read as atoms of the same piecewise-linear
+CDF (the reading 79a used): the CDF jumps at a tied knot, and a tied first or last
+segment is vertical, so that tail's mass sits on the atom. Band edges are half
+degrees and NBP knots whole degrees, so no edge meets an atom. Strictly increasing
+knots give exactly the values above and keep `model_id` `nbp-v2-piecewise-linear`;
+any tie is labelled `nbp-v2-piecewise-linear-atoms`. A decreasing knot remains
+unavailable (`decreasing_percentile_knots`). "Repeated percentile knots ... are
+unavailable" above is superseded by this amendment; nothing else changes, and no
+result was read before it.

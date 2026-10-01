@@ -9,12 +9,35 @@ from weather.market.maker_plugin import nbp
 
 
 def percentile_cdf(knots, x):
+    """Right-continuous piecewise-linear CDF through p10/p25/p50/p75/p90.
+
+    Equal knots are atoms (the 79a reading, ``quantile_cdf``). The first and
+    last segments extend linearly to probability zero and one; a tied end
+    segment is vertical, so its tail mass sits on the atom. Band edges are
+    half degrees and NBP knots whole degrees, so no edge meets an atom.
+    """
     qs = (.10, .25, .50, .75, .90)
     if not math.isfinite(x):
         return 0.0 if x < 0 else 1.0
-    index = next((i for i in range(4) if x <= knots[i + 1]), 3)
+    if x < knots[0]:
+        if knots[1] == knots[0]:
+            return 0.0
+        index = 0
+    elif x >= knots[4]:
+        if knots[4] == knots[3]:
+            return 1.0
+        index = 3
+    else:
+        index = max(i for i in range(4) if knots[i] <= x)
     value = qs[index] + (x - knots[index]) * (qs[index + 1] - qs[index]) / (knots[index + 1] - knots[index])
     return max(0., min(1., value))
+
+
+def model_id(knots):
+    """Strictly increasing knots keep the frozen 110b estimator's identity."""
+    if all(a < b for a, b in zip(knots, knots[1:])):
+        return "nbp-v2-piecewise-linear"
+    return "nbp-v2-piecewise-linear-atoms"
 
 
 def integrate(bands, cdf):
@@ -40,6 +63,7 @@ class WeatherFairValue:
         self.source_rows = records(source_rows)
         self._daily_high_rows = {}
         self._parsed = {}
+        self.last_nbp_read = None
 
     def _parse(self, raw, station, target):
         """``nbp.parse`` is pure in these fields; replay repeats it every minute."""
@@ -87,15 +111,47 @@ class WeatherFairValue:
                     raise ValueError("conflicting_nbp_issue")
                 issue, raw, knots, slot = min(chosen, key=lambda c: timestamp(c[1]["fetched_at"]))
                 joint = integrate(bands, lambda x: percentile_cdf(knots, x))
-                return self._view(market, as_of_utc, issue, nbp.valid_until(issue), joint,
-                                  {"payload": raw["payload_hash"], "fetched_at": raw["fetched_at"],
-                                   "source_payload": raw.get("source_payload_hash"),
-                                   "slot": list(slot[:3]), "bands": {k: [str(v) for v in b] for k, b in bands.items()},
-                                   "band_basis": self.universe.band_basis(market.event_id, as_of_utc)},
-                                  "nbp-v2-piecewise-linear")
+                inputs = {"payload": raw["payload_hash"], "fetched_at": raw["fetched_at"],
+                          "source_payload": raw.get("source_payload_hash"),
+                          "slot": list(slot[:3]), "bands": {k: [str(v) for v in b] for k, b in bands.items()},
+                          "band_basis": self.universe.band_basis(market.event_id, as_of_utc)}
+                # Outside the digest: what a reviewer needs to recompute the view by hand.
+                self.last_nbp_read = dict(inputs, issue=issue.isoformat(), knots=list(knots))
+                return self._view(market, as_of_utc, issue, nbp.valid_until(issue), joint, inputs, model_id(knots))
             return self._fallback(market, spec, target, as_of_utc, bands)
         except (ValueError, KeyError, TypeError, StopIteration, OverflowError) as exc:
             return Unavailable(str(exc) or "malformed_captured_input", as_of_utc)
+
+    def forecast_gap(self, market, as_of_utc):
+        """Why no NBP issue was eligible at the minute (diagnostic only).
+
+        ``expired_next_cycle_fetched_late``: the newest target-bearing issue
+        expired (next cycle availability = cycle + 1 h, pre-registered) and the
+        next cycle was captured later. ``expired_next_cycle_not_captured``: no
+        later cycle exists in the pool. ``fetched_after_expiry``: the newest
+        issue arrived after its own expiry. ``no_cycle_with_target`` and
+        ``no_bulletin``: nothing to read.
+        """
+        spec, target = event_identity(market.event_id)
+        held, later, any_bulletin = [], [], False
+        for raw in self.bulletins:
+            if raw.get("station_id") != spec.icao or raw.get("target_date") != target.isoformat():
+                continue
+            fetched = timestamp(raw["fetched_at"])
+            any_bulletin = any_bulletin or fetched <= as_of_utc
+            try:
+                issue, _, _ = self._parse(raw, spec.icao, target)
+            except ValueError:
+                continue
+            (held if fetched <= as_of_utc else later).append((issue, fetched))
+        if not held:
+            return "no_cycle_with_target" if any_bulletin else "no_bulletin"
+        issue, fetched = max(held)
+        if fetched >= nbp.valid_until(issue):
+            return "fetched_after_expiry"
+        if any(other > issue for other, _ in later):
+            return "expired_next_cycle_fetched_late"
+        return "expired_next_cycle_not_captured"
 
     @staticmethod
     def _view(market, as_of, issue, expiry, joint, inputs, model):

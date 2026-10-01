@@ -27,6 +27,7 @@ from weather.forecast_payload_contracts import NBM_NBP_ENCODING, NBM_NBP_MEDIA_T
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.maker_plugin.inputs import band, event_identity, timestamp
+from weather.market.maker_plugin.nbp import issue_time
 from weather.market.maker_plugin_capture import MAX_FILE_BYTES, MAX_ROWS, encoded
 
 LOAD_ERRORS = (ValueError, KeyError, TypeError, AttributeError, OSError, EOFError, csv.Error)
@@ -380,8 +381,25 @@ class Sources:
                 self.bad_sources = before
                 manifests.extend((root, slug, row) for row in rows if row.get("source") == NBM_NBP_SOURCE)
             bulletins, nbp_errors = self.bulletins(manifests, spec)
+            self.fetch_lateness(bulletins)
             self.pools[spec.id] = (bulletins, errors + nbp_errors)
         return self.pools[spec.id]
+
+    def fetch_lateness(self, bulletins):
+        """Earliest capture of each station extract against its expected availability.
+
+        A cycle's expected availability (issue + 1 h, pre-registered) is also the
+        previous cycle's expiry, so a late capture is a gap with no eligible issue.
+        """
+        for bulletin in bulletins:
+            try:
+                issue = issue_time(bulletin["text"].partition("\n")[0])
+            except ValueError:
+                continue
+            late = (timestamp(bulletin["fetched_at"]) - issue - timedelta(hours=1)).total_seconds() / 60
+            bucket = next((name for limit, name in ((0, "on_time"), (15, "late_0_15m"), (30, "late_15_30m"),
+                                                    (60, "late_30_60m")) if late <= limit), "late_over_60m")
+            self.reader.coverage["nbp_capture_vs_expected_availability." + bucket] += 1
 
     def bulletins(self, manifests, spec):
         found, seen, size, nbp_errors = {}, set(), 0, []

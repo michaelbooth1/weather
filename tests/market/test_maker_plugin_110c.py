@@ -58,10 +58,10 @@ def test_extracted_percentiles_match_integration_rows_and_slot(path, target):
     if any(v is None or v == -99 for v in expected):
         with pytest.raises(ValueError, match="incomplete"):
             parse(raw, station, target)
-    elif any(a >= b for a, b in zip(expected, expected[1:])):
-        with pytest.raises(ValueError, match="nonincreasing"):
+    elif any(a > b for a, b in zip(expected, expected[1:])):
+        with pytest.raises(ValueError, match="decreasing_percentile_knots"):
             parse(raw, station, target)
-    else:
+    else:  # Tied whole-degree knots parse as atoms (111k); none of these decrease.
         actual_issue, knots, actual_slot = parse(raw, station, target)
         assert (actual_issue, knots, actual_slot) == (issue, expected, slot)
 
