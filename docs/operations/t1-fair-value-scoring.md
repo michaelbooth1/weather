@@ -70,8 +70,12 @@ manifest/stream hash, chosen captures and input/settlement bindings, coverage,
 exclusions, target dates without scores, and per-market-day losses. Coverage is
 conditional on supplied exports; an absent export is not proof of no activity.
 
-Four source-by-lead tables and one pooled descriptive table report paired mean
-band Brier, first averaged over hours per market-day and then equally over
+Four primary source-by-lead tables (plain NBP and fallback) and one pooled
+descriptive table over those two sources report paired mean band Brier. Tied-knot
+NBP reads ([Amendment 2](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-2--2026-10-01-mission-111l-before-any-panel-export-owner-decision):
+`nbp-v2-piecewise-linear-atoms` and `-atoms-resolution-tails`) are scored in their own
+`nbp_atoms_lead_<N>` and `nbp_resolution_tails_lead_<N>` tables and never pooled into
+the primary or pooled tables. Brier is first averaged over hours per market-day and then equally over
 market-days. Reliability bins count selected band-hours and report mean probability,
 YES frequency and declared stdev. Independent date and market multiplicities are
 multiplied on observed cells for 10,000 replicates, seed 110, with two-sided 90%

@@ -25,7 +25,10 @@ from weather.paths import REPO_ROOT
 PANEL_START, PANEL_END = date(2026, 9, 25), date(2026, 10, 8)
 EARLIEST_DATE = PANEL_END + timedelta(days=1)
 PREREGISTRATION = "docs/research/t1-fair-value-preregistration-2026-09-25.md"
-SOURCE_MODELS = {"nbp-v2-piecewise-linear": "nbp", "pit-lead1-normal-fixed-2C-equivalent": "fallback"}
+# Amendment 2: tied-knot reads are scored as their own strata, never pooled into the primary.
+SOURCE_MODELS = {"nbp-v2-piecewise-linear": "nbp", "pit-lead1-normal-fixed-2C-equivalent": "fallback",
+                 "nbp-v2-piecewise-linear-atoms": "nbp_atoms",
+                 "nbp-v2-piecewise-linear-atoms-resolution-tails": "nbp_resolution_tails"}
 SUPPORT_CLOCKS = dict(snapshots="captured_at_utc", bulletins="fetched_at", forecasts="captured_at_utc",
                       source_rows="captured_at_utc", explanations="captured_at_utc")
 MAX_BUNDLES, MAX_TOTAL_BYTES, MAX_TOTAL_RECORDS = 256, 512 * 1024**2, 500_000
@@ -35,6 +38,7 @@ LIMITATIONS = [
     "UNDERPOWERED when either cluster dimension has fewer than ten unique clusters, including within each stratum.",
     "No numeric detectable effect or power is established by this descriptive protocol; thin/sparse clusters limit precision.",
     "Fallback spread 2 C / 3.6 F is a zero-fit engineering prior, not an estimated climatological error.",
+    "Tied-knot NBP reads (Amendment 2) are separate strata, excluded from the primary and pooled tables.",
     "Reliability counts and means weight selected band-hours; Brier first averages bands, then hours within market-day.",
     "Missing exports, hours and settlements are not filled. Coverage denominators describe supplied captures only.",
     "Export hashes bind bytes, not authenticity; reconciled settlement projections rely on the bounded export producer.",

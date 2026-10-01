@@ -1,6 +1,7 @@
 """110u: synthetic sealed bundles only; no production evidence or provider IO."""
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import json
 import socket
 
@@ -36,8 +37,14 @@ class SyntheticPanel:
     def event(self, *, at=AT, city="nyc", lead=1, source="nbp", minutes=(0,), settled=True):
         universe, bands, spec, target, _, _ = fixture(city, lead, now=at)
         markets = universe.discover(at, 2).markets
-        if source == "nbp":
+        if source.startswith("nbp"):
             raw = bulletin(spec, target, issue=at.replace(hour=13, minute=0), fetched=at-timedelta(minutes=30))
+            # Knots 65/70/75/80/85; an interior tie or a tied end pair (Amendment 2).
+            tie = {"nbp_atoms": ("TXNP5  40 75", "TXNP5  40 70"),
+                   "nbp_resolution_tails": ("TXNP9  40 85", "TXNP9  40 80")}.get(source)
+            if tie:
+                raw["text"] = raw["text"].replace(*tie)
+                raw["payload_hash"] = hashlib.sha256(raw["text"].encode()).hexdigest()
             support = {"bulletins": [raw]}
         else:
             support = {"forecasts": [forecast(bands, spec, target, now=at)]}
@@ -113,7 +120,8 @@ def test_earliest_guard_precedes_any_input_read(monkeypatch):
 
 
 @pytest.mark.parametrize("source,lead,city", [("nbp", 1, "nyc"), ("nbp", 2, "nyc"),
-                                             ("fallback", 1, "nyc"), ("fallback", 1, "toronto")])
+                                             ("fallback", 1, "nyc"), ("fallback", 1, "toronto"),
+                                             ("nbp_atoms", 1, "nyc"), ("nbp_resolution_tails", 1, "nyc")])
 def test_bundle_pipeline_native_units_and_separate_strata(tmp_path, monkeypatch, source, lead, city):
     monkeypatch.setattr(socket, "socket", lambda *a, **k: pytest.fail("network accessed"))
     panel = SyntheticPanel()
@@ -128,6 +136,11 @@ def test_bundle_pipeline_native_units_and_separate_strata(tmp_path, monkeypatch,
     assert result["coverage"]["later_captures_in_selected_hour"] == 1
     assert result["capture_exclusions"] == result["settlement_exclusions"] == {}
     assert table["brier"]["mid"]["estimate"] == .25
+    if source.startswith("nbp_"):
+        # Tied reads are scored, but never pooled into the primary or the pooled table.
+        assert result["tables"]["nbp_lead_1"]["brier"] is None
+        assert result["tables"]["pooled_descriptive"]["brier"] is None
+        assert {r["source"] for r in result["selected_hours"]} == {source}
     assert result["preregistration"]["bootstrap_replicates"] == 10000
     assert result["preregistration"]["bootstrap_seed"] == 110
     assert before == {p: p.read_bytes() for folder in paths for p in folder.iterdir()}
@@ -253,6 +266,12 @@ def test_hour_then_equal_market_day_weighting_and_separate_pooled_table():
     assert result["nbp_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.05)
     assert result["fallback_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.81)
     assert result["nbp_lead_2"]["brier"] is None
+    tied = tables(rows + [statistical_row("d3", "b", .5, source="nbp_atoms"),
+                          statistical_row("d3", "c", .5, source="nbp_resolution_tails", lead=2)])
+    assert tied["pooled_descriptive"] == result["pooled_descriptive"]
+    assert tied["nbp_lead_1"] == result["nbp_lead_1"]
+    assert tied["nbp_atoms_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.25)
+    assert tied["nbp_resolution_tails_lead_2"]["brier"]["provider"]["estimate"] == pytest.approx(.25)
 
 
 def test_crossed_multiplicity_product_independent_reference_and_sparse_draws():

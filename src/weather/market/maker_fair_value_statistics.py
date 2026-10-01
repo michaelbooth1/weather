@@ -105,8 +105,13 @@ def summarize(rows):
     return result
 
 
+PRIMARY_SOURCES = ("nbp", "fallback")
+# T+1 Amendment 2: tied-knot NBP reads are reported beside, never pooled into, the primary.
+TIED_SOURCES = ("nbp_atoms", "nbp_resolution_tails")
+
+
 def tables(rows):
     result = {f"{source}_lead_{lead}": summarize([r for r in rows if r["source"] == source and r["lead"] == lead])
-              for source in ("nbp", "fallback") for lead in (1, 2)}
-    result["pooled_descriptive"] = summarize(rows)
+              for source in PRIMARY_SOURCES + TIED_SOURCES for lead in (1, 2)}
+    result["pooled_descriptive"] = summarize([r for r in rows if r["source"] in PRIMARY_SOURCES])
     return result
