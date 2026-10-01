@@ -251,3 +251,122 @@ signed.** Report it; do not re-rehearse to fit, and never sample or truncate.
 - #134 `codex/integration-20260929`: `994d15d0` (merge `819f8148`), `77d0196b` (index).
 - #144 `codex/exam-executability-20260930`: merge of the resynced #134, then `71716c29` (implementation). This report
   and the index regeneration follow; the final head SHA is in the handback reply.
+
+## Addendum 2026-10-01: export dependencies, module-hash binding, pinned-worktree execution
+
+**Verdict:**
+
+1. **Yes.** A panel bundle's content depends on the plugin's fair-value code, and fair values are baked in at export time;
+   scoring never recomputes them. Panel bundles exported before prompt 2's fix carry the old fair values and must be
+   re-exported after it. Calibration bundles do not carry fair values.
+2. **No shared hash is required, and nothing refuses a mix.** Manifest build binds bundle bytes and the build-time
+   source tree, not the exporter's module hash. Mixing pre-fix and post-fix panel bundles would therefore be accepted
+   silently. That is a method decision for production and the owner, not a code refusal.
+3. **Yes, as attended commands, and only with `-P` plus a module-path probe.** No registrar can pin a worktree for this
+   exporter yet. No production measurement of per-day runtime or size exists.
+
+All evidence below is read from code at `c1579cf9`.
+
+### 1. What goes into a bundle
+
+- **Fair value is computed during export.**
+  - `maker_replay_bundle.export` calls `evaluate_event` for every book capture (`src/weather/market/maker_replay_bundle.py:379`).
+  - That builds `WeatherFairValue` (`src/weather/market/maker_plugin_runner.py:23,227`), evaluates it
+    (`maker_plugin_runner.py:275`) and stores the result in `entry["fair_value"]` (`maker_plugin_runner.py:279`).
+  - The exporter writes it as an `outcome_view` record (`maker_replay_bundle.py:404`).
+  - The knot failure is raised in `src/weather/market/maker_plugin/nbp.py:100`. `WeatherFairValue.evaluate` turns it
+    into `Unavailable("nonincreasing_percentile_knots")` (`src/weather/market/maker_plugin/fair_value.py:80-81`), so it
+    is baked into the bundle as an unavailable `outcome_view` rather than aborting the export.
+- **At scoring time the stored view is read, not recomputed.** The engine keeps the latest `outcome_view` and feeds it
+  to `informed-v0` as `fair_value` (`src/maker_core/replay/engine.py:290,418`). `plugin_input` rows, the raw captured
+  support, are skipped (`engine.py:273-274`). `maker_core.replay` imports no `weather` code; the plugin runs only
+  inside the exporter process.
+- **Other content written by plugin code at export:**
+  - descriptors from `WeatherUniverse` (`maker_plugin_runner.py:266-268`);
+  - exposure factors (`maker_replay_bundle.py:398`);
+  - info-clock events, settlement facts, books and terms (`maker_replay_bundle.py:400-421`);
+  - raw support rows with `release_calibration_method` (`maker_replay_bundle.py:248-262`).
+
+  A fix confined to `fair_value.py` / `nbp.py` changes only `outcome_view` payloads. A fix that also touches the
+  universe, clock or settlement providers would change those records too.
+- **Calibration bundles keep only `descriptor`, `coverage` and `trade`** (`maker_replay_bundle.py:39,165`). The
+  descriptor is derived before fair value (`maker_plugin_runner.py:264-275`), and a fair-value failure returns
+  `Unavailable` rather than raising. Calibration bundle bytes are therefore independent of the fair-value fix, and
+  calibration can be exported now.
+- **The rehearsal is not independent of the fix.** Its input is a night-format bundle with `outcome_view` records
+  (`src/maker_core/replay/pack_cli.py`, `rehearse`). More available fair values mean more `informed-v0` quoting, so
+  more engine events, decisions and runtime. Ceilings rehearsed on pre-fix bundles could undershoot a post-fix panel,
+  and hitting the time or memory ceiling after reservation consumes the look. **Export the rehearsal-panel bundles
+  and rehearse after the fix.**
+- **Re-exports go to a new root.** An attempted day refuses in place (`src/weather/market/maker_replay_night.py:198-199`).
+
+### 2. Module-hash and source binding
+
+- **`--expected-module-sha256` is checked per export only.** The exporter refuses unless its own loaded module closure
+  matches (`maker_replay_night.py:177`) and records `module_sha256` in the day's `receipt.json`
+  (`maker_replay_night.py:204`). The receipt sits outside the bundle directory.
+- **The bundle reader never reads the receipt or `export.json`.** Its `input_hashes` cover `bundle.json` and the
+  declared streams only (`src/maker_core/replay/bundle.py:268,284`).
+- **The manifest binds only these four things:**
+  - each bundle's `input_hashes` (`src/maker_core/replay/execution_manifest.py:174`);
+  - the records' captured-source hashes (`execution_manifest.py:175`), which are 88a segment seals, not code;
+  - `source_hashes()` of the **build-time tree**: all of `maker_core`, `weather/market/maker_plugin`, the runner,
+    capture, sources and `maker_replay_bundle.py`, plus `pyproject.toml` (`execution_manifest.py:36-54,177`);
+  - that tree, re-checked at the action boundary before reservation (`src/maker_core/replay/__main__.py:169-173`).
+
+  No check compares exporter hashes across the 18 bundles.
+- **Consequence.**
+  - Pre-fix and post-fix panel bundles are **not refused together**.
+  - Build, verify and the look must run from one tree, and the look refuses if the tree changed after the build.
+  - Exporting all 15 panel days (and the rehearsal days) from the **same** post-fix exporter hash keeps the panel
+    consistent. Record one `module_sha256` per output root, and do not mix roots across a fix.
+
+### 3. Running from a pinned detached worktree
+
+- **Why `-P` and the probe are required.** The production venv's editable install resolves the **main checkout**.
+  Measured on the workstation: `python -P -B -c "import weather, maker_core"` with no `PYTHONPATH` printed
+  `...\weather\src\weather\__init__.py` and `...\weather\src\maker_core\__init__.py`. With
+  `PYTHONPATH=<worktree>\src` and `-P`, both `weather.market.maker_replay_night` and `maker_core.replay.ceilings`
+  came from the worktree.
+
+  Without `-P`, a worktree working directory puts the root `weather/` shim first (`weather/__init__.py:7-11`), while
+  `maker_core` still comes from the main checkout. That is a mixed import, so the order-journal pattern is required:
+  `-P -B`, `PYTHONPATH` set for the child only, and a `__file__` probe before any data read. The exporter's module hash
+  comes from `weather.paths.SRC_ROOT`, the worktree's own `src` (`maker_replay_night.py:44-46`). It is identical for
+  any checkout of the same commit.
+- **The registered nightly wrapper cannot be pinned as written.**
+  - `RepoRoot` must own the wrapper (`scripts/ops/replay_bundle_export_nightly.ps1:59-60`).
+  - It requires `RepoRoot\venv` (`:77`), which a worktree lacks.
+  - It reads the host assignment from `RepoRoot` (`:80`).
+  - It starts Python without `-P` or `PYTHONPATH` (`:110`).
+
+  A pinned *scheduled* export needs a reviewed registrar change, like the order journal's `-RepoRoot`/`-StateRoot`/`-P`
+  split. Until then, use **attended** commands.
+- **Attended form**, a change to the runbook helper above.
+
+  ```powershell
+  git -C $Repo worktree add --detach C:\weather-pinned\exam-c1579cf9 c1579cf9c2cdad54e6cb78f4a3c8d1fd4ba91e9b
+  git -C $Repo worktree lock C:\weather-pinned\exam-c1579cf9 --reason 'maker replay exam exports'
+  $Src = 'C:\weather-pinned\exam-c1579cf9\src'
+  # Lease and job helpers stay dot-sourced from production master ($Repo); only Python code comes from the worktree.
+  $env:PYTHONPATH = $Src
+  $probe = & $Py -P -B -c "import weather.market.maker_replay_night as n, maker_core.replay.ceilings as c; print(n.__file__); print(c.__file__)"
+  if (@($probe | Where-Object { -not $_.StartsWith($Src + '\') }).Count) { throw 'module-path probe failed' }
+  # In Invoke-ExamStep, change the token prefix @('-B') to @('-P','-B'); keep -WorkingDirectory $Repo.
+  # The child inherits PYTHONPATH; afterwards: Remove-Item Env:PYTHONPATH
+  ```
+
+  Run the probe in the same session immediately before each step. The `module-hash` printed under this environment is
+  the value to pass to `--expected-module-sha256`.
+- **Scope.** Panel export, calibration export, quote markets, calibration and rehearsal can all run this way without
+  #134/#144 on master. **Manifest build, verify and the look should run from the tree that will be enrolled**, because
+  `source_hashes()` hashes the importing tree (`execution_manifest.py:37`). Use either the landed master or one pinned
+  worktree for all three.
+- **Runtime and size: no evidence.**
+  - No production export has been measured; `docs/operations/maker-replay-bundle.md` states bytes/day are unmeasured.
+  - The fixture tests measure synthetic bundles only, which is not evidence for 88a volume.
+  - Bounds: 2,700 s, 4 GiB of input and 2 GiB of output per day by default (`maker_replay_night.py:35-38`).
+  - The first real export's `receipt.json` gives `runtime_seconds`, `peak_memory_bytes`, `bundle.bytes` and
+    `bundle.records`.
+
+  **Suggestion:** export one calibration day first and read its receipt before scheduling the rest of the backlog.
