@@ -53,7 +53,11 @@ package contract, and `requires-python` is `>=3.11`.
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.
-- `retrain.yml` ("Nightly Candidate Build") is manual-dispatch only; its schedule is commented out.
+- `ci.yml` and `windows-qualification.yml` cancel a superseded run on a pull-request ref but never on `master`, so
+  every landed commit keeps its own evidence.
+- There is no retrain or settlement-audit workflow: `retrain.yml` and `settlement-audit-qualification.yml` were
+  removed on 2026-09-29 (owner decision 4 of the 2026-09-26 repo-health audit). Executable Windows coverage of the
+  settlement-audit owners comes from the production-host bounded suite, which runs every tracked test.
 - The GitHub CLI (`gh`) is not installed on the capture host. Do not plan a step there that opens a pull request
   or reads CI status with `gh`; use the web UI, the workstation, or the push path in the
   [Git workflow SOP](git-workflow.md).
@@ -64,8 +68,8 @@ package contract, and `requires-python` is `>=3.11`.
 
 The baseline commands are not authority to run a direct full suite or parallel verification here.
 [HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) is the contract. In short: focused tests run serially and only
-inside 00:30-09:00 local; the user-layer Codex hook rejects direct unbounded pytest at every hour and rejects
-pytest/compileall outside that window. A full suite runs only through
+inside 00:30-09:00 local; in Codex sessions the user-layer hook rejects direct unbounded pytest at every hour and
+rejects pytest/compileall outside that window (Claude Code has no hook; the S4U guard is its only backstop). A full suite runs only through
 `scripts/ops/bounded_worktree_test_suite.ps1`, against a clean worktree at an exact commit. Its enforced limits
 (read the script, not this list, if they matter to a decision):
 

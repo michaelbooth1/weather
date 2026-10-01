@@ -1,0 +1,27 @@
+{
+  "id": "W-0031",
+  "title": "WU tmp orphan cleanup after proof caller adoption",
+  "workstream": "storage",
+  "status": "blocked",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [
+    "W-0006",
+    "W-0014",
+    "W-0047"
+  ],
+  "landing_slot": null,
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "No executable proof-carrying caller before 110k part 2."
+  ]
+}

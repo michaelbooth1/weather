@@ -1,0 +1,29 @@
+{
+  "id": "W-0034",
+  "title": "Chat-initiated YouTube plugin template",
+  "workstream": "youtube",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": null,
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/pull/107",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/youtube-plugin-template-20260927",
+  "tip": "5fc4e7d4849d06bfcb7f644a094c77eef076ae9c",
+  "pr": "https://github.com/michaelbooth1/weather/pull/107",
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": null,
+  "needs_owner": [],
+  "item": "docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md",
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Supplement to seed, explicitly requested by 110p; remote ref and PR read at backfill. No formal handoff found; no landing slot assigned."
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "W-0005",
+  "title": "110i one-wallet portfolio ledger",
+  "workstream": "wallet",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/ed075014161e6e0b0f8d3e9d0fc8dd265356d2c2/docs/roadmap/workstation-handoff-2026-09-110i-portfolio-ledger.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/d586e2d1ec37b9d1c8154911bf13d437d1a5f1b5/docs/roadmap/agent-report-2026-09-110i-portfolio-ledger.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/portfolio-ledger-20260926",
+  "tip": "d586e2d1ec37b9d1c8154911bf13d437d1a5f1b5",
+  "pr": "https://github.com/michaelbooth1/weather/pull/97",
+  "roll": "unknown",
+  "depends_on": [
+    "W-0044",
+    "W-0045"
+  ],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "01:00-04:00 America/Toronto; suite 00:30 first"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Included in W-0001. Production layout mismatch: do not run on wallet_ledger before W-0013 and W-0042."
+  ]
+}
