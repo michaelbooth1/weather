@@ -18,6 +18,11 @@ DEFAULT_REPORT = data_path() / "backtest" / "module_size_audit_report.md"
 DEFAULT_WARNING_LINES = 2_000
 
 OWNERSHIP_NOTES = {
+    "src/weather/operations/closed_day_projection_tiering.py": {
+        "owner": "operations",
+        "boundary": "Closed-day projection twin verification, immutable cleanup planning, and guarded application.",
+        "next_split": "Separate byte-parity verification from cleanup planning/application while retaining exact manifest and restore proofs.",
+    },
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
         "boundary": "Compatibility facade for pooled feature model implementation slices.",

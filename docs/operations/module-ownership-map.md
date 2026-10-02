@@ -35,6 +35,7 @@ Reviewed module-size warning allowance:
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
   `weather.operations.event_day_manifest`,
+  `weather.operations.closed_day_projection_tiering`,
   `weather.operations.international_live_wrapper_sealer`,
   `weather.market.market_microstructure`,
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
@@ -48,6 +49,7 @@ Reviewed module-size warning allowance:
 
 | Module | Owner | Boundary | Status |
 | :--- | :--- | :--- | :--- |
+| `weather.operations.closed_day_projection_tiering` | Operations | Closed-day projection twin verification, immutable cleanup planning and guarded application. | Existing integration module; freeze its measured size and split byte-parity verification from cleanup planning/application with manifest and restore proofs intact. |
 | `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
 | `weather.calibration.pooled_training` | Calibration | Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting. | WARN in the 2026-07-15 audit. Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior. |
 | `weather.calibration.pooled_candidate_replay` | Calibration | Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI. Diagnostics, CLOB microstructure shadow helpers, market verdicts, replay gates, and sidecar summaries live in `weather.calibration.pooled_candidate_replay_diagnostics`; Markdown rendering lives in `weather.calibration.pooled_candidate_replay_report`; scoring/variant row logic lives in `weather.calibration.pooled_candidate_scoring`. | WARN in the 2026-07-12 audit. Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads. |
@@ -132,6 +134,10 @@ Add `--include-data-sizes` only when local disk-state sizing and budget warnings
 are needed; ignored runtime data under `data/` can be very large.
 
 ## Update this file when
+
+The separate [repository health ratchets](repo-health-ratchets.md) enforce numeric
+per-module ceilings across source, maker_core and tests, with a shrink-only
+baseline. This ownership map still explains the split boundaries and owners.
 
 Update when module ownership, split boundaries, retirement, or the reviewed
 warning allowance changes. Current counts remain generated audit evidence.
