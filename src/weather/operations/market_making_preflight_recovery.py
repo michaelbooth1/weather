@@ -16,7 +16,7 @@ from pathlib import Path
 from weather.market.market_making_evidence import EVIDENCE_MODE_AUTO, EVIDENCE_MODE_CHOICES
 from weather.market.market_making_run import build_run_once
 from weather.market.market_making_run_support import make_run_id, read_json, write_json
-from weather.market.mm_policy import utc_now
+from weather.time import utc_now
 
 
 CLOSEOUT_SCHEMA_VERSION = "mm_preflight_recovery_closeout_v0.1"

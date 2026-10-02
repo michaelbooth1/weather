@@ -19,8 +19,8 @@ from importlib import metadata
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
-from weather.market.mm_policy import bool_value
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.value_helpers import bool_value
 OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
 OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")

@@ -54,8 +54,7 @@ SNAPSHOT_READER_FAMILIES = {
 }
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def read_json(path, default=None):

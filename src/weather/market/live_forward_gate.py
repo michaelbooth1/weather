@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 
-from weather.market.market_making_preflight import REMEDIATION_RULES
-from weather.market.mm_policy import bool_value, maybe_float, parse_time
+from weather.market.platform_contract import REMEDIATION_RULES
+from weather.market.value_helpers import bool_value, maybe_float, parse_time
 
 
 SCHEMA_VERSION = "live_forward_gate_v0.2"
@@ -19,9 +19,7 @@ MODEL_REVIEW_REQUIRED_GATES = (
 )
 
 
-def utc_now(value=None):
-    parsed = parse_time(value)
-    return parsed or datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def _iso(value):

@@ -97,8 +97,7 @@ MARKET_MAKING_DAILY_ROLL_SUPERVISOR = SupervisorSpec(
 )
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def daily_roll_launch_lock_path(status_path=DEFAULT_STATUS_PATH):

@@ -23,7 +23,8 @@ from weather.io import (
     normalize_csv_row,
     read_csv_rows as io_read_csv_rows,
 )
-from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
+from weather.market.value_helpers import bool_value, maybe_float, parse_time
+from weather.market.mm_policy import early_hour_guardrail_state
 from weather.market.mm_scoring_projection import LIVE_APPEND_PREFIX_BINDING_MODE
 from weather.market.mm_paper_constants import (
     DEFAULT_CONFIG,
@@ -40,8 +41,7 @@ from weather.units import parse_temperature_band, temperature_band_key
 ACTIVE_DAY_EVIDENCE_MODE = "active_day_live_forward"
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def generated_at_iso(now=None):

@@ -34,8 +34,7 @@ def parse_datetime(value: Any) -> datetime | None:
     return parsed
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def parse_local_hhmm(value: str | None) -> dt_time | None:

@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 from urllib.request import Request, urlopen
 
 from weather.schema_registry import schema_version
+from weather.time import utc_now as shared_utc_now
 
 
 GEOBLOCK_ENDPOINT = "https://polymarket.com/api/geoblock"
@@ -80,7 +81,7 @@ def _payload_digest(payload: Mapping[str, Any]) -> str:
 
 
 def _utc_now(clock: Callable[[], datetime] | None) -> datetime:
-    current = clock() if clock is not None else datetime.now(timezone.utc)
+    current = clock() if clock is not None else shared_utc_now()
     if not isinstance(current, datetime) or current.tzinfo is None:
         raise GeographicEligibilityError("CLOCK_NOT_UTC_AWARE")
     return current.astimezone(timezone.utc)

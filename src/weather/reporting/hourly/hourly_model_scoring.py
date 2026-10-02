@@ -105,8 +105,7 @@ HOUR_REGIME_LABELS = {
 }
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def parse_iso_date(value):

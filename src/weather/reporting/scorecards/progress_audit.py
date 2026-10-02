@@ -48,8 +48,7 @@ POOLED_REPLAY_FILES = [
 ]
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def read_text(path):

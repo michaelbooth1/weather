@@ -87,8 +87,7 @@ class RawTapeWriterBusy(RuntimeError):
     """Fail closed when another process owns an event's raw-tape transaction."""
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 def parse_json_list(value):
     if isinstance(value, list):

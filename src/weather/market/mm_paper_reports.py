@@ -12,11 +12,10 @@ from weather.market.mm_paper_constants import (
     DEFAULT_PROMOTION_REFRESH,
     KNOWN_EDGE_SCHEMA_VERSION,
 )
-from weather.market.mm_policy import maybe_float, parse_time
+from weather.market.value_helpers import maybe_float, parse_time
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def generated_at_iso(now=None):
