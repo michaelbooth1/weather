@@ -477,8 +477,25 @@ separate current `captured_at_utc`. They report `single_fetch_reused=true`,
 original receipt owns its original download. `cycle_age_at_use_hours` on the
 live payload is measured at use time; manifest consumers derive it from capture
 minus issue. This use-time diagnostic never overwrites frozen parser/wrapper
-provenance such as Part A's original-capture `cycle_age_hours`.
+provenance such as Part A's original-capture `cycle_age_hours` (Part A, parser
+version 2, is a separate unlanded layer; this reuse landed without it).
 The forecast writer, replay, migration and stored evidence schemas are unchanged.
+
+NBM NBH and NBS text guidance (`weather.collection.nbm_text_capture`, owner
+decision 2026-10-02) is capture only. Each hourly cycle's national bulletin is
+streamed once; only the configured market stations' blocks (all 12, Toronto
+`CYYZ` included) are kept verbatim, gzip-compressed (`mtime=0`) and stored as an
+ordinary `shared_forecast_payload_cas` blob. One row per cycle in
+`forecast_payload_cas/nbm_text_manifests/<YYYYMMDD>.jsonl`
+(`nbm_text_station_blocks_v0.1`, canonical evidence) binds the blob to its URL,
+capture times, national byte count and SHA-256, and stations found/missing. A
+cycle with a `success` or `partial` row is never downloaded again; unpublished
+(403/404) cycles leave no row. Measured on the 2026-10-01 12Z files: about 7 KB
+per product-cycle, so 48 cycles plus manifest rows are about 0.45 MB/day; the
+national files themselves (~29 MB each, ~1.4 GB/day of download) are not kept.
+These blobs are not referenced by snapshot `forecast_payloads.jsonl`, so the
+migration inventory below counts them as unreferenced within its scanned scope;
+that is an observation, not orphan proof, and shared-blob GC stays disabled.
 
 New explicitly market-invariant forecast responses use the shared immutable
 CAS under `data/forecast_payload_cas/`; their per-market append-only manifests
