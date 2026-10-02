@@ -878,6 +878,7 @@ def run_replay_status_backfill_step(args):
         overwrite=getattr(args, "overwrite_replay_status", False),
         reconstruct_missing=getattr(args, "reconstruct_missing_replay_inputs", False),
         include_active=getattr(args, "include_active_replay_status", False),
+        recent_days=getattr(args, "stage_a_recent_days", 7),
     )
     json_out, report_out = replay_status_backfill.write_outputs(
         payload,
