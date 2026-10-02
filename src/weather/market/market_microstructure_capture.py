@@ -50,6 +50,8 @@ from weather.market.storage_pressure_policy import (
 )
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
+from weather.market.clob_capture_cache import capture_event as cached_capture_event
+from weather.market.clob_token_cadence import write_complete_batch
 from weather.io import request_with_retries
 from weather.schema_registry import schema_version
 from weather.units import parse_temperature_band
@@ -521,8 +523,25 @@ def _upsert_price_history_rows(path, rows):
         0,
         len(existing_rows) + len(incoming_rows) - int(stats["total_points"]) - int(stats["corrected_points"]),
     )
-    if combined_rows or incoming_rows:
-        write_csv_rows(path, _price_history_columns(path), combined_rows)
+    columns = _price_history_columns(path)
+    # Normal overlapping polls add points without rewriting the settled prefix.
+    # Corrections and legacy duplicate/schema repairs retain the existing upsert
+    # contract: unchanged readers must still see exactly one row per point.
+    append_safe = (
+        combined_rows[:len(existing_rows)] == existing_rows
+        and (not existing_rows or _read_csv_header(path) == columns)
+    )
+    if append_safe:
+        additions = combined_rows[len(existing_rows):]
+        if additions:
+            has_header = path.exists() and path.stat().st_size > 0
+            with path.open("a", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+                if not has_header:
+                    writer.writeheader()
+                writer.writerows(normalize_csv_row(row) for row in additions)
+    elif combined_rows or incoming_rows:
+        write_csv_rows(path, columns, combined_rows)
     return stats
 
 
@@ -815,10 +834,8 @@ class MarketMicrostructureStore:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
 
-    def write_token_rows(self, rows):
-        self.append_csv(self.token_path, TOKEN_COLUMNS, rows)
-        for row in rows:
-            self.append_jsonl(self.token_jsonl_path, row)
+    def write_token_rows(self, rows, *, book_metadata=None):
+        return write_complete_batch(self, rows, book_metadata)
 
     def write_books(self, summaries, level_rows, raw_records):
         self.append_csv(self.books_summary_path, BOOK_SUMMARY_COLUMNS, summaries)
@@ -978,7 +995,7 @@ def capture_market_books(
     from weather.operations import event_metadata_validation
 
     event_client = PolymarketClient(target_date=target_date, market_id=market_id)
-    event = event_client.get_event()
+    event = cached_capture_event(event_client)
     config = config_from_event(event, fallback_date=event_client.config.target_date)
     if root is not None and snapshots_root is not None:
         raise ValueError("root and snapshots_root are mutually exclusive")
@@ -1102,7 +1119,7 @@ def capture_event_books(
             })
         stage = "raw_tape_write"
         with store.raw_tape_guard("raw_token_book_append"):
-            store.write_token_rows(all_token_rows)
+            store.write_token_rows(all_token_rows, book_metadata=summaries)
             book_write_result = store.write_books(
                 summaries,
                 level_rows,
@@ -1383,6 +1400,7 @@ def capture_event_enrichment(
                     store.root,
                     max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
                     market_id=market_id,
+                    append_only=True,
                 )
         except Exception as exc:  # noqa: BLE001
             feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
@@ -1439,7 +1457,7 @@ def capture_market_enrichment(
     from weather.operations import event_metadata_validation
 
     event_client = PolymarketClient(target_date=target_date, market_id=market_id)
-    event = event_client.get_event()
+    event = cached_capture_event(event_client)
     config = config_from_event(event, fallback_date=event_client.config.target_date)
     store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
     validation = event_metadata_validation.build_validation_payload(
