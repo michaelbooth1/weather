@@ -31,6 +31,23 @@ distribution is scored against.
 4. Settlement-scored gate per US market. NBM remains US-only in this live path,
    so Toronto stays on the existing non-NBM path.
 
+## 2026-10-02 Toronto block retention flag (owner decision)
+
+Owner decision 2026-10-02: stop discarding Toronto's (CYYZ/CYTZ) NBM blocks,
+behind a flag. `nbm_probabilistic_tmax` stays US-only (its `:US` gate in
+`fetch_nbm_probabilistic_tmax` is unchanged, because that source feeds
+`nbm_prob_tmax_*` features). Instead `config/toronto_nbm_blocks.json`
+(`capture.retain_toronto_nbm_blocks`, default `false`) adds the capture-only
+source `nbm_toronto_station_blocks` for the Toronto market: it reuses the US
+markets' national-bulletin fan-out, keeps only the CYYZ and CYTZ station blocks
+plus their parsed percentiles and the bulletin identity (request key, cycle
+key, body hash), and is stored as a small local forecast payload. The feature
+builder never reads that source name, so turning the flag on changes no Toronto
+serving feature; using the blocks in a model is a separate model decision with
+the usual parity and gate work. The Open-Meteo `open_meteo_multimodel` `:US`
+gate is not touched: Toronto does not declare that source, so nothing is
+discarded there. Tests: `tests/sources/test_toronto_nbm_blocks.py`.
+
 ## Progress 2026-06-21
 
 - [x] Added `weather.sources.nbm_probabilistic_tmax` with NBP station text URL
@@ -230,20 +247,3 @@ documented and blocks promotion because NBM-prob underperforms the current
 model and market on settled US slices.
 
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.
-
-## 2026-10-02 Toronto block retention flag (owner decision)
-
-Owner decision 2026-10-02: stop discarding Toronto's (CYYZ/CYTZ) NBM blocks,
-behind a flag. `nbm_probabilistic_tmax` stays US-only (its `:US` gate in
-`fetch_nbm_probabilistic_tmax` is unchanged, because that source feeds
-`nbm_prob_tmax_*` features). Instead `config/toronto_nbm_blocks.json`
-(`capture.retain_toronto_nbm_blocks`, default `false`) adds the capture-only
-source `nbm_toronto_station_blocks` for the Toronto market: it reuses the US
-markets' national-bulletin fan-out, keeps only the CYYZ and CYTZ station blocks
-plus their parsed percentiles and the bulletin identity (request key, cycle
-key, body hash), and is stored as a small local forecast payload. The feature
-builder never reads that source name, so turning the flag on changes no Toronto
-serving feature; using the blocks in a model is a separate model decision with
-the usual parity and gate work. The Open-Meteo `open_meteo_multimodel` `:US`
-gate is not touched: Toronto does not declare that source, so nothing is
-discarded there. Tests: `tests/sources/test_toronto_nbm_blocks.py`.

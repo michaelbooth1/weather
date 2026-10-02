@@ -1922,7 +1922,9 @@ class SourceFetchMixin:
                 }
 
             try:
-                fanout_result = fanout.fetch(
+                # Held-cycle reuse when the fan-out offers it; plain fetch otherwise.
+                fetch_bulletin = getattr(fanout, "fetch_reusable_nbp", fanout.fetch)
+                fanout_result = fetch_bulletin(
                     source="nbm_probabilistic_tmax",
                     request_key=nbp_request_key(url),
                     cycle_key=nbp_cycle_key(run_time),
