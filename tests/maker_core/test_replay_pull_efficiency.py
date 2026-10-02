@@ -184,3 +184,50 @@ def test_engine_traces_integrate_with_endpoint_without_policy_reexecution(tmp_pa
     result = endpoint(a, b)
     assert result["counts"]["opportunities"] == 7
     assert result["counts"]["large_moves"] == 5
+
+
+def _scenario_bundles(tmp_path):
+    from maker_core.replay.engine import ReplayEngine
+    scenario = Scenario(markets=("a", "b"), minutes=30)
+    for minute in range(30):
+        for market in ("a", "b"):
+            scenario.book(market, minute*60, mid=D(".5") if minute % 7 else D(".56"))
+    bundle = scenario.bundle(tmp_path/"day")
+    a, b = scenario.cid("a"), scenario.cid("b")
+    at = scenario.at
+    # Unaligned, overlapping and abutting windows exercise the union and the minute rounding.
+    return replace(bundle, active_intervals=((a, at(30), at(615)), (a, at(300), at(1200)), (a, at(1200), at(1290)),
+                                             (b, at(61), at(119)), (b, at(600), at(1800)))), ReplayEngine
+
+
+def test_preflight_candidates_equal_the_pull_loop_and_refuse_at_the_same_cap(tmp_path):
+    from maker_core.replay.pull_efficiency import opportunity_candidates
+    bundle, ReplayEngine = _scenario_bundles(tmp_path)
+    config = ReplayConfig(hazard_per_minute=0, max_outputs=10_000)
+    informed = replay((bundle,), config)
+    clock = replay((bundle,), replace(config, policy="clock_only"))
+    counted = opportunity_candidates(ReplayEngine((bundle,), config).windows)
+    assert counted == endpoint(informed, clock)["candidates"] == 21 + 0 + 20
+    # The scored loop refuses exactly when the preflight count exceeds max_events.
+    tight = replace(informed, config=replace(informed.config, max_events=counted))
+    endpoint(tight, replace(clock, config=replace(clock.config, max_events=counted)))
+    with pytest.raises(BundleError, match="pull_opportunity_cap"):
+        endpoint(replace(tight, config=replace(tight.config, max_events=counted-1)), clock)
+
+
+def test_clarification_2_engine_bounds_heap_events_not_input_records(tmp_path):
+    bundle, ReplayEngine = _scenario_bundles(tmp_path)
+    records = len(bundle.records)
+    # Fewer heap timestamps than records: 30 book minutes plus window boundaries, many records per clock.
+    cap = 64
+    assert records > cap
+    # Addendum mode (one shared max_events) still bounds input records by it.
+    with pytest.raises(BundleError, match="engine_event_cap"):
+        ReplayEngine((bundle,), ReplayConfig(hazard_per_minute=0, max_events=cap))
+    # Clarification 2 mode: records are bound by max_records at load, heap events by max_events.
+    engine = ReplayEngine((bundle,), ReplayConfig(hazard_per_minute=0, max_events=cap, max_outputs=10_000))
+    engine.run()
+    assert engine.processed <= cap
+    with pytest.raises(BundleError, match="engine_event_cap"):
+        ReplayEngine((bundle,), ReplayConfig(hazard_per_minute=0, max_events=engine.processed-1,
+                                             max_outputs=10_000)).run()

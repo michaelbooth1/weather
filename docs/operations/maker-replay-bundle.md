@@ -162,6 +162,10 @@ This is a disclosed sampled-book approximation, not a live freshness relaxation:
 the shared kernel's ten-second submit freshness still applies at every decision.
 Both input event count (`max_events`) and combined decision/span count have hard ceilings. The decision/span ceiling is
 `max_outputs`, or `max_events` when unset (the frozen addendum's shared value); Clarification 2 derives each separately.
+Under the addendum's shared value (`max_outputs` unset) `max_events` also bounds the input record count. Clarification 2
+measures records and engine events as separate quantities, so with `max_outputs` set the engine bounds only its
+scheduled heap events by `max_events`. Records are then bound by `max_records`: at load, in manifest build, and again
+at `engine_preflight` (`engine_record_cap`).
 Multi-day replay spans at most 366 calendar days, including gaps. Simultaneous
 band cash admission is deterministic by condition ID, not an optimized band-selection
 claim. Inventory is held with reduced available caps; no liquidation strategy is
@@ -198,7 +202,7 @@ evidence. Public trades without venue IDs use content hashes, conservatively ded
 messages. A venue trade clock ahead of capture by more than the 5-second bound refuses the day
 (`future_public_trade_clock`); within it the print is exported at its capture time with the venue clock kept, and
 `export.json` `trade_clock_skew` reports, in microseconds of venue minus capture, the bound, trade count,
-`clamped_to_capture` (prints whose venue clock led capture), min, nearest-rank p50/p90/p99/p99.9 and max. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
+`leading_capture` (prints whose venue clock led capture), min, nearest-rank p50/p90/p99/p99.9 and max. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
 projection back into the event cache entry, so each event's projection and fair-value/clock/settlement providers are
 built once per cached load, not once per book capture.
 
@@ -257,6 +261,16 @@ finalize step) adds about 5.5x. Coverage rows (one per condition at every book o
 bundle's records. The exporter frees its record list, joined stream and last segment before validating. That
 lifetime-only change leaves bundle bytes identical and cut the fixture peak from about 8x to about 6x output bytes.
 Compare a receipt's `bundle.bytes` with `peak_memory_bytes` to see the same ratio on real days.
+
+Reward terms are looked up only when the projection keeps `terms`, so a calibration export never evaluates them. At a
+rewards capture only the conditions that capture names, at that clock, are looked up again. A malformed reward capture
+falls back to looking up every condition, so its refusal is unchanged. `CaptureIndex` answers reward lookups by bisect
+over time-sorted rows and passes only the newest-clock rows to `latest`. Bundle bytes are identical to the full scan
+(fixture-tested against the previous exporter). A `MemoryError` during a night or calibration export is caught like any
+refusal, so the day gets a `REFUSED` receipt and ledger entry instead of being left attempted with none. Before the
+receipt's pre-publish byte check, long `gaps`, `restart_events` and `bundle.gaps` lists are shortened to a prefix.
+`events_trimmed.<list>` records each list's full `total`, `kept` and the `sha256` of the full canonical list, so a
+sealed day is not refused only for its receipt size.
 
 The optional explicit `--release-root` (also supported by the single-city exporter) supplies immutable release directories.
 `maker_replay_release.ReleaseSources` binds the captured source's release ID/content-manifest hash to the one declared
@@ -449,7 +463,11 @@ Every manifest, run and verify command takes `--clarification-2` (v3, below, als
   Host limits: memory and memory-resident input/report bytes ≤ 70% of 16 GiB, runtime ≤ 4 h, counts ≤ 2^31. If any
   ceiling exceeds its limit the file says `executable: false` and `verdict: "not executable on this host"`,
   `derive_ceilings` exits 3, and manifest build refuses `not_executable_on_host:<field> (not executable on this host)`.
-  The panel is never sampled or truncated to fit. The manifest binds the measurement (per-date values, rehearsal hashes) and derives
+  The panel is never sampled or truncated to fit. Manifest build refuses a measurement whose `calibration_sha256` is
+  not the sealed calibration JSON's hash (`ceiling_measurement_calibration_mismatch`). At `engine_preflight`, before
+  reservation, the run counts the pull endpoint's candidates: the minute starts in each condition's union of active
+  windows, which equals the scored loop's count. If that count exceeds `max_events`, the run refuses
+  `pull_opportunity_cap` there without consuming the look. The manifest binds the measurement (per-date values, rehearsal hashes) and derives
   every CLI ceiling, the engine ceilings and a sampled process-memory ceiling from it.
 - **Universe.** `python -m weather.market.maker_plugin.replay_export universe --bundle <15 panel dirs> --out <json>`
   lists every condition in the bundles with its registered city, target date and IANA timezone from the captured

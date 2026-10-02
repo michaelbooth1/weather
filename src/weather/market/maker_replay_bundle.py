@@ -162,6 +162,9 @@ class Projection:
         # Venue print time minus capture time, in microseconds, for every exported trade.
         self.trade_skews = []
 
+    def keeps(self, kind):
+        return self.kinds is None or kind in self.kinds
+
     def add(self, cid, kind, at, payload, hashes, *, changed=False):
         self.check()
         if self.kinds is not None and kind not in self.kinds:
@@ -196,7 +199,7 @@ class Projection:
         def rank(q):  # Nearest-rank percentile.
             return skews[max(0, -(-len(skews) * q // 1000) - 1)] if skews else None
         return dict(bound_us=MAX_TRADE_CLOCK_SKEW // timedelta(microseconds=1), trades=len(skews),
-                    clamped_to_capture=sum(s > 0 for s in skews), min_us=rank(0), p50_us=rank(500),
+                    leading_capture=sum(s > 0 for s in skews), min_us=rank(0), p50_us=rank(500),
                     p90_us=rank(900), p99_us=rank(990), p999_us=rank(999), max_us=skews[-1] if skews else None)
 
     def stream(self, segment, row, hashes):
@@ -370,7 +373,12 @@ def export(args, *, now=None, reader=None):
                 projection.stream(segment, row, hashes)
                 continue
             if row["kind"] == "rewards":
+                # Only cids in a reward capture at this clock can change; a malformed capture
+                # names none, so every cid is looked up and the malformed-input refusal stands.
+                named = index.reward_cids(at) if projection.keeps("terms") else set()
                 for cid in sorted(projection.descriptors):
+                    if named is not None and cid not in named:
+                        continue
                     terms = reward_terms(index, cid, at)
                     if terms is not None:
                         projection.add(cid, "terms", at, terms, hashes, changed=True)
@@ -410,7 +418,7 @@ def export(args, *, now=None, reader=None):
                     projection.add(cid, "descriptor", at, dict(market=entry["descriptor"], horizon_days=horizon,
                                    exposure_factors=WeatherExposure().factors(descriptor)), hashes, changed=True)
                     projection.add(cid, "book", at, captured_book(index, descriptor, at), hashes)
-                    terms = reward_terms(index, cid, at)
+                    terms = reward_terms(index, cid, at) if projection.keeps("terms") else None
                     if terms is not None:
                         projection.add(cid, "terms", at, terms, hashes, changed=True)
                     if "fair_value" in entry:

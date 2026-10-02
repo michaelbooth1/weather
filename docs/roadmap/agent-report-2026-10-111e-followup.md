@@ -110,105 +110,161 @@ exist, it is a missing tool, not a step skipped.
 
 ## Production runbook (exact commands)
 
-Preconditions: #134 and #144 landed on production master via the guarded path; production derives the per-file roll
-verdict with `scripts\ops\roll_verdict.ps1`. Expected: roll-free, since no capture loop imports `maker_core.replay`;
-the changed files are `src/maker_core/replay/*`, tests and docs. Every heavy step runs 00:30–09:00 Toronto under the
-shared lease, serially, and never on a night with a 00:30 integration suite unless the nightly is staggered (STATE_OF_PLAY).
+**Revised 2026-10-03 (W2).** This section supersedes the earlier helper and the attended form in the 2026-10-01
+addendum §3. Every Python step runs from one locked, pinned worktree with `-P -B`, `PYTHONPATH=<worktree>\src` and a
+`__file__` probe. The look runs on v3 (Clarification 3, signed 2026-10-01T17:44Z).
 
-Set once per PowerShell session on the capture host. `$Data` and `$Releases` are the 88a data root and immutable
-release root. `$Panel` is the panel output root: the `-OutputRoot` production gives `register_replay_bundle_export_nightly.ps1`
-when it registers `WeatherReplayBundleExportNightly` (carried by #134; not registered on master at the time of writing).
-Once registered, `(Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly).Actions[0].Arguments` shows all three.
+Preconditions: the exam tree is landed on production master via the guarded path, and production derives each
+branch's roll verdict with `scripts\ops\roll_verdict.ps1 -Branch <b>`. Every heavy step runs 00:30–09:00 Toronto under
+the shared lease, serially, and never on a night with a 00:30 integration suite unless the nightly is staggered
+(STATE_OF_PLAY).
+
+### Session setup (capture host, once per PowerShell session)
+
+`$Data` and `$Releases` are the 88a data root and the immutable release root. `$Pin` is the exam-tree commit that will
+be enrolled; it is replaced by the enrolment commit in step C4.
 
 ```powershell
 $Repo = '<production repo root>'; $Py = Join-Path $Repo 'venv\Scripts\python.exe'
-$Data = '<-DataRoot>'; $Releases = '<-ReleaseRoot>'; $Panel = '<-OutputRoot>'
-$Exam = Join-Path (Split-Path -Parent $Panel) 'maker-replay-exam-c2'   # sibling of the panel root, outside $Data
+$Data = '<-DataRoot>'; $Releases = '<-ReleaseRoot>'
+$Pin = '<exam tree commit on master>'
+$Wt = "C:\weather-pinned\exam-$($Pin.Substring(0,8))"
+git -C $Repo worktree add --detach $Wt $Pin
+git -C $Repo worktree lock $Wt --reason 'maker replay exam (W2 runbook)'
+$Src = Join-Path $Wt 'src'
+$Exam = '<exam root: outside $Data, never inside a repository>'
 New-Item -ItemType Directory -Path $Exam | Out-Null
+# Signed documents come from the locked worktree; only the decision log is read from master.
 $Docs = @('--decision-log', "$Repo\docs\operations\DECISION_LOG.md",
-  '--frozen-protocol', "$Repo\docs\research\maker-replay-hurdles-preregistration-2026-09-27.md",
-  '--execution-addendum', "$Repo\docs\research\maker-replay-execution-addendum-2026-09-27.md",
-  '--clarification', "$Repo\docs\research\maker-replay-clarification-1-2026-09-27.md",
-  '--clarification-2', "$Repo\docs\research\maker-replay-clarification-2-2026-09-29.md")
+  '--frozen-protocol', "$Wt\docs\research\maker-replay-hurdles-preregistration-2026-09-27.md",
+  '--execution-addendum', "$Wt\docs\research\maker-replay-execution-addendum-2026-09-27.md",
+  '--clarification', "$Wt\docs\research\maker-replay-clarification-1-2026-09-27.md",
+  '--clarification-2', "$Wt\docs\research\maker-replay-clarification-2-2026-09-29.md",
+  '--clarification-3', "$Wt\docs\research\maker-replay-clarification-3-2026-10-01.md")
+# Lease and job helpers stay dot-sourced from production master; only Python code comes from the worktree.
 . "$Repo\scripts\ops\workload_admission.ps1"; . "$Repo\scripts\ops\windows_kill_on_close_job.ps1"
+function Assert-PinnedImports {
+  $probe = & $Py -P -B -c "import weather.market.maker_replay_night as n, maker_core.replay.ceilings as c, maker_core.replay.approved_registrations as a; print(n.__file__); print(c.__file__); print(a.__file__)"
+  if ($LASTEXITCODE -ne 0 -or @($probe).Count -ne 3 -or @($probe | Where-Object { -not $_.StartsWith($Src + '\') }).Count) {
+    throw "module-path probe failed: $probe" }
+}
 function Invoke-ExamStep([string]$Name, [string[]]$Tokens) {
-  $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $Repo -Workload "maker_replay_exam_$Name" `
-    -ExpectedExecutionHostId (Get-WeatherExecutionHostId)
-  if ($null -eq $lease) { throw 'REFUSED: shared heavy-work lease busy' }
-  $job = $null; $child = $null; $proved = $false
+  $env:PYTHONPATH = $Src
   try {
-    $job = New-WeatherKillOnCloseJob
-    $child = Start-WeatherInteractiveProcessInJob -Job $job -FilePath $Py -WorkingDirectory $Repo `
-      -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens (@('-B') + $Tokens))
-    $null = $child.Handle; $child.WaitForExit(); $code = $child.ExitCode
-  } finally {
-    try { if ($job) { $job.TerminateAndWait(5000) }; $proved = $true }
-    finally { if ($child) { $child.Dispose() }; if ($job) { $job.Dispose() }
-      if ($proved) { Exit-WeatherHeavyWorkloadLease -Lease $lease } else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease } }
-  }
+    Assert-PinnedImports                                   # immediately before every step
+    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $Repo -Workload "maker_replay_exam_$Name" `
+      -ExpectedExecutionHostId (Get-WeatherExecutionHostId)
+    if ($null -eq $lease) { throw 'REFUSED: shared heavy-work lease busy' }
+    $job = $null; $child = $null; $proved = $false
+    try {
+      $job = New-WeatherKillOnCloseJob
+      $child = Start-WeatherInteractiveProcessInJob -Job $job -FilePath $Py -WorkingDirectory $Repo `
+        -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens (@('-P','-B') + $Tokens))
+      $null = $child.Handle; $child.WaitForExit(); $code = $child.ExitCode
+    } finally {
+      try { if ($job) { $job.TerminateAndWait(5000) }; $proved = $true }
+      finally { if ($child) { $child.Dispose() }; if ($job) { $job.Dispose() }
+        if ($proved) { Exit-WeatherHeavyWorkloadLease -Lease $lease } else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease } }
+    }
+  } finally { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
   if ($code -ne 0) { throw "$Name exited $code" }
 }
+function Read-Json([string]$Path) { Get-Content $Path -Raw | ConvertFrom-Json }
 $Cal = '2026-09-27', '2026-09-28', '2026-09-29'
+# Export ceilings: 16 GiB streamed input (the exporter's MAX_INPUT_BYTES), 11,000 s (inside the 4 h host limit with
+# room for teardown) and an explicit 2 GiB output. Peak memory is about 6x the events.jsonl bytes
+# (docs/operations/maker-replay-bundle.md), so 2 GiB of output is already near the 16 GB host's limit.
+$ExportLim = @('--max-input-bytes','17179869184','--max-seconds','11000','--max-output-bytes','2147483648')
+$env:PYTHONPATH = $Src; Assert-PinnedImports
+$Mod = ((& $Py -P -B -m weather.market.maker_plugin.replay_export module-hash) | ConvertFrom-Json).module_sha256
+Remove-Item Env:PYTHONPATH
 ```
 
-### A. Calibration export 09-27..29 (as soon as landed; one night)
+**A fresh `--out` root per attempt.** An attempted day refuses in place, and a refused day is never retried there.
+Each export attempt therefore gets a new root, and the roots that are used are recorded:
 
 ```powershell
-& $Py -B -m weather.market.maker_plugin.replay_export module-hash        # copy the printed hash
-$Mod = '<module hash>'
-foreach ($d in $Cal) { Invoke-ExamStep "calibration_$d" @('-m','weather.market.maker_plugin.replay_export','calibration',
-  '--day',$d,'--data-root',$Data,'--out',"$Exam\calibration",'--expected-module-sha256',$Mod) }
-# Rehearsal input: panel-format (night) bundles of the same three dates, in a separate root.
-foreach ($d in $Cal) { Invoke-ExamStep "rehearsal_panel_$d" @('-m','weather.market.maker_plugin.replay_export','night',
-  '--day',$d,'--data-root',$Data,'--release-root',$Releases,'--out',"$Exam\rehearsal-panel",'--expected-module-sha256',$Mod) }
-foreach ($d in $Cal) { (Get-Content "$Exam\calibration\$d\receipt.json" -Raw | ConvertFrom-Json).status }  # all SEALED
+function New-AttemptRoot([string]$Kind) {
+  $root = Join-Path $Exam ("$Kind-" + (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))
+  New-Item -ItemType Directory -Path $root | Out-Null; $root
+}
 ```
 
-Any `REFUSED` receipt stops the line. Retries of an attempted day refuse in the same root; never delete, and export
-again only into a new root.
+### A. Calibration and rehearsal-panel export (09-27..29)
+
+```powershell
+$CalRoot = New-AttemptRoot 'calibration'; $RehRoot = New-AttemptRoot 'rehearsal-panel'
+foreach ($d in $Cal) { Invoke-ExamStep "calibration_$d" (@('-m','weather.market.maker_plugin.replay_export','calibration',
+  '--day',$d,'--data-root',$Data,'--out',$CalRoot,'--expected-module-sha256',$Mod) + $ExportLim) }
+foreach ($d in $Cal) { Invoke-ExamStep "rehearsal_panel_$d" (@('-m','weather.market.maker_plugin.replay_export','night',
+  '--day',$d,'--data-root',$Data,'--release-root',$Releases,'--out',$RehRoot,'--expected-module-sha256',$Mod) + $ExportLim) }
+foreach ($r in @($CalRoot, $RehRoot)) { foreach ($d in $Cal) {
+  $x = Read-Json "$r\$d\receipt.json"
+  if ($x.status -ne 'SEALED' -or $x.module_sha256 -ne $Mod) { throw "$r $d not SEALED under the pinned module hash" }
+  if ($x.PSObject.Properties.Name -contains 'events_trimmed') { "$r $d event lists trimmed: " + ($x.events_trimmed | ConvertTo-Json -Compress) }
+  "$r $d leading_capture=$($x.bundle.trade_clock_skew.leading_capture) max_us=$($x.bundle.trade_clock_skew.max_us) peak=$($x.peak_memory_bytes) bytes=$($x.bundle.bytes)" } }
+```
+
+Any `REFUSED` receipt, including `MemoryError` (now recorded, not left stuck), stops the line. Fix the cause, and only
+then export again into a new attempt root, never in place.
 
 ### B. Quote markets, hazard calibration, ceiling rehearsal
 
-Size the read limits from the three calibration receipts. The CLI defaults (64 MiB, 100,000 records) are diagnostic
-values, not exam values.
+Size the replay read limits from the calibration receipts. The CLI defaults are diagnostic values, not exam values.
 
 ```powershell
-$r = $Cal | ForEach-Object { (Get-Content "$Exam\calibration\$_\receipt.json" -Raw | ConvertFrom-Json).bundle }
+$r = $Cal | ForEach-Object { (Read-Json "$CalRoot\$_\receipt.json").bundle }
 $Bytes = [string](($r | Measure-Object bytes -Sum).Sum); $Recs = [string](($r | Measure-Object records -Sum).Sum)
-$CalB = $Cal | ForEach-Object { '--calibration-bundle', "$Exam\calibration\$_\bundle" }
+$CalB = $Cal | ForEach-Object { '--calibration-bundle', "$CalRoot\$_\bundle" }
 $Lim = @('--max-input-bytes',$Bytes,'--max-records',$Recs,'--max-seconds','2700','--max-output-bytes','8388608')
 Invoke-ExamStep 'quote_markets' (@('-m','maker_core.replay','quote_markets') + $CalB + @('--out',"$Exam\quote-markets.json") + $Lim)
-Invoke-ExamStep 'calibrate' (@('-m','maker_core.replay','calibrate_hazard') + ($Cal | ForEach-Object { '--bundle', "$Exam\calibration\$_\bundle" }) +
+Invoke-ExamStep 'calibrate' (@('-m','maker_core.replay','calibrate_hazard') + ($Cal | ForEach-Object { '--bundle', "$CalRoot\$_\bundle" }) +
   @('--quote-markets',"$Exam\quote-markets.json",'--out',"$Exam\calibration.json") + $Lim)
-foreach ($d in $Cal) { Invoke-ExamStep "rehearse_$d" @('-m','maker_core.replay','rehearse','--bundle',"$Exam\rehearsal-panel\$d\bundle",
+$c = Read-Json "$Exam\calibration.json"
+if ($null -ne $c.global_fallback) { throw "calibration global_fallback=$($c.global_fallback)" }
+if ($c.PSObject.Properties.Name -contains 'binding_status') { throw "calibration binding_status=$($c.binding_status)" }
+foreach ($d in $Cal) { Invoke-ExamStep "rehearse_$d" @('-m','maker_core.replay','rehearse','--bundle',"$RehRoot\$d\bundle",
   '--calibration',"$Exam\calibration.json",'--out',"$Exam\rehearsal-$d.json") }      # one fresh process per date
-& $Py -B -m maker_core.replay derive_ceilings --rehearsal "$Exam\rehearsal-2026-09-27.json" `
+$env:PYTHONPATH = $Src; Assert-PinnedImports
+& $Py -P -B -m maker_core.replay derive_ceilings --rehearsal "$Exam\rehearsal-2026-09-27.json" `
   --rehearsal "$Exam\rehearsal-2026-09-28.json" --rehearsal "$Exam\rehearsal-2026-09-29.json" --out "$Exam\ceiling-measurement.json"
+$Derive = $LASTEXITCODE; Remove-Item Env:PYTHONPATH
+$CalKey = (Get-FileHash "$Exam\calibration.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ((Read-Json "$Exam\ceiling-measurement.json").calibration_sha256 -ne $CalKey) { throw 'ceilings rehearsed on another calibration' }
 ```
 
-`derive_ceilings` is light: it reads three small JSON files. Exit 0 with `verdict=executable on this host` lets the
-line continue. **Exit 3 (`verdict=not executable on this host`, `binding=<fields>`) ends the exam on this host as
-signed.** Report it; do not re-rehearse to fit, and never sample or truncate.
+`derive_ceilings` is light: it reads three small JSON files. Exit 0 (`executable_on_host=True`) lets the line continue.
+**Exit 3 (`not executable on this host`, `binding=<fields>`) ends the exam on this host as signed.** Report it. Do not
+re-rehearse to make it fit, and never sample or truncate. Manifest build also refuses a measurement whose
+`calibration_sha256` is not the sealed `calibration.json` (`ceiling_measurement_calibration_mismatch`).
 
-### C. 10-15 build / verify / enrol / look
+### C. Authorization, build, verify, enrolment, look
 
-1. **Authorization rows (production, after #144 lands, any day before the look).** Append to `DECISION_LOG.md`:
-   - `| <date> | REVOKE_MAKER_REPLAY | offline replay only | `{"authorization_id":"maker-replay-2026-10-15-v1"}` | — |`
-   - `| <date> | APPROVE_MAKER_REPLAY | offline replay only | `<json>` | — |`, where `<json>` is
-     `{"authorization_id":"maker-replay-2026-10-15-v2","owner":"michaelbooth1","protocol_sha256":"0380212d8e82474281afbed1197161263f794570ec06cf51fec99a3c6c03a6bf","addendum_sha256":"074a0e56b87770eff9f574232819b5d95ecd7073e450f27adac7bf555a43410b","clarification_sha256":"37d2fd8e34462a77d6209ee4018e3685bf91a81a93e2cb08df6986985811fa0e","clarification_2_sha256":"1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0","signed_at":"<UTC approval time>","scoring_date":"2026-10-15","expires_at":"2026-11-01T04:00:00Z"}`.
+1. **Authorization rows (production, any day before the look).** Append an APPROVE row for v3 to `DECISION_LOG.md`.
+   The look is single: if a v2 APPROVE row exists, the owner decides whether to append a v2 REVOKE row with it. Only
+   the one enrolled manifest can run in any case.
+   `| <date> | APPROVE_MAKER_REPLAY | offline replay only | `<json>` | — |`, where `<json>` is:
 
-   The APPROVE row's Date column must equal the UTC date of `signed_at`. Save the exact JSON as
-   `$Exam\owner-decision.json` (UTF-8, no BOM).
-2. **Panel completeness (10-15, after the 10-14 UTC day closes and is exported).** All fifteen
-   `$Panel\<day>\receipt.json` for 2026-09-30..2026-10-14 must be `SEALED`, each with a matching `SEALED` ledger
-   entry. Export each day the nightly did not cover (risk 5) one per lease, into the same root:
-   `Invoke-ExamStep "panel_$d" @('-m','weather.market.maker_plugin.replay_export','night','--day',$d,'--data-root',$Data,'--release-root',$Releases,'--out',$Panel,'--expected-module-sha256',$Mod)`.
-   A day already attempted in `$Panel` refuses; a failed day is never retried in place.
-3. **Universe, build, verify (10-15 or later, 00:30–09:00).**
+   `{"authorization_id":"maker-replay-2026-10-15-v3","owner":"michaelbooth1","protocol_sha256":"0380212d8e82474281afbed1197161263f794570ec06cf51fec99a3c6c03a6bf","addendum_sha256":"074a0e56b87770eff9f574232819b5d95ecd7073e450f27adac7bf555a43410b","clarification_sha256":"37d2fd8e34462a77d6209ee4018e3685bf91a81a93e2cb08df6986985811fa0e","clarification_2_sha256":"1719fd1ea679cd14501d5b6ddd392fbb9e8d2b086cf6b5a3c0348961824e60f0","clarification_3_sha256":"fcbcb7d0d2a38777814b6f9d5e8b96c879d069af873c0b32fb4b274506b03eaa","signed_at":"<UTC approval time>","scoring_date":"2026-10-15","expires_at":"2026-11-01T04:00:00Z"}`
+
+   The Date column must equal the UTC date of `signed_at`. Save the exact JSON as `$Exam\owner-decision.json`
+   (UTF-8, no BOM). The v3 key set is the decision fields plus all three clarification hashes; any other set refuses.
+2. **Panel completeness (10-15, after the 10-14 UTC day closes).** Export all fifteen days 2026-09-30..2026-10-14
+   from the same `$Mod` into one new attempt root, with `$ExportLim`. Each `receipt.json` must be `SEALED` with
+   `module_sha256 == $Mod`. A refused day means a new root for the whole panel; roots are never mixed.
 
    ```powershell
+   $PanelRoot = New-AttemptRoot 'panel'
    $Days = 0..14 | ForEach-Object { ([datetime]'2026-09-30').AddDays($_).ToString('yyyy-MM-dd') }
-   $PanB = $Days | ForEach-Object { '--bundle', "$Panel\$_\bundle" }
+   foreach ($d in $Days) { Invoke-ExamStep "panel_$d" (@('-m','weather.market.maker_plugin.replay_export','night','--day',$d,
+     '--data-root',$Data,'--release-root',$Releases,'--out',$PanelRoot,'--expected-module-sha256',$Mod) + $ExportLim) }
+   foreach ($d in $Days) { $x = Read-Json "$PanelRoot\$d\receipt.json"
+     if ($x.status -ne 'SEALED' -or $x.module_sha256 -ne $Mod) { throw "panel $d not SEALED under the pinned module hash" } }
+   ```
+3. **Universe, build, verify (00:30–09:00).**
+
+   ```powershell
+   $PanB = $Days | ForEach-Object { '--bundle', "$PanelRoot\$_\bundle" }
    $Bind = $CalB + @('--calibration',"$Exam\calibration.json",'--universe',"$Exam\universe.json",
      '--quote-markets',"$Exam\quote-markets.json",'--ceiling-measurement',"$Exam\ceiling-measurement.json") + $Docs
    New-Item -ItemType Directory -Path "$Exam\manifest" | Out-Null      # canonical directory; never relocate
@@ -219,23 +275,63 @@ signed.** Report it; do not re-rehearse to fit, and never sample or truncate.
    Invoke-ExamStep 'manifest_verify' (@('-m','maker_core.replay','manifest','verify') + $PanB + $Bind +
      @('--manifest',"$Exam\manifest\manifest.json",'--manifest-sha256',$Key))   # requires VERIFIED_PREFLIGHT_ONLY
    ```
-
-4. **Enrol.** Follow `docs/research/maker-replay-enrollment-template-2026-09-27.md` steps 4–6, with `v2` in place of
-   `v1`: enter exactly `$Key` → `michaelbooth1` in `src/maker_core/replay/approved_registrations.py`, on its own topic
-   branch, with independent review and a production roll verdict. Land it. Then re-run the `manifest_verify` step.
-5. **The single look.** Run it on any Toronto date 2026-10-15..2026-10-31 while `$Exam\manifest\attempts\maker-replay-2026-10-15-v2.json`
-   does not exist. Start at or after 00:30, early enough that the manifest's `max_seconds` ends before 09:00 (the CLI
-   refuses otherwise, without consuming). System commit must be below 70%.
+4. **Enrolment round, between build and look.** This follows `docs/research/maker-replay-enrollment-template-2026-09-27.md`
+   steps 4–6 for v3:
+   1. On a topic branch from master, add exactly `$Key` → `michaelbooth1` to
+      `src/maker_core/replay/approved_registrations.py`. Nothing else changes.
+   2. Get independent review of that diff.
+   3. Get the roll verdict with `scripts\ops\roll_verdict.ps1 -Branch <topic>`, and land the branch by the path that
+      verdict names.
+   4. **Re-pin.** Set `$Pin` to the landed commit, then create and lock a new worktree for it with the session-setup
+      commands. The probe now includes `approved_registrations.py`, so a stale pin fails it.
+      `approved_registrations.py` is the only file excluded from `source_hashes()`, so the manifest still binds.
+   5. Run a **second** `manifest_verify` from the new pin. It must print `VERIFIED_PREFLIGHT_ONLY`; any other result
+      stops the look.
+5. **Pre-look checks (the same session, immediately before the look).** The look's own preflights refuse
+   non-consumingly on commit charge and on the window. These checks catch the ceilings whose overrun after
+   reservation **consumes** the look:
 
    ```powershell
-   Invoke-ExamStep 'look' (@('-m','maker_core.replay','run','--compare','--pre-registration',"$Exam\manifest\manifest.json",
-     '--pre-registration-sha256',$Key,'--out',"$Exam\look") + $PanB + $Bind)
+   $m = Read-Json "$Exam\manifest\manifest.json"; $cl = $m.ceilings
+   $now = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'Eastern Standard Time')
+   if ($now.TimeOfDay -lt [TimeSpan]'00:30:00' -or $now.AddSeconds($cl.max_seconds).Date -ne $now.Date -or
+       $now.AddSeconds($cl.max_seconds).TimeOfDay -gt [TimeSpan]'09:00:00') { throw "max_seconds=$($cl.max_seconds) does not fit before 09:00" }
+   $free = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024
+   if ($free -lt $cl.max_memory_bytes) { throw "available RAM $free < memory ceiling $($cl.max_memory_bytes)" }
+   if ((Get-PSDrive (Split-Path -Qualifier $Exam).TrimEnd(':')).Free -lt 2 * $cl.max_output_bytes) { throw 'disk below 2x report cap' }
+   if (Test-Path "$Exam\manifest\attempts\maker-replay-2026-10-15-v3.json") { throw 'look already reserved' }
+   "time cap $($cl.max_seconds) s; report cap $($cl.max_output_bytes) bytes; memory cap $($cl.max_memory_bytes) bytes"
    ```
 
-   Read the outcome only from `$Exam\look\` and `attempts\`. A `*.refusal-*.json` means not consumed: fix the
-   operational cause and run again on a permitted date, into a new `--out`. `maker-replay-2026-10-15-v2.json` without
-   `.completed.json` means consumed and stopped: no retry. `registered_decision.status` is the result;
-   `measured_k_sensitivity` and `label` are reported beside it and change nothing.
+   Close other heavy processes first. Free physical memory is a snapshot, so do not start the look if the capture
+   workers are near their own peaks.
+
+   **Latest start** (Toronto) by the manifest's runtime ceiling. The CLI refuses a later start non-consumingly, but
+   the time is the operator's to plan:
+
+   | `max_seconds` | Latest start |
+   | ---: | ---: |
+   | 1024 | 08:42 |
+   | 2048 | 08:25 |
+   | 4096 | 07:51 |
+   | 8192 | 06:43 |
+   | ≥ 16384 | not executable (exceeds the 4 h host limit) |
+
+6. **The single look.** Run it on any Toronto date 2026-10-15..2026-10-31, from the re-pinned worktree, after step 5:
+
+   ```powershell
+   $LookOut = Join-Path $Exam ('look-' + (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))   # fresh per attempt
+   Invoke-ExamStep 'look' (@('-m','maker_core.replay','run','--compare','--pre-registration',"$Exam\manifest\manifest.json",
+     '--pre-registration-sha256',$Key,'--out',$LookOut) + $PanB + $Bind)
+   ```
+
+   Read the outcome only from `$LookOut` and `$Exam\manifest\attempts\`:
+   - A `*.refusal-*.json` means the look was not consumed. That includes `engine_preflight` refusals (`engine_record_cap`,
+     `pull_opportunity_cap`), which are now checked before reservation. Fix the operational cause and run again on a
+     permitted date into a new `$LookOut`.
+   - `maker-replay-2026-10-15-v3.json` without `.completed.json` means the look was consumed and stopped. Do not retry.
+   - `registered_decision.status` is the result. `measured_k_sensitivity`, `label` and the `clarification_3` fields
+     are reported beside it and change nothing.
 
 ## What was NOT done
 
@@ -342,7 +438,7 @@ All evidence below is read from code at `c1579cf9`.
 
   A pinned *scheduled* export needs a reviewed registrar change, like the order journal's `-RepoRoot`/`-StateRoot`/`-P`
   split. Until then, use **attended** commands.
-- **Attended form**, a change to the runbook helper above.
+- **Attended form** (superseded 2026-10-03 by the revised production runbook above), a change to the runbook helper above.
 
   ```powershell
   git -C $Repo worktree add --detach C:\weather-pinned\exam-c1579cf9 c1579cf9c2cdad54e6cb78f4a3c8d1fd4ba91e9b

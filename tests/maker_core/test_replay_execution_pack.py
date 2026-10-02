@@ -10,7 +10,7 @@ from maker_core.replay import authorization, ceilings, pack_cli
 from maker_core.replay.__main__ import main
 from maker_core.replay.bundle import BundleError, sha256
 from maker_core.replay.engine import replay, ReplayConfig
-from maker_core.replay.execution_manifest import apply_manifest, verify_manifest
+from maker_core.replay.execution_manifest import apply_manifest, build_manifest, verify_manifest
 from maker_core.replay.execution_receipt import reserve_attempt, evaluate_hurdles
 from .fixtures.execution_pack import MEASURED, measurement, pack, per_date
 
@@ -422,7 +422,8 @@ def test_scoring_cli_verifies_then_consumes_before_failed_policy_call(tmp_path, 
 @pytest.mark.parametrize("fault, stage", [("output_exists", "output_preflight"), ("commit", "host_preflight"),
                                           ("window", "host_preflight"),
                                           ("missing_bundle", "input"), ("ceiling_flag", "ceiling_binding"),
-                                          ("calibration", "manifest_verification"), ("source", "action_boundary")])
+                                          ("calibration", "manifest_verification"), ("source", "action_boundary"),
+                                          ("pull_cap", "engine_preflight")])
 def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, monkeypatch, fault, stage):
     import maker_core.replay.__main__ as cli
     from maker_core.replay import execution_manifest
@@ -446,6 +447,10 @@ def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, 
             value = original(**kwargs)
             return value if len(calls) == 1 else dict(value, extra="0"*64)
         monkeypatch.setattr(execution_manifest, "source_hashes", changed)
+    elif fault == "pull_cap":
+        from maker_core.replay import pull_efficiency
+        candidates = pull_efficiency.opportunity_candidates
+        monkeypatch.setattr(pull_efficiency, "opportunity_candidates", lambda windows: 2**40)
     scoring = []
     monkeypatch.setattr(cli, "comparison_report", lambda *a, **k: scoring.append(True) or pytest.fail("scored"))
     with pytest.raises(SystemExit) as exc:
@@ -461,6 +466,8 @@ def test_operational_refusal_before_scoring_does_not_consume_the_look(tmp_path, 
     monkeypatch.setattr(pack_cli, "_now", lambda: NOW)
     if fault == "source":
         monkeypatch.setattr(execution_manifest, "source_hashes", original)
+    if fault == "pull_cap":
+        monkeypatch.setattr(pull_efficiency, "opportunity_candidates", candidates)
     def stop(*a, **k):
         scoring.append(True)
         raise BundleError("fixture_stop_after_reservation")
@@ -602,3 +609,17 @@ def test_completed_look_carries_the_measured_k_flag_in_report_and_receipt(tmp_pa
     assert completed["registered_decision"] == decision
     markdown = next((tmp_path/"result").glob("*.md")).read_text(encoding="utf-8")
     assert "Measured-reaction sensitivity" in markdown and "Label: " in markdown
+
+
+def test_manifest_refuses_a_ceiling_measurement_rehearsed_on_another_calibration(tmp_path):
+    doc, bundles, cb, paths, _, _ = pack(tmp_path)
+    calibration = json.loads(paths["calibration_path"].read_bytes())
+    sealed = sha256(paths["calibration_path"].read_bytes())
+    kwargs = dict(calibration_sha256=sealed, inventory_sha256=doc["universe_sha256"],
+                  quote_inventory_sha256=doc["calibration"]["quote_inventory_sha256"], measurement_sha256="0"*64)
+    inventory = json.loads(paths["inventory_path"].read_bytes())
+    with pytest.raises(BundleError, match="ceiling_measurement_calibration_mismatch"):
+        build_manifest(bundles, cb, calibration, inventory, doc["owner_decision"], measurement(), **kwargs)
+    built = build_manifest(bundles, cb, calibration, inventory, doc["owner_decision"],
+                           measurement(calibration_sha256=sealed), **kwargs)
+    assert built["calibration_sha256"] == sealed

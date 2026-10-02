@@ -54,10 +54,10 @@ def per_date(measured=MEASURED):
     return {d.isoformat(): dict(small if d.day == 28 else measured) for d in CALIBRATION_DATES}
 
 
-def measurement(measured=MEASURED):
+def measurement(measured=MEASURED, calibration_sha256="0"*64):
     dates = per_date(measured)
     return dict(format=ceilings.FORMAT, per_date=dates, rehearsal_sha256={d: "0"*64 for d in dates},
-                calibration_sha256="0"*64, derived=ceilings.derive(dates))
+                calibration_sha256=calibration_sha256, derived=ceilings.derive(dates))
 
 
 def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2"):
@@ -85,7 +85,7 @@ def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2")
     universe_path = root/"universe.json"
     inventory_hash = write_json(universe_path, inventory)
     measurement_path = root/"ceiling-measurement.json"
-    measurement_hash = write_json(measurement_path, measurement(measured))
+    measurement_hash = write_json(measurement_path, measurement(measured, calibration_hash))
     paths = dict(decision_log=root/"DECISION_LOG.md", frozen_protocol=root/"protocol.md",
                  execution_addendum=root/"addendum.md", clarification=root/"clarification.md",
                  clarification_2=root/"clarification-2.md", calibration_path=calibration_path,
@@ -105,7 +105,7 @@ def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2")
         decision["clarification_3_sha256"] = sha256(raw)
     row = "| 2026-09-29 | APPROVE_MAKER_REPLAY | offline replay only | `"+json.dumps(decision)+"` | — |\n"
     paths["decision_log"].write_text(authorization.LOG_HEADER+"\n| --- | --- | --- | --- | --- |\n"+row, encoding="utf8")
-    doc = build_manifest(bundles, cb, calibration, inventory, decision, measurement(measured),
+    doc = build_manifest(bundles, cb, calibration, inventory, decision, measurement(measured, calibration_hash),
                          calibration_sha256=calibration_hash, inventory_sha256=inventory_hash,
                          quote_inventory_sha256=quote_hash, measurement_sha256=measurement_hash)
     manifest = root/"manifest.json"

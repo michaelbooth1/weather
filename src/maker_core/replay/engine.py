@@ -176,7 +176,10 @@ class ReplayEngine:
             for record in bundle.records:
                 self.records[record.captured_at].append(record)
                 self.schedule(record.captured_at)
-        if sum(len(b.records) for b in bundles) > config.max_events:
+        # The addendum's single shared max_events also bounds input records. Clarification 2
+        # (max_outputs set) measures records and engine events separately: records are then
+        # bound by max_records at load and again at engine preflight, not by heap events.
+        if config.max_outputs is None and sum(len(b.records) for b in bundles) > config.max_events:
             raise BundleError("engine_event_cap")
         for cid, start, end in config.clock_pulls:
             if cid not in self.states:

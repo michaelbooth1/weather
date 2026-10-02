@@ -153,7 +153,7 @@ def test_small_venue_clock_lead_is_accepted_recorded_and_available_only_at_captu
     record_trades(args, [(30, -300), (59.5, 1200)])
     summary = export(args, now=NOW+timedelta(days=1))
     skew = summary["trade_clock_skew"]
-    assert skew["bound_us"] == 5_000_000 and skew["trades"] == 2 and skew["clamped_to_capture"] == 1
+    assert skew["bound_us"] == 5_000_000 and skew["trades"] == 2 and skew["leading_capture"] == 1
     assert (skew["min_us"], skew["max_us"], skew["p50_us"], skew["p999_us"]) == (-300_000, 1_200_000, -300_000, 1_200_000)
     bundle = load_bundle(args.out)
     early, lead = sorted((r for r in bundle.records if r.kind == "trade"), key=lambda r: r.captured_at)
@@ -186,3 +186,88 @@ def test_loader_admits_the_bounded_lead_and_refuses_beyond_it():
     assert decode(row(timedelta(seconds=5))).traded_at == NOW+timedelta(seconds=5)
     with pytest.raises(BundleError, match="trade_clock_skew_exceeds_bound"):
         decode(row(timedelta(seconds=5, microseconds=1)))
+
+
+def reward_body(cid, rate):
+    return {"data": [{"condition_id": cid, "rewards_min_size": 20, "rewards_max_spread": 5, "rewards_config": [
+        {"rate_per_day": rate, "start_date": NOW.date().isoformat(), "end_date": NOW.date().isoformat()}]}]}
+
+
+def record_rewards(args, changes):
+    """Production writer: (seconds after NOW, condition number, rate) reward captures in one sealed segment."""
+    when = NOW
+    store = EvidenceStore(args.data_root/"maker_evidence", clock=lambda: when)
+    for seconds, number, rate in changes:
+        when = NOW + timedelta(seconds=seconds)
+        store.record("rewards", encoded(reward_body("0x"+f"{number:064x}", rate)), metadata={"http_status": 200})
+    store.seal()
+
+
+def export_bytes(args, out):
+    args.out = out
+    summary = export(args, now=NOW+timedelta(days=1))
+    return summary, {p.name: p.read_bytes() for p in out.iterdir()}
+
+
+def test_calibration_export_skips_reward_terms_and_is_byte_identical(tmp_path, monkeypatch):
+    import weather.market.maker_replay_bundle as module
+    args, _, _ = args_for(tmp_path, minutes=3)
+    record_rewards(args, [(400, 1, 50), (460, 2, 70)])
+    args.kinds = module.CALIBRATION_KINDS
+    calls, original = [], module.reward_terms
+    monkeypatch.setattr(module, "reward_terms", lambda *a: calls.append(a) or original(*a))
+    summary, files = export_bytes(args, tmp_path/"skipped")
+    assert not calls
+    # The former path evaluated terms and then dropped them by kind: same bytes and counts.
+    monkeypatch.setattr(module.Projection, "keeps", lambda self, kind: True)
+    forced, forced_files = export_bytes(args, tmp_path/"evaluated")
+    assert calls and files == forced_files and summary["counts"] == forced["counts"]
+    assert "terms" not in summary["counts"]
+
+
+def test_panel_terms_from_named_cids_and_newest_rows_equal_the_full_scan(tmp_path, monkeypatch):
+    from weather.market.maker_plugin_runner import CaptureIndex
+    args, _, _ = args_for(tmp_path, minutes=3)
+    # Rate changes for single conditions, two at one clock, and an unchanged repeat.
+    record_rewards(args, [(400, 1, 50), (460, 2, 70), (460, 3, 80), (520, 1, 50), (580, 3, 90)])
+    summary, files = export_bytes(args, tmp_path/"named")
+    assert summary["counts"]["terms"] > 3
+    monkeypatch.setattr(CaptureIndex, "reward_cids", lambda self, now: None)
+    monkeypatch.setattr(CaptureIndex, "newest_reward_rows", CaptureIndex.reward_rows)
+    full, full_files = export_bytes(args, tmp_path/"full")
+    assert files == full_files and summary["counts"] == full["counts"]
+
+
+def test_capture_index_bisect_lookups_equal_linear_scans():
+    import hashlib
+    from weather.market.maker_plugin.inputs import latest
+    from weather.market.maker_plugin_runner import CaptureIndex, reward_terms
+    a, b = "0x"+f"{1:064x}", "0x"+f"{2:064x}"
+    rows = [(0, a, 10), (30, a, 20), (30, a, 20), (30, b, 5), (90, a, 30), (150, b, 6)]
+    def capture(sequence, seconds, raw):
+        return dict(kind="rewards", sequence=sequence, captured_at_utc=(NOW+timedelta(seconds=seconds)).isoformat(),
+                    http_status=200, body_stored=True, body_utf8=raw,
+                    response_sha256=hashlib.sha256(raw.encode()).hexdigest())
+    captures = [capture(i, t, json.dumps(reward_body(cid, rate))) for i, (t, cid, rate) in enumerate(rows)]
+    index = CaptureIndex(captures)
+    def linear(cid, now):  # The former full scan, in capture order.
+        return [dict(captured_at_utc=c["captured_at_utc"], record=reward_body(r_cid, rate)["data"][0])
+                for c, (t, r_cid, rate) in zip(captures, rows) if r_cid == cid and NOW+timedelta(seconds=t) <= now]
+    for seconds in (-1, 0, 29, 30, 31, 90, 149, 150, 400):
+        now = NOW + timedelta(seconds=seconds)
+        for cid in (a, b, "0x"+f"{9:064x}"):
+            expected = linear(cid, now)
+            assert index.reward_rows(cid, now) == expected
+            newest = max((r["captured_at_utc"] for r in expected), default=None)
+            assert index.newest_reward_rows(cid, now) == [r for r in expected if r["captured_at_utc"] == newest]
+            terms = reward_terms(index, cid, now)
+            assert (terms is None) == (not expected)
+            if expected:
+                assert terms.as_of_utc.isoformat() == latest(expected, now)["captured_at_utc"]
+    assert index.reward_cids(NOW) == {a} and index.reward_cids(NOW+timedelta(seconds=30)) == {a, b}
+    assert index.reward_cids(NOW+timedelta(seconds=31)) == set()
+    corrupt = CaptureIndex([*captures, capture(6, 60, "not json")])
+    assert corrupt.reward_cids(NOW+timedelta(seconds=30)) == {a, b}
+    assert corrupt.reward_cids(NOW+timedelta(seconds=60)) is None  # Malformed: every cid is looked up.
+    with pytest.raises(ValueError, match="captured_rewards_malformed"):
+        corrupt.reward_rows(a, NOW+timedelta(seconds=60))

@@ -59,6 +59,30 @@ def module_sha256(closure):
     return sha256(canonical_bytes(closure))
 
 
+# Event lists a receipt may shorten to fit its byte bound; each keeps its full count and hash.
+TRIMMABLE_EVENTS = (("gaps",), ("restart_events",), ("bundle", "gaps"))
+
+
+def _trim_events(receipt, limit):
+    """Keep a prefix of each event list until the receipt fits; never touch bindings or counts."""
+    if len(canonical_bytes(receipt)) <= limit:
+        return
+    lists = {}
+    for path in TRIMMABLE_EVENTS:
+        holder = receipt.get(path[0]) if len(path) > 1 else receipt
+        if isinstance(holder, dict) and holder.get(path[-1]):
+            lists[".".join(path)] = holder, path[-1], list(holder[path[-1]])
+    trimmed = {name: dict(total=len(events), sha256=sha256(canonical_bytes(events)))
+               for name, (_, _, events) in lists.items()}
+    keep = max((len(events) for _, _, events in lists.values()), default=0)
+    while keep and len(canonical_bytes(receipt)) > limit:
+        keep //= 2
+        for name, (holder, key, events) in lists.items():
+            holder[key] = events[:keep]
+            trimmed[name]["kept"] = len(holder[key])
+        receipt["events_trimmed"] = trimmed
+
+
 def _write(path, value):
     raw = canonical_bytes(value)
     if len(raw) > MAX_RECEIPT_BYTES:
@@ -238,12 +262,17 @@ def export_day(args, kind, *, now=None, clock=time.monotonic):
             receipt["modules_loaded_during_export"] = sorted(set(final) - set(closure))
             receipt["input_bytes"] = reader.bytes_read
             receipt["input_hashes"] = dict(sorted(reader.hashes.items()))
-            # Check receipt bound before publishing the final bundle directory.
+            # Check receipt bound before publishing the final bundle directory; long event
+            # lists are shortened first (full count and hash kept), so they never refuse a day.
+            _trim_events(receipt, MAX_RECEIPT_BYTES - 65536)
             if len(canonical_bytes(receipt)) > MAX_RECEIPT_BYTES - 65536:
                 raise StopRun("receipt_byte_cap")
             pending.rename(day_out / "bundle")
             receipt["status"] = "SEALED"
-        except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun) as exc:
+        except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun,
+                MemoryError) as exc:
+            # A MemoryError unwinds the export's frames first, so the small receipt can still be
+            # written: the day is REFUSED and recorded, never left attempted without a receipt.
             failure = exc
             receipt["reason"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         if reader is not None:

@@ -8,6 +8,7 @@ import socket
 
 import pytest
 
+from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import Limits, load_bundle, sha256
 from maker_core.replay.execution_manifest import quote_market_rule
 from maker_core.replay.pack_io import load_days
@@ -386,5 +387,39 @@ def test_calibration_receipt_records_trade_clock_skew(tmp_path, monkeypatch):
     report = calibration(args, now=LATER)
     assert report["status"] == "SEALED"
     skew = receipt(args)["bundle"]["trade_clock_skew"]
-    assert skew["trades"] == 2 and skew["clamped_to_capture"] == 1 and skew["max_us"] == 1_200_000
+    assert skew["trades"] == 2 and skew["leading_capture"] == 1 and skew["max_us"] == 1_200_000
     assert {r.kind for r in load_bundle(args.out / args.day / "bundle").records} >= {"trade"}
+
+
+def test_memory_error_records_a_refused_receipt_and_never_leaves_the_day_stuck(tmp_path, monkeypatch):
+    args, _ = setup(tmp_path, minutes=1)
+    monkeypatch.setattr(module, "export", lambda *a, **k: (_ for _ in ()).throw(MemoryError()))
+    with pytest.raises(ValueError, match="MemoryError"):
+        night(args, now=LATER)
+    refused = receipt(args)
+    assert refused["status"] == "REFUSED" and refused["reason"].startswith("MemoryError")
+    ledger = [json.loads(line) for line in (args.out / "panel-ledger.jsonl").read_bytes().splitlines()]
+    assert [(r["day"], r["status"]) for r in ledger] == [(args.day, "REFUSED")]
+    assert not (args.out / args.day / "bundle").exists()
+    with pytest.raises(ValueError, match="day_already"):
+        night(args, now=LATER)
+
+
+def test_long_event_lists_are_trimmed_with_count_and_hash_instead_of_refusing(tmp_path, monkeypatch):
+    args, _ = setup(tmp_path, minutes=1)
+    original = module._inventory
+    extra = [dict(segment="00-000000000000", sequence=i, captured_at_utc=NOW.isoformat(),
+                  sealed_segment_sha256="0"*64, reason="STREAM_GAP", details={"channel": "trades"}) for i in range(4000)]
+    def inventory(reader, day):
+        cities, restarts, gaps, seals = original(reader, day)
+        return cities, restarts, [*gaps, *extra], seals
+    monkeypatch.setattr(module, "_inventory", inventory)
+    monkeypatch.setattr(module, "MAX_RECEIPT_BYTES", 65536 + 200_000)
+    report = night(args, now=LATER)
+    assert report["status"] == "SEALED" and (args.out / args.day / "bundle").is_dir()
+    sealed = receipt(args)
+    trimmed = sealed["events_trimmed"]["gaps"]
+    full = [*original(ExportReader(args.data_root, 60, 10**9), args.day)[2], *extra]
+    assert trimmed["total"] == len(full) and trimmed["sha256"] == sha256(canonical_bytes(full))
+    assert trimmed["kept"] == len(sealed["gaps"]) < len(full) and sealed["gaps"] == full[:trimmed["kept"]]
+    assert "details_omitted" not in sealed

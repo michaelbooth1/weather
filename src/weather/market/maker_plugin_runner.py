@@ -6,6 +6,7 @@ It does not simulate fills, inventory, account state or realized economics.
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
@@ -170,6 +171,13 @@ class CaptureIndex:
                             (when, dict(captured_at_utc=capture["captured_at_utc"], record=record)))
             except (ValueError, KeyError, TypeError, AttributeError):
                 self.corrupt[kind].append(when)
+        # Stable time order (equal clocks keep capture order) for bisect lookups.
+        self.reward_times, self.reward_named = {}, {}
+        for cid, rows in self.rewards.items():
+            rows.sort(key=lambda r: r[0])
+            self.reward_times[cid] = [when for when, _ in rows]
+            for when, _ in rows:
+                self.reward_named.setdefault(when, set()).add(cid)
 
     def _clean(self, kind, now):
         if any(when <= now for when in self.corrupt[kind]):
@@ -190,11 +198,27 @@ class CaptureIndex:
 
     def reward_rows(self, cid, now):
         self._clean("rewards", now)
-        return [row for when, row in self.rewards.get(cid, ()) if when <= now]
+        rows = self.rewards.get(cid, ())
+        return [row for _, row in rows[:bisect_right(self.reward_times.get(cid, ()), now)]]
+
+    def newest_reward_rows(self, cid, now):
+        """The rows at the newest clock at or before ``now``: all that ``latest`` can select."""
+        self._clean("rewards", now)
+        times = self.reward_times.get(cid, ())
+        end = bisect_right(times, now)
+        if not end:
+            return []
+        return [row for _, row in self.rewards[cid][bisect_left(times, times[end-1]):end]]
+
+    def reward_cids(self, now):
+        """Cids a reward capture at exactly ``now`` names, or None (all) once any is malformed."""
+        if any(when <= now for when in self.corrupt["rewards"]):
+            return None
+        return self.reward_named.get(now, set())
 
 
 def reward_terms(index, cid, now):
-    candidates = index.reward_rows(cid, now)
+    candidates = index.newest_reward_rows(cid, now)
     if not candidates:
         return None
     selected = latest(candidates, now)

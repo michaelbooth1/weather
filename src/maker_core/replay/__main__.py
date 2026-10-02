@@ -161,7 +161,14 @@ def main(argv=None):
             from maker_core.replay.execution_manifest import source_hashes
             # Structural engine checks (days, calendar span, event ceiling) need no policy call.
             stage = "engine_preflight"
-            ReplayEngine(tuple(bundles), config, check=check)
+            engine = ReplayEngine(tuple(bundles), config, check=check)
+            if sum(len(b.records) for b in bundles) > limits.max_records:
+                raise BundleError("engine_record_cap")
+            # The pull endpoint's candidate cap, refused here without consuming the look.
+            from maker_core.replay.pull_efficiency import opportunity_candidates
+            if opportunity_candidates(engine.windows) > config.max_events:
+                raise BundleError("pull_opportunity_cap")
+            del engine
             # Recheck revocation, raw manifest and document bytes at the action boundary.
             stage = "action_boundary"
             read_authorization(args.pre_registration, args.pre_registration_sha256,

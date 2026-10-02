@@ -147,6 +147,29 @@ class _Midpoints:
         return (points[i][1], points[j][1], times[j]), None
 
 
+def opportunity_candidates(windows):
+    """Minute starts inside each condition's union of active windows: the pull loop's count.
+
+    Evaluation-active spans tile exactly the declared active windows, so this is known
+    from the manifest before any policy runs (and so before the look is reserved).
+    """
+    total = 0
+    for cid in sorted(windows):
+        until = None
+        for start, end in sorted(windows[cid]):
+            at = start.replace(second=0, microsecond=0)
+            if at < start:
+                at += MINUTE
+            if until is not None:
+                at = max(at, until)
+            if at < end:
+                count = -((at - end) // MINUTE)  # Minute starts in [at, end).
+                total += count
+                at += count * MINUTE
+            until = at if until is None else max(until, at)
+    return total
+
+
 def pull_efficiency(informed, clock, aggregate_match, *, replicates=2000, seed=20260926, check=lambda: None):
     """No policy reruns or exposure rematching; late decisions never earn earlier credit."""
     if (informed.config.policy != "informed-v0" or clock.config.policy != "clock_only"

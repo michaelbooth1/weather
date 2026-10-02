@@ -151,6 +151,9 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
     recomputed["quote_inventory_sha256"] = quote_inventory_sha256
     if calibration != recomputed:
         raise BundleError("calibration_recomputation_mismatch")
+    # Ceilings were rehearsed against one calibration; it must be the sealed one bound here.
+    if measurement.get("calibration_sha256") != calibration_sha256:
+        raise BundleError("ceiling_measurement_calibration_mismatch")
     # Calibration freezes M before scoring; do not silently add a newly found city.
     quote_markets = sorted({c.market_id for b in bundles if b.day in QUOTE_DATES for c in b.conditions})
     if sorted(set(quote_markets) | {c.market_id for b in calibration_bundles for c in b.conditions}) != calibration["markets"]:
