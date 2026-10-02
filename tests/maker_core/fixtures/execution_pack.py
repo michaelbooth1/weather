@@ -38,7 +38,7 @@ SIGNED_DOCUMENTS = dict(frozen_protocol="maker-replay-hurdles-preregistration-20
                         execution_addendum="maker-replay-execution-addendum-2026-09-27.md",
                         clarification="maker-replay-clarification-1-2026-09-27.md",
                         clarification_2="maker-replay-clarification-2-2026-09-29.md")
-# The unsigned draft; v3 pins its hash only after the owner signs these bytes.
+# Signed by the owner 2026-10-01T17:44Z; v3 pins these exact bytes.
 CLARIFICATION_3_DOCUMENT = "maker-replay-clarification-3-2026-10-01.md"
 
 

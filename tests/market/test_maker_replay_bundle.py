@@ -132,3 +132,57 @@ def test_streamed_inputs_are_hashed_and_early_stops_are_labelled(tmp_path):
     source.write_bytes(b'{"a": 1}\n{"b": 3}\n{"c": 4}\n')
     with pytest.raises(ValueError, match="source_changed_between_reads"):
         reader.read(source)
+
+
+def record_trades(args, prints):
+    """Production writer: each (capture offset s, venue offset ms from capture) is one sealed print."""
+    when = NOW
+    store = EvidenceStore(args.data_root/"maker_evidence", clock=lambda: when)
+    for index, (captured, lead_ms) in enumerate(prints):
+        when = NOW + timedelta(seconds=captured)
+        venue = int(when.timestamp()) * 1000 + int(when.microsecond / 1000) + lead_ms
+        store.record("trades", encoded(dict(event_type="last_trade_price", asset_id="101", id=f"t{index}",
+                     market="0x"+f"{1:064x}", timestamp=str(venue), price=".47", size="10", side="SELL")))
+    store.seal()
+
+
+def test_small_venue_clock_lead_is_accepted_recorded_and_available_only_at_capture(tmp_path):
+    from maker_core.replay.calibration import _trades
+    args, _, _ = args_for(tmp_path)
+    # A print captured at 15:20:59.5 whose venue clock reads 15:21:00.7, and an ordinary late print.
+    record_trades(args, [(30, -300), (59.5, 1200)])
+    summary = export(args, now=NOW+timedelta(days=1))
+    skew = summary["trade_clock_skew"]
+    assert skew["bound_us"] == 5_000_000 and skew["trades"] == 2 and skew["clamped_to_capture"] == 1
+    assert (skew["min_us"], skew["max_us"], skew["p50_us"], skew["p999_us"]) == (-300_000, 1_200_000, -300_000, 1_200_000)
+    bundle = load_bundle(args.out)
+    early, lead = sorted((r for r in bundle.records if r.kind == "trade"), key=lambda r: r.captured_at)
+    # Availability is the capture clock; the venue clock is kept exactly as recorded.
+    assert lead.captured_at == NOW+timedelta(seconds=59.5) and early.captured_at == NOW+timedelta(seconds=30)
+    assert decode(lead).traded_at == NOW+timedelta(seconds=60.7) > lead.captured_at
+    assert decode(early).traded_at == NOW+timedelta(seconds=29.7)
+    # The calibration numerator places the leading print in its capture minute, never the venue minute.
+    occupied, invalid = _trades([bundle], lambda: None)
+    assert {minute for _, minute in occupied} == {NOW} and not invalid
+    receipt = json.loads((args.out/"export.json").read_bytes())
+    assert receipt["trade_clock_skew"] == skew
+
+
+@pytest.mark.parametrize("lead_ms", [5001, 60_000])
+def test_venue_clock_lead_beyond_the_bound_refuses_the_day(tmp_path, lead_ms):
+    args, _, _ = args_for(tmp_path)
+    record_trades(args, [(30, 5000), (40, lead_ms)])
+    with pytest.raises(ValueError, match="future_public_trade_clock"):
+        export(args, now=NOW+timedelta(days=1))
+    assert not args.out.exists()
+
+
+def test_loader_admits_the_bounded_lead_and_refuses_beyond_it():
+    from maker_core.replay.bundle import BundleError, CapturedRecord
+    def row(lead):
+        payload = dict(trade_id="t", outcome="YES", price=".5", size="1", aggressor_side="BUY",
+                       traded_at_utc=(NOW+lead).isoformat())
+        return CapturedRecord(0, NOW, "c", "trade", payload, "0"*64, {})
+    assert decode(row(timedelta(seconds=5))).traded_at == NOW+timedelta(seconds=5)
+    with pytest.raises(BundleError, match="trade_clock_skew_exceeds_bound"):
+        decode(row(timedelta(seconds=5, microseconds=1)))

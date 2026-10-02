@@ -23,7 +23,7 @@ CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarifi
                                                 "clarification_3_sha256")}
 # Production replaces this with the signed Clarification 3's raw-byte SHA-256 after the owner
 # signs it. Until then no v3 attestation (always 64 hex characters) can match: v3 fails closed.
-CLARIFICATION_3_SHA256 = "PENDING_OWNER_SIGNATURE"
+CLARIFICATION_3_SHA256 = "fcbcb7d0d2a38777814b6f9d5e8b96c879d069af873c0b32fb4b274506b03eaa"
 # Clarification 2's Authorization section: v2 binds the raw-byte SHA-256 of the signed
 # registration, addendum, Clarification 1 and Clarification 2 (signed 2026-10-01, bytes at
 # a8c0b846b), for the 2026-10-15 scoring date, expiring 2026-11-01 (00:00 Toronto). A row

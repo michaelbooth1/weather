@@ -141,6 +141,14 @@ any unfilled remainder, are pulled immediately after the first fill. Equal-time
 prints cannot consume a replacement. Duplicated trade IDs are idempotent; conflicting
 duplicates refuse. Buy costs reduce shared cash and settlement credits reconcile lots.
 
+A public print is available only at its record's `captured_at` (a fill's `at`); `traded_at_utc` is the venue clock as
+recorded and is never moved. The venue clock may lead capture by at most `MAX_TRADE_CLOCK_SKEW` (5 s,
+`maker_core.replay.payloads`); a larger lead refuses (`trade_clock_skew_exceeds_bound`). 5 s is about four times the
+capture host's clock error bound (~12 ms NTP offset, ~1.2 s root dispersion) and a sixth of the 30-second trade-health
+expiry, the shortest clock in the frozen design. A bounded lead cannot change a fill: the order-age check compares
+against a placement at or before capture, so the venue time and the capture time give the same verdict. This matches the
+execution addendum's rule that calibration timestamps are capture timestamps.
+
 `coverage` payloads contain `trade_stream_ok` and `valid_until_utc` (at most 60 seconds
 after capture). A book alone cannot establish a zero-fill interval. Missing/expired
 trade coverage excludes the interval. Producers must derive this assertion from
@@ -187,7 +195,10 @@ remain exclusions. Conditions unseen in discovery cannot be counted. Derived vie
 captures; raw plugin rows retain their original clocks. Stream coverage uses connected/inbound evidence and expires
 after 30 seconds; unrecorded PONGs cannot renew it. This deliberately excludes silence unsupported by retained health
 evidence. Public trades without venue IDs use content hashes, conservatively deduplicating identical simultaneous
-messages. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
+messages. A venue trade clock ahead of capture by more than the 5-second bound refuses the day
+(`future_public_trade_clock`); within it the print is exported at its capture time with the venue clock kept, and
+`export.json` `trade_clock_skew` reports, in microseconds of venue minus capture, the bound, trade count,
+`clamped_to_capture` (prints whose venue clock led capture), min, nearest-rank p50/p90/p99/p99.9 and max. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
 projection back into the event cache entry, so each event's projection and fair-value/clock/settlement providers are
 built once per cached load, not once per book capture.
 
@@ -237,7 +248,15 @@ matching the receipt hash seals the day. A missing/torn ledger entry, `REFUSED`,
 completeness claim. Retries of any attempted day refuse; preserve the attempt for review and export again only into a
 new output root. The exporter never deletes evidence or repairs a torn ledger. Each receipt records bundle file hashes,
 bytes, records and conditions, observed free bytes, discovered cities, book gaps, recorded lifecycle events, final
-reader coverage (growth and skipped tails), runtime and peak process memory.
+reader coverage (growth and skipped tails), the exporter's `trade_clock_skew` (under `bundle`), runtime and peak
+process memory.
+
+Peak memory is driven by output size, not input: on a fixture the segment loop and join peak at about 2.5x the
+`events.jsonl` bytes, and each whole-output validation load (once inside the exporter, once more in the receipt's
+finalize step) adds about 5.5x. Coverage rows (one per condition at every book or stream capture) dominate a calibration
+bundle's records. The exporter frees its record list, joined stream and last segment before validating. That
+lifetime-only change leaves bundle bytes identical and cut the fixture peak from about 8x to about 6x output bytes.
+Compare a receipt's `bundle.bytes` with `peak_memory_bytes` to see the same ratio on real days.
 
 The optional explicit `--release-root` (also supported by the single-city exporter) supplies immutable release directories.
 `maker_replay_release.ReleaseSources` binds the captured source's release ID/content-manifest hash to the one declared
@@ -457,11 +476,11 @@ Every manifest, run and verify command takes `--clarification-2` (v3, below, als
 
 ### Clarification 3 (v3) reporting
 
-[Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) is an **unsigned draft**. It is reporting
-only, and this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v3` binds v2's four
-hashes plus `clarification_3_sha256`, with v2's scoring date, late-look limit and expiry. Its pin
-`CLARIFICATION_3_SHA256` in `src/maker_core/replay/authorization.py` is the placeholder `PENDING_OWNER_SIGNATURE`
-until production writes the signed file's raw SHA-256. Until then every v3 attestation refuses
+[Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) was **signed by the owner on
+2026-10-01T17:44Z**. It is reporting only, and this section describes the tooling built to it. Authorization ID
+`maker-replay-2026-10-15-v3` binds v2's four hashes plus `clarification_3_sha256`, with v2's scoring date, late-look
+limit and expiry. Its pin `CLARIFICATION_3_SHA256` in `src/maker_core/replay/authorization.py` is the signed file's
+raw SHA-256; a v3 row binding any other Clarification 3 bytes refuses
 (`signed_binding_mismatch:clarification_3_sha256`). v1 and v2 rows still verify. A v2 row given `--clarification-3`
 refuses `clarification_3_not_attested`. Manifest build and verify, and `run`, take `--clarification-3`, which a v3 row
 requires. The manifest builder accepts a v2 or v3 owner decision.

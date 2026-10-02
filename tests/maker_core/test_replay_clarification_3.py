@@ -3,7 +3,6 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal as D
 import json
-import re
 import time
 
 import pytest
@@ -23,6 +22,8 @@ from .test_replay_report import panel
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
 V2, V3 = "maker-replay-2026-10-15-v2", "maker-replay-2026-10-15-v3"
+# The owner's signature (2026-10-01T17:44Z) over the Clarification 3 bytes.
+SIGNED_CLARIFICATION_3 = "fcbcb7d0d2a38777814b6f9d5e8b96c879d069af873c0b32fb4b274506b03eaa"
 CORE = ("status", "economic_hurdle_met", "pull_hurdle_met", "reasons", "measured_k_sensitivity", "label",
         "interpretation")
 
@@ -129,21 +130,39 @@ def _verify(doc, paths, **extra):
                                           require_scoring_date=False, clarification_2=paths["clarification_2"], **extra)
 
 
-def test_v3_fails_closed_until_production_pins_the_signed_clarification_3(tmp_path):
-    doc, _, _, paths, _, _ = pack(tmp_path, authorization_id=V3)
+def test_signed_v3_verifies_all_five_documents_and_v1_still_verifies(tmp_path, monkeypatch):
+    # No pin override: the owner signed Clarification 3 at 2026-10-01T17:44Z.
+    doc, _, _, paths, manifest, key = pack(tmp_path, authorization_id=V3)
     assert set(doc["owner_decision"]) == authorization.DECISION_FIELDS | set(authorization.CLARIFIED_IDS[V3])
-    if authorization.CLARIFICATION_3_SHA256 == "PENDING_OWNER_SIGNATURE":
-        with pytest.raises(BundleError, match="signed_binding_mismatch:clarification_3_sha256"):
-            _verify(doc, paths, clarification_3=paths["clarification_3"])
+    monkeypatch.setattr(authorization, "_utc_now", lambda: NOW)
+    monkeypatch.setitem(authorization.APPROVED_REGISTRATIONS, key, "michaelbooth1")
+    names = ("decision_log", "frozen_protocol", "execution_addendum", "clarification", "clarification_2",
+             "clarification_3")
+    assert authorization.read_authorization(manifest, key, **{k: paths[k] for k in names}) == doc
+    pinned = authorization.SIGNED_BINDINGS[V3]
+    assert all(doc["owner_decision"][field] == value for field, value in pinned.items())
+    # Draft bytes that differ from the signed Clarification 3 cannot be attested by a v3 row.
+    other = dict(doc["owner_decision"], clarification_3_sha256="0"*64)
+    with pytest.raises(BundleError, match="signed_binding_mismatch:clarification_3_sha256"):
+        _verify(dict(doc, owner_decision=other), paths, clarification_3=paths["clarification_3"])
+    # A v1 attestation (one clarification) still verifies against its own row.
+    v1 = {k: v for k, v in doc["owner_decision"].items()
+          if k not in ("clarification_2_sha256", "clarification_3_sha256")}
+    v1.update(authorization_id="maker-replay-2026-10-15-v1", signed_at="2026-09-27T00:00:00Z",
+              expires_at="2026-10-16T04:00:00Z")
+    log = paths["decision_log"]
+    log.write_text(log.read_text(encoding="utf8").rstrip("\n") + "\n| 2026-09-27 | APPROVE_MAKER_REPLAY | "
+                   "offline replay only | `" + json.dumps(v1) + "` | — |\n", encoding="utf8")
+    v1_doc = dict(owner="michaelbooth1", signed_at=v1["signed_at"], owner_decision=v1)
+    authorization._verify_decision(v1_doc, _reader(), log, paths["frozen_protocol"], paths["execution_addendum"],
+                                   NOW, paths["clarification"], require_scoring_date=False)
 
 
-def test_v3_binds_five_documents_and_v2_still_verifies(tmp_path, monkeypatch):
+def test_v3_binds_five_documents_and_v2_still_verifies(tmp_path):
     v3_root, v2_root = tmp_path/"v3", tmp_path/"v2"
     v3_root.mkdir()
     v2_root.mkdir()
     raw = (RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()
-    monkeypatch.setitem(authorization.SIGNED_BINDINGS, V3,
-                        dict(authorization.SIGNED_BINDINGS[V3], clarification_3_sha256=sha256(raw)))
     doc, bundles, cb, paths, manifest, key = pack(v3_root, authorization_id=V3)
     assert doc["owner_decision"]["clarification_3_sha256"] == sha256(raw)
     _verify(doc, paths, clarification_3=paths["clarification_3"])
@@ -171,21 +190,16 @@ def test_v3_binds_five_documents_and_v2_still_verifies(tmp_path, monkeypatch):
     assert authorization.EXPIRES_NO_LATER_THAN[V3] == authorization.EXPIRES_NO_LATER_THAN[V2]
 
 
-def test_v3_pins_v2_documents_and_the_clarification_3_pin_matches_the_file_once_filled():
+def test_v3_pins_v2_documents_and_the_signed_clarification_3_bytes():
     v2, v3 = authorization.SIGNED_BINDINGS[V2], authorization.SIGNED_BINDINGS[V3]
     assert {k: v for k, v in v3.items() if k != "clarification_3_sha256"} == v2
     pin = v3["clarification_3_sha256"]
-    if re.fullmatch(r"[0-9a-f]{64}", pin):
-        assert sha256((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()) == pin
-    else:
-        assert pin == "PENDING_OWNER_SIGNATURE"
+    assert pin == authorization.CLARIFICATION_3_SHA256 == SIGNED_CLARIFICATION_3
+    assert sha256((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()) == pin
     assert len((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()) < 65536  # The verifier's per-document cap.
 
 
 def test_scored_v3_look_reports_clarification_3_beside_the_unchanged_decision(tmp_path, monkeypatch):
-    raw = (RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()
-    monkeypatch.setitem(authorization.SIGNED_BINDINGS, V3,
-                        dict(authorization.SIGNED_BINDINGS[V3], clarification_3_sha256=sha256(raw)))
     doc, bundles, cb, paths, manifest, key = pack(tmp_path, authorization_id=V3)
     monkeypatch.setattr(pack_cli, "_now", lambda: NOW)
     monkeypatch.setattr(authorization, "_utc_now", lambda: NOW)

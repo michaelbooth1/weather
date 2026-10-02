@@ -18,7 +18,7 @@ from maker_core.contracts import SettlementFact
 from maker_core.replay.bundle import (FORMAT, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, MAX_BYTES,
                                       MAX_RECORDS, BundleError, Limits, load_bundle, sha256)
 from maker_core.replay.bundle import regular_path as neutral_path
-from maker_core.replay.payloads import market_descriptor
+from maker_core.replay.payloads import MAX_TRADE_CLOCK_SKEW, market_descriptor
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, sealed_segments
 from weather.market.maker_plugin_capture import regular_path as capture_path
@@ -159,6 +159,8 @@ class Projection:
         self.records, self.conditions, self.descriptors, self.tokens = [], {}, {}, {}
         self.size, self.sequence, self.dedup, self.counts = 0, 0, {}, Counter()
         self.connections, self.health = {}, {}
+        # Venue print time minus capture time, in microseconds, for every exported trade.
+        self.trade_skews = []
 
     def add(self, cid, kind, at, payload, hashes, *, changed=False):
         self.check()
@@ -188,6 +190,14 @@ class Projection:
             ok = all(t in self.connections for t in tokens) and healthy_until > at
             self.add(cid, "coverage", at, dict(trade_stream_ok=ok,
                      valid_until_utc=min(healthy_until, at+timedelta(seconds=30)) if ok else at+timedelta(seconds=30)), hashes)
+
+    def skew_summary(self):
+        skews = sorted(self.trade_skews)
+        def rank(q):  # Nearest-rank percentile.
+            return skews[max(0, -(-len(skews) * q // 1000) - 1)] if skews else None
+        return dict(bound_us=MAX_TRADE_CLOCK_SKEW // timedelta(microseconds=1), trades=len(skews),
+                    clamped_to_capture=sum(s > 0 for s in skews), min_us=rank(0), p50_us=rank(500),
+                    p90_us=rank(900), p99_us=rank(990), p999_us=rank(999), max_us=skews[-1] if skews else None)
 
     def stream(self, segment, row, hashes):
         at = timestamp(row["captured_at_utc"])
@@ -230,8 +240,11 @@ class Projection:
                 stamp = trade["timestamp"]
                 traded = (datetime.fromtimestamp(float(stamp)/1000, timezone.utc)
                           if str(stamp).replace(".", "", 1).isdigit() else timestamp(stamp))
-                if traded > at:
+                # Availability is the capture time ``at``; the venue clock is kept as recorded.
+                skew = traded - at
+                if skew > MAX_TRADE_CLOCK_SKEW:
                     raise ValueError("future_public_trade_clock")
+                self.trade_skews.append(skew // timedelta(microseconds=1))
                 self.add(cid, "trade", at, dict(trade_id=str(trade.get("id") or sha256(canonical_bytes(trade))),
                     outcome=outcome, price=trade["price"], size=trade["size"],
                     traded_at_utc=traded, aggressor_side=trade["side"]), hashes)
@@ -422,20 +435,28 @@ def export(args, *, now=None, reader=None):
                                     projection.add(cid, "settlement", max(at, recorded), fact, hashes)
                         support_written.add(cid)
             projection.coverage(at, hashes)
+        # Release this segment's decoded rows before the next one (or validation) loads.
+        segment = captures = index = stream_rows = timeline = None
+    raw_support.clear()
     if not projection.conditions:
         raise ValueError("no_projectable_sealed_conditions")
     reader.recheck()
-    raw = b"".join(projection.records)
+    raw, records = b"".join(projection.records), len(projection.records)
+    # Keep one copy of the stream: validation below re-parses the whole output.
+    projection.records.clear()
     manifest = dict(format=FORMAT, day=args.date, sealed_at=projection.end.isoformat(), provenance="captured",
         conditions=[projection.conditions[k] for k in sorted(projection.conditions)],
-        streams=[dict(path="events.jsonl", sha256=sha256(raw), bytes=len(raw), records=len(projection.records))])
+        streams=[dict(path="events.jsonl", sha256=sha256(raw), bytes=len(raw), records=records)])
     summary = dict(status="EXPORTED_FOR_DIAGNOSTICS", day=args.date, counts=dict(sorted(projection.counts.items())),
         input_bytes=reader.bytes_read, input_hashes=dict(sorted(reader.hashes.items())),
         reader_coverage=dict(sorted(reader.coverage.items())), support_errors=dict(sorted(sources.errors.items())),
+        trade_clock_skew=projection.skew_summary(),
         assumptions=["Only sealed 88a segments; plugin tables are captured inputs using 110h unchanged-file checks.",
             "Full UTC active days expose before-discovery/after-last-book gaps; unseen conditions cannot be counted.",
             "Trade health expires 30s after connected/inbound evidence; unrecorded PONGs cannot renew it.",
             "Public trades without IDs use a content hash; identical simultaneous messages deduplicate conservatively.",
+            f"A public trade is available at its capture time; a venue clock up to "
+            f"{MAX_TRADE_CLOCK_SKEW.total_seconds():g}s later is kept as recorded and counted.",
             "Derived plugin views/clocks are sampled at book captures; original support clocks are retained.",
             "Closed-band settlements can use --carry-bundle descriptors; empty active intervals grant no quote minutes."])
     manifest_bytes, summary_bytes = canonical_bytes(manifest), canonical_bytes(summary)
@@ -448,6 +469,7 @@ def export(args, *, now=None, reader=None):
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+    del raw  # Written; validation reads the file back.
     # Output-only validation, still within the global deadline; never mutate source.
     reader.check()
     load_bundle(output, limits=OUTPUT_LIMITS)

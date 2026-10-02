@@ -376,3 +376,15 @@ def test_universe_inventory_is_domain_bound_and_verifies_against_descriptors(tmp
     assert json.loads(capsys.readouterr().out)["universe_sha256"] == sha256(out.read_bytes())
     with pytest.raises(SystemExit):
         main(["universe", "--bundle", str(folder), "--out", str(out)])  # Create-only.
+
+
+def test_calibration_receipt_records_trade_clock_skew(tmp_path, monkeypatch):
+    from tests.market.test_maker_replay_bundle import record_trades
+    args, _ = setup(tmp_path, minutes=1)
+    record_trades(args, [(30, 1200), (40, -50)])
+    monkeypatch.setattr(module, "CALIBRATION_DATES", (NOW.date(),))
+    report = calibration(args, now=LATER)
+    assert report["status"] == "SEALED"
+    skew = receipt(args)["bundle"]["trade_clock_skew"]
+    assert skew["trades"] == 2 and skew["clamped_to_capture"] == 1 and skew["max_us"] == 1_200_000
+    assert {r.kind for r in load_bundle(args.out / args.day / "bundle").records} >= {"trade"}

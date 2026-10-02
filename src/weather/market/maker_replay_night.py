@@ -225,6 +225,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic):
             receipt["bundle"] = _finalize(pending, args.max_output_bytes, kind)
             receipt["bundle"]["support_errors"] = summary["support_errors"]
             receipt["bundle"]["counts"] = summary["counts"]
+            receipt["bundle"]["trade_clock_skew"] = summary["trade_clock_skew"]
             final_seals = {folder.name: sha256(encoded(manifest))
                            for _, folder, manifest in sealed_segments(reader, args.day)}
             if final_seals != seals or reader.coverage["segments.unsealed_skipped"]:

@@ -1,7 +1,7 @@
 """Typed neutral payload projections; source capture time always bounds availability."""
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from maker_core.contracts import MarketDescriptor, OutcomeView, Unavailable, InfoEvent, SettlementFact
@@ -9,6 +9,14 @@ from maker_core.quoting.policy import Book, RewardTerms
 from maker_core.replay.bundle import BundleError, CapturedRecord, timestamp
 
 D = Decimal
+# A venue print clock may lead our capture clock by host plus venue clock error
+# (capture host: ~12 ms NTP offset, ~1.2 s root dispersion). A print is available
+# only at its record's capture time (the engine and calibration key on that, and a
+# fill's ``at``); ``traded_at`` stays the venue time as recorded, so re-delivered
+# prints keep one identity. 5 s is about 4x that error bound and a sixth of the
+# 30 s trade-health expiry, the shortest clock in the frozen design; a larger lead
+# means the capture clock itself is not trustworthy, so it refuses.
+MAX_TRADE_CLOCK_SKEW = timedelta(seconds=5)
 
 
 def number(value, *, minimum=D(0), maximum=None):
@@ -134,8 +142,11 @@ def decode(row: CapturedRecord):
         size = number(p["size"])
         if not size:
             raise BundleError("zero_trade_size")
+        traded = timestamp(p["traded_at_utc"])
+        if traded - row.captured_at > MAX_TRADE_CLOCK_SKEW:
+            raise BundleError("trade_clock_skew_exceeds_bound")
         return Trade(p["trade_id"], p["outcome"], number(p["price"], maximum=D(1)), size,
-                     captured_time(p["traded_at_utc"], row), p["aggressor_side"])
+                     traded, p["aggressor_side"])
     if row.kind == "plugin_input":
         return p  # Retained provenance; only the typed view enters decide().
     raise BundleError("unknown_payload_kind")
