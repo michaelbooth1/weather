@@ -3,7 +3,6 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal as D
 import json
-import re
 import time
 
 import pytest
@@ -23,6 +22,8 @@ from .test_replay_report import panel
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
 V2, V3 = "maker-replay-2026-10-15-v2", "maker-replay-2026-10-15-v3"
+# Owner signed Clarification 3 at 2026-10-01T17:44Z; these are its raw bytes' SHA-256.
+SIGNED_CLARIFICATION_3_SHA256 = "fcbcb7d0d2a38777814b6f9d5e8b96c879d069af873c0b32fb4b274506b03eaa"
 CORE = ("status", "economic_hurdle_met", "pull_hurdle_met", "reasons", "measured_k_sensitivity", "label",
         "interpretation")
 
@@ -129,12 +130,32 @@ def _verify(doc, paths, **extra):
                                           require_scoring_date=False, clarification_2=paths["clarification_2"], **extra)
 
 
-def test_v3_fails_closed_until_production_pins_the_signed_clarification_3(tmp_path):
-    doc, _, _, paths, _, _ = pack(tmp_path, authorization_id=V3)
-    assert set(doc["owner_decision"]) == authorization.DECISION_FIELDS | set(authorization.CLARIFIED_IDS[V3])
-    if authorization.CLARIFICATION_3_SHA256 == "PENDING_OWNER_SIGNATURE":
-        with pytest.raises(BundleError, match="signed_binding_mismatch:clarification_3_sha256"):
-            _verify(doc, paths, clarification_3=paths["clarification_3"])
+def test_signed_v3_pin_verifies_all_five_documents_and_v1_still_verifies(tmp_path):
+    # The production pin itself, not a monkeypatched one.
+    assert authorization.CLARIFICATION_3_SHA256 == SIGNED_CLARIFICATION_3_SHA256
+    (tmp_path/"v3").mkdir()
+    doc, bundles, cb, paths, _, _ = pack(tmp_path/"v3", authorization_id=V3)
+    decision = doc["owner_decision"]
+    assert set(decision) == authorization.DECISION_FIELDS | set(authorization.CLARIFIED_IDS[V3])
+    hashed = {k: v for k, v in decision.items() if k.endswith("_sha256")}
+    assert len(hashed) == 5 and hashed == {k: v for k, v in authorization.SIGNED_BINDINGS[V3].items()
+                                           if k.endswith("_sha256")}
+    _verify(doc, paths, clarification_3=paths["clarification_3"])
+    assert verify_manifest(doc, bundles, cb, **paths, now=NOW) == doc
+    # Any other Clarification 3 bytes fail against the pin.
+    forged = dict(decision, clarification_3_sha256="0"*64)
+    with pytest.raises(BundleError, match="signed_binding_mismatch:clarification_3_sha256"):
+        _verify(dict(doc, owner_decision=forged), paths, clarification_3=paths["clarification_3"])
+    # A v1 attestation (one clarification) still verifies against its own row.
+    v1 = {k: v for k, v in decision.items() if k not in ("clarification_2_sha256", "clarification_3_sha256")}
+    v1.update(authorization_id="maker-replay-2026-10-15-v1", signed_at="2026-09-27T00:00:00Z",
+              expires_at="2026-10-16T04:00:00Z")
+    log = paths["decision_log"]
+    log.write_text(log.read_text(encoding="utf8").rstrip("\n") + "\n| 2026-09-27 | APPROVE_MAKER_REPLAY | offline "
+                   "replay only | `" + json.dumps(v1) + "` | — |\n", encoding="utf8")
+    authorization._verify_decision(dict(owner="michaelbooth1", signed_at=v1["signed_at"], owner_decision=v1),
+                                   _reader(), log, paths["frozen_protocol"], paths["execution_addendum"], NOW,
+                                   paths["clarification"])
 
 
 def test_v3_binds_five_documents_and_v2_still_verifies(tmp_path, monkeypatch):
@@ -171,14 +192,11 @@ def test_v3_binds_five_documents_and_v2_still_verifies(tmp_path, monkeypatch):
     assert authorization.EXPIRES_NO_LATER_THAN[V3] == authorization.EXPIRES_NO_LATER_THAN[V2]
 
 
-def test_v3_pins_v2_documents_and_the_clarification_3_pin_matches_the_file_once_filled():
+def test_v3_pins_v2_documents_and_the_clarification_3_pin_matches_the_file():
     v2, v3 = authorization.SIGNED_BINDINGS[V2], authorization.SIGNED_BINDINGS[V3]
     assert {k: v for k, v in v3.items() if k != "clarification_3_sha256"} == v2
     pin = v3["clarification_3_sha256"]
-    if re.fullmatch(r"[0-9a-f]{64}", pin):
-        assert sha256((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()) == pin
-    else:
-        assert pin == "PENDING_OWNER_SIGNATURE"
+    assert pin == SIGNED_CLARIFICATION_3_SHA256 == sha256((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes())
     assert len((RESEARCH/CLARIFICATION_3_DOCUMENT).read_bytes()) < 65536  # The verifier's per-document cap.
 
 

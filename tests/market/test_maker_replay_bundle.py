@@ -3,7 +3,7 @@ import json
 import socket
 
 import pytest
-from maker_core.replay.bundle import load_bundle
+from maker_core.replay.bundle import load_bundle, timestamp
 from maker_core.replay.payloads import decode
 from weather.market.maker_evidence_store import EvidenceStore, encoded
 from weather.market.maker_replay_bundle import export, main, ExportReader
@@ -132,3 +132,64 @@ def test_streamed_inputs_are_hashed_and_early_stops_are_labelled(tmp_path):
     source.write_bytes(b'{"a": 1}\n{"b": 3}\n{"c": 4}\n')
     with pytest.raises(ValueError, match="source_changed_between_reads"):
         reader.read(source)
+
+
+def _skewed_trades(args, prints, *, trade_id=None):
+    """Production-writer captures: each (capture, venue) pair is one venue trade captured at ``capture``."""
+    when = NOW + timedelta(seconds=5)
+    store = EvidenceStore(args.data_root/"maker_evidence", clock=lambda: when)
+    store.event("stream_lifecycle", dict(state="connected", channel="trades",
+                subscription=store.subscription(["100", "101"], "trades")))
+    for when, venue in prints:
+        trade = dict(event_type="last_trade_price", asset_id="101", market="0x"+f"{1:064x}",
+                     timestamp=str(int(venue.timestamp()*1000)), price=".47", size="10", side="SELL")
+        if trade_id is not None:
+            trade["id"] = trade_id
+        store.record("trades", encoded(trade))
+    store.seal()
+
+
+def test_small_venue_clock_lead_is_clamped_to_capture_and_recorded(tmp_path):
+    args, _, _ = args_for(tmp_path)
+    venue = NOW + timedelta(seconds=10)
+    first_capture = venue - timedelta(milliseconds=1200)
+    # The same venue trade re-delivered later must not become a conflicting duplicate.
+    _skewed_trades(args, [(first_capture, venue), (venue - timedelta(milliseconds=200), venue)], trade_id="t-1")
+    summary = export(args, now=NOW+timedelta(days=1))
+    rows = [r for r in load_bundle(args.out).records if r.kind == "trade"]
+    assert len(rows) == 2
+    first = decode(rows[0])
+    assert rows[0].captured_at == first_capture and first.traded_at == first_capture
+    assert all(decode(r) == first for r in rows)  # Identical, so the engine and calibration dedupe it.
+    assert all(timestamp(r.payload["venue_traded_at_utc"]) == venue for r in rows)
+    assert summary["counts"]["trade_clock_clamped"] == 2
+    skew = summary["trade_clock_skew"]
+    assert skew == dict(bound_ms=5000, trades=2, clamped=2, max_ms=1200, p50_ms=200, p90_ms=1200, p99_ms=1200)
+    assert json.loads((args.out/"export.json").read_text())["trade_clock_skew"] == skew
+
+
+def test_trade_availability_never_precedes_capture(tmp_path):
+    args, _, _ = args_for(tmp_path)
+    base = NOW + timedelta(seconds=10)
+    leads = (timedelta(milliseconds=4999), timedelta(0), timedelta(milliseconds=-800))
+    _skewed_trades(args, [(base + timedelta(seconds=i), base + timedelta(seconds=i) + lead)
+                          for i, lead in enumerate(leads)])
+    summary = export(args, now=NOW+timedelta(days=1))
+    rows = [r for r in load_bundle(args.out).records if r.kind == "trade"]
+    assert [r.captured_at for r in rows] == [base + timedelta(seconds=i) for i in range(3)]
+    for row, lead in zip(rows, leads):
+        trade = decode(row)
+        assert trade.traded_at == min(row.captured_at + lead, row.captured_at) <= row.captured_at
+    # A venue clock at or behind capture is kept exactly as recorded, with no clamp field.
+    assert ["venue_traded_at_utc" in r.payload for r in rows] == [True, False, False]
+    assert summary["counts"]["trade_clock_clamped"] == 1
+    assert summary["trade_clock_skew"]["max_ms"] == 4999
+
+
+def test_large_venue_clock_lead_refuses(tmp_path):
+    args, _, _ = args_for(tmp_path)
+    capture = NOW + timedelta(seconds=10)
+    _skewed_trades(args, [(capture, capture + timedelta(seconds=5, milliseconds=1))])
+    with pytest.raises(ValueError, match="future_public_trade_clock"):
+        export(args, now=NOW+timedelta(days=1))
+    assert not args.out.exists()

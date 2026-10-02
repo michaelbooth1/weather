@@ -187,7 +187,11 @@ remain exclusions. Conditions unseen in discovery cannot be counted. Derived vie
 captures; raw plugin rows retain their original clocks. Stream coverage uses connected/inbound evidence and expires
 after 30 seconds; unrecorded PONGs cannot renew it. This deliberately excludes silence unsupported by retained health
 evidence. Public trades without venue IDs use content hashes, conservatively deduplicating identical simultaneous
-messages. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
+messages. A trade is available only from its capture time. A venue trade timestamp up to 5 s after capture (clock
+error: the capture host measured ~1.2 s NTP root dispersion; 5 s stays well under the 30 s trade-health expiry) is
+clamped: `traded_at_utc` becomes the first capture of that trade identity and venue time, and the venue time is kept
+as `venue_traded_at_utc`. A larger lead refuses the day (`future_public_trade_clock`). `export.json`
+`trade_clock_skew` records the bound, trade count, clamped count and the venue-minus-capture max/p50/p90/p99 in ms. A clock parse/join failure invalidates any earlier clock snapshot. `ReleaseSources` stores its release-method
 projection back into the event cache entry, so each event's projection and fair-value/clock/settlement providers are
 built once per cached load, not once per book capture.
 
@@ -457,12 +461,11 @@ Every manifest, run and verify command takes `--clarification-2` (v3, below, als
 
 ### Clarification 3 (v3) reporting
 
-[Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) is an **unsigned draft**. It is reporting
-only, and this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v3` binds v2's four
-hashes plus `clarification_3_sha256`, with v2's scoring date, late-look limit and expiry. Its pin
-`CLARIFICATION_3_SHA256` in `src/maker_core/replay/authorization.py` is the placeholder `PENDING_OWNER_SIGNATURE`
-until production writes the signed file's raw SHA-256. Until then every v3 attestation refuses
-(`signed_binding_mismatch:clarification_3_sha256`). v1 and v2 rows still verify. A v2 row given `--clarification-3`
+[Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) was signed by the owner 2026-10-01T17:44Z. It
+is reporting only, and this section describes the tooling built to it. Authorization ID `maker-replay-2026-10-15-v3`
+binds v2's four hashes plus `clarification_3_sha256`, with v2's scoring date, late-look limit and expiry. Its pin
+`CLARIFICATION_3_SHA256` in `src/maker_core/replay/authorization.py` is the signed file's raw SHA-256; a v3 attestation
+of any other bytes refuses (`signed_binding_mismatch:clarification_3_sha256`). v1 and v2 rows still verify. A v2 row given `--clarification-3`
 refuses `clarification_3_not_attested`. Manifest build and verify, and `run`, take `--clarification-3`, which a v3 row
 requires. The manifest builder accepts a v2 or v3 owner decision.
 

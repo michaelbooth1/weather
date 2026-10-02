@@ -37,6 +37,12 @@ MAX_INPUT_BYTES = 16 * 1024**3
 # Validating an exported day uses the same host caps as a derived scored run.
 OUTPUT_LIMITS = Limits(HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS)
 CALIBRATION_KINDS = frozenset({"descriptor", "coverage", "trade"})
+# A venue trade clock may lead our capture clock only by clock error. The capture host
+# measured ~12 ms offset with ~1.2 s root dispersion against NTP; 5 s is about four
+# times that dispersion and a sixth of the 30 s trade-health expiry, the shortest
+# interval exported evidence is judged by. A larger lead means a broken clock, and
+# every capture-clock freshness judgement in the day would then be untrustworthy.
+MAX_TRADE_CLOCK_SKEW = timedelta(seconds=5)
 
 
 class ExportReader(Reader):
@@ -159,6 +165,8 @@ class Projection:
         self.records, self.conditions, self.descriptors, self.tokens = [], {}, {}, {}
         self.size, self.sequence, self.dedup, self.counts = 0, 0, {}, Counter()
         self.connections, self.health = {}, {}
+        # Venue-minus-capture trade clock skew in whole ms, and each trade's effective time.
+        self.skew_ms, self.effective = Counter(), {}
 
     def add(self, cid, kind, at, payload, hashes, *, changed=False):
         self.check()
@@ -230,12 +238,38 @@ class Projection:
                 stamp = trade["timestamp"]
                 traded = (datetime.fromtimestamp(float(stamp)/1000, timezone.utc)
                           if str(stamp).replace(".", "", 1).isdigit() else timestamp(stamp))
-                if traded > at:
+                skew = traded - at
+                if skew > MAX_TRADE_CLOCK_SKEW:
                     raise ValueError("future_public_trade_clock")
-                self.add(cid, "trade", at, dict(trade_id=str(trade.get("id") or sha256(canonical_bytes(trade))),
-                    outcome=outcome, price=trade["price"], size=trade["size"],
-                    traded_at_utc=traded, aggressor_side=trade["side"]), hashes)
+                self.skew_ms[round(skew / timedelta(milliseconds=1))] += 1
+                trade_id = str(trade.get("id") or sha256(canonical_bytes(trade)))
+                # Point in time: a print is available only from its capture. A venue clock
+                # ahead of ours is clamped to the first capture of that identity and venue
+                # time, so a re-delivered duplicate stays identical while a conflicting venue
+                # time still conflicts downstream; the venue clock is kept beside it.
+                effective = self.effective.setdefault((cid, trade_id, traded), min(traded, at))
+                payload = dict(trade_id=trade_id, outcome=outcome, price=trade["price"], size=trade["size"],
+                               traded_at_utc=effective, aggressor_side=trade["side"])
+                if effective != traded:
+                    payload["venue_traded_at_utc"] = traded
+                    self.counts["trade_clock_clamped"] += 1
+                self.add(cid, "trade", at, payload, hashes)
         self.coverage(at, hashes)
+
+
+def _skew_summary(skew_ms, clamped):
+    """Venue-minus-capture trade clock skew; nearest-rank percentiles over every mapped trade."""
+    total, values = sum(skew_ms.values()), sorted(skew_ms)
+    def rank(q):
+        need, seen = -(-total * q // 100), 0
+        for value in values:
+            seen += skew_ms[value]
+            if seen >= need:
+                return value
+    stats = {f"p{q}_ms": rank(q) for q in (50, 90, 99)} if total else {}
+    return dict(bound_ms=MAX_TRADE_CLOCK_SKEW // timedelta(milliseconds=1), trades=total,
+                clamped=clamped,
+                max_ms=values[-1] if values else None, **stats)
 
 
 def _raw_support(loaded):
@@ -422,32 +456,43 @@ def export(args, *, now=None, reader=None):
                                     projection.add(cid, "settlement", max(at, recorded), fact, hashes)
                         support_written.add(cid)
             projection.coverage(at, hashes)
+        # Free this segment's parsed rows, bodies and index before the next segment is loaded.
+        del segment, captures, index, stream_rows, timeline
     if not projection.conditions:
         raise ValueError("no_projectable_sealed_conditions")
     reader.recheck()
-    raw = b"".join(projection.records)
+    # Hash the records in place rather than joining a second whole-day copy; the bytes are identical.
+    events = hashlib.sha256()
+    for record in projection.records:
+        events.update(record)
     manifest = dict(format=FORMAT, day=args.date, sealed_at=projection.end.isoformat(), provenance="captured",
         conditions=[projection.conditions[k] for k in sorted(projection.conditions)],
-        streams=[dict(path="events.jsonl", sha256=sha256(raw), bytes=len(raw), records=len(projection.records))])
+        streams=[dict(path="events.jsonl", sha256=events.hexdigest(), bytes=projection.size,
+                      records=len(projection.records))])
     summary = dict(status="EXPORTED_FOR_DIAGNOSTICS", day=args.date, counts=dict(sorted(projection.counts.items())),
         input_bytes=reader.bytes_read, input_hashes=dict(sorted(reader.hashes.items())),
         reader_coverage=dict(sorted(reader.coverage.items())), support_errors=dict(sorted(sources.errors.items())),
+        trade_clock_skew=_skew_summary(projection.skew_ms, projection.counts["trade_clock_clamped"]),
         assumptions=["Only sealed 88a segments; plugin tables are captured inputs using 110h unchanged-file checks.",
             "Full UTC active days expose before-discovery/after-last-book gaps; unseen conditions cannot be counted.",
             "Trade health expires 30s after connected/inbound evidence; unrecorded PONGs cannot renew it.",
             "Public trades without IDs use a content hash; identical simultaneous messages deduplicate conservatively.",
+            "A venue trade clock ahead of capture (at most 5 s) is clamped to first capture; the venue time is retained.",
             "Derived plugin views/clocks are sampled at book captures; original support clocks are retained.",
             "Closed-band settlements can use --carry-bundle descriptors; empty active intervals grant no quote minutes."])
     manifest_bytes, summary_bytes = canonical_bytes(manifest), canonical_bytes(summary)
-    if len(raw)+len(manifest_bytes)+len(summary_bytes) > args.max_output_bytes:
+    if projection.size+len(manifest_bytes)+len(summary_bytes) > args.max_output_bytes:
         raise StopRun("bundle_output_cap")
     reader.check()
     output.mkdir()
-    for name, content in (("events.jsonl", raw), ("bundle.json", manifest_bytes), ("export.json", summary_bytes)):
+    for name, content in (("events.jsonl", projection.records), ("bundle.json", [manifest_bytes]),
+                          ("export.json", [summary_bytes])):
         with (output/name).open("xb") as handle:
-            handle.write(content)
+            handle.writelines(content)
             handle.flush()
             os.fsync(handle.fileno())
+    # Release the written records before validation parses the whole output back.
+    projection.records.clear()
     # Output-only validation, still within the global deadline; never mutate source.
     reader.check()
     load_bundle(output, limits=OUTPUT_LIMITS)
