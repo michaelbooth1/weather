@@ -55,7 +55,7 @@ from weather.release_artifacts import (
     validate_code_runtime_alignment,
     verify_release,
 )
-from weather.reporting.validation.point_in_time_evaluation import (
+from weather.point_in_time_contract import (
     verify_streaming_evaluation_payload,
 )
 

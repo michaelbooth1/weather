@@ -30,6 +30,17 @@ listed as a transitional edge in `tests/operations/test_import_architecture.py`.
 - Not checked: relative imports, and the content of this document. The test only asserts that this file exists,
   so keeping the lists below aligned with the tables is a manual duty.
 
+## Point-in-time verification owner
+
+`weather.point_in_time_contract` owns artifact verification and strict canonical
+JSON hashing. The reporting evaluator imports those verifiers; its small adapters
+retain report-value normalization and field-specific date diagnostics. Residual
+forward attestations bind both immutable release hashes and candidate/release IDs;
+pooled-training production evaluation still requires the selection-universe lock.
+Residual release verification imports this neutral owner directly. Its separate
+calibration dependency still reaches reporting transitively; this seam does not
+claim complete serving/reporting isolation.
+
 ## Domain-neutral maker boundary
 
 `src/maker_core/` is a separate setuptools-discovered package, never a weather

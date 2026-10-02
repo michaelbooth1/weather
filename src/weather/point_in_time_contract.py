@@ -73,9 +73,9 @@ class ContractViolation(ValueError):
         self.code = code
 
 
-def canonical_json(value: Any) -> str:
+def canonical_json(value: Any, *, normalizer=None) -> str:
     return json.dumps(
-        value,
+        normalizer(value) if normalizer else value,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -179,26 +179,29 @@ def verify_output_bound_fit_receipt(receipt: Mapping[str, Any]) -> None:
         )
 
 
-def _parse_utc(value: Any, field: str) -> datetime:
+def _parse_utc(value: Any, field: str, *, field_errors=False) -> datetime:
     text = str(value or "").strip()
     if not text:
-        raise ContractViolation("invalid_timestamp", f"{field} is required")
+        raise ContractViolation(f"missing_{field}" if field_errors else "invalid_timestamp", f"{field} is required")
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError as exc:
-        raise ContractViolation("invalid_timestamp", f"{field} must be ISO-8601") from exc
+        raise ContractViolation(f"invalid_{field}" if field_errors else "invalid_timestamp", f"{field} must be ISO-8601") from exc
     if parsed.tzinfo is None:
-        raise ContractViolation("invalid_timestamp", f"{field} must include a timezone")
+        raise ContractViolation(f"naive_{field}" if field_errors else "invalid_timestamp", f"{field} must include a timezone")
     return parsed.astimezone(timezone.utc)
 
 
-def _parse_date(value: Any, field: str) -> date:
+def _parse_date(value: Any, field: str = "target_date", *, field_errors=False) -> date:
+    text = str(value or "").strip() if field_errors else str(value)
+    if field_errors and not text:
+        raise ContractViolation(f"missing_{field}", f"{field} is required")
     try:
-        return date.fromisoformat(str(value))
+        return date.fromisoformat(text)
     except ValueError as exc:
-        raise ContractViolation("invalid_date", f"{field} must be YYYY-MM-DD") from exc
+        raise ContractViolation(f"invalid_{field}" if field_errors else "invalid_date", f"{field} must be YYYY-MM-DD") from exc
 
 
 def _verify_self_hash(payload: Mapping[str, Any], field: str, code: str) -> None:
@@ -733,14 +736,14 @@ def verify_materialization_manifest(
     return manifest
 
 
-def collect_parquet_fleet_dates(path: str | Path) -> tuple[str, ...]:
+def collect_parquet_fleet_dates(path: str | Path, *, batch_rows: int = 65_536) -> tuple[str, ...]:
     import pyarrow.parquet as pq
 
     parquet = pq.ParquetFile(path)
     if "target_date" not in parquet.schema_arrow.names:
         raise ContractViolation("missing_target_date", "Parquet target_date column missing")
     dates: set[str] = set()
-    for batch in parquet.iter_batches(batch_size=65_536, columns=["target_date"]):
+    for batch in parquet.iter_batches(batch_size=batch_rows, columns=["target_date"]):
         dates.update(str(value) for value in batch.column(0).to_pylist() if value)
     for value in dates:
         _parse_date(value, "corpus.target_date")
@@ -1127,6 +1130,8 @@ def verify_streaming_evaluation_payload(
     *,
     expected_candidate_id: str | None = None,
     expected_release_id: str | None = None,
+    expected_manifest_sha256: str | None = None,
+    expected_candidate_artifact_sha256: str | None = None,
     expected_corpus_sha256: str | None = None,
     expected_selection_universe_sha256: str | None = None,
     expected_manifest_hash: str | None = None,
@@ -1161,6 +1166,19 @@ def verify_streaming_evaluation_payload(
         raise ContractViolation("streaming_evaluation_identity_mismatch", "candidate mismatch")
     if expected_release_id is not None and payload.get("release_id") != expected_release_id:
         raise ContractViolation("streaming_evaluation_identity_mismatch", "release mismatch")
+    for field, expected in (
+        ("manifest_sha256", expected_manifest_sha256),
+        ("candidate_artifact_sha256", expected_candidate_artifact_sha256),
+    ):
+        if expected is not None and payload.get(field) != expected:
+            raise ContractViolation("streaming_evaluation_identity_mismatch", f"{field} identity mismatch")
+    # Forward attestations bind an already immutable residual release, rather than
+    # a new pooled-training selection universe. Both exact hashes are required to
+    # retain that established corpus-window mode; ordinary production stays strict.
+    immutable_release_binding = all(
+        SHA256_RE.fullmatch(str(value or "")) for value in
+        (expected_manifest_sha256, expected_candidate_artifact_sha256)
+    ) and bool(expected_candidate_id and expected_release_id)
     input_row = payload.get("input")
     if expected_corpus_sha256 is not None and (
         not isinstance(input_row, Mapping) or input_row.get("sha256") != expected_corpus_sha256
@@ -1240,10 +1258,10 @@ def verify_streaming_evaluation_payload(
             or lock.get("missing_calendar_dates") != []
             or lock.get("candidate_selection_permission") != "forbidden"
             or lock.get("locked_before_scoring") is not True
-            or lock_input_kind != "selection_universe_sha256"
-            or not SHA256_RE.fullmatch(
-                str(expected_selection_universe_sha256 or "")
-            )
+            or (not immutable_release_binding and (
+                lock_input_kind != "selection_universe_sha256"
+                or not SHA256_RE.fullmatch(str(expected_selection_universe_sha256 or ""))
+            ))
         ):
             raise ContractViolation("invalid_evaluation_window_lock", "production lock incomplete")
         parsed = [_parse_date(value, "window_lock.target_date") for value in target_dates]
@@ -1332,7 +1350,8 @@ def _verify_candidate_training_graph(
     manifest: Mapping[str, Any],
     plan: Mapping[str, Any],
     evaluation: Mapping[str, Any],
-    selection_universe_sha256: str,
+    selection_universe_sha256: str | None = None,
+    selection_universe: Mapping[str, Any] | None = None,
     expected_candidate_id: str,
     expected_release_id: str,
     expected_candidate_artifact_sha256: str | None = None,
@@ -1343,6 +1362,9 @@ def _verify_candidate_training_graph(
     expected_selection_stage_bindings: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Verify the immutable bridge from real trainer output to production scoring."""
+    if selection_universe_sha256 is None and isinstance(selection_universe, Mapping):
+        selection_universe_sha256 = str(selection_universe.get("sha256") or "")
+
 
     if (
         graph.get("schema_version") != CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION
