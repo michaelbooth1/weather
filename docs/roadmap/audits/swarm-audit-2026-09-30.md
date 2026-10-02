@@ -16,7 +16,7 @@ except items 2 and 8, declined. Rows are in DECISION_LOG 2026-09-30.
 
 | # | Item | Recommendation | Owner | Disposition / result |
 | --- | --- | --- | --- | --- |
-| 1 | Sign Clarification 2 (`a8c0b846b`) | yes, after reading; before the calibration rehearsal | approved | owner step, open |
+| 1 | Sign Clarification 2 (`a8c0b846b`) | yes, after reading; before the calibration rehearsal | approved | signed 2026-10-01T15:23Z (DECISION_LOG); authorization goes v1 -> v3 after Clarification 3 |
 | 2 | Phone alerts + dead-man heartbeat | yes (Telegram) | **declined** | — |
 | 3 | Fixed-market date-clustered estimand | future pre-registrations only, V4 guardrails | approved | applies from the next pre-registration |
 | 4 | Execution-tape fsync fix (rare; 3-4 min capture outage) | build now, land after 10-13 | approved | workstation |
@@ -25,7 +25,7 @@ except items 2 and 8, declined. Rows are in DECISION_LOG 2026-09-30.
 | 7 | Learning lane silent since 08-13 | read-only diagnosis, then unblock | approved | 10-01 diagnosis: Stage B `WeatherEveningEvidenceRefresh` disabled since 08-13; Stage A's in-chain learning steps GAPPED by a DIAGNOSTIC_ONLY settled-day barrier; unblock needs a non-colliding Stage B trigger |
 | 8 | UPS | yes | **declined** | — |
 | 9 | WeatherOneShotPush without a logon | not now | approved (stays Interactive) | — |
-| 10 | Fill-toxicity desk study (decides the maker P&L sign: +1.7 to -5.7 pUSD per band-day) | top research priority | approved | workstation |
+| 10 | Fill-toxicity desk study (decides the maker P&L sign; the "+1.7 to -5.7 pUSD per band-day" range quoted here is UNSOURCED: no derivation exists, and the study does not use it) | top research priority | approved | workstation |
 | 11 | Hourly NBS/NBH guidance probe | after 111h | approved | queued |
 | 12 | One reward scan incl. a YouTube market | yes (public reads) | approved | workstation |
 | 13 | YouTube plugin | hold until after 10-15 | approved | held |
