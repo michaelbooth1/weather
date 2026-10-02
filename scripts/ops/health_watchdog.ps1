@@ -110,6 +110,15 @@ if ($null -eq $status) {
     }
 }
 
+# ---- reviewed expected-disabled tasks: a named list with reasons, never a blanket silence ----
+# Only the disabled-state flag of an exactly named task becomes a note. Every other flag about
+# that task, and every other unexpectedly disabled task, still alerts.
+$expectedDisabledTasks = [ordered]@{
+    "WeatherMarketMakingDailyRoll"           = "live and paper maker paused by owner 2026-09-25"
+    "WeatherMarketMakingDailyRollSupervisor" = "live and paper maker paused by owner 2026-09-25"
+}
+$expectedDisabledNotes = @()
+
 # ---- which window are we in? ----
 $now = Get-Date
 $h = $now.Hour + ($now.Minute / 60.0)
@@ -152,6 +161,11 @@ function Get-FlagAction($class) {
 $entries = @()
 foreach ($f in @($status.flags)) {
     if (-not $f) { continue }
+    if ([string]$f -cmatch '^(\S+) (?:unexpectedly DISABLED|is armed for .+ but DISABLED - it will not fire)$' -and
+        $expectedDisabledTasks.Contains($Matches[1])) {
+        $expectedDisabledNotes += "$($Matches[1]) is expected-disabled: $($expectedDisabledTasks[$Matches[1]])"
+        continue
+    }
     $class = Get-FlagClass $f
     $sev = switch ($class) {
         "capture" { if ($inCapture) { "CRITICAL" } elseif ($inRollover) { "HIGH" } else { "HIGH" } }
@@ -181,6 +195,7 @@ foreach ($f in @($status.flags)) {
 $rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
 $entries = @($entries | Sort-Object { $rank[$_.severity] })
 $top = if ($entries.Count -gt 0) { $entries[0].severity } else { "OK" }
+$notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
 
 # ---- dedupe: log on change, on CRITICAL, or as a heartbeat ----
 $fingerprint = ""
@@ -204,7 +219,8 @@ $record = [ordered]@{
     streak = $(if ($status.streak) { "$($status.streak.days)/$($status.streak.target)" } else { "?" })
     today = $(if ($status.streak) { [string]$status.streak.today } else { "?" })
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
-    notes = @($status.warns)
+    notes = $notes
+    expected_disabled_tasks = $expectedDisabledTasks
     reconciliation_publication = $status.reconciliation_publication
     memory_guard = $status.memory_guard
     status_script_path = $statusScript
@@ -261,11 +277,11 @@ else {
         $md.Add("  - act: $($e.act)")
     }
 }
-if (@($status.warns).Count -gt 0) {
+if ($notes.Count -gt 0) {
     $md.Add("")
     $md.Add("## Standing notes")
     $md.Add("")
-    foreach ($w in @($status.warns)) { $md.Add("- $w") }
+    foreach ($w in $notes) { $md.Add("- $w") }
 }
 if ($recent.Count -gt 0) {
     $md.Add("")
