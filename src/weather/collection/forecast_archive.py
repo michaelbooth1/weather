@@ -6,6 +6,9 @@ import math
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.collection.snapshot_read_index import (
+    add_forecasts, forecast_key, indexed, read_index, save_index, signature,
+)
 
 from weather.market.market_config import date_from_event_slug
 from weather.model.feature_store import row_forecast_high_native, row_temp_native
@@ -368,15 +371,15 @@ def last_payload_hash(path, source, forecast_kind):
     path = Path(path)
     if not path.exists():
         return None
-    try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-    except csv.Error:
-        return None
-    for row in reversed(rows):
-        if row.get("source") == source and row.get("forecast_kind") == forecast_kind:
-            return row.get("payload_hash")
-    return None
+    def build():
+        values = {}
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                add_forecasts(values, csv.DictReader(handle))
+        except csv.Error:
+            return {}
+        return values
+    return indexed(path, "forecast", build).get(forecast_key(source, forecast_kind))
 
 
 def migrate_csv_schema(path, columns):
@@ -386,9 +389,9 @@ def migrate_csv_schema(path, columns):
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         existing_fields = reader.fieldnames or []
+        if existing_fields == list(columns):
+            return
         rows = list(reader)
-    if existing_fields == list(columns):
-        return
     migrated = []
     for row in rows:
         new_row = {column: "" for column in columns}
@@ -457,6 +460,8 @@ def append_rows(path, columns, rows):
         return
     path = Path(path)
     migrate_csv_schema(path, columns)
+    index = read_index(path, "forecast")
+    rows = list(rows)
     write_header = not path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="") as handle:
@@ -464,6 +469,9 @@ def append_rows(path, columns, rows):
         if write_header:
             writer.writeheader()
         writer.writerows(rows)
+    if index is not None:
+        add_forecasts(index, rows)
+        save_index(path, "forecast", index, expected=signature(path))
 
 
 def backfill_eccc_from_snapshots(snapshot_folder):
