@@ -24,6 +24,13 @@ rewards on only Miami and NYC bands. 3 of the 21 rewarded bands that had two-sid
 
 This is passive capture only. No quoting plan, model or fair value follows from this report.
 
+**Addendum A1 (2026-10-02, [below](#addendum-a1-2026-10-02-second-pass-settlement-minimum-nbp-minima-evening-lows)):**
+the Rules settle on the minimum of the WRH "Show Hourly Data" rows. Caveat 3's fallback is now verified: WU Daily
+Observations, then the lowest bracket. Only the day boundary stays UNVERIFIED. A CLI or daily-summary minimum would
+land in a different band on 28.5% of station-days. NBP 12Z `TXN` minima parse cleanly for all 12 stations (CYYZ
+included), at 17 h lead at best. Lows set at or after 18:00 run 9-12% of days in summer and 22-25% from November to
+January.
+
 ## Measured values (support and intervals)
 
 Data: WU history hourly rows (settlement proxy by repository contract), 12 stations, `temp_native` in native whole degrees.
@@ -174,3 +181,186 @@ WU history for 2016-2026-08 is unchanged. The F2 snapshot reads the 95d bulk fil
 `lowest temperature | <city>`).
 
 Branch `claude/lowest-temp-desk-study-20261002`; pre-registration commit `aa1fbdac`; report commit in the handback.
+
+## Addendum A1 (2026-10-02, second pass): settlement minimum, NBP minima, evening lows
+
+Pre-registered in [addendum A1](../research/lowest-temperature-desk-study-preregistration-addendum-2026-10-02.md), committed
+at `d52b5cf9` before any of these values was computed. Scripts:
+[A1 analysis appendix](agent-report-2026-10-02-lowest-temperature-desk-study-addendum-a1-analysis.md). Outputs:
+[A1 results JSON](agent-report-2026-10-02-lowest-temperature-desk-study-addendum-a1-results.json).
+
+### A1 verdict
+
+**Q1: settlement is the minimum of the hourly rows, not a CLI or daily-summary minimum, and the difference is
+material.** The Rules text names the "Temp" column of the WRH "Show Hourly Data" view, read for all times on the
+target date. Over 2026-08-01..09-28, the CLI or daily-summary minimum falls in a **different band from the hourly-row
+minimum on 202 of 708 station-days (28.5%)**, between 8 and 32 of 59 days per station. It is almost always 1-3 degrees
+lower, because the daily summary sees the dip between hourly reports. Settling from CLI, NWS daily climate or ECCC daily
+values, or from METAR 6- or 24-hour minimum groups, would put roughly every fourth day in the wrong band. Routine-only versus
+routine plus SPECI changes the band on 0-3 days per station; LST versus civil day on 0-7.
+
+**Q2: the NBP 12Z `TXN` tokens are clean minima and parse into p10-p90 for all 12 stations, CYYZ included.** The
+workstation keeps 178 bulletins (2026-07-13..08-12), which give 39 valid dates (07-14..08-21) per station. Every
+provenance check passes. The shortest available lead is 17 h. The tokens cover the overnight minimum only, not the
+evening hours that decide the undercut days.
+
+**Q3: lows reached after 18:00 local are a winter regime.** Fleet share by month: 9-12% from June to September, 16.5%
+in October, 22% in November and 24% in December (25% in January). Los Angeles and Miami run the other way, peaking in
+summer. Chicago is at or above 30% from November to March.
+
+Nothing here changes F1, F2 or the passive-capture GO.
+
+### Q1: what the Rules say (MEASURED from one rendered page)
+
+Rendered in the workstation browser pane on **2026-10-02 at 22:25 UTC**, from
+`https://polymarket.com/event/lowest-temperature-in-nyc-on-september-29-2026` (resolved; target before the exam window).
+Only the Rules text was read. SHA-256 of the whitespace-normalised Rules text (2,355 characters):
+`0bc08b7dfbd552c7e9d5044c2ae9c11bdb09fcb46ced1c8a4e431aecb638253e`. The decisive sentence, verbatim: the market
+"will resolve off of the Hourly Data provided using the "Show Hourly Data" button". The other clauses, closely
+paraphrased:
+
+| Clause | What the Rules say |
+| --- | --- |
+| Quantity | The band that contains the lowest temperature NOAA recorded at the LaGuardia Airport station, in °F, on the target date |
+| Source | `weather.gov/wrh/timeseries?site=klga`: the lowest reading in the "Temp" column for all times on that day |
+| View | The Hourly Data view (quoted above); a units toggle switches the table to °F |
+| Precision | Whole degrees Fahrenheit |
+| Day boundary | Only "on <date>". No time zone or clock hours are stated (see UNVERIFIED below) |
+| Fallback | If NOAA data for the date is unavailable by 11:59 PM ET on the next day, the Weather Underground Daily Observations table is used. If there is no data at all by then, the market resolves to the lowest bracket |
+| Finalisation | Resolves when the first data point for the following date is published on the source, or at 11:59 PM ET on the next day, whichever comes first. Revisions count only until that first next-date data point |
+| Erroneous data | The market may stay open up to 7 calendar days (ET) for a correction; otherwise Polymarket issues a Clarification |
+
+This settles three of the four items the first pass listed as UNVERIFIED: the Hourly Data view, the fallback and the
+revision cutoff. The fallback is lowest-bracket, the same as for highs.
+
+**Still UNVERIFIED:** (a) the clock and time zone of the WRH table, and so the day boundary. The table was not opened,
+because today's rows fall inside the exam window. The first pass's LST sensitivity bounds the effect at +0.011 on F1.
+(b) Whether the Hourly Data view contains SPECI rows. The 86a minute-filter proxy says routine rows only; Q1 shows this
+changes the band on at most 3 of 59 days per station. (c) Toronto's Rules (unit and view); only the NYC page was
+rendered. (d) What Gamma `end_date` = 12:00Z means.
+
+### Q1: hourly-row minimum H vs daily-summary/CLI minimum D (MEASURED)
+
+IEM ASOS METAR (routine + SPECI, `T` group in tenths of °C where present), local civil dates 2026-08-01..09-28 (59 days).
+D is the NWS CLI daily low (IEM archive), except KBKF and KDAL, which have no CLI in IEM; there D is the METAR 24-hour
+minimum group. That group equals CLI on 524 of 528 station-days at the 9 stations that have both. For CYYZ, D is the
+ECCC daily minimum (TORONTO INTL A, 6158731, tenths of °C rounded half up). A band is 2 F with even lower edges (from
+the 95d band labels) or 1 °C.
+
+| Station | D source | Days | H ≠ D | **Different band** | D below H | D above H | Routine-only vs all rows (band) | Civil vs LST day (band) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| CYYZ | ECCC daily | 59 | 31 | **31 (53%)** | 31 | 0 | 0 | 7 |
+| KATL | CLI | 59 | 21 | **14 (24%)** | 21 | 0 | 1 | 2 |
+| KAUS | CLI | 59 | 34 | **25 (42%)** | 34 | 0 | 1 | 3 |
+| KBKF | 24-h group | 59 | 43 | **32 (54%)** | 43 | 0 | 0 | 4 |
+| KDAL | 24-h group | 59 | 31 | **16 (27%)** | 31 | 0 | 0 | 2 |
+| KHOU | CLI | 59 | 24 | **13 (22%)** | 24 | 0 | 0 | 0 |
+| KLAX | CLI | 59 | 22 | **10 (17%)** | 21 | 1 | 2 | 3 |
+| KLGA | CLI | 59 | 27 | **11 (19%)** | 24 | 3 | 1 | 3 |
+| KMIA | CLI | 59 | 31 | **16 (27%)** | 29 | 2 | 3 | 1 |
+| KORD | CLI | 59 | 21 | **10 (17%)** | 21 | 0 | 2 | 3 |
+| KSEA | CLI | 59 | 28 | **16 (27%)** | 27 | 1 | 3 | 4 |
+| KSFO | CLI | 59 | 18 | **8 (14%)** | 16 | 2 | 3 | 2 |
+| **All** | | **708** | | **202 (28.5%)** | | | | |
+
+D - H is -1 on most disagreeing days, and -2 to -4 on a few. Using the routine-only H instead gives 210 of 708 (29.7%).
+The pre-registered rule (immaterial if <= 2% at every station) is not met at any station, so the choice is
+**material**. The Rules text decides it: **H**. The first pass's settlement proxy (WU hourly rows, specials included)
+is an H-type minimum and stays the right proxy. Its KORD 2024-11-05 trace (WU `daily_summary.csv` = hourly min) does
+not show that any daily-summary product equals H in general.
+
+Caveats: D's day is the LST climate day for CLI and ECCC's climatological day for CYYZ, and was not re-derived. The
+"Civil vs LST" column separates the day-boundary effect (0-7 days) from the sampling effect, which is most of the gap.
+CYYZ METAR carries whole °C with no `T` group. The window is August-September, not the October-December capture season.
+
+### Q2: NBP `TXN` minima, p10-p90 per station-date (MEASURED parse; no scoring)
+
+All blobs in the workstation payload store with an `NBM ... NBP GUIDANCE` header: 178 distinct bulletins, issued
+2026-07-13..08-12 (30 each at 00, 01, 07, 13 and 19Z; 28 at 12Z). No issue time or valid time is on or after
+2026-09-30. Only tokens in a 12Z-valid column are kept (EF §10k); 00Z maxima are discarded. No row lacked a percentile.
+
+| Station | Station-dates | Rows (date x cycle) | Median p90 - p10, F, by lead 0-24 / 24-48 / 48-72 / >72 h | 12Z mean below both 00Z neighbours | p10 <= ... <= p90 | Provenance: median p50 - observed overnight min, F (n) |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| KATL | 39 | 1,602 | 3 / 3 / 4 / 5 | 1.00 | 1.00 | +0 (21) |
+| KAUS | 39 | 1,602 | 5 / 6 / 6 / 6 | 1.00 | 1.00 | +0 (21) |
+| KBKF | 39 | 1,602 | 9 / 9.5 / 10 / 12 | 1.00 | 1.00 | -2 (21) |
+| KDAL | 39 | 1,602 | 5 / 5 / 6 / 6 | 1.00 | 1.00 | +0 (21) |
+| KHOU | 39 | 1,602 | 4 / 4 / 4 / 5 | 1.00 | 1.00 | +0 (21) |
+| KLAX | 39 | 1,602 | 3 / 3 / 3 / 4 | 1.00 | 1.00 | -1 (21) |
+| KLGA | 39 | 1,602 | 5 / 5 / 5 / 7 | 1.00 | 1.00 | -2 (21) |
+| KMIA | 39 | 1,602 | 4 / 4 / 4 / 3 | 1.00 | 1.00 | -1 (21) |
+| KORD | 39 | 1,602 | 6 / 6 / 6 / 10 | 1.00 | 1.00 | -1 (21) |
+| KSEA | 39 | 1,602 | 5 / 5 / 5 / 6 | 1.00 | 1.00 | +1 (21) |
+| KSFO | 39 | 1,602 | 3 / 4 / 4 / 5 | 1.00 | 1.00 | +1 (21) |
+| CYYZ (flagged) | 39 | 1,602 | 5.5 / 6 / 6 / 9 | 1.00 | 1.00 | -1 (21) |
+
+The per station-date headline (latest cycle issued before the token's valid time) is in the results JSON under
+`q2.headline`, 468 rows. For example, KORD 2026-08-10 from cycle `20260809T19Z` (lead 17 h): p10 68, p25 69, p50 70,
+p75 73, p90 76 F. The full date x cycle table (19,224 rows) is reproducible from `q2.py`. The provenance column compares
+the headline p50 with the observed IEM minimum over local 19:00 (previous day) to 08:00, on 08-01..08-21. Its job is to
+confirm these are minima (EF §10k found +1 F); it is not a skill score, and no market or band is involved.
+
+Findings, beyond the first pass's inventory:
+- **CYYZ has an NBP block, contrary to the first pass's "Toronto has no NBM".** Its values are in °F and its checks pass.
+  Its use against a °C market is UNVERIFIED and needs a unit conversion and its own provenance.
+- **The freshest minimum for a given morning is 17 h old.** NBP text columns start at forecast hour 17-24, so the
+  latest cycle that carries morning d's 12Z minimum is the 19Z run of day d-1. The 00/01/07Z runs of day d start at
+  00Z on d+1. Checked on the KORD 2026-08-10 leads (17, 23, 29, 35, 36 h) and on a 00Z header.
+- **UNVERIFIED:** the exact accumulation window of a 12Z `TXN` minimum. The bulletin does not state it; the NOAA key
+  says only that 12Z values are minima.
+- The sample is mid-July to late August; widths in October-December will differ. Production holds later bulletins
+  (EF §10k/§10l); fetching them needs a transfer manifest and must stop before 2026-09-30.
+
+### Q3: share of daily lows reached at or after 18:00 local, by month (MEASURED)
+
+WU hourly rows, same eligibility rule and local civil day as the first pass, 2016-2025. "First >= 18:00" means the day
+minimum is first reached at 18:00 or later, so it was not reached before 18:00. "Reached or tied" counts the last
+attainment. Fleet = equal-weight mean of the 12 cities; interval = 95% bootstrap over the 10 years (10,000 draws, seed
+20261002; year clusters only, not crossed with city, as pre-registered). 2026 is descriptive (one cluster).
+
+| Month | Fleet first >= 18:00 | 95% interval (years) | Fleet reached or tied >= 18:00 | 2026 fleet | Eligible city-days |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Jan | 0.247 | [0.234, 0.259] | 0.312 | 0.221 | 3,701 |
+| Feb | 0.218 | [0.209, 0.227] | 0.275 | 0.190 | 3,384 |
+| Mar | 0.176 | [0.167, 0.185] | 0.240 | 0.181 | 3,667 |
+| Apr | 0.145 | [0.137, 0.154] | 0.213 | 0.135 | 3,591 |
+| May | 0.132 | [0.124, 0.142] | 0.207 | 0.164 | 3,707 |
+| Jun | 0.099 | [0.090, 0.107] | 0.178 | 0.160 | 3,591 |
+| Jul | 0.103 | [0.091, 0.114] | 0.176 | 0.086 | 3,712 |
+| Aug | 0.093 | [0.085, 0.101] | 0.167 | 0.083 | 3,690 |
+| Sep | 0.117 | [0.105, 0.128] | 0.189 | — | 3,557 |
+| Oct | 0.165 | [0.153, 0.177] | 0.228 | — | 3,717 |
+| Nov | 0.219 | [0.207, 0.232] | 0.287 | — | 3,573 |
+| Dec | 0.239 | [0.230, 0.248] | 0.312 | — | 3,717 |
+
+Per city, first attainment at or after 18:00:
+
+| City | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Toronto | 0.29 | 0.26 | 0.21 | 0.14 | 0.12 | 0.10 | 0.08 | 0.08 | 0.11 | 0.22 | 0.27 | 0.26 |
+| Atlanta | 0.23 | 0.23 | 0.17 | 0.12 | 0.09 | 0.07 | 0.08 | 0.11 | 0.07 | 0.15 | 0.20 | 0.22 |
+| Austin | 0.32 | 0.30 | 0.26 | 0.19 | 0.15 | 0.05 | 0.04 | 0.05 | 0.12 | 0.19 | 0.29 | 0.32 |
+| Denver | 0.29 | 0.29 | 0.20 | 0.18 | 0.17 | 0.10 | 0.12 | 0.07 | 0.13 | 0.23 | 0.25 | 0.29 |
+| Dallas | 0.21 | 0.22 | 0.15 | 0.14 | 0.10 | 0.04 | 0.05 | 0.06 | 0.07 | 0.14 | 0.22 | 0.23 |
+| Houston | 0.26 | 0.22 | 0.17 | 0.11 | 0.11 | 0.06 | 0.03 | 0.04 | 0.06 | 0.13 | 0.22 | 0.24 |
+| Los Angeles | 0.09 | 0.09 | 0.08 | 0.10 | 0.15 | 0.14 | 0.17 | 0.18 | 0.18 | 0.09 | 0.06 | 0.09 |
+| NYC | 0.29 | 0.23 | 0.17 | 0.17 | 0.20 | 0.10 | 0.15 | 0.10 | 0.14 | 0.18 | 0.29 | 0.30 |
+| Miami | 0.21 | 0.11 | 0.09 | 0.09 | 0.10 | 0.13 | 0.15 | 0.13 | 0.16 | 0.11 | 0.14 | 0.16 |
+| Chicago | 0.33 | 0.30 | 0.32 | 0.23 | 0.22 | 0.20 | 0.20 | 0.15 | 0.15 | 0.23 | 0.31 | 0.34 |
+| Seattle | 0.27 | 0.23 | 0.15 | 0.14 | 0.08 | 0.10 | 0.03 | 0.06 | 0.09 | 0.18 | 0.25 | 0.25 |
+| San Francisco | 0.17 | 0.14 | 0.14 | 0.12 | 0.11 | 0.08 | 0.12 | 0.09 | 0.13 | 0.12 | 0.12 | 0.17 |
+
+For the capture season (10-15..12-31), roughly one day in five to one in four has its settled low set at or after
+18:00. That falls inside or just before the protected 18:00-00:30 near-close window, and the NBP 12Z minimum (Q2) cannot see
+it. Q3 uses WU rows with specials included; by Q1, a routine-only filter would change little.
+
+### A1 deviations and limits
+
+- **2026-09-29 dropped** from Q1 (pre-registered): its local day ends after the 2026-09-30T00:00Z request cap.
+- **Q1 extra column:** routine-only H vs D (210 of 708) was added after the first run; the pre-registered H vs D stands.
+- **Rules quotation:** one decisive sentence is quoted verbatim; the rest is paraphrased, and the full text is pinned by
+  SHA-256 so a holder of the text can verify it.
+- **Workstation wrapper:** the Q2 scan (~6 GB read, one process, ~20 s) ran outside `workstation_heavy.ps1`, which only
+  admits allow-listed `weather.*` modules.
+- New free sources used (owner-requested): IEM ASOS and CLI archives, ECCC climate bulk CSV, one Polymarket page. No
+  credential, no venue API, no production data, no 88a or exam data, nothing dated UTC 2026-09-30 or later.
