@@ -18,6 +18,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "GET-only wallet reader request intent and result; no headers or response bodies.",
     ),
     SchemaSpec(
+        "metar_report_ledger", "metar_report_ledger_v0.1",
+        "weather.sources.metar_reports", "active",
+        "Append-only per-report METAR/SPECI first-seen ledger with RMK T-group tenths; supporting evidence only.",
+    ),
+    SchemaSpec(
         "maker_evidence_v1_legacy", "maker_evidence_v1",
         "weather.market.maker_evidence_store", "legacy",
         "Original daily journals, retained without migration; use their bound reader.",

@@ -283,6 +283,7 @@ Managed files:
 - `data/snapshots/observation_trigger_console.log`
 - `data/snapshots/observation_triggers.jsonl`
 - `data/snapshots/observation_source_cache/<market>.json`
+- `data/snapshots/metar_reports/<market>/metar_reports-<utc-date>.jsonl`
 - `data/snapshots/triggered_snapshot_queue/{pending,inflight,completed,acknowledged}/`
 - forced snapshot rows tagged with trigger context
 
@@ -306,6 +307,25 @@ cache is quarantined before JSON materialization. Cache scope, readiness, and
 the live-bootstrap transition are recorded with each market's latest
 observation state. These files are bounded operator caches, not canonical
 evidence.
+
+METAR/SPECI report ledger (owner decision 2026-10-02, item 4). The watcher
+polls AviationWeather (`/api/data/metar`, free, no credentials) on its own
+60-second interval; before this change a METAR report was retained only inside
+the 10-minute scheduled or triggered snapshot payloads. Every
+`METAR_REPORT_CAPTURE_INTERVAL_SECONDS` (120 s, in
+`weather.sources.metar_reports`) the watcher now appends each report it has not
+yet seen from the payload it already fetched, so the ledger adds no provider
+requests. Each `metar_report_ledger` record keeps the report type
+(`METAR`/`SPECI`), provider observation and report times, the first-seen time
+at 2-minute resolution, the provider-decoded temperature and dewpoint, the RMK
+T-group tenths (`tgroup_temp_celsius`, `tgroup_dewpoint_celsius`) and the raw
+text. A stale or failed METAR item (last-good cache) is never captured, and a
+ledger error is reported in the market's `metar_report_capture` status instead
+of stopping the poll. The ledger sits beside the source-cache root (an
+attempt-local `--source-cache-root` gets its own ledger). It is canonical
+first-seen evidence (`metar_report_ledger` storage family), about 18 KB per
+station-day (about 0.22 MB per day, 80 MB per year, for 12 stations). It is supporting evidence
+only and feeds no feature, floor or settlement value.
 
 These files are runtime state under ignored `data/`, but many of the tapes are
 canonical evidence. Follow the
