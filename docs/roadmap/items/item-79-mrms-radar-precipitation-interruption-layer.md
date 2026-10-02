@@ -100,3 +100,22 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 
+## Live listing poll retired (owner decision 2026-10-02)
+
+The live fetcher never got past the listing: `fetch_mrms_precip_for_market` returns
+`rows: []` and `available: False` on every call, while storing the whole day's S3
+object listing in every captured `replay_inputs.jsonl` row (about 100-200 MB/day of
+listing rows that nothing reads). The owner's missing-information plan stopped the poll:
+no built-in market declares `mrms_precip` any more, so no capture loop fetches it.
+
+- Training never saw MRMS values (`feature_store` fills every `mrms_*` column with
+  `None`), while serving wrote `mrms_row_count = 0.0` and a listing-age
+  `mrms_source_lag_minutes`. With no source, serving now writes `None` for every
+  `mrms_*` column, which matches training. No served per-market model uses an
+  `mrms_*` feature; the shadow pooled candidates that list them were trained on
+  all-`None` columns.
+- Captured tapes that carry an `mrms_precip` source still replay through
+  `derive_mrms_precip_features`; the parser and payload contract versions stay registered.
+- The backfill, feature-derivation and scoring helpers in `weather.sources.mrms_precip`
+  are unchanged. Re-enabling a live layer needs a real nearest-grid extraction, not the listing.
+
