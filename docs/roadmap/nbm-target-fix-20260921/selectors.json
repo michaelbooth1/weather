@@ -1,0 +1,285 @@
+{
+  "sha256": "3b472bd32667256c6605a6f48c2c9c4ba7e58f140a89c504c4b4fbfcac6a497c",
+  "selectors": [
+    {
+      "path": "/models/7/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/8/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/9/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/10/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/11/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/12/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/13/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/14/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/15/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/16/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/17/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/18/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/19/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    },
+    {
+      "path": "/models/20/feature_names",
+      "fields": [
+        "nbm_prob_tmax_p10",
+        "nbm_prob_tmax_p25",
+        "nbm_prob_tmax_p50",
+        "nbm_prob_tmax_p75",
+        "nbm_prob_tmax_p90",
+        "nbm_prob_tmax_mean",
+        "nbm_prob_tmax_stddev",
+        "nbm_prob_tmax_iqr",
+        "nbm_prob_tmax_p10_p90_spread",
+        "nbm_prob_tmax_p50_vs_forecast_high",
+        "nbm_prob_tmax_p90_vs_forecast_high",
+        "nbm_prob_tmax_exceed_forecast_high",
+        "nbm_prob_tmax_physical_valid_flag",
+        "nbm_prob_tmax_impossible_flag",
+        "nbm_prob_tmax_floor_gap"
+      ]
+    }
+  ]
+}
