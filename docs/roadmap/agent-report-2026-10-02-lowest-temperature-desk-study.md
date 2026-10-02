@@ -168,7 +168,7 @@ From a checkout that has `data/wunderground` (workstation or production), save t
 ```
 
 The output should match
-[the results JSON](agent-report-2026-10-02-lowest-temperature-desk-study-results.json) (SHA-256 `66b5fd9e…03bb12`) when the
+[the results JSON](agent-report-2026-10-02-lowest-temperature-desk-study-results.json) (SHA-256 of the committed LF file `41612ee6…134d0e`; normalise line endings first) when the
 WU history for 2016-2026-08 is unchanged. The F2 snapshot reads the 95d bulk files
 (`tools\weather_market_universe.py fetch-evidence`, then `markets.csv` / `events.csv`, filtered to family
 `lowest temperature | <city>`).
