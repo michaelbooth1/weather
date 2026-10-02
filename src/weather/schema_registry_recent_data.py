@@ -1456,4 +1456,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "nbm_text_station_blocks",
+        "nbm_text_station_blocks_v0.1",
+        "weather.collection.nbm_text_capture",
+        "active",
+        "Capture-only manifest of NBM NBH/NBS market-station blocks stored gzip in the shared forecast payload CAS.",
+    ),
 )

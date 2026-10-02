@@ -121,3 +121,27 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 
+## 2026-10-02 NBM NBH/NBS Station-Block Capture (Capture Only)
+
+Owner decision 2026-10-02 (item 2): capture NBM NBH (`blend_nbhtx`, hourly
+1-25 h) and NBS (`blend_nbstx`, 3-hourly to 72 h) text guidance for our 12
+stations only, under 1 MB/day, through the shared forecast payload CAS. Both are
+published every hour (verified on the public NOAA S3 listing for 2026-10-01,
+~40-80 minutes after each cycle); `CYYZ` has blocks in both, so Toronto is
+included. Branch `codex/nbm-fanout-nbh-nbs-20261002`:
+
+- `weather.sources.nbm_text_bulletins` streams a national bulletin and keeps the
+  requested station blocks verbatim (product/cycle checked on every kept header,
+  duplicates malformed, required rows checked).
+- `weather.collection.nbm_text_capture` downloads each recent cycle once
+  (NOMADS, then the public AWS mirror), stores the gzip extract in
+  `SharedForecastPayloadCAS`, and appends one `nbm_text_station_blocks_v0.1`
+  row per cycle to `forecast_payload_cas/nbm_text_manifests/<YYYYMMDD>.jsonl`.
+  Measured: ~7 KB per product-cycle, ~0.45 MB/day including manifests.
+- No feature, serving, training or replay path reads it; train/serve parity is
+  unchanged. It is not imported by any capture loop and is **not yet
+  scheduled**: production must decide the hourly trigger (suggested hh:50 local
+  with `--hours-back 3`).
+
+Verification: `python -m pytest tests\sources\test_nbm_text_bulletins.py tests\collection\test_nbm_text_capture.py -q`
+(fixtures trimmed from the real 2026-10-01 12Z bulletins; no network).
