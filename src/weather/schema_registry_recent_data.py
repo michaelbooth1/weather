@@ -1347,4 +1347,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Outcome-blind MG-1 stage tape: one row per snapshot binding the parser-v2 read, floor, stage and served vectors to stage/config/code hashes.",
     ),
+    SchemaSpec(
+        "nbm_text_station_blocks",
+        "nbm_text_station_blocks_v0.1",
+        "weather.collection.nbm_text_capture",
+        "active",
+        "Capture-only manifest of NBM NBH/NBS market-station blocks stored gzip in the shared forecast payload CAS.",
+    ),
 )

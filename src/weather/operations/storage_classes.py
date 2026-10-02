@@ -128,6 +128,18 @@ ARTIFACT_FAMILIES = (
         notes="Discovery only; rebuilding requires the same completeness policy and configured station set. No TTL deletion or shared-blob garbage collection.",
     ),
     ArtifactFamilyClassification(
+        "nbm_text_station_block_manifest",
+        "collection/sources",
+        CANONICAL_EVIDENCE,
+        ("forecast_payload_cas/nbm_text_manifests/*.jsonl",),
+        "permanent_point_in_time_forecast_capture_manifest",
+        "not rebuildable: binds capture time and national-bulletin hash to each shared blob",
+        "canonical_evidence_review_gate",
+        True,
+        examples=("data/forecast_payload_cas/nbm_text_manifests/<YYYYMMDD>.jsonl",),
+        notes="NBM NBH/NBS station-block capture (capture only, no feature use); blobs stay shared_forecast_payload_cas.",
+    ),
+    ArtifactFamilyClassification(
         "shared_forecast_payload_cas",
         "collection/sources",
         CANONICAL_EVIDENCE,
