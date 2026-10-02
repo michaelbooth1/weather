@@ -116,6 +116,18 @@ ARTIFACT_FAMILIES = (
         "operator_cache_ttl_or_manifest", False,
     ),
     ArtifactFamilyClassification(
+        "nbp_complete_cycle_index",
+        "collection/sources",
+        ANALYSIS_PROJECTION,
+        ("forecast_payload_cas/nbp_cycle_index/**/*.json",),
+        "rebuildable_complete_nbp_cycle_discovery",
+        "original fan-out receipt and verified shared forecast blob",
+        "reviewed_exact_path_cleanup_manifest",
+        True,
+        examples=("data/forecast_payload_cas/nbp_cycle_index/<prefix>/<sha256>.json",),
+        notes="Discovery only; rebuilding requires the same completeness policy and configured station set. No TTL deletion or shared-blob garbage collection.",
+    ),
+    ArtifactFamilyClassification(
         "shared_forecast_payload_cas",
         "collection/sources",
         CANONICAL_EVIDENCE,

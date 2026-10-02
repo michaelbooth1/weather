@@ -48,6 +48,38 @@ def test_fixture_probe_independent_passes_and_markets(tmp_path):
     print('NBP_FETCH_PROBE=' + json.dumps(measurements))
 
 
+def test_station_set_is_evaluated_once_on_first_fetch_and_reuse(tmp_path):
+    with patch('weather.collection.forecast_payload_fetch_fanout._nbp_reuse_stations',
+               wraps=_nbp_reuse_stations) as stations:
+        fetch(tmp_path, lambda: dict(VALUE), 'first')
+        assert stations.call_count == 1
+        stations.reset_mock()
+        fetch(tmp_path, lambda: pytest.fail('must reuse'), 'second')
+        assert stations.call_count == 1
+
+
+def test_reuse_cost_probe_is_offline_and_binds_the_retained_bytes(tmp_path, capsys):
+    import hashlib
+    from tools.research.nbm_target_fix import reuse_cost
+
+    cache = tmp_path / 'national.txt'
+    cache.write_bytes(TEXT.encode())
+    cache.with_suffix('.txt.json').write_text(json.dumps({
+        'sha256': hashlib.sha256(TEXT.encode()).hexdigest(), 'bytes': len(TEXT.encode()),
+        'url': URL, 'retrieved_at_utc': VALUE['fetched_at'],
+        'started_at_utc': VALUE['request_started_at'],
+    }))
+    reuse_cost(cache, tmp_path / 'cost')
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['network_requests'] == 0 and summary['stub_downloads'] == 2
+    assert [row['operation'] for row in summary['measurements']] == [
+        'blob_read_hash', 'complete_nbp', 'whole_reuse', 'whole_per_scope_stubbed',
+    ]
+    cache.write_bytes(b'corrupt')
+    with pytest.raises(ValueError, match='original receipt'):
+        reuse_cost(cache, tmp_path / 'bad-cost')
+
+
 @pytest.mark.parametrize('defect', ['station', 'txn', 'terminal', 'truncated', 'cycle', 'duplicate'])
 def test_incomplete_first_fetch_is_not_indexed_and_next_pass_downloads(tmp_path, defect):
     text = TEXT
@@ -186,6 +218,12 @@ def test_real_live_writer_truthful_attribution_and_age_at_use(tmp_path):
         payload = model.fetch_nbm_probabilistic_tmax()
     assert payload['fetched_at'] == VALUE['fetched_at']
     assert payload['cycle_age_at_use_hours'] > .5
+    from weather.sources.nbm_probabilistic_tmax import NBM_NBP_PARSER_V2
+    assert payload['parser_version'] == payload['raw_payload']['parser_version'] == NBM_NBP_PARSER_V2
+    assert payload['raw_payload']['cycle_age_hours'] == payload['cycle_age_hours'] == .5
+    features = model.us_guidance_features(nbm_probabilistic_tmax=payload)
+    assert features['nbm_prob_tmax_parser_version'] == 2.
+    assert features['nbm_prob_tmax_cycle_age_hours'] == payload['cycle_age_at_use_hours']
     captured = datetime.now(timezone.utc)
     store = SnapshotStore(root=tmp_path / 'event', event_slug='fixture',
                           shared_forecast_payload_cas_root=tmp_path / 'cas')
@@ -202,6 +240,28 @@ def test_real_live_writer_truthful_attribution_and_age_at_use(tmp_path):
     assert 'cycle_age_at_use_hours' not in payload['raw_payload']
     summary = forecast_payload_byte_summary(rows)
     assert summary['network_fetch_count'] == 0
+
+
+def test_clock_rejected_reused_payload_keeps_age_at_use():
+    from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
+    from weather.sources.nbm_probabilistic_tmax import NBM_NBP_PARSER_V2
+
+    coordinator = MarketInvariantFetchFanout()
+    coordinator.fetch(**KEY, scope_key='clock-rejected',
+        fetch_fn=lambda: {**VALUE, 'fetched_at': '2026-09-17T07:30:00'})
+    model = TorontoHighTempModel(target_date='2026-09-17', market_id='nyc')
+    model.market_invariant_fetch_fanout = coordinator
+    model.market_invariant_fetch_scope = 'clock-rejected'
+    model.get_text = lambda url: pytest.fail('same-scope reused payload must not download')
+    with patch('weather.model.model_sources.nbp_cycle_candidates', return_value=[CYCLE]):
+        payload = model.fetch_nbm_probabilistic_tmax()
+    assert payload['parser_version'] == NBM_NBP_PARSER_V2
+    assert not payload['available'] and payload['reason'] == 'nbp_capture_time_naive'
+    assert payload['cycle_age_at_use_hours'] > .5
+    assert payload['raw_payload']['cycle_age_hours'] is None
+    assert payload['raw_payload']['forecast_payload_attestation']['single_fetch']['reused']
+    features = model.us_guidance_features(nbm_probabilistic_tmax=payload)
+    assert features['nbm_prob_tmax_cycle_age_hours'] == payload['cycle_age_at_use_hours']
 
 
 def test_fixture_memory_probe_retains_no_extra_national_copy(tmp_path):
