@@ -389,7 +389,7 @@ Stage-A, workstation or live authority is added.
 6. **Agent verification is serial and time-gated.** The OS guard terminates
    recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
    data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. A Codex-owned tool tree is independently terminated when
+   inside the window. An agent-owned tool tree is independently terminated when
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
