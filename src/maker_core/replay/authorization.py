@@ -21,8 +21,7 @@ DECISION_FIELDS = {"authorization_id", "owner", "protocol_sha256", "addendum_sha
 CLARIFIED_IDS = {"maker-replay-2026-10-15-v2": ("clarification_sha256", "clarification_2_sha256"),
                  "maker-replay-2026-10-15-v3": ("clarification_sha256", "clarification_2_sha256",
                                                 "clarification_3_sha256")}
-# Production replaces this with the signed Clarification 3's raw-byte SHA-256 after the owner
-# signs it. Until then no v3 attestation (always 64 hex characters) can match: v3 fails closed.
+# The raw-byte SHA-256 of Clarification 3 as the owner signed it (2026-10-01T17:44Z).
 CLARIFICATION_3_SHA256 = "fcbcb7d0d2a38777814b6f9d5e8b96c879d069af873c0b32fb4b274506b03eaa"
 # Clarification 2's Authorization section: v2 binds the raw-byte SHA-256 of the signed
 # registration, addendum, Clarification 1 and Clarification 2 (signed 2026-10-01, bytes at
