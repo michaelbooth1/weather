@@ -61,6 +61,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Pinned local replay slice decomposition for a historical Toronto case.",
     },
+    "exam_dryrun_fixture.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Synthetic 18-day 88a tree for the maker-replay exam dry run (tests/market/test_exam_dryrun_sequence.py).",
+    },
     "fix_app.py": {
         "status": "retired",
         "smoke": "help",
