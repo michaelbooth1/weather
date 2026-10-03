@@ -52,6 +52,23 @@ portable/offline profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 
+The residual scan counts every Python process whose command line it cannot
+read as heavy, because a non-elevated session cannot read S4U or service
+command lines. The single exception is the explicit allowlist in
+`Get-WeatherKnownReadOnlyServiceDefinition` (today only the S4U
+`\WeatherWalletReader` task running `-m weather.market.wallet_reader serve`).
+A process is excluded only when the registered task definition matches the
+allowlisted logon type, executable and arguments, the Scheduler reports exactly
+one running instance whose engine PID is that process, and its creation time
+falls just after the task's last start; the engine's direct `python.exe`
+children (the venv redirector's interpreter) are excluded with it. Any
+mismatch, or a Scheduler that cannot be read, excludes nothing. Every
+recovery decision (owner alive, residuals found, scan failure, recovered) is
+echoed as a warning and appended to `data\logs\heavy_workload_recovery.jsonl`
+in the admitting checkout. Add an allowlist entry, with tests, only for a
+long-running service that never runs tests, training, replay or order
+mutation.
+
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` admission is restricted to canonical live-stage workload
