@@ -19,6 +19,9 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
 - Tests that write large temporary layouts must stay under `tmp_path`. On a
   shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
   default temp root is not cleaned promptly and has filled the capture disk.
+  On Windows, `tests/conftest.py` swaps any base temp longer than 64 characters
+  for a fresh `C:\pt\t-*` directory removed at exit, so nested `tmp_path`
+  layouts never hit the 260-character path limit wherever the caller points it.
 
 Run the narrow directory or file first, then the full suite:
 
