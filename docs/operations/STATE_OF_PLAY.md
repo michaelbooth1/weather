@@ -56,7 +56,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   exam's.
 - **Host incidents:** unclean power losses 2026-09-29 ~19:50 and 2026-09-30 14:05 (the second may have been a hang;
   ProtonVPN was the last service to fail). Owner decision pending: ProtonVPN on the capture host, crash dumps.
-- **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
+- **Settlement source:** US markets resolve on WRH "Hourly Data", foreign WRH cities on its all-times "Temp" column, Hong Kong on floor(HKO daily max); master hard-codes WU; agreement 359/360 (EF §10c).
 - **Replay exam:** calibration 09-27..29, panel 09-30..10-13, settlement 10-14; look on any Toronto date 10-15..10-31 while
   no attempt is reserved. Authorization goes v1 -> **v3** (five signed hashes; v2 never written).
 - **Expansion swarm (2026-10-01/02):** disk, not CPU/RAM, binds; cheapest expansion is lowest-temperature markets for our 12

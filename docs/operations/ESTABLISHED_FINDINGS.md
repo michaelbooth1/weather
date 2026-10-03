@@ -3202,8 +3202,18 @@ against a venue-paid 90–91 band — venue above WU, the floor-safe and label-u
   `d53e280a7`, UNDECIDABLE for lack of a post-switch panel on the workstation) found free IEM METAR (routine + SPECI)
   reproduces 480/480 pre-switch WU degrees and 504/504 venue bands, and that current event Rules resolve on the WRH
   page's "Hourly Data" with a WU fallback. Post-switch exact-degree agreement remains unmeasured.
-- **Open:** `locations.json`, `MarketSpec` and the ledger hard-code WU; no gate can detect a source
-  change; the string `wrh/timeseries` appears nowhere in `src/`, `tests/` or `scripts/`.
+- **Update 2026-10-02 (foreign stations, [desk study](../research/foreign-settlement-desk-study-2026-10.md)):**
+  "Hourly Data" applies to the **US markets only**. On the WRH page that view keeps only rows carrying
+  sea-level pressure, which Synoptic's global METAR network lacks, so it is empty for every foreign station. The
+  London, Paris, Seoul, Shanghai and Tokyo Rules resolve on the highest "Temp" reading "for all times" (metric),
+  with a WU fallback; over 2026-09-20..29 the WRH max, the IEM METAR max and the venue band agreed 50/50 at exact
+  degree. **Hong Kong resolves on HKO's Daily Extract "Absolute Daily Max" (0.1 °C) by truncation**: the venue
+  paid `floor(value)` on 10/10 days, and half-up rounding would have mislabelled 4 (31.9 → 31, 32.5 → 32 twice,
+  32.7 → 32). `config/locations.json` now records these blocks, and the release settlement-rules payload carries
+  per-location `rounding` with `band_contract.location_rounding_overrides` (`hong-kong`: `whole_degree_floor`).
+- **Open:** `MarketSpec` and the ledger hard-code WU, and the US entries in `locations.json` still name WU;
+  no gate can detect a source change. Since 2026-10-02 the foreign WRH cities and Hong Kong declare their venue
+  source in `locations.json`, but no adapter reads WRH or HKO yet.
 
 ### 10d. Settlement-chain design facts
 
