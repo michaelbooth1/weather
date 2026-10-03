@@ -3202,6 +3202,7 @@ against a venue-paid 90–91 band — venue above WU, the floor-safe and label-u
   `d53e280a7`, UNDECIDABLE for lack of a post-switch panel on the workstation) found free IEM METAR (routine + SPECI)
   reproduces 480/480 pre-switch WU degrees and 504/504 venue bands, and that current event Rules resolve on the WRH
   page's "Hourly Data" with a WU fallback. Post-switch exact-degree agreement remains unmeasured.
+- **Update 2026-10-02 (desk studies, docs only):** the "Hourly Data" view applies to the US markets; for foreign stations (EGLC, LFPB, RKSI, ZSPD, RJTT) the WRH hourly view is empty and Rules resolve on the page's "Temp" column for all times; 50/50 station-days matched IEM METAR and the paid band (09-20..09-29). Hong Kong pays the HKO Absolute Daily Max with the decimal dropped (31.9 -> 31; 32.7 -> 32), not half-up rounding (`docs/research/foreign-settlement-desk-study-2026-10.md`). Lowest-temperature markets resolve on the minimum of the hourly rows, which differs in band from the CLI minimum on 202/708 US station-days (28.5%) (branch `claude/lowest-temp-desk-study-20261002`, addendum A1).
 - **Open:** `locations.json`, `MarketSpec` and the ledger hard-code WU; no gate can detect a source
   change; the string `wrh/timeseries` appears nowhere in `src/`, `tests/` or `scripts/`.
 
