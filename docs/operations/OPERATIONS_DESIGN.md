@@ -80,7 +80,10 @@ books and reward records, capped extra-condition window updates, continuous publ
 brakes and `data/maker_evidence/status.json`. It does not enter streak grading
 or the existing capture recovery contract. The registrar is
 `scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
-remain explicit production actions.
+remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs the
+same module with `--family lowest_temperature` in its own root (books and reward
+terms, no websocket); its registrar is
+`scripts/ops/register_maker_evidence_family_capture.ps1`.
 
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is

@@ -50,16 +50,17 @@ class PublicReader:
     def close(self):
         self.session.close()
 
-    def read(self, url, *, params=None, body=None, kind="discovery", change_key=None):
+    def read(self, url, *, params=None, body=None, kind="discovery", change_key=None, partition=None):
         for attempt in range(2):
             try:
-                return self._read_once(url, params=params, body=body, kind=kind, change_key=change_key)
+                return self._read_once(url, params=params, body=body, kind=kind, change_key=change_key,
+                                       partition=partition)
             except (requests.ConnectionError, requests.Timeout, TimeoutError):
                 if attempt or self.deadline - time.monotonic() <= .25:
                     raise
                 time.sleep(.25)
 
-    def _read_once(self, url, *, params=None, body=None, kind="discovery", change_key=None):
+    def _read_once(self, url, *, params=None, body=None, kind="discovery", change_key=None, partition=None):
         parsed = urlparse(url)
         allowed = (
             (parsed.netloc == "gamma-api.polymarket.com" and parsed.path in ("/events", "/markets") and body is None)
@@ -106,7 +107,7 @@ class PublicReader:
                                   "request_sha256": hashlib.sha256(encoded(body)).hexdigest(),
                                   "latency_seconds": time.monotonic() - start},
                                   change_key=change_key if response.status_code == 200 else None,
-                                  stored_body=stored_body)
+                                  stored_body=stored_body, partition=partition)
                 response.raise_for_status()
                 if response.status_code != 200:
                     raise ValueError("unexpected public response status")
@@ -143,14 +144,15 @@ def unique_rows(rows, *, key, on_duplicate=lambda value: None):
     return list(seen.values())
 
 
-def reward_record(reader, condition):
+def reward_record(reader, condition, *, partition=None):
     if not CONDITION.fullmatch(condition):
         raise ValueError("invalid condition id")
     rows, cursors, cursor = [], set(), None
     for _ in range(10):
         page = reader.read(CLOB + "/rewards/markets/" + condition,
                            params={"next_cursor": cursor} if cursor else None,
-                           kind="rewards", change_key=f"reward:{condition}:{cursor or 'first'}")
+                           kind="rewards", change_key=f"reward:{condition}:{cursor or 'first'}",
+                           partition=partition)
         rows.extend(page["data"])
         cursor = page.get("next_cursor")
         if not cursor or cursor in ("LTE=", "-1"):
