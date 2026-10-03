@@ -1,0 +1,407 @@
+{
+ "exam_tree": "37092926386a0cac14371bf48382a1cb3079e442",
+ "exporter_module_sha256": "1f0085ab0dc1464471610f9cd1428f4b05f8808dafd73a315ae2bfb165c22b5d",
+ "fixture": "PR #166 fixture.py, D=12, churn 1, full density",
+ "host": "32 GB workstation, 32 cores, Python 3.11.9",
+ "runs": {
+  "base_rehearse": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588842496,
+    "decisions_spans": 884952,
+    "engine_events": 42281,
+    "input_bytes": 33188280,
+    "peak_memory_above_baseline_bytes": 2743386112,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "runtime_seconds": 278.18700000000536
+   },
+   "mode": "rehearse",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 138,
+    "load": 210,
+    "pull_efficiency": 2142,
+    "rehearse": 2322,
+    "report_bytes": 2616,
+    "run:blind_re1:at_price": 2118,
+    "run:blind_re1:strictly_through": 1221,
+    "run:clock_only:at_price": 2134,
+    "run:clock_only:strictly_through": 1588,
+    "run:informed-v0:at_price": 2131,
+    "run:informed-v0:strictly_through": 508,
+    "run:no_quote:at_price": 2110,
+    "run:no_quote:strictly_through": 865,
+    "score": 2125
+   },
+   "wall_seconds": 278.4
+  },
+  "full_1": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588486144,
+    "md_sha256": "0451b3550d64a7cc1bc48621df5a8330aaa05e0cc4508d1f9a7253247c834be3",
+    "peak_memory_above_baseline_bytes": 2635862016,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "report_sha256": "8355bdb9def0b17030d34d6646a8adca7e2b2d374f215dafd9a66a4c1010ac86"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 137,
+    "import": 0,
+    "load": 208,
+    "pull_efficiency": 2098,
+    "report_bytes": 2277,
+    "report_other": 2285,
+    "run:blind_re1:at_price": 2073,
+    "run:blind_re1:strictly_through": 1209,
+    "run:clock_only:at_price": 2080,
+    "run:clock_only:strictly_through": 1571,
+    "run:informed-v0:at_price": 2087,
+    "run:informed-v0:strictly_through": 501,
+    "run:no_quote:at_price": 2066,
+    "run:no_quote:strictly_through": 855,
+    "score": 2079
+   },
+   "wall_seconds": 355.3
+  },
+  "full_3": {
+   "dates": 3,
+   "measured": {
+    "baseline_memory_bytes": 1588666368,
+    "md_sha256": "cc5bd961d654f7728187aaf83b92046feb5a9983dd04e8b4aa883ca00aefb57d",
+    "peak_memory_above_baseline_bytes": 7976763392,
+    "records": 238511,
+    "report_bytes": 680380352,
+    "report_sha256": "99f5d007ed164673502dcdf8270ef90ce5a41463a4f398a45b6ad799b118fb79"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 411,
+    "import": -1,
+    "load": 477,
+    "pull_efficiency": 6354,
+    "report_bytes": 7607,
+    "report_other": 7316,
+    "run:blind_re1:at_price": 6301,
+    "run:blind_re1:strictly_through": 3673,
+    "run:clock_only:at_price": 6313,
+    "run:clock_only:strictly_through": 4772,
+    "run:informed-v0:at_price": 6333,
+    "run:informed-v0:strictly_through": 1518,
+    "run:no_quote:at_price": 6291,
+    "run:no_quote:strictly_through": 2595,
+    "score": 6305
+   },
+   "wall_seconds": 1120.6
+  },
+  "protoA2_reh": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588461568,
+    "decisions_spans": 884952,
+    "engine_events": 42281,
+    "input_bytes": 33188280,
+    "peak_memory_above_baseline_bytes": 1054519296,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "runtime_seconds": 361.6719999999914
+   },
+   "mode": "rehearse",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 137,
+    "import": -1,
+    "load": 205,
+    "pull_efficiency": 1005,
+    "rehearse": 973,
+    "run:blind_re1:at_price": 940,
+    "run:blind_re1:strictly_through": 883,
+    "run:clock_only:at_price": 968,
+    "run:clock_only:strictly_through": 904,
+    "run:informed-v0:at_price": 922,
+    "run:informed-v0:strictly_through": 501,
+    "run:no_quote:at_price": 932,
+    "run:no_quote:strictly_through": 876,
+    "score": 966
+   },
+   "wall_seconds": 361.9
+  },
+  "protoA_multi": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588527104,
+    "md_sha256": "0451b3550d64a7cc1bc48621df5a8330aaa05e0cc4508d1f9a7253247c834be3",
+    "peak_memory_above_baseline_bytes": 1605935104,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "report_sha256": "8355bdb9def0b17030d34d6646a8adca7e2b2d374f215dafd9a66a4c1010ac86"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 136,
+    "import": -1,
+    "load": 206,
+    "pull_efficiency": 1005,
+    "report_bytes": 1204,
+    "report_other": 1403,
+    "run:blind_re1:at_price": 943,
+    "run:blind_re1:strictly_through": 896,
+    "run:clock_only:at_price": 960,
+    "run:clock_only:strictly_through": 903,
+    "run:informed-v0:at_price": 925,
+    "run:informed-v0:strictly_through": 500,
+    "run:no_quote:at_price": 933,
+    "run:no_quote:strictly_through": 868,
+    "score": 966
+   },
+   "wall_seconds": 356.8
+  },
+  "protoA_reh": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1589055488,
+    "decisions_spans": 884952,
+    "engine_events": 42281,
+    "input_bytes": 33188280,
+    "peak_memory_above_baseline_bytes": 1607553024,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "runtime_seconds": 309.67200000000594
+   },
+   "mode": "rehearse",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 139,
+    "import": 0,
+    "load": 209,
+    "pull_efficiency": 1005,
+    "rehearse": 1405,
+    "run:blind_re1:at_price": 945,
+    "run:blind_re1:strictly_through": 888,
+    "run:clock_only:at_price": 960,
+    "run:clock_only:strictly_through": 904,
+    "run:informed-v0:at_price": 925,
+    "run:informed-v0:strictly_through": 500,
+    "run:no_quote:at_price": 934,
+    "run:no_quote:strictly_through": 867,
+    "score": 966
+   },
+   "wall_seconds": 309.9
+  },
+  "protoB2_multi": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588703232,
+    "md_sha256": "0451b3550d64a7cc1bc48621df5a8330aaa05e0cc4508d1f9a7253247c834be3",
+    "peak_memory_above_baseline_bytes": 1402081280,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "report_sha256": "8355bdb9def0b17030d34d6646a8adca7e2b2d374f215dafd9a66a4c1010ac86"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 139,
+    "import": -1,
+    "load": 207,
+    "pull_efficiency": 775,
+    "report_bytes": 1121,
+    "report_other": 746,
+    "run:blind_re1:at_price": 710,
+    "run:blind_re1:strictly_through": 652,
+    "run:clock_only:at_price": 731,
+    "run:clock_only:strictly_through": 675,
+    "run:informed-v0:at_price": 694,
+    "run:informed-v0:strictly_through": 385,
+    "run:no_quote:at_price": 702,
+    "run:no_quote:strictly_through": 638,
+    "score": 736
+   },
+   "wall_seconds": 316.3
+  },
+  "protoB2_reh": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588875264,
+    "decisions_spans": 884952,
+    "engine_events": 42281,
+    "input_bytes": 33188280,
+    "peak_memory_above_baseline_bytes": 815173632,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "runtime_seconds": 341.39100000000326
+   },
+   "mode": "rehearse",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 138,
+    "import": 0,
+    "load": 209,
+    "pull_efficiency": 776,
+    "rehearse": 743,
+    "run:blind_re1:at_price": 709,
+    "run:blind_re1:strictly_through": 652,
+    "run:clock_only:at_price": 732,
+    "run:clock_only:strictly_through": 675,
+    "run:informed-v0:at_price": 693,
+    "run:informed-v0:strictly_through": 385,
+    "run:no_quote:at_price": 702,
+    "run:no_quote:strictly_through": 646,
+    "score": 737
+   },
+   "wall_seconds": 341.6
+  },
+  "protoB_multi": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588690944,
+    "md_sha256": "0451b3550d64a7cc1bc48621df5a8330aaa05e0cc4508d1f9a7253247c834be3",
+    "peak_memory_above_baseline_bytes": 1402474496,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "report_sha256": "8355bdb9def0b17030d34d6646a8adca7e2b2d374f215dafd9a66a4c1010ac86"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 138,
+    "import": 0,
+    "load": 212,
+    "pull_efficiency": 777,
+    "report_bytes": 1121,
+    "report_other": 1175,
+    "run:blind_re1:at_price": 722,
+    "run:blind_re1:strictly_through": 665,
+    "run:clock_only:at_price": 744,
+    "run:clock_only:strictly_through": 676,
+    "run:informed-v0:at_price": 696,
+    "run:informed-v0:strictly_through": 386,
+    "run:no_quote:at_price": 707,
+    "run:no_quote:strictly_through": 638,
+    "score": 736
+   },
+   "wall_seconds": 329.4
+  },
+  "protoB_reh": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1588731904,
+    "decisions_spans": 884952,
+    "engine_events": 42281,
+    "input_bytes": 33188280,
+    "peak_memory_above_baseline_bytes": 1367527424,
+    "records": 79508,
+    "report_bytes": 225628370,
+    "runtime_seconds": 340.1409999999887
+   },
+   "mode": "rehearse",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 139,
+    "import": 0,
+    "load": 206,
+    "pull_efficiency": 778,
+    "rehearse": 1176,
+    "run:blind_re1:at_price": 722,
+    "run:blind_re1:strictly_through": 660,
+    "run:clock_only:at_price": 737,
+    "run:clock_only:strictly_through": 685,
+    "run:informed-v0:at_price": 694,
+    "run:informed-v0:strictly_through": 387,
+    "run:no_quote:at_price": 712,
+    "run:no_quote:strictly_through": 639,
+    "score": 737
+   },
+   "wall_seconds": 340.3
+  },
+  "s180_1": {
+   "dates": 1,
+   "measured": {
+    "baseline_memory_bytes": 1589014528,
+    "md_sha256": "4113190115a4be8512b951488f14baa64535c0b4cebb3ed46baac1f1c257aca9",
+    "peak_memory_above_baseline_bytes": 379633664,
+    "records": 9970,
+    "report_bytes": 34522382,
+    "report_sha256": "c4e8347296eb61fb73ed26d2a9e72cde641d24cfe40b45649b2c1cd2507a43ed"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "import": 0,
+    "load": 24,
+    "pull_efficiency": 290,
+    "report_bytes": 329,
+    "report_other": 332,
+    "run:blind_re1:at_price": 287,
+    "run:blind_re1:strictly_through": 170,
+    "run:clock_only:at_price": 289,
+    "run:clock_only:strictly_through": 224,
+    "run:informed-v0:at_price": 301,
+    "run:informed-v0:strictly_through": 69,
+    "run:no_quote:at_price": 287,
+    "run:no_quote:strictly_through": 121,
+    "score": 289
+   },
+   "wall_seconds": 53.4
+  },
+  "s180_15": {
+   "dates": 15,
+   "measured": {
+    "baseline_memory_bytes": 1589100544,
+    "md_sha256": "ba785f09a1cb3360cd60002d5ed08aa4d89f6109cd5cecbcffeac7b78df7e458",
+    "peak_memory_above_baseline_bytes": 5536428032,
+    "records": 149416,
+    "report_bytes": 557154352,
+    "report_sha256": "2af5cea9fe3829c802b87143fbe9faf7fa9659a5d635c5b82a2c52be47fb4c94"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "coverage_report": 258,
+    "import": 0,
+    "load": 262,
+    "pull_efficiency": 4244,
+    "report_bytes": 5229,
+    "report_other": 5160,
+    "run:blind_re1:at_price": 4200,
+    "run:blind_re1:strictly_through": 2577,
+    "run:clock_only:at_price": 4214,
+    "run:clock_only:strictly_through": 3356,
+    "run:informed-v0:at_price": 4524,
+    "run:informed-v0:strictly_through": 1044,
+    "run:no_quote:at_price": 4192,
+    "run:no_quote:strictly_through": 1809,
+    "score": 4209
+   },
+   "wall_seconds": 1210.8
+  },
+  "s180_3": {
+   "dates": 3,
+   "measured": {
+    "baseline_memory_bytes": 1588498432,
+    "md_sha256": "ede64443a79a14fd4223b764f36644b13d39acc7efa7383fa47eec95878e3939",
+    "peak_memory_above_baseline_bytes": 1119940608,
+    "records": 29898,
+    "report_bytes": 107477679,
+    "report_sha256": "b42e8d885e67f37a9e14c6e20fafc9e35d26c5cf6cdd020f0c2d9887ddd0de7b"
+   },
+   "mode": "multi",
+   "phase_peak_above_baseline_mib": {
+    "import": 0,
+    "load": 59,
+    "pull_efficiency": 857,
+    "report_bytes": 965,
+    "report_other": 999,
+    "run:blind_re1:at_price": 851,
+    "run:blind_re1:strictly_through": 514,
+    "run:clock_only:at_price": 854,
+    "run:clock_only:strictly_through": 670,
+    "run:informed-v0:at_price": 902,
+    "run:informed-v0:strictly_through": 208,
+    "run:no_quote:at_price": 848,
+    "run:no_quote:strictly_through": 361,
+    "score": 850
+   },
+   "wall_seconds": 168.4
+  }
+ },
+ "variants": {
+  "protoA": "report/baselines/pack_cli lifecycle + compact excluded intervals + chunked size",
+  "protoA2": "protoA + streamed decision digest (final A patch)",
+  "protoB": "protoA + slotted Span/DecisionEvent/QuoteDecision + shared zero reserve",
+  "protoB2": "protoB + streamed decision digest (final B patch)"
+ }
+}

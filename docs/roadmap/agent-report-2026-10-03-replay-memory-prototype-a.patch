@@ -1,0 +1,226 @@
+diff --git a/src/maker_core/replay/baselines.py b/src/maker_core/replay/baselines.py
+index d1fd53a6..20192c50 100644
+--- a/src/maker_core/replay/baselines.py
++++ b/src/maker_core/replay/baselines.py
+@@ -29,7 +29,8 @@ def matched_clock(bundles, config, target_result, *, check=lambda: None):
+     if target is None or actual is None:
+         return result, dict(status="UNMATCHED", target=target, actual=actual, tolerance=None, attempts=1)
+     tolerance = min(D(1), D(60) / covered)
+-    best = abs(actual-target), result, actual, D(0)
++    best = abs(actual-target), result.config.clock_pulls, actual, D(0)
++    held, result = result, None
+     low, high, attempts = D(0), D(1), 1
+     for _ in range(12):
+         check()
+@@ -43,18 +44,23 @@ def matched_clock(bundles, config, target_result, *, check=lambda: None):
+                     seconds = int((end-start).total_seconds() * float(fraction))
+                     if seconds:
+                         windows.append((c.condition_id, start, start+timedelta(seconds=seconds)))
++        held = None  # One clock replay alive at a time; the best is replayed again if it was not the last.
+         trial = replay(bundles, replace(base, clock_pulls=tuple(windows)), check=check)
+         got, _ = _fraction(score(trial, check=check))
+         attempts += 1
+         if got is None:
+             break
+         if abs(got-target) < best[0]:
+-            best = abs(got-target), trial, got, fraction
++            best = abs(got-target), trial.config.clock_pulls, got, fraction
++            held = trial
++        del trial
+         if got < target:
+             low = fraction
+         else:
+             high = fraction
+-    error, result, actual, fraction = best
++    error, pulls, actual, fraction = best
++    result = held if held is not None and held.config.clock_pulls == pulls else replay(
++        bundles, replace(base, clock_pulls=pulls), check=check)
+     return result, dict(status="MATCHED" if error <= tolerance else "UNMATCHED", target=target,
+                         actual=actual, tolerance=tolerance, absolute_error=error, attempts=attempts,
+                         calendar_prefix_fraction=fraction,
+diff --git a/src/maker_core/replay/pack_cli.py b/src/maker_core/replay/pack_cli.py
+index 9d3f1d78..22f822b6 100644
+--- a/src/maker_core/replay/pack_cli.py
++++ b/src/maker_core/replay/pack_cli.py
+@@ -108,7 +108,7 @@ def rehearse(paths, calibration_path, *, dates=CALIBRATION_DATES, now, clock=tim
+     Refuses every date outside ``dates`` before any bundle payload is read, so a
+     quote-panel date can never be rehearsed. Scores stay in memory and are discarded.
+     """
+-    from maker_core.replay.report import comparison_report, report_bytes
++    from maker_core.replay.report import comparison_report, report_size
+     started = clock()
+     # Interpreter plus imports, before any input: the unmultiplied memory baseline.
+     baseline = (memory or ceiling_rule.process_memory)()[1]
+@@ -130,9 +130,8 @@ def rehearse(paths, calibration_path, *, dates=CALIBRATION_DATES, now, clock=tim
+                           max_events=MAX_ENGINE_EVENTS, max_outputs=MAX_ENGINE_EVENTS)
+     with collect_stats() as passes:
+         report = comparison_report(_maintenance(bundles), config, check=check)
+-        raw, markdown = report_bytes(report)  # Only the rendered size is kept.
+-    rendered = len(raw) + len(markdown)
+-    del report, raw, markdown
++        rendered = report_size(report)  # Only the rendered size is kept.
++    del report
+     runtime = clock()-started
+     _, peak = (memory or ceiling_rule.process_memory)()
+     measured = dict(input_bytes=sum(b.input_bytes for b in bundles), records=sum(len(b.records) for b in bundles),
+diff --git a/src/maker_core/replay/report.py b/src/maker_core/replay/report.py
+index 3a02a296..7b2d57a0 100644
+--- a/src/maker_core/replay/report.py
++++ b/src/maker_core/replay/report.py
+@@ -1,6 +1,9 @@
+ """Deterministic dual-bound report composition; CLI authority is enforced before IO."""
+-from dataclasses import replace
+-from maker_core.evidence.journal import canonical_bytes, digest
++from collections.abc import Mapping
++from dataclasses import dataclass, fields, is_dataclass, replace
++import hashlib
++import json
++from maker_core.evidence.journal import canonical_bytes, digest, plain
+ from maker_core.replay.authorization import POLICIES
+ from maker_core.replay.baselines import matched_clock
+ from maker_core.replay.clarification_3 import quote_presence
+@@ -47,11 +50,18 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
+     for bound in BOUNDS:
+         check()
+         cfg = replace(config, policy="informed-v0", fill_bound=bound, clock_pulls=())
+-        results = {"informed-v0": replay(bundles, cfg, check=check)}
++        scores, traces = {}, {}
++        informed = replay(bundles, cfg, check=check)
++        scores["informed-v0"], traces["informed-v0"] = score(informed, check=check), _trace(informed)
+         for policy in ("no_quote", "blind_re1"):
+-            results[policy] = replay(bundles, replace(cfg, policy=policy), check=check)
+-        results["clock_only"], matching = matched_clock(bundles, cfg, results["informed-v0"], check=check)
+-        scores = {name: score(results[name], check=check) for name in POLICIES}
++            other = replay(bundles, replace(cfg, policy=policy), check=check)
++            scores[policy], traces[policy] = score(other, check=check), _trace(other)
++            del other
++        clock, matching = matched_clock(bundles, cfg, informed, check=check)
++        scores["clock_only"], traces["clock_only"] = score(clock, check=check), _trace(clock)
++        scores = {name: scores[name] for name in POLICIES}
++        pull = pull_efficiency(informed, clock, matching, replicates=replicates, seed=seed, check=check)
++        del informed, clock
+         intervals = {}
+         for baseline in POLICIES[1:]:
+             for metric in REPORTED_METRICS:
+@@ -63,23 +73,34 @@ def comparison_report(bundles, config=ReplayConfig(), *, replicates=2000, seed=2
+                 intervals[key] = dict(excluded_market_dates=excluded,
+                     intervals=cluster_intervals(cells, replicates=replicates, seed=seed, check=check))
+         report["bounds"][bound] = dict(scores=scores, intervals=intervals, clock_match=matching,
+-            quote_presence=quote_presence(scores),
+-            pull_efficiency=pull_efficiency(results["informed-v0"], results["clock_only"], matching,
+-                                           replicates=replicates, seed=seed, check=check),
+-            traces={name: dict(decision_count=len(r.decisions), decision_sha256=digest(r.decisions),
+-                              final_cash=r.final_cash, fills=r.fills, exclusions=r.exclusions,
+-                              excluded_intervals=[dict(start=s.start, end=s.end, condition_id=s.condition_id,
+-                                  reason=s.reason) for s in r.spans if s.evaluation_active and not s.covered])
+-                    for name, r in results.items()})
++            quote_presence=quote_presence(scores), pull_efficiency=pull, traces=traces)
+     return report
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class ExcludedInterval:
++    start: object
++    end: object
++    condition_id: str
++    reason: str
++
++
++def _trace(r):
++    return dict(decision_count=len(r.decisions), decision_sha256=_digest(r.decisions),
++                final_cash=r.final_cash, fills=r.fills, exclusions=r.exclusions,
++                excluded_intervals=[ExcludedInterval(s.start, s.end, s.condition_id, s.reason)
++                                    for s in r.spans if s.evaluation_active and not s.covered])
++
++
+ def _safe(value):
+     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace("|", "&#124;").replace("\n", " ").replace("\r", " ")
+ 
+ 
+ def report_bytes(report):
+-    raw = canonical_bytes(report)
++    return canonical_bytes(report), _markdown(report)[1]
++
++
++def _markdown(report):
+     lines = ["# Maker replay report", "", "**" + report["status"] + " — modeled counterfactuals.**", "",
+               "Full-session parity: NOT QUALIFIED. Recorded minutes match; terminal and transport coverage gaps remain; "
+              "no live or promotion verdict follows from replay.", "",
+@@ -149,4 +170,76 @@ def report_bytes(report):
+     lines += ["## Assumptions", "", *("- " + x for x in report["assumptions"]), "", "## Input hashes", ""]
+     for day, hashes in sorted(report["input_hashes"].items()):
+         lines.extend(f"- {day} / {_safe(k)}: `{v}`" for k, v in sorted(hashes.items()))
+-    return raw, ("\n".join(lines) + "\n").encode()
++    return None, ("\n".join(lines) + "\n").encode()
++
++
++_BATCH = 512
++
++
++def _dumps(value):
++    return json.dumps(plain(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
++
++
++def _big(value):
++    if is_dataclass(value) and not isinstance(value, type):
++        return len(fields(value)) > _BATCH
++    return isinstance(value, (Mapping, list, tuple)) and len(value) > _BATCH
++
++
++def _chunks(value):
++    """canonical_bytes(value) without the newline, as text chunks; never one plain() copy of a big container."""
++    if is_dataclass(value) and not isinstance(value, type):
++        value = {f.name: getattr(value, f.name) for f in fields(value)}
++    elif isinstance(value, Mapping):
++        if any(not isinstance(k, str) for k in value):
++            raise ValueError("canonical mappings require string keys")
++    elif not isinstance(value, (list, tuple)):
++        yield _dumps(value)
++        return
++    if isinstance(value, Mapping):
++        yield "{"
++        for i, key in enumerate(sorted(value)):
++            yield ("," if i else "") + json.dumps(key, ensure_ascii=True) + ":"
++            yield from _chunks(value[key])
++        yield "}"
++        return
++    yield "["
++    first, batch = True, []
++    def flush():
++        nonlocal first
++        if batch:
++            yield ("" if first else ",") + _dumps(batch)[1:-1]
++            first = False
++            batch.clear()
++    for item in value:
++        if isinstance(item, (Mapping, list, tuple)) or (is_dataclass(item) and not isinstance(item, type)):
++            if _big(item) or any(_big(v) for v in (item.values() if isinstance(item, Mapping) else
++                                 item if isinstance(item, (list, tuple)) else
++                                 (getattr(item, f.name) for f in fields(item)))):
++                yield from flush()
++                if not first:
++                    yield ","
++                first = False
++                yield from _chunks(item)
++                continue
++        batch.append(item)
++        if len(batch) >= _BATCH:
++            yield from flush()
++    yield from flush()
++    yield "]"
++
++
++def _digest(value):
++    """journal.digest(value) without one plain() copy of a big container."""
++    h = hashlib.sha256()
++    for chunk in _chunks(value):
++        h.update(chunk.encode("ascii"))
++    h.update(bytes([10]))
++    return h.hexdigest()
++
++
++def report_size(report):
++    """len(raw) + len(markdown) of report_bytes(report), without holding the raw JSON."""
++    size = 1 + sum(len(chunk) for chunk in _chunks(report))
++    _, markdown = _markdown(report)
++    return size + len(markdown)
