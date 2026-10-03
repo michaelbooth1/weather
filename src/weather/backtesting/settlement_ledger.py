@@ -19,6 +19,7 @@ from weather.paths import data_path
 import pandas as pd
 import requests
 
+from weather.cold_archive_locations import load_location
 from weather.collection.collection_health import coverage_summary, local_window, parse_times
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
@@ -1324,6 +1325,20 @@ def write_labels_csv(path, labels):
             writer.writerow(row)
 
 
+def _read_label_rows(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [row for row in csv.DictReader(handle) if row.get("event_slug")]
+
+
+def tape_is_archived(folder):
+    """True when the folder's tape left this disk under a cold-archive marker."""
+    tape = Path(folder) / "snapshots_long.csv"
+    return not tape.is_file() and load_location(tape) is not None
+
+
 def merge_labels_csv(path, labels):
     """Update rows for ``labels`` in place, keeping every other existing row.
 
@@ -1332,12 +1347,7 @@ def merge_labels_csv(path, labels):
     finalizing a subset must merge by ``event_slug`` instead.
     """
 
-    path = Path(path)
-    existing = []
-    if path.exists():
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            existing = [row for row in csv.DictReader(handle) if row.get("event_slug")]
-    by_slug = {row.get("event_slug"): row for row in existing}
+    by_slug = {row.get("event_slug"): row for row in _read_label_rows(path)}
     for label in labels:
         if label.get("event_slug"):
             by_slug[label["event_slug"]] = label
@@ -1450,6 +1460,7 @@ def finalize_folders(
     finalized_at = datetime.now(timezone.utc)
     labels = []
     failures = []
+    archived = set()
     ledger_root = resolve_ledger_root(ledger_root)
     write_resolution_specs(Path(ledger_root) / "resolution_specs.json")
     for folder in folders:
@@ -1470,11 +1481,16 @@ def finalize_folders(
             continue
         if label:
             labels.append(label)
+        elif tape_is_archived(folder):
+            archived.add(Path(folder).name)
     if failures:
         # A partial run must not rewrite the CSV from a partial label set:
         # write_labels_csv replaces the whole file, which would delete the rows
         # belonging to the folders that just failed. Merge by event_slug instead.
         merge_labels_csv(labels_csv, labels)
         raise FolderFinalizationError(failures, labels=labels)
-    write_labels_csv(labels_csv, labels)
+    # An archived tape cannot be re-finalized here, so its authoritative row is
+    # carried over unchanged instead of being dropped by the full rewrite.
+    retained = [row for row in _read_label_rows(labels_csv) if row["event_slug"] in archived] if archived else []
+    write_labels_csv(labels_csv, labels + retained)
     return labels

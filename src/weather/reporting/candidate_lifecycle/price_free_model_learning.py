@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from weather.backtesting.settlement_io import row_band_value_hi, resolve_outcome
+from weather.cold_archive_locations import MARKER_DIRECTORY, load_location, resolve_local_path
 from weather.io import iter_csv_rows, write_json_streaming_atomic
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
@@ -21,6 +22,7 @@ from weather.reporting.candidate_lifecycle.price_free_model_aggregation import (
     PriceFreeScratch,
 )
 from weather.reporting.formatting import markdown_table
+from weather.reporting.hourly.hourly_model_scoring import archived_tape_state
 from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_LABELS_CSV,
     DEFAULT_QUALITY_GRADES,
@@ -125,11 +127,21 @@ def timestamp_key(row):
 
 
 def read_csv_rows(path):
-    path = Path(path)
+    # Verified restore cache, or ArchivedInputRequired; never an empty archived tape.
+    path = resolve_local_path(path)
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _discover_tapes(snapshots_root):
+    """Local tapes in glob order, then tapes that exist only as archive markers."""
+    yield from snapshots_root.glob("*/snapshots_long.csv")
+    for marker in sorted(snapshots_root.glob(f"*/{MARKER_DIRECTORY}/snapshots_long.csv.json")):
+        tape = marker.parent.parent / "snapshots_long.csv"
+        if not tape.exists() and load_location(tape) is not None:
+            yield tape
 
 
 def discover_labeled_folders_bounded(
@@ -158,7 +170,7 @@ def discover_labeled_folders_bounded(
     else:
         candidates = (
             (label_from_folder(tape.parent), str(tape))
-            for tape in snapshots_root.glob("*/snapshots_long.csv")
+            for tape in _discover_tapes(snapshots_root)
         )
 
     for row, tie_sort in candidates:
@@ -191,8 +203,11 @@ def discover_labeled_folders_bounded(
         folder = label_folder(row, snapshots_root)
         tape = folder / "snapshots_long.csv" if folder else None
         if tape is None or not tape.exists():
-            skipped["missing_tape"] += 1
-            continue
+            state = archived_tape_state(tape) if tape is not None else None
+            if state != "cached":
+                # An archived day is reported apart from a tape that never existed.
+                skipped["archived" if state == "archived" else "missing_tape"] += 1
+                continue
         if not scratch.add_selected_label(
             tape_key=str(tape.resolve()),
             folder=folder,

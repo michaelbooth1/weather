@@ -33,6 +33,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.cold_archive_locations import load_location, resolve_local_path
 from weather.paths import data_path
 
 import pandas as pd
@@ -350,7 +351,7 @@ def run_replay_backtest(
 
     for folder in folders:
         tape_path = Path(folder) / "snapshots_long.csv"
-        if not tape_path.exists():
+        if not tape_path.exists() and load_location(tape_path) is None:
             print(f"  skip {folder}: no snapshots_long.csv")
             continue
         market_id = folder_market_id(folder)
@@ -362,7 +363,8 @@ def run_replay_backtest(
             print(f"  skip {Path(folder).name}: no replay_inputs.jsonl (capture not yet seeded)")
             continue
         model = model_for_market(market_id)
-        df = pd.read_csv(tape_path)
+        # Verified restore cache, or ArchivedInputRequired for an archived day.
+        df = pd.read_csv(resolve_local_path(tape_path))
         if "snapshot_id" not in df:
             continue
         slug = Path(folder).name

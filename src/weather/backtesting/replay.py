@@ -17,6 +17,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from weather.cold_archive_locations import resolve_local_path
 from weather.time import utc_now
 from weather.paths import data_path
 
@@ -49,9 +50,12 @@ REPLAY_STATUS_COLUMNS = [
 
 def _read_jsonl(path):
     records = []
-    if not Path(path).exists():
+    # An archived corpus resolves to its verified cache or raises
+    # ArchivedInputRequired; it is never read as an empty day.
+    path = resolve_local_path(path)
+    if not path.exists():
         return records
-    with Path(path).open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:

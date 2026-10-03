@@ -17,6 +17,7 @@ from weather.backtesting.replay import (
     reconstruct_corpus_for_folder,
     write_replay_input_status,
 )
+from weather.cold_archive_locations import load_location
 from weather.io import read_json, read_jsonl, write_json_atomic
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.model.model_constants import TORONTO_TZ
@@ -30,6 +31,8 @@ DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "replay_status_backfill.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "replay_status_backfill_report.md"
+EVIDENCE_FILENAMES = (REPLAY_INPUTS_FILENAME, RECONSTRUCTED_FILENAME, "snapshots.jsonl", "source_status_long.csv")
+STATUS_FILENAMES = (REPLAY_STATUS_FILENAME, REPLAY_STATUS_LONG_FILENAME)
 
 
 def parse_as_of(value=None):
@@ -80,17 +83,75 @@ def discover_folders(snapshots_root):
     return sorted(path for path in root.iterdir() if path.is_dir())
 
 
+def archived_files(folder, names=(*EVIDENCE_FILENAMES, *STATUS_FILENAMES)):
+    """name -> archive location for files that left this disk under a marker."""
+    folder = Path(folder)
+    found = {}
+    for name in names:
+        if not (folder / name).exists():
+            location = load_location(folder / name)
+            if location is not None:
+                found[name] = location
+    return found
+
+
 def existing_status_summary(folder):
     folder = Path(folder)
-    summary = read_json(folder / REPLAY_STATUS_FILENAME, default={}) or {}
+    archived = archived_files(folder, STATUS_FILENAMES)
+    summary = {} if REPLAY_STATUS_FILENAME in archived else (
+        read_json(folder / REPLAY_STATUS_FILENAME, default={}) or {})
     rows = _csv_row_count(folder / REPLAY_STATUS_LONG_FILENAME)
     if not summary and rows:
         summary = {"folder_status": "present", "snapshot_count": rows}
+    if not summary and archived:
+        # The status exists off-site; reuse it without restoring its bytes.
+        summary = {"folder_status": "archived"}
     return summary
+
+
+def _archived_folder_evidence(folder, archived):
+    """Evidence for a folder whose inputs are partly or wholly archived.
+
+    Archived files are described from their markers (exact size), never read,
+    so a reused status is not re-derived from inputs that are not on disk.
+    """
+
+    def records(name):
+        return None if name in archived else read_jsonl(folder / name)
+
+    def nonempty(name, rows):
+        return archived[name].member["size_bytes"] > 0 if name in archived else bool(rows)
+
+    def count(rows):
+        return None if rows is None else len(rows)
+
+    replay_records = records(REPLAY_INPUTS_FILENAME)
+    reconstructed_records = records(RECONSTRUCTED_FILENAME)
+    snapshot_records = records("snapshots.jsonl")
+    source_status_path = folder / "source_status_long.csv"
+    return {
+        "snapshots_jsonl_exists": "snapshots.jsonl" in archived or (folder / "snapshots.jsonl").exists(),
+        "snapshot_count": count(snapshot_records),
+        "replay_inputs_exists": REPLAY_INPUTS_FILENAME in archived or (folder / REPLAY_INPUTS_FILENAME).exists(),
+        "replay_input_count": count(replay_records),
+        "reconstructed_exists": RECONSTRUCTED_FILENAME in archived or (folder / RECONSTRUCTED_FILENAME).exists(),
+        "reconstructed_count": count(reconstructed_records),
+        "source_status_exists": "source_status_long.csv" in archived or source_status_path.exists(),
+        "source_status_row_count": None if "source_status_long.csv" in archived else _csv_row_count(source_status_path),
+        "invalid_replay_inputs": replay_records is not None and _file_nonempty(folder / REPLAY_INPUTS_FILENAME)
+        and not replay_records,
+        "has_raw_replay_evidence": nonempty(REPLAY_INPUTS_FILENAME, replay_records)
+        or nonempty(RECONSTRUCTED_FILENAME, reconstructed_records),
+        "has_snapshot_metadata": nonempty("snapshots.jsonl", snapshot_records),
+        "archived_inputs": sorted(archived),
+    }
 
 
 def folder_evidence(folder):
     folder = Path(folder)
+    archived = archived_files(folder, EVIDENCE_FILENAMES)
+    if archived:
+        return _archived_folder_evidence(folder, archived)
     replay_path = folder / REPLAY_INPUTS_FILENAME
     reconstructed_path = folder / RECONSTRUCTED_FILENAME
     snapshots_path = folder / "snapshots.jsonl"
@@ -146,13 +207,15 @@ def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=Fa
     target = folder_target_date(folder)
     options = [SCHEMA_VERSION, bool(target and target < as_of_date),
                reconstruct_missing, include_active]
+    # Archiving changes the signature but not the evidence: reuse, never rewrite.
+    archived = bool(archived_files(folder))
     cached = None
     if incremental and not overwrite:
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             result = cached["result"]
-            if (cached["inputs"] == signature and cached["options"] == options
-                    and (folder / REPLAY_STATUS_LONG_FILENAME).exists()
+            if ((cached["inputs"] == signature or archived) and cached["options"] == options
+                    and ((folder / REPLAY_STATUS_LONG_FILENAME).exists() or archived)
                     and cached["sha256"] == hashlib.sha256(
                         json.dumps(result, sort_keys=True).encode()).hexdigest()):
                 return result
@@ -160,7 +223,7 @@ def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=Fa
             cached = None
     result = _repair_folder_full(
         folder, as_of_date=as_of_date,
-        overwrite=overwrite or bool(cached and cached.get("inputs") != signature),
+        overwrite=overwrite or bool(cached and cached.get("inputs") != signature and not archived),
         reconstruct_missing=reconstruct_missing, include_active=include_active)
     if incremental and result.get("status_path"):
         # Build exactly the old existing-status response after a successful
@@ -201,7 +264,8 @@ def _repair_folder_full(folder, *, as_of_date, overwrite=False, reconstruct_miss
 
     status_path = folder / REPLAY_STATUS_LONG_FILENAME
     evidence = folder_evidence(folder)
-    if status_path.exists() and not overwrite:
+    status_present = status_path.exists() or load_location(status_path) is not None
+    if status_present and not overwrite:
         summary = existing_status_summary(folder)
         training_ready, reason = training_ready_from_status(base_training_ready, summary, evidence)
         return {
@@ -217,6 +281,21 @@ def _repair_folder_full(folder, *, as_of_date, overwrite=False, reconstruct_miss
             **evidence,
             **_status_fields(summary),
             "training_ready_reason": reason,
+        }
+
+    if evidence.get("archived_inputs") and not overwrite:
+        # Writing a status needs the input bytes; restore first or pass --overwrite
+        # to have the readers raise ArchivedInputRequired.
+        return {
+            "folder": str(folder),
+            "event_slug": folder.name,
+            "market_id": market_id,
+            "target_date": target_date.isoformat() if target_date else None,
+            "base_training_ready": base_training_ready,
+            "training_ready": False,
+            "action": "archived",
+            "reason": "archived_inputs_require_restore",
+            **evidence,
         }
 
     if reconstruct_missing and evidence.get("has_snapshot_metadata"):
