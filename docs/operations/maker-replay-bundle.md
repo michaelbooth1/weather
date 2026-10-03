@@ -492,6 +492,13 @@ Every manifest, run and verify command takes `--clarification-2` (v3, below, als
   is not positive), with per-cell detail. A `REPLAY_HURDLES_MET` status whose k = 0.3 bounds are not all positive gets
   `label: "hurdles_met_not_positive_at_measured_k"`. Neither changes a status, hurdle, reason or decision rule.
 
+**End-to-end dry run.** `tests/market/test_exam_dryrun_sequence.py` runs the 111e follow-up W2 runbook, step by step,
+as `python -P -B -m …` subprocesses with `PYTHONPATH=<worktree>\src`. It runs from module hash to the look's
+`.completed.json`, on a synthetic 18-day tree that `tools/research/exam_dryrun_fixture.py` writes with the production
+writers. A test-only `sitecustomize` fixes the clock at 2026-10-15 01:00 Toronto, pins the commit-charge reading and
+enrols the manifest in the look's process only; no source byte changes. The production-scale run is opt-in
+(`EXAM_DRYRUN_SLOW=1`). On Windows, use a short `--basetemp`: snapshot payload paths otherwise pass `MAX_PATH`.
+
 ### Clarification 3 (v3) reporting
 
 [Clarification 3](../research/maker-replay-clarification-3-2026-10-01.md) was **signed by the owner on
