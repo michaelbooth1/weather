@@ -26,6 +26,7 @@ from weather.operations import daily_roll_log_hygiene
 from weather.operations import event_metadata_validation
 from weather.operations import nightly_health_checks
 from weather.operations import replay_status_backfill
+from weather.operations.stage_a_settlement import finalize_incremental
 from weather.operations.daily_refresh_registry import (
     STEP_ORDER,
     carried_forward_steps,
@@ -656,8 +657,10 @@ def run_market_day_labels_finalize(args):
                 "target_date": ((restore_step.get("result") or {}).get("target_date")),
             }
     folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
-    labels = finalize_folders(
+    labels = finalize_incremental(
         folders,
+        as_of_date=replay_status_backfill.parse_as_of(getattr(args, "as_of", None)),
+        recent_days=0 if args.folders else getattr(args, "stage_a_recent_days", 7),
         daily_summary_path=args.daily_summary or None,
         labels_csv=args.labels_csv,
         overrides=parse_overrides(args.settle),

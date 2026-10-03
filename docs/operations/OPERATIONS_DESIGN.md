@@ -411,6 +411,30 @@ child instruction or descendant can run outside containment, and terminating
 the scheduled wrapper closes the only Job handle and tears down the tree.
 Failure to create, assign, or resume fails before daily-refresh work can begin.
 
+Stage-A hourly and ten-minute performance share a rebuildable per-folder
+`.scored_rows_cache.json`. Its key binds resolved input paths, sizes and
+nanosecond mtimes, the scorer schema, scoring-source signatures, the complete
+settlement label and thresholds. Corrupt caches are recomputed. Cache reads
+retain one market-day at a time; aggregation and promotion gates are unchanged.
+Replay-status backfill caches validated evidence/status summaries in
+`.replay_status_cache.json`; unchanged folders return before evidence parsing.
+Changed inputs invalidate that cache and refresh the status. CSV counts use a
+byte scan, retaining logical CSV parsing for quoted fields.
+
+`--stage-a-recent-days` defaults to seven: automatically discovered replay
+folders are limited to that target-date window, and label finalization revisits
+recent or unlabeled folders. Historical labels come from verified settlement
+ledgers, not folder copies; CSV publication retains unprocessed rows. Daily
+summaries load once per distinct path. Previously matched, closed venue
+resolution evidence is reused through the existing reconciler against the
+current local bucket; changed local settlement can still produce a mismatch.
+Unresolved labels use the normal reconciliation request. No freshness claim
+is made for retained terminal venue evidence; its original raw response hash
+(or absence) is preserved, never replaced with a projection hash. Explicit folders or a zero-day
+window request historical processing; the standalone replay backfill also
+accepts `--recent-days 0` and `--full-scan` to bypass reuse. These caches are
+derived accelerators and do not authorize changes to canonical evidence.
+
 Scheduled Stage A runs current fleet observability without the separate full
 historical audit or full-corpus trust replay. The latter would otherwise call
 `score_all_markets` across every settled `snapshots_long.csv`. The scheduled
