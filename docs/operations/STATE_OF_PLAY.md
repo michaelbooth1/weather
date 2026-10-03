@@ -21,8 +21,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - **Exam-period merge policy (2026-09-27):** during panel UTC days 09-30..10-13 only disk-relief and exam-tooling
   roll-sensitive merges land; everything else waits until after 10-13. Nothing joins an integration branch before its CI is green.
-- 2026-09-30 and 2026-10-01 owner decisions (swarm items; Clarifications 2 and 3 signed; tail-fix option A; desk-study
-  Clarification 1; review items) are rows in [DECISION_LOG](DECISION_LOG.md).
+- 2026-09-30, 2026-10-01 and 2026-10-02 owner decisions (swarm items; Clarifications 2 and 3 signed; tail-fix option A; desk-study
+  Clarification 1; review items; T+1/T+2 options A and C) are rows in [DECISION_LOG](DECISION_LOG.md).
 - **Workstation sessions are Claude Code** (Codex lapsed 2026-09-29); dispatch prompts start from
   [the session preamble](WORKSTATION_SESSION_PREAMBLE.md). Claude Code has no host-load hook; the S4U guard is its backstop.
 
