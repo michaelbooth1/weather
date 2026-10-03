@@ -60,6 +60,19 @@ gaps. They cover the entire selected universe because this worker does not
 assume another tape's current subscriptions. Overlapping public trades must be
 deduplicated by an analysis consumer; no own-account fill or backfill is claimed.
 
+Each socket thread only reads, sends `PING` and stamps receipt time; a per-session
+writer thread journals the session's rows in arrival order from a bounded queue of
+4,096 frames (the reader blocks only that far behind and never drops a frame), so an
+fsync or the store lock cannot stop the socket being drained and pinged. Stream,
+trade and lifecycle rows carry the reader's receipt time in `captured_at_utc`; the
+segment still rolls on the write clock. Frames received before a drop are journaled
+before the `disconnected` lifecycle row and the `stream_gap` row, both stamped when
+reading stopped. The 30-second inbound-silence deadline is judged only after a
+receive has just timed out. A venue close frame raises `VenueCloseError` and its
+gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not a
+close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
+failures; a session that stayed connected for 60 s resets it to the base.
+
 ## Storage and brakes
 
 Default root: `data/maker_evidence`. Schema `maker_evidence_v2` stores journals
@@ -148,6 +161,12 @@ daily projections by family, a stream-off projection against the 150 MB/day targ
 and incremental update bytes per 30-minute active window. These are observed-window
 extrapolations, not a full-day guarantee. Perform this scratch verification on the workstation; broader
 production-day inspection remains subject to the host load policy.
+
+`python -m weather.market.maker_evidence_disconnects --date <local date>` replays
+only the `stream_lifecycle` and `stream_gap` journals (plain or gzip) and reports
+socket drops by cause, channel and local hour, venue close codes, connect
+failures, orderly stops, dark seconds and session lifetimes, listing each input
+with its SHA-256. It is read-only and opens no connection.
 
 Run the offline compression/integrity inspection through the workstation heavy
 wrapper, which keeps the existing host/principal and shared-lease checks:

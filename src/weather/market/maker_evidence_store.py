@@ -233,7 +233,13 @@ class EvidenceStore:
         parts.append({"literal_utf8": text[prior:]})
         return {"parts": parts}
 
-    def record(self, kind, raw, *, metadata=None, change_key=None, stored_body=None, partition=None):
+    def record(self, kind, raw, *, metadata=None, change_key=None, stored_body=None, partition=None,
+               captured_at=None):
+        """Append one response; ``captured_at`` is a receive stamp taken before a queued write.
+
+        The segment still rolls on the write clock, so a frame received just
+        before an hour boundary can land in the next hour's segment.
+        """
         with self.lock:
             self._roll()
             if kind == "stream" and self.stream_capped:
@@ -247,7 +253,7 @@ class EvidenceStore:
             prior = self.latest.get(change_key) if change_key else None
             changed = not prior or prior[0] != content_hash
             self.sequence += 1
-            row = {"sequence": self.sequence, "captured_at_utc": self.clock().isoformat(),
+            row = {"sequence": self.sequence, "captured_at_utc": (captured_at or self.clock()).isoformat(),
                    "kind": kind, "response_bytes": len(raw), "response_sha256": digest(raw),
                    "body_stored": changed, **(metadata or {})}
             if change_key:
@@ -280,8 +286,8 @@ class EvidenceStore:
                 self.stream_bytes += len(raw)
             return changed
 
-    def event(self, kind, value, *, partition=None):
-        return self.record(kind, encoded(value), partition=partition)
+    def event(self, kind, value, *, partition=None, captured_at=None):
+        return self.record(kind, encoded(value), partition=partition, captured_at=captured_at)
 
     def subscription(self, tokens, channel):
         """Internal subscription content once per unique set in each rotated segment."""
