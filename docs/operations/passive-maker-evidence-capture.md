@@ -61,8 +61,8 @@ assume another tape's current subscriptions. Overlapping public trades must be
 deduplicated by an analysis consumer; no own-account fill or backfill is claimed.
 
 Each socket thread only reads, sends `PING` and stamps receipt time; a per-session
-writer thread journals the session's rows in arrival order from a bounded queue of
-4,096 frames (the reader blocks only that far behind and never drops a frame), so an
+writer thread journals the session's rows in arrival order from a queue bounded at
+4,096 frames and 64 MiB (the reader blocks only that far behind and never drops a frame), so an
 fsync or the store lock cannot stop the socket being drained and pinged. Stream,
 trade and lifecycle rows carry the reader's receipt time in `captured_at_utc`; the
 segment still rolls on the write clock. Frames received before a drop are journaled

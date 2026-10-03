@@ -27,6 +27,8 @@ RECONNECT_MAX_SECONDS = 30.0
 STABLE_SESSION_SECONDS = 60.0
 # Received frames waiting for the journal writer; the reader blocks only this far behind.
 MAX_PENDING_FRAMES = 4096
+# Byte bound on the same backlog: 4,096 frames of up to 2 MiB would otherwise be 8 GiB.
+MAX_PENDING_BYTES = 64 * 1024 * 1024
 
 
 def reconnect_delay(delay, random_fn=random.random):
@@ -39,9 +41,10 @@ class _JournalWriter:
 
     _STOP = object()
 
-    def __init__(self, max_pending):
+    def __init__(self, max_pending, max_bytes):
         self.error = None
         self._queue = queue.Queue(maxsize=max(1, int(max_pending)))
+        self._room, self._pending_bytes, self._max_bytes = threading.Condition(), 0, max_bytes
         self._thread = threading.Thread(target=self._run, name="maker-evidence-writer", daemon=True)
         self._thread.start()
 
@@ -49,11 +52,17 @@ class _JournalWriter:
         if self.error is not None:
             raise self.error
 
-    def put(self, write, *args):
+    def put(self, write, *args, size=0):
+        with self._room:
+            # One oversized frame may always queue alone; otherwise wait for the writer.
+            while self._pending_bytes and self._pending_bytes + size > self._max_bytes:
+                self.raise_error()
+                self._room.wait(0.5)
+            self._pending_bytes += size
         while True:
             self.raise_error()
             try:
-                self._queue.put((write, args), timeout=0.5)
+                self._queue.put((write, args, size), timeout=0.5)
                 return
             except queue.Full:
                 continue
@@ -65,6 +74,9 @@ class _JournalWriter:
                     item[0](*item[1])
                 except BaseException as exc:  # The reader re-raises it and ends the session.
                     self.error = exc
+            with self._room:
+                self._pending_bytes -= item[2]
+                self._room.notify_all()
 
     def close(self):
         """Write every queued row, then stop; a received frame is never dropped."""
@@ -77,6 +89,7 @@ class PublicStream:
     ping_seconds, silence_seconds = PING_SECONDS, SILENCE_SECONDS
     reconnect_base_seconds, reconnect_max_seconds = RECONNECT_BASE_SECONDS, RECONNECT_MAX_SECONDS
     stable_session_seconds, max_pending_frames = STABLE_SESSION_SECONDS, MAX_PENDING_FRAMES
+    max_pending_bytes = MAX_PENDING_BYTES
 
     def __init__(self, store, *, trades_only=False):
         self.store, self.trades_only = store, trades_only
@@ -152,7 +165,7 @@ class PublicStream:
     def _session(self, tokens, name, session):
         with connect() as socket:
             session["connected_monotonic"] = self.monotonic()
-            writer = _JournalWriter(self.max_pending_frames)
+            writer = _JournalWriter(self.max_pending_frames, self.max_pending_bytes)
             with self.counter_lock:
                 self.connected += 1
             try:
@@ -199,7 +212,7 @@ class PublicStream:
                 self.bytes += len(raw)
                 self.last_event_utc = received_at.isoformat()
             if not self.trades_only:
-                writer.put(self._update, raw, received_at)
+                writer.put(self._update, raw, received_at, size=len(raw))
                 continue
             payload = json.loads(raw)
             rows = payload if isinstance(payload, list) else [payload]
@@ -208,7 +221,7 @@ class PublicStream:
             trades = [row for row in rows if row.get("event_type") == "last_trade_price"
                       and str(row.get("asset_id")) in tokens]
             if trades:
-                writer.put(self._trades, raw, len(trades), received_at)
+                writer.put(self._trades, raw, len(trades), received_at, size=len(raw))
 
     def _lifecycle(self, state, tokens, name, at):
         self.store.event("stream_lifecycle", {"state": state, "channel": name,

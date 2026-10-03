@@ -368,3 +368,22 @@ def test_backoff_is_not_reset_by_a_short_session(monkeypatch, tmp_path):
 def test_reconnects_are_jittered_into_half_to_full_delay(monkeypatch, tmp_path):
     assert run_policy(monkeypatch, tmp_path, [None] * 3, random_value=0.0) == [1.0, 2.0, 4.0]
     assert module.reconnect_delay(8.0, lambda: 0.5) == 6.0
+
+
+def test_writer_backlog_is_bounded_by_bytes_and_keeps_order():
+    gate, written = threading.Event(), []
+    writer = module._JournalWriter(max_pending=100, max_bytes=10)
+    writer.put(lambda: (gate.wait(5), written.append("first")), size=8)
+    queued = threading.Event()
+
+    def second():
+        writer.put(lambda: written.append("second"), size=8)
+        queued.set()
+
+    threading.Thread(target=second, daemon=True).start()
+    assert not queued.wait(0.3)  # 16 bytes would exceed the 10-byte bound.
+    gate.set()
+    assert queued.wait(5)
+    writer.put(lambda: written.append("large"), size=50)  # Alone, an oversized frame still queues.
+    writer.close()
+    assert written == ["first", "second", "large"]
