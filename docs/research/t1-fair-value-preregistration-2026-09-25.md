@@ -150,3 +150,54 @@ per lead, beside the plain-NBP and fallback strata: `nbp_atoms` for
 pooled into the primary NBP strata or into the pooled descriptive table, which
 keeps exactly its frozen membership (plain NBP and fallback). An event still
 uses one estimator for all its bands. Nothing else changes.
+
+## Amendment 3 — 2026-10-02 (before scoring, owner decision; reported-only breakdown)
+
+Owner decision 2026-10-02 (DECISION_LOG). Written before scoring: no export,
+bundle, 88a record, settlement, fair value or score was read to write it. It adds
+one **reported-only** breakdown of the single 2026-10-15 read. It changes no
+estimator, estimand, panel, target dates, sampling rule, stratum, bootstrap,
+interval, threshold, status rule or decision rule above, and it authorizes no
+earlier or repeated look.
+
+Breakdown: assign each scored event-hour in `report.json` `selected_hours[]` to a
+bucket of minutes since the latest GFS availability, separately since the latest
+ECMWF availability, and separately since the latest of the two, using that row's
+`captured_at`. Buckets: [0, 60), [60, 120), [120, 240), [240, 360] minutes.
+Availability anchors are fixed engineering assumptions, not measured latency:
+
+- GFS: cycle 00/06/12/18Z + 210 minutes (the `nwp_release_cycles` default in
+  `src/weather/market/info_event_calendar.py`), i.e. 03:30, 09:30, 15:30, 21:30 UTC.
+- ECMWF IFS open data: cycle + 7 h 40 min, i.e. 07:40, 13:40, 19:40, 01:40 UTC.
+  Source: ECMWF's published real-time dissemination schedule (read 2026-10-02)
+  ends the 00Z/12Z medium-range control run at 07:34/19:34 UTC, and open data is
+  released at the end of that schedule; 06Z/18Z are given the same offset by
+  assumption. Any Open-Meteo ingestion lag is not included.
+
+Per lead and per bucket, report the paired provider-minus-mid Brier difference
+with exactly the frozen aggregation (bands, then hours within market-day, then
+market-days equally weighted), the frozen crossed date x market bootstrap
+(10,000 replicates, seed 110, two-sided 90% percentile intervals), the date-only
+sensitivity, cluster and event-hour counts, and the frozen `UNDERPOWERED` rule
+per cell. Membership is the frozen pooled descriptive table's (plain NBP and
+fallback); the tied-read strata are not broken down. No bucket is primary, none
+is compared against a threshold, and no difference between buckets is a finding
+or a selection rule for pull windows.
+
+Interpretation constraint, binding on the report: the plugin fair value updates
+only on NBM cycles (01/07/13/19Z, available by the frozen +1 h assumption at
+02:00, 08:00, 14:00 and 20:00 UTC), never on GFS or ECMWF. Disagreement between
+fair value and mid therefore changes at NBM times **by construction**, and the
+ECMWF anchors sit 20 minutes before NBM availability, so the ECMWF and "latest of
+either" breakdowns cannot separate an ECMWF effect from an NBM step. A bucket
+pattern here is not evidence about NWP-driven market moves; the market-only
+question is pre-registered separately in
+`docs/research/t12-nwp-timing-market-only-preregistration-2026-10-02.md`
+(branch `codex/t12-nwp-timing-prereg-20261002`).
+
+Execution: computed after the frozen scorer from its unchanged `report.json`
+(the scorer and its tables are untouched). If the reviewed post-processing step
+is not committed before the read, the breakdown is reported as not computed;
+it never delays, repeats or alters the frozen read. Note: the scorer records this
+file's SHA-256 from the scoring checkout, so the recorded hash reflects whether
+that checkout contains this amendment.

@@ -37,6 +37,16 @@ compact report records, streamed rendering and hashing, slotted engine records) 
 leave the per-date peak at 777 MiB at best, 1.42 × the ~546 MiB budget (report §3). Getting under it needs a pipeline whose retained state does
 not grow with spans and decisions: a streaming scorer, not a smaller one.
 
+## Measured at ~120 bands (2026-10-03, before any streaming code)
+
+The owner approved Option A on 2026-10-02. The streaming mission measured the 88a-sized universe first and stopped
+([report](../roadmap/agent-report-2026-10-03-replay-streaming.md)). At ~120 simultaneously selected bands on the same
+fixture density, one full date is a lower bound of 7.5 h runtime (budget ~546 s), ~31.5 GiB of report (budget
+~546 MiB) and ~596 MiB of input (budget ~546 MiB). The current code would retain ~224 GiB of memory. A byte-identical
+streaming pipeline changes only memory. **Option A therefore cannot make a ~120-band panel executable on this host**,
+and this draft no longer proposes signing it for that universe. It remains the right memory fix only for a universe
+small enough that runtime, report and input bytes fit, for example D ≈ 12. No panel data was read.
+
 ## Option A — operational: a streaming scored pipeline, then a fresh rehearsal
 
 - **What changes (code, operational only).** The engine hands each span and decision to incremental consumers instead
