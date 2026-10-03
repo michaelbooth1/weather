@@ -32,6 +32,13 @@ actual two LAN IPs for the illustrative RFC1918 addresses below:
 & $python -m weather.market.wallet_reader serve --bind 192.168.1.20 --allow 192.168.1.30 --port 8765 --signature-type 3
 ```
 
+On the workstation this command runs as the host-local S4U at-logon scheduled
+task `\WeatherWalletReader` (inventoried in `config/scheduled_tasks.json`). Its
+task name, `python.exe` action and `-m weather.market.wallet_reader serve`
+arguments are the identity the heavy-workload residual scan allowlists
+([host load policy](HOST_LOAD_POLICY.md)); renaming the task or changing its
+action makes stale-marker recovery count it as residual heavy work again.
+
 Optionally add `--campaign-capital <net-contributed-pUSD>` only after reconciling
 the dedicated campaign wallet's initial equity plus deposits minus withdrawals.
 For RE-1, the owner should pass equity at the **2026-09-22 campaign start**,

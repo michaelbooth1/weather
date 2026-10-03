@@ -396,6 +396,15 @@
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_training_window.ps1",
       "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherWalletReader",
+      "owner": "docs/operations/wallet-reader.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": null,
+      "registration_evidence": "workstation-local S4U at-logon task running weather.market.wallet_reader serve; definition absent from repository; workload_admission.ps1 residual-scan allowlist names it"
     }
   ]
 }
