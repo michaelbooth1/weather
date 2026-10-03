@@ -261,6 +261,19 @@ as evidence loss rather than accepted by coarse market-day routing. An empty tap
 explicitly disconnected evidence, not a quiet market. After route proof, the
 connection also has an inbound-silence deadline: a server `PONG` or market frame
 must continue arriving, so local heartbeat sends cannot sustain green status.
+The deadline is judged only when a socket receive has just timed out. Each
+connection's thread only reads the socket, sends `PING`, stamps receipt time and
+proves routes; tape appends, status writes and gap transitions run on a
+per-session writer thread in arrival order, so a slow fsync or the shared
+coordinator lock cannot starve the socket or be mistaken for server silence.
+Frames already received are written before the session's gap row. A venue close
+frame is recorded in the gap reason with its close code; an empty data frame is
+inbound liveness, not a disconnect. Reconnects wait a jittered delay in
+[d/2, d], doubling to 30 s, and a session that kept its routes proven for 60 s
+resets the delay to the 1 s base.
+`python -m weather.market.execution_tape_disconnects --date <local date>`
+groups the gap ledgers into socket-level disconnects and reports causes by local
+hour, dark seconds and session lifetimes; it is read-only.
 Any invalid execution message, unrouted execution, or ambiguous token/condition
 route changes global status to `DEGRADED_EVIDENCE_LOSS`; a healthy socket cannot
 override evidence loss.
