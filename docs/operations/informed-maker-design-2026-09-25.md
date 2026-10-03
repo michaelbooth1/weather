@@ -51,6 +51,13 @@ Boundaries: plugins import `maker_core.contracts` only; `maker_core.venue` is th
 `InfoEvent`s + portfolio → `decide()` → `QuoteDecision` (reason codes, input hashes) → runtime under capabilities → journal.
 The same `decide()` runs in replay and live (the maker's train/serve parity).
 
+Trading guard (owner 2026-09-25: pause and bleed limit in code before any live run; built 2026-10-03): before every
+order-placing decision the runtime calls `OrderGate.authorize(book)` (`maker_core/runtime/guard.py`), which returns ALLOW,
+PAUSE or HALT from the portfolio ledger book: HALT on bleed limit, an INCOMPLETE ledger (unknown P&L), stale wallet cash or
+any error; PAUSE on the owner pause file. PAUSE/HALT latch durably until the owner's `guard_latch clear` (no automatic
+resume) and emit a cancel-all intent; every submit redeems a single-use permit. Contract and conformance kit:
+[maker trading guard](maker-trading-guard.md).
+
 Ratchet (Phase 0, beside `test_package_dependency_edges_follow_documented_ratchet`): (a) no `weather` import under
 `src/maker_core/**`; no `polymarket`/`eth_account`/`dotenv` outside `maker_core/venue/`; no credential read outside
 `maker_core/runtime/credentials.py`; (b) `src/weather/market/maker_plugin/**` imports only `maker_core.contracts`; (c) a
@@ -165,7 +172,7 @@ venue rules name.
 | Session controller | RE-1 `Session` | rewrite as `runtime/session.py`; RE-1 as a parity profile |
 | Stage 2 hold build | `88aa7e43a` | do not migrate; freeze as fixtures |
 | 88a capture | master | keep on production; harness reads its segments |
-| Wallet reader | `codex/wallet-public-reader-20260925` | lift as `venue/account_read.py`; bleed rule → portfolio limit |
+| Wallet reader | `codex/wallet-public-reader-20260925` | lift as `venue/account_read.py`; bleed rule → portfolio limit, enforced by `runtime/guard.py` |
 | Markout + clustered inference | `execution_tape_markout.py` | reuse in `replay/score.py` |
 | Fill simulation | 89a `fill_toxicity_model.simulate` | lift as the harness fill model |
 | Observation clock, info calendar | `observation-clock` branch, `info_event_calendar.py` | weather plugin (fixed :52 replaced by station minutes) |
