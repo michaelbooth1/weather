@@ -1,0 +1,371 @@
+{
+ "fixture": "PR #166 fixture, churn 1, one capture cycle a minute, 2000*minutes/1440 trade rows, single date 2026-09-27",
+ "load_only": {
+  "D": 120,
+  "input_bytes": 17363866,
+  "minutes": 40,
+  "peak_above_baseline_MiB": 114.8,
+  "records": 40795,
+  "retained_MiB": 76.4,
+  "seconds": 1.2
+ },
+ "runs": [
+  {
+   "D": 12,
+   "baseline_memory_bytes": 1589055488,
+   "max_decisions_spans": 14064,
+   "max_engine_events": 588,
+   "md_sha256": "ea5e2ac1a1ae482c405cae9fabf89fa1141a546c5c11ff8b0bc6d2063425b4f3",
+   "minutes": 20,
+   "passes": [
+    {
+     "decisions": 7032,
+     "events": 588,
+     "fill_bound": "strictly_through",
+     "policy": "informed-v0",
+     "spans": 7032
+    },
+    {
+     "decisions": 7008,
+     "events": 586,
+     "fill_bound": "strictly_through",
+     "policy": "no_quote",
+     "spans": 7008
+    },
+    {
+     "decisions": 7008,
+     "events": 587,
+     "fill_bound": "strictly_through",
+     "policy": "blind_re1",
+     "spans": 7008
+    },
+    {
+     "decisions": 7008,
+     "events": 586,
+     "fill_bound": "strictly_through",
+     "policy": "clock_only",
+     "spans": 7008
+    },
+    {
+     "decisions": 7032,
+     "events": 588,
+     "fill_bound": "at_price",
+     "policy": "informed-v0",
+     "spans": 7032
+    },
+    {
+     "decisions": 7008,
+     "events": 586,
+     "fill_bound": "at_price",
+     "policy": "no_quote",
+     "spans": 7008
+    },
+    {
+     "decisions": 7008,
+     "events": 587,
+     "fill_bound": "at_price",
+     "policy": "blind_re1",
+     "spans": 7008
+    },
+    {
+     "decisions": 7008,
+     "events": 586,
+     "fill_bound": "at_price",
+     "policy": "clock_only",
+     "spans": 7008
+    }
+   ],
+   "peak_memory_above_baseline_bytes": 52088832,
+   "records": 1119,
+   "report_bytes": 5556991,
+   "report_sha256": "d0606e5667920ec567a36e4818e0720a28b1afb8be8ae33b3c5eb3ce86c3d6ca",
+   "seconds": 2.8
+  },
+  {
+   "D": 40,
+   "baseline_memory_bytes": 1588346880,
+   "max_decisions_spans": 134240,
+   "max_engine_events": 1680,
+   "md_sha256": "178276e9d974813c4d556c64b515396b40535d4a809a6218d55094a92918c575",
+   "minutes": 20,
+   "passes": [
+    {
+     "decisions": 67120,
+     "events": 1680,
+     "fill_bound": "strictly_through",
+     "policy": "informed-v0",
+     "spans": 67120
+    },
+    {
+     "decisions": 67040,
+     "events": 1678,
+     "fill_bound": "strictly_through",
+     "policy": "no_quote",
+     "spans": 67040
+    },
+    {
+     "decisions": 67040,
+     "events": 1679,
+     "fill_bound": "strictly_through",
+     "policy": "blind_re1",
+     "spans": 67040
+    },
+    {
+     "decisions": 67040,
+     "events": 1678,
+     "fill_bound": "strictly_through",
+     "policy": "clock_only",
+     "spans": 67040
+    },
+    {
+     "decisions": 67120,
+     "events": 1680,
+     "fill_bound": "at_price",
+     "policy": "informed-v0",
+     "spans": 67120
+    },
+    {
+     "decisions": 67040,
+     "events": 1678,
+     "fill_bound": "at_price",
+     "policy": "no_quote",
+     "spans": 67040
+    },
+    {
+     "decisions": 67040,
+     "events": 1679,
+     "fill_bound": "at_price",
+     "policy": "blind_re1",
+     "spans": 67040
+    },
+    {
+     "decisions": 67040,
+     "events": 1678,
+     "fill_bound": "at_price",
+     "policy": "clock_only",
+     "spans": 67040
+    }
+   ],
+   "peak_memory_above_baseline_bytes": 386703360,
+   "records": 3667,
+   "report_bytes": 54999536,
+   "report_sha256": "fb403a0044086629fb711f2e80ce6979001d3deb6db6322cd3afec71700cedfa",
+   "seconds": 31.9
+  },
+  {
+   "D": 60,
+   "baseline_memory_bytes": 1589026816,
+   "max_decisions_spans": 302400,
+   "max_engine_events": 2522,
+   "md_sha256": "23501cb4e83de70933ef84ea3aac4275b7156c961486ee122ee5d209655d43f1",
+   "minutes": 20,
+   "passes": [
+    {
+     "decisions": 151200,
+     "events": 2522,
+     "fill_bound": "strictly_through",
+     "policy": "informed-v0",
+     "spans": 151200
+    },
+    {
+     "decisions": 150960,
+     "events": 2518,
+     "fill_bound": "strictly_through",
+     "policy": "no_quote",
+     "spans": 150960
+    },
+    {
+     "decisions": 150893,
+     "events": 2519,
+     "fill_bound": "strictly_through",
+     "policy": "blind_re1",
+     "spans": 150960
+    },
+    {
+     "decisions": 150960,
+     "events": 2518,
+     "fill_bound": "strictly_through",
+     "policy": "clock_only",
+     "spans": 150960
+    },
+    {
+     "decisions": 151200,
+     "events": 2522,
+     "fill_bound": "at_price",
+     "policy": "informed-v0",
+     "spans": 151200
+    },
+    {
+     "decisions": 150960,
+     "events": 2518,
+     "fill_bound": "at_price",
+     "policy": "no_quote",
+     "spans": 150960
+    },
+    {
+     "decisions": 150893,
+     "events": 2519,
+     "fill_bound": "at_price",
+     "policy": "blind_re1",
+     "spans": 150960
+    },
+    {
+     "decisions": 150960,
+     "events": 2518,
+     "fill_bound": "at_price",
+     "policy": "clock_only",
+     "spans": 150960
+    }
+   ],
+   "peak_memory_above_baseline_bytes": 864509952,
+   "records": 7867,
+   "report_bytes": 122897856,
+   "report_sha256": "7833683fc8271d79b7e993e164cfdc6d8e46e851c7291b42a3647a98e54c8255",
+   "seconds": 90.9
+  },
+  {
+   "D": 120,
+   "baseline_memory_bytes": 1588502528,
+   "max_decisions_spans": 1181040,
+   "max_engine_events": 4923,
+   "md_sha256": "ef0e968abf058a4468f2f40b7a77108addfc67ddcb4800f343e2e31a65c37101",
+   "minutes": 20,
+   "passes": [
+    {
+     "decisions": 590520,
+     "events": 4923,
+     "fill_bound": "strictly_through",
+     "policy": "informed-v0",
+     "spans": 590520
+    },
+    {
+     "decisions": 589920,
+     "events": 4918,
+     "fill_bound": "strictly_through",
+     "policy": "no_quote",
+     "spans": 589920
+    },
+    {
+     "decisions": 589916,
+     "events": 4919,
+     "fill_bound": "strictly_through",
+     "policy": "blind_re1",
+     "spans": 589920
+    },
+    {
+     "decisions": 589920,
+     "events": 4918,
+     "fill_bound": "strictly_through",
+     "policy": "clock_only",
+     "spans": 589920
+    },
+    {
+     "decisions": 590520,
+     "events": 4923,
+     "fill_bound": "at_price",
+     "policy": "informed-v0",
+     "spans": 590520
+    },
+    {
+     "decisions": 589920,
+     "events": 4918,
+     "fill_bound": "at_price",
+     "policy": "no_quote",
+     "spans": 589920
+    },
+    {
+     "decisions": 589916,
+     "events": 4919,
+     "fill_bound": "at_price",
+     "policy": "blind_re1",
+     "spans": 589920
+    },
+    {
+     "decisions": 589920,
+     "events": 4918,
+     "fill_bound": "at_price",
+     "policy": "clock_only",
+     "spans": 589920
+    }
+   ],
+   "peak_memory_above_baseline_bytes": 3335434240,
+   "records": 20367,
+   "report_bytes": 486500871,
+   "report_sha256": "0c6b21bd3e94f152cdad198ad6fd08e28d0d93062d9c1c8c797a3bc5393954be",
+   "seconds": 332.2
+  },
+  {
+   "D": 120,
+   "baseline_memory_bytes": 1589235712,
+   "max_decisions_spans": 2390640,
+   "max_engine_events": 9963,
+   "md_sha256": "ea213918a375abe56a5ff079082631b1afa0b90604eca52e0c7d202d8cf71aa1",
+   "minutes": 40,
+   "passes": [
+    {
+     "decisions": 1195320,
+     "events": 9963,
+     "fill_bound": "strictly_through",
+     "policy": "informed-v0",
+     "spans": 1195320
+    },
+    {
+     "decisions": 1194240,
+     "events": 9954,
+     "fill_bound": "strictly_through",
+     "policy": "no_quote",
+     "spans": 1194240
+    },
+    {
+     "decisions": 1194234,
+     "events": 9955,
+     "fill_bound": "strictly_through",
+     "policy": "blind_re1",
+     "spans": 1194240
+    },
+    {
+     "decisions": 1194240,
+     "events": 9954,
+     "fill_bound": "strictly_through",
+     "policy": "clock_only",
+     "spans": 1194240
+    },
+    {
+     "decisions": 1195320,
+     "events": 9963,
+     "fill_bound": "at_price",
+     "policy": "informed-v0",
+     "spans": 1195320
+    },
+    {
+     "decisions": 1194240,
+     "events": 9954,
+     "fill_bound": "at_price",
+     "policy": "no_quote",
+     "spans": 1194240
+    },
+    {
+     "decisions": 1194234,
+     "events": 9955,
+     "fill_bound": "at_price",
+     "policy": "blind_re1",
+     "spans": 1194240
+    },
+    {
+     "decisions": 1194240,
+     "events": 9954,
+     "fill_bound": "at_price",
+     "policy": "clock_only",
+     "spans": 1194240
+    }
+   ],
+   "peak_memory_above_baseline_bytes": 6684090368,
+   "records": 40795,
+   "report_bytes": 938309080,
+   "report_sha256": "f833480c946b88be8094a9c409903eb36f0309af69300b64895ebfd1c36ddd62",
+   "seconds": 745.8
+  }
+ ],
+ "tool": "tools/research/replay_memory/prof.py --mode multi (8 passes, comparison_report + report_bytes)",
+ "tree": "664c8943 + PR #168 (dd4da634); exam source unchanged"
+}
