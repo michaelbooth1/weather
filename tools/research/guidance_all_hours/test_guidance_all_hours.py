@@ -16,15 +16,17 @@ def row(**v2):
     values.update(v2)
     return {"unit": "F", "v2_status": "available", "target_date": "2026-09-01",
             "features": {"nbm_prob_tmax_p50": 55, "nbm_prob_tmax_physical_valid_flag": 0,
-                         "nbm_prob_tmax_impossible_flag": 1, "guidance_physical_floor": 70.6,
-                         "high_so_far": 70.6, "forecast_high": 71}, **values}
+                         "nbm_prob_tmax_impossible_flag": 1, "guidance_physical_floor": 69.6,
+                         "high_so_far": 69.6, "forecast_high": 71}, **values}
 
 
 def test_only_nbm_values_and_flags_are_replaced():
     f = v2_features(row())
     assert f["nbm_prob_tmax_p50"] == 71 and f["nbm_prob_tmax_stddev"] == 2
     assert f["nbm_prob_tmax_physical_valid_flag"] == 1 and f["nbm_prob_tmax_impossible_flag"] == 0
-    assert f["forecast_high"] == 71 and f["guidance_physical_floor"] == 70.6
+    assert f["forecast_high"] == 71 and f["guidance_physical_floor"] == 69.6
+    assert v2_features({**row(), "features": {**row()["features"], "guidance_physical_floor": 70.6}})[
+        "nbm_prob_tmax_physical_valid_flag"] == 0   # p10 69 < 70.6 - 0.9: partially impossible
     bands = [{"kind": "lte", "low": 70, "high": 70}, {"kind": "eq", "low": 71, "high": 71},
              {"kind": "gte", "low": 72, "high": 72}]
     assert candidates(bands, [.2, .5, .3], f)[2] == "eligible"
