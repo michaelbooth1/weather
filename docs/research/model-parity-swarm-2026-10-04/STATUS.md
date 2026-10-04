@@ -1,6 +1,6 @@
 ﻿# Model-parity swarm v2 — STATUS
 
-**As of 04:13 local, 2026-10-04.** All numbers development. Phase: **verification extras done and folded into SYNTHESIS** (T27 independent reproduction of rungs 1-2: REPRODUCED, rung 1 clears Bonferroni; S7 gate optional, restored strength must reach the calibration taper. R-STAT-MG1: MG-1 and t3-r3 robust but fail multiplicity; 15-16 post-hoc). Running: full repo pytest via workstation_heavy.ps1 (~63%, slow PowerShell-heavy tests; 1 failure so far). Next: triage the failure, push, draft PR.
+**FINAL — 04:58 local, 2026-10-04.** All numbers development. **Swarm complete.** Draft PR #187 (https://github.com/michaelbooth1/weather/pull/187), origin/master merged (conflicts in OPEN_QUESTIONS Q-08/Q-09 and the generated correspondence index resolved). Tests: full repo pytest via workstation_heavy.ps1 7107 passed / 50 skipped / 1 failed (an untracked research file, fixed by committing it; import-architecture 27/27 after); agent_docs_audit PASS; correspondence index --check OK; GitHub CI green on 130ff210 (audit, test, hook x4, native-launch x4). Read `SYNTHESIS.md` first; owner decisions are listed there and in the PR body. Nothing merged, nothing served, no config changed.
 
 ## Headline (no-source parity ladder, `ladder.md`)
 - Two zero-parameter serving fixes using only captured data close 54% [35, 70] of the served−market excess (1.73x → 1.34x):
