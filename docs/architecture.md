@@ -143,6 +143,17 @@ daily-roll liveness classification.
   Source fingerprints exclude artifacts, so a source-roll verdict alone does not
   prove activation. Preserve fitted contexts when toggling the switch; never
   refit against this stage's own output. See [the decision and evidence](operations/ESTABLISHED_FINDINGS.md#2-the-cool-bias-is-real-and-is-not-correctable-at-serve).
+- The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
+  standing-high partial, late-day continuation) read one anchor built by
+  `late_day_lockin_anchor` in `weather.model.model_distribution`
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`). With WU printed history
+  present it is that history, unchanged. With WU history empty it is
+  `max(history_max, guidance_physical_floor)`, and `max_times` comes from the
+  point-in-time station/METAR rows. The calibration taper reads the resulting
+  strength. Every stage acts only above `round_half_up` of that anchor, so it
+  never weakens the observed floor. `python -m weather.backtesting.lockin_anchor_replay`
+  replays closed dates up to 2026-09-29, comparing the old and new anchors. It is
+  read-only.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.

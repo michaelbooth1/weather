@@ -51,6 +51,7 @@ from weather.model.model_distribution_constants import (
     HIGH_HAS_STOOD_START_HOUR,
     LATE_DAY_CONTINUATION_BLEND_15H,
     LATE_DAY_CONTINUATION_BLEND_17H,
+    LATE_DAY_LOCKIN_ANCHOR_VERSION,
     LATE_LOCKIN_BASE,
     LATE_LOCKIN_FULL_HOUR,
     LATE_LOCKIN_HEDGE,
@@ -505,13 +506,23 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
 
+        # One re-anchored history view for every late-day stage (S1-S6); the
+        # S7 calibration taper below reads the strength it produces.
+        lockin_anchor = self.late_day_lockin_anchor(
+            history=history,
+            history_max=history_max,
+            guidance_floor=guidance_floor,
+            station=station,
+            metar=metar,
+            now=now,
+        )
         scores, late_day_continuation = self.distribution_late_day_continuation_stage(
             scores,
             sources=sources,
             cutoff_hour=cutoff_hour,
             now=now,
             using_feature_model=using_feature_model,
-            observed_bucket=observed_bucket,
+            observed_bucket=lockin_anchor["bucket"],
             observed_support_bucket=observed_support_bucket,
             pipeline=pipeline,
         )
@@ -529,6 +540,7 @@ class DistributionMixin(DistributionSignalMixin):
             eccc_city=eccc_city,
             official_current_stale=bool((sources.get("metar") or {}).get("stale")),
             pipeline=pipeline,
+            lockin_anchor=lockin_anchor,
         )
 
         scores = self.normalize_scores(scores)
@@ -1173,6 +1185,76 @@ class DistributionMixin(DistributionSignalMixin):
                 )
         return scores, late_day_continuation
 
+    def late_day_lockin_anchor(
+        self,
+        *,
+        history,
+        history_max,
+        guidance_floor,
+        station=None,
+        metar=None,
+        now=None,
+    ):
+        """Return the one history view every late-day lock-in stage reads.
+
+        Lock-in anchor contract ``LATE_DAY_LOCKIN_ANCHOR_VERSION``.  While the
+        WU printed history supplies the high, the view is that history,
+        untouched (the pre-restoration anchor).  When it is empty, as it has
+        been since paid WU access was disabled, the lock-in re-anchors on
+        ``lockin_high = max(history_max, guidance_floor)``: the observed
+        physical floor the model already computes from captured station
+        evidence.  ``max_times`` is then the first point-in-time station/METAR
+        row (at or before ``now``) whose running maximum reached the lock-in
+        bucket ``B = round_half_up(lockin_high)``, else the first row at the
+        point-in-time running maximum.  No constant or stage logic changes;
+        every stage still acts only above ``B``.
+        """
+        history = history or {}
+        legacy = bool(getattr(self, "late_day_lockin_legacy_wu_anchor", False))
+        anchor = {
+            "version": LATE_DAY_LOCKIN_ANCHOR_VERSION,
+            "source": "wu_history" if history_max is not None else None,
+            "high": history_max,
+            "bucket": self.round_half_up(history_max),
+            "first_reached_time": (history.get("max_times") or [None])[0],
+            "legacy_wu_anchor": legacy,
+            "history": history,
+        }
+        floor = self.to_number(guidance_floor)
+        if history_max is not None or floor is None or legacy:
+            return anchor
+        bucket = self.round_half_up(floor)
+        now_minute = now.hour * 60 + now.minute if now is not None else None
+        rows = []
+        for row in (station or {}).get("rows") or (metar or {}).get("rows") or []:
+            minute = self.minute_of_day(row.get("time") or row.get("local_time"))
+            value = self.row_temp_native(row)
+            if minute is None or value is None:
+                continue
+            if now_minute is not None and minute > now_minute:
+                continue
+            rows.append((minute, row.get("time") or row.get("local_time"), value))
+        rows.sort(key=lambda item: item[0])
+        first_time = next(
+            (time for _, time, value in rows if self.round_half_up(value) >= bucket),
+            None,
+        )
+        if first_time is None and rows:
+            running_max = max(value for _, _, value in rows)
+            first_time = next(time for _, time, value in rows if value == running_max)
+        view = dict(history)
+        view["max_native"] = floor
+        view["max_c"] = floor
+        view["max_times"] = [first_time] if first_time else []
+        anchor.update({
+            "source": "guidance_physical_floor",
+            "high": floor,
+            "bucket": bucket,
+            "first_reached_time": first_time,
+            "history": view,
+        })
+        return anchor
+
     def distribution_late_day_lockin_stage(
         self,
         scores,
@@ -1189,8 +1271,17 @@ class DistributionMixin(DistributionSignalMixin):
         eccc_city,
         pipeline,
         official_current_stale=False,
+        lockin_anchor=None,
     ):
-        """Apply late-day lock-in and return the metadata needed downstream."""
+        """Apply late-day lock-in and return the metadata needed downstream.
+
+        ``lockin_anchor`` (from ``late_day_lockin_anchor``) supplies the one
+        history view and high that S1-S5 read; without it the stage reads the
+        WU history exactly as before.
+        """
+        if lockin_anchor is not None:
+            history = lockin_anchor["history"]
+            history_max = lockin_anchor["high"]
         current_reading = current_temp if current_temp is not None else metar_temp
         heuristic_lockin_strength = self.late_day_lockin_strength(
             now.hour,
@@ -1289,6 +1380,10 @@ class DistributionMixin(DistributionSignalMixin):
         high_has_stood_context["standing_high_partial_lockin"] = partial_lockin_context
         high_has_stood_context["heuristic_lockin_strength"] = heuristic_lockin_strength
         high_has_stood_context["learned_lockin_strength"] = learned_lockin_strength
+        if lockin_anchor is not None:
+            high_has_stood_context["lockin_anchor"] = {
+                key: value for key, value in lockin_anchor.items() if key != "history"
+            }
         partial_strength = (
             partial_lockin_context.get("strength") or 0.0
             if partial_lockin_context.get("active")

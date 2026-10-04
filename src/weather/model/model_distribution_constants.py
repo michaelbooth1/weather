@@ -167,4 +167,8 @@ STANDING_HIGH_PARTIAL_ONE_UP_RETAINED = 0.55
 STANDING_HIGH_PARTIAL_TWO_UP_RETAINED = 0.30
 STANDING_HIGH_PARTIAL_BASE = 0.18
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
+# Serving-stage version of the late-day lock-in anchor (stamped into the
+# component payload as high_has_stood_lockin.lockin_anchor.version). v2 re-anchors
+# on max(WU history high, guidance physical floor) when WU history is empty.
+LATE_DAY_LOCKIN_ANCHOR_VERSION = "late_day_lockin_anchor_v2"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
