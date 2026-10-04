@@ -37,6 +37,12 @@ UNCHANGED_SECONDS = 2 * 86400
 # NTFS cannot shrink a file that fits in one 4 KiB cluster (or is resident in
 # its MFT record); such files are skipped at selection, never compressed.
 CLUSTER_BYTES = 4096
+# The capture loops atomically replace their status files. An admission read
+# that lands inside a replace meets a delete-pending file (PermissionError) or,
+# through the tolerant loop reader, an unreadable row (BLOCK). One fresh complete
+# observation after a short pause decides; the admission criteria are unchanged.
+ADMISSION_RETRY_SECONDS = 0.25
+MAX_ADMISSION_NOTES = 32
 
 
 def validate_policy(policy, root, now):
@@ -62,6 +68,13 @@ def validate_policy(policy, root, now):
 
 
 def closed_folders(data_root, as_of, guard):
+    """Closed built-in event folders, oldest first.
+
+    Root entries are classified by name only. Live status files, locks and hot
+    event folders are never stat'ed or opened, so a producer replacing one cannot
+    fail selection; only selected closed-day folders are checked, and an error on
+    one of those refuses.
+    """
     snapshots = inventory.validate_root(data_root / "snapshots")
     selected = []
     with PinnedNtfsDirectory(snapshots), os.scandir(snapshots) as entries:
@@ -77,6 +90,24 @@ def closed_folders(data_root, as_of, guard):
             inventory.checked_stat(Path(entry.path), directory=True)
             selected.append((day, "snapshots/" + entry.name))
     return [name for _, name in sorted(selected)]
+
+
+def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep):
+    """Capture admission, re-observed once after a transient status-read race."""
+    observe = observe or cold.observe_capture_admission
+    try:
+        admission = observe(root, resources)
+        if admission["status"] == "PASS":
+            return admission
+        first = "BLOCK: " + ",".join(admission["reasons"])
+    except PermissionError as exc:
+        first = f"PermissionError: {exc}"
+    notes["admission_retries"] += 1
+    if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
+        notes["admission_retry_notes"].append({
+            "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": first[:512]})
+    sleep(ADMISSION_RETRY_SECONDS)
+    return observe(root, resources)
 
 
 def eligible(row, *, now):
@@ -188,7 +219,7 @@ def run(args):
                     result["status"] = "BLOCK"
                     result["reasons"].append("large_file_disk_reservation_unmet")
                 return result
-            admission = cold.observe_capture_admission(root, resources)
+            admission = observe_admission(root, resources, receipt)
             if admission["status"] != "PASS":
                 raise ValueError("nightly capture admission refused: " + ",".join(admission["reasons"]))
             cold.verify_current_lease(lease, owner, lease_path, workload=cold.WORKLOAD)
@@ -199,7 +230,7 @@ def run(args):
         "execution_host_id": policy["execution_host_id"], "owner_approved_exception": "",
         "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
         "reclaimed_bytes": 0, "logical_bytes_processed": 0, "files_processed": 0,
-        "files_skipped_unshrinkable": 0,
+        "files_skipped_unshrinkable": 0, "admission_retries": 0, "admission_retry_notes": [],
         "nightly_budget_bytes": budget, "batches": [], "status": "FAILED_RETAIN_AND_INSPECT"}
     with PinnedNtfsDirectory(output):
         cold.write_receipt_bytes(output / "request.json", raw, cold.MAX_REQUEST_BYTES)
