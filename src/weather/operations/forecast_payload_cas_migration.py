@@ -620,6 +620,7 @@ def _legacy_candidate(
                 identity,
                 source_url=(wrapper or {}).get("source_url"),
                 fetched_at=(wrapper or {}).get("fetched_at"),
+                parser_version=(wrapper or {}).get("parser_version") or row.get("parser_version"),
             )
             if (
                 replayed.get("station_id") != identity["station_id"]
@@ -713,6 +714,7 @@ def _shared_reference_candidate(
             identity,
             source_url=row.get("source_url"),
             fetched_at=row.get("fetched_at"),
+            parser_version=row.get("parser_version"),
         )
         if (
             replayed.get("station_id") != identity["station_id"]

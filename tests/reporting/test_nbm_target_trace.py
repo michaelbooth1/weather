@@ -78,3 +78,64 @@ def test_retained_evidence_matches_manifest():
     manifest = json.loads((EVIDENCE / "file-manifest.json").read_text())
     for name, digest in manifest.items():
         assert hashlib.sha256((EVIDENCE / name).read_bytes()).hexdigest() == digest, name
+
+
+def test_t1_v1_binding_reproduces_all_396_retained_parser_rows(monkeypatch):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from tools.research.nbm_target_trace import run as trace
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("parser-only reproduction must not observe, fetch or run a study stage")
+
+    monkeypatch.setattr(trace, "observations", forbidden)
+    monkeypatch.setattr(trace, "fetch", forbidden)
+    monkeypatch.setattr(trace, "t1", forbidden)
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden)
+    columns = ("chosen_group", "chosen_token", "valid_time_utc", "period_kind",
+               "period_date", "p50", "reason", "classification")
+    with (EVIDENCE / "picks.csv").open(newline="") as handle:
+        # Compare only parser-derived columns, never the observed-temperature fields.
+        expected = {(row["cycle"], row["station"], row["target_offset"]):
+                    {name: row[name] for name in columns} for row in csv.DictReader(handle)}
+    specs = {spec["station"]: spec for spec in trace.stations().values()}
+    blocks = sorted((EVIDENCE / "blocks").glob("*.txt"))
+    assert len(blocks) == 132 and len(expected) == 396
+    reproduced = {}
+    for path in blocks:
+        block = path.read_text()
+        cycle, station = path.stem.split("-")
+        issued, _, _ = trace.token_grid(block)
+        local_day = issued.astimezone(ZoneInfo(specs[station]["timezone"])).date()
+        for offset in (-1, 0, 1):
+            key = (cycle, station, str(offset))
+            row = trace.t1_parser_pick(block, station, local_day + timedelta(days=offset))
+            reproduced[key] = {name: "" if row[name] is None else str(row[name]) for name in columns}
+    assert reproduced.keys() == expected.keys()
+    differences = [{"row": key, "column": name, "expected": expected[key][name],
+                    "actual": row[name]} for key, row in reproduced.items()
+                   for name in columns if row[name] != expected[key][name]]
+    assert differences == [], differences
+
+
+def test_t1_13z_klga_keeps_the_recorded_v1_wrong_period(monkeypatch):
+    from datetime import date
+    from tools.research.nbm_target_trace import run as trace
+    from weather.sources import nbm_probabilistic_tmax as source
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("the historical T1 binding must not reach the version-2 default")
+
+    monkeypatch.setattr(source, "parse_nbp_station_tmax", forbidden)
+    monkeypatch.setattr(trace, "parse_nbp_station_tmax", forbidden, raising=False)
+    monkeypatch.setattr(trace, "observations", forbidden)
+    monkeypatch.setattr(trace, "fetch", forbidden)
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden)
+    block = (EVIDENCE / "blocks/20260917T13Z-KLGA.txt").read_text()
+    row = trace.t1_parser_pick(block, "KLGA", date(2026, 9, 17))
+    assert row == {
+        "chosen_group": 0, "chosen_token": 0,
+        "valid_time_utc": "2026-09-18T12:00:00+00:00",
+        "period_kind": "minimum", "period_date": "2026-09-18", "p50": 72.,
+        "reason": None, "classification": "wrong",
+    }

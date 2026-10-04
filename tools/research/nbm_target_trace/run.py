@@ -22,8 +22,8 @@ import requests
 
 from weather.paths import repo_path
 from weather.sources.nbm_probabilistic_tmax import (
-    _parse_issue_time, _slot_index_for_target, _parse_pair_row,
-    parse_nbp_station_tmax,
+    _parse_issue_time, _slot_index_for_target_v1, _parse_pair_row,
+    parse_nbp_station_tmax_v1,
 )
 
 DATES = ("2026-09-17", "2026-09-18", "2026-09-19")
@@ -209,6 +209,21 @@ def t0(root, cache=None):
     print(json.dumps(dict(stage="T0", tokens=len(tokens), blocks=132)), flush=True)
 
 
+def t1_parser_pick(block, station, target):
+    """The parser-only T1 row, frozen to the v1 rule measured by 82a."""
+    issued, _, grid = token_grid(block)
+    fhr_line = next(line for line in block.splitlines() if line[:6].strip() == "FHR")
+    payload = parse_nbp_station_tmax_v1(block, station, target)
+    group = _slot_index_for_target_v1(_parse_pair_row(fhr_line), issued, target)
+    cell = next((c for c in grid if c["group"] == group and c["token"] == 0), {})
+    right = cell.get("period_kind") == "maximum" and cell.get("period_date") == target.isoformat()
+    return dict(chosen_group=group, chosen_token=0 if group is not None else None,
+                valid_time_utc=cell.get("valid_time_utc"),
+                period_kind=cell.get("period_kind"), period_date=cell.get("period_date"),
+                classification="unavailable" if not payload["available"] else "right" if right else "wrong",
+                p50=payload.get("percentiles", {}).get("50"), reason=payload.get("reason"))
+
+
 def t1(root, cache=None):
     json.loads((root / "t0/receipt.json").read_text())
     out = root / "t1"
@@ -218,28 +233,20 @@ def t1(root, cache=None):
     picks = []
     for path in sorted((root / "t0/blocks").glob("*.txt")):
         block = path.read_text()
-        issued, rows, grid = token_grid(block)
+        issued, _, _ = token_grid(block)
         station = path.stem.split("-")[-1]
         market, spec = next((m, s) for m, s in stations().items() if s["station"] == station)
         local_day = issued.astimezone(ZoneInfo(spec["timezone"])).date()
-        fhr_line = next(line for line in block.splitlines() if line[:6].strip() == "FHR")
         for offset in (-1, 0, 1):
             target = local_day + timedelta(days=offset)
-            payload = parse_nbp_station_tmax(block, station, target)
-            group = _slot_index_for_target(_parse_pair_row(fhr_line), issued, target)
-            cell = next((c for c in grid if c["group"] == group and c["token"] == 0), {})
-            right = cell.get("period_kind") == "maximum" and cell.get("period_date") == target.isoformat()
+            parser_pick = t1_parser_pick(block, station, target)
             observation = obs.get((market, target.isoformat()), {})
             picks.append(dict(cycle=path.stem.split("-")[0], hour=issued.hour, market=market,
                               station=station, local_issue_date=local_day.isoformat(),
                               target_offset=offset, target_date=target.isoformat(),
-                              chosen_group=group, chosen_token=0 if group is not None else None,
-                              valid_time_utc=cell.get("valid_time_utc"),
-                              period_kind=cell.get("period_kind"), period_date=cell.get("period_date"),
-                              classification="unavailable" if not payload["available"] else "right" if right else "wrong",
-                              p50=payload.get("percentiles", {}).get("50"),
+                              **{key: value for key, value in parser_pick.items() if key != "reason"},
                               observed_max_f=observation.get("max_f"), observed_min_f=observation.get("min_f"),
-                              reason=payload.get("reason")))
+                              reason=parser_pick["reason"]))
     from collections import Counter
     counts = Counter((r["hour"], r["target_offset"], r["classification"]) for r in picks)
     summary = [dict(hour=k[0], offset=k[1], classification=k[2], n=v) for k, v in sorted(counts.items())]

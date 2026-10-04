@@ -1,0 +1,58 @@
+{
+  "mission": "2026-09-83d",
+  "implementation_commit": "b18250dc56af87d9b7f245a08ee42034cec82dd8",
+  "binding": [
+    "parse_nbp_station_tmax_v1",
+    "_slot_index_for_target_v1"
+  ],
+  "retained_blocks": 132,
+  "target_offsets": [
+    -1,
+    0,
+    1
+  ],
+  "compared_rows": 396,
+  "differing_rows": 0,
+  "compared_columns": [
+    "chosen_group",
+    "chosen_token",
+    "valid_time_utc",
+    "period_kind",
+    "period_date",
+    "p50",
+    "reason",
+    "classification"
+  ],
+  "comparison": "Exact retained CSV strings; None serializes to an empty string. Classification uses payload availability and selected token period kind/date, without observed temperatures.",
+  "focused_run": {
+    "passed": 9,
+    "failed": 0,
+    "seconds": 0.68,
+    "junit_seconds": 0.661,
+    "junit_path": "scratch/83d-focused.xml",
+    "junit_sha256": "a0f83cb7526695936041ba3e84074567050093523136e45964a014cfeb790951",
+    "execution_state": "The three-file trace patch was present but uncommitted atop c6c58155faf6f78c6ba714eff1abebc8ee28ef18; subsequently committed as b18250dc56af87d9b7f245a08ee42034cec82dd8.",
+    "basetemp": "C:/tmp/83d2p",
+    "temporary_directory_removed": true
+  },
+  "small_control": {
+    "block": "20260917T13Z-KLGA.txt",
+    "target": "2026-09-17",
+    "chosen_group": 0,
+    "chosen_token": 0,
+    "valid_time_utc": "2026-09-18T12:00:00+00:00",
+    "period_kind": "minimum",
+    "period_date": "2026-09-18",
+    "p50": 72,
+    "reason": null,
+    "classification": "wrong"
+  },
+  "observations_or_fetch_called": false,
+  "historical_study_stage_rerun": false,
+  "retained_evidence_changed": false,
+  "full_suite_commits": [
+    "abd648c7c2de55289e88dc7d023136b981e2cb74",
+    "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69"
+  ],
+  "retained_evidence_git_tree": "0d7dfb91e38c78191b9dd6838a90a31749b779b8"
+}

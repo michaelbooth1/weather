@@ -33,6 +33,9 @@ from weather.sources.nbm_probabilistic_tmax import (
     NBM_PROB_TMAX_SCHEMA_VERSION,
     nbp_cycle_key,
     nbp_cycle_candidates,
+    nbp_target_cycle_candidates,
+    NBM_NBP_PARSER_V2,
+    NBPClockError,
     nbp_request_key,
     nbp_text_url,
     parse_nbp_station_tmax,
@@ -1712,7 +1715,10 @@ class SourceFetchMixin:
             }
         tried_urls = []
         last_payload = None
-        for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
+        now = datetime.now(timezone.utc)
+        for run_time in nbp_target_cycle_candidates(
+            now, self.target_date, cycles=nbp_cycle_candidates(now, hours_back=24)
+        ):
             url = nbp_text_url(run_time)
             tried_urls.append(url)
             try:
@@ -1738,7 +1744,8 @@ class SourceFetchMixin:
                         "response_received_at": response_received_at,
                     }
 
-                fanout_result = fanout.fetch(
+                fetch_bulletin = getattr(fanout, "fetch_reusable_nbp", fanout.fetch)
+                fanout_result = fetch_bulletin(
                     source="nbm_probabilistic_tmax",
                     request_key=nbp_request_key(url),
                     cycle_key=nbp_cycle_key(run_time),
@@ -1756,13 +1763,22 @@ class SourceFetchMixin:
                 if self.http_status(exc) in {403, 404}:
                     continue
                 raise
-            payload = parse_nbp_station_tmax(
-                text,
-                self.spec.icao,
-                self.target_date,
-                source_url=url,
-                fetched_at=fetched_at,
-            )
+            try:
+                payload = parse_nbp_station_tmax(
+                    text,
+                    self.spec.icao,
+                    self.target_date,
+                    source_url=url,
+                    fetched_at=fetched_at,
+                    parser_version=NBM_NBP_PARSER_V2,
+                )
+            except NBPClockError as exc:
+                payload = exc.payload
+            # Keep network time in fetched_at; cycle age describes this use.
+            captured_at = datetime.now(timezone.utc)
+            if payload.get("issued_at"):
+                issued_at = datetime.fromisoformat(payload["issued_at"].replace("Z", "+00:00"))
+                payload["cycle_age_at_use_hours"] = (captured_at - issued_at).total_seconds() / 3600.
             payload["tried_urls"] = list(tried_urls)
             fanout_metadata = {
                 "request_key": fanout_result.request_key,
@@ -1823,6 +1839,7 @@ class SourceFetchMixin:
             attestation["single_fetch"] = fanout_metadata
             if fanout_result.reused:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh_cache",
                     "stale": False,
                     "cache_status": "fresh_cache",
@@ -1840,6 +1857,7 @@ class SourceFetchMixin:
                 }
             else:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh",
                     "stale": False,
                     "cache_status": "live",
@@ -1851,7 +1869,7 @@ class SourceFetchMixin:
                         "response_received_at"
                     ),
                 }
-            if payload.get("available"):
+            if payload.get("available") or str(payload.get("reason", "")).startswith("nbp_capture_time_"):
                 return payload
             last_payload = payload
         if last_payload is not None:

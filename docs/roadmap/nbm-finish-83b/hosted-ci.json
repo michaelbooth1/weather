@@ -1,0 +1,29 @@
+{
+  "mission": "2026-09-83b",
+  "part": "A",
+  "head_sha": "9b56c8610acef843df6deb82ffc5438f10b50896",
+  "code_commit": "3bb23a0cbd08c3ed865eafe20796cd81db882b83",
+  "full_suite": {
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/35625404300",
+    "conclusion": "failure",
+    "passed": 5639,
+    "failed": 2,
+    "skipped": 496,
+    "subtests_passed": 921,
+    "warnings": 1,
+    "seconds": 442.21,
+    "failures": [
+      "tests/operations/test_research_harness.py::test_research_inventory_covers_every_script",
+      "tests/operations/test_workload_admission_script.py::test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore"
+    ]
+  },
+  "windows_qualification": {
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/35625404448",
+    "conclusion": "success"
+  },
+  "host_load_hook": {
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/35625404240",
+    "conclusion": "success"
+  },
+  "production_qualification_replaced": false
+}
