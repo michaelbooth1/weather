@@ -26,6 +26,7 @@ from maker_core.replay.bundle import (FORMAT, HOST_MAX_BYTES, HOST_MAX_RECORDS, 
                                       Limits, sha256)
 from maker_core.replay.bundle_v02 import FORMAT_V02, open_stream_bundle
 from maker_core.replay.v2.compaction import Compactor, elide, expand, stream_digest
+from tools.research.maker_replay_v2 import bench
 from tools.research.maker_replay_v2.fixture170 import Day
 
 DAY = date(2026, 9, 27)  # a fictional day; nothing captured is read
@@ -171,16 +172,20 @@ def s6(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("measurement", choices=("s1", "s6"))
+    parser.add_argument("measurement", choices=("s1", "s6", *bench.MEASUREMENTS))
     parser.add_argument("--out", type=Path, required=True, help="new directory for the fictional bundles")
     parser.add_argument("--trades", type=int, default=2000)
     parser.add_argument("--union", type=int, default=170)
     parser.add_argument("--book-depth", type=int, default=8, help="S1 only: price levels per book side")
+    bench.add_arguments(parser)  # S3/S5/S7/S8/S9 (W3-W5): tools/research/maker_replay_v2/bench.py
     args = parser.parse_args(argv)
     if args.out.exists():
         parser.error("--out must be a new directory")
     args.out.mkdir(parents=True)
-    result = (s1 if args.measurement == "s1" else s6)(args)
+    if args.measurement in bench.MEASUREMENTS:
+        result = bench.run(args.measurement, args)
+    else:
+        result = (s1 if args.measurement == "s1" else s6)(args)
     raw = json.dumps(result, sort_keys=True, default=str, indent=1)
     (args.out / f"{args.measurement}.json").write_text(raw + "\n", encoding="utf-8")
     print(raw)
