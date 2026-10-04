@@ -45,13 +45,21 @@ files and append receipts it last counted. Counters and heartbeat timestamps
 publish at most once per ten seconds; connection, seed-error, retirement and
 stop transitions publish immediately. All existing status fields remain.
 
-Execution-tape rows keep the same canonical JSONL bytes and flush to the OS
-on append. One background flusher groups `fsync` per dirty file at one-second
-monotonic deadlines, including idle files. The durability trade-off is
-**≤ 1 s of rows at risk on a crash** under normal scheduling and successful
-storage sync. Rotation and clean close force outstanding syncs and are the
-exceptions to the cadence. A sync failure fails the next capture operation;
-it is never reported as durable success. Restart rebuilds tape counters from
+Execution-tape rows keep the same canonical JSONL bytes and are written to the
+OS on append through unbuffered handles. An append lands whole or not at all:
+a short write is completed, and a failed write is truncated back to the row
+boundary so a later restart never meets a self-inflicted torn tail; if that
+rollback fails, the handle takes no further rows. One background flusher groups
+`fsync` per dirty file at one-second monotonic deadlines, including idle files.
+The durability trade-off is **≤ 1 s of rows at risk on a crash** under normal
+scheduling and successful storage sync. Rotation and clean close force
+outstanding syncs and are the exceptions to the cadence. A failed background
+sync is retried at the next deadline (logged to stderr) and does not stop
+capture or status publication; only three consecutive failures on a file —
+about 3 s of rows at risk — fail the next capture operation and status write,
+and that error is never reported as durable success. Before 2026-10-01 one
+transient failure was retained until the file closed and froze the status
+heartbeat until the supervisor's stale restart. Restart rebuilds tape counters from
 the rows actually present, including rows newer than cached status; missing
 rows cannot be reconstructed from the public stream. Torn or invalid final
 rows continue to fail closed rather than being silently discarded. Status
