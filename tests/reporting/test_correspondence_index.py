@@ -17,7 +17,10 @@ def test_index_pairs_exact_ids_lists_collisions_and_escapes_titles(tmp_path):
     put(tmp_path, "agent-report-2026-09-93a-two.md", "# Second\n")
     put(tmp_path, "agent-report-2026-09-93b-unrelated.md", "# Other\n")
     put(tmp_path, "agent-work-order-2026-06-99z.md", "# Work order\n")
-    text = index.render_index(tmp_path, {})
+    outputs = index.render_outputs(tmp_path, {})
+    assert set(outputs) == {index.OUTPUT, f"{index.SHARD_DIR}/uncommitted.md"}
+    text = outputs[f"{index.SHARD_DIR}/uncommitted.md"]
+    assert "(../agent-report-2026-09-93a-one.md)" in text
     handoff = next(line for line in text.splitlines() if "| handoff |" in line)
     assert "93a-one.md" in handoff and "93a-two.md" in handoff
     assert "93b-unrelated.md" not in handoff
@@ -46,13 +49,41 @@ def test_cli_uses_first_git_addition_and_check_never_writes(tmp_path):
     dates = index.git_added_dates(tmp_path)
     assert dates[path.relative_to(tmp_path).as_posix()] == "2026-08-10"
     assert index.main(["--repo-root", str(tmp_path)]) == 0
-    report = tmp_path / index.OUTPUT
+    report = tmp_path / index.SHARD_DIR / "2026-08.md"
     original = report.read_bytes()
     assert b"New title" in original and b"2026-08-10" in original
+    assert b"(correspondence-index/2026-08.md)" in (tmp_path / index.OUTPUT).read_bytes()
     assert index.main(["--repo-root", str(tmp_path), "--check"]) == 0
     path.write_text("# Changed again\n", encoding="utf-8")
     assert index.main(["--repo-root", str(tmp_path), "--check"]) == 1
     assert report.read_bytes() == original
+
+
+def test_new_month_leaves_closed_shards_untouched_and_uncommitted_shard_is_transient(tmp_path):
+    git(tmp_path, "init")
+    put(tmp_path, "agent-report-2026-08-01a-old.md", "# Old\n")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "-c", "core.hooksPath=", "commit", "-m", "old", date="2026-08-10T12:00:00+00:00")
+    assert index.write_outputs(tmp_path) == [index.OUTPUT, f"{index.SHARD_DIR}/2026-08.md"]
+    closed = (tmp_path / index.SHARD_DIR / "2026-08.md").read_bytes()
+
+    put(tmp_path, "agent-report-2026-09-02a-new.md", "# New\n")
+    assert index.write_outputs(tmp_path) == [index.OUTPUT, f"{index.SHARD_DIR}/uncommitted.md"]
+    git(tmp_path, "add", ".")
+    git(tmp_path, "-c", "core.hooksPath=", "commit", "-m", "new", date="2026-09-24T12:00:00+00:00")
+    assert index.write_outputs(tmp_path) == [
+        index.OUTPUT, f"{index.SHARD_DIR}/2026-09.md", f"{index.SHARD_DIR}/uncommitted.md",
+    ]
+    assert not (tmp_path / index.SHARD_DIR / "uncommitted.md").exists()
+    assert (tmp_path / index.SHARD_DIR / "2026-08.md").read_bytes() == closed
+    assert index.write_outputs(tmp_path) == []
+    assert index.parity_errors(tmp_path) == []
+
+    (tmp_path / index.SHARD_DIR / "2026-01.md").write_text("# stray\n", encoding="utf-8")
+    assert index.parity_errors(tmp_path) == [
+        f"{index.SHARD_DIR}/2026-01.md: no longer generated; "
+        "run python -m weather.reporting.roadmap.correspondence_index"
+    ]
 
 
 def test_history_failure_is_not_a_fabricated_date(tmp_path):

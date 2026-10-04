@@ -81,7 +81,8 @@ def test_owner_dates_need_same_date_rows_not_mentions(tmp_path):
 def test_generated_checks_use_source_parity_without_writes(tmp_path, monkeypatch):
     monkeypatch.setattr(correspondence, "git_added_dates", lambda root: {})
     write(tmp_path, "docs/roadmap/items/item-1-done.md", "# 1. Done [COMPLETE]\n\n## Completion notes\nDone.\n")
-    write(tmp_path, correspondence.OUTPUT, correspondence.render_index(tmp_path, {}))
+    for relative, content in correspondence.render_outputs(tmp_path, {}).items():
+        write(tmp_path, relative, content)
     payload = roadmap_backlog.build_payload(tmp_path / "docs/roadmap")
     backlog = write(tmp_path, "docs/roadmap/active-backlog.md", roadmap_backlog.render_markdown(payload))
     assert knowledge.generated_index_errors(tmp_path) == []
@@ -89,7 +90,8 @@ def test_generated_checks_use_source_parity_without_writes(tmp_path, monkeypatch
     write(tmp_path, "docs/roadmap/agent-report-2026-09-93a-new.md", "# New report\n")
     backlog.write_text("stale\n", encoding="utf-8")
     errors = knowledge.generated_index_errors(tmp_path)
-    assert len(errors) == 2 and all("stale" in error for error in errors)
+    # Root index and the new uncommitted shard for the correspondence, plus the backlog.
+    assert len(errors) == 3 and all("stale" in error for error in errors)
     assert backlog.read_text() == "stale\n"  # check mode did not repair it
     assert not (tmp_path / "data").exists()
     backlog.write_bytes(original)
