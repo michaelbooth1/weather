@@ -24,12 +24,13 @@ This is the RE-1 loader shape with the private-key selection removed.
 
 Start from the reviewed topic worktree with the project's existing interpreter
 (set `$python` to its absolute `venv\Scripts\python.exe` path). Substitute the
-actual two LAN IPs for the illustrative RFC1918 addresses below:
+actual two LAN IPs for the RFC 5737 documentation addresses below (the reader
+itself accepts only RFC1918 addresses):
 
 ```powershell
-# Workstation IP 192.168.1.20; production PC IP 192.168.1.30 (examples only).
+# Workstation 192.0.2.10; production PC 192.0.2.20 (RFC 5737 examples; use your RFC1918 LAN IPs).
 # Confirm existing wallet type: 2 = Safe; 3 = deposit wallet. Never guess it.
-& $python -m weather.market.wallet_reader serve --bind 192.168.1.20 --allow 192.168.1.30 --port 8765 --signature-type 3
+& $python -m weather.market.wallet_reader serve --bind 192.0.2.10 --allow 192.0.2.20 --port 8765 --signature-type 3
 ```
 
 On the workstation this command runs as the host-local S4U at-logon scheduled
@@ -60,11 +61,11 @@ remote-IP/port rule on the workstation. Registration refuses an existing rule
 of the same name instead of silently replacing it:
 
 ```powershell
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765 -WhatIf
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765 -WhatIf
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765
 # Preview/remove only that exact named rule:
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765 -Unregister -WhatIf
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765 -Unregister
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765 -Unregister -WhatIf
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765 -Unregister
 ```
 
 Binding accepts a literal RFC1918 IPv4, never wildcard, loopback or public IP.
@@ -82,7 +83,7 @@ This mode adds a `campaigns` book and replaces the single-baseline status; it
 does not enable enforcement or change the GET-only safety boundary.
 
 The owner creates ignored `config/local/wallet_reader_client.json` on the client
-checkout containing `{"url":"http://192.168.1.20:8765","token":"<owner token>"}`.
+checkout containing `{"url":"http://192.0.2.10:8765","token":"<owner token>"}`.
 Do not commit it. This bearer token is separate from the venue's L2 credentials.
 The client refuses public/DNS URLs, redirects and extra config fields, uses no
 ambient proxy, and sends only these fixed GET routes. The default timeout is
