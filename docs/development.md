@@ -54,8 +54,11 @@ package contract, and `requires-python` is `>=3.11`.
   exactly once per CI run. A ratchet is a repository-wide architecture or inventory check (imports, schema
   registry, docs audit, path policy, module size, ops-script and task inventories). Mark a new one `ratchet`
   and add its file to the audit job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the
-  list names exactly the files that use the marker and the two jobs' selections are exact complements. Local
-  and bounded-suite runs ignore the marker and run everything.
+  list names exactly the files that use the marker and the two jobs' selections are exact complements. A ratchet
+  that skips off Windows also carries `windows_native` and executes in exactly one
+  [Windows qualification](../.github/workflows/windows-qualification.yml) shard (the `launch` shard selects
+  `-m "not ratchet or windows_native"`); the same meta-test proves every ratchet executes exactly once across
+  all workflows. Local and bounded-suite runs ignore both markers and run everything.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
