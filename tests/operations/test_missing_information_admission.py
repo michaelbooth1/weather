@@ -13,7 +13,8 @@ def test_only_exact_research_module_added_to_admission():
     body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S).group(1)
     modules = re.findall(r'"([A-Za-z0-9_.-]+)"', body)
     assert [m for m in modules if not m.startswith("weather.")] == [
-        MODULE, "tools.research.morning_guidance.run", "tools.research.nbm_target_trace.run"]
+        MODULE, "tools.research.morning_guidance.run", "tools.research.nbm_target_trace.run",
+        "tools.research.nbm_target_fix"]
 
 
 def test_hook_recognizes_research_work_as_heavy_and_rejects_direct_launch():

@@ -1,0 +1,95 @@
+{
+  "mission": "2026-09-83b",
+  "part": "A",
+  "verdict": "PARTIAL_FULL_SUITE_CONTRACT_FAILURES",
+  "branch": "codex/nbm-target-fix-20260921",
+  "continued_from": "e1b6639384d9f6a82608b3dee83b79dcc628eb0d",
+  "code_commit": "3bb23a0cbd08c3ed865eafe20796cd81db882b83",
+  "wrapper": "scripts/ops/workstation_heavy.ps1",
+  "arguments": [
+    "-m",
+    "pytest",
+    "-q",
+    "tests/sources/test_nbm_target_fix.py",
+    "tests/sources/test_nbm_probabilistic_tmax.py",
+    "tests/model/test_forecast_feature.py",
+    "tests/model/test_feature_store.py",
+    "tests/operations/test_schema_registry.py",
+    "tests/operations/test_codex_host_load_hook.py",
+    "tests/operations/test_import_architecture.py",
+    "tests/reporting/test_train_serve_feature_parity.py",
+    "tests/reporting/test_captured_input_parity_evidence.py",
+    "tests/collection/test_captured_input_hash.py",
+    "tests/collection/test_shared_forecast_payload_cas.py",
+    "tests/collection/test_forecast_payload_persistence.py",
+    "tests/operations/test_forecast_payload_cas_migration.py",
+    "tests/operations/test_density_live_replay_parity.py",
+    "--basetemp",
+    "C:/tmp/83ba3",
+    "--junitxml",
+    "scratch/83b-final-age.xml"
+  ],
+  "pytest": {
+    "passed": 550,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 25.8,
+    "xml_local": "scratch/83b-final-age.xml"
+  },
+  "full_suite": "full-suite.json",
+  "hosted_ci": "hosted-ci.json",
+  "parity": {
+    "exit_code": 1,
+    "status": "BLOCK",
+    "report_sha256": "97d36ec7fca86e42c849558c9f84754bf3e5eeb3099edc8800dc6c6a9c68e95f",
+    "summary": {
+      "all_known_defects_rediscovered": true,
+      "blocking_finding_count": 100,
+      "both_missing_cells": 2323,
+      "case_count": 29,
+      "compared_cells": 2908,
+      "compared_feature_count": 221,
+      "coverage_blocker_count": 0,
+      "covered_market_count": 12,
+      "exception_count": 1,
+      "feature_count": 221,
+      "finding_count": 101,
+      "known_defect_count": 4,
+      "known_defects_rediscovered": 4,
+      "registered_market_count": 12,
+      "unexpected_blocking_finding_count": 0
+    },
+    "arguments": [
+      "-m",
+      "weather.reporting.scorecards.train_serve_feature_parity",
+      "--input",
+      "C:/Users/Michael/Documents/github/weather/scratch/w/nbm-target-fix-20260921/tests/fixtures/train_serve_feature_parity_known_defects_v0.1.json",
+      "--run-root",
+      "C:/Users/Michael/Documents/github/weather/scratch/w/nbm-target-fix-20260921/scratch/83b-parity"
+    ],
+    "local_report": "scratch/83b-parity/train-serve-feature-parity.json"
+  },
+  "checks": {
+    "compileall": "PASS",
+    "agent_docs_audit": "PASS",
+    "roadmap_backlog": "PASS",
+    "window_rows": 192,
+    "healthy_unavailable_hours": 0,
+    "roll": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  "earlier_attempts": [
+    {
+      "passed": 321,
+      "failed": 3,
+      "cause": "New manifest derivation test initially passed serialized JSON rather than decoding extraction_identity; test caller fixed, gate unchanged."
+    },
+    {
+      "passed": 549,
+      "failed": 0,
+      "seconds": 13.76,
+      "note": "Before optional use-age diagnostic preference and one additional focused regression."
+    }
+  ],
+  "no_model_fit_prediction_or_scoring": true,
+  "no_floor_or_gate_relaxation": true
+}

@@ -1,0 +1,64 @@
+{
+  "mission": "2026-09-83d",
+  "wrapper": "scripts/ops/workstation_heavy.ps1",
+  "layers": [
+    {
+      "layer": 2,
+      "tested_tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+      "exit_code": 0,
+      "passed": 6163,
+      "skipped": 34,
+      "subtests_passed": 923,
+      "warnings": 1,
+      "failures": 0,
+      "errors": 0,
+      "junit_tests": 7120,
+      "pytest_seconds": 2787,
+      "junit_seconds": 2786.927,
+      "timestamp": "2026-09-21T16:15:44.197982-04:00",
+      "xml_path": "scratch/83d-full-rerun.xml",
+      "xml_sha256": "d6953725c3bd70f42be8b251c7ae52c041d8eefbfd331b3a7a829bf222184f06",
+      "basetemp": "C:/tmp/83d2r",
+      "error": [],
+      "temporary_directory_removed": true,
+      "arguments": [
+        "-m",
+        "pytest",
+        "-q",
+        "--basetemp=C:/tmp/83d2r",
+        "--junitxml=scratch/83d-full-rerun.xml"
+      ]
+    },
+    {
+      "layer": 3,
+      "tested_tip": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69",
+      "exit_code": 0,
+      "passed": 6191,
+      "skipped": 34,
+      "subtests_passed": 923,
+      "warnings": 1,
+      "failures": 0,
+      "errors": 0,
+      "junit_tests": 7148,
+      "pytest_seconds": 2846.19,
+      "junit_seconds": 2846.096,
+      "timestamp": "2026-09-21T17:08:08.648020-04:00",
+      "xml_path": "scratch/83d-full.xml",
+      "xml_sha256": "3deb473bff259f82c24a6a59241f77acdcac986a00b30d8adfd7a17469646aa6",
+      "basetemp": "C:/tmp/83d3f",
+      "temporary_directory_removed": true,
+      "arguments": [
+        "-m",
+        "pytest",
+        "-q",
+        "--basetemp=C:/tmp/83d3f",
+        "--junitxml=scratch/83d-full.xml"
+      ]
+    }
+  ],
+  "common_warning": {
+    "test": "tests/sources/test_reanalysis_synoptic.py::TestReanalysisSynoptic::test_load_pressure_level_daily_metrics_reads_cached_netcdf4",
+    "message": "numpy.ndarray size changed, may indicate binary incompatibility. Expected 16 from C header, got 96 from PyObject",
+    "classification": "Existing warning; no dependency or gate change."
+  }
+}

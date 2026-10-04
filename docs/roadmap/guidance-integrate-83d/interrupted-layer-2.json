@@ -1,0 +1,18 @@
+{
+  "session_id": 49852,
+  "tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+  "exit_code": 1,
+  "reason": "Interrupted at 37% to release the shared lease when priority mission 84b announced another change requiring verification.",
+  "basetemp": "C:/tmp/83d2f",
+  "log": null,
+  "junit": "scratch/83d-full.xml",
+  "complete": false,
+  "console_chunks": [
+    "7bfae2",
+    "c19898",
+    "d10b2a",
+    "2e824a"
+  ],
+  "local_stdout_file_created": false,
+  "temporary_directory_removed": true
+}

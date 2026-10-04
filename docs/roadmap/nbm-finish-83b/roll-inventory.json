@@ -1,0 +1,407 @@
+[
+  {
+    "path": ".codex/hooks/pre_tool_use_host_load.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/operations/AGENT_CONTEXT.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/operations/nbm-target-period-contract.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/operations/README.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/agent-report-2026-09-83a-workstation-read-the-guidance-for-the-right-day.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/agent-report-2026-09-83b-workstation-finish-the-guidance-repair.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/full-suite.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/hosted-ci.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/roll-inventory.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/roll-verdict.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/verification.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-finish-83b/window.csv",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/contracts.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/fixture-hashes.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/inputs.csv",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/p0.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/roll-inventory.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/roll-verdict.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/selectors.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/train-serve-feature-parity.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "docs/roadmap/nbm-target-fix-20260921/verification.json",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "scripts/ops/workload_admission.ps1",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/model/feature_store.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/model/model_features.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/model/model_sources.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/operations/forecast_payload_cas_migration.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/schema_registry_data.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "src/weather/sources/nbm_probabilistic_tmax.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KATL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KAUS.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KBKF.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KDAL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KHOU.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLAX.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KMIA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KORD.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSEA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSFO.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KATL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KAUS.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KBKF.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KDAL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KHOU.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLAX.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KMIA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KORD.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSEA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSFO.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KATL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KAUS.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KBKF.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KDAL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KHOU.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLAX.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KMIA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KORD.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSEA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSFO.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KATL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KAUS.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KBKF.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KDAL.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KHOU.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLAX.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KMIA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KORD.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSEA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSFO.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-PGUM.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-KLGA.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-PGUM.txt",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/fixtures/nbm_target_fix/README.md",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/operations/test_codex_host_load_hook.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/operations/test_schema_registry.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tests/sources/test_nbm_target_fix.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  },
+  {
+    "path": "tools/research/nbm_target_fix.py",
+    "closures": null,
+    "verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE"
+  }
+]

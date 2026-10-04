@@ -43,6 +43,11 @@ from weather.model.feature_store import (
     FEATURE_SCHEMA_VERSION,
     row_temp_native,
 )
+from weather.model.nbm_input_regime import (
+    artifact_nbm_parser_version,
+    nbm_parser_label,
+    quarantine_nbm_inputs,
+)
 from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
@@ -643,6 +648,7 @@ def build_candidate_features(
     reanalysis_indexes = {}
     marine_water_contrast_indexes = {}
     production_context = _verified_production_static_context(artifact)
+    nbm_trained_version = artifact_nbm_parser_version(artifact)
     reanalysis_promotion_lane = _artifact_reanalysis_lane(artifact)
     needs_reanalysis = production_context is None and _artifact_needs_reanalysis(artifact)
     needs_marine_water_contrast = (
@@ -667,6 +673,12 @@ def build_candidate_features(
         "marine_water_contrast_sidecar_rows_missing": 0,
         "marine_water_contrast_sidecar_rows_without_observed_features": 0,
         "marine_water_contrast_sidecar_filled_columns": {},
+        "nbm_input_regime": {
+            # A label, not a number: per-day diagnostics are summed on merge.
+            "trained_parser": nbm_parser_label(nbm_trained_version),
+            "masked_rows": 0,
+            "masked_values": 0,
+        },
         "production_static_context_sha256": (
             production_context.get("context_sha256")
             if production_context is not None
@@ -747,6 +759,10 @@ def build_candidate_features(
                         diagnostics["marine_water_contrast_sidecar_rows_missing"] += 1
                     elif not fill_result["observed_columns"]:
                         diagnostics["marine_water_contrast_sidecar_rows_without_observed_features"] += 1
+                regime = quarantine_nbm_inputs(feature_row, nbm_trained_version)
+                if regime is not None and regime["masked"]:
+                    diagnostics["nbm_input_regime"]["masked_rows"] += 1
+                    diagnostics["nbm_input_regime"]["masked_values"] += regime["masked_values"]
             except Exception as exc:  # noqa: BLE001 - diagnostics should survive bad rows
                 if len(diagnostics["feature_errors"]) < 20:
                     diagnostics["feature_errors"].append({
