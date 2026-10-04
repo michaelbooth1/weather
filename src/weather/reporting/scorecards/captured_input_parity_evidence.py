@@ -25,6 +25,7 @@ from weather.captured_input_hash import (
     CAPTURED_INPUT_HASH_ALGORITHM,
     captured_input_payload_sha256,
 )
+from weather.cold_archive_locations import ArchivedInputRequired, cached_path, load_location
 from weather.experiment_contract import finalize_self_hash
 from weather.io import sha256_file, write_json_atomic
 from weather.market.market_config import config_for_date
@@ -234,6 +235,18 @@ def _require_regular_fresh_file(
     max_age_hours: float,
     role: str,
 ) -> int:
+    location = None if path.exists() or path.is_symlink() else load_location(path)
+    if location is not None:
+        # An archived input is known, not missing; it also cannot be fresh
+        # evidence, so a restore cache never satisfies this generator.
+        if cached_path(location) is None:
+            raise ArchivedInputRequired(location)
+        raise _block(
+            f"{role.replace(' ', '_')}_archived",
+            f"{role} is archived; a restored copy is not fresh capture: {path}",
+            next_action="generate parity evidence from a fresh capture, not a restore cache",
+            path=str(path),
+        )
     if not path.exists() or not path.is_file() or path.is_symlink():
         code = "captured_inputs_missing" if role == "captured inputs" else f"{role.replace(' ', '_')}_missing"
         raise _block(

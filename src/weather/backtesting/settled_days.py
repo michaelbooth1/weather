@@ -13,7 +13,8 @@ A day is included when:
     train on other cities' tapes), and
   * that date is strictly before ``as_of`` (the market has SETTLED -- the day is
     fully in the past; today's market is still resolving), and
-  * the required tape file is present (collection produced something).
+  * the required tape file is present (collection produced something), locally
+    or as a cold-archive marker; an archived tape is never a missing day.
 
 This self-maintains: a new day is picked up automatically the day after it
 settles, with no code edit. ``as_of`` is injectable so the cutoff is testable and
@@ -22,6 +23,7 @@ so a backtest can reconstruct the training set as of any historical date.
 from datetime import date, datetime
 from pathlib import Path
 
+from weather.cold_archive_locations import load_location
 from weather.paths import data_path
 
 from weather.market.market_config import date_from_event_slug
@@ -90,7 +92,9 @@ def discover_settled_folders(
             continue
         if target_date >= cutoff:          # today or future: not settled yet
             continue
-        if not (child / required_file).exists():
+        # An archived tape is still a collected day; readers resolve or refuse it.
+        tape = child / required_file
+        if not tape.exists() and load_location(tape) is None:
             continue
         found.append((target_date, child))
     return [folder for _, folder in sorted(found, key=lambda item: item[0])]

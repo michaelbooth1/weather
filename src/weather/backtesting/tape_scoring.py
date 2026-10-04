@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from weather.cold_archive_locations import resolve_local_path
 from weather.backtesting.settlement_io import (
     row_band_value_hi,
     resolve_outcome,
@@ -147,7 +148,8 @@ def minutes_since_cutoff_bucket(value):
 
 
 def load_feature_vectors(folder):
-    path = Path(folder) / "features_long.csv"
+    # An archived feature file must not silently score without features.
+    path = resolve_local_path(Path(folder) / "features_long.csv")
     if not path.exists():
         return {}
     try:

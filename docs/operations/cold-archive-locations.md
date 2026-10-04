@@ -171,6 +171,43 @@ canonical gzip when the raw JSONL is archived; they cannot quietly substitute
 a partial CSV for known archived canonical books. A passing catalog test alone
 does not establish that a new consumer is ready.
 
+Market-day readers made archive-aware for Drive decision 4 (owner, 2026-10-02):
+
+| Reader | Archived, no verified cache | Verified cache |
+| --- | --- | --- |
+| Settlement finalize (full run) | The existing `market_day_labels.csv` row is kept byte-for-byte; no re-finalize | Same (labels are never re-derived from a restore) |
+| Settled-day discovery, variant-tape discovery, price-free tape discovery | The day/tape is present | Present |
+| Replay corpus, replay backtest, variant rows, feature vectors, price-free tape rows | Raise `ArchivedInputRequired` | Read the cache |
+| Hourly, ten-minute and price-free scoring selection | Counted as `archived`, never `missing_tape` | Selected and scored from the cache |
+| Replay-status backfill | Reuse the existing status (and its #117 cache); no status means action `archived`; `--overwrite` raises | Same unless `--overwrite` |
+| Captured-input parity evidence | Raise `ArchivedInputRequired` | Block `<role>_archived`: a restore is never fresh capture |
+
+Training and calibration jobs that read through discovery now raise instead of
+training on a silently smaller population; restore the range first.
+
+### Restore a set on the workstation
+
+`weather.operations.workstation_restore_set` restores a date range of file
+families into the managed cache of a recovery data root (one prepared with
+`import_locations`, holding each event folder's `event_day_manifest.json`).
+`plan` is read-only and needs no wrapper:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.workstation_restore_set plan --data-root <recovery-data-root> --start-date 2026-09-01 --end-date 2026-09-07 --family snapshots --family replay_inputs
+```
+
+It refuses a member whose catalog SHA-256 or size differs from the event-day
+manifest, a missing or self-hash-invalid manifest, a cache that fails
+verification, and any file present at an archived original path: a hand copy
+is never accepted as a restore. `run` (same arguments plus `--work-root`
+outside the data root, a fresh `--set-id`, the rclone executable/config, DPAPI
+secret, Drive and crypt remote names and `--free-space-reserve-bytes`) runs
+under `scripts\ops\workstation_heavy.ps1` on the assigned workstation. Per
+archive it exports the catalog proofs, downloads independently, restores
+through the crypt executor, publishes the restore record and a fresh cache,
+then re-hashes every member through `cached_path`. Every attempt directory and
+`restore-set.json` is retained; a failure is not a retry instruction.
+
 A job using cache files must hold the repository's host workload lease through
 its final read. Cache cleanup must acquire that same lease, preserve all catalog
 and restore receipts, and refuse in-use or changed files. Valid complete Parquet

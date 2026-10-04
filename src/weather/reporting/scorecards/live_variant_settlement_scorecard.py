@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from weather.backtesting.settlement_io import load_market_day_label, resolve_outcome
+from weather.cold_archive_locations import MARKER_DIRECTORY, registered_sources, resolve_local_path
 from weather.experiment_contract import finalize_self_hash
 from weather.io import write_json_atomic
 from weather.paths import data_path
@@ -1945,13 +1946,16 @@ def _read_json_rows(path: Path) -> list[dict[str, Any]]:
 def read_rows(path: str | Path) -> list[dict[str, Any]]:
     """Read CSV, JSONL, or JSON prediction rows with source provenance."""
     path = Path(path)
+    # Provenance keeps the logical path; bytes come from the original or a
+    # verified restore cache, and an unrestored archive raises.
+    source = resolve_local_path(path)
     suffix = path.suffix.lower()
     if suffix == ".csv":
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        with source.open("r", encoding="utf-8-sig", newline="") as handle:
             rows = [dict(row) for row in csv.DictReader(handle)]
     elif suffix in {".jsonl", ".ndjson"}:
         rows = []
-        with path.open("r", encoding="utf-8-sig") as handle:
+        with source.open("r", encoding="utf-8-sig") as handle:
             for line in handle:
                 line = line.strip()
                 if line:
@@ -1959,7 +1963,7 @@ def read_rows(path: str | Path) -> list[dict[str, Any]]:
                     if isinstance(payload, dict):
                         rows.append(dict(payload))
     elif suffix == ".json":
-        rows = _read_json_rows(path)
+        rows = _read_json_rows(source)
     else:
         raise ValueError(f"unsupported prediction row format: {path}")
     for number, row in enumerate(rows, start=2 if suffix == ".csv" else 1):
@@ -1969,7 +1973,12 @@ def read_rows(path: str | Path) -> list[dict[str, Any]]:
 
 
 def discover_tapes(snapshots_root: str | Path) -> list[Path]:
-    return sorted(Path(snapshots_root).glob("*/variant_predictions_long.csv"))
+    """Every variant tape, including ones that exist only as archive markers."""
+    root = Path(snapshots_root)
+    tapes = set(root.glob("*/variant_predictions_long.csv"))
+    for folder in {marker.parent.parent for marker in root.glob(f"*/{MARKER_DIRECTORY}/*.json")}:
+        tapes.update(registered_sources(folder, "variant_predictions_long.csv"))
+    return sorted(tapes)
 
 
 def read_label_csv(path: str | Path | None) -> dict[tuple[str, str], dict[str, Any]]:

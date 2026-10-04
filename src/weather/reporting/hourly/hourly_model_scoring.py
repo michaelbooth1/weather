@@ -23,10 +23,12 @@ from weather.backtesting.tape_scoring import (
     load_feature_vectors,
     timestamp_key,
 )
+from weather.cold_archive_locations import cached_path, load_location, resolve_local_path
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.paths import data_path, relative_to_repo
 from weather.reporting.formatting import markdown_table
+from weather.reporting.hourly.scored_folder_cache import cached_score
 from weather.scoring.metrics import (
     binary_log_loss,
     brier,
@@ -195,6 +197,14 @@ def label_folder(row, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
     return Path(snapshots_root) / slug
 
 
+def archived_tape_state(tape):
+    """None for an unknown tape, "cached" when a verified restore exists, else "archived"."""
+    location = load_location(tape)
+    if location is None:
+        return None
+    return "cached" if cached_path(location) is not None else "archived"
+
+
 def label_from_folder(folder):
     label = load_market_day_label(folder)
     if label:
@@ -257,8 +267,11 @@ def discover_labeled_folders(
             continue
         folder = label_folder(row, snapshots_root)
         if not folder or not (folder / "snapshots_long.csv").exists():
-            skipped["missing_tape"] += 1
-            continue
+            state = archived_tape_state(folder / "snapshots_long.csv") if folder else None
+            if state != "cached":
+                # An archived day is reported apart from a tape that never existed.
+                skipped["archived" if state == "archived" else "missing_tape"] += 1
+                continue
         key = str((folder / "snapshots_long.csv").resolve())
         if key in seen:
             skipped["duplicate"] += 1
@@ -315,10 +328,16 @@ def attach_raw_drivers(scoring_row, raw_row):
     return scoring_row
 
 
-def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS):
+def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS, *, use_cache=True):
+    if use_cache:
+        return cached_score(folder, label, thresholds, SCHEMA_VERSION, _score_folder_full)
+    return _score_folder_full(folder, label, thresholds)
+
+
+def _score_folder_full(folder, label, thresholds=DEFAULT_THRESHOLDS):
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
-    frame = pd.read_csv(tape)
+    frame = pd.read_csv(resolve_local_path(tape))
     slug = label.get("event_slug") or folder.name
     target_date = row_date(label) or date_from_event_slug(slug)
     settlement_bucket = safe_int(label.get("settlement_bucket"))
