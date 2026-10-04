@@ -100,6 +100,10 @@ sequence numbers, not calendar dates.
 | 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
 | 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
 | 10l | `-09-83a`: the versioned parser repair is built (PARTIAL); production downloads the same national NBM bulletin ~49 times an hour |
+| 10m | RE-1 live reward sessions 1-9: the reward model holds; empty bands fill |
+| 10n | Open orders are limited to cash per market, not across markets |
+| 10o | Weather takers pay fees and makers earn fee-funded rebates |
+| 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
 
 ---
 
@@ -3202,9 +3206,19 @@ against a venue-paid 90–91 band — venue above WU, the floor-safe and label-u
   `d53e280a7`, UNDECIDABLE for lack of a post-switch panel on the workstation) found free IEM METAR (routine + SPECI)
   reproduces 480/480 pre-switch WU degrees and 504/504 venue bands, and that current event Rules resolve on the WRH
   page's "Hourly Data" with a WU fallback. Post-switch exact-degree agreement remains unmeasured.
-- **Update 2026-10-02 (desk studies, docs only):** the "Hourly Data" view applies to the US markets; for foreign stations (EGLC, LFPB, RKSI, ZSPD, RJTT) the WRH hourly view is empty and Rules resolve on the page's "Temp" column for all times; 50/50 station-days matched IEM METAR and the paid band (09-20..09-29). Hong Kong pays the HKO Absolute Daily Max with the decimal dropped (31.9 -> 31; 32.7 -> 32), not half-up rounding (`docs/research/foreign-settlement-desk-study-2026-10.md`). Lowest-temperature markets resolve on the minimum of the hourly rows, which differs in band from the CLI minimum on 202/708 US station-days (28.5%) (branch `claude/lowest-temp-desk-study-20261002`, addendum A1).
-- **Open:** `locations.json`, `MarketSpec` and the ledger hard-code WU; no gate can detect a source
-  change; the string `wrh/timeseries` appears nowhere in `src/`, `tests/` or `scripts/`.
+- **Update 2026-10-02 (foreign stations, [desk study](../research/foreign-settlement-desk-study-2026-10.md)):**
+  "Hourly Data" applies to the **US markets only**. On the WRH page that view keeps only rows carrying
+  sea-level pressure, which Synoptic's global METAR network lacks, so it is empty for every foreign station. The
+  London, Paris, Seoul, Shanghai and Tokyo Rules resolve on the highest "Temp" reading "for all times" (metric),
+  with a WU fallback; over 2026-09-20..29 the WRH max, the IEM METAR max and the venue band agreed 50/50 at exact
+  degree. **Hong Kong resolves on HKO's Daily Extract "Absolute Daily Max" (0.1 °C) by truncation**: the venue
+  paid `floor(value)` on 10/10 days, and half-up rounding would have mislabelled 4 (31.9 → 31, 32.5 → 32 twice,
+  32.7 → 32). `config/locations.json` now records these blocks, and the release settlement-rules payload carries
+  per-location `rounding` with `band_contract.location_rounding_overrides` (`hong-kong`: `whole_degree_floor`).
+- **Open:** `MarketSpec` and the ledger hard-code WU, and the US entries in `locations.json` still name WU;
+  no gate can detect a source change. Since 2026-10-02 the foreign WRH cities and Hong Kong declare their venue
+  source in `locations.json`, but no adapter reads WRH or HKO yet.
+- **Lowest temperature (2026-10-02 desk study):** Lowest-temperature markets resolve on the minimum of the hourly rows, which differs in band from the CLI minimum on 202/708 US station-days (28.5%) (branch `claude/lowest-temp-desk-study-20261002`, addendum A1).
 
 ### 10d. Settlement-chain design facts
 
@@ -3511,6 +3525,30 @@ stream distinct from liquidity rewards, not a guaranteed payment to us. Optional
   was not re-read).
 - **Evidence:** `origin/codex/weather-fee-check-20260924` @ `64cd786c9` (fee schedule, changelog, dated on-chain samples);
   [fees](https://docs.polymarket.com/trading/fees), [maker rebates](https://docs.polymarket.com/programs/maker-rebates).
+
+### 10p. Guidance at all hours does not carry into the afternoon; the US all-hours route is closed — `2026-09-111h`, 2026-10-03
+
+Development reading under the frozen pre-registration
+`docs/research/guidance-all-hours-preregistration-2026-09-29.md` (nothing fitted, no α, no reservation, no serving change).
+Input: production Part 1 extract (parser v2 worktree `2e17ce0eb`, COMPLETE, 110,807 snapshot rows, 626 market-days, 11 US
+markets, targets 2026-08-01..09-29; no row on or after the replay panel's 09-30), scored on the workstation with 81a's
+candidate and statistics unchanged (crossed date x market bootstrap, 2,000 draws, seed 20260921, 95% intervals).
+
+- **Positive control passed:** C1 on captured (v1) features, 06-09 local, targets to 09-19: −0.006891 [−0.011894, −0.002688],
+  inside 81a's [−0.011525, −0.002373], so the stack reconciles with §10j.
+- **Primary fails:** pooled all-hours C1 − served **−0.000924 [−0.006083, +0.003924]** against the twice-81a line −0.013344,
+  descriptively and on the interval; strata of opposite sign (before −0.002613, from +0.000057). C2 − served −0.005112
+  [−0.008164, −0.002370], also short.
+- **Both falsifiers fire:** the afternoon is harmed - 13-16 **+0.005986 [+0.002282, +0.009941]**, 17-23 **+0.015495
+  [+0.010079, +0.020989]**; the gain sits overnight and in the morning (about −0.0127 at 00-05, −0.0134 at 06-09) and the
+  afternoon harm cancels it. Every cell is worse than the market (all-hours C1 / market Brier 1.741).
+- **§10k census:** 81 of 7,031 eligible 06-09 rows (1.15%; 8 market-days, 8 dates, 4 markets) used a wrong-period minimum
+  that passed the floor; none had an unknown or missing period.
+- **Consequences:** the morning lead (§10h, §10j) stands; the stale overnight bulletin hurts once the day is under way. An
+  hour-gated guidance candidate is the obvious next idea, but it was not computed and needs a new pre-registration on new
+  dates; these results may not be used to choose its hours.
+- **Evidence:** `codex/guidance-all-hours-analysis-20261003` @ `0206f4d1` (PR #183),
+  `docs/roadmap/agent-report-2026-09-111h-guidance-all-hours.md`; extract on production `data\exports\nbm-guidance-111h`.
 
 ## Related
 
