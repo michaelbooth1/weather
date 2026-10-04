@@ -5,6 +5,8 @@ from weather.operations import knowledge_structure_audit as knowledge
 from weather.reporting.roadmap import correspondence_index as correspondence
 from weather.reporting.roadmap import roadmap_backlog
 
+pytestmark = pytest.mark.ratchet
+
 
 def write(root, relative, text):
     path = root / relative

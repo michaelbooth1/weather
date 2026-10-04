@@ -11,6 +11,8 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
 - Preserve architecture ratchets. New package edges, compatibility calls, large
   facades, schema literals, or canonical-doc commands may need explicit owner
   documentation as well as tests.
+  Mark a repository-wide ratchet `@pytest.mark.ratchet` and list its file in
+  the CI `audit` job (`test_ci_ratchet_selection.py` enforces both).
 - Prefer focused behavioral tests over snapshots of large generated reports.
   Assert fail-closed behavior for evidence, promotion, release, and live gates.
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths

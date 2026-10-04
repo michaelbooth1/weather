@@ -49,8 +49,13 @@ package contract, and `requires-python` is `>=3.11`.
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
-  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
-  job `needs` it, so a ratchet failure stops the run before the long suite.
+  check, then every test marked `@pytest.mark.ratchet`). The full Linux `test` job `needs` it, so a ratchet
+  failure stops the run before the long suite, and it runs `pytest -m "not ratchet"`, so each ratchet runs
+  exactly once per CI run. A ratchet is a repository-wide architecture or inventory check (imports, schema
+  registry, docs audit, path policy, module size, ops-script and task inventories). Mark a new one `ratchet`
+  and add its file to the audit job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the
+  list names exactly the files that use the marker and the two jobs' selections are exact complements. Local
+  and bounded-suite runs ignore the marker and run everything.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,

@@ -2,6 +2,9 @@ import ast
 import re
 import subprocess
 from pathlib import Path
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 TARGET_MODULES = [

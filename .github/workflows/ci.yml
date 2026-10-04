@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
-  # Fast gate (~1 min): cheap repository-wide ratchets fail before the long
-  # suite starts. Keep it to deterministic audits with no network or fixtures.
+  # Fast gate: cheap repository-wide ratchets fail before the long suite
+  # starts. Keep it to deterministic audits with no network or fixtures.
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,14 +49,34 @@ jobs:
       - name: Validate Generated Roadmap Is Current
         run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
 
-      - name: Schema Registry, Import, Path and Module-Size Ratchets
+      # Every test marked `ratchet` runs here and only here: the `test` job
+      # deselects the same marker. The file list must name every file that
+      # uses the marker; tests/operations/test_ci_ratchet_selection.py proves
+      # both rules, so each ratchet runs exactly once per CI run.
+      - name: Architecture and Inventory Ratchets
         run: >-
-          python -m pytest -q -p no:cacheprovider
-          tests/operations/test_schema_registry.py
-          tests/operations/test_import_architecture.py
-          tests/operations/test_path_policy.py
-          tests/operations/test_module_size_audit.py
+          python -m pytest -q -p no:cacheprovider -m ratchet
+          tests/app/test_app_architecture.py
+          tests/market/test_wallet_reader.py
           tests/operations/test_agent_docs_audit.py
+          tests/operations/test_ci_ratchet_selection.py
+          tests/operations/test_cold_recovery_host_guard.py
+          tests/operations/test_dependency_pins.py
+          tests/operations/test_host_task_wrappers.py
+          tests/operations/test_import_architecture.py
+          tests/operations/test_knowledge_structure_audit.py
+          tests/operations/test_memory_commit_guard_script.py
+          tests/operations/test_module_size_audit.py
+          tests/operations/test_operating_reference.py
+          tests/operations/test_ops_script_ratchets.py
+          tests/operations/test_path_policy.py
+          tests/operations/test_python_runtime_audit.py
+          tests/operations/test_release_import_boundary.py
+          tests/operations/test_research_harness.py
+          tests/operations/test_runtime_utilities.py
+          tests/operations/test_schema_registry.py
+          tests/operations/test_structure_inventory.py
+          tests/operations/test_workload_admission_script.py
 
   test:
     needs: audit
@@ -84,5 +104,6 @@ jobs:
           pip install -r requirements.txt
           pip install -e ".[test]"
 
+      # Ratchets already ran in the `audit` job (see the note there).
       - name: Run Test Suite
-        run: python -m pytest -q
+        run: python -m pytest -q -m "not ratchet"
