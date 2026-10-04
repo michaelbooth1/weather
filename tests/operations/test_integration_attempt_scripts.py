@@ -7,6 +7,12 @@ import subprocess
 
 import pytest
 
+# Calls that dot-source integration_attempt_contract.ps1 and print a function's result
+# (or parse the scripts) evaluate script logic only, so they share one PowerShell host
+# with a fresh runspace per call (tests/powershell_host.py). The closer run (control
+# mutex), the concurrent immutable-claim race and every -File launch keep real children.
+from tests.powershell_host import run_command as run_powershell_command
+
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
@@ -252,14 +258,7 @@ $paths = @(
     }
 }) | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
 
     assert result.returncode == 0, result.stderr
     allowed = {row["path"]: row["allowed"] for row in json.loads(result.stdout)}
@@ -769,14 +768,7 @@ catch {
     overwrite_refused = $overwriteRefused
 } | ConvertTo-Json -Compress
 """
-    accepted = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    accepted = run_powershell_command(script, cwd=ROOT, env=env)
     assert accepted.returncode == 0, accepted.stderr
     assert json.loads(accepted.stdout) == {
         "attempt_id": "attempt-001",
@@ -785,14 +777,7 @@ catch {
 
     manifest["branch_ref"] = "codex/tampered"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    rejected = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    rejected = run_powershell_command(script, cwd=ROOT, env=env)
     assert rejected.returncode != 0
     assert "manifest hash mismatch" in rejected.stderr.lower()
 
@@ -860,14 +845,7 @@ $cases = @(
 )
 @($cases | ForEach-Object { [string]$_.Action }) | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
@@ -956,14 +934,7 @@ catch { $prefixedPreflightRejected = $_.Exception.Message -like '*exact PASS ver
     prefixed_preflight_rejected = $prefixedPreflightRejected
 } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -1032,14 +1003,7 @@ catch { $directUtcRejected = $_.Exception.Message -like '*without a UTC marker*'
     direct_utc_rejected = $directUtcRejected
 } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
@@ -1116,14 +1080,7 @@ try { Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase tes
 catch { $failed = $_.Exception.Message -like '*baseline changed after attempt freeze*' }
 [pscustomobject]@{ pass = ($pass.Master -eq $master); rejected_advance = $failed } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"pass": True, "rejected_advance": True}
 
@@ -1277,27 +1234,13 @@ $result = Assert-WeatherIntegrationAttemptManifest `
     -ExpectedSha256 $env:WEATHER_ATTEMPT_MANIFEST_HASH
 [string]$result.Manifest.attempt_id
 """
-    accepted = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    accepted = run_powershell_command(script, cwd=ROOT, env=env)
     assert accepted.returncode == 0, accepted.stderr
     assert accepted.stdout.strip() == "current"
 
     claim["successor_expected_tip"] = "2" * 40
     claim_path.write_text(json.dumps(claim), encoding="utf-8")
-    rejected = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    rejected = run_powershell_command(script, cwd=ROOT, env=env)
     assert rejected.returncode != 0
     assert "successor claim does not bind" in rejected.stderr.lower()
 
@@ -1572,22 +1515,7 @@ $controlHits = @($controlAst.FindAll({
     positive_control_parameters = @($controlHits | ForEach-Object { $_.ParameterName })
 } | ConvertTo-Json -Depth 5 -Compress
 """
-    result = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ],
-        cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = run_powershell_command(script, cwd=ROOT, env=env)
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
