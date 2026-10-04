@@ -99,8 +99,9 @@ rewrites `status.json` with `STOPPED_FAMILY_DISK_FLOOR`. Its journals are
 `scripts/ops/register_maker_evidence_family_capture.ps1 -Family lowest_temperature`
 registers `WeatherMakerEvidenceLowestTemperature` with the same S4U/IgnoreNew/one-minute
 contract. Only the production operator registers it, after integration. The task name
-is always `WeatherMakerEvidence<PascalCaseId>`; the monitor finds each family's task
-by that name, so register a family under its default name.
+must be `WeatherMakerEvidence<PascalCaseId>` (the registrar refuses any other): the
+monitor finds each family's task by that name. A new family passes its own `-TaskName`
+and adds its `config/scheduled_tasks.json` row.
 
 **Monitoring.** `weather.reporting.market.capture_family_status` reads every family in
 the config from its bounded `status.json` (never the journals). `status.ps1` prints one

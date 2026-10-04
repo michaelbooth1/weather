@@ -18,7 +18,7 @@ roll-free. **Lands with #172, not before 2026-10-14.**
 | `src/weather/reporting/market/capture_family_status.py` | New, read-only. Each configured family's bounded `data/maker_evidence_families/<id>/status.json` (journals are never read) becomes one row: state, status age, conditions / `max_conditions`, missing events, free GiB against the family floor (`above`/`below`/`stopped`), mean req/min (`http.requests` / `elapsed_seconds`), task state, severity and reason. `-m` CLI prints JSON and never crashes (a failure becomes one FLAG). |
 | `scripts/ops/status.ps1` | Passes every `WeatherMakerEvidence*` task state as `--task-state`, adds the FLAGs and WARNs, prints one `FAMILY` line per family, and adds `capture_families` to `-Json`. |
 | `src/weather/reporting/market/cockpit_snapshot.py`, `app/views/cockpit.py` | `health.capture_families`. The Health column shows one metric per family, with an error on FLAG and a warning on WARN. |
-| `scripts/ops/register_maker_evidence_family_capture.ps1` | Default `-TaskName` is derived from `-Family` as `WeatherMakerEvidence<PascalId>`. For `lowest_temperature` that is the same name as before; the monitor finds the task by this name. |
+| `scripts/ops/register_maker_evidence_family_capture.ps1` | Refuses a `-TaskName` other than `WeatherMakerEvidence<PascalId>` for its `-Family`, the name the monitor looks for. The literal default is unchanged, so the task-inventory ratchet still links it to its `scheduled_tasks.json` row. |
 | `docs/operations/passive-maker-evidence-capture.md`, `README.md` | Monitoring rules; cockpit sources. |
 
 ### Alarm rules (owner: the module and `passive-maker-evidence-capture.md`)

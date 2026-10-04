@@ -168,7 +168,7 @@ def test_alarm_text_never_matches_the_watchdog_capture_or_capacity_classes(tmp_p
 
 def test_registrar_default_task_name_matches_the_reader_convention():
     registrar = (ROOT / "scripts" / "ops" / "register_maker_evidence_family_capture.ps1").read_text(encoding="utf-8")
-    assert '$TaskName = "WeatherMakerEvidence" +' in registrar
+    assert "$TaskName -cnotmatch '^WeatherMakerEvidence(\w+)$'" in registrar
     assert fam.task_name("lowest_temperature") == "WeatherMakerEvidenceLowestTemperature"
     registry = json.loads((ROOT / "config" / "scheduled_tasks.json").read_text(encoding="utf-8"))
     names = {task["name"] for task in registry["tasks"]}
@@ -189,3 +189,14 @@ def test_cli_reports_task_states_and_never_crashes(tmp_path, capsys):
     assert fam.main(["--config", str(tmp_path / "absent.json")]) == 0
     broken = json.loads(capsys.readouterr().out)
     assert broken["families"] == [] and broken["flags"][0].startswith("CAPTURE_FAMILY status unavailable: ")
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows PowerShell registrar")
+@pytest.mark.parametrize("args", [["-Family", "rain_total"], ["-TaskName", "WeatherSomethingElse"]])
+def test_registrar_refuses_a_task_name_the_monitor_would_not_find(args):
+    import subprocess
+
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File",
+                             str(ROOT / "scripts" / "ops" / "register_maker_evidence_family_capture.ps1"),
+                             "-RepoRoot", str(ROOT), *args, "-WhatIf"], capture_output=True, text=True)
+    assert result.returncode != 0 and "must end in MakerEvidence" in result.stdout + result.stderr

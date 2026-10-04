@@ -4718,7 +4718,7 @@ if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
 # Scheduler states and renders its verdicts.
 $captureFamilies = @()
 try {
-    $familyTaskArgs = @(Get-ScheduledTask -TaskName "WeatherMakerEvidence*" -ErrorAction SilentlyContinue |
+    $familyTaskArgs = @(Get-ScheduledTask -TaskName "Weather*" -ErrorAction SilentlyContinue |
         ForEach-Object { "--task-state"; ("{0}={1}" -f $_.TaskName, $_.State) })
     $familyRaw = @(& $py -m weather.reporting.market.capture_family_status @familyTaskArgs 2>$null)
     if ($LASTEXITCODE -ne 0) { throw "capture family status exited $LASTEXITCODE" }

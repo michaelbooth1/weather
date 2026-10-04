@@ -218,11 +218,12 @@ def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_p
                "warns": ["CAPTURE_FAMILY b: stopped at its own 70 GiB free-space floor"]}
     result = _capture_family_block(
         tmp_path, [("WeatherMakerEvidenceCapture", "Ready"), ("WeatherMakerEvidenceLowestTemperature", "Disabled"),
-                   ("WeatherOther", "Ready")], payload)
+                   ("WeatherOther", "Ready"), ("Unrelated", "Ready")], payload)
 
     assert result["seen"] == ["-m", "weather.reporting.market.capture_family_status",
                               "--task-state", "WeatherMakerEvidenceCapture=Ready",
-                              "--task-state", "WeatherMakerEvidenceLowestTemperature=Disabled"]
+                              "--task-state", "WeatherMakerEvidenceLowestTemperature=Disabled",
+                              "--task-state", "WeatherOther=Ready"]
     # A disk-floor stop arrives as a WARN and stays a note; it never becomes a FLAG.
     assert result["flags"] == payload["flags"] and result["warns"] == payload["warns"] and result["rows"] == 1
 
