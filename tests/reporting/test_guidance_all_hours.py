@@ -6,4 +6,5 @@ from tools.research.guidance_all_hours.test_guidance_all_hours import (  # noqa:
     test_exam_panel_rows_are_counted_and_never_loaded,
     test_input_must_match_sums_and_be_complete,
     test_hour_blocks_and_decision_rule,
+    test_score_row_ignores_band_labels_and_scores_against_the_winner,
 )

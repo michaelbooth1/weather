@@ -98,7 +98,8 @@ def block(hour):
 
 
 def score_row(row, features):
-    c1, c2, reason = candidates(row["bands"], row["p_served"], features)
+    bands = [{k: b[k] for k in ("kind", "low", "high")} for b in row["bands"]]   # labels are display only
+    c1, c2, reason = candidates(bands, row["p_served"], features)
     p, market = np.asarray(row["p_served"], float), np.asarray(row["p_market_yes"], float)
     y = np.eye(len(p))[row["winner"]]
     out = {"date": row["target_date"], "market": row["market"], "stratum": row["stratum"],
@@ -178,8 +179,7 @@ def census(rows):
                 "markets": dict(Counter(r["market"] for r in group))}
     by_period = {period: support([r for r in eligible if r["v1_period"] == period])
                  for period in ("minimum", "maximum", "unknown", "no_manifest_row")}
-    candidate_eligible = sum(candidates(r["bands"], r["p_served"], r.get("features") or {})[2] == "eligible"
-                             for r in eligible)
+    candidate_eligible = sum(score_row(r, r.get("features") or {})["eligible"] for r in eligible)
     return {"population_rows": len(population), "eligible_rows": len(eligible),
             "eligible_rows_with_candidate_reason_eligible": candidate_eligible,
             "wrong_period_minimum": by_period["minimum"], "by_v1_period": by_period,

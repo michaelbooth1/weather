@@ -6,7 +6,7 @@ import json
 import pytest
 
 from tools.research.guidance_all_hours.features import v2_features, v2_valid
-from tools.research.guidance_all_hours.run import block, decision, load_rows, verify_input
+from tools.research.guidance_all_hours.run import block, decision, load_rows, score_row, verify_input
 from tools.research.morning_guidance.candidate import candidates
 
 
@@ -88,3 +88,14 @@ def test_hour_blocks_and_decision_rule():
     f1 = out["falsifier_1_stale_07z_adds_nothing"]
     assert not f1["13-16"]["afternoon_route_falsified"] and f1["17-23"]["afternoon_route_falsified"]
     assert not out["falsifier_2_pooled_near_81a"]["all_hours_route_closed"]
+
+
+def test_score_row_ignores_band_labels_and_scores_against_the_winner():
+    bands = [{"kind": "lte", "low": 69, "high": 69, "label": "69F or below"},
+             {"kind": "eq", "low": 70, "high": 71, "label": "70-71F"},
+             {"kind": "gte", "low": 72, "high": 72, "label": "72F or higher"}]
+    r = {**row(), "bands": bands, "p_served": [.2, .5, .3], "p_market_yes": [.1, .6, .3], "winner": 1,
+         "market": "atlanta", "stratum": "from_20260823", "local_hour": 14}
+    out = score_row(r, {})
+    assert out["block"] == "13-16" and out["reason"] == "incomplete_or_invalid_nbm"
+    assert out["served"] == pytest.approx((.04 + .25 + .09) / 3) and out["C1_delta"] == 0
