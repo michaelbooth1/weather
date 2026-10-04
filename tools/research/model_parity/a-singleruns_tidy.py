@@ -63,10 +63,16 @@ def main() -> None:
             h = loc["hourly"]
             times = pd.to_datetime(h["time"], utc=True)
             models = sorted({k.split("temperature_2m_")[1] for k in h if k.startswith("temperature_2m_")})
+            single = False
+            if not models and "temperature_2m" in h:
+                # single-model request: Open-Meteo returns unsuffixed keys; model from the request log
+                assert rq and len(rq[0]["models"]) == 1, f"cannot attribute unsuffixed keys in {path}"
+                models, single = list(rq[0]["models"]), True
             for m in models:
                 df = pd.DataFrame({"valid_utc": times})
                 for v in VARS:
-                    df[v] = pd.to_numeric(pd.Series(h.get(f"{v}_{m}", [None] * len(times))), errors="coerce")
+                    col = v if single else f"{v}_{m}"
+                    df[v] = pd.to_numeric(pd.Series(h.get(col, [None] * len(times))), errors="coerce")
                 df["station"], df["model"], df["run_utc"] = sid, m, run
                 df["grid_lat"], df["grid_lon"] = loc["latitude"], loc["longitude"]
                 df["lead_h"] = ((df["valid_utc"] - run).dt.total_seconds() / 3600).astype(int)
@@ -89,6 +95,29 @@ def main() -> None:
                   n_temp=("temperature_2m", "size"))
              .reset_index())
     cov_records = cov.to_dict("records")
+    # coverage per station x LOCAL target day x model (station tz from stations.json):
+    # runs_any = runs with >= 1 non-null temperature in that local day; runs_full = runs covering
+    # all 24 local hours; hours_union = distinct local hours covered by any run.
+    tz = {s: st[s]["tzname"] for s in ids}
+    parts = []
+    for sid, g in ok.groupby("station"):
+        g = g.copy()
+        g["local_date"] = g["valid_utc"].dt.tz_convert(tz[sid]).dt.strftime("%Y-%m-%d")
+        parts.append(g)
+    okl = pd.concat(parts, ignore_index=True)
+    okl = okl[(okl["local_date"] >= "2026-07-25") & (okl["local_date"] <= "2026-09-29")]
+    per_run = (okl.groupby(["station", "local_date", "model", "run_utc"])["valid_utc"].nunique()
+                  .reset_index(name="n_hours"))
+    sd = (per_run.groupby(["station", "local_date", "model"])
+                 .agg(runs_any=("run_utc", "size"), runs_full=("n_hours", lambda s: int((s >= 23).sum())))
+                 .reset_index())
+    hu = okl.groupby(["station", "local_date", "model"])["valid_utc"].nunique().reset_index(name="hours_union")
+    sd = sd.merge(hu, on=["station", "local_date", "model"])
+    sd_records = sd.to_dict("records")
+    sd_summary = (sd.groupby("model")
+                    .agg(station_days=("local_date", "size"), mean_runs_any=("runs_any", "mean"),
+                         min_runs_any=("runs_any", "min"), station_days_hours_union_lt24=("hours_union", lambda s: int((s < 23).sum())))
+                    .reset_index().to_dict("records"))
     # duplicate-run check: identical temperature series at overlapping valid times vs previous run
     dup = []
     for (sid, m), g in ok.groupby(["station", "model"]):
@@ -136,6 +165,9 @@ def main() -> None:
         "runs_with_data_by_model_hour": per_model_runs, "max_lead_by_model_hour": lead_max,
         "identical_consecutive_runs": dup,
         "coverage_station_rundate_model": cov_records,
+        "coverage_station_localday_model_note": "local target day in station tz (stations.json tzname); runs_full counts runs with >= 23 distinct hours in that local day (DST-safe); hours_union = distinct valid hours covered by any run",
+        "coverage_station_localday_summary": sd_summary,
+        "coverage_station_localday_model": sd_records,
     }
     with open(os.path.join(ROOT, "MANIFEST.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=1, default=str)
