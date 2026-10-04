@@ -1,15 +1,24 @@
 ﻿# Model-parity swarm v2 — STATUS
 
-**Phase:** 0 (preflight) running — started 2026-10-04 00:20 local. All numbers here are development.
+**As of 00:50 local, 2026-10-04.** All numbers are development. Phase 0 done; infrastructure mostly done (F2 waits on 1-minute data); acquisition in progress; hunting and verification started.
 
-- Owner approval: confirmed in the workstation chat (Workstation Chat) at ~00:10 local.
-- Worktree `C:\pt\swarm`, branch `codex/model-parity-swarm-20261004` = origin/master + merged
-  `origin/codex/guidance-all-hours-analysis-20261003` (fast-forward to 0206f4d1).
-- 111h extract found at `C:\Users\Michael\Documents\nbm-guidance-111h` (not `data\exports\...`);
-  SHA256SUMS: all 3 match; manifest COMPLETE; parser head 2e17ce0eb; 110,807 rows / 626 market-days.
-- Orchestration: one Workflow run (wf_247e1179-a53), dependency-driven: P0 -> F1/F2/F3 + 10 acquirers
-  (IEM lane split into 4 sequential agents) -> hunters T1-T17 as their manifests land -> refuters per
-  LEAD (max 6 families, first 6 refuters on Fable) -> T18/T19/T20 -> spares T21-T26 -> deep dives ->
-  synthesis (critic on Fable). ~60 agents.
-- Disk: C: 83 GB free at start; STOP if C:\swarm > 70 GB or C: free < 15 GB.
-- Data lives in `C:\swarm` (never in the repo). Design copy: `C:\swarm\DESIGN.md`.
+## Done
+- **P0 preflight** (00:22): swarm venv ok; NBH bandwidth 39.9 MB/s, so full NBH scope; Single-Runs model ids
+  confirmed, multi-location calls work (~8.8k weighted calls planned); IEM needs >= 2 s spacing; no ECMWF
+  `scda` path in this window. Details: `C:\swarm\PREFLIGHT.md`.
+- **F1 harness** (00:34): HARNESS_SHA256 `8db69adc…`. **Positive control PASS**: −0.006891 [−0.011894, −0.002688]
+  exactly; served−served = 0; served/market 1.768×; block shares 22.5/16.6/11.8/15.3/33.9%. Note: the tail definition
+  reproduces as 6.075% of rows / 70.38% of excess on this table (EF's 4.387%/64.14% is another panel).
+- **F3 gap atlas** (before stratum only, 00:41): 17-23 past-sunset = 20% of the excess (served P(above
+  running-max band) 0.377 vs market 0.012, realised 0.009; 11/11 markets).
+- **Acquisition complete:** A-IEM-1 METAR/SPECI 2024-05..2026-09-29, A-ECMWF (134/134 runs, LastModified +7.6 h),
+  A-Soundings (17 sites; no Denver RAOB), A-GOES (2,134 scenes).
+- **Hunters:** T1 decided-band collapse **LEAD** (17-23 from-stratum −0.0264 [−0.0379, −0.0175], 11/11 markets,
+  parameters fitted on IEM history <= 07-31) — refuters (PIT + statistics, Fable) running. T12 NWS revision
+  direction **NULL**.
+
+## Running
+A-IEM-2 (MOS), A-NBH (+NBS), A-SingleRuns; hunters T2, T3, T4, T11, T14, T15; T1 refuters.
+
+## Disk / issues
+C: free 148.5 GB; C:\swarm 0.6 GB. No STOP. 111h extract read from `C:\Users\Michael\Documents\nbm-guidance-111h`.
