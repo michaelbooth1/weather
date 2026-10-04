@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-03 23:00 America/Toronto (ALL LIVE TRADING PAUSED; exam closed NOT EXECUTED, panel unread; maker replay v2 build started; merge freeze lifted except 88a changes until after 10-14; ~107 GiB free).**
+**Last updated: 2026-10-04 03:50 America/Toronto (ALL LIVE TRADING PAUSED; exam closed NOT EXECUTED, panel unread; roll-free batch landed `8c5d6b5c`; 91a BLOCKED pending a verification extension; model-parity swarm found a serving defect; ~109 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -28,8 +28,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master`; last code integration `979c0e752` (2026-10-01 01:38); later merges are
-  docs-only light paths until tonight's roll-free batch.
+- **Production source:** `master` = `origin/master`; last code integration `8c5d6b5c` (2026-10-04 03:41, roll-free batch PR #186:
+  #141, #170, #171, #155, #154, #150, #151, #128, #146, #169, #179, #185; suite 24/24 on `dd41b9d8`, capture healthy through the
+  roll check). The batch carried one test fix (wallet-reader test names the account by SID; `USERDOMAIN` is WORKGROUP here).
 - **Exam `maker-replay-2026-10-15`: closed NOT EXECUTED (owner 2026-10-03).** Calibration 09-27 from pinned `664c8943`: band
   union N_d = 170 conditions, 1.30 GB input per date (~546 MiB allowed), export peak 9.9 GiB beside capture (free RAM fell to
   1.38 GB). Look unspent; panel UTC 09-30..10-13 (+10-14) never exported or read. [Plan B audit](../roadmap/audits/exam-plan-b-2026-10-03.md).
@@ -49,25 +50,26 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Settlement:** US markets settle on the WRH "Hourly Data" rows; foreign markets on the WRH Temp column; Hong Kong pays the
   floor of the HKO absolute daily maximum (#169 config, roll-free). Lowest temperature is the hourly-row minimum. EF §10c.
 - **Pinned deployments (detached, locked worktrees):** watchdog `weather-watchdog-deployed-110n-1fc7ba35`; order journal
-  `weather-manual-order-journal-deployed-ebe72984`; cold-snapshot nightly `weather-cold-snapshot-deployed-979c0e7` (to be
-  re-pinned after #179 lands); exam tree `weather-exam-deployed-664c894` (closed; keep for v2 provenance).
-- **Disk:** 91a nightly reclaims ~10-20 GiB a night; 10-03 failed on a race with the CLOB status file (resolved, 9.58 GB;
-  cause = the admission check's read, fix #179). A FAILED night blocks later nights until resolved: check
+  `weather-manual-order-journal-deployed-ebe72984`; cold-snapshot nightly `weather-cold-snapshot-deployed-979c0e7` (re-pin
+  from `8c5d6b5c` once the 10-04 attempt is resolved); exam tree `weather-exam-deployed-664c894` (closed; keep for v2 provenance).
+- **Disk:** 91a nightly reclaims ~10-20 GiB a night. **10-04 FAILED and BLOCKS later nights:** a transient capture-admission
+  read (`capture_unhealthy:snapshot`, fixed by #179 now on master) stopped it mid-file after 10.09 GB; the unfinished file
+  (`atlanta-on-july-13` `clob_tokens.jsonl`) is compressed with its SHA-256 equal to the before-journal, but the resolution tool
+  refuses unfinished files until `-VerifyRetained` covers nightly batch journals (a workstation task). A FAILED night blocks later nights until resolved: check
   `scratch\cold_snapshot_compression\nightly-<date>-*\wrapper-result.json` each morning. Policy expires 10-30 (renewal ~10-27).
 - **88a retention hold:** keep 88a data for UTC 09-27..10-15 (v2 calibration/panel/settlement) and 10-15..10-30 (desk-study
   panel); lossless compression allowed.
 - **Learning lane:** Stage B (`WeatherEveningEvidenceRefresh`) disabled since 2026-08-13. Stage A exits 2 daily on the known
   `live_variant_settlement_scorecard` block.
 - **Host:** ProtonVPN removed 10-03 (capture unaffected); TAP-Windows adapter kept (owner); crash dumps automatic.
-- **Workstation:** owner-account deny removed from `data\` (10-03); the wallet reader blocks heavy-lease recovery until #170
-  (allowlist) lands.
+- **Workstation:** owner-account deny removed from `data\` (10-03); the #170 wallet-reader allowlist is on master (the
+  workstation picks it up when its checkout updates).
 
 ## Ordered critical path
 
 1. **Maker replay v2:** Session A (W0+W1) running; then B (W2 exporter, S2 decides the export host) and C (W3-W5 engine,
    reference, scorer), then W6-W8; production P1-P4 on calibration dates only; gates; owner signature by 10-23.
-2. **Merges:** tonight roll-free batch (#141 first, #170, #171, #155, #154, #150, #151, #128, #146, #169, #179, lowest-temp
-   study, CI hook fetch-depth); 10-04/05 #152 + #173; 10-05/06 #117 -> #174, #119, #160-#163, #142, #180; after 10-14 #118,
+2. **Merges:** roll-free batch LANDED 10-04 (`8c5d6b5c`); 10-04/05 #152 + #173; 10-05/06 #117 -> #174, #119, #160-#163, #142, #180; after 10-14 #118,
    #172 + #182 (register `WeatherMakerEvidenceLowestTemperature`), #177 (restart 88a explicitly).
 3. **Measurements (09-29 only; never 88a 09-30..10-14):** #173 execution-tape and #177 88a disconnect reports.
 4. **Research:** NBS/NBH probe (after 111h); T+1/T+2 NWP-timing pilot; hour-gated guidance needs a new pre-registration.

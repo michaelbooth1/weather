@@ -183,3 +183,31 @@ class TestStorageClassRegistry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("name", ["mm_scoring_projection.csv", "model_variant_mm_scoring_projection.csv"])
+@pytest.mark.parametrize("run", ["run-1", "risk-order-run"])
+def test_storage_5g_mm_scoring_projection_is_rebuildable_projection(name, run):
+    classification = classify_storage_path(f"data/mm_runs/2026-09-01/{run}/{name}")
+    assert classification.artifact_family == "mm_scoring_projection"
+    assert classification.storage_class == ANALYSIS_PROJECTION
+    assert not classification.protected
+    assert "quote_intents_long.csv" in classification.rebuild_source
+    assert "mm_scoring_projection_manifest.json" in classification.rebuild_source
+
+
+def test_storage_5g_projection_manifest_and_canonical_tapes_stay_retained():
+    manifest = classify_storage_path("data/mm_runs/2026-09-01/run-1/mm_scoring_projection_manifest.json")
+    assert manifest.artifact_family == "mm_scoring_projection_manifest"
+    assert manifest.storage_class == CANONICAL_EVIDENCE
+    assert manifest.protected
+    lifecycle = classify_storage_path("data/mm_runs/2026-09-01/run-1/order_lifecycle.jsonl")
+    assert lifecycle.artifact_family == "market_making_lifecycle_risk"
+
+
+def test_storage_5f_attribution_sidecar_matches_its_shadow_export_sibling():
+    sidecar = classify_storage_path("data/backtest/active_variant_shadow_attribution.jsonl")
+    sibling = classify_storage_path("data/backtest/active_variant_shadow_long.csv")
+    assert sidecar == sibling
+    assert sidecar.artifact_family == "backtest_row_exports"
+    assert sidecar.storage_class == ANALYSIS_PROJECTION

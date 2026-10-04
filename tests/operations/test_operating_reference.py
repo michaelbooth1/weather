@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from weather.operations import operating_reference
@@ -60,6 +62,12 @@ def test_render_includes_windows_constants_and_the_regeneration_command():
     assert "COMPLETE_DAY_MIN_ROWS" in markdown
     assert "12:00-18:00 local" in markdown
     assert "01:00-04:00 local" in markdown
+
+
+def test_render_omits_source_line_numbers_so_unrelated_edits_do_not_churn_it():
+    markdown = operating_reference.render_markdown(operating_reference.collect_constants())
+
+    assert re.search(r"` line \d+", markdown) is None
 
 
 def test_tracked_reference_points_to_runtime_schedule_without_embedding_it():

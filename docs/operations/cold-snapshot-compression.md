@@ -231,6 +231,17 @@ against the budget; each night records them with a reason in
 bound) and counts them as `files_skipped_unshrinkable`. A selected file that
 still reclaims nothing stops its batch exactly as before.
 
+Snapshot-root selection classifies entries by name only: live status files,
+writer locks and hot event folders are never stat'ed or opened, and an error on
+a selected closed-day folder refuses. The capture loops atomically replace their
+status files, so the per-second capture-admission read can land on a
+delete-pending file (the 2026-10-03 night failed after 87 batches with
+`PermissionError` on `clob_loop_status.json`). A `PermissionError` or `BLOCK`
+from one admission observation is followed, after 0.25 s, by one fresh complete
+observation that decides; criteria are unchanged and a second failure refuses.
+The receipt counts these as `admission_retries` and keeps the first 32 first
+observations in `admission_retry_notes`.
+
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
 inventory evidence. The disk reservation is 8 GiB plus two 256 MiB file images
