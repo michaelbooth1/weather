@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.io import sha256_file
+from weather.market.mm_scoring_projection import validate_run_scoring_projection
 from weather.operations.storage_classes import classification_payload
 from weather.operations.wu_orphan_proofs import verify_record as verify_wu_orphan
 from weather.paths import data_path
@@ -281,6 +282,14 @@ def build_cleanup_preflight(
             rebuild_source = candidate.get("rebuild_source")
             if not rebuild_source or rebuild_source == "unknown":
                 row_checks.append({"check": "rebuild_source", "status": "BLOCK", "detail": "analysis projection cleanup requires rebuild_source"})
+            if classification["artifact_family"] == "mm_scoring_projection":
+                # The rebuild source must exist and still match the run manifest's size+mtime binding.
+                binding = validate_run_scoring_projection(path.parent)
+                row_checks.append({
+                    "check": "mm_scoring_projection_rebuild_source",
+                    "status": "PASS" if binding.get("valid") else "BLOCK",
+                    "detail": binding.get("reason") or "canonical quote-intent binding validates",
+                })
         elif storage_class == "operator_cache":
             row_checks.append({"check": "operator_cache_cleanup", "status": "PASS"})
         else:

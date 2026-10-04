@@ -88,6 +88,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherObservationTriggerSupervisor | active | False | scripts/ops/register_observation_trigger_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherOneShotMirror | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherOneShotPush | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherReplayBundleExportNightly | active | False | scripts/ops/register_replay_bundle_export_nightly.ps1 | docs/operations/maker-replay-bundle.md |
 | WeatherSnapshotLoopSupervisor | active | False | scripts/ops/register_snapshot_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherStalenessSweep | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherStorageRecovery-* | one-shot | False | scripts/ops/register_storage_recovery_night.ps1 | docs/operations/OPERATIONS_DESIGN.md |
