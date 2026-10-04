@@ -28,6 +28,7 @@ from weather.io import (
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
+from weather.sources.metar_reports import metar_row_annotations
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
 from weather.sources.nbm_probabilistic_tmax import (
     NBM_PROB_TMAX_SCHEMA_VERSION,
@@ -110,7 +111,7 @@ SOURCE_PAYLOAD_CONTRACTS = {
     "eccc_citypage": ("eccc-citypage-parser-v1", "eccc-citypage-payload-v1"),
     "eccc_swob": ("eccc-swob-parser-v3", "eccc-swob-payload-v1"),
     "eccc_gem": ("eccc-gem-parser-v1", "eccc-gem-payload-v1"),
-    "metar": ("metar-parser-v3", "metar-payload-v1"),
+    "metar": ("metar-parser-v4", "metar-payload-v1"),
     "weather_forecast": ("weather-forecast-parser-v1", "weather-forecast-payload-v1"),
     "open_meteo": ("open-meteo-parser-v1", "open-meteo-payload-v1"),
     "open_meteo_air_quality": (
@@ -1346,6 +1347,10 @@ class SourceFetchMixin:
                 "gust_kmh": wind_gust_native,
                 "cover": row.get("cover"),
                 "raw": row.get("rawOb"),
+                # Parser v4 (item 4): report type (METAR/SPECI), provider
+                # observation time and RMK T-group tenths in Celsius. Evidence
+                # only; no feature, floor or settlement accessor reads them.
+                **metar_row_annotations(row),
             })
         rows.sort(key=lambda item: item.get("datetime") or "")
         return rows

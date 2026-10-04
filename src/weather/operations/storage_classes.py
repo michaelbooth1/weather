@@ -149,6 +149,18 @@ ARTIFACT_FAMILIES = (
         notes="Settlement and PIT evidence; must be covered by event manifests, backup, and restore proof.",
     ),
     ArtifactFamilyClassification(
+        "metar_report_ledger",
+        "sources/operations",
+        CANONICAL_EVIDENCE,
+        ("snapshots/metar_reports/**",),
+        "permanent_first_seen_metar_reports",
+        "not rebuildable: per-report first-seen time and SPECI/T-group text as served live",
+        "canonical_evidence_review_gate",
+        True,
+        examples=("data/snapshots/metar_reports/<market>/metar_reports-<utc-date>.jsonl",),
+        notes="Item 4 METAR/SPECI ledger written by the observation trigger; supporting evidence, about 18 KB per station-day.",
+    ),
+    ArtifactFamilyClassification(
         "clob_capture_status_evidence",
         "market",
         CANONICAL_EVIDENCE,

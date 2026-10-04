@@ -86,6 +86,7 @@ from weather.sources.asos_one_minute import (
     compare_daily_summary_to_wu_print,
     load_daily_summary,
 )
+from weather.sources.metar_reports import LEDGER_DIRNAME, capture_from_sources as capture_metar_reports
 from weather.time import parse_datetime, utc_now as shared_utc_now
 from weather.units import parse_temperature_band, round_half_up, to_float
 
@@ -365,6 +366,11 @@ def fetch_market_observation_state(
     )
     cache_keys_before = sorted(model_client.load_last_good_sources())
     sources = fetch_observation_sources(model_client)
+    # Item 4: keep every fresh METAR/SPECI report (T-group tenths) in a
+    # per-day ledger beside the cache root; reuses this fetch, feeds nothing.
+    metar_capture = capture_metar_reports(
+        cache_path.parent.parent / LEDGER_DIRNAME, market_id, getattr(spec, "icao", None), sources, local_now,
+    )
     cache_entries = model_client.load_last_good_sources()
     cache_keys = sorted(cache_entries)
     cache_ready = bool(cache_keys)
@@ -389,6 +395,7 @@ def fetch_market_observation_state(
         "source_keys": cache_keys,
         "legacy_cache_migration": "disabled_fail_closed_live_bootstrap",
     }
+    state["metar_report_capture"] = metar_capture
     return state
 
 
