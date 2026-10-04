@@ -549,8 +549,7 @@ COMPLETENESS P1 item "multi-payload `lockin_strength` read"; the `estimate_distr
   were excluded because the market put more than 0.5 above that band: there the captured floor lags the real high, so
   mass above it is not a lock-in error. n = 27 remain.
 - **The stage is a no-op in all 27.** The maximum per-band change made by `late_day_lockin` versus
-  `settlement_lag_adjusted` has a median of 8.4e-9 (max reported as 0.0, which cannot be below the median; awaiting
-  confirmation from master-agent, and either way of order 1e-8).
+  `settlement_lag_adjusted` is min 3.4e-10, median 8.4e-9, max 1.2e-7 (numerical noise).
 - **Mean mass above the running-high band:** 0.253 before the lock-in, 0.253 after it, 0.253 pre-calibration and 0.276
   final; the market's is 0.002. Calibration adds +0.023 in the defect state, consistent with T27's S7 analysis.
 - This supports the code-trace claim (lock-in strength 0) beyond the single ATL payload.

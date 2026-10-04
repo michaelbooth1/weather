@@ -45,8 +45,8 @@ A descriptive read: read-only, closed days only, development, no scoring.
   09-14, 09-27): 33 snapshots. Running-high band = the first band where `current_observed_floor` > 1e-6. Six were
   excluded because the market put more than 0.5 above that band: the captured floor lags the real high there, so the
   mass above it is not a lock-in error. n = 27.
-- **`late_day_lockin` is a no-op in all 27:** the maximum per-band change versus `settlement_lag_adjusted` has a median
-  of 8.4e-9 (max reported as 0.0, inconsistent with the median; awaiting confirmation; of order 1e-8 either way).
+- **`late_day_lockin` is a no-op in all 27:** the maximum per-band change versus `settlement_lag_adjusted` is min
+  3.4e-10, median 8.4e-9, max 1.2e-7 (numerical noise).
 - **Mean mass above the running-high band:**
 
   | Stage | Mass |
