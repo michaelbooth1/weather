@@ -57,6 +57,12 @@ caller inputs, so the neutral package never imports `weather.paths`.
   journal use additive neutral contracts; runtime owns file orchestration and
   venue owns saved-read adaptation and optional LAN HTTP reads. See the
   [portfolio ledger](portfolio-ledger.md).
+- `maker_core.shadow` (the [shadow runner](maker-shadow-runner.md)) may import contracts,
+  evidence, quoting and `maker_core.runtime.guard`, never `venue`: public reads arrive
+  injected. `maker_core.venue.public_feed` is the GET-only public reader (three
+  allowlisted International Polymarket reads). The weather composition
+  `weather.market.maker_shadow` wires them and reads 88a through
+  `weather.market.maker_shadow_panel`.
 - A future `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 

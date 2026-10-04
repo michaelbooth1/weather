@@ -216,7 +216,7 @@ cash source.
 | 0 Foundation | `src/maker_core/` contracts v0.1 (tagged), conformance kit, fictional-domain plugin, ratchet + `package-boundaries.md`, reward/price kernels copied with differential tests, `blind_re1` profile reproducing RE-1 journals, journal/secret-guard lift | workstation (new files, expected roll-free) | 4-6 days |
 | 1 Weather plugin | `maker_plugin/{universe,fair_value,clock,settlement,exposure}.py`, T+1/T+2 provider, T+0 adapter, station-minute clock, fair-value pre-registration | workstation; production bounded export under the lease | 5-8 days |
 | 2 Replay harness | loader for 88a v2 segments, fill model, scorer, baselines, clustered inference, report | workstation (`workstation_heavy.ps1`) | 5-8 days |
-| 3 Paper/shadow | public-reads-only shadow runner writing a quotes tape per minute; nightly scoring vs 88a; drills | workstation | 3-4 days build, 7-14 days elapsed |
+| 3 Paper/shadow | public-reads-only shadow runner writing a quotes tape per minute; nightly scoring vs 88a; drills ([runbook](maker-shadow-runner.md)) | workstation | 3-4 days build, 7-14 days elapsed |
 | 4 Owner-started live (RE-2) | attended sessions on the `maker_core` runtime with `informed_v0`, pre-registered sizes/caps/dates | workstation, owner starts each session | per session |
 
 YouTube hand-off from Phase 0: the contracts tag, the fictional plugin as template, the conformance test and the replay input

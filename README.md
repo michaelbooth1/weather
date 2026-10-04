@@ -197,6 +197,12 @@ campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
 Unmatched lots belong to owner-discretionary, outside bot bleed limits.
 
+The [maker shadow runner](docs/operations/maker-shadow-runner.md) tapes, each minute, what the
+maker would quote from public International Polymarket reads, every leg through the guard and none
+placed: `python -m weather.market.maker_shadow run --config <json> [--offline-fixture <json> --minutes <n>]`.
+`python -m weather.market.maker_shadow score --day <closed UTC day> --maker-evidence-root <dir>`
+writes diagnostics against sealed 88a capture and refuses embargoed panel days. No task is registered.
+
 Run commands from the repository root with the venv interpreter.
 
 ### Registry, History, And Source Data

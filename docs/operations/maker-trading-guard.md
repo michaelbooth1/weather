@@ -93,7 +93,8 @@ source module other than the command references `owner_clear`.
 The runtime itself, the venue cancel-all and submit, how often the runtime refreshes
 the wallet read, per-order cash headroom against the remaining bleed budget, and
 the caps of the [design](informed-maker-design-2026-09-25.md) Phase 2. The pause
-file and latch directory locations are chosen with the runtime.
+file and latch directory locations are chosen with the runtime. The first consumer is the
+[shadow runner](maker-shadow-runner.md), whose placement target is a local sink.
 
 ## Update when
 
