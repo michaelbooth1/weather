@@ -165,7 +165,25 @@ which is after signature and after 10-14.
 
 ## Audits and tests
 
-Pending: filled after the full suite run.
+- **Full suite**, through `workstation_heavy.ps1 -Kind pytest` from this branch at `a9c6aa1e`: **8,099 passed, 39 skipped,
+  5 xfailed, 0 failed** in 3,301 s. The suite includes the repo-wide audits:
+  - schema registry (`tests/operations/test_schema_registry.py`);
+  - imports (`test_import_architecture.py`);
+  - path policy (`test_path_policy.py`);
+  - module size (`test_module_size_audit.py`);
+  - the admission tests.
+- `python -m weather.operations.agent_docs_audit`: PASS. `compileall -q app src tests tools/research/maker_replay_v2`:
+  exit 0, under the wrapper.
+- Three earlier suite attempts did not count, and none was caused by this code:
+  - a basetemp under the long scratch path hit Windows MAX_PATH (`WinError 206`);
+  - one run was killed by the session tool's 2-hour background cap;
+  - one run lost its basetemp mid-run when all of `C:	mp` (including several sessions' worktrees) was deleted by
+    something outside this session.
+
+  The last run's 279 setup errors were all `FileNotFoundError: C:	mptmrv2`, with 0 failures. The clean run above
+  used a worktree and basetemp outside `C:	mp`.
+- GitHub CI on #178 (`test`, `native-launch`, `hook` ubuntu/windows): green at `a9c6aa1e`. The hook workflow first failed
+  because its shallow checkout refuses the docs audit. It was fixed with `fetch-depth: 0`, identical to unmerged #154.
 
 ## What was NOT done
 
