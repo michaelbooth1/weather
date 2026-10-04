@@ -40,6 +40,7 @@ jobs:
               tests/operations/test_production_cold_archive_wrapper.py
               tests/operations/test_cold_archive_reclaim.py
               tests/operations/test_cold_snapshot_compression_wrapper.py
+              tests/operations/test_cold_snapshot_nightly_verification.py
           - shard: launch
             select: ''
             files: >-
