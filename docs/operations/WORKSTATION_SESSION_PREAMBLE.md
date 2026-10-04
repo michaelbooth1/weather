@@ -8,9 +8,12 @@ prompt, usually as "read handoff X and do it".
 
 You are Claude Code on the owner's **32 GB workstation**, not the 16 GB production capture host. The
 capture-host rules in `CLAUDE.md` and `AGENTS.md` (time windows, the bounded suite, the shared lease) do not
-bind you. Instead, run heavy commands (pytest beyond a few files, compileall, training, replay) through
-`scripts\ops\workstation_heavy.ps1` ([host load policy](HOST_LOAD_POLICY.md)). Other Claude sessions may be
-running missions in parallel in this same clone.
+bind you. Focused pytest of at most 25 files with no `serial`-marked test (until that marker exists: no file
+that starts PowerShell) runs directly, with an explicit `--basetemp` deleted afterwards. Full suites, larger
+selections, xdist, compileall, training and replay go through `scripts\ops\workstation_heavy.ps1`, which is to
+queue them in order (the queue is a follow-up; until then poll at most once a minute)
+([host load policy](HOST_LOAD_POLICY.md), owner decision 2026-10-04). Other Claude sessions may be running
+missions in parallel in this same clone.
 
 ## Before you start
 
@@ -28,26 +31,17 @@ running missions in parallel in this same clone.
   places, cancels or signs orders.
 - Push and draft PRs are authorized. Never force-push, rebase a pushed branch or rewrite history; bring a
   branch up to date by merging `origin/master`.
-- Include the repo-wide audits (schema registry, imports, agent docs, path policy, module size) in your
-  test runs, and wait for the PR's full GitHub CI to finish green. Fix the real cause of a failure, never
-  by weakening a test.
+- Run focused and affected tests plus the repo-wide audits (schema registry, imports, agent docs, path
+  policy, module size). The PR's CI is the full-suite evidence, except that a change touching a
+  Windows-executing script still needs a local full suite until CI has a Windows lane for those tests
+  ([development.md](../development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)). Wait for the PR's full GitHub CI to finish
+  green. Fix the real cause of a failure, never by weakening a test.
 
 ## Finishing
 
 Write the report the handoff names (verdict first, per [delegation contract](DELEGATION_CONTRACT.md) §5),
 push it with the branch, then reply with: the report path, the PR link(s), the head SHA(s) and the CI
 conclusion. The owner pastes that reply to the production agent, which verifies before anything merges.
-
-## PROPOSAL (not in force)
-
-> **Owner decision pending (test-suite review K, 2026-10-04).** The text above governs until approved; see
-> [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) (P4).
-
-- *Where you are* would read: focused pytest of at most 25 files with no `serial`-marked test runs directly
-  (explicit `--basetemp`, deleted afterwards); full suites, larger selections, xdist, compileall, training and
-  replay go through `scripts\ops\workstation_heavy.ps1`, which queues them in order.
-- *Boundaries* would read: run focused and affected tests ([development.md](../development.md)); the PR's CI is
-  the full-suite evidence; wait for it to finish green.
 
 ## Update this file when
 

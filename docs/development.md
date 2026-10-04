@@ -244,7 +244,8 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 ## Definition of done
 
 - The intended behavior is implemented through the correct owner.
-- Focused tests pass on a host allowed to run them; broader checks match the change risk. State where each
+- Focused tests pass on a host allowed to run them; broader checks follow "Verification scope and assertion
+  strength" below, including its Windows condition. State where each
   check ran. A capture-host refusal (window, disk floor, commit charge) is reported as a blocker, not as a pass.
 - CI evidence exists only for a pull request or for `master`; say which, or say there is none.
 - Windows-executing script tests are proven only by the bounded production-host suite, never by CI.
@@ -255,20 +256,36 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
   changes entered the diff.
 - Documentation links and knowledge contracts pass the agent-doc audit.
 
-## PROPOSAL (not in force): definition of done and assertion strength
+## Verification scope and assertion strength (owner decision 2026-10-04)
 
-> **Owner decision pending (test-suite review K, 2026-10-04).** The definition of done above governs until the
-> owner approves. Full text and evidence:
-> [test-policy-proposals.md](research/test-suite-review-2026-10-04/test-policy-proposals.md) (P2, P5).
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](operations/DECISION_LOG.md) row of
+2026-10-04; record and evidence:
+[test-policy-proposals.md](research/test-suite-review-2026-10-04/test-policy-proposals.md) P2 and P5).
 
-- *P2.* Local verification becomes focused tests plus the affected tests from
-  `python -m weather.operations.affected_tests` (draft PR #204); the pull request's CI is the full-suite
-  evidence. A local full run is required only where CI cannot see the tests: Windows-executing script tests in
-  no Windows-qualification shard (about 303 cases) keep today's bounded-suite or Windows full-run rule, and a
-  handoff may require more.
-- *P5.* New and touched tests assert both sides of every boundary they cover, give each guard clause a case
-  where only it fires, and check computed statistics against an independent value (a mutation sample found
-  51 of 104 covered faults surviving).
+**Local verification and CI (P2, approved with a condition).**
+
+- **Condition, not yet met.** The rule below takes effect only once a CI Windows lane runs the Windows-only
+  tests that CI never runs today (about 303 cases in files in no `windows-qualification` shard, including the
+  70 reconciler-execution cases; that shard work is approved separately). The change that adds the lane must
+  update this paragraph to say the condition is met.
+- **Until then**, a change that touches a Windows-executing script (`scripts/ops/*.ps1`, or a test that runs
+  PowerShell) still needs a local full suite: the bounded production-host suite, or a Windows workstation full
+  run through `scripts/ops/workstation_heavy.ps1`.
+- **The rule (once the condition is met).** Local verification is the focused tests for the owner package plus
+  the affected tests from `python -m weather.operations.affected_tests --base origin/master --format paths`
+  (draft PR #204), run through the host's normal pytest route. The pull request's CI is the full-suite
+  evidence; nobody runs a local full suite only to duplicate CI. A handoff may still require more.
+
+**Mutation-informed assertions (P5).** A mutation sample (104 faults in 27 functions) found 51 faults that were
+executed but never asserted. New tests, and tests touched in a change:
+
+1. assert both sides of every boundary they cover: the value at the threshold and one step past it;
+2. give each guard clause a case where only that guard fires, and assert the specific outcome, not just
+   "not PASS";
+3. check computed statistics and numeric outputs against an independent expected value, not only presence or
+   order;
+4. for an incident test, name the mutation it kills in the module `Guards:` line or the test docstring;
+5. prefer one strong case per input partition over many cases in the same partition.
 
 ## Update this file when
 

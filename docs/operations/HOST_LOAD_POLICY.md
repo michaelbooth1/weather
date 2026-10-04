@@ -18,7 +18,8 @@ This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
-admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
+admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+the focused runs exempted below (owner decision 2026-10-04).
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
@@ -94,19 +95,30 @@ lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
 
-## PROPOSAL (not in force): workstation focused-run exemption, FIFO queue, xdist
+## Workstation focused runs, FIFO queue and xdist (owner decision 2026-10-04)
 
-> **Owner decision pending (test-suite review K, 2026-10-04).** The text above governs until the owner
-> approves; the capture-host rules in this file are not affected by any part of it. Full text and evidence:
-> [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) (P3).
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](DECISION_LOG.md) row of 2026-10-04;
+record: [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) P3).
+**Every capture-host rule in this file is unchanged**; this section applies only to the non-capture
+workstation.
 
-- On the non-capture workstation only, pytest naming at most 25 test files, none marked `serial`, without
-  xdist, runs without `workstation_heavy.ps1` (explicit `--basetemp`, deleted afterwards). Never while a
-  portable live stage holds the mutex.
-- Full suites and larger runs queue first-in first-out in `workstation_heavy.ps1` instead of polling a
-  refusal, with one wait-log line per enqueue, start, finish and give-up.
-- `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) only on the
-  workstation, only through the wrapper, and only after an identical pass set is shown against a serial run.
+- **Focused-run exemption.** pytest naming at most 25 test files, none containing a test marked `serial`, and
+  not using xdist, may run without `workstation_heavy.ps1`, with an explicit `--basetemp` deleted afterwards.
+  Never while a portable live stage holds the host-global mutex. Until the `serial` marker is registered (a
+  test-suite review K follow-up), treat any file that starts PowerShell as `serial`.
+- **FIFO queue.** Full suites and larger runs wait their turn first-in first-out instead of polling a refusal,
+  with one wait-log line per enqueue, start, finish and give-up.
+- **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
+  on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
+  outcomes) has been shown against a serial run.
+
+**Mechanism status: follow-up, not yet implemented.** The rules are adopted, but the enforcing code is more
+than a small change and is left as an explicit follow-up. The Codex host-load hook
+(`.codex/hooks/pre_tool_use_host_load.py`) still denies every recognized pytest on the workstation outside the
+wrapper, so Codex sessions cannot use the exemption until the hook learns to count test files and check the
+`serial` marker. `workstation_heavy.ps1` still refuses immediately when the lease is busy and has no queue or
+wait log. Sessions without the hook (Claude Code) may apply the exemption now. Until the queue exists, a caller
+waiting for the lease polls at most once a minute.
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 

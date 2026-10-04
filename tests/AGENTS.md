@@ -33,19 +33,23 @@ Run the narrow directory or file first, then the full suite:
 Host rules are owned by [the host load policy](../docs/operations/HOST_LOAD_POLICY.md)
 and [development.md](../docs/development.md).
 
-## PROPOSAL (not in force until the owner approves): test hygiene ratchet
+## Test hygiene (owner decision 2026-10-04)
 
-Draft from test-suite review K (2026-10-04); see
-[test-policy-proposals.md](../docs/research/test-suite-review-2026-10-04/test-policy-proposals.md) (P1, P5).
-`tests/test_hygiene_ratchet.py` would block new instances only (today's are in
+From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row of 2026-10-04; record:
+[test-policy-proposals.md](../docs/research/test-suite-review-2026-10-04/test-policy-proposals.md)).
+`tests/test_hygiene_ratchet.py` blocks new instances only (today's are in
 `tests/hygiene_ratchet_baseline.json`; `python -m tests.hygiene_ratchet --report` explains a failure):
 
 - each new test module's docstring has a `Guards:` line naming the contract, EF/RF/HWGTW id or incident;
 - no `.ps1` text assert in a module that never executes PowerShell: add an execution test instead;
 - no `_private` imports from `src/` or `app`;
-- tests that start git or PowerShell carry `@pytest.mark.spawns`;
-- guideline only: `pytest.raises(match=...)` when the refusal reason is the contract; assert both sides of
-  each boundary and give each guard clause a case where only it fires.
+- tests that start git or PowerShell carry `@pytest.mark.spawns`.
+
+Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
+contract; mutation-informed assertions as in
+[development.md](../docs/development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)
+(both sides of each boundary, one case per guard clause where only it fires, statistics against an
+independent value).
 
 ## Update this file when
 

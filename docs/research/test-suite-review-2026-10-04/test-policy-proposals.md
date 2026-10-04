@@ -1,18 +1,19 @@
 # Proposals: test policy and anti-regrowth (test-suite review K, role 21)
 
-Status: **PROPOSALS awaiting owner decision. None is in force.** Dated 2026-10-04; historical evidence once
-decided. Until the owner approves a proposal, the current text of [development.md](../../development.md),
-[HOST_LOAD_POLICY.md](../../operations/HOST_LOAD_POLICY.md),
+Status: **decided by the owner on 2026-10-04** (see the [decision log](../../operations/DECISION_LOG.md)).
+P1 kept (the ratchet lands with PR #205). P2 **approved with a condition**: it takes effect only once a CI
+Windows lane covers the Windows-only tests CI never runs today (about 303 cases, including the reconciler's
+70); until then a local full suite stays required for changes touching Windows-executing scripts. P3, P4 and P5
+approved. P3's mechanism (hook exemption, FIFO queue, wait log) is an explicit follow-up. The adopted text lives
+in [development.md](../../development.md), [HOST_LOAD_POLICY.md](../../operations/HOST_LOAD_POLICY.md),
 [WORKSTATION_SESSION_PREAMBLE.md](../../operations/WORKSTATION_SESSION_PREAMBLE.md) and
-[tests/AGENTS.md](../../../tests/AGENTS.md) governs. Each of those files carries a short, clearly marked
-PROPOSAL section that points here; on approval the PROPOSAL section is rewritten into the governing text and
-this file stays as the record.
+[tests/AGENTS.md](../../../tests/AGENTS.md); this file is the record and is historical evidence from now on.
 
 Evidence comes from the other K roles. Raw data lives outside the repository in
 `C:\wt\workstation-chat\k-data\<role>\` on the workstation (not durable; the role-22 report will carry the
 numbers that matter).
 
-## Decisions requested
+## Decisions requested (as submitted)
 
 | # | Proposal | Owner of the text if approved | Effect |
 | --- | --- | --- | --- |
