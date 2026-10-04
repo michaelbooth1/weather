@@ -38,6 +38,28 @@ re-spreads mass above the high. This confirms the defect on a served payload: `l
 untapered overconfidence calibration pushes mass back above a high that is already in. This is a single-snapshot
 read and was not scored; the table-wide numbers below remain development emulations.
 
+### Production multi-payload evidence (added 2026-10-04 morning, read by master-agent on the capture host)
+
+A descriptive read: read-only, closed days only, development, no scoring.
+- **Method:** the last snapshot at or after 21:00 local in `components.jsonl`, for 11 markets × 3 dates (2026-08-12,
+  09-14, 09-27): 33 snapshots. Running-high band = the first band where `current_observed_floor` > 1e-6. Six were
+  excluded because the market put more than 0.5 above that band: the captured floor lags the real high there, so the
+  mass above it is not a lock-in error. n = 27.
+- **`late_day_lockin` is a no-op in all 27:** the maximum per-band change versus `settlement_lag_adjusted` has a median
+  of 8.4e-9 (max reported as 0.0, inconsistent with the median; awaiting confirmation; of order 1e-8 either way).
+- **Mean mass above the running-high band:**
+
+  | Stage | Mass |
+  | --- | --- |
+  | before lock-in (settlement_lag_adjusted) | 0.253 |
+  | after late_day_lockin | 0.253 |
+  | pre_calibration | 0.253 |
+  | final | 0.276 |
+  | market | 0.002 |
+
+- This supports the code-trace claim (lock-in strength 0) beyond the single ATL payload. Calibration adds +0.023 in
+  the defect state, consistent with the T27 amendment on S7.
+
 Run facts: HARNESS_SHA256 `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`. Rows after 2026-09-29: 0. Leakage-suspect groups: none. The from stratum was read before, so it is not a holdout.
 
 ## 1. EF 10e and where the stages live

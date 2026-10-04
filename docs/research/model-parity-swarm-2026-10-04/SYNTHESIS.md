@@ -25,7 +25,8 @@
    - **Evening (17-23): a serving defect, not missing information.** Production's late-day lock-in stages read
      WU-only `history_max`, which has been empty since WU was disabled on 2026-06-30, so they are a no-op.
      Restoring them, re-anchored on the captured METAR floor, closes **85% [76, 92]** of the 17-23 gap
-     (−0.0254 [−0.0353, −0.0175], 11/11). This was confirmed on one real served payload (ATL 2026-09-20 23:55), and
+     (−0.0254 [−0.0353, −0.0175], 11/11). This was confirmed on one real served payload (ATL 2026-09-20 23:55) and on
+     a 27-snapshot multi-payload read (late_day_lockin a no-op in all 27; section 12), and
      T27 re-implemented the rung independently from its rule text (−0.025373, 7e-6 from D-DEFECT; section 11).
    - **Morning (00-12): served under-uses the NBM v2 guidance it already captures.** A zero-parameter read (MG-1)
      closes 58%, 55% and 40% of the 00-05, 06-09 and 10-12 gaps. This is the known 79a/81a/111h family (EF 10h,
@@ -538,6 +539,21 @@ Both finished after this synthesis was first written. Neither contradicts a numb
 - **COMPLETENESS verdict item 2 is now partly closed.** Rungs 1-2 have an independent re-implementation (T27), and
   MG-1 and t3-r3 have a statistics refuter (R-STAT-MG1). Still open: the captured-input replay through
   `estimate_distribution`, the `v2_mean` value re-derivation, and a from-text re-implementation of t3-r3.
+
+## 12. Production multi-payload lock-in read (master-agent, 2026-10-04 morning)
+
+Descriptive read on the capture host, read-only, closed days only, no scoring (development). It closes the
+COMPLETENESS P1 item "multi-payload `lockin_strength` read"; the `estimate_distribution` replay is still open.
+- **Method:** the last snapshot at or after 21:00 local in `components.jsonl`, for 11 markets × 3 dates (2026-08-12,
+  09-14, 09-27): 33 snapshots. Running-high band = the first band where `current_observed_floor` > 1e-6. Six snapshots
+  were excluded because the market put more than 0.5 above that band: there the captured floor lags the real high, so
+  mass above it is not a lock-in error. n = 27 remain.
+- **The stage is a no-op in all 27.** The maximum per-band change made by `late_day_lockin` versus
+  `settlement_lag_adjusted` has a median of 8.4e-9 (max reported as 0.0, which cannot be below the median; awaiting
+  confirmation from master-agent, and either way of order 1e-8).
+- **Mean mass above the running-high band:** 0.253 before the lock-in, 0.253 after it, 0.253 pre-calibration and 0.276
+  final; the market's is 0.002. Calibration adds +0.023 in the defect state, consistent with T27's S7 analysis.
+- This supports the code-trace claim (lock-in strength 0) beyond the single ATL payload.
 
 **Files added by the late agents:**
 - `docs/research/model-parity-swarm-2026-10-04/t27.md`; code `tools/research/model_parity/t27_indep_r1.py` and
