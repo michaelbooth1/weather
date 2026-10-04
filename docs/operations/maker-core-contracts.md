@@ -152,7 +152,8 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
+`portfolio`, `venue`, `runtime` and `replay` began as docstring-only placeholders; the
+portfolio ledger and the runtime [trading guard](maker-trading-guard.md) have since landed.
 The fictional replay lives in tests. Production evidence loading, portfolio
 accounting, venue/credential access, session control, fitted hazard estimation,
 weather and YouTube plugins, shadow scoring and live execution are later phases.
