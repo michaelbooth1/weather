@@ -356,7 +356,8 @@ def maker_paper_score_freshness(candidate_run_folders, covered_run_folders=None,
         "completed_active_run_count": len(active_completed),
         "covered_active_run_count": len(covered_active),
         "live_forward_day_count": len({row.get("target_date") for row in covered_active if row.get("target_date")}),
-        "blocks_maker_evidence_countability": status == "STALE",
+        # Fail closed (owner decision 2026-10-04): a missing active day blocks countability like STALE.
+        "blocks_maker_evidence_countability": status in {"STALE", "NO_ACTIVE_DAY"},
         "covered_run_folders": sorted(covered),
     }
 
