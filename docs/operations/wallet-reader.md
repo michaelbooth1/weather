@@ -22,9 +22,13 @@ key derivation, or private-key lookup occurs. The dotenv parser reads into memor
 with interpolation disabled, selects the named fields, and discards the mapping.
 This is the RE-1 loader shape with the private-key selection removed.
 
-Start from the reviewed topic worktree with the project's existing interpreter
-(set `$python` to its absolute `venv\Scripts\python.exe` path). Substitute the
-actual two LAN IPs for the illustrative RFC1918 addresses below:
+The reader runs on the **workstation** only (it holds L2 credentials; the capture
+host stays credential-free). Start it from a workstation checkout of current
+`master`, normally the main checkout after `git pull --ff-only`. A stale checkout
+without `src/weather/market/wallet_reader.py` cannot start it. Use the project's
+existing interpreter (set `$python` to its absolute `venv\Scripts\python.exe`
+path). The addresses below are examples: find the real values with
+[the restart checklist](#is-it-running-restart-after-a-stop-or-reboot).
 
 ```powershell
 # Workstation IP 192.168.1.20; production PC IP 192.168.1.30 (examples only).
@@ -46,7 +50,9 @@ its acquisition. Campaign acquisitions after that instant add their unredeemed
 terminal value to current equity; historical dust remains outside the baseline.
 No wallet cap is assumed to be starting capital. Without this value campaign P&L
 is `null`/`INCOMPLETE`, although cash below the limit still yields `BLEED_LIMIT`.
-Use Ctrl+C to stop. There is no Scheduler registration or background installer.
+A foreground run stops with Ctrl+C. For normal use,
+[the logon task](#start-at-logon-check-and-restart) runs the same command
+automatically.
 
 The owner, in an elevated PowerShell session, previews then registers the exact
 remote-IP/port rule on the workstation. Registration refuses an existing rule
@@ -65,6 +71,59 @@ Every LAN route requires the same bearer token and exact allowed source IP.
 Browser Origin / Fetch Metadata requests are refused; no CORS headers are added.
 **Plain HTTP carries the token and account data unencrypted over the home LAN.**
 This is the owner's accepted scope; TLS is a separate optional improvement.
+
+## Start at logon, check, and restart
+
+The workstation task `WeatherWalletReader` starts the reader one minute after the
+owner logs on (DECISION_LOG 2026-09-30). It runs as the owner under S4U with
+limited rights, so no window opens and no password is stored. It keeps running
+after logoff and has no time limit. A reboot or power loss stops it until the
+owner's next logon. If nobody logs on after a boot, it does not start. The task
+does not retry a failed start. A crash leaves the reader down until the next
+logon or a manual start, and the production client then reports `refused` or
+`timeout`. The task carries only `--bind`, `--allow`, `--port` and
+`--signature-type`. Campaign flags need a foreground run instead.
+
+After registering the firewall rule, the owner registers the task in an elevated
+PowerShell at the root of the checkout it should run from, normally the main
+checkout on current `master`. The registrar refuses a bind address this PC does
+not hold, a missing matching firewall rule, a checkout without its venv or the
+reader module, and an existing task. To change any value, unregister and
+register again:
+
+```powershell
+.\scripts\ops\register_wallet_reader_logon_task.ps1 -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3 -WhatIf
+.\scripts\ops\register_wallet_reader_logon_task.ps1 -Bind 192.168.1.20 -AllowIp 192.168.1.30 -SignatureType 3
+Start-ScheduledTask -TaskName WeatherWalletReader   # start now instead of at next logon
+.\scripts\ops\register_wallet_reader_logon_task.ps1 -Unregister   # stops and removes it
+```
+
+1. **Check.** On the workstation, a live reader shows one listener:
+   `Get-NetTCPConnection -LocalPort 8765 -State Listen`. From the production PC,
+   `& $python -m weather.market.wallet_reader_client summary` should return JSON.
+   Next, `Get-ScheduledTaskInfo -TaskName WeatherWalletReader` shows the
+   `LastTaskResult`. `267009` (0x41301) means running, and `1` means the reader
+   refused to start.
+2. **Find the values.** Never copy the example IPs.
+   - `--bind`: the workstation's own LAN IPv4, from
+     `Get-NetIPAddress -AddressFamily IPv4`.
+   - `--allow`: the production PC's LAN IPv4. The registered firewall rule records
+     it in its name, `WeatherWalletReader-<allow-ip>-<port>`. List the rule with
+     `Get-NetFirewallRule -Name 'WeatherWalletReader-*' | Select-Object Name, Enabled`.
+   - `--signature-type`: the existing wallet's type. The owner's `.env` records it
+     as `POLYMM_SIGNATURE_TYPE`; serve does not read that field, so pass it
+     explicitly.
+
+   If DHCP changed either PC's address, register the firewall rule and the task
+   again, and update the client's `url` too. The client config is described
+   under [production client](#production-client).
+3. **Diagnose.** Run the `serve` command above in a PowerShell window with those
+   values. Success prints nothing; the process simply keeps serving. Failure
+   prints only `{"error": "wallet_reader_failed"}` and exits 1, because details
+   are suppressed. Recheck that the bind IP belongs to this PC, that port 8765 is
+   free, that the `.env` fields exist, and that `--campaigns` JSON validates.
+   Stop it with Ctrl+C, then `Start-ScheduledTask -TaskName WeatherWalletReader`.
+4. **Confirm.** Repeat step 1.
 
 ## Production client
 
@@ -226,7 +285,8 @@ A reader on the workstation reads the workstation's ledger copy, which may lag
 production; a missing label shows as `proxy_label_absent`, never as agreement.
 Failures leave `status: PARTIAL` with an `errors` map; nothing is inferred.
 
-The owner restarts the service after adopting reader changes; implementation and
+The owner restarts the service after adopting reader changes (`Stop-ScheduledTask`
+then `Start-ScheduledTask -TaskName WeatherWalletReader`); implementation and
 tests do not access an account or restart a real reader.
 
 Authenticated trade pages are bounded/exhaustive or fail; public trades/activity
@@ -237,6 +297,6 @@ are cached independently; a summary is not an atomic exchange snapshot.
 ## Update when
 
 Update with any route, allowed query, credential field, valuation rule, cache,
-budget, CLI, journal schema, or firewall behavior change. Unit tests are entirely
+budget, CLI, journal schema, firewall, or logon-task behavior change. Unit tests are entirely
 offline with synthetic credentials; real-account startup and firewall mutation
 belong to the owner.
