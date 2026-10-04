@@ -233,7 +233,7 @@ integration branch itself before any landing.
 - The full suite was not run on the workstation. The shared heavy lease was held by other sessions for most of
   this session, and it was used for the measurements above. GitHub CI on the PR runs the full suite (`test`,
   `native-launch`, `hook`); see the PR for its conclusion.
-- `python -m weather.operations.agent_docs_audit`: run before push (below).
+- `python -m weather.operations.agent_docs_audit`: PASS. `correspondence_index --check`: OK.
 
 ## What was NOT done
 
