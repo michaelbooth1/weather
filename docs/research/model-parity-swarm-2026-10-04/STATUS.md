@@ -1,27 +1,23 @@
 ﻿# Model-parity swarm v2 — STATUS
 
-**As of 02:15 local, 2026-10-04.** All numbers development. Phase: **hunting T1-T17 complete**; T18 (EMOS) and T20 (serveability) running; then T19, spares, deep dives, synthesis.
+**As of 02:45 local, 2026-10-04.** All numbers development. Phase: **hunting + spares done**; T19 (tail lens) and T24 (PIT re-derivation) running; D-RUNG1C (S3-S5 afternoon restoration) running; then deep dives and synthesis.
 
-## Headline so far
-1. **Evening (17-23) loss = serving-path defect** (D-DEFECT, confirmed on a production payload, ATL 2026-09-20 23:55):
-   late-day lock-in stages are no-ops since WU was disabled; the calibration taper re-spreads mass above the high.
-   Restoring the lock-in on captured inputs closes 71-85% of the 17-23 gap. Fix = restore lock-in + gate calibration
-   above `lockin_high` — **proposal only, owner decision.** `d-defect-evening-stage.md`.
-2. **No external T+0 source adds information over what production already captures.** Every source hunter's gain
-   versus served is reproduced by a no-source control (captured NBM v2_mean in the morning; remaining-hours /
-   floor collapse in the afternoon/evening):
-   - T5 NBH: 00-16 increment over v2_mean null (+0.0027 [−0.0037, +0.0098]); "capture NBH for the morning" closed.
-   - T6 NBS, T8 HRRR, T10 ECMWF IFS: LEAD vs served on the classifier, but the statistics refuter DISQUALIFIED each as a
-     source lead (no-source control matches); PIT refuters found no leakage.
-   - T7 MOS: MOS-specific increment null. T9 HRRR lagged ensemble: NULL. T17 market arrival: WEAK ≈ null.
-   - T11 soundings, T13 neighbours, T14 cloud: WEAK (~−0.001). T12 NWS revision: NULL.
-3. **Morning route** = known 79a/81a/111h family (EF 10h/10j/10p): draft pre-registration
-   `d-morning-v2-guidance-prereg-draft.md` (DRAFT, UNSIGNED; parser repair first; two reservation collisions are owner decisions).
+## Headline: the no-source parity ladder (`ladder.md`)
+Two zero-parameter serving fixes, using only captured data, take served/market from 1.73x to 1.34x (pooled 1.768x → 1.328x)
+and close 54% [35, 70] of the excess:
+- Rung 1, evening lock-in restoration (D-DEFECT; confirmed on a production payload): closes 85% of 17-23.
+- Rung 2, MG-1 captured NBM v2_mean read: closes 58/55/40% of 00-05/06-09/10-12 (to 1.18-1.26x). Needs the 83a/83b parser repair.
+- Residual concentrated in 13-16 (32%; 15-16 at 2.53x). The no-source METAR remaining-rise rung t3-r3 beats rung 2 at 15-16 by −0.0181;
+  D-RUNG1C tests whether restoring the existing 13-19h stages S3-S5 recovers it without a new rule.
+- **No external source adds anything beyond the rung** (NBH, NBS, MOS borderline at 13-14 only, HRRR, ECMWF, soundings, NWS revision,
+  neighbours, cloud/GOES). No capture case. Fixes are PROPOSALS — owner decisions.
 
-## Acquisition (all complete)
-METAR/SPECI 2024-05..09-29; MOS; 63 neighbours; 1-minute ASOS (truth only); NBH+NBS 1608/1608; Single-Runs (HRRR/NBM/IFS);
-HRRR-AWS byte-range check; ECMWF 134/134; soundings; GOES.
+## New since 02:15
+- T18 EMOS: LEAD in every block, but the only selected information is captured v2_mean (hrrr_high + forecast_high add −0.0005, null);
+  17-23 = the rung/defect family. Both refuters: not disqualified (PIT: v2 availability = NOMADS receipt; holds at +1 h).
+- T20 serveability: no new capture worth making; Form A (restore lock-in + gate calibration) recommended; v2 route needs the parser repair
+  (v1 parser reads a minimum on 75,049 of 110,807 rows); HRRR effective latency ~2.5-3.5 h.
+- Spares: T21 (T6), T22 (T10), T23 (T5) reproduce exactly from registry text; T25 (NBS availability) and T26 (METAR basis; optimistic only for KBKF) confirm, no lead changes.
 
 ## Disk / issues
-C: free 147 GB; C:\swarm 0.73 GB; no STOP. A tool guard blocked many agents' report.md writes; the orchestrator
-materialised those reports from `result.json` (`report_md`) or, where absent, from the agent's returned summary (marked as reconstructed).
+C: free 146 GB; C:\swarm 1.3 GB; no STOP. Reports blocked by the tool guard are materialised by the orchestrator from result.json.
