@@ -153,6 +153,10 @@ jobs:
         shell: powershell
     env:
       PYTHONUTF8: '1'
+      # The checkout has no LFS objects (lfs: false), unlike the production and
+      # workstation clones. Never smudge LFS pointers in test clones, and let the
+      # LFS pre-push hook pass pointers whose objects are absent locally.
+      GIT_LFS_SKIP_SMUDGE: '1'
       EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SHARD: ${{ matrix.shard }}
       SHARD_FILES: ${{ matrix.files }}
@@ -176,6 +180,11 @@ jobs:
           if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
             throw 'Native qualification requires Windows PowerShell 5.1.'
           }
+
+      - name: Allow LFS pointers without local objects in test pushes
+        run: |
+          git config --global lfs.allowincompletepush true
+          if ($LASTEXITCODE -ne 0) { throw 'Could not configure git-lfs.' }
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

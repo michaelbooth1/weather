@@ -27,6 +27,28 @@ POWERSHELL = (
 HOST_GLOBAL_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
 
 
+_RECOVERY_WARNING = "WARNING: heavy-workload recovery decision"
+
+
+def _stdout_after_recovery_decisions(stdout: str, *outcomes: str) -> str:
+    """Return the probe payload printed after the lease's recovery warnings.
+
+    Every stale-marker decision is also emitted with Write-Warning, which a
+    redirected Windows PowerShell 5.1 -Command host writes to stdout. Each
+    preceding line must belong to such a warning, and each named outcome must
+    have been recorded, so the payload comparison stays exact.
+    """
+    lines = stdout.strip().splitlines()
+    warnings = "\n".join(lines[:-1])
+    if warnings:
+        assert warnings.startswith(_RECOVERY_WARNING), warnings
+        assert warnings.count("WARNING:") == warnings.count(_RECOVERY_WARNING), warnings
+    joined = "".join(warnings.splitlines())
+    for outcome in outcomes:
+        assert f'"outcome":"{outcome}"' in joined, joined
+    return lines[-1] if lines else ""
+
+
 def _outer_job_owns_host_mutex() -> bool:
     # The capture-host bounded suite holds the host-global mutex for its whole run, exactly as
     # the workstation wrapper does, so the acquisition tests below cannot pass inside it.
@@ -1773,7 +1795,7 @@ $probe.Dispose()
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == (
+    assert _stdout_after_recovery_decisions(result.stdout, "refused_residual_processes") == (
         '{"classifier":true,"live_blocked":true,"mutex_released":true}'
     )
 
@@ -1831,7 +1853,9 @@ $preserved = Test-Path -LiteralPath $env:WEATHER_TEST_POISON_PATH
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == '{"blocked":true,"preserved":true}'
+    assert _stdout_after_recovery_decisions(result.stdout, "refused_owner_alive") == (
+        '{"blocked":true,"preserved":true}'
+    )
 
 
 @pytest.mark.skipif(
@@ -2349,7 +2373,9 @@ $cleared = -not (Test-Path -LiteralPath $env:WEATHER_TEST_POISON_PATH)
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == (
+    assert _stdout_after_recovery_decisions(
+        result.stdout, "poison_refused_residual_processes", "poison_residual_scan_clear"
+    ) == (
         '{"active_blocked":true,"active_preserved":true,'
         '"malformed_blocked":true,"same_boot_blocked":true,'
         '"residual_blocked":true,"residual_preserved":true,'
@@ -2440,7 +2466,7 @@ Write-Output 'RECOVERED'
         env=env,
     )
     assert recovered.returncode == 0, recovered.stderr
-    assert recovered.stdout.strip() == "RECOVERED"
+    assert _stdout_after_recovery_decisions(recovered.stdout, "recovered") == "RECOVERED"
     time.sleep(2.25)
     assert not survived.exists()
 
