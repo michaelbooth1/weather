@@ -1,6 +1,6 @@
 ﻿# Model-parity swarm v2 — STATUS
 
-**As of 03:43 local, 2026-10-04.** All numbers development. Phase: **synthesis done** (`SYNTHESIS.md`, `COMPLETENESS.md`, draft canon edits pending production review). Running: full repo pytest via workstation_heavy.ps1; T27 (independent re-implementation of rungs 1-2 + S7-gate adjudication). R-STAT-MG1 done: MG-1 and t3-r3 (13-16) robust to resampling but fail the 134-rule multiplicity line; 15-16 is a post-hoc slice. Next: fold T27/R-STAT-MG1 into SYNTHESIS, push, draft PR.
+**As of 04:13 local, 2026-10-04.** All numbers development. Phase: **verification extras done and folded into SYNTHESIS** (T27 independent reproduction of rungs 1-2: REPRODUCED, rung 1 clears Bonferroni; S7 gate optional, restored strength must reach the calibration taper. R-STAT-MG1: MG-1 and t3-r3 robust but fail multiplicity; 15-16 post-hoc). Running: full repo pytest via workstation_heavy.ps1 (~63%, slow PowerShell-heavy tests; 1 failure so far). Next: triage the failure, push, draft PR.
 
 ## Headline (no-source parity ladder, `ladder.md`)
 - Two zero-parameter serving fixes using only captured data close 54% [35, 70] of the served−market excess (1.73x → 1.34x):
