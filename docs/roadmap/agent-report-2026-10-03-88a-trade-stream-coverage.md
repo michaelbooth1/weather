@@ -109,6 +109,28 @@ mean the venue side, and this fix then addresses only the secondary defects.
 The `schema_registry*` family is not touched. Merge only through `quiet_window_merge.ps1` in a 01:00-04:00
 window after 2026-10-13; if #173 lands first, this branch's diff reduces to the 88a files.
 
+## Addendum 2026-10-04 (Mission J): make-before-break swap and per-token darkness
+
+Production (read-only, 09-29 UTC) showed the per-key `orderly_stop` dark figure (53,760 s) was an
+artifact of swap rekeying. Real time with no trade socket connected was 283 s/day: 668 swap gaps of
+about 0.4 s each, the longest 13 s.
+
+- **Swap:** the trade channel is now make-before-break. Overlap bound: old sockets close when every
+  new socket has had its first data frame, at most 5 s after the swap began, then within the existing 8 s
+  stop bound. Dedupe bound: at most 16,384 trade identities, each held for at most 120 s. Journal and
+  stall behaviour is unchanged. Each wanted-set change is journaled as a `stream_tokens` row.
+- **Report:** `dark_seconds_by_cause` (per subscription key, no downstream reader) is removed. It is
+  replaced by `coverage_by_channel.<channel>`: per-token dark time over the union of every covering
+  subscription, with its causes, plus all-sockets-down seconds. Owner:
+  [passive maker evidence capture](../operations/passive-maker-evidence-capture.md).
+
+| File | Verdict |
+| --- | --- |
+| `src/weather/market/maker_evidence_stream.py` | **Roll-sensitive for 88a only**, as above; `roll_verdict.ps1` is UNDECIDABLE on the workstation (no closure files). |
+| `src/weather/market/maker_evidence_coverage.py`, `maker_evidence_disconnects.py`, `maker_evidence_inspect.py` | Not imported by `maker_evidence_capture` or any loop. Roll-free. |
+
+Held regardless: nothing lands before 2026-10-14 (owner 88a hold).
+
 ## Not done / residual
 
 - No production data read, no extract, registration, restart, Scheduler change, merge or venue call.

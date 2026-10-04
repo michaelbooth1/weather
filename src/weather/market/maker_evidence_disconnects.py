@@ -5,13 +5,14 @@ public socket connects or disconnects and a ``stream_gap`` row when a session
 ends on an error, both per channel (``trades`` or ``updates``) and per
 subscription (one socket per 100 tokens).  This command replays those rows per
 socket, classifies each gap's ``error_type: error`` text, and reports drops by
-cause, channel and local hour, dark seconds to the next connect, and session
-lifetimes.  It is the 88a sibling of ``weather.market.execution_tape_disconnects``
-and shares its network cause patterns.
+cause, channel and local hour, and session lifetimes.  Dark time is judged per
+token and per channel (``weather.market.maker_evidence_coverage``), never per
+subscription key: a token-set swap rekeys every socket.  It is the 88a sibling of
+``weather.market.execution_tape_disconnects`` and shares its network cause patterns.
 
 It opens no connection, writes nothing unless ``--output`` is given, and reads
-only ``stream_lifecycle`` and ``stream_gap`` journals (plain or gzip) below
-``--root``.
+only the ``stream_lifecycle``, ``stream_gap``, ``stream_tokens`` and
+``subscription`` journals (plain or gzip) below ``--root``.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -34,11 +35,13 @@ from weather.market.execution_tape_disconnects import (
     _percentiles,
     venue_close_code,
 )
-from weather.market.maker_evidence_store import decode_body
+from weather.market.maker_evidence_coverage import channel_coverage
+from weather.market.maker_evidence_store import decode_body, digest
 from weather.paths import data_path
 
 DEFAULT_ROOT = data_path("maker_evidence")
-JOURNALS = ("stream_lifecycle", "stream_gap")
+JOURNALS = ("stream_lifecycle", "stream_gap", "stream_tokens", "subscription")
+DARKEST_TOKENS = 5
 
 # Ordered: 88a's own messages first, then the execution-tape network patterns.
 CAUSE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -54,6 +57,28 @@ CAUSE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     "connection_lost", "connection_reset", "handshake_rejected", "tls_error", "connect_failed", "socket_timeout",
 })
 
+DEFINITIONS = {
+    "socket": "one (channel, subscription sha256) pair; 88a opens one socket per 100 tokens per channel",
+    "socket_drop": "a session that had connected and ended with a stream_gap row",
+    "connect_failure": "a stream_gap row with no connected session before it (connect or handshake failed)",
+    "orderly_stop": "a disconnected row with no gap: stop, token-set replacement, window end or daily cap",
+    "session_lifetime_seconds": "connected row to the disconnected row",
+    "token_dark_seconds": (
+        "per channel and token, time inside the local date when the token was wanted and no connected "
+        "session's subscription included it (the union over every subscription containing it); "
+        "token_dark_seconds_total sums tokens, so it is token-seconds"),
+    "token_dark_seconds_by_cause": (
+        "token dark time by the end cause of the session whose end opened the gap; awaiting_connect is "
+        "time a token was wanted before any session covering it had connected"),
+    "wanted_basis": (
+        "stream_tokens_rows: the journaled wanted subscriptions; inferred_from_session_rows (journals "
+        "written before stream_tokens rows): a token stays wanted after its coverage ends only if it is "
+        "covered again in the channel's next connect round, or until that round began after a failure"),
+    "all_sockets_down_seconds": (
+        "time inside the local date while the channel wanted any token (when inferred: between its "
+        "first and last row) and no socket on the channel was connected"),
+}
+
 
 def classify_gap(error_type, error):
     text = f"{error_type or ''}: {error or ''}"
@@ -64,7 +89,7 @@ def classify_gap(error_type, error):
 
 
 def journal_files(root, utc_days):
-    """Each segment's lifecycle/gap journal, preferring the plain file while both exist."""
+    """Each segment's journals of interest, preferring the plain file while both exist."""
     files = []
     for day in utc_days:
         for folder in sorted(Path(root, day).glob("*")):
@@ -86,14 +111,35 @@ def _rows(path, root):
     for line in raw.splitlines():
         try:
             row = json.loads(line)
-            body = json.loads(decode_body(row))
+            body_bytes = decode_body(row)
+            body = json.loads(body_bytes)
         except (ValueError, KeyError, TypeError):
             unreadable += 1
             continue
         if row.get("kind") in JOURNALS and isinstance(body, dict):
             rows.append({"at": datetime.fromisoformat(row["captured_at_utc"]), "segment": segment,
-                         "sequence": int(row["sequence"]), "kind": row["kind"], "body": body})
+                         "sequence": int(row["sequence"]), "kind": row["kind"], "body": body,
+                         # A subscription's key is the SHA-256 of its stored body.
+                         "sha256": digest(body_bytes) if row["kind"] == "subscription" else None})
     return rows, unreadable, hashlib.sha256(stored).hexdigest()
+
+
+def _coverage(session_rows, subscriptions, changes, *, window_start, window_end, data_end):
+    coverage = {}
+    for channel in sorted(set(session_rows) | set(changes)):
+        ordered = [(at, keys) for at, _, _, keys in sorted(changes.get(channel, []), key=lambda item: item[:3])]
+        result = channel_coverage(session_rows.get(channel, []), subscriptions.get(channel, {}), ordered,
+                                  window_start=window_start, window_end=window_end, data_end=data_end)
+        per_token = result.pop("per_token_dark_seconds")
+        result["per_token_dark_seconds"] = _percentiles(per_token.values())
+        result["darkest_tokens"] = [
+            {"token": token, "dark_seconds": round(value, 3)}
+            for token, value in sorted(per_token.items(), key=lambda item: (-item[1], item[0]))[:DARKEST_TOKENS]
+            if value > 0]
+        result["token_dark_gap_seconds"] = _percentiles(result["token_dark_gap_seconds"])
+        result["all_sockets_down_gap_seconds"] = _percentiles(result["all_sockets_down_gap_seconds"])
+        coverage[channel] = result
+    return coverage
 
 
 def classify_stream_drops(root=DEFAULT_ROOT, *, local_date, timezone_name=DEFAULT_TIMEZONE,
@@ -104,44 +150,54 @@ def classify_stream_drops(root=DEFAULT_ROOT, *, local_date, timezone_name=DEFAUL
     root = Path(root)
     utc_days = [(target + timedelta(days=offset)).isoformat() for offset in (-1, 0, 1, 2)]
     inputs, by_socket = [], defaultdict(list)
+    subscriptions, changes, session_rows = defaultdict(dict), defaultdict(list), defaultdict(list)
+    data_end = None
     for path in journal_files(root, utc_days):
         rows, unreadable, sha = _rows(path, root)
         inputs.append({"path": str(path), "rows": len(rows), "unreadable_lines": unreadable, "sha256": sha})
         for row in rows:
             body = row["body"]
-            subscription = (body.get("subscription") or {}).get("sha256", "")
-            by_socket[(str(body.get("channel")), subscription)].append(row)
+            channel = str(body.get("channel"))
+            data_end = row["at"] if data_end is None else max(data_end, row["at"])
+            if row["kind"] == "subscription":
+                subscriptions[channel][row["sha256"]] = frozenset(str(token) for token in body.get("tokens") or ())
+            elif row["kind"] == "stream_tokens":
+                changes[channel].append((row["at"], row["segment"], row["sequence"], frozenset(
+                    item.get("sha256", "") for item in body.get("subscriptions") or ())))
+            else:
+                if row["kind"] == "stream_gap":
+                    row["cause"] = classify_gap(body.get("error_type"), body.get("error"))
+                by_socket[(channel, (body.get("subscription") or {}).get("sha256", ""))].append(row)
+                session_rows[channel].append(row)
 
     drops = []
     for (channel, _), rows in by_socket.items():
         # A session's disconnected row precedes its gap row; both carry the time reading stopped.
         rows.sort(key=lambda row: (row["at"], row["kind"] == "stream_gap", row["segment"], row["sequence"]))
-        connected_at = ended = dark_from = None
+        connected_at = ended = None
         for row in rows:
             body, at = row["body"], row["at"]
             state = body.get("state") if row["kind"] == "stream_lifecycle" else "gap"
             if state == "connected":
-                if dark_from is not None:
-                    dark_from["dark_seconds"] = (at - dark_from["at"]).total_seconds()
-                connected_at, ended, dark_from = at, None, None
+                connected_at, ended = at, None
             elif state == "disconnected":
                 ended = {"at": at, "cause": "orderly_stop", "channel": channel, "was_connected": True,
-                         "lifetime": (at - connected_at).total_seconds() if connected_at else None,
-                         "error": "", "dark_seconds": None}
+                         "lifetime": (at - connected_at).total_seconds() if connected_at else None, "error": ""}
                 drops.append(ended)
-                dark_from = dark_from or ended
                 connected_at = None
             elif state == "gap":
-                cause = classify_gap(body.get("error_type"), body.get("error"))
                 error = f"{body.get('error_type')}: {body.get('error')}"
                 if ended is not None:
-                    ended.update(cause=cause, error=error)  # The gap row of the session that just ended.
+                    ended.update(cause=row["cause"], error=error)  # The gap row of the session that just ended.
                 else:
-                    failure = {"at": at, "cause": cause, "channel": channel, "was_connected": False,
-                               "lifetime": None, "error": error, "dark_seconds": None}
-                    drops.append(failure)
-                    dark_from = dark_from or failure
+                    drops.append({"at": at, "cause": row["cause"], "channel": channel, "was_connected": False,
+                                  "lifetime": None, "error": error})
                 ended = None
+
+    window_start = datetime.combine(target, time.min, zone).astimezone(timezone.utc)
+    window_end = datetime.combine(target + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
+    coverage = _coverage(session_rows, subscriptions, changes, window_start=window_start,
+                         window_end=window_end, data_end=data_end)
 
     on_date = [drop for drop in drops if drop["at"].astimezone(zone).date() == target]
     socket_drops = [drop for drop in on_date if drop["was_connected"] and drop["cause"] != "orderly_stop"]
@@ -159,10 +215,8 @@ def classify_stream_drops(root=DEFAULT_ROOT, *, local_date, timezone_name=DEFAUL
         split[label] = {"hours": len(hours), "socket_drops": sum(counts.values()),
                         "per_hour": round(sum(counts.values()) / len(hours), 2) if hours else None,
                         "by_channel_cause": dict(counts.most_common())}
-    lifetimes, dark = defaultdict(list), defaultdict(list)
+    lifetimes = defaultdict(list)
     for drop in on_date:
-        if drop["dark_seconds"] is not None:
-            dark[drop["cause"]].append(drop["dark_seconds"])
         if drop["lifetime"] is not None:
             lifetimes[drop["cause"]].append(drop["lifetime"])
     examples = defaultdict(Counter)
@@ -173,15 +227,7 @@ def classify_stream_drops(root=DEFAULT_ROOT, *, local_date, timezone_name=DEFAUL
         "local_date": target.isoformat(),
         "timezone": timezone_name,
         "root": str(root),
-        "definitions": {
-            "socket": "one (channel, subscription sha256) pair; 88a opens one socket per 100 tokens per channel",
-            "socket_drop": "a session that had connected and ended with a stream_gap row",
-            "connect_failure": "a stream_gap row with no connected session before it (connect or handshake failed)",
-            "orderly_stop": "a disconnected row with no gap: stop, token-set replacement, window end or daily cap",
-            "daytime_hours": f"[{day_start_hour:02d}:00, {day_end_hour:02d}:00) local",
-            "dark_seconds": "first drop or failure after a connect, to the next connected row on the same socket key",
-            "session_lifetime_seconds": "connected row to the disconnected row",
-        },
+        "definitions": DEFINITIONS | {"daytime_hours": f"[{day_start_hour:02d}:00, {day_end_hour:02d}:00) local"},
         "inputs": inputs,
         "socket_drops_total": len(socket_drops),
         "socket_drops_by_cause": dict(Counter(drop["cause"] for drop in socket_drops).most_common()),
@@ -195,7 +241,7 @@ def classify_stream_drops(root=DEFAULT_ROOT, *, local_date, timezone_name=DEFAUL
             venue_close_code(drop["error"]) for drop in socket_drops if drop["cause"] == "venue_close").most_common()),
         "hourly_socket_drops": {f"{hour:02d}": dict(counts.most_common()) for hour, counts in hourly.items()},
         "daytime_vs_overnight": split,
-        "dark_seconds_by_cause": {cause: _percentiles(values) for cause, values in sorted(dark.items())},
+        "coverage_by_channel": coverage,
         "session_lifetime_seconds_by_cause": {
             cause: _percentiles(values) for cause, values in sorted(lifetimes.items())},
         "error_examples": {cause: [{"error": text, "drops": count} for text, count in counter.most_common(5)]

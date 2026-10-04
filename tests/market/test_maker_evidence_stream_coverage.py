@@ -387,3 +387,129 @@ def test_writer_backlog_is_bounded_by_bytes_and_keeps_order():
     writer.put(lambda: written.append("large"), size=50)  # Alone, an oversized frame still queues.
     writer.close()
     assert written == ["first", "second", "large"]
+
+
+def book(token=TOKEN):
+    return encoded({"event_type": "book", "asset_id": token, "market": CID}).decode()
+
+
+def wait_for(condition, timeout=5):
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert condition()
+
+
+def lifecycle(store):
+    return [(row["body"]["state"], row["body"]["subscription"]["sha256"], row["captured_at_utc"])
+            for row in journal(store) if row["kind"] == "stream_lifecycle"]
+
+
+def coverage(store):
+    from weather.market.maker_evidence_disconnects import classify_stream_drops
+    today = datetime.now(timezone.utc).date().isoformat()
+    return classify_stream_drops(store.root, local_date=today, timezone_name="UTC")["coverage_by_channel"]["trades"]
+
+
+def test_token_set_swap_is_make_before_break(tmp_path, live):
+    store = EvidenceStore(tmp_path)
+    venue = live(lambda send, number: (time.sleep(0.05), send(0x1, book())))
+    stream = fast_stream(store)
+    stream.replace([TOKEN])
+    wait_for(lambda: stream.connected == 1)
+    time.sleep(0.3)
+    stream.replace([TOKEN, "456"])
+    time.sleep(0.3)
+    stream.stop()
+    old, new = (store.subscription(tokens, "trades")["sha256"] for tokens in ((TOKEN,), (TOKEN, "456")))
+    assert [(state, key) for state, key, _ in lifecycle(store)] == [
+        ("connected", old), ("connected", new), ("disconnected", old), ("disconnected", new)]
+    assert venue.connections == 2
+    wanted = [row["body"] for row in journal(store) if row["kind"] == "stream_tokens"]
+    assert [[item["sha256"] for item in body["subscriptions"]] for body in wanted] == [[old], [new], []]
+    trades = coverage(store)
+    assert trades["wanted_basis"] == "stream_tokens_rows"
+    # The swap leaves no gap: the only dark time is each token's first connect.
+    assert set(trades["token_dark_seconds_by_cause"]) == {"awaiting_connect"}
+    assert trades["all_sockets_down_gap_seconds"]["n"] == 1  # The first connect, before any socket existed.
+
+
+def test_overlap_is_bounded_when_the_new_socket_never_answers(tmp_path, live):
+    store = EvidenceStore(tmp_path)
+    live(lambda send, number: send(0x1, book()) if number == 1 else None)
+    stream = fast_stream(store, swap_overlap_seconds=0.5)
+    stream.replace([TOKEN])
+    wait_for(lambda: stream.connected == 1)
+    time.sleep(0.2)
+    started = time.monotonic()
+    stream.replace([TOKEN, "456"])
+    elapsed = time.monotonic() - started
+    stream.stop()
+    assert 0.45 <= elapsed < 3.0
+    assert [state for state, _, _ in lifecycle(store)] == ["connected", "connected", "disconnected", "disconnected"]
+
+
+def test_trades_seen_on_both_sockets_during_the_overlap_are_journaled_once(tmp_path, live):
+    store = EvidenceStore(tmp_path)
+
+    def script(send, number):
+        if number == 1:
+            send(0x1, book())
+            send(0x1, trade("0.50"))
+            send(0x1, trade("0.51"))
+        else:
+            send(0x1, "[" + trade("0.51") + "," + trade("0.52") + "]")  # One repeat, one new trade.
+            send(0x1, trade("0.50"))  # Entirely a repeat.
+            send(0x1, book())
+
+    live(script)
+    stream = fast_stream(store)
+    stream.replace([TOKEN])
+    wait_for(lambda: stream.trades == 2)
+    stream.replace([TOKEN, "456"])
+    wait_for(lambda: stream.duplicate_trades == 2)
+    stream.stop()
+    frames = [row for row in journal(store) if row["kind"] == "trades"]
+    prices = [[item["price"] for item in (row["body"] if isinstance(row["body"], list) else [row["body"]])]
+              for row in frames]
+    assert prices == [["0.50"], ["0.51"], ["0.51", "0.52"]]
+    assert [row.get("duplicate_trades") for row in frames] == [None, None, 1]
+    assert stream.trades == 3 and stream.metrics()["duplicate_trades"] == 2
+
+
+def test_a_real_outage_is_still_dark(tmp_path, live):
+    store = EvidenceStore(tmp_path)
+
+    def script(send, number):
+        send(0x1, book())
+        if number == 1:
+            time.sleep(0.3)
+            send(0x8, close_payload(1011, "overloaded"))
+
+    venue = live(script)
+    stream = fast_stream(store, reconnect_base_seconds=0.5)
+    stream.replace([TOKEN])
+    wait_for(lambda: venue.connections == 2 and stream.connected == 1)
+    time.sleep(0.3)
+    stream.stop()
+    trades = coverage(store)
+    assert trades["token_dark_seconds_by_cause"]["venue_close"] >= 0.45
+    assert trades["all_sockets_down_seconds"] >= 0.45 + trades["token_dark_seconds_by_cause"]["awaiting_connect"]
+
+
+def test_trade_identity_matches_the_execution_tape():
+    from weather.market.execution_tape_store import TRADE_IDENTITY_FIELDS
+    assert module.TRADE_IDENTITY_FIELDS == TRADE_IDENTITY_FIELDS
+
+
+def test_dedupe_keeps_same_socket_repeats_and_bounds_its_memory():
+    dedupe = module.TradeDedupe(horizon_seconds=10.0, max_identities=3)
+    row = json.loads(trade("0.50"))
+    assert dedupe.admit(1, row, 0.0) and dedupe.admit(1, row, 0.0)  # Two trades alike on one socket.
+    assert not dedupe.admit(2, row, 1.0) and not dedupe.admit(2, row, 1.0)
+    assert dedupe.admit(2, row, 1.0)  # A third sighting no other socket had.
+    for price in ("0.60", "0.61", "0.62", "0.63"):
+        dedupe.admit(1, json.loads(trade(price)), 2.0)
+    assert len(dedupe.seen) == 3  # The count bound evicts the oldest identity.
+    dedupe.admit(1, json.loads(trade("0.70")), 20.0)
+    assert len(dedupe.seen) == 1  # The horizon forgets everything older than 10 s.
