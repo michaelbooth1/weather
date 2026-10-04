@@ -180,13 +180,6 @@ RECENT_REGISTERED_SCHEMAS = (
         "One fresh inventory-bound retained file and exact failed-attempt preimage for read-only verification.",
     ),
     SchemaSpec(
-        "cold_snapshot_nightly_verification_request",
-        "cold_snapshot_nightly_verification_request_v1",
-        "weather.operations.cold_snapshot_nightly_verification",
-        "active",
-        "One unfinished nightly batch before-journal bound to its failed attempt for read-only verification.",
-    ),
-    SchemaSpec(
         "cold_snapshot_verification_receipt",
         "cold_snapshot_verification_receipt_v1",
         "weather.operations.cold_snapshot_verification",

@@ -9,7 +9,8 @@ deletes or retries anything. The resulting verification attempt is the only
 evidence ``cold_snapshot_nightly_resolution`` accepts for an unfinished file.
 
 Run through ``cold_snapshot_compression_run.ps1 -VerifyRetained`` with a
-``cold_snapshot_nightly_verification_request``.
+``cold_snapshot_verification_request`` whose operation is
+``verify_retained_nightly``.
 """
 from __future__ import annotations
 
@@ -39,14 +40,17 @@ NORMAL = 0x80
 
 
 def is_request(payload):
+    # Shares the registered verification request schema; the operation selects
+    # this nightly-journal contract (the attended contract requires verify_retained).
     return (isinstance(payload, dict)
-            and payload.get("schema_version") == schema_version("cold_snapshot_nightly_verification_request"))
+            and payload.get("schema_version") == schema_version("cold_snapshot_verification_request")
+            and payload.get("operation") == OPERATION)
 
 
 def validate_request(payload, *, production_root, now):
     if not isinstance(payload, dict) or set(payload) != REQUEST_FIELDS:
         raise ValueError("nightly verification request fields do not match the exact contract")
-    if not is_request(payload) or payload["operation"] != OPERATION:
+    if not is_request(payload):
         raise ValueError("explicit read-only nightly retained-file verification is required")
     if Path(payload["production_repo_root"]) != production_root:
         raise ValueError("production repository binding mismatch")
@@ -220,7 +224,7 @@ def accept(root, attempt_name, wrapper_sha256, batch, ordinal, preimage_path, ro
             or result.get("request_sha256") != wrapper.get("request_sha256")
             or result.get("source_git_sha") != wrapper.get("source_git_sha")
             or result.get("execution_host_id") != wrapper.get("execution_host_id")
-            or not is_request(request) or request.get("operation") != OPERATION
+            or not is_request(request)
             or request.get("execution_host_id") != wrapper.get("execution_host_id")
             or (request.get("attempt"), request.get("batch"), request.get("ordinal"))
             != (attempt_name, batch, ordinal)

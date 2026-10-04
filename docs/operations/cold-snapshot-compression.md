@@ -290,9 +290,9 @@ after-journal) is refused and stays blocking until that file is verified. Such
 a file can only be the last started file of the attempt's last batch. Verify it
 read-only with the attended wrapper in its ordinary window (00:30-09:00 outside
 04:45-06:45, shared lease, capture admission, 600-second bound) and a new
-reviewed request with schema `cold_snapshot_nightly_verification_request_v1`,
-operation `verify_retained_nightly` and exactly these other fields:
-`production_repo_root`, `execution_host_id`, `approved_by`, `approved_at_utc`,
+reviewed request with schema `cold_snapshot_verification_request_v1`, operation
+`verify_retained_nightly` (which selects this contract) and exactly these other
+fields: `production_repo_root`, `execution_host_id`, `approved_by`, `approved_at_utc`,
 `expires_at_utc` (at most 72 hours later), `attempt` (the `nightly-*` name),
 `batch` (`batch-NNNN`), `ordinal` (integer), `preimage_sha256` (hash of that
 `NNN-before.json`) and `predecessor_wrapper_sha256` (hash of the attempt's

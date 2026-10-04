@@ -96,7 +96,7 @@ def failed_attempt(root, *, before=None, now=NOW, batches=151, ordinal=2, names=
                                    "error": "nightly capture admission refused: capture_unhealthy:snapshot"})
     wrapper_sha = save(attempt / "wrapper-result.json", {**common, "status": "FAILED", "hard_stop": False,
                                                          "teardown_proved": True})
-    request = {"schema_version": schema_version("cold_snapshot_nightly_verification_request"),
+    request = {"schema_version": schema_version("cold_snapshot_verification_request"),
                "production_repo_root": str(root), "execution_host_id": HOST,
                "operation": "verify_retained_nightly", "approved_by": "production agent",
                "approved_at_utc": (now - timedelta(minutes=1)).isoformat(),
