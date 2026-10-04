@@ -43,8 +43,8 @@ package contract, and `requires-python` is `>=3.11`.
 - One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
   Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
 - Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
-  **CI never executes them**. Their static and portable contracts run on Ubuntu; executable Windows coverage
-  exists only in the admitted production-host bounded suite below.
+  the Ubuntu job skips them. Every such file runs in a Windows qualification shard (below);
+  `test_windows_qualification_shards.py` fails when a test file that skips off Windows is in no shard.
 - The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
@@ -53,8 +53,9 @@ package contract, and `requires-python` is `>=3.11`.
   job `needs` it, so a ratchet failure stops the run before the long suite.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
-  balanced from JUnit timings (`test_status_script.py` is split across two shards by complementary `status_select`
-  expressions; `tests/operations/test_windows_qualification_shards.py` proves by collection that every listed test runs once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
+  balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is
+  split across shards by `split_select` -k expressions; `tests/operations/test_windows_qualification_shards.py` pins the
+  plan and proves by collection that every listed test runs exactly once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.
