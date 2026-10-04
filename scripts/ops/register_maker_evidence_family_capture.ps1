@@ -5,9 +5,15 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [ValidatePattern('^[a-z][a-z0-9_]{0,40}$')]
     [string]$Family = "lowest_temperature",
-    [string]$TaskName = "WeatherMakerEvidenceLowestTemperature"
+    # Default WeatherMakerEvidence<PascalFamily>: status.ps1 finds each family's task by this name
+    # (weather.reporting.market.capture_family_status.task_name).
+    [string]$TaskName = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $TaskName) {
+    $TaskName = "WeatherMakerEvidence" + (($Family -split '_' | ForEach-Object {
+                if ($_) { $_.Substring(0, 1).ToUpperInvariant() + $_.Substring(1) } }) -join '')
+}
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Repository pythonw is absent." }

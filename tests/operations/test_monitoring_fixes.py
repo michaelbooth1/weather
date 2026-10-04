@@ -188,3 +188,46 @@ def test_maker_evidence_age_is_utc_not_local(tmp_path):
         capture_output=True, text=True, check=True,
     ).stdout
     assert abs(int(out)) < 60
+
+
+def _capture_family_block(tmp_path, tasks, payload, exit_code=0):
+    source = (ROOT / "scripts" / "ops" / "status.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$captureFamilies = @()")
+    end = source.index('catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }')
+    block = source[start:end] + 'catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }'
+    (tmp_path / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    task_rows = "".join(f"[pscustomobject]@{{TaskName='{name}';State='{state}'}};" for name, state in tasks)
+    runner = tmp_path / "families.ps1"
+    runner.write_text(
+        "$ErrorActionPreference='Stop'\n"
+        "$flags=New-Object System.Collections.Generic.List[string]; $warns=New-Object System.Collections.Generic.List[string]\n"
+        f"function Get-ScheduledTask {{ param($TaskName,$ErrorAction) @({task_rows}) | Where-Object {{ $_.TaskName -like $TaskName }} }}\n"
+        f"function fakepy {{ $global:seen=$args; Get-Content -Raw '{tmp_path / 'payload.json'}'; $global:LASTEXITCODE={exit_code} }}\n"
+        "$py='fakepy'\n" + block + "\n"
+        "[Console]::Out.Write((@{flags=@($flags);warns=@($warns);seen=@($global:seen);rows=@($captureFamilies).Count} | ConvertTo-Json -Compress))\n",
+        encoding="utf-8-sig",
+    )
+    out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(runner)],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_path):
+    payload = {"families": [{"family": "lowest_temperature", "line": "x"}],
+               "flags": ["CAPTURE_FAMILY a: state DEGRADED"],
+               "warns": ["CAPTURE_FAMILY b: stopped at its own 70 GiB free-space floor"]}
+    result = _capture_family_block(
+        tmp_path, [("WeatherMakerEvidenceCapture", "Ready"), ("WeatherMakerEvidenceLowestTemperature", "Disabled"),
+                   ("WeatherOther", "Ready")], payload)
+
+    assert result["seen"] == ["-m", "weather.reporting.market.capture_family_status",
+                              "--task-state", "WeatherMakerEvidenceCapture=Ready",
+                              "--task-state", "WeatherMakerEvidenceLowestTemperature=Disabled"]
+    # A disk-floor stop arrives as a WARN and stays a note; it never becomes a FLAG.
+    assert result["flags"] == payload["flags"] and result["warns"] == payload["warns"] and result["rows"] == 1
+
+
+def test_status_capture_family_block_flags_when_the_reader_fails(tmp_path):
+    result = _capture_family_block(tmp_path, [], {"families": []}, exit_code=1)
+
+    assert result["flags"] == ["CAPTURE_FAMILY status check failed to run"] and result["warns"] == []

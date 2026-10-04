@@ -22,6 +22,11 @@ def _snapshot():
                      "days_to": {"50": 8.5, "40": 10.6}},
             "maker_evidence": {"available": True, "status": {"state": "RUNNING"}, "closed_dates": ["2026-09-30"],
                                "unsealed_past_dates": []},
+            "capture_families": {"available": True, "families": [
+                {"family": "lowest_temperature", "state": "STOPPED_FAMILY_DISK_FLOOR", "conditions": None,
+                 "max_conditions": 600, "age_seconds": 20, "free_gib": 65.0, "floor_gib": 70,
+                 "requests_per_minute": None, "severity": "WARN",
+                 "reason": "stopped at its own 70 GiB free-space floor (free 65.0 GiB); a planned brake protecting 88a, not a capture failure"}]},
         },
         "exam": {"available": True, "embargo": "No policy P&L or policy comparison is shown for panel dates.",
                  "exams": [{"candidate": "maker-replay-2026-10-15-v1", "phase": "panel day 3 of 14",
@@ -53,6 +58,9 @@ def test_cockpit_is_the_default_read_only_page(mock_load):
     assert "Unavailable: missing host_health_latest.json" in text
     assert "W-0001: Approve 5f deletes (4.6 d)" in text
     assert "No policy P&L" in text
+    assert metrics["Family lowest_temperature"] == "STOPPED_FAMILY_DISK_FLOOR"
+    assert [element.value for element in app_test.warning if "free-space floor" in element.value]
+    assert not [element.value for element in app_test.error if "free-space floor" in element.value]
     assert len(app_test.button) == 0 and len(app_test.number_input) == 0 and len(app_test.text_input) == 0
 
 

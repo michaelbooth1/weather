@@ -98,8 +98,23 @@ rewrites `status.json` with `STOPPED_FAMILY_DISK_FLOOR`. Its journals are
 
 `scripts/ops/register_maker_evidence_family_capture.ps1 -Family lowest_temperature`
 registers `WeatherMakerEvidenceLowestTemperature` with the same S4U/IgnoreNew/one-minute
-contract. Only the production operator registers it, after integration; nothing in
-`status.ps1` or the cockpit reads a family's status yet.
+contract. Only the production operator registers it, after integration. The task name
+is always `WeatherMakerEvidence<PascalCaseId>`; the monitor finds each family's task
+by that name, so register a family under its default name.
+
+**Monitoring.** `weather.reporting.market.capture_family_status` reads every family in
+the config from its bounded `status.json` (never the journals). `status.ps1` prints one
+`FAMILY` line per family (state, status age, conditions against `max_conditions`, free
+space against the family floor, mean request rate, task state) and the cockpit's Health
+column shows the same rows. The alarms are the core recorder's: while the family's task
+is registered and enabled, a missing or unreadable status, a status older than 180 s, or
+any state other than `CAPTURING` is a `CAPTURE_FAMILY` FLAG. **A family stopped at its
+own floor (`STOPPED_FAMILY_DISK_FLOOR`) is a WARN with its reason, not a capture failure**:
+it is yielding disk to the core recorder as designed, and the disk itself is alarmed by
+the disk lines. That floor status is rewritten every one-minute retry, so a stale one
+is still a FLAG (the retries have died). An unregistered or disabled family is
+informational only. The cockpit cannot see the Scheduler, so it holds any family that
+has written a status to the alarms.
 
 ## Storage and brakes
 

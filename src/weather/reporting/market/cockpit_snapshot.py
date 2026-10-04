@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 
 from weather.paths import data_path
+from weather.reporting.market import capture_family_status
 
 
 HOST_HEALTH_PATH = data_path("alerts", "host_health_latest.json")
@@ -200,6 +201,14 @@ def read_maker_evidence(root, now):
     return result
 
 
+# --- Capture families ---------------------------------------------------------
+
+def read_capture_families(config, root, now):
+    """config/capture_families.json rows; the page cannot see the Scheduler, so a family
+    that has written a status is held to the alarms and one that has not is informational."""
+    return {"available": True, "families": capture_family_status.collect(now=now, config=config, root=root)["families"]}
+
+
 # --- Work -------------------------------------------------------------------
 
 def read_work(root, decision_log, now):
@@ -349,7 +358,9 @@ def exam_state(now, closed_dates=None):
 
 def collect_cockpit_snapshot(*, now=None, host_health_path=HOST_HEALTH_PATH, disk_trail_path=DISK_TRAIL_PATH,
                              maker_evidence_root=MAKER_EVIDENCE_ROOT, work_root=None, decision_log=None,
-                             wallet_reader=_default_wallet_reader):
+                             wallet_reader=_default_wallet_reader,
+                             capture_families_config=capture_family_status.FAMILY_CONFIG,
+                             capture_families_root=capture_family_status.FAMILIES_ROOT):
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if work_root is None or decision_log is None:
         from weather.reporting.roadmap import worktrack
@@ -367,6 +378,7 @@ def collect_cockpit_snapshot(*, now=None, host_health_path=HOST_HEALTH_PATH, dis
             "host": _guard(read_host_health, host_health_path, now),
             "disk": _guard(read_disk_trail, disk_trail_path, now),
             "maker_evidence": maker,
+            "capture_families": _guard(read_capture_families, capture_families_config, capture_families_root, now),
         },
         "exam": _guard(exam_state, now, closed),
     }
