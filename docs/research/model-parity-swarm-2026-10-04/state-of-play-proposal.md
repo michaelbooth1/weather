@@ -12,12 +12,13 @@
   lock-in is a no-op since WU was disabled (confirmed on one served payload; restoring it closes 85% of 17-23, cosmetic for
   the maker), and a zero-parameter read of captured NBM v2 closes 40-58% of each 00-12 block after the 83a/83b parser
   repair. No external free source adds information; there is no capture case. 00-16 stays at 1.29x; the largest residual is
-  15-16 (2.53x). Nothing adopted.
+  the 13-16 block (1.81x). Nothing adopted.
 
 ## Proposed replacement for "Ordered critical path" item 4 (Research)
 
 4. **Research:** the NBS/NBH probe is answered by swarm v2 (no increment; capture NBH closed, EF §10q). Owner decisions
-   pending: the evening WU-anchor serving fix (proposal; captured-input replay first), landing the 83a/83b parser repair as a
+   pending: the evening WU-anchor serving fix (proposal: the restored lock-in strength must reach the calibration taper, an extra
+   S7 gate is optional; captured-input replay first), landing the 83a/83b parser repair as a
    versioned parity change, METAR fix M0 (`reportTime` → `obsTime`), and signing or rejecting the unsigned drafts (MG-1 or
    RV-1 for 00-16, t3-r3 for 13-16, HG-1 as its own α arm; decline NBH-1), all first eligible after 2026-10-14 and out of
    season, with the reservation collisions resolved. T+1/T+2 NWP-timing pilot unchanged.

@@ -103,6 +103,14 @@ Restoring S1 alone reproduces t3-r3 in 17-23; S1+S2 beats t3-r3 and comes close 
    the above-high mass from 0.031 to 0.087 at 23:55. Gate calibration so bands above `lockin_high` receive no mass
    beyond what the lock-in left, or apply calibration only within the at-or-below-high support.
 
+**Amendment (T27, 2026-10-04 about 04:00 local; S-REVISE).** Part 2 is corrected: the S7 gate is **not required**.
+The taper reads the same `lockin_strength` (`model_distribution.py:544`), so restoring the strength restores the taper,
+and at strength 1 calibration is the identity. Across 17-23 untapered calibration would add 0.0098 above the high, the
+production taper adds 0.0011, and a gate removes that last 0.0011 for −0.00008 Brier (helpful, negligible). The 23:55
+payload's 0.031 → 0.087 is the s = 0 defect state itself, not evidence that a restored lock-in needs a gate. The
+required condition is that the restored strength reaches the taper; an explicit S7 gate above `lockin_high` is
+optional. The payload evidence above stands. See `t27.md` §3.
+
 **Restore S1, S2, S7 (and S6) by changing their anchor, not their logic.** In `distribution_late_day_lockin_stage` (`model_distribution.py:1176`) use `lockin_high = max(history_max, guidance_floor)` (= the 81a floor value F while `trusted_current_max` is null); take `max_times` from METAR rows when WU rows are empty; current reading unchanged. S6 gates on the same anchor; S7 follows automatically (taper reuses `lockin_strength`). Alternative: replace S1-S5 with one evening collapse onto the floor band — a new rule needing its own pre-registration.
 
 **Interaction with the 81a floor mask** (max of `guidance_physical_floor`, `high_so_far`, `trusted_current_max`): on this table the floor is in effect `guidance_physical_floor`. Both act on bucket B = round_half_up(F): the floor removes mass below B, the lock-in shrinks mass above B, and as strength → 1 they collapse onto B's band. They never conflict and the floor is never weakened; anchoring on F keeps both on one value. Serving order: lock-in (`:518`), then calibration, which zeroes buckets below `hard_floor_bucket` (`calibration_runtime.py:368-372`). Serving's `hard_floor_bucket` (`:290-302`) does not include `guidance_floor`, so the 81a floor is the stricter of the two.

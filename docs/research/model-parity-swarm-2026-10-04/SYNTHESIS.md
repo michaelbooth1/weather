@@ -13,6 +13,8 @@
 > `C:\swarm\out\` (result.json `report_md` where report.md was blocked), the docs in this directory, the registry,
 > PREFLIGHT.md and HARNESS.md. Where this synthesis computed a number itself, it read the agents' stored score
 > files through `harness.table_lookup` and re-derived nothing.
+> Revised by S-REVISE on 2026-10-04, about 03:50-04:15 local, to fold in the two late verification agents T27 and
+> R-STAT-MG1 (section 11): the S7-gate wording, the 13-16 / 15-16 framing, the MG-1 survival basis and the §7 z values.
 
 ## 0. Verdict
 
@@ -23,7 +25,8 @@
    - **Evening (17-23): a serving defect, not missing information.** Production's late-day lock-in stages read
      WU-only `history_max`, which has been empty since WU was disabled on 2026-06-30, so they are a no-op.
      Restoring them, re-anchored on the captured METAR floor, closes **85% [76, 92]** of the 17-23 gap
-     (−0.0254 [−0.0353, −0.0175], 11/11). This was confirmed on one real served payload (ATL 2026-09-20 23:55).
+     (−0.0254 [−0.0353, −0.0175], 11/11). This was confirmed on one real served payload (ATL 2026-09-20 23:55), and
+     T27 re-implemented the rung independently from its rule text (−0.025373, 7e-6 from D-DEFECT; section 11).
    - **Morning (00-12): served under-uses the NBM v2 guidance it already captures.** A zero-parameter read (MG-1)
      closes 58%, 55% and 40% of the 00-05, 06-09 and 10-12 gaps. This is the known 79a/81a/111h family (EF 10h,
      10j, 10p), not a discovery. It depends on landing the 83a/83b parser repair.
@@ -31,15 +34,19 @@
    NBH, NBS, MOS/NBE, Single-Runs HRRR (latest and time-lagged), ECMWF IFS, 12Z soundings, NWS revision direction,
    neighbour stations and cloud/GOES. **There is no capture case.** The one borderline sign is MOS/NBE t7-r2 at
    13-14, which is a post-hoc hour slice and is not an increment over the no-source remaining-rise rung.
-3. **The largest residual after both repairs is 13-16, and mostly 15-16:** +0.0270 [+0.0204, +0.0337] above the
-   market, ratio 2.53x. Restoring the 13-19 h lock-in stages S3-S5 recovers only −0.0032 there (D-RUNG1C). The
-   no-source METAR remaining-rise rung **t3-r3** beats rung 2 at 15-16 by **−0.0181 [−0.0251, −0.0112], 11/11**.
-   That is a new rule, so it can only enter as a pre-registration on new dates.
+3. **The largest residual after both repairs is the registered 13-16 block:** +0.0231 [+0.0173, +0.0289] above the
+   market, ratio 1.81x. Inside it, the POST-HOC 15-16 slice reads +0.0270 [+0.0204, +0.0337] (2.53x). Restoring the
+   13-19 h lock-in stages S3-S5 recovers only −0.0020 at 13-16 (−0.0032 at 15-16; D-RUNG1C). The no-source METAR
+   remaining-rise rung **t3-r3** beats served at 13-16 by **−0.0116 [−0.0190, −0.0052], 10/11** (z −3.26) and rung 2
+   by −0.0107 [−0.0166, −0.0051], 11/11 (comparator built after t3-r3 was read; z −3.58). **Neither passes
+   Bonferroni** (R-STAT-MG1). The "−0.0181 over rung 2 at 15-16" is post-hoc twice (hour slice and comparator), and
+   0.0068 of it is MG-1's own 15-16 harm; against rung 1 it is −0.0113. t3-r3 is a new rule, so it can only enter as
+   a pre-registration on new dates.
 4. **Parity is not reached in 00-16.** After the repairs, 00-16 stays at 1.29x (+0.0141 [+0.0098, +0.0186]). The
    best composed candidate (POST-HOC, d2-c1) reaches 1.25x. Nothing tested closes the 00-12 residual
    (+0.010 to +0.014, 1.18-1.26x).
 5. **Survivors** (both refuters, not disqualified): the evening family's 17-23 effect, re-attributed to the serving
-   defect; the morning v2 route (MG-1, and T18/RV-1 as its likelihood form); t3-r3 at 13-16, graded fragile.
+   defect; the morning v2 route (MG-1, and T18/RV-1 as its likelihood form); t3-r3 at 13-16, graded fragile (it fails family-wise). MG-1 survives on resampling robustness, not on multiplicity.
    **Everything else failed or was closed** (section 6).
 6. **Multiplicity: 134 registered rule ids** from 26 agents (section 7).
 
@@ -91,7 +98,9 @@ Notes on Table A:
 - "n.i." means not interpretable: the ratio is not read where market Brier < 0.005 (17-23 market Brier is about
   0.0008).
 - r2 is slightly worse than r1 at 17-23 (+0.0018, not significant). The extra mass comes from MG-1's base on rows
-  where the lock-in strength s < 1. At 15-16, MG-1's stale whole-day guidance hurts (EF 10p).
+  where the lock-in strength s < 1. At 15-16 MG-1 harms (+0.0068; the date-only and market-only intervals exclude 0,
+  W does not). That is **consistent with** stale whole-day guidance (EF 10p; the 07Z cycle is about 14 h old there)
+  at block level only: R-STAT-MG1 finds no age gradient inside the block.
 - Gating MG-1 by hour or by s would be an hour gate chosen on this table, which rule 8 forbids. The schedule-only
   gate is the separate D-HG draft (section 8).
 - **Residual after r2** (snapshot-weighted share of the remaining excess): 13-16 32%, 00-05 22%, 06-09 16%,
@@ -204,9 +213,11 @@ What reaches parity, and what does not:
 - On this table `trusted_current_max` is null on 100% of rows, so F is in effect `guidance_physical_floor` (the
   METAR maximum since local midnight). Before 07:00, `high_so_far` is only the current reading (T20).
 - Serving's own `hard_floor_bucket` excludes `guidance_floor`, so the 81a mask stays the stricter lower bound.
-- Calibration (S7) must be gated, or it re-spreads mass above B after any upper-side stage. On ATL 09-20 23:55 it
-  moved the above-high mass from 0.031 to 0.087. As scored (after calibration), T1 needs no gate. Inserted before
-  calibration, it would.
+- Calibration (S7) re-spreads mass above B whenever its taper is unfed. On ATL 09-20 23:55, which is the s = 0 defect
+  state itself, it moved the above-high mass from 0.031 to 0.087. The taper reads the same `lockin_strength`
+  (`model_distribution.py:544`), so a restored lock-in also restores the taper and needs no gate (T27, section 11).
+  As scored (after calibration), T1 needs no gate either. Inserted before calibration as a stage that does not feed
+  the taper, it would.
 - D-CAP1 found a capture defect, M0 (section 9.4). On station-days where it fires, the floor itself is wrong, and
   T1, the restoration and every floored candidate inherit it.
 
@@ -265,7 +276,7 @@ What reaches parity, and what does not:
 
 | Route | Class | New capture | Cost | Dependencies |
 |---|---|---|---|---|
-| r1 evening restoration: S1/S2/S6, gate S7, bundle S3-S5 | zero-parameter serving stage | none | 0 bytes | replay through `estimate_distribution`; release gate; roll-sensitive merge in the quiet window; M0 fix |
+| r1 evening restoration: S1/S2/S6 with the restored strength reaching the S7 taper (S7 gate optional), bundle S3-S5 | zero-parameter serving stage | none | 0 bytes | replay through `estimate_distribution`; release gate; roll-sensitive merge in the quiet window; M0 fix |
 | MG-1 morning read | zero-parameter serving stage | none | 0 bytes; store the stage vector | land 83a/83b (production's v1 parser reads a *minimum* as today's max on 75,049 of 110,807 rows); re-version or quarantine the shadow variant trained on v1 values; shadow stage |
 | t3-r3 remaining-rise stage (15-16 residual) | zero-parameter stage + frozen artifact `remaining_rise_pmf_v1` (3,036 cells) | none; anchored on the captured floor (d2-r3f reproduces t3-r3 within +0.0004) | about 1 MB/month for an IEM history refresh, if ever; frozen during evaluation | versioned table builder (D-CAP2 M4); M0; shadow stage |
 | RV-1 / T18 | needs retrain under DESIGN's taxonomy (three frozen constants plus the rung table) | none | 0 bytes | parser repair; release binding |
@@ -286,18 +297,29 @@ What reaches parity, and what does not:
   and Bonferroni (z −4.9 to −5.3).
 - **Attribution: a serving defect** (D-DEFECT; LADDER rung 1). It is not information from any member. An
   unconditional collapse with no input does at least as well.
+- **Rung 1 independently reproduced** (T27): re-implemented from the registry text and production stage code, it
+  matches LADDER/D-DEFECT to 5.6e-5 on every block, and bit-exactly once D-DEFECT's two reading conventions are
+  adopted. At 17-23 it clears Bonferroni at the full registry count (138 lines, and 134 x 7) in every resampling
+  scheme: 11/11 markets, 57/57 dates, LOMO and LOWO far from 0.
 
 **The morning captured-v2 route.**
 - MG-1 is a registered control, not a hunted candidate: 00-16 −0.0100 [−0.0179, −0.0035], 10/11, b −0.0122,
   PIT-clean.
+- **MG-1 survives its statistics refuter (R-STAT-MG1) on resampling robustness, not on multiplicity.** Crossed W,
+  date-only, market-only, LOMO, LOWO and the 11-market t (p <= 0.006) all exclude 0 in 00-05, 06-09, 10-12 and
+  00-16, but z is −2.6 to −3.3 against the 4.04 Bonferroni line in every block. Its input is effectively the 07Z NBP
+  cycle from about 06 local onward, because parser v2 rejects the 12Z/13Z/19Z cycles as `target_max_not_in_cycle`;
+  whether that rejection is right is an unverified validity condition beside the value re-derivation.
 - T18 t18-r1 is LEAD in every block, and both refuters reproduce it to about 1e-17: 00-16 −0.0140 [−0.0195,
   −0.0089], 11/11. Its only selected information is captured v2_mean.
 - This is the **known 79a/81a/111h family** (EF 10h, 10j, 10p), not a new finding. EF 10j's power cap applies (11
   market clusters, about 40% crossed power for 81a-sized effects).
 
 **t3-r3 at 13-16.**
-- 13-16: −0.0116 [−0.0190, −0.0052], 10/11, b −0.0097.
-- 15-16: −0.0126, 11/11, and it beats rung 2 there by −0.0181.
+- 13-16 (registered block): −0.0116 [−0.0190, −0.0052], 10/11, b −0.0097. It stands within the block (robust to
+  every resampling, LOMO and LOWO) and **fails family-wise** (z −3.26; R-STAT-MG1).
+- 15-16 (POST-HOC slice): −0.0126, 11/11. Its −0.0181 over rung 2 is post-hoc twice and includes MG-1's +0.0068
+  15-16 harm (section 0.3); it is not a finding.
 - **Graded fragile.** It is WEAK at +1 h serve-only (−0.0052 [−0.0150, +0.0035], 6/11, R-PIT-T3), NULL at +2 h,
   and fragile family-wise (R-STAT-T3).
 - It loses about 40% of its effect per hour of extra METAR staleness. Production's freshness (a new max picked up
@@ -389,16 +411,18 @@ increment over t3-r3 (−0.0031 [−0.0077, +0.0017]). Decline it.
   - R-STAT-T7: 371 tests;
   - T19: 116.
 - **Bonferroni over 134 rules x 7 block groups = 938 tests** (one-sided 0.025/938, z about 4.04). The z values
-  below are approximate, from the W interval width under a normal approximation, and are development only.
+  below are from the W draws under a normal approximation, and are development only. R-STAT-MG1 recomputed the ones
+  given to two decimals (the synthesis had r1 about −5.6, t3-r3 17-23 about −4.4, r2 about −3.7); no pass/fail
+  changed. The registry reached 138 lines with the late agents' diagnostics.
   - **Pass:**
-    - the 17-23 family: r1 z about −5.6, t3-r3 about −4.4, T1 −4.9;
+    - the 17-23 family: r1 z −5.46, t3-r3 −4.22, T1 about −4.9;
     - T18 t18-r1 00-16, about −5.2;
     - RV-1 00-16, about −4.9 (its constants are in-sample on the before stratum);
     - t7-r2 00-16, about −4.6 (but about 90% of it is captured v2).
   - **Do not pass:**
-    - MG-1 00-16, about −2.7;
-    - r2 all hours, about −3.7;
-    - t3-r3 13-16, about −3.3;
+    - MG-1 00-16, −2.70 (it survives on resampling robustness, not multiplicity);
+    - r2 all hours, −3.60;
+    - t3-r3 13-16, −3.26;
     - d2-c1 00-16, about −3.4;
     - T1 13-16, about −2.6.
   - Even the passing results are development reads on previously inspected dates. Passing Bonferroni here makes
@@ -428,10 +452,14 @@ increment over t3-r3 (−0.0031 [−0.0077, +0.0017]). Decline it.
 
 ## 9. Owner decisions this enables
 
-1. **Approve or decline the evening WU-anchor serving fix (proposal).** It has two required parts:
-   - re-anchor S1/S2 (and S6) on `lockin_high = max(history_max, guidance_floor)`, with `max_times` from the METAR
-     rows;
-   - gate S7 so calibration cannot re-spread mass above `lockin_high`.
+1. **Approve or decline the evening WU-anchor serving fix (proposal).**
+   - Required: re-anchor S1/S2 (and S6) on `lockin_high = max(history_max, guidance_floor)`, with `max_times` from
+     the METAR rows, so that the restored strength also reaches the calibration taper (`model_distribution.py:544`).
+     If the lock-in were re-implemented as a separate post-calibration step, or the taper kept reading the
+     WU-anchored strength (still 0), calibration would re-add about 0.010 above the high at 17-23 (T27).
+   - Optional: an explicit S7 gate above `lockin_high`. On top of the taper it is worth −0.00008 [−0.00015,
+     −0.00002] at 17-23 (T27): helpful, negligible, not required. LADDER's r1b − r1 (+0.0004) comes from stage order,
+     not from the gate.
 
    D-RUNG1C recommends bundling the S3-S5 re-anchoring, since it is the same defect: −0.0032 at 15-16, 11/11.
    - Development effect: 17-23 −0.0252, 85% of the gap; 00-16 unchanged.
@@ -489,3 +517,30 @@ increment over t3-r3 (−0.0031 [−0.0077, +0.0017]). Decline it.
   - 31 rows carry a captured floor 10 °F above the METAR max.
   - M0 (above).
 - **Completeness critic and canon writer follow.** This document makes no canon edit.
+
+## 11. Late verification (T27, R-STAT-MG1)
+
+Both finished after this synthesis was first written. Neither contradicts a number in it.
+- **T27 (`t27.md`): rungs 1 and 2 REPRODUCED independently** from the registry text and production stage code, without
+  reading D-DEFECT's or LADDER's code before scoring. Rung 1 at 17-23: −0.025373 [−0.035311, −0.017489] against
+  −0.025366; rung 2 within 2.3e-4; classes identical. Rung 1 at 17-23 clears Bonferroni at 138 and at 938 tests in
+  every resampling scheme.
+- **T27 on the S7 gate: not necessary; helpful by a negligible amount.** Restoring the lock-in strength also feeds
+  the calibration taper (`model_distribution.py:544`), which at strength 1 makes calibration the identity. Across
+  17-23, untapered calibration would add 0.0098 above the high, the production taper adds 0.0011, and a gate removes
+  that last 0.0011 for −0.00008 Brier. The ATL 23:55 payload's 0.031 → 0.087 is the no-lock-in defect state itself.
+  LADDER's r1b − r1 (+0.0004) comes from stage order. What IS required is that the restored strength reaches the
+  taper. These are band-level emulations; the `estimate_distribution` replay remains the confirmation step.
+- **R-STAT-MG1 (`r-stat-mg1.md`): no SYNTHESIS number contradicted** (recomputed to 4 dp). MG-1 stands within its
+  family on resampling robustness and fails registry-wide multiplicity. t3-r3 stands within the registered 13-16 block
+  and fails family-wise. 15-16 is a post-hoc slice. Its four wording fixes are applied in sections 0.3, 1.2, 6.1 and
+  7. It adds one unverified validity condition for MG-1: parser v2's rejection of the 12Z/13Z/19Z NBP cycles.
+- **COMPLETENESS verdict item 2 is now partly closed.** Rungs 1-2 have an independent re-implementation (T27), and
+  MG-1 and t3-r3 have a statistics refuter (R-STAT-MG1). Still open: the captured-input replay through
+  `estimate_distribution`, the `v2_mean` value re-derivation, and a from-text re-implementation of t3-r3.
+
+**Files added by the late agents:**
+- `docs/research/model-parity-swarm-2026-10-04/t27.md`; code `tools/research/model_parity/t27_indep_r1.py` and
+  `t27_indep_r1_stats.py`; outputs in `C:\swarm\out\t27\`.
+- `docs/research/model-parity-swarm-2026-10-04/r-stat-mg1.md`; code `tools/research/model_parity/r-stat-mg1_refute.py`;
+  outputs in `C:\swarm\out\r-stat-mg1\`.

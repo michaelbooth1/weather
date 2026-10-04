@@ -3576,7 +3576,9 @@ was made.
   Re-anchoring S1/S2 on `lockin_high = max(history_max, guidance_floor)` with production constants (a band-level
   emulation, not a replay) closes 85% of the 17-23 gap. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
   lock-in no-op; calibration moved above-high mass 0.031 → 0.087), which meets §10e's read-before-acting condition for
-  these stages. Every 17-23 "lead" from the remaining-rise / decided-band family (T1-T4, T15, T16 and the 17-23 legs of
+  these stages. An independent re-implementation (T27) reproduces the rung to 7e-6 and it clears Bonferroni at the full
+  registry count. The taper reads the same lock-in strength (`model_distribution.py:544`), so the restored strength
+  must reach it; an extra S7 gate is optional (−0.00008 at 17-23). Every 17-23 "lead" from the remaining-rise / decided-band family (T1-T4, T15, T16 and the 17-23 legs of
   T5-T10) is this mechanism: an unconditional collapse with no input does at least as well. **Cosmetic for the maker**
   (the market already knows the high is in); it removes Brier loss that never moved a quote.
 - **Morning (00-12): served under-uses the NBM v2 guidance it already captures.** MG-1 (v2_mean, sigma = max(v2_stddev, 1),
@@ -3590,12 +3592,14 @@ was made.
   METAR/GOES cloud. NBH's 00-16 increment over MG-1 is +0.0027 [−0.0037, +0.0098] (5/11, wrong sign); v2_mean carries 137%
   of T5's 00-16 gain. The one borderline sign (MOS/NBE t7-r2 at 13-14, −0.0063 over r2) is a post-hoc hour slice and not an
   increment over the remaining-rise rung (−0.0031 [−0.0077, +0.0017]).
-- **Residual after both repairs is largest at 13-16, mostly 15-16:** +0.0270 [+0.0204, +0.0337], 2.53x. Re-anchoring the
-  13-19 h lock-in stages S3-S5 recovers only −0.0032 there (58% of 15-16 snapshots have not rolled over below the high: a
-  remaining-rise problem, under a declared forecast proxy). The no-source METAR remaining-rise rung t3-r3 (station x month x
-  local-hour pmf of final max − running max from IEM history to 2026-07-31) beats r2 at 15-16 by −0.0181 [−0.0251, −0.0112],
-  11/11, but is **fragile**: WEAK at +1 h METAR staleness, NULL at +2 h, fails Bonferroni. A new rule; it can only enter
-  through a pre-registration on new dates.
+- **Residual after both repairs is largest in the registered 13-16 block:** +0.0231 [+0.0173, +0.0289], 1.81x (the POST-HOC
+  15-16 slice reads +0.0270, 2.53x). Re-anchoring the 13-19 h lock-in stages S3-S5 recovers only −0.0020 (−0.0032 at
+  15-16; 58% of 15-16 snapshots have not rolled over below the high: a remaining-rise problem, under a declared forecast
+  proxy). The no-source METAR remaining-rise rung t3-r3 (station x month x local-hour pmf of final max − running max from
+  IEM history to 2026-07-31) beats served at 13-16 by −0.0116 [−0.0190, −0.0052], 10/11, and r2 by −0.0107, 11/11, but is
+  **fragile**: WEAK at +1 h METAR staleness, NULL at +2 h, and fails family-wise (z −3.26). The 15-16 "−0.0181 over r2" is
+  post-hoc twice and 0.0068 of it is MG-1's own 15-16 harm. A new rule; it can only enter through a pre-registration on
+  new dates.
 - **No candidate reaches market parity in 00-16.** Serveable without a new rule: 1.29x. Best composed (POST-HOC r2 x t3-r3):
   1.245x. Nothing tested closes the 00-12 residual (+0.010 to +0.014).
 - **T1 (decided-band collapse) is subsumed, not drafted.** Serving-stage form: after the final calibrated distribution,
@@ -3603,7 +3607,7 @@ was made.
   1-3 °F above the floor band B keep a historical residual rate q(k) and the rest of the mass above B moves into B. Floor
   interaction: the 81a mask (max of `guidance_physical_floor`, `high_so_far`, `trusted_current_max`; B = round_half_up)
   is lower-side, T1 upper-side; both act on B, never conflict, and never weaken the floor. Inserted before calibration it
-  needs the S7 gate. 17-23 −0.0264, but the unconditional collapse scores −0.0287 and the restored lock-in −0.0254: the
+  needs an S7 gate (it does not feed the taper). 17-23 −0.0264, but the unconditional collapse scores −0.0287 and the restored lock-in −0.0254: the
   "decided" condition carries none of the effect.
 - **Tail lens, this table's definition:** band rows with served SE > market SE and |p_served − p_market| >= 0.30 are
   **6.075% of rows carrying 70.38% of the positive excess**. §1/§1f's **4.387% / 64.140%** is the sealed in-season panel's
@@ -3616,10 +3620,11 @@ was made.
   `obsTime` (parse-only, versioned). `trusted_current_max` is null on 100% of extract rows. 31 rows carry a captured floor
   10 °F above the METAR max. Late S3 NBM uploads are upstream delays plus one transfer backlog, not re-uploads.
 - **Bonferroni** (134 rules x 7 block groups, z about 4.04): passes for the 17-23 family, T18 00-16, RV-1 00-16 and t7-r2
-  00-16 (about 90% captured v2); fails for MG-1 00-16, r2 all hours, t3-r3 13-16 and the POST-HOC composite. Passing makes a
+  00-16 (about 90% captured v2); fails for MG-1 00-16, r2 all hours, t3-r3 13-16 and the POST-HOC composite. MG-1 survives
+  its statistics refuter on resampling robustness (W, date, market, LOMO, LOWO), not on multiplicity. Passing makes a
   result worth a pre-registration, not established.
-- **Consequences (proposals for owner decision, none adopted):** the evening WU-anchor serving fix (re-anchor S1/S2/S6, gate
-  S7, bundle S3-S5; needs a captured-input replay through `estimate_distribution`, the release gate and a quiet-window
+- **Consequences (proposals for owner decision, none adopted):** the evening WU-anchor serving fix (re-anchor S1/S2/S6 so
+  the restored strength reaches the S7 taper, optional S7 gate, bundle S3-S5; needs a captured-input replay through `estimate_distribution`, the release gate and a quiet-window
   merge); land the parser repair before any morning route; draft pre-registrations (MG-1 or RV-1 for 00-16, t3-r3 for
   13-16, hour-gated HG-1 as its own α arm, NBH-1 drafted only to close the route) — all with first eligible date after
   2026-10-14, out of season, and with unresolved reservation collisions; METAR capture fixes M0-M3. **There is no capture

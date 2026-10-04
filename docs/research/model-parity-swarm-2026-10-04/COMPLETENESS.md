@@ -14,6 +14,17 @@
 > **How to read this.** Section 1 says what was checked and holds. Sections 2-9 list what was not done, grouped by the
 > decision it bears on. Section 10 is the prioritised follow-up list. A gap here is not a defect finding: no refuter
 > verdict is overturned, and the synthesis headline stands on what was measured.
+>
+> **Note added 2026-10-04 about 04:10 local by S-REVISE (the critic's text below is unchanged).** Two late agents closed
+> some items. **Closed:** follow-up 3 (independent re-implementation of d-defect-r2, T27: reproduced, bit-exact once two
+> reading conventions are aligned, also rung 2); follow-up 5 (statistics refuter on MG-1 and ladder r1/r2: R-STAT-MG1 for
+> MG-1 and r2 − r1, T27 for r1); follow-up 9 for rung 1, MG-1 and t3-r3 (rung 1 clears Bonferroni at 138 and 938; MG-1 and
+> t3-r3 13-16 fail it); and the S7-gate contradiction of section 2 and section 8.1 (T27: the gate is not necessary, because
+> the restored strength feeds the taper; an extra gate is worth −0.00008 at 17-23; LADDER r1b − r1 is stage order). The
+> 15-16 framing of section 4 / 8.7 / follow-up 8 is corrected in SYNTHESIS and the canon drafts. Verdict item 2 is
+> therefore partly closed. **Still open:** the `estimate_distribution` replay (follow-ups 1-2), the `v2_mean` value
+> re-derivation (follow-up 4, now also parser v2's rejection of the 12Z/13Z/19Z NBP cycles), a from-text t3-r3
+> re-implementation, and everything in P4-P6. See SYNTHESIS section 11, `t27.md`, `r-stat-mg1.md`.
 
 ## 0. Verdict
 
