@@ -212,3 +212,12 @@ def test_reentry_and_pull_digests_ignore_a_repeated_views_capture_time(tmp_path)
     assert prints[0] == prints[1]
     frozen = [replay((b,), ReplayConfig(hazard_per_minute=.001)) for b in (with_repeat, elided)]
     assert canonical_bytes(frozen[0].decisions) != canonical_bytes(frozen[1].decisions)  # v1 read the capture time
+
+
+def test_factor_exposure_that_one_millionth_cannot_hold_is_refused_not_rounded():
+    """C5 holds for the weather plugin's unit loadings; a fractional loading can make an exposure inexact."""
+    from maker_core.replay.v2.money import mul, q
+    cost = q(mul(D("0.37"), D("12.3457")))  # a fill cost: exact at 1e-6
+    assert q(mul(cost, D("1.0"))) == cost
+    with pytest.raises(MoneyError):
+        q(mul(cost, D("0.5")))

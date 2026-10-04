@@ -30,6 +30,7 @@ from maker_core.replay.v2.pipeline import fraction, run_passes
 from maker_core.replay.v2.reference import ReferenceEngine
 from maker_core.replay.v2.report import build_report, report_bytes
 from maker_core.replay.v2.score import BandDayScorer, Books
+from tools.research.maker_replay_v2.dense import DenseDay
 from tools.research.maker_replay_v2.sources import ScaledDay, materialize, plan_of
 
 DAY = date(2026, 9, 27)  # fictional
@@ -51,10 +52,12 @@ class _Counters(ctypes.Structure):
 def working_set():
     """(current, peak) working set bytes of this process (Windows); (None, None) elsewhere."""
     try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.K32GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Counters), ctypes.c_ulong]
         counters = _Counters()
         counters.cb = ctypes.sizeof(counters)
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+        if kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
             return counters.WorkingSetSize, counters.PeakWorkingSetSize
     except (AttributeError, OSError):
         pass
@@ -111,15 +114,19 @@ def differential(source, config):
 
 
 def s5(args):
+    """W0-shaped windows (horizon roll, settlements) and a quoting-dense window, at each B and T."""
     cases = []
     for union in (12, 40, 170):
         for trades in (2000, 20000):
-            for start, label in S5_WINDOWS:
-                day = ScaledDay(DAY, union=union, trades=trades, start_minute=start, minutes=args.minutes)
+            days = [(f"w0 {label}{args.minutes} min",
+                     ScaledDay(DAY, union=union, trades=trades, start_minute=start, minutes=args.minutes))
+                    for start, label in S5_WINDOWS]
+            days.append((f"dense 10:00-{args.dense_minutes} min",
+                         DenseDay(DAY, union=union, trades=trades, minutes=args.dense_minutes)))
+            for label, day in days:
                 source, records = materialize(day)
                 result = differential(source, V2Config(hazard_per_minute=HAZARD))
-                cases.append(dict(union=union, trades=trades, window=label + f"{args.minutes} min",
-                                  records=records, **result))
+                cases.append(dict(union=union, trades=trades, window=label, records=records, **result))
                 if result["divergences"]:
                     return dict(measurement="S5", status="MEASURED", cases=cases, pass_=False,
                                 stopped="divergence")
@@ -138,7 +145,7 @@ def s3(args):
     plan = run_plan([source])
     config = V2Config(hazard_per_minute=HAZARD)
 
-    def one_pass(trace):
+    def one_pass(trace, config=config):
         engine = EngineV2(config, plan, sink=BandDayScorer("informed-v0", "strictly_through", pull_runs=True))
         if trace:
             tracemalloc.start()
@@ -159,6 +166,8 @@ def s3(args):
         engine, elapsed, _ = one_pass(False)
         timings.append(round(elapsed, 3))
     _, _, traced_peak = one_pass(True)
+    # Diagnostic only (not the registered rule): a re-projected unchanged book is not an own event.
+    variant, variant_seconds, _ = one_pass(False, replace(config, repeat_book_wakes=False))
     band_minutes = stats["instantaneous_mean"] * args.minutes
     current, peak = working_set()
     return dict(measurement="S3", status="MEASURED", union=args.union, trades=args.trades, minutes=args.minutes,
@@ -168,7 +177,9 @@ def s3(args):
                 microseconds_per_wake=round(min(timings) / engine.wakes * 1e6, 1),
                 book_rows_per_minute=max(1, -(-2 * round(stats["instantaneous_mean"]) // 100)),
                 traced_peak_bytes_per_pass=traced_peak, process_working_set_bytes=current,
-                process_peak_working_set_bytes=peak)
+                process_peak_working_set_bytes=peak,
+                diagnostic_changed_book_wakes_only=dict(pass_seconds=round(variant_seconds, 3), engine=variant.summary(),
+                                                        wakes_per_band_minute=round(variant.wakes / band_minutes, 3)))
 
 
 # -- S7 ---------------------------------------------------------------------------------------------------
@@ -203,45 +214,58 @@ def _quoted(rows):
 
 
 def s8(args):
+    """informed-v0 quoted fraction under the v2 schedule and the frozen loop, by B and T, on two fixtures."""
     rows = []
-    for union in (40, 85, 170):
-        for trades in (2000, 20000):
-            day = ScaledDay(DAY, union=union, trades=trades, start_minute=args.start, minutes=args.minutes)
-            source, records = materialize(day, "v0.1")
-            plan = run_plan([source])
-            scorer = BandDayScorer("informed-v0", "strictly_through")
-            engine = EngineV2(V2Config(hazard_per_minute=HAZARD), plan, sink=scorer)
-            books = Books()
-            started = time.perf_counter()
-            drive([source], [engine], observers=(books,))
-            v2_seconds = time.perf_counter() - started
-            markets = {c.condition_id: c.market_id for c in plan.days[0].conditions}
-            v2_fraction, v2_covered = _quoted(scorer.band_days(engine.settlements, books, markets))
-            frozen = Bundle(day.day, day.end, "synthetic", plan.days[0].conditions,
-                            tuple(r for r in source.records()), dict(plan.days[0].input_hashes), 0)
-            started = time.perf_counter()
-            result = replay((frozen,), ReplayConfig(hazard_per_minute=HAZARD, max_events=2**31 - 1,
-                                                    max_outputs=2**31 - 1))
-            v1_seconds = time.perf_counter() - started
-            v1_fraction, v1_covered = _quoted(v1_score(result))
-            rows.append(dict(union=union, trades=trades, records=records,
-                             v2=dict(quoted_fraction=v2_fraction, covered_seconds=v2_covered,
-                                     seconds=round(v2_seconds, 1), decisions=engine.decision_count),
-                             frozen=dict(quoted_fraction=v1_fraction, covered_seconds=v1_covered,
-                                         seconds=round(v1_seconds, 1), decisions=len(result.decisions))))
-    return dict(measurement="S8", status="MEASURED", window_start_minute=args.start, minutes=args.minutes,
-                rows=rows, rule="report only; the v2 fraction should not fall with B")
+    for kind in ("w0", "dense"):
+        for union in (40, 85, 170):
+            for trades in (2000, 20000):
+                if kind == "w0":
+                    day = ScaledDay(DAY, union=union, trades=trades, start_minute=args.start, minutes=args.minutes)
+                else:
+                    day = DenseDay(DAY, union=union, trades=trades, minutes=args.dense_minutes)
+                source, records = materialize(day, "v0.1")
+                plan = run_plan([source])
+                markets = {c.condition_id: c.market_id for c in plan.days[0].conditions}
+                variants = {}
+                for name, config in (("v2", V2Config(hazard_per_minute=HAZARD)),
+                                     ("v2_changed_book_wakes_only",
+                                      V2Config(hazard_per_minute=HAZARD, repeat_book_wakes=False))):
+                    scorer, books = BandDayScorer("informed-v0", "strictly_through"), Books()
+                    engine = EngineV2(config, plan, sink=scorer)
+                    started = time.perf_counter()
+                    drive([source], [engine], observers=(books,))
+                    seconds = time.perf_counter() - started
+                    quoted, covered = _quoted(scorer.band_days(engine.settlements, books, markets))
+                    variants[name] = dict(quoted_fraction=quoted, covered_seconds=covered, seconds=round(seconds, 1),
+                                          decisions=engine.decision_count,
+                                          quotes=sum(r.quotes for r in scorer.rows.values()))
+                frozen = Bundle(day.day, day.end, "synthetic", plan.days[0].conditions,
+                                tuple(r for r in source.records()), dict(plan.days[0].input_hashes), 0)
+                started = time.perf_counter()
+                result = replay((frozen,), ReplayConfig(hazard_per_minute=HAZARD, max_events=2**31 - 1,
+                                                        max_outputs=2**31 - 1))
+                seconds = time.perf_counter() - started
+                quoted, covered = _quoted(v1_score(result))
+                variants["frozen_loop"] = dict(quoted_fraction=quoted, covered_seconds=covered,
+                                               seconds=round(seconds, 1), decisions=len(result.decisions),
+                                               quotes=sum(d.decision.action == "QUOTE" for d in result.decisions))
+                rows.append(dict(fixture=kind, union=union, trades=trades, records=records, **variants))
+    return dict(measurement="S8", status="MEASURED", w0_window=[args.start, args.minutes],
+                dense_window=[600, args.dense_minutes], rows=rows,
+                rule="report only; the v2 fraction should not fall with B")
 
 
 # -- S9 ---------------------------------------------------------------------------------------------------
 def adversarial_rows(day, rng_seed):
-    """W0 rows with print sizes at 1e-4 share resolution up to 10^7 shares (exact at 1e-6 with 0.01 prices)."""
+    """Prints at 1e-4 share resolution, mostly fractional below the 75-share maximum leg, some up to 10^7
+    shares, at extreme and mid ticks: every fill cost is exact at 1e-6 only by construction, never by luck."""
     import random
     rng = random.Random(f"s9-{day.day}-{rng_seed}")
     for row in day.rows():
         if row["kind"] == "trade":
-            payload = dict(row["payload"], size=str(D(rng.randrange(1, 10**11)).scaleb(-4)),
-                           price=str(D("0.01") * rng.choice((1, 2, 50, 98, 99))))
+            size = D(rng.randrange(1, 10**11 if rng.random() < .1 else 76 * 10**4)).scaleb(-4)
+            payload = dict(row["payload"], size=str(size),
+                           price=str(D("0.01") * rng.choice((1, 2, 30, 45, 50, 55, 70, 98, 99))))
             row = dict(row, payload=payload, payload_sha256=sha256(canonical_bytes(payload)))
         yield row
 
@@ -251,8 +275,8 @@ def s9(args):
     from maker_core.replay.v2.lockstep import DaySource
     sources = []
     for offset in range(args.days):
-        day = ScaledDay(DAY + timedelta(days=offset), union=args.union, trades=args.trades,
-                        start_minute=args.start, minutes=args.minutes)
+        # The quoting-dense day, so every policy fills; same conditions every day, so inventory carries.
+        day = DenseDay(DAY + timedelta(days=offset), union=args.union, trades=args.trades, minutes=args.minutes)
         records = [record_from_row(r) for r in compact(adversarial_rows(day, offset), day.groups)]
         sources.append(DaySource(plan_of(day), (lambda r: (lambda: iter(r)))(records)))
     big = D(10) ** 12
@@ -293,8 +317,8 @@ def s9(args):
 
 
 MEASUREMENTS = dict(s3=s3, s5=s5, s7=s7, s8=s8, s9=s9)
-DEFAULTS = dict(s3=dict(minutes=360, trades=2000), s5=dict(minutes=90), s7=dict(minutes=1440, union=170, trades=2000),
-                s8=dict(minutes=120, start=600), s9=dict(minutes=180, start=180, days=16, union=48, trades=20000))
+DEFAULTS = dict(s3=dict(minutes=360, trades=2000), s5=dict(minutes=90, dense_minutes=30), s7=dict(minutes=1440, union=170, trades=2000),
+                s8=dict(minutes=60, start=600, dense_minutes=10), s9=dict(minutes=60, days=16))
 
 
 def add_arguments(parser):
@@ -302,6 +326,7 @@ def add_arguments(parser):
     parser.add_argument("--start", type=int)
     parser.add_argument("--days", type=int)
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--dense-minutes", type=int)
 
 
 def run(name, args):

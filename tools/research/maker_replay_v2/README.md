@@ -20,3 +20,14 @@ $b64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes((Conv
 
 A full day writes about 1 GB of v0.1 and v0.2 files under `--out`; delete it afterwards. Results and their
 commit are in `docs/roadmap/agent-report-2026-10-03-mrv2-w0-w1.md`.
+
+W3-W5 (the v2 engine, reference schedule, scorer and report in `src/maker_core/replay/v2/`) add:
+
+- `sources.py`: W0's day at any band count (`ScaledDay`, identical to `Day` at 12 markets, and
+  reproducible per `rows()` call), in-memory v0.1/v0.2 day sources, and coverage regrouping.
+- `dense.py`: a quoting-dense fictional day (fresh books, agreeing views, frequent prints, events,
+  settlements) so differential tests exercise legs, fills and running totals.
+- `bench.py`: `s3` (engine runtime per pass vs B; one B per process), `s5` (v2 engine vs reference
+  schedule on every pass and clock trial), `s7` (scored report and sidecar bytes per date), `s8`
+  (`informed-v0` quoted fraction, v2 schedule vs the frozen loop) and `s9` (exact money on adversarial
+  extremes over 16 carried days), reached through `run.py`. Results: `docs/roadmap/agent-report-2026-10-04-mrv2-w3-w5.md`.

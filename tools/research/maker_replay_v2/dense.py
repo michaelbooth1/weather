@@ -64,7 +64,7 @@ class DenseDay:
                                   b["event"], close, close + timedelta(minutes=1), "F", "fixture", FICTIONAL,
                                   "partition")
         return dict(market=market, horizon_days=horizon,
-                    exposure_factors={f"market:{b['market']}": "1", "weather:all": "0.5"})
+                    exposure_factors={f"market:{b['market']}": "1", "weather:all": "1"})
 
     def rows(self):
         """The day's rows; every call yields the same rows (the generator state is restored first)."""
