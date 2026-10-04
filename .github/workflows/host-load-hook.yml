@@ -30,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The docs audit checks the correspondence index against full history.
+          fetch-depth: 0
           lfs: false
       - uses: actions/setup-python@v5
         with:
