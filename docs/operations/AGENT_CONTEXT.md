@@ -79,6 +79,11 @@ generated reports for dynamic state.
     floor for these stages. This acceptance does not override the dated-rule
     support constraint; an inadmissible anchor cannot justify a hard zero.
   - With WU history present, the stages keep the WU high, unchanged.
+- The station-local day is not always 24 hours. Any look-back or window over
+  it is measured between UTC instants from local midnight, never on the wall
+  clock: the AWC METAR fetch (`metar_query_hours`) asks for the elapsed span
+  plus 2 hours, capped at the day's true length rounded up (at least 24, at
+  most 25), so the 25-hour fall-back day keeps its first local hour.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
