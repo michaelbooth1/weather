@@ -38,6 +38,13 @@ from weather.sources.nbm_probabilistic_tmax import (
     parse_nbp_station_tmax,
 )
 from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
+from weather.sources.toronto_nbm_blocks import (
+    TORONTO_NBM_BLOCKS_REUSE_MINUTES,
+    TORONTO_NBM_BLOCKS_SOURCE,
+    load_toronto_nbm_blocks_policy,
+    toronto_nbm_blocks_enabled,
+    toronto_station_blocks_payload,
+)
 from weather.forecast_payload_contracts import nbm_nbp_cycle_key_from_bulletin
 from weather.model.source_adapters import (
     FETCH_META_KEY,
@@ -137,6 +144,10 @@ SOURCE_PAYLOAD_CONTRACTS = {
     ),
     "marine_context": ("marine-context-parser-v1", "marine-context-payload-v1"),
     "mrms_precip": ("mrms-precip-parser-v1", "mrms-precip-payload-v1"),
+    TORONTO_NBM_BLOCKS_SOURCE: (
+        "nbm-toronto-station-blocks-parser-v1",
+        "nbm-toronto-station-blocks-payload-v1",
+    ),
 }
 
 
@@ -207,6 +218,7 @@ class SourceFetchMixin:
             "global_ensemble": self.fetch_global_ensemble,
             "marine_context": self.fetch_marine_context,
             "mrms_precip": self.fetch_mrms_precip,
+            TORONTO_NBM_BLOCKS_SOURCE: self.fetch_nbm_toronto_station_blocks,
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
         # Open-Meteo Air Quality is a same-provider adjunct to the canonical
@@ -223,6 +235,11 @@ class SourceFetchMixin:
             and "nbm_probabilistic_tmax" not in source_names
         ):
             source_names.append("nbm_probabilistic_tmax")
+        # Owner 2026-10-02: Toronto's CYYZ/CYTZ NBM blocks are retained only when
+        # config/toronto_nbm_blocks.json enables it, under a source name the
+        # feature builder never reads (storage only; serving features unchanged).
+        if toronto_nbm_blocks_enabled(self.spec):
+            source_names.append(TORONTO_NBM_BLOCKS_SOURCE)
         fetchers = {name: all_fetchers[name] for name in source_names if name in all_fetchers}
         fetchers = {
             name: self.source_fetcher_with_budget(name, fetcher)
@@ -1867,6 +1884,79 @@ class SourceFetchMixin:
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "tried_urls": tried_urls,
         }
+
+    def fetch_nbm_toronto_station_blocks(self):
+        """Capture-only Toronto CYYZ/CYTZ NBM NBP blocks (no feature input)."""
+        policy = load_toronto_nbm_blocks_policy()
+        cached = self.cached_source_for_reuse(
+            TORONTO_NBM_BLOCKS_SOURCE,
+            TORONTO_NBM_BLOCKS_REUSE_MINUTES,
+        )
+        if cached and (cached.get("data") or {}).get("available"):
+            return self.with_source_fetch_meta(
+                cached["data"],
+                {
+                    "status": "fresh_cache",
+                    "stale": False,
+                    "cache_status": "fresh_cache",
+                    "fetched_at": cached.get("fetched_at"),
+                    "cache_age_minutes": cached.get("cache_age_minutes"),
+                },
+            )
+        fanout = getattr(self, "market_invariant_fetch_fanout", NBM_NATIONAL_TEXT_FANOUT)
+        fanout_scope = getattr(self, "market_invariant_fetch_scope", None)
+        for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
+            url = nbp_text_url(run_time)
+
+            # Same request/cycle identity and value shape as the US fetch, so
+            # one capture pass shares a single national download.
+            def fetch_national_text(url=url):
+                request_started_at = datetime.now(timezone.utc).isoformat()
+                text = self.get_text(url)
+                response_received_at = datetime.now(timezone.utc).isoformat()
+                return {
+                    "text": text,
+                    "fetched_at": response_received_at,
+                    "request_started_at": request_started_at,
+                    "response_received_at": response_received_at,
+                }
+
+            try:
+                # Held-cycle reuse when the fan-out offers it; plain fetch otherwise.
+                fetch_bulletin = getattr(fanout, "fetch_reusable_nbp", fanout.fetch)
+                fanout_result = fetch_bulletin(
+                    source="nbm_probabilistic_tmax",
+                    request_key=nbp_request_key(url),
+                    cycle_key=nbp_cycle_key(run_time),
+                    fetch_fn=fetch_national_text,
+                    scope_key=fanout_scope,
+                )
+            except requests.HTTPError as exc:
+                if self.http_status(exc) in {403, 404}:
+                    continue
+                raise
+            text = fanout_result.value["text"]
+            if nbm_nbp_cycle_key_from_bulletin(text) != fanout_result.cycle_key:
+                raise ValueError(
+                    "NBM bulletin semantic cycle does not match the requested cycle"
+                )
+            # First published bulletin only: a missing station block is stored
+            # as missing rather than walking older 35 MB bulletins.
+            return toronto_station_blocks_payload(
+                text,
+                policy.stations,
+                self.target_date,
+                source_url=url,
+                fetched_at=fanout_result.value["fetched_at"],
+                cycle_key=fanout_result.cycle_key,
+                policy=policy,
+            )
+        raise SourceExpectedUnavailable(
+            "No NBM NBP bulletin was published in the last 24 cycles.",
+            status="nbp_text_unavailable",
+            source_family=TORONTO_NBM_BLOCKS_SOURCE,
+            cache_status="expected_unavailable",
+        )
 
     def fetch_nws_grid_forecast(self):
         """US National Weather Service raw forecastGridData values."""
