@@ -52,6 +52,53 @@ def _shards() -> list[dict]:
     return shards
 
 
+# Pinned shard plan. Moving a file between shards, adding one or dropping one
+# must edit this table in the same change (item K Defender condition), so a
+# merge cannot silently lose a Windows-executed file.
+EXPECTED_SHARDS = {
+    "status-evidence": (
+        "invalid_reconciliation_evidence and not origin",
+        [
+            STATUS_FILE,
+            "tests/operations/test_live_wrapper_credential_launcher.py",
+            "tests/operations/test_integration_attempt_registration_safety.py",
+        ],
+    ),
+    "status-rest": (
+        "not invalid_reconciliation_evidence or origin",
+        [
+            STATUS_FILE,
+            "tests/operations/test_replay_cache_compression_wrapper.py",
+            "tests/operations/test_cold_archive_reclaim.py",
+            "tests/operations/test_ops_script_ratchets.py",
+            "tests/collection/test_forecast_payload_cross_process_fanout.py",
+            "tests/operations/test_integration_attempt_evidence_recovery_hardening.py",
+        ],
+    ),
+    "archive": (
+        "",
+        [
+            "tests/operations/test_production_cold_archive_wrapper.py",
+            "tests/operations/test_storage_recovery_inventory_wrapper.py",
+            "tests/operations/test_integration_attempt_scripts.py",
+            "tests/operations/test_windows_job_output_capture.py",
+            "tests/operations/test_integration_launch_diagnostics.py",
+            "tests/operations/test_ops_alarm_path.py",
+        ],
+    ),
+    "launch": (
+        "",
+        [
+            "tests/operations/test_maker_replay_exam_step_script.py",
+            "tests/operations/test_cold_snapshot_compression_wrapper.py",
+            "tests/operations/test_integration_phase_output.py",
+            "tests/operations/test_health_watchdog_script.py",
+            "tests/operations/test_bounded_worktree_test_suite_script.py",
+        ],
+    ),
+}
+
+
 def _job_select(status_select: str) -> str:
     # Mirrors the job env: format('({0}) or not test_status_script.py', ...).
     return f"({status_select}) or not test_status_script.py" if status_select else ""
@@ -119,3 +166,7 @@ def test_status_select_expressions_partition_status_tests_and_spare_other_files(
     assert not first & second
     assert first | second == status_ids
 
+
+def test_workflow_matrix_matches_the_pinned_shard_plan():
+    actual = {shard["name"]: (shard["status_select"], shard["files"]) for shard in _shards()}
+    assert actual == {name: (select, files) for name, (select, files) in EXPECTED_SHARDS.items()}

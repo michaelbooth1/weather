@@ -397,6 +397,7 @@ catch { $failure = $_.Exception.Message }
 
 
 TIMING_TABLE = REPO_ROOT / "tests" / "bounded_suite_file_timings.json"
+NEW_FILE = "tests/operations/test_zz_file_absent_from_the_timing_table.py"
 PACKER_HARNESS = r"""
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -496,10 +497,12 @@ def test_time_packing_places_every_tracked_test_file_in_exactly_one_chunk(tmp_pa
             {"files": list(reversed(files)), "cap": 20, "table": table},
             {"files": files, "cap": 25, "table": table},
             {"files": files, "cap": 20, "table": str(tmp_path / "absent.json")},
+            {"files": files + [NEW_FILE], "cap": 20, "table": table},
+            {"files": [NEW_FILE] + files, "cap": 20, "table": table},
         ],
         tmp_path,
     )
-    for result, cap in zip(results, (20, 20, 25, 20)):
+    for result, cap in zip(results[:4], (20, 20, 25, 20)):
         assert result["error"] is None, result["error"]
         chunks = _chunk_lists(result)
         placed = [file for chunk in chunks for file in chunk]
@@ -510,6 +513,10 @@ def test_time_packing_places_every_tracked_test_file_in_exactly_one_chunk(tmp_pa
         assert all(chunk == sorted(chunk) for chunk in chunks)
     assert results[0]["present"] is True and results[3]["present"] is False
     assert _chunk_lists(results[0]) == _chunk_lists(results[1])
+    # A file the table has never seen is placed exactly once, deterministically.
+    with_new = _chunk_lists(results[4])
+    assert with_new == _chunk_lists(results[5])
+    assert sorted(file for chunk in with_new for file in chunk) == sorted(files + [NEW_FILE])
 
 
 @WINDOWS_POWERSHELL_REQUIRED
