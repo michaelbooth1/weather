@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-29 02:00 America/Toronto (ALL LIVE TRADING PAUSED; replay exam signed: panel 09-30..10-13, look 10-15; second integration landed; plugin + harness still held; 91 GiB free).**
+**Last updated: 2026-10-04 03:50 America/Toronto (ALL LIVE TRADING PAUSED; exam closed NOT EXECUTED, panel unread; roll-free batch landed `8c5d6b5c`; 91a BLOCKED pending a verification extension; model-parity swarm found a serving defect; ~109 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -15,65 +15,74 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current authority
 
-- **No live trading (owner 2026-09-25).** The owner starts any future live run personally; pause and bleed limit go into code
-  first. The owner's manual trades share the wallet and stay `owner-discretionary`, outside automated data.
-- Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges 01:00-04:00.
-- **Exam-period merge policy (2026-09-27):** during panel UTC days 09-30..10-13 only disk-relief (110j C) and exam-tooling
-  roll-sensitive merges land; everything else waits until after 10-13. Nothing joins an integration branch before its CI is green.
-- All 2026-09-26/27 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md): storage 1-9 (10 keep, 11 no), economics baseline
-  re-accepted, one-wallet ledger, 10 repo-health decisions, replay pre-registration + Clarification 1 signed, efficiency
-  approvals, YouTube plugin, one-sided second candidate, wallet reader stays on the workstation, tools 110y/110z.
+- **No live trading (owner 2026-09-25).** The owner starts any future live run personally. The pause and bleed limit are built
+  as a fail-closed guard (#180, unmerged); with today's shared
+  wallet it would HALT, so a live run first needs a complete ledger (a dedicated wallet). Owner trades stay `owner-discretionary`.
+- Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
+  01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
+- **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
+  wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
+- 2026-09-30 through 2026-10-03 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md).
+- **Workstation: one Claude Code chat directed by the production agent** (cross-session messaging, owner 2026-10-03; bigger decisions to the owner first); prompts start from [the session preamble](WORKSTATION_SESSION_PREAMBLE.md).
+  Claude Code has no host-load hook; the S4U guard is its backstop. Use a short `--basetemp` there (Windows MAX_PATH).
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` `85092752a` (2026-09-29 01:23, quiet-window tool, bounded suite 23/23 on tip
-  `c5b3a5a6a`, PR #126): 110k ledger adapter (#98) and WU orphan caller (#99), 110m part 1 signed-band capture (#101), 110n
-  watchdog alarm path (#102), fresh 110q economics tick-mix fix (#123; #111 closed as superseded), 110v part 1 execution-tape
-  write throttle (#116). Capture workers and execution tape recovered; 88a did not restart (pid 17840). Previous landing
-  `fbf4d436c` (09-28): 91a, 110f, 110g centering OFF, 110i, 110j A/B.
-- **Watchdog (#102) is not yet adopted:** the scheduled task still runs the `weather-watchdog-deployed-aa99048` copy. The
-  re-registration command in the 110n report (reviewed tip `1fc7ba35`, hashes verified against master 09-29) waits for owner review.
-- **Stage-A 09-29** is the first run with the tick-mix fix; its economics drift gate is expected to pass.
-- **Disk:** ~91 GiB free 09-29 01:25 (102 after the 09-28 reclaims; receipts `data/alerts/storage-decisions-20260928/`). 88a
-  stops < 40 GiB, the suite < 50 GiB. Taker counterfactual detail (5 files, 3.18 GiB) deletes 09-29/30 now #102 has landed.
-- **5f/5g review manifests** (built 09-29, nothing deleted, `data/alerts/storage-decisions-20260929/`): 5f backtest shadow exports
-  15 files 5.47 GiB, blocked only by owner review and one unclassified file (`active_variant_shadow_attribution.jsonl`, 1.9 GiB);
-  5g mm_runs scoring projections 282 files 5.45 GiB (latest 14 runs kept), all unclassified in `storage_classes`, so a
-  classification change must land before any delete.
-- **Host:** housekeeping 2026-09-28: 18 spent/retired tasks unregistered, WeatherBootRecovery runs from the production tree
-  (hash-pinned), 88a trigger PT5M (registrar still asserts PT1M: follow-up), explorer restarted (2.7 GB -> 0.2 GB), Defender
-  excludes venv, C:\tmp, C:\pt. Execution-tape worker writes ~3.7 MB/s of status (fix 110v part 1).
-- **Settlement source:** venue resolves on weather.gov WRH hourly data; master hard-codes WU; agreement 359/360 (EF §10c).
-- **Wallet (recorded reads, `data/wallet_ledger/`):** 09-28 01:40Z cash 283.95, no positions, no open orders; the owner's manual
-  one-sided resting orders earned 8.25 pUSD of rewards on 09-27 UTC (orders now gone). Reader status INCOMPLETE is expected.
-- **Maker core:** contracts v0.1; weather plugin, 110h dry-run CLI, replay harness (313/313 minute parity with RE-1), execution
-  pack (#112), bundle export (#114), shadow runner (110t), T+1 scorer (#113) are still on branches, held for 111a (plugin dry-run
-  fixes: NBP CAS path, band metadata, T+0 PIT input, ledger read cap, input budget). They are exam tooling.
-- **Replay exam (signed):** calibration 09-27..09-29, panel 09-30..10-13, settlement 10-14, single look **2026-10-15**
-  (`maker-replay-2026-10-15-v1`; 10-12 authorization revoked). Production calibrates, builds and verifies the manifest and
-  enrols its hash on 09-30. A second candidate (`one-sided-edge-v0`, 110w) gets its own exam 10-16..10-29, look 10-31.
-- **One-sided thesis review (2026-09-27):** one-sidedness concentrates informed flow; the model trails the market in every
-  measured slice; observation decidedness is the only directional signal; one-sided reward score is S/3 inside a 0.10-0.90 mid.
-- **Forecast:** NBM layers 2/3 queued (after 10-13); T+1/T+2 fair value frozen pre-registration, scored 10-15 by 110u.
-- **YouTube:** its model may feed the maker later (read-only); capture moves here after 10-15 with measured disk (~10-05).
+- **Production source:** `master` = `origin/master`; last code integration `8c5d6b5c` (2026-10-04 03:41, roll-free batch PR #186:
+  #141, #170, #171, #155, #154, #150, #151, #128, #146, #169, #179, #185; suite 24/24 on `dd41b9d8`, capture healthy through the
+  roll check). The batch carried one test fix (wallet-reader test names the account by SID; `USERDOMAIN` is WORKGROUP here).
+- **Exam `maker-replay-2026-10-15`: closed NOT EXECUTED (owner 2026-10-03).** Calibration 09-27 from pinned `664c8943`: band
+  union N_d = 170 conditions, 1.30 GB input per date (~546 MiB allowed), export peak 9.9 GiB beside capture (free RAM fell to
+  1.38 GB). Look unspent; panel UTC 09-30..10-13 (+10-14) never exported or read. [Plan B audit](../roadmap/audits/exam-plan-b-2026-10-03.md).
+- **Successor: maker replay v2** (design PR #176 `4bbce397`, approved 1-6): per-band event schedule (cost linear in bands),
+  T+1/T+2 bands only, compact v0.2 bundles, the 32 GB workstation runs rehearsal and look, ceilings and an executability gate
+  from calibration-only rehearsals **before** signature, a reachability gate. UTC 10-15 settlement-only; δ_ref = the signed
+  hurdle. Build W0-W8 on `codex/maker-replay-v2-build-20261003` (exam tree's v0.1 stack as base); signature by 2026-10-23,
+  look by 2026-11-15. The capture host may export only within the nightly wrapper (2 GiB, 2,700 s): v0.1 needs 5-10 GiB, so
+  the v0.2 exporter measurement (S2/P1) decides whether exports stay on this host.
+- **Dry-run harness (#167):** v0.1 exports cost 117-160 s and 5.1-5.5 GB per day on the workstation; one 12-city rehearsal
+  date is >10x the per-date limits and rehearsal memory scales with events x conditions; the pinned set's pull-opportunity cap
+  compares rehearsed events with never-measured pull candidates (defect; fix in v2 W6).
+- **Plugin bar PASS (10-02, 09-26 data):** COMPLETE, lead-1 end to end 8,710, identity mismatch 0; one T+1 fair value
+  recomputed by hand matched to four decimals.
+- **111h closed (EF §10p):** US NBM guidance at all hours misses the line; the afternoon is harmed. Morning lead (§10h/§10j)
+  stands; an hour-gated candidate needs a new pre-registration on new dates.
+- **Settlement:** US markets settle on the WRH "Hourly Data" rows; foreign markets on the WRH Temp column; Hong Kong pays the
+  floor of the HKO absolute daily maximum (#169 config, roll-free). Lowest temperature is the hourly-row minimum. EF §10c.
+- **Pinned deployments (detached, locked worktrees):** watchdog `weather-watchdog-deployed-110n-1fc7ba35`; order journal
+  `weather-manual-order-journal-deployed-ebe72984`; cold-snapshot nightly `weather-cold-snapshot-deployed-979c0e7` (re-pin
+  from `8c5d6b5c` once the 10-04 attempt is resolved); exam tree `weather-exam-deployed-664c894` (closed; keep for v2 provenance).
+- **Disk:** 91a nightly reclaims ~10-20 GiB a night. **10-04 FAILED and BLOCKS later nights:** a transient capture-admission
+  read (`capture_unhealthy:snapshot`, fixed by #179 now on master) stopped it mid-file after 10.09 GB; the unfinished file
+  (`atlanta-on-july-13` `clob_tokens.jsonl`) is compressed with its SHA-256 equal to the before-journal, but the resolution tool
+  refuses unfinished files until `-VerifyRetained` covers nightly batch journals (a workstation task). A FAILED night blocks later nights until resolved: check
+  `scratch\cold_snapshot_compression\nightly-<date>-*\wrapper-result.json` each morning. Policy expires 10-30 (renewal ~10-27).
+- **88a retention hold:** keep 88a data for UTC 09-27..10-15 (v2 calibration/panel/settlement) and 10-15..10-30 (desk-study
+  panel); lossless compression allowed.
+- **Learning lane:** Stage B (`WeatherEveningEvidenceRefresh`) disabled since 2026-08-13. Stage A exits 2 daily on the known
+  `live_variant_settlement_scorecard` block.
+- **Host:** ProtonVPN removed 10-03 (capture unaffected); TAP-Windows adapter kept (owner); crash dumps automatic.
+- **Workstation:** owner-account deny removed from `data\` (10-03); the #170 wallet-reader allowlist is on master (the
+  workstation picks it up when its checkout updates).
 
 ## Ordered critical path
 
-1. **111a** (workstation) fixes the plugin dry run; then plugin + harness + #109 (frozen) + #112/#113/#114 land as exam tooling
-   in the next 01:00-04:00 window; then register the nightly bundle export and backfill 09-27..09-29.
-2. **09-30:** hazard calibration, panel inventory seal, manifest verify, hash enrolment; this needs #112 and #114 landed, so a
-   late 111a moves enrolment. Keep 88a >= 40 GiB every day to 10-13.
-3. **Disk:** taker files 09-29/30; owner reviews the 5f/5g manifests; register 91a after a dry run; 110j C during the exam.
-4. **Workstation queue:** 110o (after landings), 110v parts 2-6, 110w, 110x, 110y, 110z.
-5. **Canon and ops:** tracker (#110) lands roll-free; nightly docs step; RE-1 PR chain closes 10-01.
+1. **Maker replay v2:** Session A (W0+W1) running; then B (W2 exporter, S2 decides the export host) and C (W3-W5 engine,
+   reference, scorer), then W6-W8; production P1-P4 on calibration dates only; gates; owner signature by 10-23.
+2. **Merges:** roll-free batch LANDED 10-04 (`8c5d6b5c`); 10-04/05 #152 + #173; 10-05/06 #117 -> #174, #119, #160-#163, #142, #180; after 10-14 #118,
+   #172 + #182 (register `WeatherMakerEvidenceLowestTemperature`), #177 (restart 88a explicitly).
+3. **Measurements (09-29 only; never 88a 09-30..10-14):** #173 execution-tape and #177 88a disconnect reports.
+4. **Research:** NBS/NBH probe (after 111h); T+1/T+2 NWP-timing pilot; hour-gated guidance needs a new pre-registration.
+5. **Live:** not before the v2 look and >= 7 days of shadow agreeing with replay; the shadow runner (Phase 3) awaits the owner.
 
 ## Standing decisions
 
 - International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic.
 - Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture. Worktrees: `GIT_LFS_SKIP_SMUDGE=1`;
-  pytest: `--basetemp`, `TEMP`/`TMP` inside a cleaned root.
+  pytest: `--basetemp`, `TEMP`/`TMP` inside a cleaned root. Long agent jobs run detached, not as tool background calls.
 - Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay, release binding and
   evidence retention remain mandatory. Languages: stay Python; native code only by the efficiency-audit decision rule.
+- Approved workstation work is never parked as low priority; production hands out the next item whenever a session frees.
 
 ## Update this file when
 

@@ -22,6 +22,12 @@ generated reports for dynamic state.
 - The modeled settlement source is the highest whole-degree value printed by
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
+- The venue's own source is declared per location in `config/locations.json`
+  `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
+  truncates (`band_mapping: floor_to_whole_degree`), so the release
+  settlement-rules contract declares rounding per location
+  (`settlement_band_degree` in `weather.operations.release_candidate_contract`);
+  never apply half-up rounding to an HKO value.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a

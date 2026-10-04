@@ -73,9 +73,14 @@ owns its exact-target-date reduction and fail-closed `HOLD` decision; the
 `app/views/control_room.py` view only renders that result. Even a complete
 software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
 grant trading authority or expose order, cancel, credential, promotion, or
-risk-setting actions. The frontend intentionally contains only this Control
-Room and the active Roadmap; retired market, history, overview, and operations
-views are not hidden routes or retained application code.
+risk-setting actions. The default page is the Owner Cockpit:
+`weather.reporting.market.cockpit_snapshot` reads money, work, health and exam
+sources (each optional, with an explicit unavailable reason) and
+`app/views/cockpit.py` renders it without controls, failing closed. The
+frontend intentionally contains only the Cockpit, this Control Room (now a
+historical pilot view) and the active Roadmap; retired market, history,
+overview, and operations views are not hidden routes or retained application
+code.
 
 The paper taker and the paper maker were retired and their runtime code deleted on
 2026-09-29 (110o part 3), except the paper-run tool `weather.market.market_making_run`,

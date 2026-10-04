@@ -26,7 +26,20 @@ if (Test-Path -LiteralPath $parent) {
         if ($info.Length -gt 2097152 -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe prior receipt' }
         $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
         if ($receipt.status -cne 'PASS' -or $receipt.teardown_proved -ne $true -or $receipt.hard_stop -ne $false) {
-            throw "Prior nightly attempt requires review: $($prior.Name)"
+            # Only a reviewed create-only resolution bound to this exact wrapper
+            # receipt (weather.operations.cold_snapshot_nightly_resolution) clears it.
+            $resolutionPath = Join-Path $parent ('resolved-nightly\' + $prior.Name + '.json')
+            $resolved = $false
+            if (Test-Path -LiteralPath $resolutionPath -PathType Leaf) {
+                $resolutionInfo = Get-Item -LiteralPath $resolutionPath
+                if ($resolutionInfo.Length -gt 2097152 -or ($resolutionInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe resolution receipt' }
+                $resolution = Get-Content -LiteralPath $resolutionPath -Raw | ConvertFrom-Json
+                $wrapperHash = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $resolved = ($resolution.record -ceq 'failed_attempt_resolution' -and $resolution.status -ceq 'RESOLVED' -and
+                    $resolution.attempt -ceq $prior.Name -and $resolution.wrapper_result_sha256 -ceq $wrapperHash -and
+                    $resolution.deleted_files -eq 0 -and $resolution.cleanup_eligible -eq $false)
+            }
+            if (-not $resolved) { throw "Prior nightly attempt requires review: $($prior.Name)" }
         }
         if ($prior.Name.StartsWith($dayPrefix)) { throw 'A nightly attempt already consumed this local date' }
     }

@@ -806,18 +806,240 @@ function Test-WeatherHeuristicHeavyModuleCommandLine {
 }
 
 
+function Get-WeatherKnownReadOnlyServiceDefinition {
+    # Explicit allowlist of long-running read-only services that run as S4U
+    # scheduled tasks. Their command lines are unreadable from a non-elevated
+    # session, so each is identified instead by its registered task
+    # definition, the Scheduler's running-instance engine PID and that
+    # process's creation time. Add an entry only for a service that never runs
+    # tests, training, replay or order mutation.
+    [CmdletBinding()]
+    param()
+
+    @(
+        [PSCustomObject]@{
+            Service = "wallet_reader"
+            TaskPath = "\"
+            TaskName = "WeatherWalletReader"
+            LogonType = "S4U"
+            ExecutableLeafPattern = '(?i)\Apython\.exe\z'
+            ArgumentsPattern =
+                '\A-m\s+weather\.market\.wallet_reader\s+serve(?:\s|\z)'
+        }
+    )
+}
+
+
+function Get-WeatherScheduledTaskObservation {
+    # Read-only, non-elevated view of one allowlisted scheduled task.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)]$Definition)
+
+    $task = Get-ScheduledTask -TaskPath $Definition.TaskPath `
+        -TaskName $Definition.TaskName -ErrorAction Stop
+    $info = Get-ScheduledTaskInfo -InputObject $task -ErrorAction Stop
+    $scheduler = New-Object -ComObject Schedule.Service
+    $scheduler.Connect()
+    $taskFullPath = [string]$Definition.TaskPath + [string]$Definition.TaskName
+    $enginePids = @()
+    foreach ($running in @($scheduler.GetRunningTasks(1))) {
+        if ([string]$running.Path -ceq $taskFullPath) {
+            $enginePids += [int]$running.EnginePID
+        }
+    }
+    [PSCustomObject]@{
+        Service = [string]$Definition.Service
+        TaskPath = [string]$task.TaskPath
+        TaskName = [string]$task.TaskName
+        State = [string]$task.State
+        LogonType = [string]$task.Principal.LogonType
+        Actions = @($task.Actions | ForEach-Object {
+            [PSCustomObject]@{
+                Execute = [string]$_.Execute
+                Arguments = [string]$_.Arguments
+            }
+        })
+        LastRunTimeUtc = ([datetime]$info.LastRunTime).ToUniversalTime()
+        EnginePids = @($enginePids)
+    }
+}
+
+
+function Get-WeatherAllowlistedServiceTaskObservation {
+    [CmdletBinding()]
+    param([System.Collections.Generic.List[object]]$DecisionLog)
+
+    foreach ($definition in @(Get-WeatherKnownReadOnlyServiceDefinition)) {
+        try {
+            Get-WeatherScheduledTaskObservation -Definition $definition
+        }
+        catch {
+            if ($null -ne $DecisionLog) {
+                $DecisionLog.Add([PSCustomObject]@{
+                    decision = "service_unverified"
+                    service = [string]$definition.Service
+                    reason = "scheduled task could not be observed: " +
+                        $_.Exception.Message
+                })
+            }
+        }
+    }
+}
+
+
+function Get-WeatherAllowlistedServiceProcessId {
+    # Map PID -> allowlisted service for processes proved to be the running
+    # instance of an allowlisted task (its engine PID, plus that engine's
+    # direct Python children such as the venv redirector's base interpreter).
+    # Any mismatch excludes nothing, so unreadable processes stay residual.
+    [CmdletBinding()]
+    param(
+        [object[]]$ProcessSnapshot,
+        [object[]]$TaskObservation,
+        [System.Collections.Generic.List[object]]$DecisionLog
+    )
+
+    $allowed = @{}
+    $definitions = @{}
+    foreach ($definition in @(Get-WeatherKnownReadOnlyServiceDefinition)) {
+        $definitions[[string]$definition.Service] = $definition
+    }
+    $byPid = @{}
+    foreach ($process in @($ProcessSnapshot)) {
+        $byPid[[int]$process.ProcessId] = $process
+    }
+    foreach ($observation in @($TaskObservation)) {
+        if ($null -eq $observation) { continue }
+        $service = [string]$observation.Service
+        $reason = $null
+        $engine = $null
+        $definition = $definitions[$service]
+        $actions = @($observation.Actions)
+        $enginePids = @($observation.EnginePids)
+        if ($null -eq $definition) {
+            $reason = "service is not on the allowlist"
+        }
+        elseif ([string]$observation.TaskPath -cne [string]$definition.TaskPath -or
+            [string]$observation.TaskName -cne [string]$definition.TaskName) {
+            $reason = "task identity does not match the allowlist"
+        }
+        elseif ([string]$observation.LogonType -cne [string]$definition.LogonType) {
+            $reason = "task logon type does not match the allowlist"
+        }
+        elseif ($actions.Count -ne 1 -or
+            -not [IO.Path]::IsPathRooted([string]$actions[0].Execute) -or
+            [IO.Path]::GetFileName([string]$actions[0].Execute) -cnotmatch
+                $definition.ExecutableLeafPattern -or
+            [string]$actions[0].Arguments -cnotmatch
+                $definition.ArgumentsPattern) {
+            $reason = "task action does not match the allowlisted command"
+        }
+        elseif ([string]$observation.State -cne "Running") {
+            $reason = "task is not running"
+        }
+        elseif ($enginePids.Count -ne 1 -or [int]$enginePids[0] -le 0) {
+            $reason = "task does not have exactly one running engine process"
+        }
+        else {
+            $engine = $byPid[[int]$enginePids[0]]
+            $leaf = [IO.Path]::GetFileName([string]$actions[0].Execute)
+            if ($null -eq $engine) {
+                $reason = "engine process is absent from the process snapshot"
+            }
+            elseif (-not [string]::Equals([string]$engine.Name, $leaf,
+                    [StringComparison]::OrdinalIgnoreCase)) {
+                $reason = "engine process image does not match the task action"
+            }
+            elseif ($null -eq $engine.CreationDate -or
+                $null -eq $observation.LastRunTimeUtc) {
+                $reason = "engine process creation time is unavailable"
+            }
+            else {
+                # LastRunTime has whole-second resolution; the engine starts
+                # just after it. A reused PID cannot fall inside this window.
+                $offset = (([datetime]$engine.CreationDate).ToUniversalTime() -
+                    ([datetime]$observation.LastRunTimeUtc).ToUniversalTime()
+                ).TotalSeconds
+                if ($offset -lt -2 -or $offset -gt 120) {
+                    $reason = "engine process creation time does not match the task start"
+                }
+            }
+        }
+        if ($null -ne $reason) {
+            if ($null -ne $DecisionLog) {
+                $DecisionLog.Add([PSCustomObject]@{
+                    decision = "service_unverified"
+                    service = $service
+                    reason = $reason
+                })
+            }
+            continue
+        }
+        $engineId = [int]$engine.ProcessId
+        $engineCreated = ([datetime]$engine.CreationDate).ToUniversalTime()
+        $allowed[$engineId] = $service
+        foreach ($process in @($ProcessSnapshot)) {
+            if ([int]$process.ParentProcessId -ne $engineId -or
+                [int]$process.ProcessId -eq $engineId -or
+                [string]$process.Name -cnotmatch '(?i)\Apython\.exe\z' -or
+                $null -eq $process.CreationDate -or
+                ([datetime]$process.CreationDate).ToUniversalTime() -lt
+                    $engineCreated) {
+                continue
+            }
+            $allowed[[int]$process.ProcessId] = $service
+        }
+        if ($null -ne $DecisionLog) {
+            $DecisionLog.Add([PSCustomObject]@{
+                decision = "service_verified"
+                service = $service
+                reason = "task definition, engine PID and start time match"
+                pids = @($allowed.Keys | Where-Object {
+                    $allowed[$_] -ceq $service
+                } | Sort-Object)
+            })
+        }
+    }
+    return $allowed
+}
+
+
+function Get-WeatherProcessSnapshot {
+    [CmdletBinding()]
+    param()
+
+    @(Get-CimInstance Win32_Process `
+        -Property ProcessId, ParentProcessId, Name, CommandLine, CreationDate `
+        -ErrorAction Stop)
+}
+
+
 function Get-WeatherActiveWorkstationHeavyProcess {
     [CmdletBinding()]
-    param([object[]]$ProcessSnapshot)
+    param(
+        [object[]]$ProcessSnapshot,
+        [object[]]$TaskObservation,
+        [System.Collections.Generic.List[object]]$DecisionLog
+    )
 
     if ($PSBoundParameters.ContainsKey("ProcessSnapshot")) {
         $processes = @($ProcessSnapshot)
+        # A supplied snapshot is never matched against live Scheduler state.
+        $observations = @($TaskObservation)
     }
     else {
-        $processes = @(Get-CimInstance Win32_Process `
-            -Property ProcessId, ParentProcessId, Name, CommandLine `
-            -ErrorAction Stop)
+        $processes = @(Get-WeatherProcessSnapshot)
+        $observations = if ($PSBoundParameters.ContainsKey("TaskObservation")) {
+            @($TaskObservation)
+        }
+        else {
+            @(Get-WeatherAllowlistedServiceTaskObservation -DecisionLog $DecisionLog)
+        }
     }
+    $allowlisted = Get-WeatherAllowlistedServiceProcessId `
+        -ProcessSnapshot $processes `
+        -TaskObservation $observations `
+        -DecisionLog $DecisionLog
 
     foreach ($process in $processes) {
         $processId = [int]$process.ProcessId
@@ -845,6 +1067,19 @@ function Get-WeatherActiveWorkstationHeavyProcess {
         $isHeuristicHeavyWeatherModule = $isPython -and
             (Test-WeatherHeuristicHeavyModuleCommandLine `
                 -CommandLine $commandLine)
+        $unreadableAllowlisted = $isPython -and -not $commandLine -and
+            $allowlisted.ContainsKey($processId)
+        if ($unreadableAllowlisted) {
+            if ($null -ne $DecisionLog) {
+                $DecisionLog.Add([PSCustomObject]@{
+                    decision = "excluded_allowlisted_service"
+                    pid = $processId
+                    name = $name
+                    service = [string]$allowlisted[$processId]
+                })
+            }
+            continue
+        }
         $heavy = $isHeavyEntrypoint -or (
             $isPython -and (
                 -not $commandLine -or
@@ -859,6 +1094,16 @@ function Get-WeatherActiveWorkstationHeavyProcess {
             )
         ) -or $isFixedScopeLiveChild
         if ($heavy) {
+            if ($null -ne $DecisionLog) {
+                $DecisionLog.Add([PSCustomObject]@{
+                    decision = if ($isPython -and -not $commandLine) {
+                        "residual_unreadable_python"
+                    }
+                    else { "residual_heavy" }
+                    pid = $processId
+                    name = $name
+                })
+            }
             [PSCustomObject]@{
                 ProcessId = $processId
                 Name = $name
@@ -1324,6 +1569,53 @@ function Set-WeatherHeavyWorkloadMarkerTeardownPending {
 }
 
 
+function Write-WeatherHeavyWorkloadRecoveryDecision {
+    # Every stale-marker recovery decision is appended to a JSON-lines log
+    # under the repository's ignored data\logs and echoed as a warning.
+    # Logging is best-effort: a log failure never changes the decision.
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Outcome,
+        $Marker,
+        [object[]]$Decisions
+    )
+
+    $record = [ordered]@{
+        schema_version = "weather_heavy_workload_recovery_decision_v1"
+        recorded_at_utc = [DateTime]::UtcNow.ToString("o")
+        outcome = $Outcome
+        recovering_pid = [int]$PID
+        marker_pid = if ($null -ne $Marker) { [int]$Marker.pid } else { $null }
+        marker_workload = if ($null -ne $Marker) {
+            [string]$Marker.workload
+        }
+        else { $null }
+        decisions = @($Decisions | Where-Object { $null -ne $_ })
+    }
+    $line = $record | ConvertTo-Json -Compress -Depth 6
+    Write-Warning "heavy-workload recovery decision: $line"
+    if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return }
+    try {
+        $logRoot = Join-Path $RepoRoot "data\logs"
+        if (-not (Test-Path -LiteralPath $logRoot)) {
+            New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+        }
+        [IO.File]::AppendAllText(
+            (Join-Path $logRoot "heavy_workload_recovery.jsonl"),
+            $line + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
+    catch {
+        Write-Warning (
+            "heavy-workload recovery decision could not be logged: " +
+            $_.Exception.Message
+        )
+    }
+}
+
+
 function Enter-WeatherHeavyWorkloadLease {
     [CmdletBinding()]
     param(
@@ -1558,18 +1850,25 @@ function Enter-WeatherHeavyWorkloadLease {
         catch {
             try { $mutex.ReleaseMutex() } catch { }
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+                -Outcome "refused_owner_unprovable" -Marker $observedWorkloadState
             throw "ACTIVE workload owner identity could not be proved absent"
         }
         if (-not $ownerAbsent) {
             try { $mutex.ReleaseMutex() } catch { }
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+                -Outcome "refused_owner_alive" -Marker $observedWorkloadState
             throw "ACTIVE workload owner process still exists"
         }
+        $scanDecisions = $null
         try {
             $activeHeavyProcesses = $null
             for ($attempt = 0; $attempt -lt 50; $attempt++) {
+                $scanDecisions = [System.Collections.Generic.List[object]]::new()
                 $activeHeavyProcesses = @(
-                    Get-WeatherActiveWorkstationHeavyProcess
+                    Get-WeatherActiveWorkstationHeavyProcess `
+                        -DecisionLog $scanDecisions
                 )
                 if ($activeHeavyProcesses.Count -eq 0) { break }
                 if ($attempt -lt 49) { Start-Sleep -Milliseconds 100 }
@@ -1580,6 +1879,9 @@ function Enter-WeatherHeavyWorkloadLease {
                 try { $mutex.ReleaseMutex() } catch { }
             }
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+                -Outcome "refused_scan_failed" -Marker $observedWorkloadState `
+                -Decisions $scanDecisions
             throw (
                 "ACTIVE workload recovery could not prove heavy-process " +
                 "quiescence"
@@ -1590,10 +1892,14 @@ function Enter-WeatherHeavyWorkloadLease {
                 try { $mutex.ReleaseMutex() } catch { }
             }
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+                -Outcome "refused_residual_processes" `
+                -Marker $observedWorkloadState -Decisions $scanDecisions
             throw (
                 "ACTIVE workload recovery found {0} residual heavy " +
-                "process(es)"
-            ) -f $activeHeavyProcesses.Count
+                "process(es): {1}"
+            ) -f $activeHeavyProcesses.Count, ((@($activeHeavyProcesses |
+                ForEach-Object { "{0} pid {1}" -f $_.Name, $_.ProcessId })) -join ", ")
         }
     }
 
@@ -1629,11 +1935,17 @@ function Enter-WeatherHeavyWorkloadLease {
         catch {
             try { $mutex.ReleaseMutex() } catch { }
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+                -Outcome "refused_marker_changed" -Marker $observedWorkloadState `
+                -Decisions $scanDecisions
             throw "ACTIVE workload recovery failed closed: $($_.Exception.Message)"
         }
         $mutex.ReleaseMutex()
         $mutexOwned = $false
         $mutex.Dispose()
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "recovered" -Marker $observedWorkloadState `
+            -Decisions $scanDecisions
         throw (
             "a stale ACTIVE workload marker was recovered after proving zero " +
             "residual heavy processes; retry the exact attended operation"
@@ -1908,17 +2220,29 @@ function Clear-WeatherHeavyWorkloadPoison {
             [string]$confirmed.workload -cne [string]$marker.workload) {
             throw "host-global workload poison marker changed during recovery"
         }
+        $scanDecisions = $null
         try {
             $residuals = $null
             for ($attempt = 0; $attempt -lt 50; $attempt++) {
-                $residuals = @(Get-WeatherActiveWorkstationHeavyProcess)
+                $scanDecisions = [System.Collections.Generic.List[object]]::new()
+                $residuals = @(Get-WeatherActiveWorkstationHeavyProcess `
+                    -DecisionLog $scanDecisions)
                 if ($residuals.Count -eq 0) { break }
                 if ($attempt -lt 49) { Start-Sleep -Milliseconds 100 }
             }
         }
         catch {
+            Write-WeatherHeavyWorkloadRecoveryDecision `
+                -Outcome "poison_refused_scan_failed" -Marker $confirmed `
+                -Decisions $scanDecisions
             throw "residual-process quiescence could not be proved during poison recovery"
         }
+        $scanOutcome = if ($residuals.Count -ne 0) {
+            "poison_refused_residual_processes"
+        }
+        else { "poison_residual_scan_clear" }
+        Write-WeatherHeavyWorkloadRecoveryDecision -Outcome $scanOutcome `
+            -Marker $confirmed -Decisions $scanDecisions
         if ($residuals.Count -ne 0) {
             throw "residual heavy processes remain during poison recovery"
         }

@@ -14,12 +14,13 @@
 #                     termination decisions remain commit-based.
 #   commit >= 85%  -> log a WARNING with the top private-memory processes.
 #   commit >= 92%  -> kill the single largest ungoverned offender above
-#                     8 GB private bytes. This includes ad-hoc Python and a
-#                     Codex/ChatGPT-owned process tree. Production
-#                     `-m weather.*` workers are excluded by ancestry and
-#                     command identity.
-#   every run      -> outside 00:30-09:00, terminate Codex-owned pytest,
-#                     compileall, inline/bare Python, and recursive scans.
+#                     8 GB private bytes. This includes ad-hoc Python and an
+#                     agent-owned process tree (codex.exe, chatgpt.exe or
+#                     claude.exe root). Production `-m weather.*` workers are
+#                     excluded by ancestry and command identity.
+#   every run      -> outside 00:30-09:00, terminate agent-owned (codex.exe,
+#                     chatgpt.exe or claude.exe root) pytest, compileall,
+#                     inline/bare Python, and recursive scans.
 #                     Inside that window, retain at most one such tool tree.
 #   every run      -> orphan sweep: kill `python -` / `python -c` processes
 #                     whose parent is gone and which are older than 30 min.
@@ -438,7 +439,8 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
 
     # An agent can spread one runaway over several PowerShell/Python children,
     # each below 8 GiB. Attribute aggregate private bytes to the verified
-    # Codex/ChatGPT root and treat the tree as one offender.
+    # agent root (codex.exe, chatgpt.exe or claude.exe) and treat the tree as
+    # one offender.
     foreach ($root in @($allProcesses | Where-Object { $agentRootNames -contains ([string]$_.Name).ToLowerInvariant() })) {
         $tree = @(Get-ProcessTreeRows $root $allProcesses)
         $privateBytes = [long]0

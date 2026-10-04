@@ -52,6 +52,23 @@ portable/offline profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 
+The residual scan counts every Python process whose command line it cannot
+read as heavy, because a non-elevated session cannot read S4U or service
+command lines. The single exception is the explicit allowlist in
+`Get-WeatherKnownReadOnlyServiceDefinition` (today only the S4U
+`\WeatherWalletReader` task running `-m weather.market.wallet_reader serve`).
+A process is excluded only when the registered task definition matches the
+allowlisted logon type, executable and arguments, the Scheduler reports exactly
+one running instance whose engine PID is that process, and its creation time
+falls just after the task's last start; the engine's direct `python.exe`
+children (the venv redirector's interpreter) are excluded with it. Any
+mismatch, or a Scheduler that cannot be read, excludes nothing. Every
+recovery decision (owner alive, residuals found, scan failure, recovered) is
+echoed as a warning and appended to `data\logs\heavy_workload_recovery.jsonl`
+in the admitting checkout. Add an allowlist entry, with tests, only for a
+long-running service that never runs tests, training, replay or order
+mutation.
+
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` admission is restricted to canonical live-stage workload
@@ -372,19 +389,20 @@ Stage-A, workstation or live authority is added.
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
-6. **Codex verification is serial and time-gated.** The OS guard terminates
-   recognized Codex-owned pytest, compileall, inline/bare Python, and recursive
+6. **Agent verification is serial and time-gated.** The OS guard terminates
+   recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
    data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. A Codex-owned tool tree is independently terminated when
+   inside the window. An agent-owned tool tree is independently terminated when
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
-   wait for global commit to reach 92%. A user-layer `PreToolUse` hook rejects these commands
+   wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned 25-file bounded wrapper. Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
-   exact definition on the next session.
+   exact definition on the next session. Claude Code sessions have no hook; the
+   S4U guard is their only backstop.
 7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
    point it at a directory you own outside `data\`, and delete that directory
    when the run ends — pass or fail. Measure free space on the volume before

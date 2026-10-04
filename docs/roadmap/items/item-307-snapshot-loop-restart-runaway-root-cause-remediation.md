@@ -1,4 +1,4 @@
-﻿# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]
+﻿# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [DORMANT 2026-09-29 - SOAK PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and

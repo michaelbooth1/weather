@@ -883,9 +883,25 @@ class RecordingTransport:
         return {}
 
 
+US_ORDER_MUTATION_ACTIONS = frozenset({"create_post_only", "preview_post_only", "cancel_order", "cancel_all"})
+
+
+class PolymarketUSOrderMutationRefused(RuntimeError):
+    """Raised for every Polymarket US order-mutation verb (owner decision 2026-09-26, D2-05)."""
+
+    def __init__(self, action):
+        self.action = action
+        super().__init__(
+            f"Polymarket US {action!r} refused: the trading product is International Polymarket only "
+            "(AGENTS.md); Polymarket US is a compatibility surface with no order mutation"
+        )
+
+
 class PolymarketUSHTTPAdapter(NullExchangeAdapter):
+    """Read-only compatibility client for Polymarket US; every order-mutation verb raises."""
+
     adapter_id = "polymarket_us_http"
-    supports_trading = True
+    supports_trading = False
 
     def __init__(self, key_id, signer, transport=None, base_url=None):
         self.key_id = key_id
@@ -896,8 +912,9 @@ class PolymarketUSHTTPAdapter(NullExchangeAdapter):
     def diagnostics(self):
         return {
             "adapter_id": self.adapter_id,
-            "supports_trading": True,
-            "read_only": False,
+            "supports_trading": False,
+            "read_only": True,
+            "order_mutation": "refused_international_only",
             "base_url": self.base_url,
             "key_id_present": bool(self.key_id),
             "signer_present": self.signer is not None,
@@ -914,6 +931,8 @@ class PolymarketUSHTTPAdapter(NullExchangeAdapter):
         }
 
     def _request(self, action, leg=None, metadata=None):
+        if action in US_ORDER_MUTATION_ACTIONS:
+            raise PolymarketUSOrderMutationRefused(action)
         plan = build_polymarket_us_request_plan(
             action,
             leg=leg,

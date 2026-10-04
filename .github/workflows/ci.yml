@@ -10,10 +10,56 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; master runs always finish so every
+  # landed commit keeps its own CI evidence.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  # Fast gate (~1 min): cheap repository-wide ratchets fail before the long
+  # suite starts. Keep it to deterministic audits with no network or fixtures.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # The agent-docs audit checks correspondence history; a shallow
+          # clone fails it.
+          fetch-depth: 0
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".[test]"
+
+      - name: Compile Source
+        run: python -m compileall -q app src tests
+
+      - name: Validate Agent Knowledge Contracts
+        run: python -m weather.operations.agent_docs_audit
+
+      - name: Validate Generated Roadmap Is Current
+        run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+
+      - name: Schema Registry, Import, Path and Module-Size Ratchets
+        run: >-
+          python -m pytest -q -p no:cacheprovider
+          tests/operations/test_schema_registry.py
+          tests/operations/test_import_architecture.py
+          tests/operations/test_path_policy.py
+          tests/operations/test_module_size_audit.py
+          tests/operations/test_agent_docs_audit.py
+
   test:
+    needs: audit
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -37,15 +83,6 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e ".[test]"
-
-      - name: Compile Source
-        run: python -m compileall -q app src tests
-
-      - name: Validate Agent Knowledge Contracts
-        run: python -m weather.operations.agent_docs_audit
-
-      - name: Validate Generated Roadmap Is Current
-        run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
 
       - name: Run Test Suite
         run: python -m pytest -q
