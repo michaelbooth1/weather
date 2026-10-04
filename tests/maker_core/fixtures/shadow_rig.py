@@ -59,7 +59,8 @@ def reward_record(condition=CONDITION):
 class Reads:
     """In-memory ``PublicReads``; counts calls, has no other method."""
 
-    def __init__(self, books=None, rewards=None):
+    def __init__(self, books=None, rewards=None, prints=None):
+        self.prints = prints if prints is not None else {}
         self.books = books or {YES: public_book(YES), NO: public_book(NO, bids=(("0.49", "100"),),
                                                                        asks=(("0.51", "100"),))}
         self.rewards = rewards if rewards is not None else {CONDITION: reward_record()}
@@ -73,6 +74,16 @@ class Reads:
         self.calls += 1
         return self.rewards.get(condition_id)
 
+    def trades(self, condition_id):
+        self.calls += 1
+        return list(self.prints.get(condition_id, ()))
+
+
+def data_print(asset, at, price, size, condition=CONDITION, tx="0xfeed"):
+    """A public data-api trade row (no account filter)."""
+    return {"conditionId": condition, "asset": asset, "price": float(price), "size": float(size),
+            "timestamp": int(at.timestamp()), "side": "SELL", "transactionHash": tx}
+
 
 class Clock:
     def __init__(self, now=NOW):
@@ -82,16 +93,26 @@ class Clock:
         return self.now
 
 
-def rig(tmp_path, *, wallet=None, reads=None, init_latch=True, placement=None, gate=None, port=None):
+PAPER_POLICY = dict(POLICY, campaign_id="shadow-maker")
+
+
+def paper_ledger(*, cash="100", limit="5", rule="at_price"):
+    from maker_core.shadow.paper import PaperLedger
+    return PaperLedger(starting_cash=cash, bleed_limit=limit, start_utc=NOW, fill_rule=rule)
+
+
+def rig(tmp_path, *, wallet=None, reads=None, init_latch=True, placement=None, gate=None, port=None, paper=None):
     state = tmp_path / "latch"
     clock = Clock()
     if init_latch and not state.exists():
         guard_latch.initialize(state, NOW)
     port = port or ShadowCancelPort()
-    gate = gate or OrderGate(state_dir=state, pause_file=tmp_path / "PAUSE", policy=POLICY, campaigns=campaigns(),
-                             clock=clock, cancel_port=port)
+    gate = gate or OrderGate(state_dir=state, pause_file=tmp_path / "PAUSE",
+                             policy=PAPER_POLICY if paper else POLICY,
+                             campaigns=paper.campaigns if paper else campaigns(), clock=clock, cancel_port=port)
     book = {"value": wallet if wallet is not None else wallet_book()}
-    runner = ShadowRunner(reads=reads or Reads(), gate=gate, cancel_port=port, wallet_book=lambda: book["value"],
+    runner = ShadowRunner(reads=reads or Reads(), gate=gate, cancel_port=port, paper=paper,
+                          wallet_book=None if paper else (lambda: book["value"]),
                           fair_value=lambda d, now: Unavailable("fixture_no_view", now), clock=clock, caps=CAPS,
                           hazard_per_minute=0.001, adverse_markout=0.0043, profile=PROFILES["informed-v0"],
                           placement=placement)

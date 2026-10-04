@@ -59,7 +59,7 @@ caller inputs, so the neutral package never imports `weather.paths`.
   [portfolio ledger](portfolio-ledger.md).
 - `maker_core.shadow` (the [shadow runner](maker-shadow-runner.md)) may import contracts,
   evidence, quoting and `maker_core.runtime.guard`, never `venue`: public reads arrive
-  injected. `maker_core.venue.public_feed` is the GET-only public reader (three
+  injected. `maker_core.venue.public_feed` is the GET-only public reader (four
   allowlisted International Polymarket reads). The weather composition
   `weather.market.maker_shadow` wires them and reads 88a through
   `weather.market.maker_shadow_panel`.

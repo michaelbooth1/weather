@@ -197,10 +197,19 @@ def test_shadow_sources_have_no_order_path():
     "https://clob.polymarket.com/auth/api-key", "https://clob.polymarket.com/rewards/markets/0xabc",
     "https://gamma-api.polymarket.com/markets?slug=a", "https://data-api.polymarket.com/positions?user=0x1",
     "https://gamma-api.polymarket.com/events?slug=A", "https://evil.example/book?token_id=1",
+    "https://data-api.polymarket.com/trades?user=0x1&limit=500",
+    "https://data-api.polymarket.com/trades?market=0x" + "a" * 64 + "&limit=500&user=0x1",
+    "https://data-api.polymarket.com/trades?market=0x" + "a" * 64 + "&limit=10",
 ])
 def test_public_url_allowlist_refuses_everything_else(url):
     with pytest.raises(ValueError):
         public_url(url)
+
+
+def test_public_url_accepts_exactly_the_four_reads():
+    for url in (public_feed.book_url(YES), public_feed.rewards_url(CONDITION), public_feed.events_url(["a-b"]),
+                public_feed.trades_url(CONDITION)):
+        assert public_url(url) == url
 
 
 def test_transport_is_get_only_without_redirect_or_proxy():
@@ -300,3 +309,73 @@ def test_halted_tape_scores_policy_but_no_gated_exposure(tmp_path):
     assert report["strata"]["policy"]["rules"]["strictly_through"]["fills"] == 1
     assert report["strata"]["gated"]["condition_minutes"] == 0
     assert json.dumps(report)  # plain JSON
+
+
+def test_paper_campaign_book_makes_guard_allow(tmp_path):
+    from .fixtures.shadow_rig import paper_ledger
+    paper = paper_ledger()
+    runner, gate, port, clock, _ = rig(tmp_path, paper=paper)
+    record = runner.step(NOW, MARKETS)
+    assert record["guard"]["action"] == ALLOW and record["paper"]["status"] == "OBSERVED"
+    assert record["paper"]["pnl_pusd"] == "0" and record["paper"]["trade_count"] == 0
+    assert [g["action"] for g in record["conditions"][0]["gate"]] == [ALLOW, ALLOW]
+    assert runner.wallet_book()["account_id"] == "shadow-paper"
+
+
+def test_paper_bleed_past_limit_halts_and_latches(tmp_path):
+    from .fixtures.shadow_rig import data_print, paper_ledger, public_book
+    paper = paper_ledger(cash="100", limit="5", rule="strictly_through")
+    reads = Reads()
+    runner, gate, port, clock, _ = rig(tmp_path, paper=paper, reads=reads)
+    runner.step(NOW, MARKETS)  # YES 30 @ 0.48 and NO 30 @ 0.48 rest
+    # Someone sells YES through our bid, then the YES book collapses.
+    reads.prints = {CONDITION: [data_print(YES, NOW + timedelta(seconds=20), "0.47", 30),
+                                data_print(YES, NOW + timedelta(seconds=20), "0.47", 30)]}  # duplicate print
+    reads.books[YES] = public_book(YES, bids=(("0.10", "500"),), asks=(("0.12", "500"),))
+    clock.now = NOW + timedelta(minutes=1)
+    second = runner.step(clock.now, MARKETS)
+    assert [D(f["size"]) for f in second["paper"]["fills"]] == [D(30)]
+    assert second["conditions"][0]["inputs"]["fill_seen"] is True
+    assert second["conditions"][0]["decision"]["action"] in ("CANCEL", "NO_QUOTE")
+    clock.now = NOW + timedelta(minutes=2)
+    third = runner.step(clock.now, MARKETS)  # paper P&L = 30 x (0.11 - 0.48) = -11.1 < -5
+    assert third["paper"]["bleed_limit_reached"] is True and D(third["paper"]["pnl_pusd"]) == D("-11.1")
+    assert third["guard"]["action"] == HALT and "bleed_limit_reached" in third["guard"]["reasons"]
+    assert third["cancel_all"] and third["resting_after"] == {}
+    assert guard_latch.read_state(tmp_path / "latch") == guard_latch.HALTED
+    reads.books[YES] = public_book(YES)
+    clock.now = NOW + timedelta(minutes=3)
+    assert runner.step(clock.now, MARKETS)["guard"]["action"] == HALT  # latched; no automatic resume
+
+
+def test_paper_fill_rules_and_print_gaps(tmp_path):
+    from maker_core.shadow.paper import fill_legs
+    prints = [(NOW, YES, D(".48"), D(10), "a"), (NOW + timedelta(seconds=1), YES, D(".47"), D(50), "b")]
+    legs = [("YES", YES, D(".48"), D(30))]
+    assert [f[4] for f in fill_legs(legs, prints, "at_price")] == [D(10), D(20)]
+    assert [f[4] for f in fill_legs(legs, prints, "strictly_through")] == [D(30)]
+    with pytest.raises(ValueError):
+        fill_legs(legs, prints, "optimistic")
+    from .fixtures.shadow_rig import paper_ledger
+
+    class Broken(Reads):
+        def trades(self, condition_id):
+            raise OSError("down")
+
+    runner, _, _, clock, _ = rig(tmp_path, paper=paper_ledger(), reads=Broken())
+    runner.step(NOW, MARKETS)
+    clock.now = NOW + timedelta(minutes=1)
+    record = runner.step(clock.now, MARKETS)
+    assert record["paper"]["print_gaps"][0]["error"] == "OSError" and record["paper"]["fills"] == []
+
+
+def test_runner_takes_exactly_one_guard_book_source(tmp_path):
+    from .fixtures.shadow_rig import paper_ledger
+    runner, gate, port, clock, _ = rig(tmp_path)
+    with pytest.raises(TypeError, match="exactly_one_guard_book_source"):
+        ShadowRunner(reads=Reads(), gate=gate, cancel_port=port, fair_value=None, clock=clock, caps=CAPS,
+                     hazard_per_minute=0.001, adverse_markout=0.0043, profile=PROFILES["informed-v0"],
+                     paper=paper_ledger(), wallet_book=dict)
+    with pytest.raises(TypeError, match="exactly_one_guard_book_source"):
+        ShadowRunner(reads=Reads(), gate=gate, cancel_port=port, fair_value=None, clock=clock, caps=CAPS,
+                     hazard_per_minute=0.001, adverse_markout=0.0043, profile=PROFILES["informed-v0"])

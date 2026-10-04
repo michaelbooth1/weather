@@ -1,7 +1,8 @@
 """Credential-free, GET-only public reads of International Polymarket.
 
-Three reads exist: a CLOB order book by asset, the CLOB reward record of one
-condition, and Gamma events by slug. There is no order, cancel, signing,
+Four reads exist: a CLOB order book by asset, the CLOB reward record of one
+condition, Gamma events by slug, and the public data-api trade prints of one
+condition (``/trades?market=``; never a ``user`` filter). There is no order, cancel, signing,
 account, heartbeat or authenticated route here, and no reader takes a
 credential. Polymarket US hosts, redirects, ambient proxies, query strings
 outside the allowlist and oversized replies are refused.
@@ -14,6 +15,8 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 CLOB_HOST = "clob.polymarket.com"
 GAMMA_HOST = "gamma-api.polymarket.com"
+DATA_HOST = "data-api.polymarket.com"
+TRADES_LIMIT = 500
 MAX_REPLY_BYTES = 2_000_000
 MAX_SLUGS = 20
 CONDITION = re.compile(r"0x[0-9a-f]{64}\Z")
@@ -31,6 +34,10 @@ def rewards_url(condition_id):
 
 def events_url(slugs):
     return f"https://{GAMMA_HOST}/events?" + urlencode([("slug", s) for s in sorted(slugs)])
+
+
+def trades_url(condition_id):
+    return f"https://{DATA_HOST}/trades?" + urlencode([("market", condition_id), ("limit", TRADES_LIMIT)])
 
 
 def public_url(url):
@@ -51,6 +58,10 @@ def public_url(url):
             return url
     if (clean and parts.hostname == GAMMA_HOST and parts.path == "/events" and 0 < len(query) <= MAX_SLUGS
             and all(key == "slug" and SLUG.fullmatch(value) for key, value in query)):
+        return url
+    if (clean and parts.hostname == DATA_HOST and parts.path == "/trades" and len(query) == 2
+            and query[0][0] == "market" and CONDITION.fullmatch(query[0][1])
+            and query[1] == ("limit", str(TRADES_LIMIT))):
         return url
     raise ValueError("not_an_allowlisted_public_read")
 
@@ -130,6 +141,16 @@ class PublicFeed:
             raise ValueError("reward_condition_mismatch")
         return rows[0] if rows else None
 
+    def trades(self, condition_id):
+        """Most recent public prints of one condition (no account filter)."""
+        condition_id = str(condition_id).lower()
+        if not CONDITION.fullmatch(condition_id):
+            raise ValueError("invalid_condition_id")
+        value = self._json(trades_url(condition_id))
+        if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+            raise ValueError("trades_reply_refused")
+        return value
+
     def events(self, slugs):
         slugs = sorted(set(slugs))
         if not 0 < len(slugs) <= MAX_SLUGS:
@@ -142,4 +163,4 @@ class PublicFeed:
 
 
 __all__ = ["CLOB_HOST", "GAMMA_HOST", "FixtureTransport", "PublicFeed", "UrllibTransport",
-           "book_url", "events_url", "public_url", "rewards_url"]
+           "book_url", "events_url", "public_url", "rewards_url", "trades_url"]

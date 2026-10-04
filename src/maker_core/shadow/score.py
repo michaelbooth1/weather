@@ -13,6 +13,7 @@ from typing import Protocol
 
 from maker_core.evidence.journal import digest
 from maker_core.quoting.policy import decide
+from maker_core.shadow.paper import crosses
 from maker_core.shadow.tape import decision_projection, inputs_from
 
 SCORE_SCHEMA = "maker_core.shadow_score.v0.1"
@@ -60,8 +61,7 @@ def _fills(panel, asset, price, size, start, rule):
     for at, print_price, print_size in panel.prints(asset, start, start + LEG_LIFE):
         if remaining <= 0:
             break
-        through = print_price < price if rule == "strictly_through" else print_price <= price
-        if through:
+        if crosses(rule, print_price, price):
             quantity = min(print_size, remaining)
             remaining -= quantity
             yield at, quantity

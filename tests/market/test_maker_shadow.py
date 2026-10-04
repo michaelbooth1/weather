@@ -17,8 +17,8 @@ from weather.market.maker_evidence_store import EvidenceStore
 from weather.market.maker_shadow_panel import EMBARGOED_UTC_DAYS, MakerEvidencePanel, embargo_reason
 from weather.market.market_config import event_slug_for_date
 
-from tests.maker_core.fixtures.shadow_rig import (CAPS, CONDITION, NO, NOW, POLICY, YES, campaigns, public_book,
-                                                  reward_record, wallet_book)
+from tests.maker_core.fixtures.shadow_rig import (CAPS, CONDITION, NO, NOW, PAPER_POLICY, POLICY, YES, data_print,
+                                                  public_book, reward_record)
 
 
 @pytest.fixture(autouse=True)
@@ -35,13 +35,13 @@ def write(path, value):
     return str(path)
 
 
-def setup(tmp_path, *, complete=True):
+def setup(tmp_path, *, bleed_limit="5", prints=()):
     guard_latch.initialize(tmp_path / "latch", NOW)
-    guard = {"policy": POLICY, "campaigns": write(tmp_path / "campaigns.json", campaigns()),
-             "wallet_book": write(tmp_path / "book.json", wallet_book(complete=complete)),
-             "latch_dir": str(tmp_path / "latch"), "pause_file": str(tmp_path / "PAUSE")}
+    guard = {"policy": PAPER_POLICY, "latch_dir": str(tmp_path / "latch"), "pause_file": str(tmp_path / "PAUSE")}
+    paper = {"starting_cash_pusd": "100", "bleed_limit_pusd": bleed_limit, "fill_rule": "at_price"}
     config = {"schema_version": maker_shadow.CONFIG_SCHEMA, "profile": "informed-v0", "hazard_per_minute": 0.001,
-              "caps": CAPS, "markets": ["nyc"], "horizons": [1, 2], "max_conditions": 4, "guard": guard}
+              "caps": CAPS, "markets": ["nyc"], "horizons": [1, 2], "max_conditions": 4, "guard": guard,
+              "paper": paper}
     nyc = next(s for s in maker_shadow.all_specs() if s.id == "nyc")
     local = NOW.astimezone(nyc.tz).date()
     slugs = [event_slug_for_date(local + timedelta(days=h), "nyc") for h in (1, 2)]
@@ -53,13 +53,14 @@ def setup(tmp_path, *, complete=True):
         {"conditionId": "0x" + "b" * 64, "active": True, "closed": True, "clobTokenIds": "[]", "outcomes": "[]"}]}
     replies = {public_feed.events_url(slugs): [event], public_feed.book_url(YES): public_book(YES),
                public_feed.book_url(NO): public_book(NO, bids=(("0.49", "100"),), asks=(("0.51", "100"),)),
-               public_feed.rewards_url(CONDITION): {"data": [reward_record()], "next_cursor": "LTE="}}
+               public_feed.rewards_url(CONDITION): {"data": [reward_record()], "next_cursor": "LTE="},
+               public_feed.trades_url(CONDITION): list(prints)}
     fixture = {"schema_version": maker_shadow.FIXTURE_SCHEMA, "clock_start_utc": NOW.isoformat(), "replies": replies}
     return write(tmp_path / "config.json", config), write(tmp_path / "fixture.json", fixture)
 
 
-def run_offline(tmp_path, minutes=3, complete=True):
-    config, fixture = setup(tmp_path, complete=complete)
+def run_offline(tmp_path, minutes=3, **kw):
+    config, fixture = setup(tmp_path, **kw)
     code = maker_shadow.main(["run", "--config", config, "--offline-fixture", fixture, "--minutes", str(minutes),
                               "--output-root", str(tmp_path / "tapes")])
     assert code == 0
@@ -82,12 +83,16 @@ def test_offline_fixture_run_writes_sealed_per_minute_tape(tmp_path, capsys):
     assert rows[0]["scope"]["fair_value"].startswith("unavailable:")
 
 
-def test_offline_run_with_incomplete_shared_wallet_records_halt(tmp_path):
-    tapes = run_offline(tmp_path, minutes=2, complete=False)
+def test_offline_run_paper_book_fills_and_allows(tmp_path):
+    # A print at the bid fills 30 YES at 0.48 under the at-price rule; the mark stays at the 0.50 mid,
+    # so paper P&L is +0.6 and the guard keeps allowing. The bleed HALT path is in test_shadow.py.
+    prints = [data_print(YES, NOW + timedelta(seconds=20), "0.48", 30)]
+    tapes = run_offline(tmp_path, minutes=3, prints=prints)
     rows = [json.loads(line) for line in tapes[0].read_text().splitlines()]
     minutes = [r for r in rows if r["event"] == "minute"]
-    assert all(m["guard"]["action"] == "HALT" and m["resting_after"] == {} for m in minutes)
-    assert minutes[0]["conditions"][0]["gate"][0]["placed"] is False
+    assert all(m["guard"]["action"] == "ALLOW" for m in minutes)
+    assert minutes[1]["paper"]["fills"][0]["size"] == "30.0" and minutes[2]["paper"]["pnl_pusd"] == "0.600"
+    assert rows[0]["scope"]["guard_book"] == "paper_campaign_book"
 
 
 def test_stop_file_and_config_refusals(tmp_path, capsys):
@@ -97,7 +102,14 @@ def test_stop_file_and_config_refusals(tmp_path, capsys):
                               "--stop-file", str(tmp_path / "STOP")]) == 2
     assert "stop_file_present_at_start" in capsys.readouterr().err
     base = json.loads(Path(config).read_text())
-    for change in ({"hazard_per_minute": None}, {"markets": ["atlantis"]}, {"profile": "aggressive"},
+    for change in ({"guard": {**base["guard"], "wallet_book": str(tmp_path / "book.json")}},
+                   {"guard": {**base["guard"], "campaigns": str(tmp_path / "campaigns.json")}}):
+        with pytest.raises(ValueError, match="shadow_mode_refuses_real_wallet_book"):
+            maker_shadow.load_config(write(tmp_path / "wallet.json", {**base, **change}))
+    with pytest.raises(ValueError, match="guard_policy_must_name_paper_campaign"):
+        maker_shadow.load_config(write(tmp_path / "pol.json", {**base, "guard": {**base["guard"], "policy": POLICY}}))
+    for change in ({"hazard_per_minute": None}, {"paper": {**base["paper"], "fill_rule": "midpoint"}},
+                   {"paper": {**base["paper"], "bleed_limit_pusd": "500"}}, {"paper": None}, {"markets": ["atlantis"]}, {"profile": "aggressive"},
                    {"caps": {"cash": "1"}}, {"extra": 1}, {"adverse_markout": 0.001}, {"horizons": [3]}):
         bad = write(tmp_path / "bad.json", {**base, **change})
         with pytest.raises(ValueError):

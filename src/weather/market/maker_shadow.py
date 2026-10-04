@@ -23,6 +23,7 @@ from maker_core.contracts import MarketDescriptor, Unavailable
 from maker_core.evidence.journal import digest, write_new
 from maker_core.runtime.guard import OrderGate
 from maker_core.runtime.portfolio_io import read_json
+from maker_core.shadow.paper import FILL_RULES, PAPER_CAMPAIGN, PaperLedger
 from maker_core.shadow.runner import ShadowCancelPort, ShadowMarket, ShadowRunner
 from maker_core.shadow.score import score_day
 from maker_core.shadow.tape import PROFILES, TapeWriter, sealed_tapes
@@ -37,7 +38,8 @@ FIXTURE_SCHEMA = "weather.maker_shadow_fixture.v0.1"
 COMPOSITION_VERSION = "weather-maker-shadow-0.1"
 DEFAULT_ROOT = data_path("maker_shadow")
 CAP_KEYS = ("cash", "band_cap", "order_cap", "wallet_cap", "event_cap")
-GUARD_KEYS = ("policy", "campaigns", "wallet_book", "latch_dir", "pause_file")
+GUARD_KEYS = ("policy", "latch_dir", "pause_file")
+PAPER_KEYS = ("starting_cash_pusd", "bleed_limit_pusd", "fill_rule")
 
 
 def _refuse(condition, reason):
@@ -48,10 +50,13 @@ def _refuse(condition, reason):
 def load_config(path):
     config = read_json(path)
     keys = {"schema_version", "profile", "hazard_per_minute", "adverse_markout", "caps", "markets", "horizons",
-            "max_conditions", "rediscover_minutes", "guard"}
+            "max_conditions", "rediscover_minutes", "guard", "paper"}
     _refuse(not isinstance(config, dict) or config.get("schema_version") != CONFIG_SCHEMA, "invalid_shadow_config")
-    _refuse(set(config) - keys or not {"schema_version", "profile", "hazard_per_minute", "caps", "guard"} <= set(config),
-            "shadow_config_fields")
+    guard = config.get("guard")
+    # Shadow mode evaluates only its paper campaign book: a wallet book or campaign file is refused.
+    _refuse(isinstance(guard, dict) and ({"wallet_book", "campaigns"} & set(guard)), "shadow_mode_refuses_real_wallet_book")
+    _refuse(set(config) - keys or not {"schema_version", "profile", "hazard_per_minute", "caps", "guard", "paper"}
+            <= set(config), "shadow_config_fields")
     _refuse(config["profile"] not in PROFILES, "unknown_profile")
     hazard, markout = config["hazard_per_minute"], config.get("adverse_markout", 0.0043)
     for value, low in ((hazard, 0.0), (markout, 0.0043)):
@@ -74,9 +79,18 @@ def load_config(path):
               "rediscover_minutes": (config.get("rediscover_minutes", 15), 1, 120)}
     for name, (value, low, high) in limits.items():
         _refuse(isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high, "invalid_" + name)
-    guard = config["guard"]
     _refuse(not isinstance(guard, dict) or set(guard) != set(GUARD_KEYS) or not isinstance(guard["policy"], dict)
             or any(not isinstance(guard[k], str) for k in GUARD_KEYS[1:]), "guard_section_required")
+    _refuse(guard["policy"].get("campaign_id") != PAPER_CAMPAIGN, "guard_policy_must_name_paper_campaign")
+    paper = config["paper"]
+    _refuse(not isinstance(paper, dict) or set(paper) != set(PAPER_KEYS) or paper["fill_rule"] not in FILL_RULES,
+            "paper_section_required")
+    try:
+        cash, limit = Decimal(str(paper["starting_cash_pusd"])), Decimal(str(paper["bleed_limit_pusd"]))
+    except InvalidOperation:
+        raise ValueError("paper_section_required") from None
+    _refuse(not cash.is_finite() or not limit.is_finite() or cash <= 0 or not 0 <= limit <= cash,
+            "paper_section_required")
     return {**config, "adverse_markout": markout, "caps": caps, "markets": markets, "horizons": sorted(horizons),
             "max_conditions": limits["max_conditions"][0], "rediscover_minutes": limits["rediscover_minutes"][0]}
 
@@ -159,11 +173,14 @@ class SimulatedClock:
 
 
 def build_runner(config, feed, clock):
-    guard = config["guard"]
+    """Shadow mode: the guard evaluates the paper campaign book, never a wallet book."""
+    guard, paper = config["guard"], config["paper"]
+    ledger = PaperLedger(starting_cash=paper["starting_cash_pusd"], bleed_limit=paper["bleed_limit_pusd"],
+                         start_utc=clock().replace(second=0, microsecond=0), fill_rule=paper["fill_rule"])
     port = ShadowCancelPort()
     gate = OrderGate(state_dir=Path(guard["latch_dir"]), pause_file=Path(guard["pause_file"]), policy=guard["policy"],
-                     campaigns=read_json(guard["campaigns"]), clock=clock, cancel_port=port)
-    return ShadowRunner(reads=feed, gate=gate, cancel_port=port, wallet_book=lambda: read_json(guard["wallet_book"]),
+                     campaigns=ledger.campaigns, clock=clock, cancel_port=port)
+    return ShadowRunner(reads=feed, gate=gate, cancel_port=port, paper=ledger,
                         fair_value=unavailable_fair_value, clock=clock, caps=config["caps"],
                         hazard_per_minute=float(config["hazard_per_minute"]),
                         adverse_markout=float(config["adverse_markout"]), profile=PROFILES[config["profile"]])
@@ -190,7 +207,7 @@ def run(args):
              "guard_policy_sha256": digest(config["guard"]["policy"]), "composition": COMPOSITION_VERSION,
              "fair_value": "unavailable:weather_fair_value_provider_not_integrated",
              "hazard_per_minute": config["hazard_per_minute"], "adverse_markout": config["adverse_markout"],
-             "caps": config["caps"]}
+             "caps": config["caps"], "paper": config["paper"], "guard_book": "paper_campaign_book"}
     writer = TapeWriter(out, clock=clock, scope=scope)
     markets, discovered_at, done, reason, last = [], None, 0, "completed", None
     try:

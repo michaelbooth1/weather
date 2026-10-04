@@ -14,32 +14,50 @@ Every minute the runner reads public International Polymarket data, runs the
 `maker_core` policy (`informed-v0` by default) on each selected band, and writes
 what it **would** quote. It never places, cancels or signs anything:
 
-- **Public reads only.** `maker_core.venue.public_feed` has exactly three GET
-  reads: CLOB `/book?token_id=`, CLOB `/rewards/markets/<condition>` and Gamma
-  `/events?slug=`. Any other host, path, query, port, user-info, scheme or
+- **Public reads only.** `maker_core.venue.public_feed` has exactly four GET
+  reads: CLOB `/book?token_id=`, CLOB `/rewards/markets/<condition>`, Gamma
+  `/events?slug=` and data-api `/trades?market=<condition>&limit=500` (public
+  prints of one condition; a `user` filter is refused). Any other host, path, query, port, user-info, scheme or
   redirect is refused, so Polymarket US hosts and every order, auth or account
   route are unreachable. No proxy, no credential, no `.env`, no SDK.
 - **No order client exists.** The runner (`maker_core.shadow.runner`) imports no
-  venue module; reads, the wallet book, fair value and the clock are injected.
+  venue module; reads, the guard book, fair value and the clock are injected.
   Tests assert the CLI import closure loads no order, credential, SDK or wallet
   module, and that the shadow sources name no order call.
 - **Every would-quote leg goes through the #180 guard.** The runner owns one
-  `OrderGate`. Each minute starts with `gate.check(wallet book)`; each leg of a
+  `OrderGate`. Each minute starts with `gate.check(paper campaign book)`; each leg of a
   `QUOTE` asks `gate.authorize(...)` for a permit and is "placed" only through
   `GatedPlacement(gate, ShadowSink)`. `ShadowSink` appends to a local list.
   A PAUSE or HALT latches (owner-cleared, as for a live runtime) and its
   cancel-all intent withdraws every hypothetical leg. A band whose second leg is
   refused is withdrawn whole. The shadow runtime passes
   `check_guard_conformance`.
-- **Shadow state is hypothetical.** Caps are explicit config values, never wallet
-  balances. There is no inventory: fills are simulated only by the nightly scorer.
+- **Shadow campaign book.** In shadow mode the guard evaluates a paper ledger
+  (`maker_core.shadow.paper.PaperLedger`), never a wallet book: account
+  `shadow-paper`, campaign `shadow-maker` with the declared starting cash and
+  bleed limit, maker fee 0. Its only trades are the runner's own simulated fills:
+  at each minute, the legs that rested since the last check are filled from the
+  condition's public prints under the configured desk-study rule
+  (`strictly_through` or `at_price`, `min(print size, remaining)`, legs re-placed
+  at full size each minute, identical prints once). The guard book is built by the
+  real portfolio ledger from a paper snapshot, so bleed is the ledger's P&L on
+  paper: cash plus open lots marked at the last two-sided mid read for the asset
+  (`held_mark_max_age_seconds` is taped; a band that left the selection keeps its
+  last mark; settlement is not applied). A fill sets `fill_seen` for that band's
+  next decision (the sibling leg is cancelled). A print-read failure is a taped
+  `print_gaps` entry, never read as "no fills". Bleed past the limit HALTs and
+  latches exactly as for a live runtime; only the owner's latch command clears it.
+  The paper book belongs to one run (a restart starts a fresh book; the latch
+  persists). Quoting caps are separate hypothetical config values.
 - **Fair value.** The weather maker plugin is not on master, so the weather
   composition passes `Unavailable("weather_fair_value_provider_not_integrated")`:
   `informed-v0` then quotes the blind width with grade-`none` size caps. The
   provider is injected, so the plugin replaces it without runner changes.
 
-With today's shared wallet the guard HALTs (ledger INCOMPLETE), so every
-would-quote is recorded as refused while the policy decisions are still taped.
+The config refuses a `wallet_book` or `campaigns` entry
+(`shadow_mode_refuses_real_wallet_book`) and a guard policy naming any campaign
+other than `shadow-maker`, so the shadow can never be pointed at the shared
+wallet (which would HALT every minute on its INCOMPLETE ledger).
 
 ## Commands
 
@@ -68,7 +86,8 @@ Config (`weather.maker_shadow_config.v0.1`, unknown fields refused):
 | `hazard_per_minute`, `adverse_markout` | Conservative fill bound (required) and settlement loss floor (default and minimum 0.0043) |
 | `caps` | `cash`, `band_cap`, `order_cap`, `wallet_cap`, `event_cap` (hypothetical, required) |
 | `markets`, `horizons`, `max_conditions`, `rediscover_minutes` | Registry ids (default all), local horizons (default `[1, 2]`), selection cap (default 24, max 60), rediscovery period (default 15 min) |
-| `guard` | `policy` (a `maker_guard` policy), `campaigns`, `wallet_book` (portfolio ledger book JSON, re-read every minute), `latch_dir`, `pause_file` |
+| `guard` | `policy` (a `maker_guard` policy with `campaign_id` `shadow-maker`), `latch_dir`, `pause_file`; `wallet_book`/`campaigns` are refused |
+| `paper` | `starting_cash_pusd` (> 0), `bleed_limit_pusd` (0..starting cash), `fill_rule` (`strictly_through` or `at_price`) |
 
 The offline fixture (`weather.maker_shadow_fixture.v0.1`) holds `clock_start_utc`
 and `replies`, a map from allowlisted URL to the recorded JSON reply.
@@ -86,6 +105,8 @@ minimum size come from that book. Levels are sorted and capped at 25 per side
 before the policy sees them. Terms sum the reward rates active on the UTC day;
 no active rate is `TERMS_MISSING_STALE_OR_FUTURE`. An unreadable input is recorded
 as `unevaluated` and withdraws that band's hypothetical legs.
+Legs of a band that leaves the selection are withdrawn. Before the guard check, the
+prints of every band with resting legs are read once (paper fills above).
 
 ## Tape
 
@@ -98,7 +119,7 @@ day and run: `<day>-<run>.tape.jsonl`, a `maker_core.evidence.journal` chain
 | --- | --- |
 | `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id |
 | `universe` / `universe_error` | Selected conditions, candidates, cap drops, refusal counts, missing events |
-| `minute` | `minute_utc`; minute guard decision; wallet-book digest; per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
+| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
 | `terminal` | End reason and minute count |
 
 `inputs` is an exact projection: `maker_core.shadow.tape.inputs_from` rebuilds the
@@ -149,12 +170,14 @@ code change. The runner still tapes those days.
 ## Not yet
 
 Live public-read verification (fixtures only so far: Gamma field names
-`orderPriceMinTickSize`/`orderMinSize`/`clobRewards` and the `/book` shape follow
-88a and public API usage), the weather fair-value plugin and information clock,
-simulated fills inside the live loop, settlement-horizon scoring, the
-closed-bundle replay engine comparison, the six drills of the Phase 3 design, a
-launcher with resource ceilings, and any scheduled task. Open PR #115 holds an
-earlier, larger shadow implementation stacked on the unmerged replay harness.
+`orderPriceMinTickSize`/`orderMinSize`/`clobRewards`, the `/book` shape and the
+data-api `/trades` row fields follow 88a and public API usage), paper settlement
+of resolved bands, the weather fair-value plugin and information clock,
+settlement-horizon scoring, the closed-bundle replay engine comparison, the six
+drills of the Phase 3 design, a launcher with resource ceilings, and any
+scheduled task. Open PR #115 holds an earlier, larger shadow implementation
+stacked on the unmerged replay harness; #192 supersedes its runner, tape and
+nightly path (the #192 description lists the pieces).
 
 ## Update when
 
