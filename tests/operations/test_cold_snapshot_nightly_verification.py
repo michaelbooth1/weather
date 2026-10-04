@@ -337,9 +337,9 @@ def test_native_nightly_interruption_after_compress_is_verified_and_resolved(tmp
         os.utime(source, ns=(stamp, stamp))
         with LockedNtfsFile(source, writable=False) as opened:
             rows.append(selected(name, opened.metadata()))
-    handles = []
+    handles, large_opener = [], nightly.LARGE_OPENER
     def recording_opener(path, *, writable):
-        handles.append(nightly.LARGE_OPENER.func(path, writable=writable, **nightly.LARGE_OPENER.keywords))
+        handles.append(large_opener(path, writable=writable))
         return handles[-1]
     monkeypatch.setattr(nightly, "LARGE_OPENER", recording_opener)
     def admission_lost_after_target_compressed():
