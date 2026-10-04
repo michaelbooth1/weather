@@ -15,47 +15,53 @@ concurrency:
 
 jobs:
   native-launch:
-    # Sharded so the slowest file (test_status_script.py, ~8 min alone) no longer
-    # serialises the whole job. Shards are balanced from JUnit timings; every
-    # listed file runs in exactly one shard, and the status script is split by a
-    # -k expression and its complement so a new test there cannot be skipped.
+    # Sharded so no single job serialises the Windows-only launch regressions.
+    # Shards are balanced from per-file JUnit medians (item K role 13, 2026-10-04:
+    # projected pytest time ~227 s per shard); the names are historical labels.
+    # Every listed file runs in exactly one shard. test_status_script.py is split
+    # across two shards by `status_select`, a -k expression that applies to that
+    # file only (the job env ORs it with `not test_status_script.py`, so other
+    # files in the shard are never filtered). The two status_select expressions
+    # are exact complements, so a new status test cannot be skipped;
+    # tests/operations/test_windows_qualification_shards.py proves both
+    # properties by collection.
     name: native-launch (${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - shard: status-evidence
-            select: invalid_reconciliation_evidence
+            status_select: invalid_reconciliation_evidence and not origin
             files: >-
               tests/operations/test_status_script.py
+              tests/operations/test_live_wrapper_credential_launcher.py
+              tests/operations/test_integration_attempt_registration_safety.py
           - shard: status-rest
-            select: not invalid_reconciliation_evidence
+            status_select: not invalid_reconciliation_evidence or origin
             files: >-
               tests/operations/test_status_script.py
-              tests/operations/test_health_watchdog_script.py
-              tests/operations/test_ops_alarm_path.py
+              tests/operations/test_replay_cache_compression_wrapper.py
+              tests/operations/test_cold_archive_reclaim.py
+              tests/operations/test_ops_script_ratchets.py
+              tests/collection/test_forecast_payload_cross_process_fanout.py
+              tests/operations/test_integration_attempt_evidence_recovery_hardening.py
           - shard: archive
-            select: ''
+            status_select: ''
             files: >-
               tests/operations/test_production_cold_archive_wrapper.py
-              tests/operations/test_cold_archive_reclaim.py
-              tests/operations/test_cold_snapshot_compression_wrapper.py
-          - shard: launch
-            select: ''
-            files: >-
-              tests/operations/test_integration_phase_output.py
+              tests/operations/test_storage_recovery_inventory_wrapper.py
+              tests/operations/test_integration_attempt_scripts.py
               tests/operations/test_windows_job_output_capture.py
               tests/operations/test_integration_launch_diagnostics.py
-              tests/operations/test_bounded_worktree_test_suite_script.py
-              tests/operations/test_integration_attempt_scripts.py
-              tests/operations/test_integration_attempt_registration_safety.py
-              tests/operations/test_integration_attempt_evidence_recovery_hardening.py
-              tests/operations/test_storage_recovery_inventory_wrapper.py
-              tests/operations/test_replay_cache_compression_wrapper.py
-              tests/operations/test_live_wrapper_credential_launcher.py
-              tests/collection/test_forecast_payload_cross_process_fanout.py
-              tests/operations/test_ops_script_ratchets.py
+              tests/operations/test_ops_alarm_path.py
+          - shard: launch
+            status_select: ''
+            files: >-
               tests/operations/test_maker_replay_exam_step_script.py
+              tests/operations/test_cold_snapshot_compression_wrapper.py
+              tests/operations/test_integration_phase_output.py
+              tests/operations/test_health_watchdog_script.py
+              tests/operations/test_bounded_worktree_test_suite_script.py
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -66,7 +72,8 @@ jobs:
       EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SHARD: ${{ matrix.shard }}
       SHARD_FILES: ${{ matrix.files }}
-      SHARD_SELECT: ${{ matrix.select }}
+      # status_select narrows test_status_script.py only; other files always run.
+      SHARD_SELECT: ${{ matrix.status_select && format('({0}) or not test_status_script.py', matrix.status_select) || '' }}
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

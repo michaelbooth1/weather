@@ -1,0 +1,26 @@
+{
+ "format_version": 1,
+ "source": "provisional: Windows CI JUnit 492ee6e5 (19 files); replaced by a full Windows run",
+ "default_seconds": 9.9,
+ "files": {
+  "tests/collection/test_forecast_payload_cross_process_fanout.py": 0.7,
+  "tests/operations/test_bounded_worktree_test_suite_script.py": 2.3,
+  "tests/operations/test_cold_archive_reclaim.py": 14.8,
+  "tests/operations/test_cold_snapshot_compression_wrapper.py": 47.9,
+  "tests/operations/test_health_watchdog_script.py": 9.3,
+  "tests/operations/test_integration_attempt_evidence_recovery_hardening.py": 0.5,
+  "tests/operations/test_integration_attempt_registration_safety.py": 1.2,
+  "tests/operations/test_integration_attempt_scripts.py": 13.7,
+  "tests/operations/test_integration_launch_diagnostics.py": 6.1,
+  "tests/operations/test_integration_phase_output.py": 19.3,
+  "tests/operations/test_live_wrapper_credential_launcher.py": 5.1,
+  "tests/operations/test_maker_replay_exam_step_script.py": 121.7,
+  "tests/operations/test_ops_alarm_path.py": 2.9,
+  "tests/operations/test_ops_script_ratchets.py": 5.2,
+  "tests/operations/test_production_cold_archive_wrapper.py": 163.2,
+  "tests/operations/test_replay_cache_compression_wrapper.py": 23.9,
+  "tests/operations/test_status_script.py": 394.6,
+  "tests/operations/test_storage_recovery_inventory_wrapper.py": 25.2,
+  "tests/operations/test_windows_job_output_capture.py": 9.9
+ }
+}

@@ -53,7 +53,8 @@ package contract, and `requires-python` is `>=3.11`.
   job `needs` it, so a ratchet failure stops the run before the long suite.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
-  balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
+  balanced from JUnit timings (`test_status_script.py` is split across two shards by complementary `status_select`
+  expressions; `tests/operations/test_windows_qualification_shards.py` proves by collection that every listed test runs once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.
@@ -80,7 +81,8 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Limit | Value in the script |
 | --- | --- |
 | Mandatory parameters | `-RepoRoot`, `-WorktreeRoot`, `-ExpectedTip` (40-hex), `-BranchRef`, `-LogPath` |
-| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files |
+| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files; always `ceil(files / MaxFilesPerChunk)` chunks |
+| Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
