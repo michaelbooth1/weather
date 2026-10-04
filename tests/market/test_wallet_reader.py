@@ -433,6 +433,19 @@ def test_firewall_scope_and_whatif_structure():
     assert "-Name $ruleName" in script
 
 
+def test_logon_task_scope_and_whatif_structure():
+    script = (REPO_ROOT / "scripts/ops/register_wallet_reader_logon_task.ps1").read_text()
+    assert "SupportsShouldProcess = $true" in script
+    assert "$taskName = 'WeatherWalletReader'" in script
+    assert "-m weather.market.wallet_reader serve --bind $Bind --allow $AllowIp" in script
+    assert "[ValidateSet(2, 3)][int]$SignatureType" in script
+    assert "New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME" in script
+    assert "-ExecutionTimeLimit ([TimeSpan]::Zero)" in script
+    assert "Get-NetFirewallRule -Name $ruleName" in script
+    assert "Task already exists" in script and "-Force" not in script
+    assert "POLYMM" not in script and "READER_TOKEN" not in script
+
+
 def test_invalid_startup_does_not_load_credentials(monkeypatch):
     def forbidden():
         raise AssertionError("credential loader called for invalid bind")
