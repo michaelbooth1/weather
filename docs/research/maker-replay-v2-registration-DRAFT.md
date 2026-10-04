@@ -72,7 +72,7 @@ motivated by an outcome: no panel data has been read, and no economic result exi
 | --- | --- | --- | --- | --- |
 | C1 | **Decision schedule:** a band is decided only at its own events (§5) | semantic | Cost: removes the band-squared term, which is what made the exam unrunnable. Defect: under the frozen loop, a band with resting `informed-v0` legs is cancelled by another band's event 10–60 s after its own book, because the 10 s freshness gate runs before the hold path. `blind_re1` returns before that gate, so the coupling penalizes only the informed policy, for reasons unrelated to information (plan B audit §A). | Same estimand; policy behaviour differs from the frozen loop, so the result is not comparable with the frozen engine's. |
 | C2 | **Universe:** a band-minute is quotable only while its captured descriptor says local horizon 1 or 2 (§4) | population | Design: T+1/T+2 are "the bands the maker quotes" ([design](../operations/informed-maker-design-2026-09-25.md) build item 5 and band choice item 8); `informed-v0`'s `eligible_horizons` is already (1, 2); the hazard denominator is already T+1/T+2. Under the frozen universe the informed-minus-blind contrast on T+0 cells compared `blind_re1`'s T+0 quoting with an informed policy that refuses by construction. Cost: removes T+0 decisions. | Cells stay market × UTC date. The contrast becomes like-for-like on the bands the informed policy can quote. |
-| C3 | **Bundle format v0.2:** shared coverage groups, duplicate-elided descriptors and views, sorted streams (§6) | representation | Cost: per-condition coverage rows dominate the 1.30 GB per date and drive the 9.9 GiB export peak (exporter peak ≈ 6x output). | None, proven by an expansion-equivalence test on calibration dates (gate E3). |
+| C3 | **Bundle format v0.2:** coverage groups per trade-stream subscription, sorted streams and a streaming exporter (§6). Duplicate elision is admitted by the format but removes nothing against the v0.1 exporter. | representation | Cost: the 9.9 GiB export peak on 1.30 GB per date (exporter peak ≈ 6x output) comes from holding the whole output in memory, copying it, and parsing it twice to validate. Per-condition coverage rows are the one kind that compacts: 92.5% smaller on the W2 fixture. | None, proven by an expansion-equivalence test on calibration dates (gate E3). |
 | C4 | **Per-cell aggregate report** with the full interval list in a hash-bound sidecar (§7) | representation | Cost: `excluded_intervals` made up most of the 225 MB fixture report and is read by no estimator. | None: every estimator reads cell sums. Band-day scores and excluded cells with reasons are still published. |
 | C5 | **Exact money arithmetic:** amounts quantized to 1e-6 pUSD with Decimal Inexact trapped; reward accrual in integer microseconds, divided once per band-day | arithmetic convention | Needed for running portfolio totals (C1) to be exact. The frozen float/Decimal path differs at about 1e-25. | Digits beyond 1e-6 pUSD only. |
 | C6 | **Designated host:** the 32 GB workstation runs the rehearsal and the look; the capture host only exports (§8) | operational | Capture evidence is the first operating objective; a multi-hour run on the 16 GB capture host risks it. The workstation's limits are measured and fixed here. | None. |
@@ -144,21 +144,43 @@ reconciliation.
 
 - **Coverage groups.** The manifest lists `coverage_groups: [{group_id, condition_ids}]`. Coverage records carry a
   `group_id` instead of a `condition_id`, and a condition's coverage is its group's latest record. The exporter forms
-  groups from the capture connection that supplied the condition's trade stream. It refuses the day if two members of
-  one group would have had different v0.1 coverage at any capture. This is one record per capture instead of one per
-  condition: the same information, about 170x fewer records.
-- **Duplicate elision.** A descriptor or outcome-view record whose payload is byte-identical to the condition's
-  previous record of that kind is omitted. The engine reads only payload fields (`as_of_utc`, `valid_until_utc`,
-  values), never a duplicate's capture time; a test pins that equivalence. Books, terms, trades, plugin inputs and
-  settlements are never elided.
+  groups from the **trade-stream subscriptions** each condition's tokens joined during the day, not from the capture
+  connection. One connection carries several subscriptions, and a token subscribed mid-day starts unhealthy, so a
+  connection-level group would be refused whenever an event subscribes after the day's first capture. Conditions
+  whose tokens joined exactly the same subscriptions share a group. Conditions never subscribed share one
+  always-unhealthy group. The day is refused if two members of one group would have had different v0.1 coverage at
+  any capture (`coverage_group_mismatch`). Groups are known only at the day's end, so coverage is spooled to disk and
+  compacted after the last capture. One record per group per capture replaces one per condition. The saving is the
+  number of seen conditions per group (about 15 on the W0 fixture), not 170x.
+- **No duplicate elision is relied on.** The format admits omitting a descriptor or outcome-view record whose
+  payload is byte-identical to the condition's previous record of that kind. Against real exports this removes
+  nothing:
+  - The v0.1 exporter already drops every repeated descriptor, terms, outcome-view, info-event and settlement payload
+    before writing (`Projection.add(..., changed=True)`).
+  - The rows that remain are not rare. 88a records discovery every minute, and the descriptor carries the
+    discovery envelope's hash, so a live condition gets a new descriptor every minute. An outcome view's `as_of_utc`
+    moves with every book capture.
+
+  The v2 exporter therefore elides nothing, and a v0.2 bundle expands to exactly the v0.1 rows. Books, terms,
+  trades, plugin inputs and settlements are never elided.
+- **Capture times do not reach decisions.** A capture time must never change a decision, whether it belongs to an
+  elided duplicate or to a regrouped coverage record. The frozen v1 engine does not meet this. Its re-entry rule after
+  an `INFO_PULL` compares `state.captured["outcome_view"]` with `resume_after`, and its pull-decision digests hash
+  `state.captured` (`engine.py:402` and `:264`). The v2 engine reads only payload fields (`as_of_utc`,
+  `valid_until_utc`, values). A test pins that its decision digests do not change when coverage records are
+  regrouped.
 - **Sorted streams.** Each stream is written in `(captured_at, sequence)` order, and the reader refuses an unsorted
-  stream. Raw-byte hashes are verified in a first pass; the second pass parses records one at a time and streams them,
-  so one date never has to be in memory as JSON.
+  stream. The exporter emits two kinds out of clock order: plugin inputs keep their original capture time, and ledger
+  settlements keep their later record time. Those kinds are sorted on disk in bounded runs (32 MiB) and merged. Every
+  other kind is written straight through. Raw-byte hashes are verified in a first pass; the second pass parses
+  records one at a time and streams them, so one date never has to be in memory as JSON.
 - **Look-ahead rule.** Every v0.2 record is emitted at a capture, using only evidence captured at or before it. No
   record states a future confirmation.
 - **Equivalence.** Expanding a v0.2 bundle back to per-condition records must reproduce the v0.1 export of the same
-  date, record for record, ignoring only elided duplicates' `sequence` and `captured_at`. This is proven on fixtures
-  and on the three calibration dates (gate E3, compared by hash only).
+  date record for record and byte for byte, because nothing is elided. The exporter checks this itself before
+  publishing, by a streaming re-read. It also records `v01_equivalent.sha256`: the SHA-256 of the `events.jsonl`
+  the v0.1 exporter would have written from the same inputs. This is proven on fixtures and on the three calibration
+  dates (gate E3, compared by hash only).
 
 ## 7. Report
 
@@ -238,6 +260,31 @@ These all run on calibration dates only, before any panel export. **All must pas
 | E6 ceilings | Every derived ceiling is within its §8 limit. Pull opportunity candidates for the projected panel are within the derived `max_events`. |
 | E7 determinism | Two rehearsals of one date give byte-identical decision-stream hashes and scored-report bytes. |
 | E8 correctness | The fixture suite passes: the v2 engine against the reference schedule, running totals against recomputation, linearity in bands, and no Inexact trap. See the engineering plan. |
+
+**Expectations from the fixtures (W0–W2).** These are MEASURED on fictional data, not gate results
+([W2 report](../roadmap/agent-report-2026-10-04-mrv2-w2.md)). The W2 fixture is a full fictional sealed 88a day at
+170 conditions, run through the real exporters, with books at 8 levels a side.
+
+- **E1.** The v0.2 night export of the fixture day peaked at 0.303 GiB with one BLAS thread, against 11.50 GiB
+  for the v0.1 exporter on the same day, and took about 1,000 s on the workstation. numpy's OpenBLAS commits about
+  47 MiB per thread at import. That commit counts against the wrapper's 2 GiB private-memory ceiling before any data
+  is read: 1.5 GiB on a 32-thread host, where the same export peaked at 1.84 GiB. P1 should therefore run the
+  exporter child with `OPENBLAS_NUM_THREADS=1`.
+- **E2 is at risk.** The fixture day is 1.09 GiB of v0.2 bytes, over the 1 GiB rule. At real 88a cadence the
+  projection writes:
+  - a descriptor per live condition every minute (88a records discovery every minute, and the descriptor carries
+    its hash);
+  - an outcome view at every book capture (its `as_of_utc` moves).
+
+  Books (44%), outcome views (26%), descriptors (19%) and terms (7%) are 97% of the v0.2 bytes. Coverage groups cut
+  coverage by 92.5%, to 3% of the bytes. A book record costs about 488 bytes plus 58 bytes per level a side. The W0
+  fixture's 0.585 GiB assumed rare descriptors and views refreshed every 10 minutes. Only P1 measures real depth
+  and cadence. If E2 fails, the fix is a format change, for example carrying descriptor provenance and view
+  freshness without a full record each capture. That needs an amendment to this draft before signature.
+- **E3.** No record is elided, so E3 expects exact equality. The v0.2 receipt's `v01_equivalent.sha256` is the
+  hash of the `events.jsonl` the v0.1 exporter would write from the same inputs. It compares directly with an
+  existing v0.1 calibration export's stream hash when the inputs are unchanged, and any input growth shows in
+  `input_hashes`. Hazard counts n_m and x_m read the same rows, so they match by construction.
 
 Before signature, a failed gate may be fixed by engineering and the gate rerun on the same calibration dates. A
 rehearsal is score-free, so rerunning it selects nothing. Clarification 2's "do not re-rehearse" bound a signed exam,
