@@ -107,9 +107,12 @@ def main():
         fs = sorted(glob.glob(os.path.join(RAW, f"*_{m}_*.csv")))
         d = pd.concat([pd.read_csv(f, dtype=str) for f in fs], ignore_index=True)
         n_raw = len(d)
-        d = d.drop_duplicates()
         d["runtime"] = pd.to_datetime(d["runtime"], format="ISO8601", utc=True)
         d["ftime"] = pd.to_datetime(d["ftime"], format="ISO8601", utc=True)
+        d = d.drop_duplicates()
+        # chunk-boundary overlaps: same key printed with different number formats ("66.0" vs "66"); keep first
+        n_dup_key = int(d.duplicated(["station", "runtime", "ftime"]).sum())
+        d = d.drop_duplicates(["station", "runtime", "ftime"])
         n_late = int((d["runtime"] >= CUT).sum())
         d = d[d["runtime"] < CUT].copy()
         if m in ("NBS", "NBE"):
@@ -154,7 +157,7 @@ def main():
         if m in ("NBS", "NBE"):
             lag_by_hour = {int(h): round(float(v), 1) for h, v in runs.groupby(runs["runtime"].dt.hour)["lag_min"].median().items()}
         man["models"][m] = {"file": "iem\\mos\\" + os.path.basename(out), "rows_raw_incl_overlap": n_raw,
-                            "rows": len(d), "rows_dropped_runtime_ge_20260930": n_late, "runs": int(len(runs)),
+                            "rows": len(d), "boundary_key_duplicates_dropped": n_dup_key, "rows_dropped_runtime_ge_20260930": n_late, "runs": int(len(runs)),
                             "runtime_hour_counts_all_stations": {int(k): int(v) for k, v in hours.items()},
                             "runs_without_availability_excluded": int(runs["available_utc"].isna().sum()),
                             "lag_minutes_quantiles": lq, "median_lag_minutes_by_runtime_hour": lag_by_hour,
