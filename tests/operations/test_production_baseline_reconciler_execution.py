@@ -213,6 +213,48 @@ def _make_config_changed_target(root: Path, origin: Path) -> str:
     return target
 
 
+# The conflict and config-changed targets are deterministic commits (fixed
+# parent, file bytes, identity and dates), so their SHAs never vary between
+# tests. Each is built once per module exactly as before, in a private bare
+# clone, and later harnesses fetch that one commit into their own origin under
+# the same ref the original push created. This skips a full clone plus two full
+# checkouts of the repository per harness; every harness still gets its own
+# origin, production clone and source clone.
+_TARGET_CACHE: dict[str, Any] = {}
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _deterministic_target_cache(tmp_path_factory: pytest.TempPathFactory):
+    _TARGET_CACHE.clear()
+    _TARGET_CACHE["root"] = tmp_path_factory.mktemp("rt")
+    yield
+    _TARGET_CACHE.clear()
+
+
+def _cached_target(name: str, origin: Path, make: Any, *, master: str | None = None) -> str:
+    cached = _TARGET_CACHE.get(name)
+    if cached is None:
+        cache_root = _TARGET_CACHE["root"] / name
+        cache_root.mkdir()
+        cache_origin = cache_root / "origin.git"
+        _git(REPO_ROOT, "clone", "--bare", "--shared", str(REPO_ROOT), str(cache_origin))
+        if master is not None:
+            _git(cache_root, f"--git-dir={cache_origin}", "update-ref", "refs/heads/master", master)
+        cached = (cache_origin, make(cache_root, cache_origin))
+        _TARGET_CACHE[name] = cached
+    cache_origin, target = cached
+    _git(
+        origin.parent,
+        f"--git-dir={origin}",
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        str(cache_origin),
+        f"{target}:refs/heads/{name}",
+    )
+    return target
+
+
 def _make_conflict_target(root: Path, origin: Path) -> str:
     worktree = root / "merge-conflict-target"
     _git(root, "clone", "--shared", str(origin), str(worktree))
@@ -1168,7 +1210,7 @@ def _build_harness(
     if unrelated_target:
         published_target = _make_unrelated_target(origin)
     elif changed_target_config:
-        published_target = _make_config_changed_target(root, origin)
+        published_target = _cached_target("config-changed-target", origin, _make_config_changed_target)
     else:
         published_target = PUBLISHED_TARGET
     published_tree = _rev(REPO_ROOT, f"{PUBLISHED_TARGET}^{{tree}}")
@@ -1181,7 +1223,9 @@ def _build_harness(
         "refs/heads/master",
         published_target,
     )
-    conflict_target = _make_conflict_target(root, origin)
+    conflict_target = _cached_target(
+        "merge-conflict-target", origin, _make_conflict_target, master=PUBLISHED_TARGET
+    )
 
     production = root / "production"
     _git(root, "clone", "--no-checkout", str(origin), str(production))
