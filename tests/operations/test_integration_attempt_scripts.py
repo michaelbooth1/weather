@@ -9,8 +9,10 @@ import pytest
 
 # Calls that dot-source integration_attempt_contract.ps1 and print a function's result
 # (or parse the scripts) evaluate script logic only, so they share one PowerShell host
-# with a fresh runspace per call (tests/powershell_host.py). The closer run (control
-# mutex), the concurrent immutable-claim race and every -File launch keep real children.
+# with a fresh runspace per call (tests/powershell_host.py). Real children are kept for
+# the closer run (control mutex), the concurrent immutable-claim race, every -File
+# launch, the manifest test (Write-WeatherIntegrationImmutableJson names its temp file
+# with $PID) and the successor-claim test (it asserts a non-zero exit code).
 from tests.powershell_host import run_command as run_powershell_command
 
 
@@ -768,7 +770,14 @@ catch {
     overwrite_refused = $overwriteRefused
 } | ConvertTo-Json -Compress
 """
-    accepted = run_powershell_command(script, cwd=ROOT, env=env)
+    accepted = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     assert accepted.returncode == 0, accepted.stderr
     assert json.loads(accepted.stdout) == {
         "attempt_id": "attempt-001",
@@ -777,7 +786,14 @@ catch {
 
     manifest["branch_ref"] = "codex/tampered"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    rejected = run_powershell_command(script, cwd=ROOT, env=env)
+    rejected = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     assert rejected.returncode != 0
     assert "manifest hash mismatch" in rejected.stderr.lower()
 
@@ -1234,13 +1250,27 @@ $result = Assert-WeatherIntegrationAttemptManifest `
     -ExpectedSha256 $env:WEATHER_ATTEMPT_MANIFEST_HASH
 [string]$result.Manifest.attempt_id
 """
-    accepted = run_powershell_command(script, cwd=ROOT, env=env)
+    accepted = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     assert accepted.returncode == 0, accepted.stderr
     assert accepted.stdout.strip() == "current"
 
     claim["successor_expected_tip"] = "2" * 40
     claim_path.write_text(json.dumps(claim), encoding="utf-8")
-    rejected = run_powershell_command(script, cwd=ROOT, env=env)
+    rejected = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     assert rejected.returncode != 0
     assert "successor claim does not bind" in rejected.stderr.lower()
 
