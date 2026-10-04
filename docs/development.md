@@ -255,6 +255,21 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
   changes entered the diff.
 - Documentation links and knowledge contracts pass the agent-doc audit.
 
+## PROPOSAL (not in force): definition of done and assertion strength
+
+> **Owner decision pending (test-suite review K, 2026-10-04).** The definition of done above governs until the
+> owner approves. Full text and evidence:
+> [test-policy-proposals.md](research/test-suite-review-2026-10-04/test-policy-proposals.md) (P2, P5).
+
+- *P2.* Local verification becomes focused tests plus the affected tests from
+  `python -m weather.operations.affected_tests` (draft PR #204); the pull request's CI is the full-suite
+  evidence. A local full run is required only where CI cannot see the tests: Windows-executing script tests in
+  no Windows-qualification shard (about 303 cases) keep today's bounded-suite or Windows full-run rule, and a
+  handoff may require more.
+- *P5.* New and touched tests assert both sides of every boundary they cover, give each guard clause a case
+  where only it fires, and check computed statistics against an independent value (a mutation sample found
+  51 of 104 covered faults surviving).
+
 ## Update this file when
 
 Update when baseline checks, test ownership, CI platforms, stateful command

@@ -38,6 +38,17 @@ Write the report the handoff names (verdict first, per [delegation contract](DEL
 push it with the branch, then reply with: the report path, the PR link(s), the head SHA(s) and the CI
 conclusion. The owner pastes that reply to the production agent, which verifies before anything merges.
 
+## PROPOSAL (not in force)
+
+> **Owner decision pending (test-suite review K, 2026-10-04).** The text above governs until approved; see
+> [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) (P4).
+
+- *Where you are* would read: focused pytest of at most 25 files with no `serial`-marked test runs directly
+  (explicit `--basetemp`, deleted afterwards); full suites, larger selections, xdist, compileall, training and
+  replay go through `scripts\ops\workstation_heavy.ps1`, which queues them in order.
+- *Boundaries* would read: run focused and affected tests ([development.md](../development.md)); the PR's CI is
+  the full-suite evidence; wait for it to finish green.
+
 ## Update this file when
 
 The workstation's role, its heavy-command wrapper, or the standing session boundaries change. Mission

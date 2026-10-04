@@ -94,6 +94,20 @@ lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
 
+## PROPOSAL (not in force): workstation focused-run exemption, FIFO queue, xdist
+
+> **Owner decision pending (test-suite review K, 2026-10-04).** The text above governs until the owner
+> approves; the capture-host rules in this file are not affected by any part of it. Full text and evidence:
+> [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) (P3).
+
+- On the non-capture workstation only, pytest naming at most 25 test files, none marked `serial`, without
+  xdist, runs without `workstation_heavy.ps1` (explicit `--basetemp`, deleted afterwards). Never while a
+  portable live stage holds the mutex.
+- Full suites and larger runs queue first-in first-out in `workstation_heavy.ps1` instead of polling a
+  refusal, with one wait-log line per enqueue, start, finish and give-up.
+- `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) only on the
+  workstation, only through the wrapper, and only after an identical pass set is shown against a serial run.
+
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
 **Do not plan against these.** `scripts\ops\status.ps1` reports live RAM, disk, and the daily

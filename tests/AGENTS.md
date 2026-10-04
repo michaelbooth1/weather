@@ -33,6 +33,20 @@ Run the narrow directory or file first, then the full suite:
 Host rules are owned by [the host load policy](../docs/operations/HOST_LOAD_POLICY.md)
 and [development.md](../docs/development.md).
 
+## PROPOSAL (not in force until the owner approves): test hygiene ratchet
+
+Draft from test-suite review K (2026-10-04); see
+[test-policy-proposals.md](../docs/research/test-suite-review-2026-10-04/test-policy-proposals.md) (P1, P5).
+`tests/test_hygiene_ratchet.py` would block new instances only (today's are in
+`tests/hygiene_ratchet_baseline.json`; `python -m tests.hygiene_ratchet --report` explains a failure):
+
+- each new test module's docstring has a `Guards:` line naming the contract, EF/RF/HWGTW id or incident;
+- no `.ps1` text assert in a module that never executes PowerShell: add an execution test instead;
+- no `_private` imports from `src/` or `app`;
+- tests that start git or PowerShell carry `@pytest.mark.spawns`;
+- guideline only: `pytest.raises(match=...)` when the refusal reason is the contract; assert both sides of
+  each boundary and give each guard clause a case where only it fires.
+
 ## Update this file when
 
 Update when test layout, fixture policy, collection rules, or repository-wide
