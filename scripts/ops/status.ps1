@@ -4712,6 +4712,23 @@ if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
     catch { $flags.Add("MAKER_EVIDENCE: status unreadable or missing") }
 }
 
+# Capture families (config/capture_families.json), each in data\maker_evidence_families\<id>.
+# weather.reporting.market.capture_family_status owns the 88a-equivalent alarms and the
+# family disk-floor stop (a WARN, not a capture failure); this block only hands it the
+# Scheduler states and renders its verdicts.
+$captureFamilies = @()
+try {
+    $familyTaskArgs = @(Get-ScheduledTask -TaskName "Weather*" -ErrorAction SilentlyContinue |
+        ForEach-Object { "--task-state"; ("{0}={1}" -f $_.TaskName, $_.State) })
+    $familyRaw = @(& $py -m weather.reporting.market.capture_family_status @familyTaskArgs 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "capture family status exited $LASTEXITCODE" }
+    $familyStatus = (($familyRaw -join "`n") | ConvertFrom-Json)
+    $captureFamilies = @($familyStatus.families)
+    foreach ($familyFlag in @($familyStatus.flags)) { if ($familyFlag) { $flags.Add([string]$familyFlag) } }
+    foreach ($familyWarn in @($familyStatus.warns)) { if ($familyWarn) { $warns.Add([string]$familyWarn) } }
+}
+catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }
+
 # ---- merged branch retirement (git-workflow branch lifecycle; hygiene, never the verdict) ----
 # Merged codex/* branches are retired within 7 days of landing through a recorded retirement.
 # Read-only over cached remote-tracking refs; production executes the deletions.
@@ -4761,6 +4778,7 @@ if ($Json) {
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
         maker_evidence = $makerEvidence
+        capture_families = @($captureFamilies)
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         memory_guard = $memoryGuardState
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
@@ -4912,6 +4930,9 @@ Write-Output ("  DOCS      : {0}" -f $documentationStr)
 if ($makerEvidence) {
     Write-Output ("  MAKER     : {0}, {1} bands, disk {2}, stream capped={3}" -f `
         $makerEvidence.state, $makerEvidence.universe_size, $makerEvidence.disk_band, $makerEvidence.stream_capped)
+}
+foreach ($captureFamily in $captureFamilies) {
+    Write-Output ("  FAMILY    : {0}" -f $captureFamily.line)
 }
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
 if ($upcoming.Count -gt 0) {
