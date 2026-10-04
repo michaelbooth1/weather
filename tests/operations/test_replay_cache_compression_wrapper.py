@@ -84,7 +84,8 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
         "$localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)",
         "$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)")
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
-        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
+        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
+        "    # Identity, time and live lease")
     wrapper_path = scripts / "replay_cache_compression_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
@@ -119,7 +120,11 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
-    process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
+    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
     return process, output
 
 

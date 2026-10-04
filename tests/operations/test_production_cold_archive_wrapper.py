@@ -160,7 +160,8 @@ def wrapper_fixture(tmp_path, tmp_path_factory, request):
     wrapper = replace_once(wrapper, "$deadline = [DateTime]::UtcNow.AddSeconds(",
         "$windowEnd = [DateTime]::UtcNow.AddHours(1)\n$deadline = [DateTime]::UtcNow.AddSeconds(")
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
-        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
+        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
+        "    # Identity, time and live lease")
     wrapper_path = scripts / "production_cold_archive_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
@@ -200,7 +201,11 @@ def launch(wrapper_fixture, mode, operation=None):
                  "-ExpectedSourceTip", head]
     if operation is not None:
         arguments.extend(["-Operation", operation])
-    process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
+    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
     return process, output
 
 
