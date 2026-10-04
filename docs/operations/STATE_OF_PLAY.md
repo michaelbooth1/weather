@@ -23,7 +23,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
   wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
 - 2026-09-30 through 2026-10-03 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md).
-- **Workstation sessions are Claude Code**; dispatch prompts start from [the session preamble](WORKSTATION_SESSION_PREAMBLE.md).
+- **Workstation: one Claude Code chat directed by the production agent** (cross-session messaging, owner 2026-10-03; bigger decisions to the owner first); prompts start from [the session preamble](WORKSTATION_SESSION_PREAMBLE.md).
   Claude Code has no host-load hook; the S4U guard is its backstop. Use a short `--basetemp` there (Windows MAX_PATH).
 
 ## Current truth
