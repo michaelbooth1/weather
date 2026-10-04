@@ -216,6 +216,31 @@ Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
 
+## Staged test cuts: the quarantine marker
+
+A test is never deleted in one step. Removing a test that is believed redundant, trivial or brittle is staged:
+
+1. **Quarantine.** Mark it `@pytest.mark.quarantine(reason="...", sunset="YYYY-MM-DD", replaced_by="...")`.
+   `reason` is required; `sunset` is a required ISO date at most 90 days ahead; `replaced_by` (optional) names the
+   surviving test that still kills the same fault. A class-level marker applies to every method; stacking two
+   markers on one test is refused.
+2. **Observe.** A quarantined test is still collected and still runs everywhere (CI, the workstation, the bounded
+   suite). If it fails in setup or call, the run does not fail: the result becomes a non-strict xfail with the
+   quarantine reason, a `QuarantinedFailureWarning` is shown, the terminal report ends with a "quarantined tests"
+   section naming each failure, and the JUnit test case carries `quarantine` and `quarantine_failure` properties.
+   A teardown error stays fatal. Every quarantined failure must be triaged: a real defect means the test is
+   restored (marker removed), not deleted.
+3. **Delete or restore.** Deletion is an owner decision, taken only after at least two weeks of CI and at least
+   three bounded-suite runs with no real-defect failure. Once the sunset date has passed, collection fails with a
+   usage error naming the test (even under `--collect-only` or a `-k`/`-m` selection that would skip it), so a
+   quarantine cannot become permanent silently: delete the test with owner approval, remove the marker, or set a
+   newly reviewed sunset.
+
+[`tests/quarantine_plugin.py`](../tests/quarantine_plugin.py) implements the marker (registered in `pytest.ini`,
+loaded by `tests/conftest.py`); `tests/test_quarantine_marker.py` pins its behaviour. Never-cut families (safety,
+parity, settlement, release binding, architecture ratchets and the like) are not quarantined without the review
+that froze them.
+
 ## Stateful command boundaries
 
 The following categories require inspection before execution because they can
