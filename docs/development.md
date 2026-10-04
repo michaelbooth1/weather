@@ -50,7 +50,9 @@ package contract, and `requires-python` is `>=3.11`.
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
   check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
-  job `needs` it, so a ratchet failure stops the run before the long suite.
+  job `needs` it, so a ratchet failure stops the run before the long suite. The `test` job writes JUnit XML and
+  uploads it, pass or fail, as the `linux-junit-<head sha>-<run attempt>` artifact (30-day retention) for
+  per-test timing evidence.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,

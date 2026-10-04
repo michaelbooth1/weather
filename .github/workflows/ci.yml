@@ -85,4 +85,15 @@ jobs:
           pip install -e ".[test]"
 
       - name: Run Test Suite
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml "$RUNNER_TEMP/linux-junit.xml"
+
+      # Per-test timings for suite review and shard balancing. Uploaded even
+      # when tests fail so a failing run keeps its evidence.
+      - name: Upload JUnit Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-junit-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/linux-junit.xml
+          if-no-files-found: error
+          retention-days: 30
