@@ -618,7 +618,7 @@ def parse_nbp_station_tmax_v1(text: str, station_id: str, target_date: date | st
         "historical_archive_available": False,
         "exceedance_grid_available": False,
         "exceedance_status": "native_qmd_grid_or_band_edge_extraction_pending",
-        "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS[:-len(NBM_PROB_TMAX_PROVENANCE_COLUMNS)]),
+        "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS),
         "raw_station_block": "\n".join(block),
         "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
     }

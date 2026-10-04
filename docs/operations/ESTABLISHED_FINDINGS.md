@@ -3443,6 +3443,15 @@ for lack of live closure evidence, so production must run its own). Handback **P
   mission's ownership** (tool inventory entry, the admission test's exact-name set, the storage-class registration),
   and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
   ownership and asks for three stacked, individually green integration branches.
+- **Landing branch (2026-10-04, `codex/nbm-parser-v2-landing-20261004`, draft, not adopted):** the 83d layer-3
+  branch (83a + 83b Parts A and B, with the 82a trace bound to v1) merged onto current master as one branch.
+  **The 12Z/13Z/19Z rejection is correct.** On all 44 retained station blocks plus the 00Z/12Z controls, a
+  bulletin issued at 12Z or later starts with D+1's 12Z minimum, and its first 00Z maximum is D+1's. The window
+  for D opens at 12Z on D, so it is never published again
+  ([contract](nbm-target-period-contract.md#why-12z-13z-and-19z-bulletins-carry-no-maximum-for-the-issue-date)).
+  MG-1's "07Z all day" afternoon staleness is therefore structural to NBP. Fresher same-day guidance needs the
+  NBH/NBS products. The v1-trained shadow is quarantined, not re-versioned: NBM inputs are masked when the parser
+  regimes differ. Review also found and fixed a v1 replay regression: `live_only_fields` had dropped to 11 names.
 
 ### 10m. RE-1 live reward sessions 1-9 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
 

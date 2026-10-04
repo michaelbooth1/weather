@@ -99,15 +99,63 @@ candidate search across all local hours in standard and daylight time. Its
 candidate list emits unavailable healthy/fallback cycles and empty ages.
 Run this diagnostic through the workstation heavy-work wrapper.
 
-## Shadow input regime
+## Why 12Z, 13Z and 19Z bulletins carry no maximum for the issue date
 
-The owner-authorized NBM repair is an input-regime boundary for the active,
-headline-disabled, promotion-blocked legacy validation shadow. Its identity
-comes from the variant registry and trained selectors, not a new candidate.
-Rows on opposite sides of the parser boundary must never be pooled. The
-shadow continues under its existing restrictions; this repair does not retire,
-fit, promote or re-score it. A later forecast-effect question requires its own
-pre-registration on dates captured after adoption.
+This is the bulletin's structure, not a parser choice. The maximum for local
+date D is the 12Z-06Z window labelled 00Z on D+1; it opens at 12Z on D. NOAA's
+TXN rows start at the first period that has not begun at issue time:
+
+| Issue (UTC) | First TXN token | First 00Z maximum | Holds the issue date's maximum |
+| --- | --- | --- | --- |
+| 00Z, 01Z, 07Z | 00Z D+1 maximum (FHR 24 / 23 / 17) | 00Z D+1 | yes |
+| 12Z, 13Z, 19Z | 12Z D+1 minimum (FHR 24 / 23 / 17) | 00Z D+2 (tomorrow's) | no |
+
+From 12Z the window for D has already opened, so the product publishes D's
+minimum first and D+1's maximum next. All 44 retained 2026-09-17 station blocks
+(11 stations at 01/07/13/19Z) and the 00Z/12Z KLGA controls show this, pinned by
+`tests/sources/test_nbm_parser_v2_landing.py`. Parser version 1 took the first
+token, which is why it read the next morning's minimum (EF 10k). So
+`target_max_not_in_cycle` for D at 12Z/13Z/19Z is correct, and from 12Z the
+newest NBP guidance for today is the 07Z cycle, 5-24 hours old. Fresher
+same-day guidance needs another product (the hourly NBH/NBS station blocks), not
+a parser change.
+
+## Parser version identity
+
+`NBM_NBP_PARSER_V1` and `NBM_NBP_PARSER_V2` are the recorded labels. A v2 payload,
+its raw wrapper, the fetch metadata, the station archive and the feature
+diagnostic `nbm_prob_tmax_parser_version` (2.0) record the version. A v1 payload
+records none; replay reads an absent version as 1. The payload schema label
+(`nbm_probabilistic_tmax_v0.1`) is unchanged; the parser label is the
+discriminator.
+
+## Shadow input regime (quarantine)
+
+An artifact consumes `nbm_prob_tmax_*` values only from the parser version it
+was trained on ([`nbm_input_regime.py`](../../src/weather/model/nbm_input_regime.py)).
+An artifact that selects any NBM column and declares no
+`nbm_prob_tmax_parser_version` is version 1. Every tracked NBM-selecting
+artifact is version 1, including `feature_model_hgb_f_pooled_v0_3.pkl` behind the
+headline-disabled, promotion-blocked shadow
+`pooled_f_candidate_miami_current_fallback_v0_1`. When the row's recorded version
+differs, all 15 NBM inputs are set to missing before prediction. Missing is a
+state the artifact already saw in training (absent or floor-dropped guidance),
+and no v2 value reaches it. Both the live writer (`_pooled_candidate_replay_payload`,
+`trace_pooled_band_binary_probabilities`) and captured-input replay
+(`build_candidate_features`) apply the guard. An unknown row or artifact version
+fails closed. Live payloads and traces carry `nbm_input_regime`, and replay
+diagnostics count masked rows and values. Because the decision depends only on
+the stored feature row and the artifact, it is reproducible from captured
+evidence without a new tape column.
+
+This is a quarantine, not a re-version. A v2 re-version needs a refit on v2
+inputs: no fit is authorized and no v2 training corpus exists yet. Retiring the
+shadow would end its evidence. The shadow keeps running under its existing
+restrictions. It is not fitted, promoted or re-scored. A future artifact
+trained on v2 rows must declare `nbm_prob_tmax_parser_version: 2`, and it will then
+mask v1 rows the same way. Training assembly must still never pool rows from both
+sides of the boundary. A forecast-effect question needs its own pre-registration
+on dates captured after adoption.
 
 ## Update when
 
