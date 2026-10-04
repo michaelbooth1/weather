@@ -125,12 +125,14 @@ Net uses hazard times adverse loss times size, with no rebate credit. Its unit
 contract is a conservative upper bound on total band shares filled per minute;
 it must include either-leg exposure. No empirical hazard estimator ships here.
 
-`blind_re1` freezes 1.5-cent outward pricing, the [1,3]-cent hold window,
-20/30/50/75 sizes, one band and first-fill termination. Historical public quote
-fixtures prove **first-minute price parity only**. Per-leg replacement and the
-RE-1 five-requote limit are not reproduced; account, transport and full-minute
-runtime parity are not claimed. The attempt-1..12 replay skeleton is skipped
-until an authorized sanitized journal export is available.
+`blind_re1` freezes RE-1's 1.5-cent outward pricing, inclusive [1,3]-cent hold
+window, 20/30/50/75 sizes, one band and first-fill termination. Its resting
+observer has no share-floor pull; the informed 5% rule above does not apply.
+The offline lifecycle implements affected-leg cancel-then-post and ends before
+the fifth requote. Recorded fixtures match all 313 minute projections; terminal
+findings remain explicit strict xfails with an evidenced ledger. See the
+[replay contract](maker-replay-bundle.md#scoring) for timing, sizing, transport
+assumptions and the boundary between projected equality and full qualification.
 `inventory_action` is advisory hold/resting-sell/exit-review using the
 specified taker fee, not a live liquidation path.
 
@@ -152,10 +154,122 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
-The fictional replay lives in tests. Production evidence loading, portfolio
-accounting, venue/credential access, session control, fitted hazard estimation,
-weather and YouTube plugins, shadow scoring and live execution are later phases.
+## Weather adapter inputs
+
+The weather plugin supplies partition descriptors and exact zero stdev for
+decided 0/1 marginals. Scheduled METAR and model-cycle events expire ten minutes
+after their scheduled instant; detected model-cycle events expire ten minutes
+after fetch. New-high pulls and determined-band vetoes retain their original
+no-expiry behavior. Core windows/freshness and other admission checks still apply.
+
+Served T+0 joins require the bounded export to project `release_calibration_method`
+from the verified release's calibration artifact (`market_bin.method`) onto each
+matching source row. Missing or conflicting method evidence is unavailable;
+`market_shrink` returns `Unavailable(kind="out_of_scope")`. The method enters
+both model identity and input hash. This extra export field is not provided by
+the existing capture writer. T+1/T+2 estimators remain independent of market
+prices; T+0 is outside their frozen scoring protocol. See the
+[dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
+
+Portfolio accounting and saved-read orchestration are owned by the
+[portfolio ledger contract](portfolio-ledger.md). The additive
+[replay bundle contract](maker-replay-bundle.md) supplies a bounded neutral
+envelope reader, capture-time snapshots and a diagnostic-only CLI; scored
+replay and weather bundle export remain unfinished. The fictional decision
+replay lives in tests. Session control, fitted hazard estimation, YouTube
+plugins, shadow scoring and live execution are later phases. The weather
+adapters consume caller-supplied captured records without provider or filesystem IO.
+
+## Bounded weather plugin dry run
+
+`python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data>
+--output <new-dir> [--markets nyc chicago] [--max-seconds 2700]
+[--max-output-bytes 200000000] [--max-input-bytes 1073741824]
+[--max-cache-bytes 536870912] [--minute-stride 1]` is an offline diagnostic caller.
+Use the topic's installed packages, or set `PYTHONPATH` to its absolute `src` directory.
+The interpreter's `-B` is required for the no-writes-outside-output invocation:
+it suppresses import-cache writes even before the entrypoint loads.
+Production runs remain subject to the host-load lease and window.
+
+It reads only sealed `maker_evidence/<UTC-date>/<hh>-<segment>/` manifests and their
+discovery, books, reward journals and referenced book shards. Raw and gzip forms
+are supported; no status, temporary file, stream, venue or credential is read.
+Only consumed files are hash/size/offset/count verified against the seal.
+References are confined to the same manifest; unchanged bodies are verified
+against their canonical hash while retaining the new response's capture time.
+Each input is opened, read and closed before another input or policy evaluation.
+Redirected paths, arbitrary payload paths and output overlap with source trees refuse.
+
+For registered events, explicit supporting paths beneath `--data-root` are:
+
+- `snapshots/<event>/snapshots_long.csv[.gz]` for captured bands and probabilities;
+- `forecasts_long.csv[.gz]`, `snapshot_explanations.jsonl[.gz]`,
+  `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
+- `snapshots/<event>/clob_tokens.jsonl[.gz]`, else `clob_tokens.csv[.gz]`, for band
+  metadata before the event has point-in-time snapshot rows (T+1/T+2): the first complete
+  token batch (both outcomes of every condition, identical native bin fields, no negative
+  label) is streamed and the read stops there; a batch after the decision minute is a
+  reported coverage limit, never a guess;
+- shared NBP bulletins (`payload_storage_scope=shared_market_invariant`) at
+  `forecast_payload_cas/sha256/<prefix>/<payload_hash>.blob`, the path produced by the
+  store's own `shared_payload_ref`; the manifest's CAS kind, raw-bytes hash algorithm,
+  encoding, media type, ref and station/target identity are checked, and the SHA-256 and
+  byte count cover the exact national blob bytes (strict UTF-8). Each blob is streamed
+  once per run and only requested station blocks are kept; the provider receives the
+  verified station extract with the national hash as lineage. Legacy market-local rows
+  still use `forecast_payloads/sha256/<prefix>/<payload_hash>.json[.gz]` (hash over the
+  JSON bytes without the trailing newline). `raw_payload_path` is never followed;
+- `snapshots/observation_triggers.jsonl[.gz]` and `settlements/<market>/ledger.jsonl[.gz]`,
+  each streamed once per run and indexed by run-window event.
+
+The source manifests supply release lineage; the runner never manufactures the
+missing `release_calibration_method` projection or reads ambient model artifacts.
+All provider joins are point-in-time. A payload's first manifest capture also
+bounds its availability. Missing joins produce explicit coverage/Unavailable
+reasons; corrupt NBP or clock inputs cannot silently become fallback or an empty clock.
+Append/change during a file read refuses that input. Whole-file reads (the per-event
+tables above) above 64 MiB decoded or 100,000 rows refuse with a reported input reason;
+decoded segment bodies and the per-segment journal cache each have a 64 MiB limit.
+Streamed files (tokens, triggers, ledgers, shared blobs) keep one 1 MiB line in memory
+and at most 100,000 retained rows. Rows that cannot be point in time for any minute of
+the run date are not loaded: anything captured/recorded after the date, and forecast
+or NBP manifest rows more than 48 hours before it (a daily-high forecast or NBP issue
+is eligible for at most 24 hours after issue, and issue precedes capture).
+
+Each event's supporting inputs are loaded once per run and kept within
+`--max-cache-bytes` (encoded rows); over-budget events are reloaded and counted
+(`cache.*`). Providers are built once per cached event. Each segment is indexed once,
+so a minute reads no files. Coverage reports `input_bytes.<source>` and
+`files_read.<source>` for every source, and `unavailable.lead<N>.<reason>` by local lead.
+`--minute-stride N` evaluates only UTC minutes of the day divisible by N; it is recorded
+in the summary and counted as `segment_minutes.skipped_by_stride`.
+
+The last books capture in each segment's minute is the decision clock. Split
+minutes across segment boundaries are explicitly flagged, not silently deduplicated.
+Each discovered active band gets a descriptor attempt; missing both-token rules
+do not erase valid siblings. 88a books only its selected, reward-eligible bands
+(at most ten per city), judged on the UTC date; a band with no captured book is
+`descriptor:book_not_captured`, a capture coverage limit rather than an input fault. The JSON and Markdown contain available probability
+mass sums, expected/available bands, partial-mass flags, joins, provider refusals,
+clock events (JSON), settlement Pending/facts, policy reasons and leg counts.
+Not-evaluable inputs are counted separately from a policy decision with zero legs.
+
+`informed_v0` supplies profile name `informed-v0`. Every decision is independent
+with disclosed hypothetical 100-unit caps, empty inventory and no resting orders.
+This is not a portfolio replay. The default hazard is None: 88a supplies no
+measured conservative fill bound, so `MISSING_CONSERVATIVE_FILL_BOUND` is expected
+unless an earlier gate refuses. Optional `--hypothetical-hazard-per-minute`
+is an explicit synthetic control passed unchanged to the policy, never a fitted
+estimate or live authority. Book and reward capture clocks are preserved.
+
+`report.json` and `report.md` are create-only in a new/empty output directory.
+The combined final byte count includes both files; 32 KiB is reserved for their
+terminal summary, and output caps below 64 KiB are rejected before writing.
+Input bytes count decompressed reads including rereads. Time checks run between
+bounded reads/records/provider calls; terminal report flushing can add overhead.
+Time/input/output cap stops leave valid partial reports. Exit 0 means processing
+completed (coverage gaps may still exist); exit 2 means partial, input error,
+no event-minute coverage or invalid invocation. No score, fill or edge is inferred.
 
 ## Update when
 
