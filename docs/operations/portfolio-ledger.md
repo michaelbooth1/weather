@@ -27,7 +27,7 @@ directory. Exit 0 means a complete reconciled book; 2 means a recorded INCOMPLET
 book; 1 means invalid input or a refused write. An incomplete record is evidence,
 not permission to trade. Output cannot be within the snapshot directory.
 
-Optional `--reader-url http://192.168.1.106:8765 --client-config
+Optional `--reader-url http://192.0.2.10:8765 --client-config
 .\config\local\wallet_reader_client.json` adds two fixed GETs: summary with resolved
 rows and trades since the earliest campaign start. The existing token file must
 contain that same literal RFC1918 IPv4 URL and a 64-hex bearer token. No DNS/public

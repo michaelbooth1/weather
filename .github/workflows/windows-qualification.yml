@@ -15,6 +15,47 @@ concurrency:
 
 jobs:
   native-launch:
+    # Sharded so the slowest file (test_status_script.py, ~8 min alone) no longer
+    # serialises the whole job. Shards are balanced from JUnit timings; every
+    # listed file runs in exactly one shard, and the status script is split by a
+    # -k expression and its complement so a new test there cannot be skipped.
+    name: native-launch (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: status-evidence
+            select: invalid_reconciliation_evidence
+            files: >-
+              tests/operations/test_status_script.py
+          - shard: status-rest
+            select: not invalid_reconciliation_evidence
+            files: >-
+              tests/operations/test_status_script.py
+              tests/operations/test_health_watchdog_script.py
+              tests/operations/test_ops_alarm_path.py
+          - shard: archive
+            select: ''
+            files: >-
+              tests/operations/test_production_cold_archive_wrapper.py
+              tests/operations/test_cold_archive_reclaim.py
+              tests/operations/test_cold_snapshot_compression_wrapper.py
+          - shard: launch
+            select: ''
+            files: >-
+              tests/operations/test_integration_phase_output.py
+              tests/operations/test_windows_job_output_capture.py
+              tests/operations/test_integration_launch_diagnostics.py
+              tests/operations/test_bounded_worktree_test_suite_script.py
+              tests/operations/test_integration_attempt_scripts.py
+              tests/operations/test_integration_attempt_registration_safety.py
+              tests/operations/test_integration_attempt_evidence_recovery_hardening.py
+              tests/operations/test_storage_recovery_inventory_wrapper.py
+              tests/operations/test_replay_cache_compression_wrapper.py
+              tests/operations/test_live_wrapper_credential_launcher.py
+              tests/collection/test_forecast_payload_cross_process_fanout.py
+              tests/operations/test_ops_script_ratchets.py
+              tests/operations/test_maker_replay_exam_step_script.py
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -23,6 +64,9 @@ jobs:
     env:
       PYTHONUTF8: '1'
       EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SHARD: ${{ matrix.shard }}
+      SHARD_FILES: ${{ matrix.files }}
+      SHARD_SELECT: ${{ matrix.select }}
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -63,7 +107,10 @@ jobs:
       - name: Run native launch and integration regressions
         id: native
         run: |
-          python -m pytest -q tests/operations/test_integration_phase_output.py tests/operations/test_windows_job_output_capture.py tests/operations/test_integration_launch_diagnostics.py tests/operations/test_bounded_worktree_test_suite_script.py tests/operations/test_integration_attempt_scripts.py tests/operations/test_integration_attempt_registration_safety.py tests/operations/test_integration_attempt_evidence_recovery_hardening.py tests/operations/test_cold_snapshot_compression_wrapper.py tests/operations/test_storage_recovery_inventory_wrapper.py tests/operations/test_replay_cache_compression_wrapper.py tests/operations/test_production_cold_archive_wrapper.py tests/operations/test_live_wrapper_credential_launcher.py tests/operations/test_cold_archive_reclaim.py tests/collection/test_forecast_payload_cross_process_fanout.py tests/operations/test_ops_script_ratchets.py tests/operations/test_ops_alarm_path.py tests/operations/test_status_script.py tests/operations/test_health_watchdog_script.py --junitxml "$env:RUNNER_TEMP/reliability-windows-junit.xml"
+          $pytestArgs = @('-m', 'pytest', '-q') + @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
+          if ($env:SHARD_SELECT) { $pytestArgs += @('-k', $env:SHARD_SELECT) }
+          $pytestArgs += @('--junitxml', "$env:RUNNER_TEMP/reliability-windows-junit.xml")
+          python @pytestArgs
           if ($LASTEXITCODE -ne 0) { throw 'Native qualification failed.' }
 
       - name: Retain qualification identity
@@ -84,6 +131,9 @@ jobs:
           $receipt = [ordered]@{
             format_version = 1
             scope = 'native_launch_regressions_only'
+            shard = $env:SHARD
+            shard_files = @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
+            shard_select = $env:SHARD_SELECT
             production_adoption_authorized = $false
             candidate_commit = $actual
             expected_candidate_commit = $env:EXPECTED_CANDIDATE_SHA
@@ -110,7 +160,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: native-windows-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          name: native-windows-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/reliability-windows-junit.xml
             ${{ runner.temp }}/reliability-windows-qualification.json
