@@ -128,6 +128,7 @@ ENTRIES = {
     "ladder_parity": ("ladder", "run_rungs"),
     "t3_baselines": ("t3", "main_sensitivity"),
     "t13_neighbour_anomaly": ("t13", "main"),
+    "d_rung1c": ("d-rung1c", "main_score"),
 }
 
 

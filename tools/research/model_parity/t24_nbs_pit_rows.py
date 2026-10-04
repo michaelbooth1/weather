@@ -6,6 +6,8 @@ Bases (per blend_nbstx object):
   B1  T24's own HEAD Last-Modified, re-measured 2026-10-04 (s3_remeasure.jsonl)
   B2  B1 + 5 min   (realistic production poll / ingest latency)
   B3  B1 + 15 min
+  B5  counterfactual, late objects only: objects > 30 min over their cycle-hour median moved to that median
+      (28 objects; 13 of them are the 2026-09-24 00-12Z S3 backlog). NOT PIT-admissible either.
   B4  counterfactual "on time": min(B1, cycle + that cycle-hour's median lag) -- NOT PIT-admissible
       (no first-availability evidence exists for re-uploaded objects; bucket unversioned). Upper bound of
       what the conservative basis can be costing.
@@ -48,7 +50,8 @@ def maps():
                         for k, v in m1.items()], columns=["hh", "lag"])
     med = lag.groupby("hh").lag.median()
     m4 = {k: min(v, pd.Timestamp(k[0], tz="UTC") + pd.Timedelta(hours=k[1]) + med[k[1]]) for k, v in m1.items()}
-    bases = {"B0": (m0, 0), "B1": (m1, 0), "B2": (m1, 5), "B3": (m1, 15), "B4": (m4, 0)}
+    m5 = {k: (m4[k] if (m1[k] - m4[k]) > pd.Timedelta(minutes=30) else v) for k, v in m1.items()}
+    bases = {"B0": (m0, 0), "B1": (m1, 0), "B2": (m1, 5), "B3": (m1, 15), "B4": (m4, 0), "B5": (m5, 0)}
     diff01 = sum(1 for k in m0 if m0[k] != m1[k])
     moved4 = {f"{k[0]} {k[1]:02d}Z": round((m1[k] - m4[k]).total_seconds() / 60, 1) for k in m1 if m4[k] < m1[k]}
     return bases, diff01, moved4, med
@@ -121,11 +124,11 @@ def main():
         print(b, summary["changes_vs_B0"][b]["any"], flush=True)
     cyc0 = cyc["B0"]
     params, _ = t6.fit_r3(t6.load_cycles(0)[0])
-    for b in ("B0", "B1", "B4"):
+    for b in ("B0", "B1", "B4", "B5"):
         stop()
         for rid, prm in (("t6-r2", None), ("t6-r3", params)):
             cand, modes, ages = t6.build_candidate("r2", cyc[b], s, bands, prm)
-            if b != "B4":
+            if b not in ("B4", "B5"):
                 t6.full_pit_check(cyc[b], s, "r2")
             res = h.score(cand, name=f"t24_{rid.replace('-', '_')}_{b}")
             assert res["rows_with_target_after_2026_09_29"] == 0
