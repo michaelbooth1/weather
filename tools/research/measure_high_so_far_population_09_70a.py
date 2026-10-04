@@ -14,6 +14,8 @@ workstation checkout.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -138,7 +140,7 @@ def relative(path: Path, root: Path) -> str:
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -177,7 +179,7 @@ def load_roster(repo_root: Path, seed: dict[str, Any]) -> tuple[dict[tuple[str, 
 
 
 def first_csv_row(path: Path) -> dict[str, str] | None:
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return next(csv.DictReader(handle), None)
 
 
@@ -190,7 +192,7 @@ def discover_folders(
     require(snapshot_root.is_dir(), f"snapshot root missing: {snapshot_root}")
     discovered: dict[tuple[str, str], Path] = {}
     for folder in sorted(snapshot_root.iterdir(), key=lambda path: path.name):
-        features_path = folder / "features_long.csv"
+        features_path = projection_source(folder / "features_long.csv")
         if not features_path.is_file():
             continue
         first = first_csv_row(features_path)
@@ -259,7 +261,7 @@ def load_features(
     duplicate_capture_key_rows = Counter()
     for key in sorted(folders):
         market_day = roster[key]
-        path = folders[key] / "features_long.csv"
+        path = projection_source(folders[key] / "features_long.csv")
         raw_rows = read_csv(path)
         scoped = []
         for file_index, row in enumerate(raw_rows):

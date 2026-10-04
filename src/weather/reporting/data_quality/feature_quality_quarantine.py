@@ -8,6 +8,8 @@ and promotion eligibility.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -82,9 +84,9 @@ CSV_FIELDS = [
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
@@ -572,8 +574,8 @@ def audit_folder_feature_quality_from_rows(
 def audit_folder_feature_quality(folder):
     folder = Path(folder)
     context = folder_context(folder)
-    feature_rows = read_csv_rows(folder / FEATURES_LONG)
-    snapshot_rows = read_csv_rows(folder / SNAPSHOTS_LONG)
+    feature_rows = read_csv_rows(projection_source(folder / FEATURES_LONG))
+    snapshot_rows = read_csv_rows(projection_source(folder / SNAPSHOTS_LONG))
     rows = []
     rows.extend(feature_rows_for_folder(folder, context, feature_rows))
     rows.extend(

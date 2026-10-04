@@ -7,6 +7,8 @@ Polymarket temperature bands on the same rows used by the model/market tapes.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -48,9 +50,9 @@ DEFAULT_QUALITY_GRADES = ("complete", "manual_override", "partial")
 
 def _read_csv(path: str | Path) -> list[dict[str, str]]:
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -107,7 +109,7 @@ def is_nbm_us_market(spec: Any) -> bool:
 
 
 def _feature_index(folder: str | Path) -> tuple[dict[str, dict[str, str]], dict[str, Any]]:
-    rows = _read_csv(Path(folder) / "features_long.csv")
+    rows = _read_csv(projection_source(Path(folder) / "features_long.csv"))
     index = {}
     schema_versions = Counter()
     nbm_rows = 0
@@ -298,7 +300,7 @@ def score_folder(
 
     features, feature_summary = _feature_index(folder)
     payload_summary = _payload_summary(folder)
-    snapshots = _read_csv(folder / "snapshots_long.csv")
+    snapshots = _read_csv(projection_source(folder / "snapshots_long.csv"))
     settlement_bucket = _safe_int(settlement.get("settlement_bucket"))
     skip_reasons: Counter[str] = Counter()
     rows: list[dict[str, Any]] = []

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_glob, projection_source
+
 import argparse
 import csv
 import json
@@ -35,10 +37,10 @@ def read_json(path, default=None):
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
     try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
             return list(csv.DictReader(handle))
     except OSError:
         return []
@@ -179,7 +181,7 @@ def snapshot_runtime_segments(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date
     scanned_total = 0
     included_by_provenance = Counter()
     excluded_by_reason = Counter()
-    for path in sorted(root.glob("*/snapshots_long.csv")):
+    for path in sorted(projection_glob(root, '*/snapshots_long.csv')):
         folder_target_date = date_from_event_slug(path.parent.name)
         for row in read_csv_rows(path):
             scanned_total += 1

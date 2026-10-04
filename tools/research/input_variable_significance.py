@@ -12,6 +12,8 @@ scores feature value in several complementary ways:
 
 from __future__ import annotations
 
+from weather.projection_io import projection_source, read_projection_frame
+
 import argparse
 import json
 import math
@@ -212,14 +214,14 @@ def load_feature_records(folder: Path) -> tuple[pd.DataFrame, str, str]:
         if records:
             return pd.DataFrame(records), "features.jsonl", ""
 
-    csv_path = folder / "features_long.csv"
+    csv_path = projection_source(folder / "features_long.csv")
     if not csv_path.exists():
         return pd.DataFrame(), "missing", "no feature tape"
     try:
-        return pd.read_csv(csv_path), "features_long.csv", ""
+        return read_projection_frame(csv_path), "features_long.csv", ""
     except Exception as exc:
         try:
-            frame = pd.read_csv(csv_path, engine="python", on_bad_lines="skip")
+            frame = read_projection_frame(csv_path, engine="python", on_bad_lines="skip")
             return frame, "features_long.csv:on_bad_lines_skip", str(exc)
         except Exception as fallback_exc:
             return pd.DataFrame(), "unreadable", f"{exc}; fallback={fallback_exc}"

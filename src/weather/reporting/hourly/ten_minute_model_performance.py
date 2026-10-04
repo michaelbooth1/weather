@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -978,10 +980,10 @@ def candidate_capture_minute(row: dict[str, Any]) -> int | None:
 
 
 def read_candidate_checkpoint_rows(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
     selected: dict[tuple[Any, ...], dict[str, Any]] = {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for source in reader:
             captured = parse_time(source.get("captured_at_local"))

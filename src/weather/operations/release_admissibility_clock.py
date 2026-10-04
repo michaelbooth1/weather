@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -158,7 +160,7 @@ def _iter_csv(path: Path, *, role: str, max_bytes: int) -> Iterable[tuple[int, d
     previous_limit = csv.field_size_limit()
     csv.field_size_limit(MAX_CSV_FIELD_BYTES)
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle, strict=True)
             if not reader.fieldnames or any(not str(name or "").strip() for name in reader.fieldnames):
                 raise AdmissibilityBlock(f"{role}_invalid_header", f"{role} has an invalid header: {path}")
@@ -172,7 +174,7 @@ def _iter_csv(path: Path, *, role: str, max_bytes: int) -> Iterable[tuple[int, d
                 yield row_number, dict(row)
     except AdmissibilityBlock:
         raise
-    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+    except (OSError, UnicodeDecodeError, csv.Error, ValueError) as exc:
         raise AdmissibilityBlock(f"{role}_invalid", f"{role} cannot be parsed strictly: {path}: {exc}") from exc
     finally:
         csv.field_size_limit(previous_limit)
@@ -339,7 +341,7 @@ def _scan_features(
     snapshot_contexts: Mapping[str, Mapping[str, str]],
     item: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]], int, dict[str, Any] | None]:
-    path = folder / "features_long.csv"
+    path = projection_source(folder / "features_long.csv")
     if not path.exists():
         return [], {}, 0, None
     item = item or _input(
@@ -608,19 +610,19 @@ def grade_market_day(
             item=sidecar_item,
         )
         snapshot_item = _input(
-            folder / "snapshots_long.csv",
+            projection_source(folder / "snapshots_long.csv"),
             role="snapshot_tape",
             max_bytes=MAX_SNAPSHOT_BYTES,
         )
         inputs.append(snapshot_item)
         snapshot_contexts, snapshot_rows, band_count, snapshot_item = _scan_snapshot_tape(
-            folder / "snapshots_long.csv",
+            projection_source(folder / "snapshots_long.csv"),
             target_date=date_text,
             event_slug=event_slug,
             label=label,
             item=snapshot_item,
         )
-        feature_path = folder / "features_long.csv"
+        feature_path = projection_source(folder / "features_long.csv")
         feature_item = (
             _input(
                 feature_path,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source, projection_glob
+
 import csv
 import statistics
 from collections import Counter, defaultdict
@@ -201,7 +203,7 @@ def pct(part, total):
 
 def parse_snapshot_times(path):
     times = {}
-    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(Path(path), "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             sid = row.get("snapshot_id")
             ts = row.get("captured_at_local")
@@ -225,7 +227,7 @@ def scan_snapshot_csv(path):
     nonempty = {}
     market_rows_with_token = 0
     fields = []
-    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(Path(path), "r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         fields = list(reader.fieldnames or [])
         for field in fields:
@@ -752,7 +754,7 @@ def sidecar_eligibility_for_folder(row, *, settled_scope_ready=False, active_day
 
 def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
     folder = Path(folder)
-    path = folder / SNAPSHOT_LONG
+    path = projection_source(folder / SNAPSHOT_LONG)
     spec = spec_for_slug(folder.name)
     target_date = date_from_event_slug(folder.name)
     times, gaps = parse_snapshot_times(path)
@@ -767,7 +769,7 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
     except Exception as exc:  # noqa: BLE001 - audit should survive one bad tape
         coverage = {"clean": False, "reason": f"{type(exc).__name__}: {exc}"}
     artifact_presence = {
-        name: (folder / filename).exists()
+        name: projection_source(folder / filename).exists()
         for name, filename in SNAPSHOT_OPTIONAL_ARTIFACTS.items()
     }
     offsite = {record["path"]: record for record in archived_inputs(folder)}
@@ -812,7 +814,7 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
 
 
 def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0, tolerance=1.5):
-    folders = sorted(Path(snapshots_root).glob(f"*/{SNAPSHOT_LONG}"))
+    folders = sorted(projection_glob(Path(snapshots_root), f"*/{SNAPSHOT_LONG}"))
     folder_rows = [
         snapshot_folder_audit(path.parent, interval_minutes=interval_minutes, tolerance=tolerance)
         for path in folders

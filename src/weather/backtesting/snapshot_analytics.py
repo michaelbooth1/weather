@@ -1,3 +1,5 @@
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import math
 import re
@@ -75,7 +77,7 @@ def analyze_snapshot_folder(
     write_plots=True,
 ):
     folder = Path(folder_path)
-    csv_path = folder / "snapshots_long.csv"
+    csv_path = projection_source(folder / "snapshots_long.csv")
     if not csv_path.exists():
         print(f"No snapshots_long.csv found in {folder}")
         return None
@@ -131,7 +133,7 @@ def analyze_snapshot_folder(
 
 
 def load_snapshot_frame(csv_path):
-    df = pd.read_csv(csv_path)
+    df = read_projection_frame(csv_path)
     missing = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing:
         raise ValueError(f"{csv_path} is missing required columns: {', '.join(missing)}")
@@ -828,7 +830,7 @@ def discover_snapshot_folders(root):
         return []
     return sorted(
         path for path in root.iterdir()
-        if path.is_dir() and (path / "snapshots_long.csv").exists()
+        if path.is_dir() and (projection_source(path / "snapshots_long.csv")).exists()
     )
 
 

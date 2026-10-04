@@ -5,6 +5,8 @@ It is deliberately separate from live inference: it can compare the deployed
 weather model, market price, simple context priors, and any component
 probability tapes persisted by snapshot_tracker.
 """
+
+from weather.projection_io import open_projection, projection_source, read_projection_frame
 import argparse
 import csv
 import math
@@ -77,10 +79,10 @@ def component_key(row):
 
 def load_component_probabilities(folder):
     path = Path(folder) / "components_long.csv"
-    if not path.exists():
+    if not projection_source(path).exists():
         return {}
     out = defaultdict(dict)
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             probability = row.get("component_probability")
             if probability in (None, ""):
@@ -108,7 +110,7 @@ def load_scored_rows(
     metadata = []
     for folder in folders:
         folder = Path(folder)
-        tape = folder / "snapshots_long.csv"
+        tape = projection_source(folder / "snapshots_long.csv")
         if not tape.exists():
             continue
         label = load_market_day_label(folder)
@@ -121,7 +123,7 @@ def load_scored_rows(
                 "reason": "quality filtered",
             })
             continue
-        frame = pd.read_csv(tape)
+        frame = read_projection_frame(tape)
         target_date = date_from_event_slug(folder.name)
         settlement, source, note = settlement_for_tape(frame, target_date, daily_index, {})
         scored, _, _, _ = backtest_tape(frame, settlement, [0.05], target_date=target_date)

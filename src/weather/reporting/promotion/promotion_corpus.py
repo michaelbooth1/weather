@@ -6,6 +6,8 @@ to score, plus hashes of both the market tape rows and replay inputs. Replaying
 against a manifest means a later folder append, label refresh, or replay-input
 rewrite cannot silently change the gate.
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import hashlib
 import json
@@ -168,7 +170,7 @@ def _entry_for_folder(
     input_loader=None,
 ):
     folder = Path(folder)
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     if not tape.exists():
         return None, "missing_tape"
     spec = spec_for_slug(folder.name)
@@ -259,7 +261,7 @@ def _entry_for_folder(
         return None, f"quality:{grade or 'missing'}"
 
     if input_loader is None:
-        frame = pd.read_csv(tape)
+        frame = read_projection_frame(tape)
         records = index_records_by_snapshot(load_replay_records(folder))
     tape_snapshot_ids = _ordered_snapshot_ids(frame)
     pinned_snapshot_ids = []

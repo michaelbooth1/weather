@@ -1,6 +1,8 @@
 """Price-free settled model diagnostics for inactive or no-market days."""
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_glob, projection_source
+
 import argparse
 import csv
 import json
@@ -126,9 +128,9 @@ def timestamp_key(row):
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -158,7 +160,7 @@ def discover_labeled_folders_bounded(
     else:
         candidates = (
             (label_from_folder(tape.parent), str(tape))
-            for tape in snapshots_root.glob("*/snapshots_long.csv")
+            for tape in projection_glob(snapshots_root, '*/snapshots_long.csv')
         )
 
     for row, tie_sort in candidates:
@@ -189,7 +191,7 @@ def discover_labeled_folders_bounded(
             skipped["end_date"] += 1
             continue
         folder = label_folder(row, snapshots_root)
-        tape = folder / "snapshots_long.csv" if folder else None
+        tape = projection_source(folder / "snapshots_long.csv") if folder else None
         if tape is None or not tape.exists():
             skipped["missing_tape"] += 1
             continue
@@ -386,7 +388,7 @@ def attach_raw_drivers(scoring_row, raw_row):
 
 def score_folder(folder, label):
     folder = Path(folder)
-    tape = folder / "snapshots_long.csv"
+    tape = projection_source(folder / "snapshots_long.csv")
     tape_rows = read_csv_rows(tape)
     slug = label.get("event_slug") or folder.name
     spec = spec_for_slug(slug)

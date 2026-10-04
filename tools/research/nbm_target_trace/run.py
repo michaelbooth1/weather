@@ -5,6 +5,8 @@ the frozen export. Nothing here imports a scorer or constructs probabilities.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 from datetime import date, datetime, timedelta, timezone
@@ -267,7 +269,7 @@ def recover_quantiles(features):
 def t2(root, input_path, raw, cache=None):
     json.loads((root / "t1/receipt.json").read_text())
     out = root / "t2"
-    if out.exists():
+    if projection_source(out).exists():
         raise ValueError("T2 already retained")
     if sha(input_path / "snapshots.jsonl") != SNAPSHOT_HASH:
         raise ValueError("79a snapshot hash mismatch")
@@ -275,9 +277,9 @@ def t2(root, input_path, raw, cache=None):
     folders = {(r["market"], r["date"]): r["folder"] for r in audit if r.get("promotion_countable")}
     reasons, raw_hashes = {}, {}
     for folder in sorted(set(folders.values())):
-        path = raw / folder / "features_long.csv"
+        path = projection_source(raw / folder / "features_long.csv")
         raw_hashes[folder] = sha(path)
-        with path.open(encoding="utf-8-sig", newline="") as f:
+        with open_projection(path, encoding="utf-8-sig", newline="") as f:
             for row in csv.DictReader(f):
                 reasons[(folder, row["snapshot_id"])] = row.get("guidance_impossible_features", "")
     print(json.dumps(dict(stage="T2", reason_files=len(raw_hashes))), flush=True)
@@ -295,7 +297,7 @@ def t2(root, input_path, raw, cache=None):
             target = (datetime.fromisoformat(cell["valid_time_utc"]) - timedelta(days=1)).date().isoformat()
             signatures.setdefault((station, target), []).append((issued, cell))
     result = []
-    with (input_path / "snapshots.jsonl").open() as f:
+    with open_projection(input_path / "snapshots.jsonl") as f:
         for line in f:
             s = json.loads(line)
             if s["market"] == "toronto":

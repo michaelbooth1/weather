@@ -27,6 +27,8 @@ CLI:
       [--out data/backtest/forecast_vs_realized.md]
       [--json-out data/backtest/forecast_vs_realized.json]
 """
+
+from weather.projection_io import projection_source, read_projection_frame
 import argparse
 import json
 import statistics
@@ -149,10 +151,10 @@ def median_bucket(rows, prob_key):
 
 def day_record(folder, cutoff_hour, daily_index, overrides):
     """One forecast-vs-realized record for a settled day at a cutoff (or None)."""
-    tape = Path(folder) / "snapshots_long.csv"
+    tape = projection_source(Path(folder) / "snapshots_long.csv")
     if not tape.exists():
         return None
-    frame = pd.read_csv(tape)
+    frame = read_projection_frame(tape)
     target_date = date_from_event_slug(Path(folder).name)
     settlement, source, note = settlement_for_tape(frame, target_date, daily_index, overrides)
     if settlement is None:

@@ -8,6 +8,8 @@ only the remaining afternoon center error.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -66,16 +68,16 @@ def band_midpoint(row):
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
 def features_by_snapshot(folder):
     return {
         row.get("snapshot_id"): row
-        for row in read_csv_rows(Path(folder) / "features_long.csv")
+        for row in read_csv_rows(projection_source(Path(folder) / "features_long.csv"))
         if row.get("snapshot_id")
     }
 
@@ -119,7 +121,7 @@ def residual_rows_from_folder(folder):
     target_date = str(label.get("target_date") or date_from_event_slug(folder.name) or "")
     features = features_by_snapshot(folder)
     grouped = defaultdict(list)
-    for row in read_csv_rows(folder / "snapshots_long.csv"):
+    for row in read_csv_rows(projection_source(folder / "snapshots_long.csv")):
         snapshot_id = row.get("snapshot_id")
         if snapshot_id:
             grouped[snapshot_id].append(row)

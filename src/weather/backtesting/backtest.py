@@ -21,6 +21,8 @@ CLI:
       [--fixed-cutoffs 9,10,12,13,15,16,17,18,20]
       [--out data/backtest/backtest_report.md]
 """
+
+from weather.projection_io import projection_glob, projection_source, read_projection_frame
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -512,11 +514,11 @@ def run_backtest(
     per_market_daily_indexes = {}
 
     for folder in folders:
-        tape = Path(folder) / "snapshots_long.csv"
+        tape = projection_source(Path(folder) / "snapshots_long.csv")
         if not tape.exists():
             print(f"  skip {folder}: no snapshots_long.csv")
             continue
-        df = pd.read_csv(tape)
+        df = read_projection_frame(tape)
         slug = Path(folder).name
         target_date = date_from_event_slug(slug)
         label = load_market_day_label(Path(folder))
@@ -641,7 +643,7 @@ def main():
     folders = args.folders
     if not folders:
         root = Path(args.snapshots_root)
-        folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
+        folders = sorted(str(p.parent) for p in projection_glob(root, '*/snapshots_long.csv'))
     if not folders:
         print("No snapshot tapes found.")
         return

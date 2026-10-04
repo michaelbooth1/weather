@@ -23,6 +23,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.projection_io import projection_source
 
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
@@ -90,7 +91,7 @@ def discover_settled_folders(
             continue
         if target_date >= cutoff:          # today or future: not settled yet
             continue
-        if not (child / required_file).exists():
+        if not projection_source(child / required_file).exists():
             continue
         found.append((target_date, child))
     return [folder for _, folder in sorted(found, key=lambda item: item[0])]

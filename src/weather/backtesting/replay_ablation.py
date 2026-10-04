@@ -23,6 +23,8 @@ CLI:
       [--sources open_meteo,weather_forecast,...] [--include-reconstructed]
       [--out data/backtest/replay_ablation_report.md]
 """
+
+from weather.projection_io import projection_glob, projection_source, read_projection_frame
 import argparse
 from collections import defaultdict
 from datetime import datetime
@@ -167,7 +169,7 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
 
     for folder in folders:
         folder = Path(folder)
-        tape_path = folder / "snapshots_long.csv"
+        tape_path = projection_source(folder / "snapshots_long.csv")
         if not tape_path.exists():
             continue
         market_id = folder_market_id(folder)
@@ -194,7 +196,7 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
             )
         model = models[market_id]
 
-        df = pd.read_csv(tape_path)
+        df = read_projection_frame(tape_path)
         if "snapshot_id" not in df:
             continue
         target_date = date_from_event_slug(folder.name)
@@ -516,7 +518,7 @@ def main():
     folders = args.folders
     if not folders:
         root = Path(args.snapshots_root)
-        folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
+        folders = sorted(str(p.parent) for p in projection_glob(root, '*/snapshots_long.csv'))
     if args.market:
         folders = [f for f in folders if folder_market_id(f) == args.market]
     if not folders:

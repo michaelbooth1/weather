@@ -18,6 +18,48 @@
 The original exact-request lane is attended. The separately registered nightly
 mode below selects its own bounded batches under an expiring approved policy.
 
+## Token tapes after close
+
+`cold_snapshot_compression_run.ps1 -CompressOnClose` selects the separate
+`weather.operations.compress_on_close` policy. It processes `clob_tokens.jsonl`
+before `clob_tokens.csv`, after each market's local calendar day ends and the
+file has been unchanged for two hours. The CLOB raw-tape writer lock and native
+handle exclusion must both succeed. This is a close-time maintenance pass,
+outside the capture loop; schedule registration is not part of this change.
+
+The handle verifier is shared with the ordinary lane and mission 91a. Its
+default remains 64 MiB; this lane explicitly opts into 256 MiB, at most 32 files
+and one GiB per invocation, with a 50 GiB free-space floor. Every file, path,
+logical byte, hash and timestamp stays in place. All existing token readers
+therefore continue using ordinary CSV/JSONL reads. No event-day manifest
+backfill is required for retained-byte NTFS compression. A manifest does not
+replace writer exclusion or the before/after identity and hash proof.
+
+The exact `compress_on_close_policy` fields are `schema_version` (resolve from
+the registry), `production_repo_root`, `execution_host_id`, `approved_by`,
+`approved_at_utc`, `expires_at_utc`, `operation=compress_and_retain`, and
+`max_bytes`. The named owner approval must be current, at most 31 days long,
+and bind the actual capture host. It authorizes only this fixed token-file
+selection. Review a dry-run attempt before applying with a new output folder.
+The existing wrapper keeps its 600-second deadline, source-tip binding,
+shared lease, capture health checks, protected windows and child-tree teardown.
+
+```powershell
+$repo = (Resolve-Path .).Path
+$tip = (git rev-parse HEAD).Trim()
+$request = Join-Path $repo 'scratch/compress-on-close-approved.json'
+$hash = (Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant()
+.\scripts\ops\cold_snapshot_compression_run.ps1 -CompressOnClose -ProductionRepoRoot $repo -RequestPath $request -RequestSha256 $hash -ExpectedSourceTip $tip -OutputRoot (Join-Path $repo 'scratch/cold_snapshot_compression/close-plan-01')
+.\scripts\ops\cold_snapshot_compression_run.ps1 -CompressOnClose -Apply -ProductionRepoRoot $repo -RequestPath $request -RequestSha256 $hash -ExpectedSourceTip $tip -OutputRoot (Join-Path $repo 'scratch/cold_snapshot_compression/close-apply-01')
+```
+
+Keep every before/after and wrapper receipt. Stop and inspect any failed or
+interrupted attempt; a later pass skips already compressed files and never
+claims unverified savings. This mode rejects daytime exceptions and cannot be
+combined with `-VerifyRetained`. The original exact-inventory lane below is
+unchanged. The paired [projection reader contract](snapshot-projection-readers.md)
+owns the independent CSV writer retirement.
+
 This is a compress-and-retain capacity operation. Every source file, logical
 byte, native file identity, and timestamp remains in place. NTFS provides the
 same content to existing readers; no gzip reader migration or off-site
@@ -305,14 +347,17 @@ for every reader, including dynamic path consumers. The native regression
 proves identical SHA-256 and size through ordinary reads of a file over 64 MiB;
 the compression receipt repeats that proof for each real file.
 
-Capture-side integration is **design only**: `SnapshotStore` owns replay,
-snapshots, components, variants and explanation files; `MarketMicrostructureStore`
-owns token and book-summary files. Neither is modified. A close queue must
-prove event close, quiescent writer handles, replay/backfill coordination and
-durable enqueue before releasing a file to the same compressor. It must not
-compress synchronously inside a capture iteration, set inherited directory
-compression, or silently change the nightly two-day protection. A
-separate reviewed close policy and production roll verdict precede that work.
+The token-tape lane is implemented as the attended
+[`-CompressOnClose` mode above](#token-tapes-after-close): an out-of-loop pass
+under its own close policy, not a capture-side queue. `MarketMicrostructureStore`
+is unchanged; `SnapshotStore` changes only which projection it writes on new
+days ([projection reader contract](snapshot-projection-readers.md)). Any future
+close queue for other families must still prove event close, quiescent writer
+handles, replay/backfill coordination and durable enqueue before releasing a
+file to the same compressor. It must not compress synchronously inside a
+capture iteration, set inherited directory compression, or silently change the
+nightly two-day protection. `-CompressOnClose` and `-Nightly` are mutually
+exclusive wrapper modes and share the one workload lease.
 
 Reader/reference inventory for the proposed unchanged-path format is retained
 in the mission 91a report. Native lossless verification is the compatibility

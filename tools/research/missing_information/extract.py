@@ -1,6 +1,8 @@
 """One-event-at-a-time extraction from the hash-verified closed-event export."""
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 from collections import Counter
 import csv
 from dataclasses import asdict
@@ -31,7 +33,7 @@ def sha256(path):
 
 
 def read_csv(path):
-    with Path(path).open(encoding="utf-8-sig", newline="") as stream:
+    with open_projection(Path(path), encoding="utf-8-sig", newline="") as stream:
         yield from csv.DictReader(stream)
 
 
@@ -102,7 +104,7 @@ def extract_event(folder):
     if settlement.get("settlement_unit", settlement.get("unit", spec.unit)) != spec.unit:
         raise ValueError(f"settlement unit mismatch: {folder.name}")
     features = {}
-    feature_file = folder / "features_long.csv"
+    feature_file = projection_source(folder / "features_long.csv")
     if feature_file.exists():
         for row in read_csv(feature_file):
             sid = row["snapshot_id"]
@@ -110,7 +112,7 @@ def extract_event(folder):
                 raise ValueError(f"conflicting feature snapshot: {folder.name}/{sid}")
             features[sid] = row
     groups = {}
-    for row in read_csv(folder / "snapshots_long.csv"):
+    for row in read_csv(projection_source(folder / "snapshots_long.csv")):
         groups.setdefault(row["snapshot_id"], []).append(row)
     snapshots, exclusions = [], Counter()
     for sid, rows in groups.items():

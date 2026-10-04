@@ -14,6 +14,8 @@ inject a feature builder for tests; the default builder runs the same pure
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -134,7 +136,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _folder_input_lineage(folder: Path) -> dict[str, Any]:
-    resolved = {filename: resolve_local_path(folder / filename)
+    resolved = {filename: projection_source(folder / filename)
                 for filename in QUALIFICATION_INPUT_FILENAMES}
     files = {
         filename: {"exists": path.is_file(),
@@ -191,7 +193,7 @@ def _folder_input_lineage(folder: Path) -> dict[str, Any]:
                 ),
             }
             continue
-        matches = records_by_path.get(filename) or []
+        matches = records_by_path.get(resolved[filename].name) or []
         declared_hash = str(matches[0].get("sha256") or "") if len(matches) == 1 else ""
         exact_file_proofs[filename] = {
             "record_count": len(matches),
@@ -739,11 +741,11 @@ def complete_band_definition(path: str | Path, *, unit: str = "F") -> list[dict[
     """Read one ordered, complete market partition from a snapshot tape."""
 
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         raise ResidualCorpusError(f"market band tape is missing: {path}")
     first_snapshot: str | None = None
     bands: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
             snapshot_id = str(row.get("snapshot_id") or "")
             if first_snapshot is None:
@@ -1004,7 +1006,7 @@ def materialize_market_day_rows(
         return [], [{"folder": str(folder), "reason": "missing_settlement_target"}]
     settlement_high_f = native_to_f(settlement_high_native, unit)
     try:
-        bands = complete_band_definition(folder / SNAPSHOTS_LONG_FILENAME, unit=unit)
+        bands = complete_band_definition(projection_source(folder / SNAPSHOTS_LONG_FILENAME), unit=unit)
     except ResidualCorpusError as exc:
         return [], [{
             "folder": str(folder),

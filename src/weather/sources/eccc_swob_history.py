@@ -1,3 +1,5 @@
+
+from weather.projection_io import open_projection, projection_glob, projection_source
 import argparse
 import csv
 import hashlib
@@ -753,9 +755,9 @@ def interpretation(summary):
 
 def load_daily_summary(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         return {row["local_date"]: row for row in csv.DictReader(handle)}
 
 
@@ -797,10 +799,10 @@ def apply_snapshot_high_overrides(wu_daily, snapshot_root):
 def load_snapshot_wu_highs(snapshot_root):
     snapshot_root = Path(snapshot_root)
     rows_by_date = {}
-    if not snapshot_root.exists():
+    if not projection_source(snapshot_root).exists():
         return rows_by_date
-    for path in sorted(snapshot_root.glob("*/snapshots_long.csv")):
-        with path.open("r", encoding="utf-8", newline="") as handle:
+    for path in sorted(projection_glob(snapshot_root, '*/snapshots_long.csv')):
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 local_date = event_date_from_slug(row.get("event_slug") or path.parent.name)

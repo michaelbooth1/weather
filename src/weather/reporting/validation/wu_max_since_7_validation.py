@@ -1,6 +1,8 @@
 """Validate captured WU current max-since-7 AM against settlement labels."""
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import json
@@ -100,13 +102,13 @@ def _market_filter(markets):
 
 
 def _first_pinned_snapshot_rows(folder, snapshot_ids):
-    path = Path(folder) / "snapshots_long.csv"
-    if not path.exists():
+    path = projection_source(Path(folder) / "snapshots_long.csv")
+    if not projection_source(path).exists():
         return {}, [f"{Path(folder).name}: missing snapshots_long.csv"]
     wanted = {str(item) for item in snapshot_ids}
     rows = {}
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 snapshot_id = str(row.get("snapshot_id") or "")

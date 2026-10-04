@@ -7,6 +7,8 @@ settlement ledger/folder labels.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import bisect
 import csv
@@ -294,11 +296,11 @@ def read_jsonl(path):
 
 def read_csv_rows(path):
     path = Path(path)
-    if not path.exists():
+    if not projection_source(path).exists():
         return []
 
     def _read_rows(errors=None):
-        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", errors=errors, newline="") as handle:
             return [dict(row) for row in csv.DictReader(handle)]
 
     try:
@@ -308,11 +310,11 @@ def read_csv_rows(path):
 
 
 def load_snapshot_rows(folder):
-    path = Path(folder) / SNAPSHOT_FILENAME
-    if not path.exists():
+    path = projection_source(Path(folder) / SNAPSHOT_FILENAME)
+    if not projection_source(path).exists():
         return []
     rows = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             row = dict(row)
             row["range_label"] = clean_label(row.get("range_label"))
@@ -372,9 +374,9 @@ def load_trust_scores(backtest_root=DEFAULT_BACKTEST_ROOT):
 def component_index(folder):
     path = Path(folder) / COMPONENT_FILENAME
     index = defaultdict(dict)
-    if not path.exists():
+    if not projection_source(path).exists():
         return index
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             snapshot_id = row.get("snapshot_id")
             key = band_key(row)
@@ -418,11 +420,11 @@ def driver_waterfall_for_components(components):
 def load_clob_context(folder, max_age_seconds=DEFAULT_MAX_CLOB_AGE_SECONDS):
     path = Path(folder) / BOOK_SUMMARY_FILENAME
     by_key = defaultdict(list)
-    if not path.exists():
+    if not projection_source(path).exists():
         return by_key
     previous_midpoint = {}
     def _read_rows(errors=None):
-        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
+        with open_projection(path, "r", encoding="utf-8", errors=errors, newline="") as handle:
             return list(csv.DictReader(handle))
     try:
         rows = _read_rows(errors=None)
@@ -1335,7 +1337,7 @@ def discover_folders(snapshots_root, explicit_folders=None):
     if not root.exists():
         return []
     return sorted(
-        [folder for folder in root.iterdir() if folder.is_dir() and (folder / SNAPSHOT_FILENAME).exists()],
+        [folder for folder in root.iterdir() if folder.is_dir() and (projection_source(folder / SNAPSHOT_FILENAME)).exists()],
         key=lambda path: path.name,
     )
 

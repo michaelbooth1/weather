@@ -1,6 +1,8 @@
 """Guarded offline mission driver; coverage never computes a candidate score."""
 from __future__ import annotations
 
+from weather.projection_io import projection_source
+
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
@@ -52,7 +54,7 @@ def coverage(snapshots, raw):
         if not folder.is_dir() or not (folder / "settlement.json").exists():
             continue
         inventory.update(p.name for p in folder.iterdir() if p.is_file())
-        path = folder / "features_long.csv"
+        path = projection_source(folder / "features_long.csv")
         source_hashes[str(path.relative_to(raw))] = sha256(path)
         for r in read_csv(path):
             reasons[(r["event_slug"], r["snapshot_id"])] = r.get("guidance_impossible_features", "")

@@ -10,12 +10,15 @@ param(
     [switch]$Nightly,
     [switch]$Apply,
     [switch]$VerifyRetained,
+    [switch]$CompressOnClose,
     [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 if ($Apply -and $VerifyRetained) { throw 'read-only verification cannot be combined with Apply' }
+if ($CompressOnClose -and ($VerifyRetained -or $OwnerApprovedException)) { throw 'CompressOnClose cannot use verification mode or a daytime exception' }
+if ($CompressOnClose -and $Nightly) { throw 'CompressOnClose and Nightly are separate modes' }
 if (-not $Nightly -and $MaxRuntimeSeconds -gt 600) { throw 'attended batches remain bounded to 600 seconds' }
 if ($Nightly -and ($VerifyRetained -or $OwnerApprovedException)) { throw 'nightly mode accepts no verification or window exception' }
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -135,6 +138,7 @@ try {
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $deadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException
     $compressionModule = if ($Nightly) { 'weather.operations.cold_snapshot_nightly' } else { 'weather.operations.cold_snapshot_compression' }
+    if ($CompressOnClose) { $compressionModule = 'weather.operations.compress_on_close' }
     $arguments = @('-m', $compressionModule,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,

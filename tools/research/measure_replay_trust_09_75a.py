@@ -12,6 +12,8 @@ endpoint is read by this harness.
 
 from __future__ import annotations
 
+from weather.projection_io import open_projection
+
 import argparse
 import csv
 import hashlib
@@ -114,7 +116,7 @@ def projected_rows(path: Path, fields: Iterable[str]) -> Iterable[dict[str, str]
     """Yield only named columns without constructing outcome-bearing rows."""
 
     fields = tuple(fields)
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with open_projection(path, "r", encoding="utf-8", newline="") as handle:
         reader = csv.reader(handle)
         header = next(reader)
         indexes = {name: header.index(name) for name in fields}

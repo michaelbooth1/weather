@@ -6,6 +6,8 @@ used only for the label and loss.  The module deliberately fits no model.
 """
 from __future__ import annotations
 
+from weather.projection_io import open_projection, projection_source
+
 import argparse
 import csv
 import hashlib
@@ -375,7 +377,7 @@ def compact_replay_rows(raw_rows, *, settlement_index, stratum):
 
 
 def load_replay_csv(path, *, settlement_index, stratum):
-    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+    with open_projection(Path(path), "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
         if missing:
@@ -925,7 +927,7 @@ def _discover_replay_rows(args, settlement_index):
             and _stratum_accepts(target, args.provenance_stratum)
         ):
             folder = snapshots_root / label["event_slug"]
-            if folder.joinpath("snapshots_long.csv").exists():
+            if projection_source(folder.joinpath("snapshots_long.csv")).exists():
                 folders.append(str(folder))
     if not folders:
         raise ValueError("no promotion-countable snapshot folders found in requested range")

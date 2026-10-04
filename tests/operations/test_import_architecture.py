@@ -648,6 +648,7 @@ PACKAGE_ROOTS = {
 }
 
 SHARED_PACKAGE_ROOTS = {
+    "projection_io",
     "artifacts",
     "cold_archive_locations",
     "io",
