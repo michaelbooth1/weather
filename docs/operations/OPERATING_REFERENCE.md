@@ -77,6 +77,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMakerEvidenceLowestTemperature | active | False | scripts/ops/register_maker_evidence_family_capture.ps1 | docs/operations/passive-maker-evidence-capture.md |
 | WeatherMarketMakingDailyRoll | retired | True | scripts/ops/register_market_making_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMarketMakingDailyRollSupervisor | retired | True | scripts/ops/register_market_making_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMemoryCommitGuard | active | False | scripts/ops/register_memory_commit_guard.ps1 | docs/operations/OPERATIONS_DESIGN.md |

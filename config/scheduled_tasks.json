@@ -200,6 +200,15 @@
       "registration_evidence": "repository registrar; host action and enablement unverified"
     },
     {
+      "name": "WeatherMakerEvidenceLowestTemperature",
+      "owner": "docs/operations/passive-maker-evidence-capture.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_maker_evidence_family_capture.ps1",
+      "registration_evidence": "repository registrar; not registered before the post-2026-10-14 integration"
+    },
+    {
       "name": "WeatherMarketMakingDailyRoll",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "retired",
