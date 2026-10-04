@@ -84,6 +84,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current

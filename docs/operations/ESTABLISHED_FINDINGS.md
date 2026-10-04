@@ -104,6 +104,7 @@ sequence numbers, not calendar dates.
 | 10n | Open orders are limited to cash per market, not across markets |
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
+| 10q | Model-parity swarm v2 (2026-10-04, development, DRAFT pending production review): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
 
 ---
 
@@ -3240,6 +3241,10 @@ persists rather than heals.
 
 ### 10e. 13 of about 26 serving post-processing stages are silent no-ops — CODE-TRACED, SERVED OUTPUT NOT READ
 
+> **PARTLY SUPERSEDED by §10q (DRAFT, pending production review):** for the late-day lock-in stages and the calibration
+> taper, one real served payload has now been read (ATL 2026-09-20 23:55: lock-in no-op, calibration moved above-high mass
+> 0.031 → 0.087), and their forecast consequence is measured (development) in §10q.
+
 `src/weather/model/model_constants.py:19` sets `PAID_WEATHER_PROVIDER_ACCESS_ENABLED = False` (commit
 `5735b573a`, 2026-06-30), with no environment override. `fetch_wu_history`, `fetch_wu_current` and
 `fetch_weather_com_forecast` therefore raise immediately and every live capture since carries empty
@@ -3539,6 +3544,89 @@ candidate and statistics unchanged (crossed date x market bootstrap, 2,000 draws
   dates; these results may not be used to choose its hours.
 - **Evidence:** `codex/guidance-all-hours-analysis-20261003` @ `0206f4d1` (PR #183),
   `docs/roadmap/agent-report-2026-09-111h-guidance-all-hours.md`; extract on production `data\exports\nbm-guidance-111h`.
+
+### 10q. Half of the 111h table's served-to-market gap is two serving repairs on captured data; no external free source adds information — model-parity swarm v2, 2026-10-04
+
+> **DRAFT — pending production review.** Drafted on the workstation branch `codex/model-parity-swarm-20261004` by the
+> swarm's canon writer from [the synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md). Production lands,
+> edits or rejects it. Nothing here is an owner decision.
+
+**Every number is a development read.** The from stratum (2026-08-23..09-29) had already been read by 79a, 81a and 111h,
+so it is not a holdout and nothing here is confirmation. Table: the §10p extract (110,807 snapshots, 626 market-days, 57
+dates, 11 US markets, targets 08-01..09-29; 0 rows after 09-29), scored by a hash-pinned harness (one crossed date x market
+bootstrap weight matrix, 2,000 draws; 81a floor mask on every candidate; served fallback on every row). On this table
+served/market Brier is 1.77x pooled; that is not §1's 1.423246x (different panel; never mix). 26 hunters, 2 refuters per
+lead family; **134 registered rule ids** are the multiplicity denominator. No serving, config, capture or reservation change
+was made.
+
+- **Ladder (no new source), from stratum, all rows:**
+
+  | Block | served − market (ratio) | + evening lock-in restoration (r1) | + MG-1 morning read (r2) | r2 − market (ratio) | r2 share of gap closed |
+  | --- | --- | --- | --- | --- | --- |
+  | 00-05 | +0.0244 (1.43) | 0 | −0.0141 [−0.0234, −0.0067] 11/11 | +0.0102 (1.18) | 58% [37, 76] |
+  | 06-09 | +0.0254 (1.45) | 0 | −0.0139 [−0.0229, −0.0063] 11/11 | +0.0114 (1.20) | 55% [33, 75] |
+  | 10-12 | +0.0228 (1.44) | 0 | −0.0092 [−0.0164, −0.0027] 10/11 | +0.0137 (1.26) | 40% [15, 62] |
+  | 13-16 | +0.0239 (1.84) | −0.0006 | −0.0002 [−0.0086, +0.0077] 2/11 | +0.0231 (1.81) | 4% [−36, 33] |
+  | 17-23 | +0.0296 (not interpretable: market Brier ~0.0008) | **−0.0252 [−0.0350, −0.0174] 11/11** | +0.0018 | +0.0063 | 79% [63, 89] (r1 alone 85% [76, 92]) |
+  | 00-16 | +0.0242 (1.49) | −0.0002 | **−0.0099 [−0.0177, −0.0034] 10/11** | +0.0141 (1.29) | 42% [19, 62] |
+  | all | +0.0258 (1.73) | −0.0073 | −0.0066 | +0.0119 (1.34) | **54% [35, 70]** |
+
+- **Evening (17-23) is a serving defect, not missing information.** The late-day lock-in stages read WU-only
+  `history_max`, empty since 2026-06-30 (§10e), so lock-in strength is 0 and the calibration taper (S7) is untapered.
+  Re-anchoring S1/S2 on `lockin_high = max(history_max, guidance_floor)` with production constants (a band-level
+  emulation, not a replay) closes 85% of the 17-23 gap. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
+  lock-in no-op; calibration moved above-high mass 0.031 → 0.087), which meets §10e's read-before-acting condition for
+  these stages. Every 17-23 "lead" from the remaining-rise / decided-band family (T1-T4, T15, T16 and the 17-23 legs of
+  T5-T10) is this mechanism: an unconditional collapse with no input does at least as well. **Cosmetic for the maker**
+  (the market already knows the high is in); it removes Brier loss that never moved a quote.
+- **Morning (00-12): served under-uses the NBM v2 guidance it already captures.** MG-1 (v2_mean, sigma = max(v2_stddev, 1),
+  floored, zero parameters, no hour gate) 00-16 −0.0100 [−0.0179, −0.0035], 10/11, before stratum −0.0122. This is the
+  known §10h/§10j/§10p family, not a discovery; §10j's power cap (11 market clusters, about 40% crossed power) applies. It
+  depends on landing the 83a/83b parser repair (§10k, §10l): production's v1 parser reads a minimum as today's maximum on 75,049 of
+  110,807 rows. The fitted forms (T18 EMOS, frozen RV-1) differ from MG-1 by spread modelling on captured v2, not by a source
+  (RV-1 − MG-1 00-16 −0.0034 [−0.0078, +0.0007]).
+- **No external free source adds information beyond captured data plus those two repairs:** NBH, NBS, MOS/NBE, Open-Meteo
+  Single-Runs HRRR (latest and time-lagged), ECMWF IFS, 12Z soundings, NWS revision direction, neighbour stations,
+  METAR/GOES cloud. NBH's 00-16 increment over MG-1 is +0.0027 [−0.0037, +0.0098] (5/11, wrong sign); v2_mean carries 137%
+  of T5's 00-16 gain. The one borderline sign (MOS/NBE t7-r2 at 13-14, −0.0063 over r2) is a post-hoc hour slice and not an
+  increment over the remaining-rise rung (−0.0031 [−0.0077, +0.0017]).
+- **Residual after both repairs is largest at 13-16, mostly 15-16:** +0.0270 [+0.0204, +0.0337], 2.53x. Re-anchoring the
+  13-19 h lock-in stages S3-S5 recovers only −0.0032 there (58% of 15-16 snapshots have not rolled over below the high: a
+  remaining-rise problem, under a declared forecast proxy). The no-source METAR remaining-rise rung t3-r3 (station x month x
+  local-hour pmf of final max − running max from IEM history to 2026-07-31) beats r2 at 15-16 by −0.0181 [−0.0251, −0.0112],
+  11/11, but is **fragile**: WEAK at +1 h METAR staleness, NULL at +2 h, fails Bonferroni. A new rule; it can only enter
+  through a pre-registration on new dates.
+- **No candidate reaches market parity in 00-16.** Serveable without a new rule: 1.29x. Best composed (POST-HOC r2 x t3-r3):
+  1.245x. Nothing tested closes the 00-12 residual (+0.010 to +0.014).
+- **T1 (decided-band collapse) is subsumed, not drafted.** Serving-stage form: after the final calibrated distribution,
+  when local time is past sunset or (hour >= 15 and the latest routine METAR is >= 1 °F below the METAR running max), bands
+  1-3 °F above the floor band B keep a historical residual rate q(k) and the rest of the mass above B moves into B. Floor
+  interaction: the 81a mask (max of `guidance_physical_floor`, `high_so_far`, `trusted_current_max`; B = round_half_up)
+  is lower-side, T1 upper-side; both act on B, never conflict, and never weaken the floor. Inserted before calibration it
+  needs the S7 gate. 17-23 −0.0264, but the unconditional collapse scores −0.0287 and the restored lock-in −0.0254: the
+  "decided" condition carries none of the effect.
+- **Tail lens, this table's definition:** band rows with served SE > market SE and |p_served − p_market| >= 0.30 are
+  **6.075% of rows carrying 70.38% of the positive excess**. §1/§1f's **4.387% / 64.140%** is the sealed in-season panel's
+  figure; the difference is expected and does not change §1. Per-market tail sign cannot rank candidates here (98 of 99
+  candidate vectors improve the tail); the separating quantity is the non-tail cost (MG-1 about −27% of the 00-16 tail
+  excess vs about −6% for the history-fitted spread forms).
+- **Defects found:** **M0** — production keys METAR rows by AWC `reportTime` (nominal hour), so a 23:5x report enters the
+  next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
+  candidate gave the winner 0 all day); 0.3-0.6% of station-days Aug-Sep, 2.2% Oct-Dec, up to 5.4% at KLGA; fix = key on
+  `obsTime` (parse-only, versioned). `trusted_current_max` is null on 100% of extract rows. 31 rows carry a captured floor
+  10 °F above the METAR max. Late S3 NBM uploads are upstream delays plus one transfer backlog, not re-uploads.
+- **Bonferroni** (134 rules x 7 block groups, z about 4.04): passes for the 17-23 family, T18 00-16, RV-1 00-16 and t7-r2
+  00-16 (about 90% captured v2); fails for MG-1 00-16, r2 all hours, t3-r3 13-16 and the POST-HOC composite. Passing makes a
+  result worth a pre-registration, not established.
+- **Consequences (proposals for owner decision, none adopted):** the evening WU-anchor serving fix (re-anchor S1/S2/S6, gate
+  S7, bundle S3-S5; needs a captured-input replay through `estimate_distribution`, the release gate and a quiet-window
+  merge); land the parser repair before any morning route; draft pre-registrations (MG-1 or RV-1 for 00-16, t3-r3 for
+  13-16, hour-gated HG-1 as its own α arm, NBH-1 drafted only to close the route) — all with first eligible date after
+  2026-10-14, out of season, and with unresolved reservation collisions; METAR capture fixes M0-M3. **There is no capture
+  case for any new source.**
+- **Evidence:** [synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md) and per-agent reports in
+  `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
+  scores and acquired data on the workstation only (`C:\swarm\`).
 
 ## Related
 
