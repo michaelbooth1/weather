@@ -230,3 +230,20 @@ documented and blocks promotion because NBM-prob underperforms the current
 model and market on settled US slices.
 
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.
+
+## 2026-10-02 NBP Cycle-Level Fan-Out Fix (Mission 83b Part B) Re-Based For Landing
+
+The NBP live call downloaded the same ~35 MB national bulletin on almost every
+market pass because the fan-out scope is one supervisor iteration (EF §10l:
+729 downloads, 24.9 GB in 15 hours on 2026-09-21). Mission `2026-09-83b` Part B
+(`codex/nbp-bulletin-reuse-20260921` @ `62e8ff044`, reviewed and accepted) adds
+a create-only, fail-open index of complete, verified cycle files so later passes
+reuse the held cycle (fixture probe 33 downloads to 1). Owner decision
+2026-10-02 (item 2): land it. Branch `codex/nbm-fanout-nbh-nbs-20261002`
+cherry-picks those four commits plus the storage-class registration from
+`59ff83f2` onto current `origin/master`, without the unlanded parser v2 layer
+(Part A) or its research tooling. Status: built and tested, awaiting production
+verification and a roll-sensitive landing (it changes
+`weather.collection.forecast_payload_fetch_fanout` and
+`weather.model.model_sources`). Served features are unchanged:
+`cycle_age_at_use_hours` is payload metadata, not a feature column.
