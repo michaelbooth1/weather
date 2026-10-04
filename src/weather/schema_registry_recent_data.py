@@ -30,6 +30,11 @@ RECENT_REGISTERED_SCHEMAS = (
         migration_notes="Use a fresh v2 root; retain v1 journals with their original reader.",
     ),
     SchemaSpec(
+        "competitor_reaction_diagnostic", "competitor_reaction_diagnostic_v0.1",
+        "weather.market.reaction_diagnostic", "active",
+        "Secondary maker-replay diagnostic: reward-share decay after posting and trigger-to-mid latency.",
+    ),
+    SchemaSpec(
         "cold_snapshot_nightly_policy", "cold_snapshot_nightly_policy_v1",
         "weather.operations.cold_snapshot_nightly", "active",
         "Expiring host-bound nightly lossless compression budget; no deletion authority.",
