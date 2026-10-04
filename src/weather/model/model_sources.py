@@ -103,6 +103,9 @@ TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
 # parser/normalizer code that turned a provider response into the source data
 # retained by SnapshotStore; provider-native issue/run/schema fields remain in
 # the payload itself.
+METAR_KEYING_OBS_TIME = "obs_time"
+METAR_KEYING_REPORT_TIME = "report_time"
+
 SOURCE_PAYLOAD_CONTRACTS = {
     "local_history": ("local-history-parser-v1", "local-history-payload-v1"),
     "wu_history": ("wu-history-parser-v1", "wu-history-payload-v1"),
@@ -1309,12 +1312,24 @@ class SourceFetchMixin:
             .get("en"),
         }
 
-    def parse_metar_payload(self, payload):
-        """Normalize a captured AviationWeather payload without fetching it."""
+    def parse_metar_payload(self, payload, *, keying=METAR_KEYING_OBS_TIME):
+        """Normalize a captured AviationWeather payload without fetching it.
 
+        ``keying`` is the served ``obs_time`` (``metar-parser-v4``) unless a
+        read-only replay asks for ``report_time``, which reproduces the
+        retired ``metar-parser-v3`` keying and ordering for comparison only.
+        """
+
+        if keying not in (METAR_KEYING_OBS_TIME, METAR_KEYING_REPORT_TIME):
+            raise ValueError(f"unknown METAR keying: {keying}")
+        legacy = keying == METAR_KEYING_REPORT_TIME
         keyed_rows = []
         for index, row in enumerate(payload or []):
-            row_time, time_basis = self.metar_row_time(row)
+            if legacy:
+                row_time = self.parse_utc_time(row.get("reportTime"))
+                time_basis = "report_time"
+            else:
+                row_time, time_basis = self.metar_row_time(row)
             obs_time_utc = self.metar_obs_time_utc(row.get("obsTime"))
             if row_time is None or row_time.date() != self.target_date:
                 continue
@@ -1327,7 +1342,11 @@ class SourceFetchMixin:
             # fall-back DST day "01:15-05:00" is later than "01:30-04:00".
             # Ties on the instant (duplicates, a COR beside its original) order by
             # reportTime, then payload order, so the result is deterministic.
-            sort_key = (row_time.astimezone(timezone.utc), str(row.get("reportTime") or ""), index)
+            sort_key = (
+                (row_time.isoformat(), index)
+                if legacy
+                else (row_time.astimezone(timezone.utc), str(row.get("reportTime") or ""), index)
+            )
             keyed_rows.append((sort_key, {
                 "time": row_time.strftime("%H:%M"),
                 "datetime": row_time.isoformat(),
@@ -1406,7 +1425,12 @@ class SourceFetchMixin:
             "hours": self.metar_query_hours(),
         }
         payload = self.get_json(url, params)
-        rows = self.parse_metar_payload(payload)
+        return {"url": url, **self.metar_data_from_payload(payload)}
+
+    def metar_data_from_payload(self, payload, *, keying=METAR_KEYING_OBS_TIME):
+        """The served METAR source block derived from one AWC payload."""
+
+        rows = self.parse_metar_payload(payload, keying=keying)
         latest = rows[-1] if rows else {}
         temp_native = self.row_temp_native(latest)
         dewpoint_native = self.row_dewpoint_native(latest)
@@ -1416,7 +1440,6 @@ class SourceFetchMixin:
             for row in rows
         ])
         return {
-            "url": url,
             "station_id": self.spec.icao,
             "raw_payload": payload,
             "rows": rows,
