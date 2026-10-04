@@ -495,7 +495,7 @@ def test_campaign_config_validates_before_credentials(tmp_path, monkeypatch):
     def forbidden():
         raise AssertionError("credentials were requested")
     monkeypatch.setattr(core, "load_owner_credentials", forbidden)
-    assert core.main(["serve", "--bind", "192.168.1.106", "--allow", "192.168.1.247",
+    assert core.main(["serve", "--bind", "192.168.1.20", "--allow", "192.168.1.30",
                       "--signature-type", "2", "--campaigns", str(config)]) == 1
 
 

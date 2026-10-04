@@ -48,8 +48,12 @@ package contract, and `requires-python` is `>=3.11`.
 - The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
+- [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
+  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
+  job `needs` it, so a ratchet failure stops the run before the long suite.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
-  launch/integration regressions under Windows PowerShell 5.1. Hosted Windows evidence records its actual scope,
+  launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
+  balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.

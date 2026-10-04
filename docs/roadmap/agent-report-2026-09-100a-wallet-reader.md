@@ -131,9 +131,9 @@ service, and runs the firewall command. With `$readerPython` set as above, these
 IPs are **examples**, to replace with the actual workstation and production PC:
 
 ```powershell
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765 -WhatIf
-.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.168.1.30 -Port 8765
-& $readerPython -m weather.market.wallet_reader serve --bind 192.168.1.20 --allow 192.168.1.30 --port 8765 --signature-type 3
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765 -WhatIf
+.\scripts\ops\register_wallet_reader_firewall.ps1 -AllowIp 192.0.2.20 -Port 8765
+& $readerPython -m weather.market.wallet_reader serve --bind 192.0.2.10 --allow 192.0.2.20 --port 8765 --signature-type 3
 # Production checkout, after owner creates config/local/wallet_reader_client.json:
 python -m weather.market.wallet_reader_client summary
 ```
