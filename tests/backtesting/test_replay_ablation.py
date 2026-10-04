@@ -95,7 +95,8 @@ class TestVariantSelection(unittest.TestCase):
             ("open_meteo_multimodel", "open_meteo_global_models", "global_ensemble"),
         )
         self.assertEqual(nyc["coastal_context"], ("marine_context",))
-        self.assertEqual(nyc["precip_context"], ("mrms_precip",))
+        # No market declares mrms_precip since the listing poll stopped.
+        self.assertNotIn("precip_context", nyc)
 
 
 class TestRunAblationEndToEnd(unittest.TestCase):
