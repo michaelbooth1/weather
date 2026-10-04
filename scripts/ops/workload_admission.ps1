@@ -613,6 +613,7 @@ function Get-WeatherWorkstationOfflineModule {
     param()
 
     @(
+        "tools.research.maker_replay_v2.run",
         "tools.research.missing_information.run",
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",

@@ -119,7 +119,9 @@ switch ($Kind) {
         }
     }
     "weather_heavy" {
-        $offlineModules = @(Get-WeatherWorkstationOfflineModule)
+        # Fixture/calibration/manifest/replay only; the module owns its separate
+        # owner-log, exact-hash and scoring-date gates. No venue/runtime wildcard.
+        $offlineModules = @(Get-WeatherWorkstationOfflineModule) + @("maker_core.replay")
         if (
             $module -cnotin $offlineModules -or
             @($arguments | Where-Object {

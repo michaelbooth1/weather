@@ -303,6 +303,15 @@
       "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
     },
     {
+      "name": "WeatherReplayBundleExportNightly",
+      "owner": "docs/operations/maker-replay-bundle.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_replay_bundle_export_nightly.ps1",
+      "registration_evidence": "repository registrar (110s); registers only on the assigned capture host after production adoption/review; host action and enablement unverified"
+    },
+    {
       "name": "WeatherSnapshotLoopSupervisor",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "active",
