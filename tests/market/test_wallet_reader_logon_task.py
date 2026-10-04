@@ -127,7 +127,10 @@ def test_refuses_write_protected_data_like_the_workstation_mirror(tmp_path):
     _, worktree, commit = fixture(tmp_path)
     data = worktree / "data"
     data.mkdir()
-    user = os.environ["USERDOMAIN"] + "\\" + os.environ["USERNAME"]
+    # Name the current account by SID: USERDOMAIN\USERNAME does not resolve on every host
+    # (a workgroup machine reports USERDOMAIN=WORKGROUP, icacls error 1332).
+    sid = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], check=True, capture_output=True, text=True).stdout
+    user = "*" + sid.strip().split(",")[-1].strip('"')
     subprocess.run(["icacls", str(data), "/deny", f"{user}:(OI)(CI)(WD,AD)"], check=True, capture_output=True)
     try:
         assert "not writable" in register(worktree, commit)["error"]
