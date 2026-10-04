@@ -146,7 +146,7 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
 - **Why it fooled us:** the commissioning handoff specified a screen that could not fail. Prove both
   decision branches reachable before reading data.
 
-### "Evening decided-band / remaining-rise rules are an information lead" — A SERVING DEFECT (DRAFT, pending production review, 2026-10-04)
+### "Evening decided-band / remaining-rise rules are an information lead" — A SERVING DEFECT (2026-10-04)
 
 - **What it looked like:** on the 111h table every evening rule in the family (T1 decided band, T2/T3 remaining rise, T4
   obs trend, T15 diurnal projection, T16 settlement mechanics, and the 17-23 legs of the NBH/NBS/MOS/HRRR/ECMWF hunters)
@@ -159,7 +159,7 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   Before attributing a gain to an input, score the same transformation with the input removed. §10e had warned the stages
   were no-ops, but nobody joined that trace to the evening loss.
 
-### "Capture NBH (or another free source) to fix the morning" — FALSE LEAD (DRAFT, pending production review, 2026-10-04)
+### "Capture NBH (or another free source) to fix the morning" — FALSE LEAD (2026-10-04)
 
 - **What it looked like:** T5 (NBH latest cycle, remaining-hours max) was PIT-clean, LEAD in 00-16 and held at +60/+120 min;
   NBS, MOS/NBE, HRRR and ECMWF candidates also showed classifier LEADs in some blocks.

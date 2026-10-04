@@ -104,7 +104,7 @@ sequence numbers, not calendar dates.
 | 10n | Open orders are limited to cash per market, not across markets |
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
-| 10q | Model-parity swarm v2 (2026-10-04, development, DRAFT pending production review): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
+| 10q | Model-parity swarm v2 (2026-10-04, development; landed by production 2026-10-04): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
 
 ---
 
@@ -3251,9 +3251,9 @@ persists rather than heals.
 
 ### 10e. 13 of about 26 serving post-processing stages are silent no-ops — CODE-TRACED, SERVED OUTPUT NOT READ
 
-> **PARTLY SUPERSEDED by §10q (DRAFT, pending production review):** for the late-day lock-in stages and the calibration
+> **PARTLY SUPERSEDED by §10q:** for the late-day lock-in stages and the calibration
 > taper, one real served payload has now been read (ATL 2026-09-20 23:55: lock-in no-op, calibration moved above-high mass
-> 0.031 → 0.087), and their forecast consequence is measured (development) in §10q.
+> 0.031 → 0.087), plus a production multi-payload read (27 closing snapshots, 11 markets x 3 dates 08-12/09-14/09-27, where the floor agrees with the market): the per-band change made by `late_day_lockin` is median 8.4e-9, max 1.2e-7, a no-op in all 27; mass above the running high is 0.276 served vs 0.002 market ([synthesis §12](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md)), and their forecast consequence is measured (development) in §10q.
 
 `src/weather/model/model_constants.py:19` sets `PAID_WEATHER_PROVIDER_ACCESS_ENABLED = False` (commit
 `5735b573a`, 2026-06-30), with no environment override. `fetch_wu_history`, `fetch_wu_current` and
@@ -3557,9 +3557,7 @@ candidate and statistics unchanged (crossed date x market bootstrap, 2,000 draws
 
 ### 10q. Half of the 111h table's served-to-market gap is two serving repairs on captured data; no external free source adds information — model-parity swarm v2, 2026-10-04
 
-> **DRAFT — pending production review.** Drafted on the workstation branch `codex/model-parity-swarm-20261004` by the
-> swarm's canon writer from [the synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md). Production lands,
-> edits or rejects it. Nothing here is an owner decision.
+> Reviewed and landed by the production agent 2026-10-04 (owner approved landing). Every number remains a development read.
 
 **Every number is a development read.** The from stratum (2026-08-23..09-29) had already been read by 79a, 81a and 111h,
 so it is not a holdout and nothing here is confirmation. Table: the §10p extract (110,807 snapshots, 626 market-days, 57
@@ -3585,7 +3583,7 @@ was made.
   `history_max`, empty since 2026-06-30 (§10e), so lock-in strength is 0 and the calibration taper (S7) is untapered.
   Re-anchoring S1/S2 on `lockin_high = max(history_max, guidance_floor)` with production constants (a band-level
   emulation, not a replay) closes 85% of the 17-23 gap. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
-  lock-in no-op; calibration moved above-high mass 0.031 → 0.087), which meets §10e's read-before-acting condition for
+  lock-in no-op; calibration moved above-high mass 0.031 → 0.087), and by a production multi-payload read (27 closing snapshots, 11 markets x 3 dates 08-12/09-14/09-27, where the floor agrees with the market): the per-band change made by `late_day_lockin` is median 8.4e-9, max 1.2e-7, a no-op in all 27; mass above the running high is 0.276 served vs 0.002 market ([synthesis §12](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md)); together these meet §10e's read-before-acting condition for
   these stages. An independent re-implementation (T27) reproduces the rung to 7e-6 and it clears Bonferroni at the full
   registry count. The taper reads the same lock-in strength (`model_distribution.py:544`), so the restored strength
   must reach it; an extra S7 gate is optional (−0.00008 at 17-23). Every 17-23 "lead" from the remaining-rise / decided-band family (T1-T4, T15, T16 and the 17-23 legs of
@@ -3633,11 +3631,12 @@ was made.
   00-16 (about 90% captured v2); fails for MG-1 00-16, r2 all hours, t3-r3 13-16 and the POST-HOC composite. MG-1 survives
   its statistics refuter on resampling robustness (W, date, market, LOMO, LOWO), not on multiplicity. Passing makes a
   result worth a pre-registration, not established.
-- **Consequences (proposals for owner decision, none adopted):** the evening WU-anchor serving fix (re-anchor S1/S2/S6 so
-  the restored strength reaches the S7 taper, optional S7 gate, bundle S3-S5; needs a captured-input replay through `estimate_distribution`, the release gate and a quiet-window
-  merge); land the parser repair before any morning route; draft pre-registrations (MG-1 or RV-1 for 00-16, t3-r3 for
-  13-16, hour-gated HG-1 as its own α arm, NBH-1 drafted only to close the route) — all with first eligible date after
-  2026-10-14, out of season, and with unresolved reservation collisions; METAR capture fixes M0-M3. **There is no capture
+- **Consequences (owner decisions 2026-10-04, [DECISION_LOG](DECISION_LOG.md)):** the evening lock-in fix is approved and
+  built (PR #191: re-anchor on `max(history_max, guidance_floor)` so the restored strength reaches the S7 taper), with a
+  production captured-input replay and then a quiet-window landing; the parser v2 landing is approved (PR #190), and its
+  12Z/13Z/19Z rejection was verified correct; MG-1 is SIGNED at `b044e0f1`, with a narrow-scope reservation
+  ([reserved-confirmation-window.md](reserved-confirmation-window.md)); RV-1, t3-r3 and HG-1 are held until the evening fix
+  is live; NBH-1 is declined; the M0 fix is built (PR #189), plus the DST fetch-window fix (item I). **There is no capture
   case for any new source.**
 - **Evidence:** [synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md) and per-agent reports in
   `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;

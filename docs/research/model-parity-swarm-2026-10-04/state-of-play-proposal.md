@@ -1,4 +1,4 @@
-# Proposed STATE_OF_PLAY text: model-parity swarm v2 (DRAFT, pending production review)
+# Proposed STATE_OF_PLAY text: model-parity swarm v2 (reviewed by production 2026-10-04; owner decisions in DECISION_LOG)
 
 > **This is a proposal, not an edit of `docs/operations/STATE_OF_PLAY.md`.** It was drafted on the workstation branch
 > `codex/model-parity-swarm-20261004` by the swarm's canon writer (S-CANON), strictly from [SYNTHESIS.md](SYNTHESIS.md).
