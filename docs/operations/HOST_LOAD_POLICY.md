@@ -427,6 +427,15 @@ Stage-A, workstation or live authority is added.
    base-temp roots by default, so an undeleted run is a standing cost. This
    applies on every host; on the capture host it is also a capture risk.
 
+**Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
+run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
+never walks the main working tree or a worktree's `data\` (unless `-IncludeWorktreeData`, workstation only),
+never follows a reparse point, and caps each walk (`-MaxEntriesPerItem`) and the whole run
+(`-MaxTotalSeconds`); a capped item is reported CHECK, never SAFE. Its companion
+`workstation_space_clean.ps1 -Apply` deletes files, so on the capture host it is a bulk file operation under
+rule 1 (never 12:00-00:30). The session rule for where scratch goes is in
+[the workstation session preamble](WORKSTATION_SESSION_PREAMBLE.md#scratch-space).
+
 Incident-bearing watchdog samples append to
 `data/logs/memory_commit_guard_history.jsonl` without raw command lines. The
 mutable latest JSON remains the monitor input; it is not incident history.
