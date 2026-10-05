@@ -216,7 +216,9 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
 - **Scheduled spine:** use `status.ps1` and Task Scheduler as dynamic truth. The legacy
   `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are held Disabled because their
   branch-only queues lacked immutable expected-tip binding; `merge_queue_driver.ps1` is the
-  repository-owned replacement and must not be enabled until a reviewed v1 queue exists.
+  repository-owned replacement and must not be enabled until a reviewed v1 queue exists. Only its
+  read-only `-Dry` mode runs, in the owner-signed dry pilot
+  ([runbook](INTEGRATION_ATTEMPT_RUNBOOK.md#merge-train-dry-pilot-m6)).
 - **`WeatherTrainingWindow` exit `2` and the chain's exit `1`/`0x2` are EXPECTED** while gates BLOCK
   pre-release. **Master is not guaranteed green. If something is red, it is yours.**
 - Merges run off **allowlists, not auto-discovery**. Merge timing comes from `roll_verdict.ps1`,

@@ -60,6 +60,7 @@ jobs:
               tests/operations/test_live_wrapper_credential_launcher.py
               tests/collection/test_forecast_payload_cross_process_fanout.py
               tests/operations/test_ops_script_ratchets.py
+              tests/operations/test_merge_queue_driver_dry.py
               tests/operations/test_maker_replay_exam_step_script.py
     runs-on: windows-latest
     timeout-minutes: 30
