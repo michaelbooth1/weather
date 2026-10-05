@@ -138,7 +138,9 @@ same real repository root, then submit this exact literal shape as one line:
 
 The hook accepts the wrapper owned by that absolute repository root, in the
 exact parameter order shown, with literal absolute paths and a literal
-canonical base64 value. A sibling worktree or clone is accepted only
+canonical base64 value, optionally followed by ` -Queue` or
+` -Queue -QueueTimeoutSeconds <N>` to wait first-in first-out for a busy lease
+([host load policy](operations/HOST_LOAD_POLICY.md#workstation-focused-runs-fifo-queue-and-xdist-owner-decision-2026-10-04)). A sibling worktree or clone is accepted only
 when its workstation wrapper, workload-admission script, and Windows Job helper
 are byte-identical to the installed hook's reference checkout. Compute the
 base64 value in a light command, then submit the wrapper invocation as a second

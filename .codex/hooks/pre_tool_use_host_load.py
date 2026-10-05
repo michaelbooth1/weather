@@ -367,7 +367,8 @@ _WORKSTATION_WRAPPER_CALL = re.compile(
     r"-Kind\s+(?P<kind>pytest|compileall|weather_heavy)\s+"
     r"-PythonPath\s+'(?P<python>[^'\r\n]+)'\s+"
     r"-ArgumentsBase64\s+'(?P<arguments>[A-Za-z0-9+/]*={0,2})'\s+"
-    r"-RepoRoot\s+'(?P<repo_root>[^'\r\n]+)'\s*\Z"
+    r"-RepoRoot\s+'(?P<repo_root>[^'\r\n]+)'"
+    r"(?:\s+-Queue(?:\s+-QueueTimeoutSeconds\s+[1-9][0-9]{0,4})?)?\s*\Z"
 )
 # One literal Windows OpenSSH transport, not a general exemption for SSH text.
 # No shell expansion, ambient SSH config, local commands, proxies or forwards.
@@ -3065,6 +3066,374 @@ def _approved_remote_workstation_wrapper(command: str) -> bool:
     return _approved_workstation_arguments(match.group("kind"), match.group("arguments"))
 
 
+# ---------------------------------------------------------------------------
+# Workstation focused-run exemption (owner decision 2026-10-04, P3).
+#
+# On a proved non-capture workstation ONLY, one static pytest invocation that
+# names 1..25 existing test files, none of them `serial`, with an explicit
+# --basetemp and no xdist, may run without workstation_heavy.ps1. Until a
+# `serial` marker is registered, a file counts as serial when it, a local
+# `tests.*` module it imports, or an ancestor conftest.py both names PowerShell
+# (a string, identifier or import containing "powershell"/"pwsh", or a ".ps1"
+# string) and imports a process-spawning module (subprocess, asyncio, os,
+# multiprocessing). Any file that cannot be parsed is treated as serial.
+# The capture-host branch of `evaluate` never consults this predicate.
+# ---------------------------------------------------------------------------
+FOCUSED_PYTEST_FILE_LIMIT = 25
+HOST_GLOBAL_STATE_MARKER = (
+    Path(os.environ.get("ProgramData") or r"C:\ProgramData")
+    / "WeatherProject"
+    / "heavy_workload_v1.poison"
+)
+_MAX_FOCUSED_SOURCE_BYTES = 4 * 1024 * 1024
+_MAX_FOCUSED_IMPORT_CLOSURE = 64
+_FOCUSED_NO_VALUE_OPTIONS = frozenset(
+    {
+        "-q",
+        "--quiet",
+        "-v",
+        "--verbose",
+        "-s",
+        "-x",
+        "-l",
+        "--exitfirst",
+        "--strict-config",
+        "--strict-markers",
+        "--disable-warnings",
+        "--showlocals",
+        "--no-showlocals",
+        "--full-trace",
+        "--lf",
+        "--last-failed",
+        "--ff",
+        "--failed-first",
+        "--nf",
+        "--new-first",
+        "--sw",
+        "--stepwise",
+        "--stepwise-skip",
+        "--cache-clear",
+        "--no-header",
+        "--no-summary",
+        "--collect-only",
+        "--co",
+    }
+)
+_FOCUSED_VALUE_OPTIONS = frozenset(
+    {"-k", "-m", "--basetemp", "--tb", "-r", "-W", "--durations", "--maxfail", "-p"}
+)
+_XDIST_OPTIONS = frozenset(
+    {"-n", "--numprocesses", "--dist", "--tx", "--maxprocesses", "-d", "--looponfail", "-f"}
+)
+_FOCUSED_TEST_TARGET = re.compile(
+    r"(?i)(?:\A|[\\/])(?:test_[A-Za-z0-9_.-]*|[A-Za-z0-9_.-]+_test)\.py(?:::.+)?\Z"
+)
+_POWERSHELL_WORD = re.compile(r"(?i)powershell|pwsh")
+_SPAWN_IMPORTS = frozenset({"subprocess", "asyncio", "os", "multiprocessing"})
+
+
+def _focused_option_name(argument: str) -> tuple[str, str | None]:
+    if argument.startswith("--") and "=" in argument:
+        name, value = argument.split("=", 1)
+        return name, value
+    return argument, None
+
+
+def focused_pytest_arguments(
+    arguments: list[str] | tuple[str, ...],
+    cwd: Path,
+) -> tuple[list[Path] | None, str]:
+    """Return the bounded test files of decoded pytest arguments, or a refusal reason."""
+
+    files: dict[str, Path] = {}
+    basetemp = False
+    index = 0
+    positional_only = False
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if not isinstance(argument, str) or not argument or "\x00" in argument:
+            return None, "an argument is not a static string"
+        if argument.startswith("@"):
+            return None, "argument files cannot be bounded"
+        if not positional_only and argument == "--":
+            positional_only = True
+            continue
+        if not positional_only and argument.startswith("-"):
+            name, attached = _focused_option_name(argument)
+            if (
+                name in _XDIST_OPTIONS
+                or name.startswith("--dist")
+                or re.fullmatch(r"-n\S+", name) is not None
+            ):
+                return None, "xdist runs only through workstation_heavy.ps1"
+            if name in _FOCUSED_NO_VALUE_OPTIONS or re.fullmatch(r"-[qvsxl]+", name):
+                continue
+            if re.fullmatch(r"-r[A-Za-z]+", name):
+                continue
+            if name in _FOCUSED_VALUE_OPTIONS:
+                if attached is None:
+                    if index >= len(arguments):
+                        return None, f"option {name} has no value"
+                    attached = arguments[index]
+                    index += 1
+                if not isinstance(attached, str):
+                    return None, "an argument is not a static string"
+                if name == "-p" and not attached.startswith("no:"):
+                    return None, "only -p no:<plugin> is allowed in a focused run"
+                if name == "--basetemp":
+                    if not attached.strip():
+                        return None, "--basetemp is empty"
+                    basetemp = True
+                continue
+            return None, f"option {name} is not in the focused-run allowlist"
+        if _FOCUSED_TEST_TARGET.search(argument) is None:
+            return None, (
+                f"target {argument!r} is not a test file; directories and globs "
+                "cannot be bounded"
+            )
+        file_part = argument.split("::", 1)[0]
+        candidate = Path(file_part)
+        if not candidate.is_absolute():
+            candidate = cwd / candidate
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None, f"test file {file_part!r} does not exist"
+        if not resolved.is_file():
+            return None, f"test target {file_part!r} is not a regular file"
+        files[os.path.normcase(str(resolved))] = resolved
+    if not files:
+        return None, "no explicit test file is named"
+    if len(files) > FOCUSED_PYTEST_FILE_LIMIT:
+        return None, (
+            f"{len(files)} test files exceed the {FOCUSED_PYTEST_FILE_LIMIT}-file "
+            "focused-run limit"
+        )
+    if not basetemp:
+        return None, "a focused run needs an explicit --basetemp deleted afterwards"
+    return list(files.values()), "bounded"
+
+
+def _parse_test_source(path: Path) -> Any:
+    import ast
+
+    entry = path.stat()
+    if not stat.S_ISREG(entry.st_mode) or entry.st_size > _MAX_FOCUSED_SOURCE_BYTES:
+        raise ValueError("test source is not a bounded regular file")
+    return ast.parse(path.read_bytes(), filename=str(path))
+
+
+def _local_import_paths(tree: Any, path: Path, tests_root: Path) -> list[Path]:
+    import ast
+
+    repo_root = tests_root.parent
+    found: list[Path] = []
+
+    def add(module: str, base: Path) -> None:
+        relative = Path(*module.split("."))
+        for candidate in (
+            base / relative.with_suffix(".py"),
+            base / relative / "__init__.py",
+        ):
+            if candidate.is_file():
+                found.append(candidate)
+                return
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "tests" or alias.name.startswith("tests."):
+                    add(alias.name, repo_root)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = path.parent
+                for _ in range(node.level - 1):
+                    base = base.parent
+                module = node.module or ""
+                if module:
+                    add(module, base)
+                for alias in node.names:
+                    add(f"{module}.{alias.name}" if module else alias.name, base)
+            elif node.module and (
+                node.module == "tests" or node.module.startswith("tests.")
+            ):
+                add(node.module, repo_root)
+                for alias in node.names:
+                    add(f"{node.module}.{alias.name}", repo_root)
+    return found
+
+
+def _source_starts_powershell(tree: Any) -> bool:
+    import ast
+
+    powershell_named = False
+    spawn_imported = False
+    for node in ast.walk(tree):
+        text: str | None = None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value
+            if ".ps1" in text.lower():
+                powershell_named = True
+        elif isinstance(node, ast.Name):
+            text = node.id
+        elif isinstance(node, ast.Attribute):
+            text = node.attr
+        elif isinstance(node, ast.alias):
+            text = node.name
+            if node.name.split(".")[0] in _SPAWN_IMPORTS:
+                spawn_imported = True
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            text = node.module
+            if node.module.split(".")[0] in _SPAWN_IMPORTS:
+                spawn_imported = True
+        if text and _POWERSHELL_WORD.search(text):
+            powershell_named = True
+    return powershell_named and spawn_imported
+
+
+def _source_marks_serial(tree: Any) -> bool:
+    import ast
+
+    return any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "serial"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        for node in ast.walk(tree)
+    )
+
+
+def serial_test_file_reason(path: Path, tests_root: Path) -> str | None:
+    """Return why a test file is `serial` (or unprovable), else ``None``."""
+
+    path = path.resolve()
+    tests_root = tests_root.resolve()
+    pending = [path]
+    try:
+        path.parent.relative_to(tests_root)
+        inside_tests = True
+    except ValueError:
+        inside_tests = False
+    if inside_tests:
+        cursor = path.parent
+        while True:
+            conftest = cursor / "conftest.py"
+            if conftest.is_file():
+                pending.append(conftest)
+            if cursor == tests_root:
+                break
+            cursor = cursor.parent
+    repo_conftest = tests_root.parent / "conftest.py"
+    if repo_conftest.is_file():
+        pending.append(repo_conftest)
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        key = os.path.normcase(str(current.resolve()))
+        if key in visited:
+            continue
+        visited.add(key)
+        if len(visited) > _MAX_FOCUSED_IMPORT_CLOSURE:
+            return f"{path.name}: local import closure is too large to classify"
+        try:
+            tree = _parse_test_source(current)
+        except (OSError, ValueError, SyntaxError):
+            return f"{path.name}: {current.name} cannot be parsed"
+        if current == path and _source_marks_serial(tree):
+            return f"{path.name} is marked serial"
+        if _source_starts_powershell(tree):
+            if current == path:
+                return f"{path.name} starts PowerShell (serial until the marker exists)"
+            return f"{path.name} reaches PowerShell through {current.name}"
+        pending.extend(_local_import_paths(tree, current, tests_root))
+    return None
+
+
+def _portable_live_holds_host(marker_path: Path | None = None) -> str | None:
+    path = HOST_GLOBAL_STATE_MARKER if marker_path is None else marker_path
+    try:
+        if not path.exists():
+            return None
+        raw = path.read_bytes()
+        if len(raw) > _MAX_ASSIGNMENT_BYTES:
+            raise ValueError("oversized marker")
+        marker = json.loads(raw.decode("utf-8-sig"))
+        profile = (
+            marker.get("execution_host_profile") if isinstance(marker, dict) else None
+        )
+    except (OSError, ValueError, UnicodeDecodeError):
+        return "the host-global workload state cannot be read"
+    if profile == "workstation_offline_v1":
+        return None
+    if profile == "portable_execution_v1":
+        return "a portable live stage holds the host-global mutex"
+    return "the host-global workload state names an unknown profile"
+
+
+def focused_pytest_verdict(
+    arguments: list[str] | tuple[str, ...],
+    cwd: Path,
+    *,
+    repo_root: Path | None = None,
+    marker_path: Path | None = None,
+) -> tuple[bool, str]:
+    """Classify decoded pytest arguments for the workstation focused-run exemption."""
+
+    root = WORKSTATION_WRAPPER_PATH.parents[2] if repo_root is None else repo_root
+    files, why = focused_pytest_arguments(arguments, cwd)
+    if files is None:
+        return False, why
+    for path in files:
+        serial = serial_test_file_reason(path, root / "tests")
+        if serial is not None:
+            return False, serial
+    live = _portable_live_holds_host(marker_path)
+    if live is not None:
+        return False, live
+    return True, f"focused run of {len(files)} non-serial test file(s)"
+
+
+def _focused_pytest_command(command: str, cwd: Path) -> tuple[bool, str]:
+    """Return whether a whole shell command is one exempt focused pytest run."""
+
+    segments = list(_iter_raw_command_segments(command))
+    if len(segments) != 1:
+        return False, "the command is not a single pytest invocation"
+    if (
+        _nested_host_load_command(command)
+        or _dynamic_host_load_command(command)
+        or _forbidden_recursive_scan(command)
+        or _heavy_test_entrypoint(command)
+        or "workstation_heavy.ps1" in command.lower()
+    ):
+        return False, "the command is not a single static pytest invocation"
+    python_records = _python_module_records(command)
+    executable_records = _pytest_executable_argument_records(command)
+    if len(python_records) + len(executable_records) != 1:
+        return False, "the command is not a single pytest invocation"
+    if python_records:
+        module, dynamic, raw_arguments = python_records[0]
+        if dynamic or module != "pytest":
+            return False, "the command is not a static python -m pytest invocation"
+    else:
+        raw_arguments = executable_records[0]
+    decoded: list[str] = []
+    for raw in raw_arguments:
+        value, dynamic = _decode_static_shell_word(raw)
+        if dynamic or (raw != value and not _whole_quoted_word(raw)):
+            return False, "a pytest argument is dynamic or not canonically quoted"
+        decoded.append(value)
+    return focused_pytest_verdict(decoded, cwd)
+
+
+def _payload_cwd(payload: dict[str, Any]) -> Path:
+    candidate = payload.get("cwd")
+    if isinstance(candidate, str) and candidate and Path(candidate).is_absolute():
+        return Path(candidate)
+    return Path.cwd()
+
+
 def _deny(reason: str) -> dict[str, Any]:
     return {
         "hookSpecificOutput": {
@@ -3109,10 +3478,14 @@ def evaluate(
         if _recognized_host_load_command(command) and not _approved_workstation_wrapper(
             command
         ):
+            exempt, why = _focused_pytest_command(command, _payload_cwd(payload))
+            if exempt:
+                return None
             return _deny(
                 "On a non-capture workstation, recognized heavy work must use the "
                 "repository-owned workstation_heavy.ps1 wrapper so it cannot overlap "
-                "a portable live lease. The capture-host time window does not apply."
+                "a portable live lease. The capture-host time window does not apply. "
+                f"Focused-run exemption not available: {why}."
             )
         return None
 
@@ -3152,7 +3525,40 @@ def evaluate(
     return None
 
 
+def _classify_focused_pytest_main(encoded: str) -> int:
+    """Print the focused-run verdict for base64 JSON {arguments, cwd[, marker_path]}.
+
+    workload_admission.ps1 calls this only after proving the non-capture host identity.
+    """
+
+    try:
+        request = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        arguments = request["arguments"]
+        cwd = Path(request["cwd"])
+        marker = request.get("marker_path")
+        if not isinstance(arguments, list) or not cwd.is_absolute():
+            raise ValueError("malformed request")
+        exempt, why = focused_pytest_verdict(
+            arguments,
+            cwd,
+            marker_path=Path(marker) if marker else None,
+        )
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        binascii.Error,
+    ) as error:
+        exempt, why = False, f"focused-run request is malformed: {error}"
+    json.dump({"exempt": exempt, "reason": why}, sys.stdout, separators=(",", ":"))
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--classify-focused-pytest":
+        return _classify_focused_pytest_main(sys.argv[2])
     try:
         payload = json.load(sys.stdin)
     except (OSError, ValueError, TypeError):

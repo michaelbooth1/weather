@@ -134,6 +134,15 @@ local only, and the full suite runs only through
 workload lease). See [development.md](docs/development.md) and the
 [host load policy](docs/operations/HOST_LOAD_POLICY.md).
 
+On the non-capture workstation, a focused run (at most 25 named test files, none
+`serial` or starting PowerShell, an explicit `--basetemp`, no xdist) runs directly;
+larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit 75):
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
+.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+```
+
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
 

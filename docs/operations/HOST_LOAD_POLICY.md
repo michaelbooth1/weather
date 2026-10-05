@@ -106,19 +106,39 @@ workstation.
   not using xdist, may run without `workstation_heavy.ps1`, with an explicit `--basetemp` deleted afterwards.
   Never while a portable live stage holds the host-global mutex. Until the `serial` marker is registered (a
   test-suite review K follow-up), treat any file that starts PowerShell as `serial`.
-- **FIFO queue.** Full suites and larger runs wait their turn first-in first-out instead of polling a refusal,
-  with one wait-log line per enqueue, start, finish and give-up.
+- **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
+  -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
 
-**Mechanism status: follow-up, not yet implemented.** The rules are adopted, but the enforcing code is more
-than a small change and is left as an explicit follow-up. The Codex host-load hook
-(`.codex/hooks/pre_tool_use_host_load.py`) still denies every recognized pytest on the workstation outside the
-wrapper, so Codex sessions cannot use the exemption until the hook learns to count test files and check the
-`serial` marker. `workstation_heavy.ps1` still refuses immediately when the lease is busy and has no queue or
-wait log. Sessions without the hook (Claude Code) may apply the exemption now. Until the queue exists, a caller
-waiting for the lease polls at most once a minute.
+**Mechanism (implemented 2026-10-04, test-suite review K item M).** Host identity is the existing one: the
+SHA-256 of the Windows `MachineGuid` compared with `dedicated_capture_execution_host_id` in
+`config/international_live_execution_host.json`. On that identity, or when it cannot be proved, nothing
+below applies: no exemption, no queue state, the same windows and the same bounded-suite rule.
+
+- *Exemption.* The Codex hook (`.codex/hooks/pre_tool_use_host_load.py`, `focused_pytest_verdict`) admits
+  one static `python -m pytest` (or `pytest`) command with no chaining, at most 25 distinct existing test
+  files (node ids of one file count once), an explicit `--basetemp`, only allowlisted options (`-k`/`-m` only
+  beside named files; no xdist, `--pyargs`, directories, globs or `@argfiles`), and no `serial` file. A file
+  is `serial` when it carries `pytest.mark.serial`, or when it, a local `tests.*` module it imports, or an
+  ancestor `conftest.py` names PowerShell (a `powershell`/`pwsh` string, identifier or import, or a `.ps1`
+  string) and imports a process-spawning module (`subprocess`, `asyncio`, `os`, `multiprocessing`); an
+  unparsable file is `serial`. A host-global state marker naming `portable_execution_v1`, or one that cannot
+  be read, refuses the exemption. `workload_admission.ps1` exposes the same verdict as
+  `Test-WeatherWorkstationFocusedPytestExemption`, which proves the non-capture identity in PowerShell before
+  it asks the hook's classifier (`--classify-focused-pytest`). A denial names the reason.
+- *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
+  `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
+  process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
+  every checkout and worktree). Only the head ticket tries the lease; each poll first reaps tickets whose PID
+  has exited or names a different process, and unreadable tickets older than 60 s. Events go to stdout and to
+  `data\logs\heavy_workload_queue.jsonl` in the admitting checkout: `enqueue`, `wait` (on every position
+  change and every `-QueueReportSeconds`, default 60), `reaped`, `start`, `finish` (with the exit code),
+  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known. A timeout exits
+  **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
+  only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
+  first. Kill-on-close Job and child-tree teardown are unchanged.
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
