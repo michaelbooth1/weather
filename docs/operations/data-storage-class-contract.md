@@ -37,6 +37,19 @@ The code-backed registry lives in
 `weather.reporting.data_quality.data_retention_inventory` uses the registry to summarize
 bytes and recent growth by storage class.
 
+The NBP complete-cycle discovery index at
+`forecast_payload_cas/nbp_cycle_index/**/*.json` is an `analysis_projection`.
+Its rebuild sources are the original fan-out receipt and verified shared blob,
+with the same completeness policy and configured station set. Deletion requires
+a reviewed exact-path cleanup manifest naming those sources; no TTL applies.
+This classification grants no deletion authority for the shared blobs.
+
+The NBM NBH/NBS station-block manifests at
+`forecast_payload_cas/nbm_text_manifests/*.jsonl` are `canonical_evidence`
+(`nbm_text_station_block_manifest`): they bind capture time and the national
+bulletin's hash to each gzip station-block blob, which stays in the
+`shared_forecast_payload_cas` family.
+
 Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
 `seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
 atomic global and per-market-day status files are operator caches: they can be

@@ -223,6 +223,11 @@ Run commands from the repository root with the venv interpreter.
 
 # Forecast archive utilities.
 .\venv\Scripts\python.exe -m weather.collection.forecast_archive analyze <snapshot-folder>
+
+# NBM NBH/NBS text guidance, market-station blocks only, into the shared
+# forecast payload CAS (capture only; no feature reads it; not yet scheduled).
+.\venv\Scripts\python.exe -m weather.collection.nbm_text_capture --hours-back 3 --dry-run
+.\venv\Scripts\python.exe -m weather.collection.nbm_text_capture --hours-back 3
 ```
 
 ### Live Collection Loops

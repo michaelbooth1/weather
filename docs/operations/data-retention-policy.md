@@ -451,6 +451,52 @@ the operator has reviewed the dry run and scheduled the quiet window.
 
 ## Shared Forecast Payload CAS
 
+The NBP live call opts into cross-pass reuse by exact request and cycle. An
+atomic, create-only index at `forecast_payload_cas/nbp_cycle_index/` copies a
+successful fan-out receipt only after checking every configured US station's
+FHR, all seven TXN rows and terminal SLPP rows. The completeness policy and
+configured station set are part of the index key. This index is an
+`analysis_projection` of the original fan-out receipt and retained bytes;
+rebuilding it requires repeating that completeness check. It is not new
+canonical evidence or authority to remove any original receipt or blob.
+No index cleanup is enabled by this change; deletion still requires a reviewed
+exact-path manifest with that rebuild source. The code-backed family registry
+in `weather.operations.storage_classes` records this projection contract.
+
+Before reuse, the reader verifies the original receipt and CAS hash/length and
+the bulletin cycle. A new cycle is a new key. Incomplete bulletins and failed
+requests never enter the index; 403/404 receipts remain confined to one capture
+pass. Any index or coordination error falls back to ordinary downloading,
+without a second download after a successful response. No additional lock or
+wait is introduced. The local decoded-response cache retains its two-entry
+bound, and completeness scanning does not materialize the national line list.
+
+Reused manifests keep the original `fetched_at`, request/response times and
+separate current `captured_at_utc`. They report `single_fetch_reused=true`,
+`single_fetch_fetched=false` and zero new coordinator network events; the
+original receipt owns its original download. `cycle_age_at_use_hours` on the
+live payload is measured at use time; manifest consumers derive it from capture
+minus issue. This use-time diagnostic never overwrites frozen parser/wrapper
+provenance such as Part A's original-capture `cycle_age_hours` (Part A, parser
+version 2, is a separate unlanded layer; this reuse landed without it).
+The forecast writer, replay, migration and stored evidence schemas are unchanged.
+
+NBM NBH and NBS text guidance (`weather.collection.nbm_text_capture`, owner
+decision 2026-10-02) is capture only. Each hourly cycle's national bulletin is
+streamed once; only the configured market stations' blocks (all 12, Toronto
+`CYYZ` included) are kept verbatim, gzip-compressed (`mtime=0`) and stored as an
+ordinary `shared_forecast_payload_cas` blob. One row per cycle in
+`forecast_payload_cas/nbm_text_manifests/<YYYYMMDD>.jsonl`
+(`nbm_text_station_blocks_v0.1`, canonical evidence) binds the blob to its URL,
+capture times, national byte count and SHA-256, and stations found/missing. A
+cycle with a `success` or `partial` row is never downloaded again; unpublished
+(403/404) cycles leave no row. Measured on the 2026-10-01 12Z files: about 7 KB
+per product-cycle, so 48 cycles plus manifest rows are about 0.45 MB/day; the
+national files themselves (~29 MB each, ~1.4 GB/day of download) are not kept.
+These blobs are not referenced by snapshot `forecast_payloads.jsonl`, so the
+migration inventory below counts them as unreferenced within its scanned scope;
+that is an observation, not orphan proof, and shared-blob GC stays disabled.
+
 New explicitly market-invariant forecast responses use the shared immutable
 CAS under `data/forecast_payload_cas/`; their per-market append-only manifests
 retain capture and extraction lineage. Inventory a possible legacy migration
