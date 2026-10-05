@@ -26,16 +26,19 @@ jobs:
         include:
           - shard: status-evidence
             select: invalid_reconciliation_evidence
+            mark: ''
             files: >-
               tests/operations/test_status_script.py
           - shard: status-rest
             select: not invalid_reconciliation_evidence
+            mark: ''
             files: >-
               tests/operations/test_status_script.py
               tests/operations/test_health_watchdog_script.py
               tests/operations/test_ops_alarm_path.py
           - shard: archive
             select: ''
+            mark: ''
             files: >-
               tests/operations/test_production_cold_archive_wrapper.py
               tests/operations/test_cold_archive_reclaim.py
@@ -46,6 +49,9 @@ jobs:
               tests/operations/test_daily_refresh_wrapper_execution.py
           - shard: launch
             select: ''
+            # Ratchets run once in CI: portable ones in ci.yml's audit job, the
+            # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
+            mark: not ratchet or windows_native
             files: >-
               tests/operations/test_integration_phase_output.py
               tests/operations/test_windows_job_output_capture.py
@@ -71,6 +77,7 @@ jobs:
       SHARD: ${{ matrix.shard }}
       SHARD_FILES: ${{ matrix.files }}
       SHARD_SELECT: ${{ matrix.select }}
+      SHARD_MARK: ${{ matrix.mark }}
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -113,6 +120,7 @@ jobs:
         run: |
           $pytestArgs = @('-m', 'pytest', '-q') + @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
           if ($env:SHARD_SELECT) { $pytestArgs += @('-k', $env:SHARD_SELECT) }
+          if ($env:SHARD_MARK) { $pytestArgs += @('-m', $env:SHARD_MARK) }
           $pytestArgs += @('--junitxml', "$env:RUNNER_TEMP/reliability-windows-junit.xml")
           python @pytestArgs
           if ($LASTEXITCODE -ne 0) { throw 'Native qualification failed.' }
@@ -138,6 +146,7 @@ jobs:
             shard = $env:SHARD
             shard_files = @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
             shard_select = $env:SHARD_SELECT
+            shard_mark = $env:SHARD_MARK
             production_adoption_authorized = $false
             candidate_commit = $actual
             expected_candidate_commit = $env:EXPECTED_CANDIDATE_SHA

@@ -15,6 +15,9 @@ from weather.operations.agent_docs_audit import (
     state_of_play_age_errors,
     unindexed_operations_docs,
 )
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_agent_docs_audit_passes_repository_contracts():

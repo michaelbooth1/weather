@@ -164,6 +164,7 @@ def _inside_heavy_window() -> bool:
     return 30 <= minute < 9 * 60
 
 
+@pytest.mark.ratchet
 def test_every_heavy_wrapper_uses_the_shared_lease() -> None:
     for name in WRAPPERS:
         text = (REPO_ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")

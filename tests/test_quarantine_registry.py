@@ -20,6 +20,8 @@ import pytest
 
 from tests import quarantine_plugin
 
+pytestmark = pytest.mark.ratchet
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOKS = (
     "pytest_addoption",
