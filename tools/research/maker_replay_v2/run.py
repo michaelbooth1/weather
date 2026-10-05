@@ -1,13 +1,21 @@
-"""S1 and S6 for maker replay v2 W0/W1 on fictional fixtures; one measurement per fresh process.
+"""S1, S2 and S6 for maker replay v2 W0-W2 on fictional fixtures; one measurement per fresh process.
 
     python -m tools.research.maker_replay_v2.run s1 --out NEW_DIR [--trades N] [--union 170] [--book-depth 8]
     python -m tools.research.maker_replay_v2.run s6 --out NEW_DIR [--trades N] [--union 170]
+    python -m tools.research.maker_replay_v2.run s2-input --out NEW_DIR [--trades N] [--union 170] [--book-depth 8]
+    python -m tools.research.maker_replay_v2.run s2 --input CAPTURE_DIR --out NEW_DIR [--format v0.2|v0.1] [--tracemalloc]
+    python -m tools.research.maker_replay_v2.run books --out NEW_DIR [--minutes 60] [--depths 4 8 16 32]
 
 S1 writes one full fictional day in v0.1 and v0.2 form and reports bytes and records per kind. S6
 writes the same day, reads both forms back through the two-pass stream reader, expands v0.2 to v0.1
 and compares the canonical bytes with the elided v0.1 stream by SHA-256; it repeats that with
 byte-identical view/descriptor repeats (so elision has work), and checks that a crafted coverage
-mismatch is refused. Output goes only under ``--out``. Engineering plan:
+mismatch is refused. S2 (W2) writes a fictional sealed 88a capture day (``s2-input``), then runs one
+night export of it per process (``s2``: the v0.2 exporter, or the frozen v0.1 one as the baseline) and
+reports the peak, the peak per exporter phase, the in-memory accumulators, and bytes and records per
+kind. ``books`` measures book record bytes against levels a side. S3/S5/S7/S8/S9 (W3-W5) are
+reached through this entry point too; their usage is in ``bench.py``. Output goes only under
+``--out``. Engineering plan:
 docs/research/maker-replay-v2-engineering-plan-DRAFT.md. Heavy work: run it through
 ``scripts/ops/workstation_heavy.ps1`` (``weather_heavy``), serially.
 """
@@ -172,20 +180,41 @@ def s6(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("measurement", choices=("s1", "s6", *bench.MEASUREMENTS))
+    parser.add_argument("measurement", choices=("s1", "s6", "s2-input", "s2", "books", *bench.MEASUREMENTS))
     parser.add_argument("--out", type=Path, required=True, help="new directory for the fictional bundles")
     parser.add_argument("--trades", type=int, default=2000)
     parser.add_argument("--union", type=int, default=170)
-    parser.add_argument("--book-depth", type=int, default=8, help="S1 only: price levels per book side")
-    bench.add_arguments(parser)  # S3/S5/S7/S8/S9 (W3-W5): tools/research/maker_replay_v2/bench.py
+    parser.add_argument("--book-depth", type=int, default=8, help="S1 and s2-input: price levels per book side")
+    parser.add_argument("--input", type=Path, help="s2: the capture folder an s2-input run wrote")
+    parser.add_argument("--format", choices=("v0.2", "v0.1"), default="v0.2", help="s2: the exporter measured")
+    parser.add_argument("--tracemalloc", action="store_true", help="s2: attribute Python allocations (slower)")
+    parser.add_argument("--max-output-bytes", type=int, default=HOST_MAX_BYTES, help="s2: the export output cap")
+    parser.add_argument("--depths", type=int, nargs="+", default=[4, 8, 16, 32], help="books: levels a side")
+    # S3/S5/S7/S8/S9 (W3-W5): tools/research/maker_replay_v2/bench.py. It owns --minutes (default None, filled
+    # per measurement by bench.DEFAULTS); s2-input and books fill their own default below.
+    bench.add_arguments(parser)
     args = parser.parse_args(argv)
+    if args.measurement == "s2" and args.input is None:
+        parser.error("s2 needs --input")
     if args.out.exists():
         parser.error("--out must be a new directory")
     args.out.mkdir(parents=True)
     if args.measurement in bench.MEASUREMENTS:
         result = bench.run(args.measurement, args)
-    else:
+    elif args.measurement in ("s1", "s6"):
         result = (s1 if args.measurement == "s1" else s6)(args)
+    else:
+        from tools.research.maker_replay_v2 import s2
+        minutes = 1440 if args.minutes is None else args.minutes  # s2-input and books: minutes captured
+        if args.measurement == "s2-input":
+            result = s2.s2_input(args.out, DAY, union=args.union, trades=args.trades, book_depth=args.book_depth,
+                                 minutes=minutes)
+        elif args.measurement == "s2":
+            result = s2.s2(DAY, args.input, args.out, form=args.format, trace=args.tracemalloc,
+                           max_output_bytes=args.max_output_bytes)
+        else:
+            result = s2.books(DAY, args.out, depths=args.depths, minutes=minutes, union=args.union,
+                              trades=args.trades)
     raw = json.dumps(result, sort_keys=True, default=str, indent=1)
     (args.out / f"{args.measurement}.json").write_text(raw + "\n", encoding="utf-8")
     print(raw)
