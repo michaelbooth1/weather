@@ -465,6 +465,27 @@ shared lease:
 .\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
 
+Combined METAR v4 + lock-in v3 replay (read-only, closed dates up to 2026-09-29
+only), the production acceptance read for `metar-parser-v4`. For each captured
+snapshot it joins the replay record to its retained raw AWC payload (SHA-256
+verified), re-parses it with the served v4 parser, substitutes that METAR block
+(and re-derives `station_observations`) in the captured inputs, and runs
+`estimate_distribution` three ways: captured inputs with the old WU-only anchor,
+captured inputs with `lockin-anchor-v3`, and v4 inputs with `lockin-anchor-v3`.
+It writes one JSONL row per snapshot to a new `--out` outside `data/` and prints
+a summary per hour block (00-05, 06-09, 10-12, 13-16, 17-23): rows changed, mean
+mass above and below the anchor old vs new, the floor check (exit 3 when any
+row's new vector holds more mass below the anchor bucket than the old one), and
+the rows where v4 changed `guidance_physical_floor` or the anchor, including the
+D-1 23:5x carry-over rows. Snapshots without a retained payload are counted by
+status and not replayed. It refuses later dates, an existing `--out`, and any
+`--out` inside `data/`. On the capture host run it only inside the admitted
+heavy window under the shared lease:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.metar_v4_lockin_replay --out scratch\metar_v4_lockin_replay\through-2026-09-29.jsonl --from-date 2026-08-25
+```
+
 ### Trading Simulations
 
 ```powershell

@@ -164,6 +164,14 @@ daily-roll liveness classification.
   `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
   to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
   when any row puts more mass below the anchor than before.
+  `python -m weather.backtesting.metar_v4_lockin_replay` is the combined
+  acceptance read: it re-parses each snapshot's retained raw METAR payload with
+  `metar-parser-v4`, substitutes it in the captured inputs through the serving
+  functions (`metar_data_from_payload`, `derive_station_observations_source`),
+  and compares the old anchor on captured inputs with `lockin-anchor-v3` on the
+  v4 inputs per hour block, with the same floor check and exit 3, plus counts
+  of rows where v4 moved `guidance_physical_floor` or the anchor. Same
+  read-only and closed-date contract.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.
