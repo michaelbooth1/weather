@@ -1,4 +1,9 @@
-"""Shared execution helpers retain values while live imports avoid paper owners."""
+"""Shared execution helpers retain values while live imports avoid paper owners.
+
+Guards: 110m part 3 (#104) live/paper decoupling - live International entry points import no
+mm_policy or market_making_* paper owner, the moved scalar/platform/capture helpers keep the frozen
+mm_policy values and stay single owners, and every datetime clock routes through weather.time.
+"""
 import ast
 from datetime import datetime, timezone
 import importlib
@@ -14,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = '8180404a0e588f73dab3c83a171538f8a89c9705'
 
 
+@pytest.mark.spawns
 @pytest.mark.parametrize('value', [None, '', '0', 0, False, 'NaN', 'inf', '-2.3', 'bad'])
 def test_scalar_helpers_match_frozen_policy(value):
     source = subprocess.check_output(['git','show',f'{BASE}:src/weather/market/mm_policy.py'], cwd=ROOT, text=True, encoding='utf-8')

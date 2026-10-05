@@ -1,4 +1,9 @@
-"""The retained maker paper-score freshness reader keeps its verdicts."""
+"""The retained maker paper-score freshness reader keeps its verdicts.
+
+Guards: owner decision 2026-10-04 freshness#3 - maker evidence countability fails closed: NO_ACTIVE_DAY
+and STALE (including a missing paper report) block, and only a report covering the latest completed
+active day passes.
+"""
 
 import json
 from pathlib import Path
