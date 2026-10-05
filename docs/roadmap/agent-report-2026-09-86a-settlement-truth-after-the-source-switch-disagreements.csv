@@ -1,0 +1,1127 @@
+comparison,market,date,candidate,reference,difference,unit
+metar_hourly_venue,toronto,2026-07-23,25,26 C,,C
+metar_hourly_wu,toronto,2026-07-23,25,26,-1,C
+asos_venue,nyc,2026-07-01,89,92-93 F,,F
+asos_wu,nyc,2026-07-01,89,92,-3,F
+metar_with_6h_wu,nyc,2026-07-01,93,92,1,F
+asos_venue,nyc,2026-07-02,104,102-103 F,,F
+asos_wu,nyc,2026-07-02,104,102,2,F
+metar_with_6h_venue,nyc,2026-07-02,104,102-103 F,,F
+metar_with_6h_wu,nyc,2026-07-02,104,102,2,F
+asos_venue,nyc,2026-07-03,94,100-101 F,,F
+asos_wu,nyc,2026-07-03,94,100,-6,F
+metar_with_6h_wu,nyc,2026-07-03,101,100,1,F
+asos_venue,nyc,2026-07-06,72,70-71 F,,F
+asos_wu,nyc,2026-07-06,72,71,1,F
+metar_hourly_wu,nyc,2026-07-06,70,71,-1,F
+asos_wu,nyc,2026-07-07,73,72,1,F
+asos_venue,nyc,2026-07-08,77,86-87 F,,F
+asos_wu,nyc,2026-07-08,77,87,-10,F
+asos_venue,nyc,2026-07-09,89,86-87 F,,F
+asos_wu,nyc,2026-07-09,89,87,2,F
+metar_with_6h_venue,nyc,2026-07-09,89,86-87 F,,F
+metar_with_6h_wu,nyc,2026-07-09,89,87,2,F
+asos_venue,nyc,2026-07-10,90,88-89 F,,F
+asos_wu,nyc,2026-07-10,90,88,2,F
+metar_with_6h_wu,nyc,2026-07-10,89,88,1,F
+asos_venue,nyc,2026-07-11,85,82-83 F,,F
+asos_wu,nyc,2026-07-11,85,82,3,F
+metar_with_6h_wu,nyc,2026-07-11,83,82,1,F
+asos_venue,nyc,2026-07-13,79,84-85 F,,F
+asos_wu,nyc,2026-07-13,79,85,-6,F
+asos_venue,nyc,2026-07-14,84,92-93 F,,F
+asos_wu,nyc,2026-07-14,84,92,-8,F
+metar_with_6h_wu,nyc,2026-07-14,93,92,1,F
+asos_venue,nyc,2026-07-17,81,86-87 F,,F
+asos_wu,nyc,2026-07-17,81,87,-6,F
+metar_with_6h_venue,nyc,2026-07-17,88,86-87 F,,F
+metar_with_6h_wu,nyc,2026-07-17,88,87,1,F
+asos_wu,nyc,2026-07-18,81,80,1,F
+asos_venue,nyc,2026-07-19,83,80-81 F,,F
+asos_wu,nyc,2026-07-19,83,81,2,F
+metar_with_6h_venue,nyc,2026-07-19,83,80-81 F,,F
+metar_with_6h_wu,nyc,2026-07-19,83,81,2,F
+metar_hourly_wu,nyc,2026-07-19,80,81,-1,F
+asos_venue,nyc,2026-07-20,73,82-83 F,,F
+asos_wu,nyc,2026-07-20,73,82,-9,F
+metar_with_6h_wu,nyc,2026-07-20,83,82,1,F
+asos_venue,nyc,2026-07-21,84,82-83 F,,F
+asos_wu,nyc,2026-07-21,84,82,2,F
+metar_with_6h_wu,nyc,2026-07-21,83,82,1,F
+asos_venue,nyc,2026-07-22,82,88-89 F,,F
+asos_wu,nyc,2026-07-22,82,88,-6,F
+metar_with_6h_wu,nyc,2026-07-22,89,88,1,F
+asos_venue,nyc,2026-07-23,82,80-81 F,,F
+asos_wu,nyc,2026-07-23,82,81,1,F
+asos_venue,nyc,2026-07-25,80,78-79 F,,F
+asos_wu,nyc,2026-07-25,80,79,1,F
+metar_with_6h_venue,nyc,2026-07-25,80,78-79 F,,F
+metar_with_6h_wu,nyc,2026-07-25,80,79,1,F
+asos_venue,nyc,2026-07-26,86,82-83 F,,F
+asos_wu,nyc,2026-07-26,86,82,4,F
+metar_with_6h_venue,nyc,2026-07-26,84,82-83 F,,F
+metar_with_6h_wu,nyc,2026-07-26,84,82,2,F
+asos_wu,nyc,2026-07-27,85,84,1,F
+metar_with_6h_wu,nyc,2026-07-27,85,84,1,F
+asos_venue,nyc,2026-07-28,75,80-81 F,,F
+asos_wu,nyc,2026-07-28,75,80,-5,F
+metar_with_6h_wu,nyc,2026-07-28,81,80,1,F
+asos_venue,nyc,2026-07-29,84,80-81 F,,F
+asos_wu,nyc,2026-07-29,84,81,3,F
+metar_with_6h_venue,nyc,2026-07-29,83,80-81 F,,F
+metar_with_6h_wu,nyc,2026-07-29,83,81,2,F
+asos_wu,nyc,2026-07-30,77,76,1,F
+asos_venue,nyc,2026-07-31,87,84-85 F,,F
+asos_wu,nyc,2026-07-31,87,84,3,F
+metar_with_6h_venue,nyc,2026-07-31,86,84-85 F,,F
+metar_with_6h_wu,nyc,2026-07-31,86,84,2,F
+asos_venue,nyc,2026-08-01,88,86-87 F,,F
+asos_wu,nyc,2026-08-01,88,87,1,F
+asos_venue,nyc,2026-08-02,86,84-85 F,,F
+asos_wu,nyc,2026-08-02,86,85,1,F
+metar_with_6h_venue,nyc,2026-08-02,86,84-85 F,,F
+metar_with_6h_wu,nyc,2026-08-02,86,85,1,F
+asos_venue,nyc,2026-08-03,79,84-85 F,,F
+asos_wu,nyc,2026-08-03,79,84,-5,F
+metar_with_6h_venue,nyc,2026-08-03,86,84-85 F,,F
+metar_with_6h_wu,nyc,2026-08-03,86,84,2,F
+asos_venue,nyc,2026-08-04,86,84-85 F,,F
+asos_wu,nyc,2026-08-04,86,84,2,F
+metar_with_6h_wu,nyc,2026-08-04,85,84,1,F
+asos_venue,nyc,2026-08-05,82,84-85 F,,F
+asos_wu,nyc,2026-08-05,82,84,-2,F
+metar_with_6h_wu,nyc,2026-08-05,85,84,1,F
+asos_wu,nyc,2026-08-06,91,90,1,F
+metar_with_6h_wu,nyc,2026-08-06,91,90,1,F
+asos_venue,nyc,2026-08-07,94,92-93 F,,F
+asos_wu,nyc,2026-08-07,94,93,1,F
+metar_with_6h_venue,nyc,2026-08-07,94,92-93 F,,F
+metar_with_6h_wu,nyc,2026-08-07,94,93,1,F
+asos_venue,nyc,2026-08-09,83,90-91 F,,F
+asos_wu,nyc,2026-08-09,83,91,-8,F
+asos_venue,nyc,2026-08-10,92,90-91 F,,F
+asos_wu,nyc,2026-08-10,92,91,1,F
+asos_venue,nyc,2026-08-11,82,86-87 F,,F
+metar_with_6h_venue,nyc,2026-08-11,88,86-87 F,,F
+asos_venue,atlanta,2026-07-01,96,94-95 F,,F
+asos_wu,atlanta,2026-07-01,96,95,1,F
+metar_with_6h_venue,atlanta,2026-07-01,96,94-95 F,,F
+metar_with_6h_wu,atlanta,2026-07-01,96,95,1,F
+asos_wu,atlanta,2026-07-02,99,98,1,F
+asos_venue,atlanta,2026-07-03,95,92-93 F,,F
+asos_wu,atlanta,2026-07-03,95,93,2,F
+metar_with_6h_venue,atlanta,2026-07-03,95,92-93 F,,F
+metar_with_6h_wu,atlanta,2026-07-03,95,93,2,F
+asos_venue,atlanta,2026-07-04,94,92-93 F,,F
+asos_wu,atlanta,2026-07-04,94,93,1,F
+asos_venue,atlanta,2026-07-05,95,92-93 F,,F
+asos_wu,atlanta,2026-07-05,95,93,2,F
+metar_with_6h_venue,atlanta,2026-07-05,94,92-93 F,,F
+metar_with_6h_wu,atlanta,2026-07-05,94,93,1,F
+asos_wu,atlanta,2026-07-06,91,90,1,F
+metar_with_6h_wu,atlanta,2026-07-06,91,90,1,F
+asos_venue,atlanta,2026-07-07,94,92-93 F,,F
+asos_wu,atlanta,2026-07-07,94,92,2,F
+metar_with_6h_wu,atlanta,2026-07-07,93,92,1,F
+asos_venue,atlanta,2026-07-08,95,92-93 F,,F
+asos_wu,atlanta,2026-07-08,95,93,2,F
+metar_with_6h_venue,atlanta,2026-07-08,94,92-93 F,,F
+metar_with_6h_wu,atlanta,2026-07-08,94,93,1,F
+asos_venue,atlanta,2026-07-10,94,92-93 F,,F
+asos_wu,atlanta,2026-07-10,94,92,2,F
+metar_with_6h_venue,atlanta,2026-07-10,94,92-93 F,,F
+metar_with_6h_wu,atlanta,2026-07-10,94,92,2,F
+asos_wu,atlanta,2026-07-11,95,94,1,F
+metar_hourly_venue,atlanta,2026-07-11,92,94-95 F,,F
+metar_hourly_wu,atlanta,2026-07-11,92,94,-2,F
+asos_wu,atlanta,2026-07-13,83,82,1,F
+metar_with_6h_wu,atlanta,2026-07-13,83,82,1,F
+asos_wu,atlanta,2026-07-14,85,84,1,F
+metar_with_6h_wu,atlanta,2026-07-14,85,84,1,F
+asos_venue,atlanta,2026-07-15,90,88-89 F,,F
+asos_wu,atlanta,2026-07-15,90,89,1,F
+metar_with_6h_venue,atlanta,2026-07-15,90,88-89 F,,F
+metar_with_6h_wu,atlanta,2026-07-15,90,89,1,F
+asos_venue,atlanta,2026-07-16,94,92-93 F,,F
+asos_wu,atlanta,2026-07-16,94,92,2,F
+metar_with_6h_wu,atlanta,2026-07-16,93,92,1,F
+asos_venue,atlanta,2026-07-17,92,88-89 F,,F
+asos_wu,atlanta,2026-07-17,92,89,3,F
+metar_with_6h_venue,atlanta,2026-07-17,91,88-89 F,,F
+metar_with_6h_wu,atlanta,2026-07-17,91,89,2,F
+asos_venue,atlanta,2026-07-18,94,92-93 F,,F
+asos_wu,atlanta,2026-07-18,94,93,1,F
+asos_venue,atlanta,2026-07-19,93,90-91 F,,F
+asos_wu,atlanta,2026-07-19,93,91,2,F
+asos_venue,atlanta,2026-07-20,94,92-93 F,,F
+asos_wu,atlanta,2026-07-20,94,93,1,F
+asos_wu,atlanta,2026-07-21,91,90,1,F
+metar_with_6h_wu,atlanta,2026-07-21,91,90,1,F
+asos_wu,atlanta,2026-07-22,89,88,1,F
+metar_with_6h_wu,atlanta,2026-07-22,89,88,1,F
+asos_venue,atlanta,2026-07-23,90,88-89 F,,F
+asos_wu,atlanta,2026-07-23,90,89,1,F
+metar_with_6h_venue,atlanta,2026-07-23,90,88-89 F,,F
+metar_with_6h_wu,atlanta,2026-07-23,90,89,1,F
+asos_wu,atlanta,2026-07-24,89,88,1,F
+asos_venue,atlanta,2026-07-25,90,88-89 F,,F
+asos_wu,atlanta,2026-07-25,90,88,2,F
+metar_with_6h_wu,atlanta,2026-07-25,89,88,1,F
+asos_venue,atlanta,2026-07-26,93,90-91 F,,F
+asos_wu,atlanta,2026-07-26,93,91,2,F
+metar_with_6h_venue,atlanta,2026-07-26,92,90-91 F,,F
+metar_with_6h_wu,atlanta,2026-07-26,92,91,1,F
+asos_venue,atlanta,2026-07-27,92,90-91 F,,F
+asos_wu,atlanta,2026-07-27,92,91,1,F
+asos_wu,atlanta,2026-07-28,95,94,1,F
+asos_venue,atlanta,2026-07-29,90,88-89 F,,F
+asos_wu,atlanta,2026-07-29,90,89,1,F
+asos_venue,atlanta,2026-07-30,90,88-89 F,,F
+asos_wu,atlanta,2026-07-30,90,89,1,F
+metar_with_6h_venue,atlanta,2026-07-30,90,88-89 F,,F
+metar_with_6h_wu,atlanta,2026-07-30,90,89,1,F
+asos_wu,atlanta,2026-07-31,91,90,1,F
+metar_with_6h_wu,atlanta,2026-07-31,91,90,1,F
+asos_wu,atlanta,2026-08-01,87,86,1,F
+asos_venue,atlanta,2026-08-02,92,90-91 F,,F
+asos_wu,atlanta,2026-08-02,92,91,1,F
+metar_with_6h_venue,atlanta,2026-08-02,92,90-91 F,,F
+metar_with_6h_wu,atlanta,2026-08-02,92,91,1,F
+asos_wu,atlanta,2026-08-03,87,86,1,F
+metar_with_6h_wu,atlanta,2026-08-03,87,86,1,F
+asos_venue,atlanta,2026-08-04,86,84-85 F,,F
+asos_wu,atlanta,2026-08-04,86,84,2,F
+metar_with_6h_venue,atlanta,2026-08-04,86,84-85 F,,F
+metar_with_6h_wu,atlanta,2026-08-04,86,84,2,F
+asos_venue,atlanta,2026-08-05,90,88-89 F,,F
+asos_wu,atlanta,2026-08-05,90,89,1,F
+metar_with_6h_venue,atlanta,2026-08-05,90,88-89 F,,F
+metar_with_6h_wu,atlanta,2026-08-05,90,89,1,F
+asos_wu,atlanta,2026-08-06,89,88,1,F
+metar_with_6h_wu,atlanta,2026-08-06,89,88,1,F
+asos_venue,atlanta,2026-08-08,92,90-91 F,,F
+metar_with_6h_venue,atlanta,2026-08-08,92,90-91 F,,F
+asos_venue,atlanta,2026-08-09,93,90-91 F,,F
+asos_wu,atlanta,2026-08-09,93,91,2,F
+metar_with_6h_venue,atlanta,2026-08-09,93,90-91 F,,F
+metar_with_6h_wu,atlanta,2026-08-09,93,91,2,F
+metar_hourly_venue,atlanta,2026-08-10,92,94-95 F,,F
+metar_hourly_wu,atlanta,2026-08-10,92,94,-2,F
+asos_venue,atlanta,2026-08-11,94,92-93 F,,F
+metar_hourly_venue,atlanta,2026-08-11,90,92-93 F,,F
+asos_venue,austin,2026-07-01,90,96-97 F,,F
+asos_wu,austin,2026-07-01,90,96,-6,F
+asos_venue,austin,2026-07-02,97,94-95 F,,F
+asos_wu,austin,2026-07-02,97,95,2,F
+metar_with_6h_venue,austin,2026-07-02,96,94-95 F,,F
+metar_with_6h_wu,austin,2026-07-02,96,95,1,F
+asos_venue,austin,2026-07-03,98,96-97 F,,F
+asos_wu,austin,2026-07-03,98,97,1,F
+metar_with_6h_venue,austin,2026-07-03,98,96-97 F,,F
+metar_with_6h_wu,austin,2026-07-03,98,97,1,F
+asos_venue,austin,2026-07-04,82,96-97 F,,F
+asos_wu,austin,2026-07-04,82,96,-14,F
+metar_with_6h_wu,austin,2026-07-04,97,96,1,F
+asos_venue,austin,2026-07-05,96,94-95 F,,F
+asos_wu,austin,2026-07-05,96,95,1,F
+metar_with_6h_venue,austin,2026-07-05,96,94-95 F,,F
+metar_with_6h_wu,austin,2026-07-05,96,95,1,F
+asos_venue,austin,2026-07-07,92,96-97 F,,F
+asos_wu,austin,2026-07-07,92,97,-5,F
+metar_with_6h_venue,austin,2026-07-07,98,96-97 F,,F
+metar_with_6h_wu,austin,2026-07-07,98,97,1,F
+asos_venue,austin,2026-07-08,100,98-99 F,,F
+asos_wu,austin,2026-07-08,100,98,2,F
+metar_with_6h_wu,austin,2026-07-08,99,98,1,F
+asos_venue,austin,2026-07-09,98,96-97 F,,F
+asos_wu,austin,2026-07-09,98,97,1,F
+metar_with_6h_venue,austin,2026-07-09,98,96-97 F,,F
+metar_with_6h_wu,austin,2026-07-09,98,97,1,F
+asos_venue,austin,2026-07-10,96,94-95 F,,F
+asos_wu,austin,2026-07-10,96,94,2,F
+metar_with_6h_wu,austin,2026-07-10,95,94,1,F
+asos_venue,austin,2026-07-12,87,94-95 F,,F
+asos_wu,austin,2026-07-12,87,95,-8,F
+metar_with_6h_venue,austin,2026-07-12,96,94-95 F,,F
+metar_with_6h_wu,austin,2026-07-12,96,95,1,F
+asos_venue,austin,2026-07-13,81,92-93 F,,F
+asos_wu,austin,2026-07-13,81,93,-12,F
+metar_with_6h_venue,austin,2026-07-13,94,92-93 F,,F
+metar_with_6h_wu,austin,2026-07-13,94,93,1,F
+asos_venue,austin,2026-07-14,80,78-79 F,,F
+asos_wu,austin,2026-07-14,80,79,1,F
+metar_with_6h_venue,austin,2026-07-14,80,78-79 F,,F
+metar_with_6h_wu,austin,2026-07-14,80,79,1,F
+asos_venue,austin,2026-07-15,78,80-81 F,,F
+asos_wu,austin,2026-07-15,78,80,-2,F
+asos_venue,austin,2026-07-16,81,88-89 F,,F
+asos_wu,austin,2026-07-16,81,89,-8,F
+metar_with_6h_venue,austin,2026-07-16,90,88-89 F,,F
+metar_with_6h_wu,austin,2026-07-16,90,89,1,F
+asos_venue,austin,2026-07-17,84,94-95 F,,F
+asos_wu,austin,2026-07-17,84,94,-10,F
+asos_wu,austin,2026-07-18,95,94,1,F
+metar_with_6h_wu,austin,2026-07-18,95,94,1,F
+asos_venue,austin,2026-07-20,78,96-97 F,,F
+asos_wu,austin,2026-07-20,78,97,-19,F
+metar_with_6h_wu,austin,2026-07-21,101,100,1,F
+metar_with_6h_venue,austin,2026-07-22,104,102-103 F,,F
+metar_with_6h_wu,austin,2026-07-22,104,103,1,F
+metar_with_6h_venue,austin,2026-07-23,100,98-99 F,,F
+metar_with_6h_wu,austin,2026-07-23,100,98,2,F
+metar_with_6h_venue,austin,2026-07-24,96,94-95 F,,F
+metar_with_6h_wu,austin,2026-07-24,96,95,1,F
+metar_with_6h_wu,austin,2026-07-25,97,96,1,F
+metar_with_6h_wu,austin,2026-07-26,97,96,1,F
+asos_wu,austin,2026-07-27,99,98,1,F
+asos_venue,austin,2026-07-28,100,96-97 F,,F
+asos_wu,austin,2026-07-28,100,97,3,F
+metar_with_6h_venue,austin,2026-07-28,99,96-97 F,,F
+metar_with_6h_wu,austin,2026-07-28,99,97,2,F
+asos_wu,austin,2026-07-29,99,98,1,F
+metar_with_6h_wu,austin,2026-07-29,99,98,1,F
+asos_wu,austin,2026-07-30,101,100,1,F
+metar_with_6h_wu,austin,2026-07-30,101,100,1,F
+asos_venue,austin,2026-08-01,96,94-95 F,,F
+asos_wu,austin,2026-08-01,96,95,1,F
+metar_with_6h_venue,austin,2026-08-01,96,94-95 F,,F
+metar_with_6h_wu,austin,2026-08-01,96,95,1,F
+asos_wu,austin,2026-08-02,101,100,1,F
+asos_wu,austin,2026-08-03,103,102,1,F
+asos_venue,austin,2026-08-04,86,100-101 F,,F
+asos_wu,austin,2026-08-04,86,101,-15,F
+asos_venue,austin,2026-08-05,101,98-99 F,,F
+asos_wu,austin,2026-08-05,101,99,2,F
+metar_with_6h_venue,austin,2026-08-05,100,98-99 F,,F
+metar_with_6h_wu,austin,2026-08-05,100,99,1,F
+asos_wu,austin,2026-08-06,101,100,1,F
+metar_with_6h_wu,austin,2026-08-06,101,100,1,F
+metar_with_6h_venue,austin,2026-08-07,100,98-99 F,,F
+metar_with_6h_wu,austin,2026-08-07,100,99,1,F
+asos_venue,austin,2026-08-08,92,98-99 F,,F
+metar_with_6h_venue,austin,2026-08-09,100,98-99 F,,F
+metar_with_6h_wu,austin,2026-08-09,100,99,1,F
+metar_with_6h_venue,austin,2026-08-10,99,96-97 F,,F
+metar_with_6h_wu,austin,2026-08-10,99,97,2,F
+asos_wu,chicago,2026-07-02,95,94,1,F
+metar_with_6h_wu,chicago,2026-07-02,95,94,1,F
+asos_venue,chicago,2026-07-03,88,86-87 F,,F
+asos_wu,chicago,2026-07-03,88,86,2,F
+metar_with_6h_venue,chicago,2026-07-03,88,86-87 F,,F
+metar_with_6h_wu,chicago,2026-07-03,88,86,2,F
+asos_venue,chicago,2026-07-04,84,82-83 F,,F
+asos_wu,chicago,2026-07-04,84,83,1,F
+asos_venue,chicago,2026-07-06,80,78-79 F,,F
+asos_wu,chicago,2026-07-06,80,79,1,F
+metar_with_6h_venue,chicago,2026-07-06,80,78-79 F,,F
+metar_with_6h_wu,chicago,2026-07-06,80,79,1,F
+asos_venue,chicago,2026-07-07,86,84-85 F,,F
+asos_wu,chicago,2026-07-07,86,85,1,F
+asos_wu,chicago,2026-07-08,89,88,1,F
+metar_with_6h_wu,chicago,2026-07-08,89,88,1,F
+asos_wu,chicago,2026-07-09,87,86,1,F
+metar_with_6h_wu,chicago,2026-07-09,87,86,1,F
+asos_venue,chicago,2026-07-10,82,80-81 F,,F
+asos_wu,chicago,2026-07-10,82,81,1,F
+asos_wu,chicago,2026-07-11,83,82,1,F
+asos_wu,chicago,2026-07-12,87,86,1,F
+metar_with_6h_wu,chicago,2026-07-12,87,86,1,F
+asos_wu,chicago,2026-07-13,93,92,1,F
+metar_with_6h_wu,chicago,2026-07-13,93,92,1,F
+asos_wu,chicago,2026-07-14,97,96,1,F
+asos_wu,chicago,2026-07-15,95,94,1,F
+metar_with_6h_wu,chicago,2026-07-15,95,94,1,F
+asos_wu,chicago,2026-07-16,91,90,1,F
+metar_with_6h_wu,chicago,2026-07-16,91,90,1,F
+asos_wu,chicago,2026-07-17,93,92,1,F
+asos_venue,chicago,2026-07-18,92,90-91 F,,F
+asos_wu,chicago,2026-07-18,92,91,1,F
+asos_venue,chicago,2026-07-19,80,78-79 F,,F
+asos_wu,chicago,2026-07-19,80,79,1,F
+metar_with_6h_venue,chicago,2026-07-19,80,78-79 F,,F
+metar_with_6h_wu,chicago,2026-07-19,80,79,1,F
+asos_wu,chicago,2026-07-20,83,82,1,F
+asos_venue,chicago,2026-07-21,88,86-87 F,,F
+asos_wu,chicago,2026-07-21,88,86,2,F
+metar_with_6h_wu,chicago,2026-07-21,87,86,1,F
+asos_venue,chicago,2026-07-22,73,74-75 F,,F
+asos_wu,chicago,2026-07-22,73,74,-1,F
+asos_venue,chicago,2026-07-23,78,76-77 F,,F
+asos_wu,chicago,2026-07-23,78,77,1,F
+metar_with_6h_venue,chicago,2026-07-23,78,76-77 F,,F
+metar_with_6h_wu,chicago,2026-07-23,78,77,1,F
+asos_venue,chicago,2026-07-24,80,78-79 F,,F
+asos_wu,chicago,2026-07-24,80,78,2,F
+metar_with_6h_venue,chicago,2026-07-24,80,78-79 F,,F
+metar_with_6h_wu,chicago,2026-07-24,80,78,2,F
+asos_venue,chicago,2026-07-26,72,90-91 F,,F
+asos_wu,chicago,2026-07-26,72,91,-19,F
+metar_with_6h_venue,chicago,2026-07-26,92,90-91 F,,F
+metar_with_6h_wu,chicago,2026-07-26,92,91,1,F
+asos_venue,chicago,2026-07-27,86,84-85 F,,F
+asos_wu,chicago,2026-07-27,86,85,1,F
+metar_with_6h_venue,chicago,2026-07-27,86,84-85 F,,F
+metar_with_6h_wu,chicago,2026-07-27,86,85,1,F
+asos_venue,chicago,2026-07-28,80,78-79 F,,F
+asos_wu,chicago,2026-07-28,80,79,1,F
+metar_with_6h_venue,chicago,2026-07-28,80,78-79 F,,F
+metar_with_6h_wu,chicago,2026-07-28,80,79,1,F
+asos_wu,chicago,2026-07-29,81,80,1,F
+asos_venue,chicago,2026-07-30,88,86-87 F,,F
+asos_wu,chicago,2026-07-30,88,86,2,F
+metar_with_6h_wu,chicago,2026-07-30,87,86,1,F
+asos_wu,chicago,2026-07-31,81,80,1,F
+metar_with_6h_wu,chicago,2026-07-31,81,80,1,F
+asos_wu,chicago,2026-08-01,73,72,1,F
+metar_with_6h_wu,chicago,2026-08-01,73,72,1,F
+asos_venue,chicago,2026-08-02,78,76-77 F,,F
+asos_wu,chicago,2026-08-02,78,77,1,F
+metar_with_6h_venue,chicago,2026-08-02,78,76-77 F,,F
+metar_with_6h_wu,chicago,2026-08-02,78,77,1,F
+metar_hourly_wu,chicago,2026-08-02,76,77,-1,F
+asos_venue,chicago,2026-08-03,84,82-83 F,,F
+asos_wu,chicago,2026-08-03,84,82,2,F
+metar_with_6h_wu,chicago,2026-08-03,83,82,1,F
+asos_venue,chicago,2026-08-04,87,84-85 F,,F
+asos_wu,chicago,2026-08-04,87,85,2,F
+metar_with_6h_venue,chicago,2026-08-04,86,84-85 F,,F
+metar_with_6h_wu,chicago,2026-08-04,86,85,1,F
+asos_venue,chicago,2026-08-05,82,80-81 F,,F
+asos_wu,chicago,2026-08-05,82,81,1,F
+metar_with_6h_venue,chicago,2026-08-05,82,80-81 F,,F
+metar_with_6h_wu,chicago,2026-08-05,82,81,1,F
+asos_venue,chicago,2026-08-06,82,80-81 F,,F
+asos_wu,chicago,2026-08-06,82,81,1,F
+metar_with_6h_venue,chicago,2026-08-06,82,80-81 F,,F
+metar_with_6h_wu,chicago,2026-08-06,82,81,1,F
+asos_wu,chicago,2026-08-10,86,87,-1,F
+asos_venue,chicago,2026-08-11,82,80-81 F,,F
+asos_venue,dallas,2026-07-01,96,94-95 F,,F
+asos_wu,dallas,2026-07-01,96,95,1,F
+metar_with_6h_venue,dallas,2026-07-01,96,94-95 F,,F
+metar_with_6h_wu,dallas,2026-07-01,96,95,1,F
+asos_venue,dallas,2026-07-02,97,94-95 F,,F
+asos_wu,dallas,2026-07-02,97,95,2,F
+metar_with_6h_venue,dallas,2026-07-02,96,94-95 F,,F
+metar_with_6h_wu,dallas,2026-07-02,96,95,1,F
+asos_venue,dallas,2026-07-03,98,96-97 F,,F
+asos_wu,dallas,2026-07-03,98,97,1,F
+metar_with_6h_venue,dallas,2026-07-03,98,96-97 F,,F
+metar_with_6h_wu,dallas,2026-07-03,98,97,1,F
+asos_venue,dallas,2026-07-04,102,98-99 F,,F
+asos_wu,dallas,2026-07-04,102,98,4,F
+metar_with_6h_venue,dallas,2026-07-04,101,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-04,101,98,3,F
+asos_venue,dallas,2026-07-05,98,96-97 F,,F
+asos_wu,dallas,2026-07-05,98,97,1,F
+asos_venue,dallas,2026-07-06,101,98-99 F,,F
+asos_wu,dallas,2026-07-06,101,98,3,F
+metar_with_6h_venue,dallas,2026-07-06,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-06,100,98,2,F
+asos_venue,dallas,2026-07-07,102,100-101 F,,F
+asos_wu,dallas,2026-07-07,102,101,1,F
+asos_venue,dallas,2026-07-08,102,100-101 F,,F
+asos_wu,dallas,2026-07-08,102,101,1,F
+asos_venue,dallas,2026-07-09,102,100-101 F,,F
+asos_wu,dallas,2026-07-09,102,101,1,F
+asos_venue,dallas,2026-07-10,100,98-99 F,,F
+asos_wu,dallas,2026-07-10,100,98,2,F
+metar_with_6h_wu,dallas,2026-07-10,99,98,1,F
+asos_wu,dallas,2026-07-11,99,98,1,F
+asos_venue,dallas,2026-07-12,100,98-99 F,,F
+asos_wu,dallas,2026-07-12,100,98,2,F
+metar_with_6h_venue,dallas,2026-07-12,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-12,100,98,2,F
+asos_wu,dallas,2026-07-13,93,92,1,F
+asos_venue,dallas,2026-07-14,94,90-91 F,,F
+asos_wu,dallas,2026-07-14,94,91,3,F
+metar_with_6h_venue,dallas,2026-07-14,92,90-91 F,,F
+metar_with_6h_wu,dallas,2026-07-14,92,91,1,F
+asos_venue,dallas,2026-07-15,93,90-91 F,,F
+asos_wu,dallas,2026-07-15,93,91,2,F
+metar_with_6h_venue,dallas,2026-07-15,92,90-91 F,,F
+metar_with_6h_wu,dallas,2026-07-15,92,91,1,F
+asos_venue,dallas,2026-07-16,91,88-89 F,,F
+asos_wu,dallas,2026-07-16,91,89,2,F
+metar_with_6h_venue,dallas,2026-07-16,91,88-89 F,,F
+metar_with_6h_wu,dallas,2026-07-16,91,89,2,F
+asos_wu,dallas,2026-07-17,95,94,1,F
+metar_with_6h_wu,dallas,2026-07-17,95,94,1,F
+asos_venue,dallas,2026-07-18,98,96-97 F,,F
+asos_wu,dallas,2026-07-18,98,97,1,F
+asos_venue,dallas,2026-07-19,100,98-99 F,,F
+asos_wu,dallas,2026-07-19,100,98,2,F
+metar_with_6h_wu,dallas,2026-07-19,99,98,1,F
+asos_venue,dallas,2026-07-20,91,102-103 F,,F
+asos_wu,dallas,2026-07-20,91,102,-11,F
+metar_with_6h_wu,dallas,2026-07-20,103,102,1,F
+metar_with_6h_venue,dallas,2026-07-21,108,106-107 F,,F
+metar_with_6h_wu,dallas,2026-07-21,108,107,1,F
+metar_with_6h_wu,dallas,2026-07-22,109,108,1,F
+metar_with_6h_wu,dallas,2026-07-24,95,94,1,F
+metar_with_6h_wu,dallas,2026-07-25,99,98,1,F
+metar_with_6h_wu,dallas,2026-07-26,99,98,1,F
+asos_venue,dallas,2026-07-27,101,98-99 F,,F
+asos_wu,dallas,2026-07-27,101,99,2,F
+metar_with_6h_venue,dallas,2026-07-27,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-27,100,99,1,F
+asos_venue,dallas,2026-07-28,100,98-99 F,,F
+asos_wu,dallas,2026-07-28,100,99,1,F
+metar_with_6h_venue,dallas,2026-07-28,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-28,100,99,1,F
+asos_venue,dallas,2026-07-29,100,98-99 F,,F
+asos_wu,dallas,2026-07-29,100,98,2,F
+metar_with_6h_wu,dallas,2026-07-29,99,98,1,F
+asos_venue,dallas,2026-07-30,101,98-99 F,,F
+asos_wu,dallas,2026-07-30,101,99,2,F
+metar_with_6h_venue,dallas,2026-07-30,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-07-30,100,99,1,F
+asos_venue,dallas,2026-07-31,104,102-103 F,,F
+asos_wu,dallas,2026-07-31,104,102,2,F
+metar_with_6h_wu,dallas,2026-07-31,103,102,1,F
+asos_venue,dallas,2026-08-01,98,96-97 F,,F
+asos_wu,dallas,2026-08-01,98,97,1,F
+asos_venue,dallas,2026-08-02,97,94-95 F,,F
+asos_wu,dallas,2026-08-02,97,95,2,F
+metar_with_6h_venue,dallas,2026-08-02,96,94-95 F,,F
+metar_with_6h_wu,dallas,2026-08-02,96,95,1,F
+asos_venue,dallas,2026-08-03,101,98-99 F,,F
+asos_wu,dallas,2026-08-03,101,99,2,F
+metar_with_6h_venue,dallas,2026-08-03,100,98-99 F,,F
+metar_with_6h_wu,dallas,2026-08-03,100,99,1,F
+asos_venue,dallas,2026-08-04,90,100-101 F,,F
+asos_wu,dallas,2026-08-04,90,100,-10,F
+metar_with_6h_wu,dallas,2026-08-04,101,100,1,F
+asos_venue,dallas,2026-08-05,102,100-101 F,,F
+asos_wu,dallas,2026-08-05,102,101,1,F
+asos_venue,dallas,2026-08-06,102,100-101 F,,F
+asos_wu,dallas,2026-08-06,102,100,2,F
+metar_with_6h_wu,dallas,2026-08-06,101,100,1,F
+asos_wu,dallas,2026-08-07,101,100,1,F
+metar_with_6h_wu,dallas,2026-08-07,101,100,1,F
+asos_venue,dallas,2026-08-08,102,100-101 F,,F
+asos_venue,dallas,2026-08-09,100,98-99 F,,F
+asos_wu,dallas,2026-08-09,100,98,2,F
+metar_with_6h_wu,dallas,2026-08-09,99,98,1,F
+asos_wu,dallas,2026-08-10,99,98,1,F
+metar_with_6h_wu,dallas,2026-08-10,99,98,1,F
+asos_venue,dallas,2026-08-11,100,98-99 F,,F
+metar_with_6h_venue,dallas,2026-08-11,100,98-99 F,,F
+metar_with_6h_wu,denver,2026-07-02,91,90,1,F
+metar_hourly_venue,denver,2026-07-02,88,90-91 F,,F
+metar_hourly_wu,denver,2026-07-02,88,90,-2,F
+metar_with_6h_venue,denver,2026-07-04,91,88-89 F,,F
+metar_with_6h_wu,denver,2026-07-04,91,89,2,F
+metar_with_6h_venue,denver,2026-07-05,96,94-95 F,,F
+metar_with_6h_wu,denver,2026-07-05,96,94,2,F
+metar_with_6h_venue,denver,2026-07-06,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-07-06,98,96,2,F
+metar_with_6h_venue,denver,2026-07-07,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-07-07,98,97,1,F
+metar_with_6h_venue,denver,2026-07-08,94,92-93 F,,F
+metar_with_6h_wu,denver,2026-07-08,94,93,1,F
+metar_with_6h_venue,denver,2026-07-09,92,90-91 F,,F
+metar_with_6h_wu,denver,2026-07-09,92,91,1,F
+metar_with_6h_wu,denver,2026-07-10,91,90,1,F
+metar_with_6h_venue,denver,2026-07-13,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-07-13,98,97,1,F
+metar_with_6h_venue,denver,2026-07-14,96,94-95 F,,F
+metar_with_6h_wu,denver,2026-07-14,96,95,1,F
+metar_with_6h_wu,denver,2026-07-15,95,94,1,F
+metar_with_6h_venue,denver,2026-07-16,94,92-93 F,,F
+metar_with_6h_wu,denver,2026-07-16,94,93,1,F
+metar_with_6h_venue,denver,2026-07-17,94,92-93 F,,F
+metar_with_6h_wu,denver,2026-07-17,94,93,1,F
+metar_with_6h_wu,denver,2026-07-18,95,94,1,F
+metar_with_6h_wu,denver,2026-07-19,99,98,1,F
+metar_with_6h_venue,denver,2026-07-20,102,100-101 F,,F
+metar_with_6h_wu,denver,2026-07-20,102,100,2,F
+metar_with_6h_venue,denver,2026-07-21,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-07-21,98,97,1,F
+metar_with_6h_wu,denver,2026-07-22,95,94,1,F
+metar_with_6h_venue,denver,2026-07-23,87,84-85 F,,F
+metar_with_6h_wu,denver,2026-07-23,87,85,2,F
+metar_with_6h_venue,denver,2026-07-24,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-07-24,98,96,2,F
+metar_with_6h_venue,denver,2026-07-25,102,100-101 F,,F
+metar_with_6h_wu,denver,2026-07-25,102,101,1,F
+metar_with_6h_venue,denver,2026-07-26,103,100-101 F,,F
+metar_with_6h_wu,denver,2026-07-26,103,101,2,F
+metar_with_6h_wu,denver,2026-07-27,93,92,1,F
+metar_with_6h_venue,denver,2026-07-28,95,92-93 F,,F
+metar_with_6h_wu,denver,2026-07-28,95,92,3,F
+metar_with_6h_venue,denver,2026-07-29,92,90-91 F,,F
+metar_with_6h_wu,denver,2026-07-29,92,90,2,F
+metar_with_6h_venue,denver,2026-07-30,96,94-95 F,,F
+metar_with_6h_wu,denver,2026-07-30,96,94,2,F
+metar_with_6h_venue,denver,2026-08-01,94,92-93 F,,F
+metar_with_6h_wu,denver,2026-08-01,94,93,1,F
+metar_with_6h_venue,denver,2026-08-02,103,100-101 F,,F
+metar_with_6h_wu,denver,2026-08-02,103,101,2,F
+metar_with_6h_venue,denver,2026-08-04,76,74-75 F,,F
+metar_with_6h_wu,denver,2026-08-04,76,74,2,F
+metar_with_6h_venue,denver,2026-08-05,86,84-85 F,,F
+metar_with_6h_wu,denver,2026-08-05,86,85,1,F
+metar_with_6h_venue,denver,2026-08-06,98,96-97 F,,F
+metar_with_6h_wu,denver,2026-08-06,98,97,1,F
+metar_with_6h_wu,denver,2026-08-07,97,96,1,F
+metar_with_6h_venue,denver,2026-08-08,101,98-99 F,,F
+metar_with_6h_wu,denver,2026-08-09,99,98,1,F
+metar_with_6h_venue,denver,2026-08-11,96,94-95 F,,F
+asos_venue,houston,2026-07-01,96,94-95 F,,F
+asos_wu,houston,2026-07-01,96,95,1,F
+metar_with_6h_venue,houston,2026-07-01,96,94-95 F,,F
+metar_with_6h_wu,houston,2026-07-01,96,95,1,F
+asos_venue,houston,2026-07-02,96,94-95 F,,F
+asos_wu,houston,2026-07-02,96,95,1,F
+metar_with_6h_venue,houston,2026-07-02,96,94-95 F,,F
+metar_with_6h_wu,houston,2026-07-02,96,95,1,F
+asos_venue,houston,2026-07-03,98,96-97 F,,F
+asos_wu,houston,2026-07-03,98,96,2,F
+metar_with_6h_venue,houston,2026-07-03,98,96-97 F,,F
+metar_with_6h_wu,houston,2026-07-03,98,96,2,F
+asos_wu,houston,2026-07-04,99,98,1,F
+metar_with_6h_wu,houston,2026-07-04,99,98,1,F
+asos_venue,houston,2026-07-06,98,96-97 F,,F
+asos_wu,houston,2026-07-06,98,97,1,F
+metar_with_6h_venue,houston,2026-07-06,98,96-97 F,,F
+metar_with_6h_wu,houston,2026-07-06,98,97,1,F
+asos_venue,houston,2026-07-07,94,92-93 F,,F
+asos_wu,houston,2026-07-07,94,93,1,F
+metar_with_6h_venue,houston,2026-07-07,94,92-93 F,,F
+metar_with_6h_wu,houston,2026-07-07,94,93,1,F
+asos_venue,houston,2026-07-08,96,92-93 F,,F
+asos_wu,houston,2026-07-08,96,92,4,F
+metar_with_6h_venue,houston,2026-07-08,95,92-93 F,,F
+metar_with_6h_wu,houston,2026-07-08,95,92,3,F
+asos_venue,houston,2026-07-09,95,92-93 F,,F
+asos_wu,houston,2026-07-09,95,93,2,F
+metar_with_6h_venue,houston,2026-07-09,95,92-93 F,,F
+metar_with_6h_wu,houston,2026-07-09,95,93,2,F
+asos_venue,houston,2026-07-11,91,88-89 F,,F
+asos_wu,houston,2026-07-11,91,89,2,F
+metar_with_6h_venue,houston,2026-07-11,91,88-89 F,,F
+metar_with_6h_wu,houston,2026-07-11,91,89,2,F
+asos_venue,houston,2026-07-12,95,92-93 F,,F
+asos_wu,houston,2026-07-12,95,93,2,F
+metar_with_6h_venue,houston,2026-07-12,94,92-93 F,,F
+metar_with_6h_wu,houston,2026-07-12,94,93,1,F
+asos_wu,houston,2026-07-13,85,84,1,F
+metar_with_6h_wu,houston,2026-07-13,85,84,1,F
+asos_venue,houston,2026-07-15,88,86-87 F,,F
+asos_wu,houston,2026-07-15,88,87,1,F
+asos_venue,houston,2026-07-16,93,90-91 F,,F
+asos_wu,houston,2026-07-16,93,91,2,F
+metar_with_6h_venue,houston,2026-07-16,92,90-91 F,,F
+metar_with_6h_wu,houston,2026-07-16,92,91,1,F
+asos_wu,houston,2026-07-17,93,92,1,F
+metar_with_6h_wu,houston,2026-07-17,93,92,1,F
+asos_venue,houston,2026-07-19,96,94-95 F,,F
+asos_wu,houston,2026-07-19,96,95,1,F
+asos_venue,houston,2026-07-20,97,94-95 F,,F
+asos_wu,houston,2026-07-20,97,95,2,F
+metar_with_6h_venue,houston,2026-07-20,96,94-95 F,,F
+metar_with_6h_wu,houston,2026-07-20,96,95,1,F
+asos_venue,houston,2026-07-21,99,96-97 F,,F
+asos_wu,houston,2026-07-21,99,97,2,F
+metar_with_6h_venue,houston,2026-07-21,98,96-97 F,,F
+metar_with_6h_wu,houston,2026-07-21,98,97,1,F
+asos_venue,houston,2026-07-22,98,102-103 F,,F
+asos_wu,houston,2026-07-22,98,102,-4,F
+asos_wu,houston,2026-07-23,91,90,1,F
+asos_venue,houston,2026-07-24,94,92-93 F,,F
+asos_wu,houston,2026-07-24,94,93,1,F
+metar_with_6h_venue,houston,2026-07-24,94,92-93 F,,F
+metar_with_6h_wu,houston,2026-07-24,94,93,1,F
+asos_wu,houston,2026-07-25,93,92,1,F
+asos_wu,houston,2026-07-26,95,94,1,F
+metar_with_6h_wu,houston,2026-07-26,95,94,1,F
+asos_wu,houston,2026-07-27,95,94,1,F
+metar_with_6h_wu,houston,2026-07-27,95,94,1,F
+asos_venue,houston,2026-07-28,96,94-95 F,,F
+asos_wu,houston,2026-07-28,96,95,1,F
+asos_venue,houston,2026-07-29,96,94-95 F,,F
+asos_wu,houston,2026-07-29,96,95,1,F
+metar_with_6h_venue,houston,2026-07-29,96,94-95 F,,F
+metar_with_6h_wu,houston,2026-07-29,96,95,1,F
+asos_wu,houston,2026-07-30,97,96,1,F
+asos_wu,houston,2026-07-31,97,96,1,F
+asos_wu,houston,2026-08-01,95,94,1,F
+metar_with_6h_wu,houston,2026-08-01,95,94,1,F
+asos_wu,houston,2026-08-02,99,98,1,F
+asos_venue,houston,2026-08-03,98,96-97 F,,F
+asos_wu,houston,2026-08-03,98,96,2,F
+metar_with_6h_wu,houston,2026-08-03,97,96,1,F
+asos_venue,houston,2026-08-04,83,94-95 F,,F
+asos_wu,houston,2026-08-04,83,95,-12,F
+metar_with_6h_venue,houston,2026-08-04,96,94-95 F,,F
+metar_with_6h_wu,houston,2026-08-04,96,95,1,F
+asos_wu,houston,2026-08-05,97,96,1,F
+asos_venue,houston,2026-08-06,95,92-93 F,,F
+asos_wu,houston,2026-08-06,95,92,3,F
+metar_with_6h_venue,houston,2026-08-06,95,92-93 F,,F
+metar_with_6h_wu,houston,2026-08-06,95,92,3,F
+asos_venue,houston,2026-08-07,95,92-93 F,,F
+asos_wu,houston,2026-08-07,95,93,2,F
+metar_with_6h_venue,houston,2026-08-07,94,92-93 F,,F
+metar_with_6h_wu,houston,2026-08-07,94,93,1,F
+asos_venue,houston,2026-08-08,94,92-93 F,,F
+asos_venue,houston,2026-08-09,95,92-93 F,,F
+asos_wu,houston,2026-08-09,95,93,2,F
+metar_with_6h_venue,houston,2026-08-09,94,92-93 F,,F
+metar_with_6h_wu,houston,2026-08-09,94,93,1,F
+asos_wu,houston,2026-08-10,87,86,1,F
+metar_with_6h_wu,houston,2026-08-10,87,86,1,F
+metar_with_6h_wu,los-angeles,2026-07-01,71,70,1,F
+metar_with_6h_wu,los-angeles,2026-07-02,73,72,1,F
+asos_venue,los-angeles,2026-07-03,66,72-73 F,,F
+asos_wu,los-angeles,2026-07-03,66,72,-6,F
+metar_with_6h_wu,los-angeles,2026-07-03,73,72,1,F
+asos_venue,los-angeles,2026-07-04,77,74-75 F,,F
+asos_wu,los-angeles,2026-07-04,77,75,2,F
+metar_with_6h_venue,los-angeles,2026-07-04,76,74-75 F,,F
+metar_with_6h_wu,los-angeles,2026-07-04,76,75,1,F
+asos_venue,los-angeles,2026-07-05,76,74-75 F,,F
+asos_wu,los-angeles,2026-07-05,76,75,1,F
+asos_venue,los-angeles,2026-07-06,67,74-75 F,,F
+asos_wu,los-angeles,2026-07-06,67,74,-7,F
+metar_with_6h_wu,los-angeles,2026-07-06,75,74,1,F
+asos_wu,los-angeles,2026-07-07,75,74,1,F
+asos_wu,los-angeles,2026-07-08,75,74,1,F
+asos_venue,los-angeles,2026-07-09,69,74-75 F,,F
+asos_wu,los-angeles,2026-07-09,69,74,-5,F
+asos_wu,los-angeles,2026-07-10,75,74,1,F
+asos_venue,los-angeles,2026-07-11,77,74-75 F,,F
+asos_wu,los-angeles,2026-07-11,77,75,2,F
+metar_with_6h_venue,los-angeles,2026-07-11,77,74-75 F,,F
+metar_with_6h_wu,los-angeles,2026-07-11,77,75,2,F
+asos_wu,los-angeles,2026-07-12,75,74,1,F
+metar_with_6h_venue,los-angeles,2026-07-12,77,74-75 F,,F
+metar_with_6h_wu,los-angeles,2026-07-12,77,74,3,F
+asos_venue,los-angeles,2026-07-13,69,74-75 F,,F
+asos_wu,los-angeles,2026-07-13,69,75,-6,F
+asos_venue,los-angeles,2026-07-14,78,76-77 F,,F
+asos_wu,los-angeles,2026-07-14,78,77,1,F
+asos_venue,los-angeles,2026-07-15,82,80-81 F,,F
+asos_wu,los-angeles,2026-07-15,82,80,2,F
+metar_with_6h_wu,los-angeles,2026-07-15,81,80,1,F
+asos_venue,los-angeles,2026-07-16,73,82-83 F,,F
+asos_wu,los-angeles,2026-07-16,73,82,-9,F
+metar_with_6h_venue,los-angeles,2026-07-16,84,82-83 F,,F
+metar_with_6h_wu,los-angeles,2026-07-16,84,82,2,F
+asos_venue,los-angeles,2026-07-17,73,86-87 F,,F
+asos_wu,los-angeles,2026-07-17,73,86,-13,F
+asos_venue,los-angeles,2026-07-19,79,76-77 F,,F
+asos_wu,los-angeles,2026-07-19,79,77,2,F
+metar_with_6h_venue,los-angeles,2026-07-19,78,76-77 F,,F
+metar_with_6h_wu,los-angeles,2026-07-19,78,77,1,F
+asos_venue,los-angeles,2026-07-20,72,80-81 F,,F
+asos_wu,los-angeles,2026-07-20,72,81,-9,F
+metar_with_6h_venue,los-angeles,2026-07-20,83,80-81 F,,F
+metar_with_6h_wu,los-angeles,2026-07-20,83,81,2,F
+asos_venue,los-angeles,2026-07-21,78,80-81 F,,F
+asos_wu,los-angeles,2026-07-21,78,81,-3,F
+asos_venue,los-angeles,2026-07-22,78,76-77 F,,F
+asos_wu,los-angeles,2026-07-22,78,77,1,F
+asos_venue,los-angeles,2026-07-24,72,78-79 F,,F
+asos_wu,los-angeles,2026-07-24,72,78,-6,F
+asos_venue,los-angeles,2026-07-25,80,78-79 F,,F
+asos_wu,los-angeles,2026-07-25,80,78,2,F
+metar_with_6h_wu,los-angeles,2026-07-25,79,78,1,F
+asos_venue,los-angeles,2026-07-26,80,78-79 F,,F
+asos_wu,los-angeles,2026-07-26,80,79,1,F
+metar_with_6h_venue,los-angeles,2026-07-26,80,78-79 F,,F
+metar_with_6h_wu,los-angeles,2026-07-26,80,79,1,F
+asos_venue,los-angeles,2026-07-27,71,78-79 F,,F
+asos_wu,los-angeles,2026-07-27,71,79,-8,F
+asos_wu,los-angeles,2026-07-28,79,78,1,F
+metar_with_6h_wu,los-angeles,2026-07-28,79,78,1,F
+asos_venue,los-angeles,2026-07-29,70,78-79 F,,F
+asos_wu,los-angeles,2026-07-29,70,79,-9,F
+metar_with_6h_venue,los-angeles,2026-07-29,80,78-79 F,,F
+metar_with_6h_wu,los-angeles,2026-07-29,80,79,1,F
+asos_venue,los-angeles,2026-07-30,79,76-77 F,,F
+asos_wu,los-angeles,2026-07-30,79,77,2,F
+metar_with_6h_venue,los-angeles,2026-07-30,78,76-77 F,,F
+metar_with_6h_wu,los-angeles,2026-07-30,78,77,1,F
+asos_venue,los-angeles,2026-07-31,80,78-79 F,,F
+asos_wu,los-angeles,2026-07-31,80,79,1,F
+metar_with_6h_venue,los-angeles,2026-07-31,81,78-79 F,,F
+metar_with_6h_wu,los-angeles,2026-07-31,81,79,2,F
+asos_venue,los-angeles,2026-08-01,71,78-79 F,,F
+asos_wu,los-angeles,2026-08-01,71,79,-8,F
+metar_with_6h_venue,los-angeles,2026-08-01,80,78-79 F,,F
+metar_with_6h_wu,los-angeles,2026-08-01,80,79,1,F
+asos_venue,los-angeles,2026-08-02,74,78-79 F,,F
+asos_wu,los-angeles,2026-08-02,74,78,-4,F
+metar_with_6h_wu,los-angeles,2026-08-02,79,78,1,F
+asos_wu,los-angeles,2026-08-03,79,78,1,F
+asos_venue,los-angeles,2026-08-04,70,76-77 F,,F
+asos_wu,los-angeles,2026-08-04,70,77,-7,F
+metar_with_6h_venue,los-angeles,2026-08-04,78,76-77 F,,F
+metar_with_6h_wu,los-angeles,2026-08-04,78,77,1,F
+asos_venue,los-angeles,2026-08-05,78,76-77 F,,F
+asos_wu,los-angeles,2026-08-05,78,76,2,F
+metar_with_6h_wu,los-angeles,2026-08-05,77,76,1,F
+asos_venue,los-angeles,2026-08-06,79,76-77 F,,F
+asos_wu,los-angeles,2026-08-06,79,77,2,F
+metar_with_6h_venue,los-angeles,2026-08-06,78,76-77 F,,F
+metar_with_6h_wu,los-angeles,2026-08-06,78,77,1,F
+asos_venue,los-angeles,2026-08-07,71,78-79 F,,F
+asos_wu,los-angeles,2026-08-07,71,79,-8,F
+metar_with_6h_venue,los-angeles,2026-08-07,80,78-79 F,,F
+metar_with_6h_wu,los-angeles,2026-08-07,80,79,1,F
+asos_venue,los-angeles,2026-08-08,80,78-79 F,,F
+asos_wu,los-angeles,2026-08-09,81,80,1,F
+asos_venue,los-angeles,2026-08-10,80,78-79 F,,F
+asos_wu,los-angeles,2026-08-10,80,78,2,F
+metar_with_6h_wu,los-angeles,2026-08-10,79,78,1,F
+asos_venue,miami,2026-07-01,94,92-93 F,,F
+asos_wu,miami,2026-07-01,94,92,2,F
+metar_with_6h_wu,miami,2026-07-01,93,92,1,F
+asos_wu,miami,2026-07-02,93,92,1,F
+metar_with_6h_wu,miami,2026-07-02,93,92,1,F
+asos_venue,miami,2026-07-03,92,90-91 F,,F
+asos_wu,miami,2026-07-03,92,91,1,F
+asos_venue,miami,2026-07-04,92,90-91 F,,F
+asos_wu,miami,2026-07-04,92,91,1,F
+metar_with_6h_venue,miami,2026-07-04,93,90-91 F,,F
+metar_with_6h_wu,miami,2026-07-04,93,91,2,F
+metar_with_6h_venue,miami,2026-07-06,93,90-91 F,,F
+metar_with_6h_wu,miami,2026-07-06,93,91,2,F
+asos_venue,miami,2026-07-07,94,92-93 F,,F
+asos_wu,miami,2026-07-07,94,92,2,F
+metar_with_6h_wu,miami,2026-07-07,93,92,1,F
+asos_wu,miami,2026-07-08,93,92,1,F
+asos_venue,miami,2026-07-09,93,90-91 F,,F
+asos_wu,miami,2026-07-09,93,91,2,F
+metar_with_6h_venue,miami,2026-07-09,92,90-91 F,,F
+metar_with_6h_wu,miami,2026-07-09,92,91,1,F
+asos_venue,miami,2026-07-10,94,92-93 F,,F
+asos_wu,miami,2026-07-10,94,92,2,F
+metar_with_6h_wu,miami,2026-07-10,93,92,1,F
+asos_venue,miami,2026-07-11,92,90-91 F,,F
+asos_wu,miami,2026-07-11,92,90,2,F
+metar_with_6h_wu,miami,2026-07-11,91,90,1,F
+asos_venue,miami,2026-07-12,92,94-95 F,,F
+asos_wu,miami,2026-07-12,92,94,-2,F
+asos_venue,miami,2026-07-13,94,92-93 F,,F
+asos_wu,miami,2026-07-13,94,92,2,F
+metar_with_6h_wu,miami,2026-07-13,93,92,1,F
+asos_venue,miami,2026-07-15,94,92-93 F,,F
+asos_wu,miami,2026-07-15,94,93,1,F
+metar_with_6h_venue,miami,2026-07-15,94,92-93 F,,F
+metar_with_6h_wu,miami,2026-07-15,94,93,1,F
+asos_venue,miami,2026-07-17,94,92-93 F,,F
+asos_wu,miami,2026-07-17,94,92,2,F
+metar_with_6h_venue,miami,2026-07-17,94,92-93 F,,F
+metar_with_6h_wu,miami,2026-07-17,94,92,2,F
+asos_venue,miami,2026-07-18,96,90-91 F,,F
+asos_wu,miami,2026-07-18,96,91,5,F
+asos_venue,miami,2026-07-19,92,90-91 F,,F
+asos_wu,miami,2026-07-19,92,91,1,F
+asos_venue,miami,2026-07-21,93,90-91 F,,F
+asos_wu,miami,2026-07-21,93,91,2,F
+metar_with_6h_venue,miami,2026-07-21,92,90-91 F,,F
+metar_with_6h_wu,miami,2026-07-21,92,91,1,F
+asos_wu,miami,2026-07-22,93,92,1,F
+asos_venue,miami,2026-07-23,94,92-93 F,,F
+asos_wu,miami,2026-07-23,94,92,2,F
+metar_with_6h_wu,miami,2026-07-23,93,92,1,F
+asos_venue,miami,2026-07-24,94,92-93 F,,F
+asos_wu,miami,2026-07-24,94,92,2,F
+metar_with_6h_wu,miami,2026-07-24,93,92,1,F
+asos_wu,miami,2026-07-25,93,92,1,F
+metar_hourly_venue,miami,2026-07-25,90,92-93 F,,F
+metar_hourly_wu,miami,2026-07-25,90,92,-2,F
+asos_wu,miami,2026-07-26,95,94,1,F
+asos_venue,miami,2026-07-27,93,90-91 F,,F
+asos_wu,miami,2026-07-27,93,90,3,F
+metar_with_6h_venue,miami,2026-07-27,92,90-91 F,,F
+metar_with_6h_wu,miami,2026-07-27,92,90,2,F
+asos_venue,miami,2026-07-28,92,88-89 F,,F
+asos_wu,miami,2026-07-28,92,89,3,F
+metar_with_6h_venue,miami,2026-07-28,91,88-89 F,,F
+metar_with_6h_wu,miami,2026-07-28,91,89,2,F
+asos_wu,miami,2026-07-30,97,96,1,F
+asos_wu,miami,2026-07-31,97,96,1,F
+asos_venue,miami,2026-08-01,95,92-93 F,,F
+asos_wu,miami,2026-08-01,95,93,2,F
+metar_with_6h_venue,miami,2026-08-01,94,92-93 F,,F
+metar_with_6h_wu,miami,2026-08-01,94,93,1,F
+asos_venue,miami,2026-08-02,88,90-91 F,,F
+asos_wu,miami,2026-08-02,88,90,-2,F
+metar_with_6h_wu,miami,2026-08-02,91,90,1,F
+asos_venue,miami,2026-08-03,93,90-91 F,,F
+asos_wu,miami,2026-08-03,93,91,2,F
+metar_with_6h_venue,miami,2026-08-03,93,90-91 F,,F
+metar_with_6h_wu,miami,2026-08-03,93,91,2,F
+asos_venue,miami,2026-08-04,93,90-91 F,,F
+asos_wu,miami,2026-08-04,93,90,3,F
+metar_with_6h_venue,miami,2026-08-04,92,90-91 F,,F
+metar_with_6h_wu,miami,2026-08-04,92,90,2,F
+asos_venue,miami,2026-08-05,91,88-89 F,,F
+asos_wu,miami,2026-08-05,91,89,2,F
+metar_with_6h_venue,miami,2026-08-05,90,88-89 F,,F
+metar_with_6h_wu,miami,2026-08-05,90,89,1,F
+asos_wu,miami,2026-08-06,89,88,1,F
+asos_venue,miami,2026-08-07,92,90-91 F,,F
+asos_wu,miami,2026-08-07,92,90,2,F
+metar_with_6h_wu,miami,2026-08-07,91,90,1,F
+asos_venue,miami,2026-08-08,93,90-91 F,,F
+metar_with_6h_venue,miami,2026-08-08,92,90-91 F,,F
+asos_wu,miami,2026-08-09,93,92,1,F
+asos_wu,miami,2026-08-10,93,92,1,F
+metar_with_6h_wu,miami,2026-08-10,93,92,1,F
+asos_venue,miami,2026-08-11,94,92-93 F,,F
+metar_with_6h_venue,miami,2026-08-11,94,92-93 F,,F
+wu_venue,miami,2026-09-02,89,90-91 F,,F
+asos_wu,miami,2026-09-02,90,89,1,F
+metar_venue,miami,2026-09-02,89,90-91 F,,F
+metar_with_6h_wu,miami,2026-09-02,90,89,1,F
+metar_hourly_venue,miami,2026-09-02,89,90-91 F,,F
+asos_venue,san-francisco,2026-07-01,58,70-71 F,,F
+asos_wu,san-francisco,2026-07-01,58,70,-12,F
+metar_with_6h_wu,san-francisco,2026-07-01,71,70,1,F
+asos_venue,san-francisco,2026-07-02,72,70-71 F,,F
+asos_wu,san-francisco,2026-07-02,72,70,2,F
+metar_with_6h_wu,san-francisco,2026-07-02,71,70,1,F
+asos_venue,san-francisco,2026-07-03,58,68-69 F,,F
+asos_wu,san-francisco,2026-07-03,58,69,-11,F
+metar_with_6h_venue,san-francisco,2026-07-03,70,68-69 F,,F
+metar_with_6h_wu,san-francisco,2026-07-03,70,69,1,F
+asos_wu,san-francisco,2026-07-04,69,68,1,F
+metar_with_6h_wu,san-francisco,2026-07-04,69,68,1,F
+asos_venue,san-francisco,2026-07-05,61,68-69 F,,F
+asos_wu,san-francisco,2026-07-05,61,68,-7,F
+metar_with_6h_venue,san-francisco,2026-07-05,70,68-69 F,,F
+metar_with_6h_wu,san-francisco,2026-07-05,70,68,2,F
+asos_venue,san-francisco,2026-07-06,69,66-67 F,,F
+asos_wu,san-francisco,2026-07-06,69,67,2,F
+metar_with_6h_venue,san-francisco,2026-07-06,68,66-67 F,,F
+metar_with_6h_wu,san-francisco,2026-07-06,68,67,1,F
+asos_wu,san-francisco,2026-07-07,63,62,1,F
+asos_venue,san-francisco,2026-07-08,66,64-65 F,,F
+asos_wu,san-francisco,2026-07-08,66,64,2,F
+metar_with_6h_wu,san-francisco,2026-07-08,65,64,1,F
+asos_venue,san-francisco,2026-07-09,69,66-67 F,,F
+asos_wu,san-francisco,2026-07-09,69,67,2,F
+metar_with_6h_venue,san-francisco,2026-07-09,69,66-67 F,,F
+metar_with_6h_wu,san-francisco,2026-07-09,69,67,2,F
+asos_venue,san-francisco,2026-07-10,67,64-65 F,,F
+asos_wu,san-francisco,2026-07-10,67,65,2,F
+metar_with_6h_venue,san-francisco,2026-07-10,66,64-65 F,,F
+metar_with_6h_wu,san-francisco,2026-07-10,66,65,1,F
+asos_venue,san-francisco,2026-07-12,64,74-75 F,,F
+asos_wu,san-francisco,2026-07-12,64,74,-10,F
+metar_with_6h_venue,san-francisco,2026-07-12,76,74-75 F,,F
+metar_with_6h_wu,san-francisco,2026-07-12,76,74,2,F
+asos_venue,san-francisco,2026-07-13,63,76-77 F,,F
+asos_wu,san-francisco,2026-07-13,63,76,-13,F
+metar_with_6h_venue,san-francisco,2026-07-13,79,76-77 F,,F
+metar_with_6h_wu,san-francisco,2026-07-13,79,76,3,F
+asos_venue,san-francisco,2026-07-14,84,80-81 F,,F
+asos_wu,san-francisco,2026-07-14,84,81,3,F
+metar_with_6h_venue,san-francisco,2026-07-14,83,80-81 F,,F
+metar_with_6h_wu,san-francisco,2026-07-14,83,81,2,F
+asos_venue,san-francisco,2026-07-15,75,72-73 F,,F
+asos_wu,san-francisco,2026-07-15,75,73,2,F
+metar_with_6h_venue,san-francisco,2026-07-15,74,72-73 F,,F
+metar_with_6h_wu,san-francisco,2026-07-15,74,73,1,F
+asos_venue,san-francisco,2026-07-16,70,68-69 F,,F
+asos_wu,san-francisco,2026-07-16,70,69,1,F
+asos_venue,san-francisco,2026-07-17,69,66-67 F,,F
+asos_wu,san-francisco,2026-07-17,69,67,2,F
+metar_with_6h_venue,san-francisco,2026-07-17,68,66-67 F,,F
+metar_with_6h_wu,san-francisco,2026-07-17,68,67,1,F
+asos_venue,san-francisco,2026-07-18,60,70-71 F,,F
+asos_wu,san-francisco,2026-07-18,60,71,-11,F
+metar_with_6h_venue,san-francisco,2026-07-18,72,70-71 F,,F
+metar_with_6h_wu,san-francisco,2026-07-18,72,71,1,F
+asos_venue,san-francisco,2026-07-19,67,64-65 F,,F
+asos_wu,san-francisco,2026-07-19,67,65,2,F
+metar_with_6h_venue,san-francisco,2026-07-19,66,64-65 F,,F
+metar_with_6h_wu,san-francisco,2026-07-19,66,65,1,F
+asos_venue,san-francisco,2026-07-20,73,70-71 F,,F
+asos_wu,san-francisco,2026-07-20,73,70,3,F
+metar_with_6h_venue,san-francisco,2026-07-20,72,70-71 F,,F
+metar_with_6h_wu,san-francisco,2026-07-20,72,70,2,F
+asos_venue,san-francisco,2026-07-21,93,90-91 F,,F
+asos_wu,san-francisco,2026-07-21,93,91,2,F
+metar_with_6h_venue,san-francisco,2026-07-21,92,90-91 F,,F
+metar_with_6h_wu,san-francisco,2026-07-21,92,91,1,F
+asos_venue,san-francisco,2026-07-22,74,72-73 F,,F
+asos_wu,san-francisco,2026-07-22,74,73,1,F
+metar_with_6h_venue,san-francisco,2026-07-22,74,72-73 F,,F
+metar_with_6h_wu,san-francisco,2026-07-22,74,73,1,F
+asos_venue,san-francisco,2026-07-23,70,68-69 F,,F
+asos_wu,san-francisco,2026-07-23,70,69,1,F
+metar_with_6h_venue,san-francisco,2026-07-23,70,68-69 F,,F
+metar_with_6h_wu,san-francisco,2026-07-23,70,69,1,F
+asos_venue,san-francisco,2026-07-24,72,70-71 F,,F
+asos_wu,san-francisco,2026-07-24,72,70,2,F
+metar_with_6h_wu,san-francisco,2026-07-24,71,70,1,F
+asos_venue,san-francisco,2026-07-25,72,70-71 F,,F
+asos_wu,san-francisco,2026-07-25,72,70,2,F
+metar_with_6h_wu,san-francisco,2026-07-25,71,70,1,F
+asos_venue,san-francisco,2026-07-26,70,68-69 F,,F
+asos_wu,san-francisco,2026-07-26,70,68,2,F
+metar_with_6h_wu,san-francisco,2026-07-26,69,68,1,F
+asos_venue,san-francisco,2026-07-27,71,68-69 F,,F
+asos_wu,san-francisco,2026-07-27,71,69,2,F
+metar_with_6h_venue,san-francisco,2026-07-27,70,68-69 F,,F
+metar_with_6h_wu,san-francisco,2026-07-27,70,69,1,F
+asos_wu,san-francisco,2026-07-28,71,70,1,F
+metar_with_6h_wu,san-francisco,2026-07-28,71,70,1,F
+asos_venue,san-francisco,2026-07-29,70,68-69 F,,F
+asos_wu,san-francisco,2026-07-29,70,69,1,F
+metar_with_6h_venue,san-francisco,2026-07-29,70,68-69 F,,F
+metar_with_6h_wu,san-francisco,2026-07-29,70,69,1,F
+asos_venue,san-francisco,2026-07-30,74,72-73 F,,F
+asos_wu,san-francisco,2026-07-30,74,73,1,F
+asos_venue,san-francisco,2026-08-01,75,72-73 F,,F
+asos_wu,san-francisco,2026-08-01,75,73,2,F
+metar_with_6h_venue,san-francisco,2026-08-01,74,72-73 F,,F
+metar_with_6h_wu,san-francisco,2026-08-01,74,73,1,F
+asos_venue,san-francisco,2026-08-02,81,78-79 F,,F
+asos_wu,san-francisco,2026-08-02,81,79,2,F
+metar_with_6h_venue,san-francisco,2026-08-02,80,78-79 F,,F
+metar_with_6h_wu,san-francisco,2026-08-02,80,79,1,F
+asos_venue,san-francisco,2026-08-03,79,76-77 F,,F
+asos_wu,san-francisco,2026-08-03,79,77,2,F
+metar_with_6h_venue,san-francisco,2026-08-03,78,76-77 F,,F
+metar_with_6h_wu,san-francisco,2026-08-03,78,77,1,F
+asos_venue,san-francisco,2026-08-04,74,72-73 F,,F
+asos_wu,san-francisco,2026-08-04,74,73,1,F
+asos_venue,san-francisco,2026-08-05,73,70-71 F,,F
+asos_wu,san-francisco,2026-08-05,73,70,3,F
+metar_with_6h_venue,san-francisco,2026-08-05,72,70-71 F,,F
+metar_with_6h_wu,san-francisco,2026-08-05,72,70,2,F
+asos_wu,san-francisco,2026-08-06,73,72,1,F
+asos_venue,san-francisco,2026-08-07,59,66-67 F,,F
+asos_wu,san-francisco,2026-08-07,59,67,-8,F
+metar_with_6h_venue,san-francisco,2026-08-07,68,66-67 F,,F
+metar_with_6h_wu,san-francisco,2026-08-07,68,67,1,F
+asos_venue,san-francisco,2026-08-08,68,67 F or below,,F
+asos_wu,san-francisco,2026-08-09,71,70,1,F
+metar_with_6h_wu,san-francisco,2026-08-09,71,70,1,F
+asos_venue,san-francisco,2026-08-10,74,72-73 F,,F
+asos_wu,san-francisco,2026-08-10,74,73,1,F
+asos_venue,san-francisco,2026-08-11,61,76-77 F,,F
+asos_venue,seattle,2026-07-01,65,62-63 F,,F
+asos_wu,seattle,2026-07-01,65,63,2,F
+metar_with_6h_venue,seattle,2026-07-01,64,62-63 F,,F
+metar_with_6h_wu,seattle,2026-07-01,64,63,1,F
+asos_venue,seattle,2026-07-02,68,64-65 F,,F
+asos_wu,seattle,2026-07-02,68,65,3,F
+metar_with_6h_venue,seattle,2026-07-02,68,64-65 F,,F
+metar_with_6h_wu,seattle,2026-07-02,68,65,3,F
+asos_venue,seattle,2026-07-03,75,72-73 F,,F
+asos_wu,seattle,2026-07-03,75,72,3,F
+metar_with_6h_wu,seattle,2026-07-03,73,72,1,F
+asos_venue,seattle,2026-07-04,73,70-71 F,,F
+asos_wu,seattle,2026-07-04,73,70,3,F
+metar_with_6h_venue,seattle,2026-07-04,72,70-71 F,,F
+metar_with_6h_wu,seattle,2026-07-04,72,70,2,F
+asos_wu,seattle,2026-07-05,77,76,1,F
+metar_with_6h_wu,seattle,2026-07-05,77,76,1,F
+asos_venue,seattle,2026-07-06,86,84-85 F,,F
+asos_wu,seattle,2026-07-06,86,85,1,F
+asos_venue,seattle,2026-07-07,76,74-75 F,,F
+asos_wu,seattle,2026-07-07,76,74,2,F
+metar_with_6h_wu,seattle,2026-07-07,75,74,1,F
+asos_venue,seattle,2026-07-08,71,68-69 F,,F
+asos_wu,seattle,2026-07-08,71,69,2,F
+metar_with_6h_venue,seattle,2026-07-08,71,68-69 F,,F
+metar_with_6h_wu,seattle,2026-07-08,71,69,2,F
+asos_venue,seattle,2026-07-09,80,78-79 F,,F
+asos_wu,seattle,2026-07-09,80,78,2,F
+metar_with_6h_wu,seattle,2026-07-09,79,78,1,F
+asos_venue,seattle,2026-07-10,79,76-77 F,,F
+asos_wu,seattle,2026-07-10,79,76,3,F
+metar_with_6h_venue,seattle,2026-07-10,78,76-77 F,,F
+metar_with_6h_wu,seattle,2026-07-10,78,76,2,F
+asos_venue,seattle,2026-07-11,77,74-75 F,,F
+asos_wu,seattle,2026-07-11,77,75,2,F
+metar_with_6h_venue,seattle,2026-07-11,76,74-75 F,,F
+metar_with_6h_wu,seattle,2026-07-11,76,75,1,F
+asos_wu,seattle,2026-07-12,73,72,1,F
+asos_venue,seattle,2026-07-13,81,78-79 F,,F
+asos_wu,seattle,2026-07-13,81,79,2,F
+metar_with_6h_venue,seattle,2026-07-13,80,78-79 F,,F
+metar_with_6h_wu,seattle,2026-07-13,80,79,1,F
+asos_venue,seattle,2026-07-15,84,82-83 F,,F
+asos_wu,seattle,2026-07-15,84,83,1,F
+asos_venue,seattle,2026-07-16,66,64-65 F,,F
+asos_wu,seattle,2026-07-16,66,64,2,F
+metar_hourly_venue,seattle,2026-07-16,63,64-65 F,,F
+metar_hourly_wu,seattle,2026-07-16,63,64,-1,F
+asos_venue,seattle,2026-07-17,73,70-71 F,,F
+asos_wu,seattle,2026-07-17,73,71,2,F
+metar_with_6h_venue,seattle,2026-07-17,72,70-71 F,,F
+metar_with_6h_wu,seattle,2026-07-17,72,71,1,F
+asos_venue,seattle,2026-07-18,76,74-75 F,,F
+asos_wu,seattle,2026-07-18,76,74,2,F
+metar_with_6h_wu,seattle,2026-07-18,75,74,1,F
+asos_wu,seattle,2026-07-19,79,78,1,F
+asos_wu,seattle,2026-07-20,83,82,1,F
+asos_venue,seattle,2026-07-21,94,92-93 F,,F
+asos_wu,seattle,2026-07-21,94,92,2,F
+metar_with_6h_wu,seattle,2026-07-21,93,92,1,F
+asos_venue,seattle,2026-07-22,96,94-95 F,,F
+asos_wu,seattle,2026-07-22,96,94,2,F
+metar_with_6h_wu,seattle,2026-07-22,95,94,1,F
+asos_venue,seattle,2026-07-23,77,74-75 F,,F
+asos_wu,seattle,2026-07-23,77,75,2,F
+metar_with_6h_venue,seattle,2026-07-23,76,74-75 F,,F
+metar_with_6h_wu,seattle,2026-07-23,76,75,1,F
+asos_wu,seattle,2026-07-24,83,82,1,F
+asos_venue,seattle,2026-07-25,74,72-73 F,,F
+asos_wu,seattle,2026-07-25,74,72,2,F
+metar_with_6h_wu,seattle,2026-07-25,73,72,1,F
+asos_venue,seattle,2026-07-26,75,72-73 F,,F
+asos_wu,seattle,2026-07-26,75,72,3,F
+metar_with_6h_venue,seattle,2026-07-26,74,72-73 F,,F
+metar_with_6h_wu,seattle,2026-07-26,74,72,2,F
+asos_venue,seattle,2026-07-27,80,78-79 F,,F
+asos_wu,seattle,2026-07-27,80,78,2,F
+metar_with_6h_wu,seattle,2026-07-27,79,78,1,F
+asos_venue,seattle,2026-07-28,74,72-73 F,,F
+asos_wu,seattle,2026-07-28,74,72,2,F
+metar_with_6h_wu,seattle,2026-07-28,73,72,1,F
+asos_venue,seattle,2026-07-29,76,74-75 F,,F
+asos_wu,seattle,2026-07-29,76,75,1,F
+asos_wu,seattle,2026-07-30,79,78,1,F
+metar_with_6h_wu,seattle,2026-07-30,79,78,1,F
+asos_venue,seattle,2026-07-31,84,82-83 F,,F
+asos_wu,seattle,2026-07-31,84,82,2,F
+metar_with_6h_venue,seattle,2026-07-31,84,82-83 F,,F
+metar_with_6h_wu,seattle,2026-07-31,84,82,2,F
+asos_venue,seattle,2026-08-01,73,70-71 F,,F
+asos_wu,seattle,2026-08-01,73,71,2,F
+metar_with_6h_venue,seattle,2026-08-01,72,70-71 F,,F
+metar_with_6h_wu,seattle,2026-08-01,72,71,1,F
+asos_venue,seattle,2026-08-02,71,68-69 F,,F
+asos_wu,seattle,2026-08-02,71,69,2,F
+metar_with_6h_venue,seattle,2026-08-02,71,68-69 F,,F
+metar_with_6h_wu,seattle,2026-08-02,71,69,2,F
+asos_venue,seattle,2026-08-03,77,74-75 F,,F
+asos_wu,seattle,2026-08-03,77,75,2,F
+metar_with_6h_venue,seattle,2026-08-03,76,74-75 F,,F
+metar_with_6h_wu,seattle,2026-08-03,76,75,1,F
+asos_wu,seattle,2026-08-04,81,80,1,F
+metar_with_6h_wu,seattle,2026-08-04,81,80,1,F
+asos_wu,seattle,2026-08-05,87,86,1,F
+metar_with_6h_wu,seattle,2026-08-05,87,86,1,F
+asos_venue,seattle,2026-08-06,88,86-87 F,,F
+asos_wu,seattle,2026-08-06,88,87,1,F
+metar_with_6h_venue,seattle,2026-08-06,88,86-87 F,,F
+metar_with_6h_wu,seattle,2026-08-06,88,87,1,F
+asos_venue,seattle,2026-08-07,87,84-85 F,,F
+asos_wu,seattle,2026-08-07,87,85,2,F
+metar_with_6h_venue,seattle,2026-08-07,86,84-85 F,,F
+metar_with_6h_wu,seattle,2026-08-07,86,85,1,F
+asos_venue,seattle,2026-08-09,78,76-77 F,,F
+asos_wu,seattle,2026-08-09,78,77,1,F
+asos_wu,seattle,2026-08-10,75,74,1,F
+asos_venue,seattle,2026-08-11,80,78-79 F,,F
