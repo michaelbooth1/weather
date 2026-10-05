@@ -39,8 +39,8 @@ Every measurement reports MEASURED or ESTIMATED, a fresh process per run, and ru
 
 | ID | Measurement | Pass or stop rule |
 | --- | --- | --- |
-| S1 | Bytes and records per kind, v0.1 vs v0.2, for a full day at 170 conditions | v0.2 ≤ 1 GiB per date at fixture density; report the reduction per kind |
-| S2 | Exporter peak memory vs output bytes (v0.2 streaming write) on the full-day fixture | peak < 2 GiB, the nightly wrapper's ceiling |
+| S1 | Bytes and records per kind, v0.1 vs v0.2, for a full day at 170 conditions | v0.2 ≤ 1 GiB per date at fixture density; report the reduction per kind. W0: 0.585 GiB, PASS (fixture with rare descriptors and views). **W2 (the real exporter on a fictional 88a day): 1.09 GiB, over the rule, MEASURED**; see Risks |
+| S2 | Exporter peak memory vs output bytes (v0.2 streaming write) on the full-day fixture | peak < 2 GiB, the nightly wrapper's ceiling. **W2: PASS, MEASURED** on a full fictional 88a capture day ([report](../roadmap/agent-report-2026-10-04-mrv2-w2.md)) |
 | S3 | v2 engine runtime and peak per pass at B ∈ {40, 85, 120, 170, 250} | runtime(250)/runtime(40) ≤ 7.5, at most 1.2x linear; stop if superlinear. Under "every book record wakes" it measured 11.0 (2026-10-04) because the exporter's re-projections per band grow with B; rule 1 now counts book changes only |
 | S4 | Full pipeline (8 base passes and up to 24 matched-clock trials) on one full date at 170; a 16-day carried run at 170 | per date ≤ 2,048 s; 16-day peak ≤ 1.25 × 1-day peak; whole run ≤ 32,768 s |
 | S5 | Differential test, v2 vs reference, at B = 12/40/170 on short windows: all policies, both bounds, every clock trial, two trade rates | identical fills, cash, legs, settlements, intervals, decisions and clock matches; any divergence stops |
@@ -73,11 +73,21 @@ These fill the registration's `[GATE: …]` cells. No panel date may be touched.
 
 ## Risks
 
-- **Coverage may not be per-connection.** If 88a coverage differs within a capture connection, the group refusal fires.
-  Fallback: one group per condition-shard as the exporter records it. If that still dominates bytes, gate E2 fails.
-- **The night format may be book-heavy.** About 245 k book records a day are not elided. If books alone exceed
-  1 GiB per date, E2 fails. The fix would be a book-encoding change, which needs a registration amendment before
-  signature.
+- **Coverage groups are subscriptions, not connections** (resolved in W1/W2). The exporter renews health per
+  subscription, and a token subscribed mid-day starts unhealthy, so W2 groups conditions by the exact set of
+  subscriptions their tokens joined. The group refusal still fires if members ever disagree.
+- **The night format is book-, view- and descriptor-heavy** (W2, MEASURED on fixtures). At real 88a cadence, the v0.1
+  projection writes a descriptor per live condition every minute and an outcome view at every book capture, and none
+  of these are duplicates. The W2 fixture day is 1.09 GiB of v0.2, over E2's 1 GiB:
+  - books 44%, outcome views 26%, descriptors 19%, terms 7%, coverage 3%;
+  - a book record is about 488 bytes plus 58 bytes per level a side.
+
+  If P1 confirms this, the fix is a format change to descriptor and view encoding, or to book encoding. That needs a
+  registration amendment before signature.
+- **Exporter memory is bounded by one capture segment, plus BLAS commit** (W2). The v0.2 exporter's accumulators are
+  small. Its peak is one hourly segment's decoded captures plus the interpreter, but numpy's OpenBLAS commits about
+  47 MiB per thread at import, and that counts against the wrapper's 2 GiB private-memory ceiling. Run the exporter
+  child with `OPENBLAS_NUM_THREADS=1`.
 - **Reachability.** A conservative `max_m U_m` hazard may suppress quoting (f_cal < 0.5). That is decided by the gate,
   not by engineering.
 - **Calendar.** A signature by 10-23 needs the gates by about 10-18. A slip of more than five days lapses the draft
