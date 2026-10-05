@@ -35,7 +35,7 @@ touched. Reserved confirmation window: NONE RESERVED (checked at run time). Fict
   `registered_decision`, and a hash-bound sidecar (merged excluded intervals, per-pass decision-stream SHA-256).
 - Tools: `tools/research/maker_replay_v2/{sources,dense,bench}.py`; `run.py` gains `s3 s5 s7 s8 s9` (four added
   lines). `dense.py` is a quoting-dense fictional day, because `informed-v0` almost never quotes on W0's day.
-- Tests: `tests/maker_core/test_replay_v2_engine.py` (17) and `test_replay_v2_report.py` (4), all with debug on.
+- Tests: `tests/maker_core/test_replay_v2_engine.py` and `test_replay_v2_report.py` (22 tests), all with debug on.
   Digest-invariance test: **`test_decision_digest_invariant_under_coverage_regrouping_and_view_elision`** (v0.1
   per-condition coverage with repeats, v0.2 groups with repeats elided, v0.2 one group per condition: identical
   decisions, intervals, fills, cash); plus `test_reentry_and_pull_digests_ignore_a_repeated_views_capture_time`, which
