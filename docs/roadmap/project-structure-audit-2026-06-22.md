@@ -559,4 +559,3 @@ Keep root compatibility shims only through the documented migration window.
 Keep `data/` ignored. Keep model binaries in `artifacts/` with LFS or an
 external artifact manifest. Let `docs/roadmap/items` remain the durable roadmap
 history, but keep generated indexes/lints as the primary navigation surface.
-

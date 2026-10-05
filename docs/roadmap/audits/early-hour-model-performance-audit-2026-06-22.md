@@ -333,4 +333,3 @@ The most efficient path is not another broad sharpening sweep. It is:
 4. keep promotion blocked until candidate-specific hourly and 10-minute gates
    pass and broad replay no longer trails market beyond tolerance,
 5. repair live-forward collection so the next active day can count.
-
