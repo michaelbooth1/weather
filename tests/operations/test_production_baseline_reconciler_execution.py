@@ -1908,7 +1908,7 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
-    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _start_lines(harness) == ["WeatherOneShotPush"], diagnostic
     assert _stop_lines(harness) == ["WeatherOneShotPush"]
     assert (
         harness.production
