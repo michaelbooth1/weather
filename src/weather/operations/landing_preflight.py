@@ -811,16 +811,22 @@ def _phase_import_probe(ctx: PreflightContext) -> CheckResult:
 
 
 def default_registry() -> CheckRegistry:
-    """The registry with every plug-in module's checks (L-P4, L-P2, L-P3).
+    """The registry with every plug-in module's checks (L-P4, L-P2, the pilots, L-P3).
 
     L-P4 registers first so ``roll_class`` has run before L-P2's object-phase
     ``whitespace_only`` reads it.
     """
 
     registry = CheckRegistry()
-    from weather.operations import landing_preflight_checks, landing_preflight_rollclass, landing_preflight_routing
+    from weather.operations import (
+        landing_preflight_checks,
+        landing_preflight_pilots,
+        landing_preflight_rollclass,
+        landing_preflight_routing,
+    )
 
-    for module in (landing_preflight_rollclass, landing_preflight_checks, landing_preflight_routing):
+    for module in (landing_preflight_rollclass, landing_preflight_checks, landing_preflight_pilots,
+                   landing_preflight_routing):
         module.register_checks(registry)
     return registry
 
@@ -937,6 +943,54 @@ def finalize_receipt(document: dict[str, Any], out_path: Path) -> dict[str, Any]
 
 def receipt_digest(document: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes({k: v for k, v in document.items() if k != "receipt"})).hexdigest()
+
+
+def verify_receipt(document: dict[str, Any], *, origin_master: str, expect_head: str | None = None) -> list[str]:
+    """Why a handed-back verdict must be refused (empty list: it is current and intact).
+
+    The receipt binds the verdict body; it is valid only while ``origin/master`` equals
+    its base (HW Pattern 5: a stale receipt is refused, never warned).
+    """
+
+    problems: list[str] = []
+    if document.get("schema") != SCHEMA:
+        problems.append(f"not a {SCHEMA} verdict")
+        return problems
+    receipt = document.get("receipt") or {}
+    if receipt.get("sha256") != receipt_digest(document):
+        problems.append("receipt sha256 does not match the verdict body (edited after it was written)")
+    inputs = document.get("inputs") or {}
+    if inputs.get("base_sha") != origin_master:
+        problems.append(f"stale: verdict base {inputs.get('base_sha')} != origin/master {origin_master}")
+    if expect_head and inputs.get("head_sha") != expect_head:
+        problems.append(f"head {inputs.get('head_sha')} != expected {expect_head}")
+    if (document.get("verdict") or {}).get("binding") is not False:
+        problems.append("verdict.binding is not false")
+    return problems
+
+
+def verify_main(argv: Sequence[str]) -> int:
+    """``--verify-receipt <verdict.json>``: exit 0 when current and intact, 2 (refuse) otherwise."""
+
+    parser = argparse.ArgumentParser(prog="python -m weather.operations.landing_preflight --verify-receipt")
+    parser.add_argument("--verify-receipt", required=True, metavar="VERDICT_JSON")
+    parser.add_argument("--origin-master", help="40-hex SHA; default: the repository's origin/master (no fetch)")
+    parser.add_argument("--expect-head", help="40-hex SHA the verdict's head must be")
+    parser.add_argument("--repo", default=str(REPO_ROOT))
+    options = parser.parse_args(argv)
+    try:
+        document = json.loads(Path(options.verify_receipt).read_text(encoding="utf-8"))
+        master = options.origin_master or _git(["-C", str(Path(options.repo).resolve()), "rev-parse",
+                                                "--verify", "origin/master"]).stdout.strip()
+        problems = verify_receipt(document, origin_master=master.lower(), expect_head=options.expect_head)
+    except (OSError, ValueError, RuntimeError) as exc:
+        problems = [f"{type(exc).__name__}: {exc}"]
+    for problem in problems:
+        print(f"REFUSED: {problem}")
+    if not problems:
+        print(f"receipt OK sha256={document['receipt']['sha256']} base={document['inputs']['base_sha']} "
+              f"head={document['inputs']['head_sha']} verdict={document['verdict']['status']} binding=false")
+    return EXIT_PASS if not problems else EXIT_ERROR
 
 
 def write_atomic(path: Path, document: dict[str, Any]) -> None:
@@ -1058,7 +1112,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m weather.operations.landing_preflight", description=__doc__.splitlines()[0],
         epilog="exit codes: 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT, 4 TESTS_NOT_RUN or PASS_NO_TESTS (--tests none), "
-               "5 SUPERSEDED, 6 DRY_RUN. The verdict is non-binding pre-evidence.")
+               "5 SUPERSEDED, 6 DRY_RUN. The verdict is non-binding pre-evidence. "
+               "--verify-receipt <verdict.json> [--origin-master <sha>] [--expect-head <sha>] checks a handed-back "
+               "verdict instead: exit 0 current and intact, 2 refuse.")
     parser.add_argument("--head", required=True, help="head ref (branch, origin/branch or SHA)")
     parser.add_argument("--expect-head", help="freeze the head: 40-hex SHA it must resolve to")
     parser.add_argument("--night-plan", help="landing_night_plan_v0.1 JSON; its sha256 is bound")
@@ -1090,6 +1146,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if any(a == "--verify-receipt" or a.startswith("--verify-receipt=") for a in argv):
+        return verify_main(argv)
     options = build_parser().parse_args(argv)
     code, document = run_preflight(options)
     if options.dry_run:

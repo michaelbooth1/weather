@@ -53,6 +53,9 @@ BASE_FILES: dict[str, str] = {
     "docs/x.md": "x\n",
     "docs/roadmap/active-backlog.md": "# Backlog\n\nStatus: `OK`\n",
     "docs/operations/STATE_OF_PLAY.md": "# State\n",
+    # The documentation transaction's other required documents (docs_transaction FAILs when one is absent).
+    "docs/operations/ESTABLISHED_FINDINGS.md": "# Findings\n",
+    "docs/operations/RETRACTED_AND_FALSE_LEADS.md": "# Retracted\n",
     "README.md": "# Fixture\n",
     "tests/__init__.py": "",
     "tests/test_free.py": GUARDED_TEST + "from weather.free import MODE\n\n\ndef test_mode():\n    assert MODE\n",
