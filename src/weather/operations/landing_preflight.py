@@ -6,12 +6,22 @@ head itself, as deterministic two-parent synthetic commits in a scratch object
 store, checks out the landing commit in a detached scratch worktree, runs the
 registered checks against it and writes a ``landing_preflight_v0.1`` verdict.
 
-It never modifies the caller's checkout, index, ``HEAD``, branches or remotes
-(the scratch store borrows the caller's objects through ``alternates``), never
-takes the capture-host lease and refuses to run on the dedicated capture host.
-The verdict is pre-evidence only: production's own gates still bind.
+It never modifies the caller's checkout, index, ``HEAD``, branches or remote
+configuration (the scratch store borrows the caller's objects through
+``alternates``), never takes the capture-host lease and refuses to run on the
+dedicated capture host.  Unless ``--no-fetch`` is given it runs ``git fetch
+origin``, which updates the caller's ``refs/remotes/origin/*`` and ``FETCH_HEAD``
+(never ``--prune``).  Every git call carries ``-c maintenance.auto=false -c
+gc.auto=0`` and no hooks, and every fetch ``--no-auto-maintenance``, so no
+``gc``, ``prune`` or ``worktree prune`` can run on the shared clone.  The verdict
+is pre-evidence only and says so (``verdict.binding: false``): production's own
+gates still bind.
 
-Exit codes: 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT, 4 TESTS_NOT_RUN, 5 SUPERSEDED.
+Exit codes: 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT, 4 TESTS_NOT_RUN or PASS_NO_TESTS,
+5 SUPERSEDED, 6 DRY_RUN.  ``PASS_NO_TESTS`` is ``--tests none`` with every other
+check satisfied; it is deliberately not exit 0 because no test ran, and the
+handback line says ``tests=none(skipped)``.  ``DRY_RUN`` resolved refs only and
+judged nothing.
 
 Check runners plug in through :class:`CheckRegistry` (see ``default_registry``);
 each returns a :class:`CheckResult` with a status, attribution and evidence.
@@ -41,15 +51,21 @@ from weather.paths import REPO_ROOT
 SCHEMA = "landing_preflight_v0.1"
 NIGHT_PLAN_SCHEMA = "landing_night_plan_v0.1"
 
-EXIT_PASS, EXIT_FAIL, EXIT_ERROR, EXIT_CONFLICT, EXIT_TESTS_NOT_RUN, EXIT_SUPERSEDED = range(6)
+EXIT_PASS, EXIT_FAIL, EXIT_ERROR, EXIT_CONFLICT, EXIT_TESTS_NOT_RUN, EXIT_SUPERSEDED, EXIT_DRY_RUN = range(7)
 VERDICT_EXIT_CODES = {
     "PASS": EXIT_PASS,
     "FAIL": EXIT_FAIL,
     "ERROR": EXIT_ERROR,
     "CONFLICT": EXIT_CONFLICT,
     "TESTS_NOT_RUN": EXIT_TESTS_NOT_RUN,
+    "PASS_NO_TESTS": EXIT_TESTS_NOT_RUN,  # --tests none is never exit 0 (Defender C1)
     "SUPERSEDED": EXIT_SUPERSEDED,
+    "DRY_RUN": EXIT_DRY_RUN,  # nothing was judged (Defender C7)
 }
+BINDING_GATES = (r"scripts\ops\roll_verdict.ps1 -Branch <b>, scripts\ops\quiet_window_merge.ps1 and the integration "
+                 "attempt receipts (docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md) bind; this verdict does not")
+# Every git call: no auto-maintenance or gc on the shared clone (Defender C4, ruling R-5), no hooks.
+GIT_SAFETY_CONFIG = ("-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", f"core.hooksPath={os.devnull}")
 
 # Check statuses.  FAIL, ERROR and NOT_RUN decide the verdict; WARN is listed;
 # INFO is evidence only; SKIP means a prerequisite did not pass.
@@ -97,6 +113,7 @@ _AMBIENT_EXACT = frozenset({
     "LC_ALL", "LANG", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONSAFEPATH",
 })
 KEPT_SENSITIVE_NAMES = frozenset({"WEATHER_INTEGRATION_TEST_SECRET_POLICY"})
+_DATA_REDIRECT_EXACT = frozenset({"SETTLEMENT_LEDGER_ROOT"})  # data-path redirects the name rules keep (C14)
 
 
 def is_sensitive_env_name(name: str) -> bool:
@@ -119,7 +136,7 @@ def scrubbed_child_env(base: dict[str, str], worktree: Path | None) -> tuple[dic
     for name, value in base.items():
         upper = name.upper()
         drop = is_sensitive_env_name(name) or is_ambient_env_name(name)
-        if upper.startswith("WEATHER_") and upper not in KEPT_SENSITIVE_NAMES:
+        if (upper.startswith("WEATHER_") and upper not in KEPT_SENSITIVE_NAMES) or upper in _DATA_REDIRECT_EXACT:
             drop = True  # caller overrides must not redirect branch code
         if drop:
             removed.append(name)
@@ -129,6 +146,8 @@ def scrubbed_child_env(base: dict[str, str], worktree: Path | None) -> tuple[dic
         "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "PYTHONHASHSEED": "0",
         "PYTHONUTF8": "1", "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1",
         "WEATHER_INTEGRATION_TEST_OFFLINE": "1",
+        # the bounded suite's child git settings (Defender C14)
+        "GIT_ALLOW_PROTOCOL": "file", "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_REPLACE_OBJECTS": "1",
     })
     if worktree is not None:
         env["PYTHONPATH"] = os.pathsep.join([str(worktree / "src"), str(worktree)])
@@ -264,6 +283,7 @@ class PreflightContext:
     plan_file_sha256: str | None = None
     base_ref: str = ""
     base_sha: str = ""
+    span_base_sha: str = ""             # diff --check span start (--span-base, default base_sha)
     head_ref: str = ""
     head_label: str = ""                # the head's plan-slot label (else the ref)
     head_slot: dict[str, Any] = field(default_factory=dict)
@@ -281,6 +301,7 @@ class PreflightContext:
     results: dict[str, CheckResult] = field(default_factory=dict)
     runner: CommandRunner = run_command
     commands: list[list[str]] = field(default_factory=list)
+    shared: dict[str, Any] = field(default_factory=dict)  # state shared between checks (e.g. wrapper closure)
 
     def run(self, argv: Sequence[str], *, cwd: Path | None = None, env: dict[str, str] | None = None,
             timeout: float | None = None) -> CommandResult:
@@ -295,29 +316,42 @@ class PreflightContext:
 
         if self.git_dir is None:
             raise RuntimeError("scratch store is not initialised")
-        return _git(["--git-dir", str(self.git_dir), *args], check=check, env_extra=env_extra)
+        extra = {"GIT_CONFIG_NOSYSTEM": "1", **(env_extra or {})}  # the scratch store needs no system config
+        return _git(["--git-dir", str(self.git_dir), *args], check=check, env_extra=extra)
 
 
 def _git_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
                                                                               "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT"))}
-    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "LC_ALL": "C"})
+    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "LC_ALL": "C", "GIT_NO_REPLACE_OBJECTS": "1"})
     env.update(extra or {})
     return env
 
 
 def _git(args: Sequence[str], *, cwd: Path | None = None, check: bool = True,
          env_extra: dict[str, str] | None = None) -> CommandResult:
-    argv = ["git", "-c", "core.quotepath=false", *args]
+    argv = ["git", *GIT_SAFETY_CONFIG, "-c", "core.quotepath=false", *args]
     result = run_command(argv, cwd=cwd, env=_git_env(env_extra), timeout=GIT_TIMEOUT_SECONDS)
     if check and result.exit_code != 0:
         raise RuntimeError(f"{' '.join(argv)} exited {result.exit_code}: {result.tail(800)}")
     return result
 
 
-def _caller_git(ctx: PreflightContext, *args: str, check: bool = True) -> CommandResult:
-    """Read-only git against the caller repository (rev-parse, merge-base, fetch)."""
+def run_git(args: Sequence[str], *, check: bool = True) -> CommandResult:
+    """Public form of :func:`_git` for plug-ins (scratch worktree commands)."""
 
+    return _git(args, check=check)
+
+
+def _caller_git(ctx: PreflightContext, *args: str, check: bool = True) -> CommandResult:
+    """Read-only git against the caller repository (rev-parse, merge-base, fetch).
+
+    A fetch always carries ``--no-auto-maintenance`` (Defender C4); :func:`_git`
+    adds ``maintenance.auto=false`` and ``gc.auto=0`` to every call.
+    """
+
+    if args and args[0] == "fetch" and "--no-auto-maintenance" not in args:
+        args = ("fetch", "--no-auto-maintenance", *args[1:])
     return _git(["-C", str(ctx.repo), *args], check=check)
 
 
@@ -342,14 +376,23 @@ def _slot_label(slot: dict[str, Any]) -> str:
 
 
 def landing_slots(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    """Slots that land a head: those carrying a 40-hex ``sha``, in plan order."""
+    """Slots that land a head: those carrying a 40-hex ``sha``, in plan order.
+
+    A slot without ``sha`` is a non-landing slot (replay, docs window) only when it
+    names no head.  A slot carrying ``head`` or ``prs`` but no ``sha``, or a slot that
+    is not an object, is malformed and refused (Defender C9), never silently dropped.
+    """
 
     slots = plan.get("slots")
     if not isinstance(slots, list):
         raise ValueError("night plan has no 'slots' list")
     rows = []
-    for slot in slots:
-        if not isinstance(slot, dict) or slot.get("sha") in (None, ""):
+    for index, slot in enumerate(slots):
+        if not isinstance(slot, dict):
+            raise ValueError(f"night plan slot {index} is not an object: {slot!r}")
+        if slot.get("sha") in (None, ""):
+            if slot.get("head") or slot.get("prs"):
+                raise ValueError(f"night plan slot {index} names a head ({_slot_label(slot)}) but carries no sha")
             continue
         sha = str(slot["sha"]).lower()
         if not _SHA40.match(sha):
@@ -481,7 +524,14 @@ def _phase_refs(ctx: PreflightContext) -> CheckResult:
                 raise PreflightAbort("refs", ERROR, "local master and origin/master have diverged", "ERROR")
     if opts.expect_base and opts.expect_base.lower() != base_sha:
         raise PreflightAbort("refs", ERROR, f"base resolved {base_sha}, --expect-base {opts.expect_base}", "ERROR")
-    ctx.base_sha = base_sha
+    ctx.base_sha = ctx.span_base_sha = base_sha
+    if getattr(opts, "span_base", None):
+        span_base = _resolve(ctx, opts.span_base)
+        if span_base is None:
+            raise PreflightAbort("refs", ERROR, f"--span-base {opts.span_base!r} does not resolve", "ERROR")
+        if span_base != base_sha and not _is_ancestor(ctx, span_base, base_sha):
+            raise PreflightAbort("refs", ERROR, f"--span-base {span_base} is not an ancestor of base {base_sha}", "ERROR")
+        ctx.span_base_sha = span_base
 
     ctx.head_ref = opts.head
     head_sha = _resolve(ctx, opts.head)
@@ -594,7 +644,13 @@ def _merge_tree(ctx: PreflightContext, ours: str, theirs: str) -> tuple[str | No
         raise RuntimeError(f"merge-tree {ours} {theirs}: {result.tail(600)}")
     parts = [p for p in result.stdout.split("\0") if p]
     tree = parts[0].strip() if parts else None
-    return tree, ([] if result.exit_code == 0 else sorted(set(parts[1:])))
+    if result.exit_code == 0:
+        return tree, []
+    conflicts = sorted(set(parts[1:]))
+    if not conflicts:  # fail closed: a conflicting merge that names no path is never clean (Defender C12)
+        raise PreflightAbort("merge_chain", ERROR, f"merge-tree {ours[:12]} {theirs[:12]} reported a conflict "
+                             "but named no path", "ERROR", ours=ours, theirs=theirs)
+    return tree, conflicts
 
 
 def _commit_tree(ctx: PreflightContext, tree: str, parents: Sequence[str], message: str, date: str) -> str:
@@ -773,7 +829,10 @@ def _run_registered(ctx: PreflightContext, registry: CheckRegistry, phase: str) 
 # --------------------------------------------------------------------------- verdict
 
 
-def decide_verdict(results: dict[str, CheckResult], terminal: str | None = None) -> tuple[str, list[str], list[str]]:
+def decide_verdict(results: dict[str, CheckResult], terminal: str | None = None, *,
+                   tests_skipped: bool = False) -> tuple[str, list[str], list[str]]:
+    """FAIL > ERROR > TESTS_NOT_RUN > PASS_NO_TESTS (``--tests none``) > PASS; CONFLICT/SUPERSEDED are terminal."""
+
     failing = sorted(k for k, r in results.items() if r.status == FAIL)
     errors = sorted(k for k, r in results.items() if r.status == ERROR)
     warnings = sorted(k for k, r in results.items() if r.status == WARN)
@@ -786,6 +845,8 @@ def decide_verdict(results: dict[str, CheckResult], terminal: str | None = None)
         status = "ERROR"
     elif not_run:
         status = "TESTS_NOT_RUN"
+    elif tests_skipped:
+        status = "PASS_NO_TESTS"
     else:
         status = "PASS"
     return status, failing + errors + not_run, warnings
@@ -803,7 +864,8 @@ def build_document(ctx: PreflightContext, registry: CheckRegistry, terminal: str
     for check_id in all_ids:
         ctx.results.setdefault(check_id, CheckResult(SKIP, "not reached", owner="core" if check_id in CORE_CHECK_IDS else
                                                      next((s.owner for s in registry.specs() if s.id == check_id), "")))
-    status, blocking, warnings = decide_verdict(ctx.results, terminal)
+    tests_skipped = ctx.options.tests == "none"
+    status, blocking, warnings = decide_verdict(ctx.results, terminal, tests_skipped=tests_skipped)
     return {
         "schema": SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -817,7 +879,7 @@ def build_document(ctx: PreflightContext, registry: CheckRegistry, terminal: str
                                                   for e in ctx.earlier],
             "tests_mode": ctx.options.tests, "scratch": str(ctx.scratch_root), "dry_run": ctx.options.dry_run,
             "plan_source": ctx.options.night_plan or ("--earlier" if ctx.options.earlier else None),
-            "plan_file_sha256": ctx.plan_file_sha256,
+            "plan_file_sha256": ctx.plan_file_sha256, "span_base_sha": ctx.span_base_sha,
         },
         "plan_sha256": ctx.plan_sha256,
         "closure_snapshot_sha256": _file_sha256(ctx.options.closure_snapshot),
@@ -826,7 +888,8 @@ def build_document(ctx: PreflightContext, registry: CheckRegistry, terminal: str
                     "changed_files": ctx.changed_files},
         "checks": {k: _result_json(ctx.results[k]) for k in all_ids},
         "verdict": {"status": status, "exit_code": VERDICT_EXIT_CODES[status], "failing_checks": blocking,
-                    "warnings": warnings,
+                    "warnings": warnings, "tests_run": not tests_skipped,
+                    "binding": False, "binding_gates": BINDING_GATES,
                     "valid_while": f"origin/master == {ctx.base_sha or '?'} and the plan's earlier SHAs land unchanged"},
     }
 
@@ -846,7 +909,9 @@ def finalize_receipt(document: dict[str, Any], out_path: Path) -> dict[str, Any]
     body = {k: v for k, v in document.items() if k != "receipt"}
     digest = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
     inputs = document["inputs"]
-    line = (f"landing_preflight {document['verdict']['status']} sha256={digest} head={inputs['head_sha']} "
+    tests = "tests=none(skipped)" if inputs.get("tests_mode") == "none" else f"tests={inputs.get('tests_mode')}"
+    line = (f"landing_preflight {document['verdict']['status']} {tests} binding=false sha256={digest} "
+            f"head={inputs['head_sha']} "
             f"earlier=[{','.join(e['sha'] for e in inputs['earlier'])}] base={inputs['base_sha']} "
             f"plan={document.get('plan_sha256')} landing={document['landing']['commit']} git={document['git_version']}")
     document["receipt"] = {"out_path": str(out_path), "sha256": digest, "handback_line": line}
@@ -934,7 +999,7 @@ def run_preflight(options: argparse.Namespace, *, registry: CheckRegistry | None
             ctx.results["containment"] = _phase_containment(ctx)
             if options.dry_run:
                 terminal = "DRY_RUN"
-                return EXIT_PASS, _dry_run_document(ctx, registry)
+                return EXIT_DRY_RUN, _dry_run_document(ctx, registry)
             ctx.run_dir.mkdir(parents=True, exist_ok=False)
             ctx.results["merge_chain"] = _phase_merge_chain(ctx)
             _run_registered(ctx, registry, PHASE_OBJECTS)
@@ -967,12 +1032,16 @@ def _dry_run_document(ctx: PreflightContext, registry: CheckRegistry) -> dict[st
                    for phase in PHASES},
         "core_checks": list(CORE_CHECK_IDS),
         "results": {k: _result_json(v) for k, v in ctx.results.items()},
+        "verdict": {"status": "DRY_RUN", "exit_code": EXIT_DRY_RUN, "binding": False,
+                    "note": "refs resolved only; no check ran and nothing was judged"},
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m weather.operations.landing_preflight",
-                                     description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m weather.operations.landing_preflight", description=__doc__.splitlines()[0],
+        epilog="exit codes: 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT, 4 TESTS_NOT_RUN or PASS_NO_TESTS (--tests none), "
+               "5 SUPERSEDED, 6 DRY_RUN. The verdict is non-binding pre-evidence.")
     parser.add_argument("--head", required=True, help="head ref (branch, origin/branch or SHA)")
     parser.add_argument("--expect-head", help="freeze the head: 40-hex SHA it must resolve to")
     parser.add_argument("--night-plan", help="landing_night_plan_v0.1 JSON; its sha256 is bound")
@@ -981,6 +1050,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="convenience: build a plan from heads landing earlier, in order")
     parser.add_argument("--base", default="origin/master")
     parser.add_argument("--expect-base", help="40-hex SHA the base must resolve to")
+    parser.add_argument("--span-base", help="start of the diff --check span (default: base); when re-running "
+                        "mid-night pass the night's first-integration base (production checks first_integration..HEAD)")
     parser.add_argument("--closure-snapshot", help="production closure snapshot JSON (roll-class prediction)")
     parser.add_argument("--tests", choices=("affected", "changed", "none", "full"), default="affected")
     parser.add_argument("--out", help="verdict JSON path (default under the scratch root)")

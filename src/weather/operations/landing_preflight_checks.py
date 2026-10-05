@@ -8,7 +8,8 @@ Object phase (git objects in the scratch store, no worktree):
 
 * ``diff_check``: ``git diff --check`` over the night span ``base..landing`` (the
   gate, F10) and over every chain step, so each hit names the step that
-  introduced it.
+  introduced it.  ``--span-base`` widens the gate to ``span_base..landing`` for
+  mid-night re-runs (production checks ``first_integration..HEAD``).
 * ``schema_additive``: when a ``schema_registry*`` file changed, the additive-only
   verdict of :func:`weather.operations.landing_preflight_rollclass.schema_additive_between`
   (the single implementation, ruling R-10).  WARN when not additive.
@@ -173,10 +174,34 @@ def run_diff_check(ctx: PreflightContext) -> CheckResult:
     transient = [{**row, "step": label} for label, rows in per_step.items() for row in rows
                  if _hit_key(row) not in span_keys]
 
-    evidence = {"span": {"base_tree": ctx.base_tree, "landing_tree": ctx.landing_tree, "hits": len(span)},
+    # Mid-night re-runs: production checks first_integration..HEAD, which is base..landing
+    # only while base is the night's first-integration base.  --span-base widens the gate
+    # to span_base..landing; hits only in that wider span landed earlier tonight (C8).
+    span_base = getattr(ctx, "span_base_sha", "") or ctx.base_sha
+    span_base_tree = ctx.base_tree
+    if span_base and span_base != ctx.base_sha:
+        span_base_tree = ctx.git("rev-parse", f"{span_base}^{{tree}}").stdout.strip()
+        wide, command = _diff_check(ctx, span_base_tree, ctx.landing_tree)
+        label = f"landed_earlier_tonight({span_base[:12]}..{ctx.base_sha[:12]})"
+        for hit in wide:
+            if _hit_key(hit) in span_keys:
+                continue
+            span_keys.add(_hit_key(hit))
+            span.append(hit)
+            attribution.append({"item": f"{hit['path']}:{hit['line']}: {hit['message']}", "introduced_by": label})
+            details.append({**hit, "introduced_by": label, "steps_with_hit": []})
+    if span_base == ctx.base_sha:
+        note = ("this gate covers base..landing; production's documentation transaction checks "
+                "first_integration..HEAD, so this is a superset only while base is the night's first-integration "
+                "base. Re-running mid-night against an advanced origin/master, pass --span-base <that base>.")
+    else:
+        note = (f"this gate covers --span-base {span_base[:12]}..landing, a superset of production's "
+                "first_integration..HEAD when --span-base is the night's first-integration base")
+    evidence = {"span": {"span_base": span_base, "span_base_tree": span_base_tree, "base_tree": ctx.base_tree,
+                         "landing_tree": ctx.landing_tree, "hits": len(span)},
                 "per_step_hits": {label: len(rows) for label, rows in per_step.items()},
                 "transient_step_hits": transient[:50],
-                "note": "production's documentation transaction checks first_integration..HEAD; base..landing is a superset"}
+                "note": note}
     if span:
         by_step: dict[str, int] = {}
         for row in attribution:

@@ -26,7 +26,23 @@ never runs directly.  Failures are read from JUnit and classed ``head`` or
 
 ``windows_scripts`` (heavy phase): when the night span touches ``.ps1``,
 workflows or PowerShell-starting tests, the deferred spawning ratchets and the
-script twins run through the wrapper.
+script twins run through the wrapper.  When it does not, deferred spawning
+ratchets are listed with WARN, never dropped silently.
+
+A head never shrinks its own gate (Defender C2, C3, C10):
+
+* the ratchet list is the union of the lists in the base tree, the pre-head
+  chain tree and the landing tree plus :data:`STATIC_RATCHETS`; the marker filter
+  is dropped when the landing tree lost the marker; any shrink is WARNed with
+  attribution;
+* when the night span (base..landing) changes ``affected_tests.py`` the selection
+  is the union with :func:`fallback_selection` (WARN); when it changes the
+  host-load hook a file is serial if the base hook (or the fallback mirror) or
+  the landing hook says so (WARN);
+* when the night span changes the wrapper closure (:data:`WRAPPER_CLOSURE`) the
+  base tree's copies are checked out into the scratch worktree before the
+  wrapper runs (WARN); a closure file new in the span has no reviewed copy, so
+  the wrapper run is ``NOT_RUN``.
 """
 
 from __future__ import annotations
@@ -56,6 +72,7 @@ from weather.operations.landing_preflight import (
     CheckSpec,
     CommandResult,
     PreflightContext,
+    run_git,
 )
 
 OWNER = "L-P3"
@@ -70,6 +87,8 @@ WRAPPER_RELATIVE = "scripts/ops/workstation_heavy.ps1"
 HOOK_RELATIVE = ".codex/hooks/pre_tool_use_host_load.py"
 AFFECTED_TESTS_RELATIVE = "src/weather/operations/affected_tests.py"
 CI_WORKFLOW_RELATIVE = ".github/workflows/ci.yml"
+PYTEST_INI_RELATIVE = "pytest.ini"
+WRAPPER_CLOSURE = (WRAPPER_RELATIVE, "scripts/ops/workload_admission.ps1", "scripts/ops/windows_kill_on_close_job.ps1")
 
 # Portable repository ratchets when the landing tree has no `ratchet` marker: the
 # CI audit job's list plus #204's always-run set and the hygiene ratchet.
@@ -122,6 +141,30 @@ def _diff_names(ctx: PreflightContext, a: str | None, b: str | None) -> list[str
 
 def _head_label(ctx: PreflightContext) -> str:
     return ctx.chain[-1].label if ctx.chain else ctx.head_ref
+
+
+def span_paths(ctx: PreflightContext) -> dict[str, list[str]]:
+    """``{path: introduced_by}`` over the night span base..landing (both sides of a rename)."""
+
+    out: dict[str, list[str]] = {}
+    for row in ctx.changed_files:
+        for path in (row.get("path"), row.get("old_path")):
+            if path:
+                out.setdefault(path, [])
+                out[path] = sorted(set(out[path]) | set(row.get("introduced_by") or []))
+    return out
+
+
+def _span_warning(ctx: PreflightContext, path: str, consequence: str) -> str:
+    labels = ", ".join(span_paths(ctx).get(path) or ["unattributed"])
+    return f"the night span changes {path} (introduced_by {labels}): {consequence}"
+
+
+def _blob_text(ctx: PreflightContext, commit: str | None, path: str) -> str | None:
+    if not commit:
+        return None
+    result = ctx.git("show", f"{commit}:{path}", check=False)
+    return result.stdout if result.exit_code == 0 else None
 
 
 def _plan_known_fixes(ctx: PreflightContext) -> dict[str, Any]:
@@ -269,17 +312,41 @@ def classify_files(ctx: PreflightContext, files: list[str]) -> tuple[dict[str, s
     wt = _wt(ctx)
     if not files:
         return {}, None, "none"
-    if (wt / HOOK_RELATIVE).is_file():
+    serial, live, source = _classify_with_hook(ctx, files, wt / HOOK_RELATIVE, "landing_hook")
+    if HOOK_RELATIVE not in span_paths(ctx):
+        return serial, live, source
+    # The night span changes the hook: the base's hook (or the mirror) also classifies (Defender C3).
+    base_hook = None
+    text = _blob_text(ctx, ctx.base_sha, HOOK_RELATIVE)
+    if text is not None:
+        base_hook = ctx.run_dir / "base-hook" / HOOK_RELATIVE
+        base_hook.parent.mkdir(parents=True, exist_ok=True)
+        base_hook.write_text(text, encoding="utf-8")
+    base_serial, base_live, base_source = _classify_with_hook(ctx, files, base_hook, "base_hook")
+    merged = {f: serial.get(f) or base_serial.get(f) for f in files}
+    return merged, live or base_live, f"{source}+{base_source} (span changes the hook)"
+
+
+def _classify_with_hook(ctx: PreflightContext, files: list[str], hook: Path | None,
+                        name: str) -> tuple[dict[str, str | None], str | None, str]:
+    wt = _wt(ctx)
+    if hook is not None and hook.is_file():
         request = ctx.run_dir / f"classify-{len(ctx.commands)}.json"
         request.write_text(json.dumps(files), encoding="utf-8")
-        result = ctx.run([ctx.python, "-c", _HOOK_SNIPPET, str(wt), str(request), HOOK_RELATIVE], cwd=wt, timeout=300)
+        result = ctx.run([ctx.python, "-c", _HOOK_SNIPPET, str(wt), str(request), str(hook)], cwd=wt, timeout=300)
         try:
             payload = json.loads(result.stdout.strip().splitlines()[-1])
             serial = {f: payload["serial"].get(f) for f in files}
-            return serial, payload.get("live"), "landing_hook"
+            return serial, payload.get("live"), name
         except (ValueError, IndexError, KeyError, AttributeError):
             pass
-    return {f: serial_reason_fallback(wt, f) for f in files}, None, "fallback_mirror"
+    return {f: serial_reason_fallback(wt, f) for f in files}, None, f"{name}:fallback_mirror"
+
+
+def classifier_warnings(ctx: PreflightContext, source: str) -> list[str]:
+    if "span changes the hook" not in source:
+        return []
+    return [_span_warning(ctx, HOOK_RELATIVE, "a file is serial if the base or the landing hook says so")]
 
 
 # --------------------------------------------------------------------------- JUnit
@@ -342,10 +409,50 @@ def _pytest_args(ctx: PreflightContext, tag: str, targets: list[str], extra: lis
     return args, basetemp, junit
 
 
+def _is_windows() -> bool:  # test seam
+    return os.name == "nt"
+
+
+def prepare_wrapper_closure(ctx: PreflightContext) -> str | None:
+    """Never run the night span's own wrapper closure (Defender C10).
+
+    When base..landing changes a :data:`WRAPPER_CLOSURE` file, the base tree's copy
+    is checked out into the scratch worktree (the wrapper must live under its
+    ``-RepoRoot``).  Returns a not-run reason when a changed file has no base copy.
+    Idempotent; the outcome is kept in ``ctx.shared["wrapper_closure"]``.
+    """
+
+    state = ctx.shared.get("wrapper_closure")
+    if state is None:
+        changed = span_paths(ctx)
+        state = {"swapped_to_base": [], "introduced_by": {}, "not_run": None}
+        for path in WRAPPER_CLOSURE:
+            if path not in changed:
+                continue
+            state["introduced_by"][path] = changed[path]
+            if _blob_text(ctx, ctx.base_sha, path) is None:
+                state["not_run"] = (f"{path} is new in the night span (introduced_by "
+                                    f"{', '.join(changed[path]) or 'unattributed'}); no reviewed wrapper copy to run")
+                continue
+            result = run_git(["-C", str(_wt(ctx)), "checkout", ctx.base_sha, "--", path], check=False)
+            if result.exit_code != 0:
+                state["not_run"] = f"could not restore the base copy of {path}: {result.tail(300)}"
+                continue
+            state["swapped_to_base"].append(path)
+        ctx.shared["wrapper_closure"] = state
+    return state["not_run"]
+
+
+def wrapper_closure_warnings(ctx: PreflightContext) -> list[str]:
+    state = ctx.shared.get("wrapper_closure") or {}
+    return [_span_warning(ctx, p, "the wrapper ran the base tree's copy, not the span's; tests of this script "
+                                  "exercised the base copy") for p in state.get("swapped_to_base") or []]
+
+
 def wrapper_available(wt: Path) -> str | None:
     """``None`` when the worktree's wrapper supports ``-Queue``, else why not."""
 
-    if os.name != "nt":
+    if not _is_windows():
         return "workstation_heavy.ps1 runs only on Windows"
     wrapper = wt / WRAPPER_RELATIVE
     if not wrapper.is_file():
@@ -394,7 +501,7 @@ def run_pytest(ctx: PreflightContext, tag: str, targets: list[str], *, route: st
             timeout = max(DIRECT_RUN_TIMEOUT_SECONDS, int(ctx.options.check_timeout_seconds))
             result = ctx.run([ctx.python, *args], cwd=wt, timeout=timeout)
         else:
-            why = wrapper_available(wt)
+            why = prepare_wrapper_closure(ctx) or wrapper_available(wt)
             if why:
                 return None, {"present": False}, why
             if len(args) > WRAPPER_MAX_ARGUMENTS:
@@ -443,12 +550,65 @@ def ratchet_selection(wt: Path) -> tuple[list[str], list[str], str]:
     return files, [], "static list (marker present, ci.yml list absent)" if marker else "static list"
 
 
+def guarded_ratchet_selection(ctx: PreflightContext) -> tuple[list[str], list[str], str, list[str], list[dict[str, Any]]]:
+    """(files, extra args, source, warnings, attribution): the head never shrinks its own ratchet gate (C2).
+
+    Files are the union of the ``-m ratchet`` lists in the base tree, the pre-head
+    chain tree and the landing tree, plus :data:`STATIC_RATCHETS`.  The ``-m ratchet``
+    filter applies only while the landing tree still declares the marker; a list
+    or marker dropped between trees is WARNed and attributed.
+    """
+
+    wt = _wt(ctx)
+    trees = [("base", ctx.base_sha), ("pre_head", ctx.pre_head_commit), ("landing", ctx.landing_commit)]
+    marker: dict[str, bool] = {}
+    lists: dict[str, list[str]] = {}
+    for name, commit in trees:
+        ini = _blob_text(ctx, commit, PYTEST_INI_RELATIVE) or ""
+        marker[name] = bool(_RATCHET_MARKER.search(ini))
+        ci = _blob_text(ctx, commit, CI_WORKFLOW_RELATIVE)
+        lists[name] = ci_ratchet_files_text(ci) if (marker[name] and ci) else []
+    union = sorted(set(STATIC_RATCHETS).union(*lists.values()))
+    files = [f for f in union if (wt / f).is_file()]
+    warnings: list[str] = []
+    attribution: list[dict[str, Any]] = []
+    earlier_labels = sorted({label for path in (PYTEST_INI_RELATIVE, CI_WORKFLOW_RELATIVE)
+                             for label in span_paths(ctx).get(path, []) if label != _head_label(ctx)}) or ["earlier"]
+    for (prev_name, _), (next_name, _) in zip(trees, trees[1:]):
+        by = [_head_label(ctx)] if next_name == "landing" else earlier_labels
+        for path in sorted(set(lists[prev_name]) - set(lists[next_name])):
+            warnings.append(f"ratchet file {path} dropped from the ci.yml ratchet list between {prev_name} and "
+                            f"{next_name} (introduced_by {', '.join(by)}); still run")
+            attribution += [{"item": f"ratchet list: {path}", "introduced_by": label} for label in by]
+        if marker[prev_name] and not marker[next_name]:
+            warnings.append(f"pytest.ini ratchet marker removed between {prev_name} and {next_name} "
+                            f"(introduced_by {', '.join(by)}); ratchet files run without the -m filter")
+            attribution += [{"item": "pytest.ini ratchet marker", "introduced_by": label} for label in by]
+    for path in sorted(set(union) - set(files)):
+        if any(path in lists[n] for n in ("base", "pre_head")) or (path in STATIC_RATCHETS and _blob_text(
+                ctx, ctx.base_sha, path) is not None):
+            warnings.append(f"ratchet file {path} is absent from the landing tree; it cannot run")
+            attribution.append({"item": f"ratchet file deleted: {path}",
+                                "introduced_by": ", ".join(span_paths(ctx).get(path) or ["unattributed"])})
+    use_marker = marker["landing"] and any(lists.values())
+    sources = [n for n in lists if lists[n]]
+    source = (f"union of ci.yml -m ratchet lists ({', '.join(sources)}) and the static list" if sources
+              else "static list")
+    return files, (["-m", "ratchet"] if use_marker else []), source, warnings, attribution
+
+
 def ci_ratchet_files(workflow: Path) -> list[str]:
     """Test files of the ci.yml step whose pytest command carries ``-m ratchet``."""
 
     if not workflow.is_file():
         return []
-    lines = workflow.read_text(encoding="utf-8", errors="replace").splitlines()
+    return ci_ratchet_files_text(workflow.read_text(encoding="utf-8", errors="replace"))
+
+
+def ci_ratchet_files_text(text: str) -> list[str]:
+    """:func:`ci_ratchet_files` over workflow text."""
+
+    lines = text.splitlines()
     for i, line in enumerate(lines):
         if "pytest" not in line and not any("pytest" in lines[j] for j in range(max(0, i - 2), i)):
             continue
@@ -476,19 +636,25 @@ def _attribute_text(ctx: PreflightContext, text: str) -> list[str]:
 
 def _ratchets(ctx: PreflightContext) -> CheckResult:
     wt = _wt(ctx)
-    files, extra, source = ratchet_selection(wt)
+    files, extra, source, warnings, guard_attribution = guarded_ratchet_selection(ctx)
     serial, live, classifier = classify_files(ctx, files)
+    warnings += classifier_warnings(ctx, classifier)
     deferred = sorted(f for f, why in serial.items() if why)
     direct = [f for f in files if f not in deferred]
     evidence: dict[str, Any] = {"source": source, "files": direct, "deferred_to_windows_scripts": deferred,
-                                "serial_reasons": {f: serial[f] for f in deferred}, "classifier": classifier}
+                                "serial_reasons": {f: serial[f] for f in deferred}, "classifier": classifier,
+                                "warnings": warnings}
     if not direct:
-        return CheckResult(ERROR, f"no ratchet file to run ({source})", evidence=evidence)
+        return CheckResult(ERROR, f"no ratchet file to run ({source})", evidence=evidence, attribution=guard_attribution)
     route, why = route_for(len(direct), {f: None for f in direct}, live, False)
     evidence.update({"route": route, "route_reason": why})
     result, junit, not_run = run_pytest(ctx, "ratchets", direct, route=route, extra=extra)
+    if route == "wrapper":
+        warnings += wrapper_closure_warnings(ctx)
     status, summary = _outcome(result, junit, not_run)
-    attribution, details = [], []
+    if status == PASS and warnings:
+        status, summary = WARN, f"{summary}; {len(warnings)} warning(s): {warnings[0]}"
+    attribution, details = list(guard_attribution), []
     if status == FAIL:
         tail = result.tail(20000) if result else ""
         for failure in junit["failures"]:
@@ -562,6 +728,20 @@ def fallback_selection(wt: Path, changed: list[str]) -> dict[str, Any]:
             "full_suite_reasons": full, "_source": "fallback: changed tests + direct importers"}
 
 
+def union_selection(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:
+    """Union of two selections; the first selection's reason wins for a file both choose."""
+
+    rows: dict[str, str] = {}
+    for selection in (first, second):
+        for row in selection.get("tests") or []:
+            rows.setdefault(row["file"], str(row.get("reason", "")))
+    reasons = list(first.get("full_suite_reasons") or []) + [
+        r for r in second.get("full_suite_reasons") or [] if r not in (first.get("full_suite_reasons") or [])]
+    return {"tests": [{"file": f, "reason": r} for f, r in sorted(rows.items())],
+            "full_suite": bool(first.get("full_suite") or second.get("full_suite")),
+            "full_suite_reasons": reasons, "_source": f"{first.get('_source')} + {second.get('_source')}"}
+
+
 def f6_selection(ctx: PreflightContext) -> dict[str, Any]:
     """The F6 selection with its provenance; ``files`` excludes the always-run ratchets."""
 
@@ -579,6 +759,11 @@ def f6_selection(ctx: PreflightContext) -> dict[str, Any]:
         if not warnings:
             warnings.append("affected_tests (#204) is not in the landing tree; fallback heuristic used")
         selection = fallback_selection(wt, head_changed)
+    elif AFFECTED_TESTS_RELATIVE in span_paths(ctx):
+        # The span edits its own selector: never let it alone decide the test set (Defender C3).
+        warnings.append(_span_warning(ctx, AFFECTED_TESTS_RELATIVE,
+                                      "selection is the union with the fallback heuristic"))
+        selection = union_selection(selection, fallback_selection(wt, head_changed))
     chosen: dict[str, str] = {}
     for row in selection.get("tests") or []:
         reason = str(row.get("reason", ""))
@@ -643,7 +828,7 @@ def classify_failures(ctx: PreflightContext, failures: list[dict[str, Any]], ear
 def _tests(ctx: PreflightContext) -> CheckResult:
     mode = ctx.options.tests
     if mode == "none":
-        return CheckResult(SKIP, "--tests none")
+        return CheckResult(SKIP, "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)")
     wt = _wt(ctx)
     warnings: list[str] = []
     head_changed, _, earlier_by = step_changes(ctx)
@@ -667,10 +852,13 @@ def _tests(ctx: PreflightContext) -> CheckResult:
     if not full and not files:
         return CheckResult(WARN if warnings else PASS, "no test file selected", evidence={**evidence, "warnings": warnings})
     serial, live, classifier = classify_files(ctx, [] if full else files)
+    warnings += classifier_warnings(ctx, classifier)
     route, why = route_for(len(files), serial, live, full)
     evidence.update({"files": files, "route": route, "route_reason": why, "classifier": classifier,
                      "serial_reasons": {f: r for f, r in serial.items() if r}, "warnings": warnings})
     result, junit, not_run = run_pytest(ctx, "tests", ["tests"] if full else files, route=route)
+    if route == "wrapper":
+        warnings += wrapper_closure_warnings(ctx)
     status, summary = _outcome(result, junit, not_run)
     details, attribution = [], []
     if status == FAIL:
@@ -719,18 +907,23 @@ def script_twins(wt: Path, scripts: list[str]) -> list[str]:
 
 def _windows_scripts(ctx: PreflightContext) -> CheckResult:
     if ctx.options.tests == "none":
-        return CheckResult(SKIP, "--tests none")
+        return CheckResult(SKIP, "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)")
     wt = _wt(ctx)
     ratchets = ctx.results.get("ratchets")
     deferred = list((ratchets.evidence.get("deferred_to_windows_scripts") if ratchets else None) or [])
     if ratchets is None or "deferred_to_windows_scripts" not in ratchets.evidence:
-        files, _, _ = ratchet_selection(wt)
+        files = guarded_ratchet_selection(ctx)[0]
         serial, _, _ = classify_files(ctx, files)
         deferred = sorted(f for f, why in serial.items() if why)
     changed_tests = [r["path"] for r in ctx.changed_files if is_test_file(r["path"]) and (wt / r["path"]).is_file()]
     serial_changed, _, _ = classify_files(ctx, changed_tests)
     trigger = _windows_trigger(ctx, {f for f, why in serial_changed.items() if why})
     if not trigger:
+        if deferred:  # never drop deferred spawning ratchets silently (Defender C11)
+            return CheckResult(WARN, f"{len(deferred)} PowerShell-spawning ratchet(s) deferred from ratchets did not "
+                               f"run (no .ps1, workflow or PowerShell-starting test in the night span): "
+                               f"{', '.join(deferred)}", details=deferred,
+                               evidence={"deferred_ratchets": deferred, "not_run": deferred})
         return CheckResult(INFO, "no .ps1, workflow or PowerShell-starting test in the night span",
                            evidence={"deferred_ratchets": deferred})
     twins = script_twins(wt, trigger)
@@ -747,6 +940,8 @@ def _windows_scripts(ctx: PreflightContext) -> CheckResult:
                            evidence=evidence)
     full = len(files) + PYTEST_FIXED_ARGUMENTS > WRAPPER_MAX_ARGUMENTS
     result, junit, not_run = run_pytest(ctx, "winps", ["tests"] if full else files, route="wrapper")
+    closure_warnings = wrapper_closure_warnings(ctx)
+    evidence["warnings"] = closure_warnings
     status, summary = _outcome(result, junit, not_run)
     details, attribution = [], []
     if status == FAIL:
@@ -755,7 +950,8 @@ def _windows_scripts(ctx: PreflightContext) -> CheckResult:
         attribution = [{"item": d["nodeid"], "introduced_by": ",".join(d["introduced_by"]) or d["class"],
                         "class": d["class"]} for d in details]
     elif status == PASS:
-        status, summary = WARN, summary + "; local full suite until the Windows lane"
+        status, summary = WARN, summary + "; local full suite until the Windows lane" + (
+            "; " + closure_warnings[0] if closure_warnings else "")
     return CheckResult(status, f"{summary} [wrapper]", details=details, attribution=attribution,
                        evidence={**evidence, "route": "wrapper", "junit": {k: v for k, v in junit.items() if k != "failures"}},
                        command=result.argv if result else None, exit_code=result.exit_code if result else None,
