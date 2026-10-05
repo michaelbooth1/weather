@@ -4,6 +4,9 @@ The live-feature fixture in test_forecast_feature.py makes every floor candidate
 dropped candidate all give the same answer there. Here each candidate is uniquely the highest once, so the
 floor must be the maximum over every source it reads. Train/serve parity cannot catch a regression here
 because both paths call this one function.
+
+Guards: probability mass and physical floor contract (AGENTS.md model changes) - the guidance floor is the
+  maximum over every candidate source it reads.
 """
 import pytest
 

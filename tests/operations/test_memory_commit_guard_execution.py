@@ -9,6 +9,9 @@ the host is inspected or terminated, and every file the guard writes lands under
 
 Synthetic PIDs are odd numbers above 7,000,000; Windows PIDs are multiples of four, so a stub can
 never name a real process.
+
+Guards: EF §10g (inert kill path hidden by substring tests), EF §8d (orphaned refresh child), EF §8u (agent
+  heavy trees) - executed against the unmodified memory_commit_guard.ps1.
 """
 
 from __future__ import annotations
@@ -24,10 +27,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "memory_commit_guard.ps1"
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.spawns, pytest.mark.skipif(
     os.name != "nt" or shutil.which("powershell") is None,
     reason="runs the real memory guard under Windows PowerShell",
-)
+)]
 
 GONE = 7_999_999  # a parent PID absent from every synthetic table
 EVIDENCE_TASK = "WeatherEveningEvidenceRefresh"

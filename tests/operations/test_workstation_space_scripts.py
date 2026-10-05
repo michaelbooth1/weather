@@ -1,6 +1,9 @@
 """Executes workstation_space_report.ps1 and workstation_space_clean.ps1 on fixture worktrees and folders.
 
 Every path lives under tmp_path; nothing outside the fixture is listed for removal or touched.
+
+Guards: HOST_LOAD_POLICY space-inventory rule (Mission G) - the report is read-only; clean removes only
+  still-SAFE items under recorded roots and refuses unusable reports.
 """
 from __future__ import annotations
 
@@ -19,10 +22,10 @@ REPORT = REPO_ROOT / "scripts" / "ops" / "workstation_space_report.ps1"
 CLEAN = REPO_ROOT / "scripts" / "ops" / "workstation_space_clean.ps1"
 POWERSHELL = shutil.which("powershell.exe") or shutil.which("powershell")
 
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.spawns, pytest.mark.skipif(
     sys.platform != "win32" or POWERSHELL is None or shutil.which("git") is None,
     reason="Windows PowerShell 5.1 and git are required",
-)
+)]
 
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@x", "GIT_CONFIG_NOSYSTEM": "1"}

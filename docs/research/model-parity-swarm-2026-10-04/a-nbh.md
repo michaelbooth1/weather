@@ -12,4 +12,3 @@ Late uploads, kept as measured: 2026-09-24 00Z-12Z reached S3 4-14 h late. Also 
 Raw files were deleted after extraction (93.4 GB transferred, one object at a time). The loop (PID 41356, 00:23-01:02) exited by itself and nothing is left running. Nothing was scored and no STOP condition was hit.
 Code was copied to C:\pt\swarm\tools\research\model_parity\a_nbh_acquire_loop.py and a_nbh_build_manifest.py. C:\swarm\out\a-nbh\result.json is written and the phase_log line is appended.
 report.md was not written because the harness blocked .md report files. The full report text is in result.json instead.
-

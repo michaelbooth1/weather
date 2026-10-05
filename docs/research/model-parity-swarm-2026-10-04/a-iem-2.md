@@ -12,4 +12,3 @@ Caveats: some S3 LastModified values reflect late re-uploads (for example 09-24 
 The fetch process (PID 40264) has exited and nothing is left running. No git was run and nothing was scored.
 Scripts: C:\pt\swarm\tools\research\model_parity\a-iem-2_{mos_fetch,nbm_text_lastmod,mos_tidy}.py. Details are in C:\swarm\out\a-iem-2\result.json, and phase_log.jsonl has an entry.
 report.md was not written because the harness blocks subagent .md report files; result.json and MANIFEST.json carry the detail instead.
-

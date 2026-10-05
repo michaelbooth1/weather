@@ -112,4 +112,3 @@ None in the computation: reproduction is exact and the floor mask agrees. The di
 1. 13-16 is the remaining-rise / floor-collapse family. t3-r3 beats T5 there, and the non-collapse NBH effect is NULL.
 2. 00-05 and 00-16 classifications hinge on single markets and on week W36. The sign tests are not significant, and there is no marginal value over t3-r3.
 3. 17-23 belongs to the T1 decided-band mechanism and must not be counted additively. Only the -0.0018 increment over T1-r2 belongs to NBH.
-

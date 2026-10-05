@@ -75,4 +75,3 @@ The residual 0.03-0.19 F at the other stations has a constant sign per station. 
   - C:\pt\swarm\tools\research\model_parity\a-hrrr-aws_fetch.py
   - C:\pt\swarm\tools\research\model_parity\a-hrrr-aws_tidy_compare.py
 - Full tables: C:\swarm\out\a-hrrr-aws\compare_tables.md and compare_summary.json.
-
