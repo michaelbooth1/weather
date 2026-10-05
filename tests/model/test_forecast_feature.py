@@ -3,6 +3,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
+from weather.market.market_registry import REGISTRY
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.model.model_features import (
     build_us_guidance_replay_diagnostics,
@@ -197,6 +198,24 @@ class TestForecastFeatureExtraction(unittest.TestCase):
 
         regular_call = next(call for call in calls if "nws_grid" in call[0])
         self.assertIn("nbm_probabilistic_tmax", regular_call[0])
+
+    def test_no_market_polls_the_mrms_s3_listing(self):
+        # The MRMS fetcher listed the day's S3 objects without extracting a
+        # row; owner 2026-10-02 stopped the poll. Captured tapes still replay.
+        for market_id in REGISTRY:
+            model = TorontoHighTempModel(target_date="2026-05-30", market_id=market_id)
+            fetched = []
+
+            def fake_fetch_source_group(fetchers, max_workers=None):
+                fetched.extend(fetchers)
+                return {}
+
+            model.fetch_source_group = fake_fetch_source_group
+            model.blend_with_last_good = lambda sources: sources
+
+            model.fetch_live_sources()
+
+            self.assertNotIn("mrms_precip", fetched, market_id)
 
     def test_impossible_nbm_probabilistic_tmax_is_quarantined_before_features(self):
         model = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
