@@ -37,6 +37,12 @@ generated reports for dynamic state.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
+- METAR rows also carry the report type (`METAR`/`SPECI`) and the remark
+  T-group tenths in Celsius (`tgroup_temp_celsius`), and the observation
+  trigger keeps every report in a first-seen ledger. The venue's weather.gov
+  "Hourly Data" is METAR-based, so these are the closest free evidence of the
+  resolution rows, but they remain supporting evidence: no feature, observed
+  floor, or settlement value reads them until a reviewed change says so.
 - Intraday features align to the effective WU printed cutoff. Wall-clock time
   can advance before WU history prints a row. Any station rescue used as a
   floor must be captured by the build and must not use an observation after
