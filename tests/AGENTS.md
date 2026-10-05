@@ -15,6 +15,12 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   the CI `audit` job (`test_ci_ratchet_selection.py` enforces both).
 - Prefer focused behavioral tests over snapshots of large generated reports.
   Assert fail-closed behavior for evidence, promotion, release, and live gates.
+- A fixture that turns a freshly written tree into a one-commit repository
+  (`git init`, `git add .`, `git commit`) may use `tests/git_template.py`'s
+  `commit_fixture_tree`, which reuses a per-session `.git` of the same shape and
+  spawns one git commit instead of three. Wait for a condition by polling with
+  the old wait as the ceiling; keep a fixed sleep only where it proves that
+  something did *not* happen.
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths
   and verify training/serving parity where applicable.
 
