@@ -4,7 +4,7 @@
 # Re-running replaces the existing task with one reviewed run-specific occurrence.
 
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [ValidateSet("WeatherNightlyRetrainValidatePromote")]
     [string]$TaskName = "WeatherNightlyRetrainValidatePromote",
     [Parameter(Mandatory = $true)]
@@ -37,6 +37,12 @@ param(
     [switch]$FailOnBlock = $false,
     [switch]$FailOnDailyLearningBlocker = $true
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
