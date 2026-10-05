@@ -82,7 +82,7 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Limit | Value in the script |
 | --- | --- |
 | Mandatory parameters | `-RepoRoot`, `-WorktreeRoot`, `-ExpectedTip` (40-hex), `-BranchRef`, `-LogPath` |
-| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files; always `ceil(files / MaxFilesPerChunk)` chunks |
+| Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
 | Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |

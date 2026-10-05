@@ -18,7 +18,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$LogPath,
     [ValidateRange(1, 25)]
-    [int]$MaxFilesPerChunk = 20,
+    [int]$MaxFilesPerChunk = 25,
     [ValidateRange(1.0, 99.0)]
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
