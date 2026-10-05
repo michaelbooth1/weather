@@ -48,7 +48,7 @@ pytestmark = pytest.mark.skipif(
     reason="PS 5.1 -File root-binding tests require Windows PowerShell 5.1",
 )
 
-# Scheduled or landing-path scripts: name -> the parameter that carries the root.
+# Scheduled, landing-path and live execution-host scripts: name -> root parameter.
 BINDING_TARGETS = {
     "daily_refresh.ps1": "RepoRoot",
     "suite_gated_quiet_merge.ps1": "RepoRoot",
@@ -64,6 +64,8 @@ BINDING_TARGETS = {
     "register_nightly_retrain.ps1": "RepoRoot",
     "register_training_window.ps1": "RepoRoot",
     "register_wallet_reader_logon_task.ps1": "RepoRoot",
+    # Portable live execution-host status; its default was GetFullPath(Join-Path $PSScriptRoot "..\..").
+    "international_live_execution_host_status.ps1": "RepoRoot",
 }
 
 # A binding probe may call nothing but path arithmetic.
