@@ -155,8 +155,10 @@ jobs:
       PYTHONUTF8: '1'
       # The checkout has no LFS objects (lfs: false), unlike the production and
       # workstation clones. Never smudge LFS pointers in test clones, and let the
-      # LFS pre-push hook pass pointers whose objects are absent locally.
+      # LFS pre-push hook pass pointers whose objects are absent locally (tests
+      # only push to throwaway local remotes).
       GIT_LFS_SKIP_SMUDGE: '1'
+      GIT_LFS_SKIP_PUSH: '1'
       EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SHARD: ${{ matrix.shard }}
       SHARD_FILES: ${{ matrix.files }}
