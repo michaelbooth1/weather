@@ -457,9 +457,10 @@ function global:Get-ScheduledTask {
         $dispatchAt = [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
         # With the Stop-reserve clamp this helper is killed after two seconds,
         # before it can publish the synthetic late clock.  Without the clamp
-        # it survives the ordinary 15-second read allowance, advances beyond
+        # it gets its full read allowance (shortened here; see
+        # _read_hang_at_stop_reserve_ms), outlives this hang, advances beyond
         # the reserve, and consumes the remaining Stop identity budget.
-        [Threading.Thread]::Sleep(4000)
+        [Threading.Thread]::Sleep(__STOP_RESERVE_HANG_MS__)
         [IO.File]::WriteAllText(
             $env:RECON_TEST_CLOCK,
             $dispatchAt.AddMinutes(14).AddSeconds(57).ToString("o")
@@ -678,10 +679,42 @@ function global:Stop-ScheduledTask {
 & $env:RECON_TEST_REAL_SCHEDULER_HELPER `
     -Operation $Operation -RequestBase64 $RequestBase64 -ResultPath $ResultPath
 exit $LASTEXITCODE
-''',
+'''.replace("__STOP_RESERVE_HANG_MS__", str(_read_hang_at_stop_reserve_ms())),
         encoding="utf-8",
     )
     return wrapper
+
+
+# Production wall-clock RPC budget literal -> (shortened test budget, production cap).
+RPC_BUDGET_NEEDLES = {
+    "-LogicalBoundary $logicalBoundary -MaximumSeconds 15": (3, 15),
+    "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20": (10, 20),
+    "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20": (3, 20),
+}
+
+
+def _adapt_rpc_budgets(script: str) -> str:
+    for needle, (test_seconds, production_cap) in RPC_BUDGET_NEEDLES.items():
+        assert script.count(needle) == 1, (needle, script.count(needle))
+        prefix = needle.rsplit(" ", 1)[0]
+        script = script.replace(
+            needle, f"{prefix} {ci_scaled_seconds(test_seconds, cap=production_cap)}"
+        )
+    return script
+
+
+def _read_hang_at_stop_reserve_ms() -> int:
+    """Hang for the Stop-reserve clamp test: midway between clamp and read budget.
+
+    The clamp leaves 2 s (logical 14:20: 10 s to the Stop edge minus the 8 s
+    child reserve). Without the clamp the read gets its full wall-clock budget
+    (3 s, or the CI-scaled value). The hang sits midway, so the clamp kills the
+    read before it publishes the late clock, and a clamp-removal mutant lets it
+    publish, on and off CI (Defender C2 on #218).
+    """
+    clamp_ms = 2000
+    read_budget_ms = ci_scaled_seconds(3, cap=15) * 1000
+    return (clamp_ms + read_budget_ms) // 2
 
 
 def _adapt_script(
@@ -743,18 +776,9 @@ def _adapt_script(
     )
     # Shortened wall-clock RPC allowances. On hosted CI only, tests.ci_timing
     # scales them (capped at the production value); elsewhere they are 3/10/3.
-    adapted = adapted.replace(
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 15",
-        f"-LogicalBoundary $logicalBoundary -MaximumSeconds {ci_scaled_seconds(3, cap=15)}",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
-        f"-LogicalBoundary $pushContainmentDeadline -MaximumSeconds {ci_scaled_seconds(10, cap=20)}",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20",
-        f"-LogicalBoundary $LogicalBoundary -MaximumSeconds {ci_scaled_seconds(3, cap=20)}",
-    )
+    # Each production literal must occur exactly once, so a changed production
+    # budget can never pass through unshortened (Defender C1 on #218).
+    adapted = _adapt_rpc_budgets(adapted)
 
     classification_needle = (
         "$rollFree = ($rollVerdictExitCode -eq 0 -and "
@@ -2056,6 +2080,30 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
             check=False,
         )
         assert probe.returncode == 0
+
+
+def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal():
+    """Defender C1 on #218: a changed production budget can never pass through."""
+    script = "\n".join(RPC_BUDGET_NEEDLES)
+    adapted = _adapt_rpc_budgets(script)
+    assert "MaximumSeconds 15" not in adapted
+    assert "MaximumSeconds 20" not in adapted
+    for needle in RPC_BUDGET_NEEDLES:
+        changed = needle.rsplit(" ", 1)[0] + " 40"
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script.replace(needle, changed))
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script + "\n" + needle)
+
+
+def test_stop_reserve_hang_sits_between_the_clamp_and_the_read_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defender C2 on #218: the clamp-removal mutant is visible on and off CI."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 2500 < 3000
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 5000 < 8000
 
 
 @WINDOWS_EXECUTION
