@@ -244,7 +244,8 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 ## Definition of done
 
 - The intended behavior is implemented through the correct owner.
-- Focused tests pass on a host allowed to run them; broader checks match the change risk. State where each
+- Focused tests pass on a host allowed to run them; broader checks follow "Verification scope and assertion
+  strength" below, including its Windows condition. State where each
   check ran. A capture-host refusal (window, disk floor, commit charge) is reported as a blocker, not as a pass.
 - CI evidence exists only for a pull request or for `master`; say which, or say there is none.
 - Windows-executing script tests are proven only by the bounded production-host suite, never by CI.
@@ -254,6 +255,37 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 - No secrets, machine-specific paths, ignored runtime files, or unrelated user
   changes entered the diff.
 - Documentation links and knowledge contracts pass the agent-doc audit.
+
+## Verification scope and assertion strength (owner decision 2026-10-04)
+
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](operations/DECISION_LOG.md) row of
+2026-10-04; record and evidence:
+[test-policy-proposals.md](research/test-suite-review-2026-10-04/test-policy-proposals.md) P2 and P5).
+
+**Local verification and CI (P2, approved with a condition).**
+
+- **Condition, not yet met.** The rule below takes effect only once a CI Windows lane runs the Windows-only
+  tests that CI never runs today (about 303 cases in files in no `windows-qualification` shard, including the
+  70 reconciler-execution cases; that shard work is approved separately). The change that adds the lane must
+  update this paragraph to say the condition is met.
+- **Until then**, a change that touches a Windows-executing script (`scripts/ops/*.ps1`, or a test that runs
+  PowerShell) still needs a local full suite: the bounded production-host suite, or a Windows workstation full
+  run through `scripts/ops/workstation_heavy.ps1`.
+- **The rule (once the condition is met).** Local verification is the focused tests for the owner package plus
+  the affected tests from `python -m weather.operations.affected_tests --base origin/master --format paths`
+  (draft PR #204), run through the host's normal pytest route. The pull request's CI is the full-suite
+  evidence; nobody runs a local full suite only to duplicate CI. A handoff may still require more.
+
+**Mutation-informed assertions (P5).** A mutation sample (104 faults in 27 functions) found 51 faults that were
+executed but never asserted. New tests, and tests touched in a change:
+
+1. assert both sides of every boundary they cover: the value at the threshold and one step past it;
+2. give each guard clause a case where only that guard fires, and assert the specific outcome, not just
+   "not PASS";
+3. check computed statistics and numeric outputs against an independent expected value, not only presence or
+   order;
+4. for an incident test, name the mutation it kills in the module `Guards:` line or the test docstring;
+5. prefer one strong case per input partition over many cases in the same partition.
 
 ## Update this file when
 
