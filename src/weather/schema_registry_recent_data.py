@@ -1240,6 +1240,20 @@ RECENT_REGISTERED_SCHEMAS = (
         "Default-preserving capture flag for the rebuildable full-depth order-book CSV projection.",
     ),
     SchemaSpec(
+        "toronto_nbm_blocks_policy",
+        "toronto_nbm_blocks_policy_v0.1",
+        "weather.sources.toronto_nbm_blocks",
+        "active",
+        "Default-off capture flag retaining Toronto CYYZ/CYTZ NBM NBP station blocks (storage only, no features).",
+    ),
+    SchemaSpec(
+        "nbm_toronto_station_blocks",
+        "nbm_toronto_station_blocks_v0.1",
+        "weather.sources.toronto_nbm_blocks",
+        "active",
+        "Capture-only Toronto NBM NBP station blocks with national-bulletin identity; not a feature source.",
+    ),
+    SchemaSpec(
         "replay_cache_retention",
         "replay_cache_retention_v0.1",
         "weather.operations.replay_cache_retention",

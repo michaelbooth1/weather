@@ -150,6 +150,7 @@ Checked-in configuration lives under `config/`.
 | `config/supplemental_stations.json` | Supplemental station provenance and validation registry. |
 | `config/no_market_extra_locations.json` | Shadow-lane registry for non-market training candidates; active entries require backfilled evidence. |
 | `config/storage_pressure.json` | Operator storage-pressure activation policy. The checked-in default preserves capture; activation is a separately reviewed production operation. |
+| `config/toronto_nbm_blocks.json` | Operator flag (default `false`) that makes Toronto store its CYYZ/CYTZ NBM station blocks as a capture-only source; it never feeds model features. |
 | `config/international_live_execution_host.json` | Single-active portable live-executor host assignment (public host/principal IDs only). |
 
 Ownership, generation method, and freshness rules for each file are in

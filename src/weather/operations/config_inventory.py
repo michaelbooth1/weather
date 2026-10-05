@@ -72,6 +72,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "default_preserves_current_capture_until_operator_activation",
         "max_age_days": None,
     },
+    "toronto_nbm_blocks.json": {
+        "owner": "weather.sources.toronto_nbm_blocks",
+        "classification": "operator_activation_policy",
+        "freshness_policy": "default_preserves_current_capture_until_operator_activation",
+        "max_age_days": None,
+    },
     "international_live_execution_host.json": {
         "owner": "weather.execution_host",
         "classification": "single_active_execution_host_registry",

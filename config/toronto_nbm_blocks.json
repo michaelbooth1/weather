@@ -1,0 +1,7 @@
+{
+  "schema_version": "toronto_nbm_blocks_policy_v0.1",
+  "capture": {
+    "retain_toronto_nbm_blocks": false,
+    "stations": ["CYYZ", "CYTZ"]
+  }
+}
