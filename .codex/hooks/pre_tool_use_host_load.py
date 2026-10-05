@@ -3528,7 +3528,8 @@ def evaluate(
 def _classify_focused_pytest_main(encoded: str) -> int:
     """Print the focused-run verdict for base64 JSON {arguments, cwd[, marker_path]}.
 
-    workload_admission.ps1 calls this only after proving the non-capture host identity.
+    scripts/ops/workstation_focused_exemption.ps1 calls this only after proving the
+    non-capture host identity.
     """
 
     try:

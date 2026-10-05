@@ -77,8 +77,7 @@ def test_workstation_admits_a_bounded_non_serial_run_at_any_hour(tmp_path: Path)
 
 def test_relative_targets_resolve_against_the_payload_cwd(tmp_path: Path) -> None:
     command = (
-        r".\venv\Scripts\python.exe -m pytest tests\test_artifacts.py::test_x "
-        r"--basetemp=C:\wt\bt-rel -q"
+        "python -m pytest tests/test_artifacts.py::test_x --basetemp=bt-rel -q"
     )
     assert HOOK.evaluate(_payload(command, ROOT), now=PROTECTED, constrained_capture_host=False) is None
 

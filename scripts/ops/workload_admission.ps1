@@ -2414,78 +2414,6 @@ function Assert-WeatherWorkstationOfflineHost {
 }
 
 
-function Test-WeatherWorkstationFocusedPytestExemption {
-    # Returns {Exempt, Reason}. The capture host (or an unprovable identity) is
-    # refused here before any file is classified; the file rules live in one
-    # place, the Codex host-load hook's `focused_pytest_verdict`.
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][string]$PythonPath,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments,
-        [string]$WorkingDirectory = ""
-    )
-
-    $refuse = {
-        param([string]$Reason)
-        [PSCustomObject]@{ Exempt = $false; Reason = $Reason }
-    }
-    try {
-        $executionHostId = Get-WeatherExecutionHostId
-        $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
-    }
-    catch {
-        return & $refuse (
-            "cannot prove this host differs from the dedicated capture host"
-        )
-    }
-    if ($executionHostId -ceq
-        [string]$assignment.dedicated_capture_execution_host_id) {
-        return & $refuse (
-            "the dedicated capture host has no focused-run exemption; use the " +
-            "bounded suite inside the 00:30-09:00 window"
-        )
-    }
-    $markerPath = ""
-    try { $markerPath = Get-WeatherHeavyWorkloadPoisonPath }
-    catch {
-        $stateRoot = Join-Path ([Environment]::GetFolderPath(
-            [Environment+SpecialFolder]::CommonApplicationData)) "WeatherProject"
-        if (Test-Path -LiteralPath $stateRoot) {
-            return & $refuse "host-global workload state cannot be validated"
-        }
-    }
-    if (-not $WorkingDirectory) { $WorkingDirectory = (Get-Location).Path }
-    $hook = Join-Path $RepoRoot ".codex\hooks\pre_tool_use_host_load.py"
-    if (-not (Test-Path -LiteralPath $hook -PathType Leaf)) {
-        return & $refuse "the focused-run classifier is missing"
-    }
-    $request = [ordered]@{
-        arguments = @($Arguments)
-        cwd = $WorkingDirectory
-        marker_path = $markerPath
-    } | ConvertTo-Json -Compress
-    $encoded = [Convert]::ToBase64String(
-        [Text.UTF8Encoding]::new($false).GetBytes($request)
-    )
-    try {
-        $output = & $PythonPath -I -B $hook --classify-focused-pytest $encoded
-        if ($LASTEXITCODE -ne 0) { throw "classifier exited $LASTEXITCODE" }
-        $verdict = (@($output) -join "") | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        return & $refuse "the focused-run classifier failed: $($_.Exception.Message)"
-    }
-    if ($verdict.exempt -isnot [bool] -or $verdict.reason -isnot [string]) {
-        return & $refuse "the focused-run classifier returned a malformed verdict"
-    }
-    return [PSCustomObject]@{
-        Exempt = [bool]$verdict.exempt
-        Reason = [string]$verdict.reason
-    }
-}
-
-
 function Get-WeatherHeavyWorkloadQueueRoot {
     # The FIFO queue lives beside the host-global state marker, so every checkout
     # and worktree on the host shares one queue for the one host-global mutex.
@@ -2783,6 +2711,7 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
         -QueueRoot $queueRoot -Workload $Workload -RepoRoot $RepoRoot
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $outcome = "error"
+    $failure = "interrupted"
     $position = 0
     try {
         $entries = @(Get-WeatherHeavyWorkloadQueueTicket -QueueRoot $queueRoot)
@@ -2818,13 +2747,15 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
                 }
                 catch {
                     # The stale-ACTIVE recovery asks for an exact retry; the next
-                    # poll is that retry. A TEARDOWN_PENDING marker whose owner is
-                    # still alive (or that has already been cleared) is the
-                    # holder's ordinary teardown, so it is still "busy". Every
-                    # other refusal, including a dead owner's pending teardown,
-                    # is final.
+                    # poll is that retry. A live holder's ordinary teardown is
+                    # still "busy": its TEARDOWN_PENDING marker (owner alive), or a
+                    # marker read that raced the atomic ACTIVE -> TEARDOWN_PENDING
+                    # replacement or the deletion. Every other refusal, including
+                    # a dead owner's pending teardown, is final.
                     $message = $_.Exception.Message
-                    if ($message -cmatch 'teardown is pending') {
+                    if ($message -cmatch (
+                        'teardown is pending|poison state blocks admission|' +
+                        'state changed during admission')) {
                         if (-not (Test-WeatherHeavyWorkloadTeardownInProgress)) { throw }
                     }
                     elseif ($message -cnotmatch
@@ -2865,12 +2796,17 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
             Start-Sleep -Milliseconds $PollMilliseconds
         }
     }
+    catch {
+        $failure = $_.Exception.Message
+        throw
+    }
     finally {
         try { [IO.File]::Delete($ticket.Path) } catch { }
         if ($outcome -ceq "error") {
             Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "error" `
                 -Ticket $ticket.Ticket -Position $position `
-                -WaitedSeconds $clock.Elapsed.TotalSeconds -Workload $Workload
+                -WaitedSeconds $clock.Elapsed.TotalSeconds -Workload $Workload `
+                -Extra @{ message = [string]$failure }
         }
     }
 }

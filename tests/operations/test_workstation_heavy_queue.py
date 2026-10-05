@@ -38,7 +38,12 @@ def _install(repo_root: Path) -> Path:
 
     ops = repo_root / "scripts" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
-    for name in ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1"):
+    for name in (
+        "workstation_heavy.ps1",
+        "workload_admission.ps1",
+        "windows_kill_on_close_job.ps1",
+        "workstation_focused_exemption.ps1",
+    ):
         shutil.copyfile(REPO_ROOT / "scripts" / "ops" / name, ops / name)
     hooks = repo_root / ".codex" / "hooks"
     hooks.mkdir(parents=True, exist_ok=True)
@@ -392,7 +397,9 @@ def test_a_dead_owners_pending_teardown_still_fails_closed_in_the_queue(workstat
     assert result.returncode == 1
     assert "teardown is pending; a proved reboot and explicit poison recovery are required" in result.stderr
     assert not sentinel.exists()
-    assert [e["event"] for e in _events(repo)] == ["enqueue", "error"]
+    events = _events(repo)
+    assert [e["event"] for e in events] == ["enqueue", "error"]
+    assert "teardown is pending" in events[1]["message"]
     assert _queue_tickets(repo) == []
 
 
@@ -429,6 +436,7 @@ def _exemption(repo: Path, arguments: list[str]) -> dict:
     encoded = base64.b64encode(json.dumps(arguments).encode("utf-8")).decode("ascii")
     result = _admission(
         repo,
+        f". '{repo / 'scripts/ops/workstation_focused_exemption.ps1'}'\n"
         # Windows PowerShell 5.1 emits a JSON array as one object; unroll it explicitly.
         "$parsed = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("
         f"'{encoded}')) | ConvertFrom-Json\n"

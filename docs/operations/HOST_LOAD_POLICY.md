@@ -125,9 +125,10 @@ below applies: no exemption, no queue state, the same windows and the same bound
   ancestor `conftest.py` names PowerShell (a `powershell`/`pwsh` string, identifier or import, or a `.ps1`
   string) and imports a process-spawning module (`subprocess`, `asyncio`, `os`, `multiprocessing`); an
   unparsable file is `serial`. A host-global state marker naming `portable_execution_v1`, or one that cannot
-  be read, refuses the exemption. `workload_admission.ps1` exposes the same verdict as
-  `Test-WeatherWorkstationFocusedPytestExemption`, which proves the non-capture identity in PowerShell before
-  it asks the hook's classifier (`--classify-focused-pytest`). A denial names the reason.
+  be read, refuses the exemption. `scripts/ops/workstation_focused_exemption.ps1` exposes the same verdict as
+  `Test-WeatherWorkstationFocusedPytestExemption`: it proves the non-capture identity with
+  `workload_admission.ps1` before it asks the hook's classifier (`--classify-focused-pytest`);
+  `workload_admission.ps1` itself stays independent of the hook. A denial names the reason.
 - *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
   `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
   process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
