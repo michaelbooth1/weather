@@ -1,10 +1,13 @@
 """Every ratchet runs exactly once per CI run, across every workflow, Windows included.
 
-* ``ci.yml``: the fast ``audit`` job runs ``pytest -m ratchet <files>`` and the ``test``
-  job runs ``pytest -m "not ratchet"`` over the whole ``testpaths``. Their union is the
-  full Linux collection and they are disjoint when the two marker expressions are exact
-  complements, the ``test`` job applies no other selection, and the audit file list names
-  every file that applies the ``ratchet`` marker.
+* ``ci.yml``: the fast ``audit`` job runs ``pytest -m ratchet <files>``, the ``test`` job
+  runs ``pytest -m "not ratchet and not memory_flatness"`` and the parallel
+  ``memory-flatness`` job runs ``pytest -m "memory_flatness and not ratchet"``, both over
+  the whole ``testpaths``. Their union is the full Linux collection and they are disjoint
+  when exactly one of the three marker expressions selects every marker combination, the
+  full-suite jobs apply no other selection, and the audit file list names every file that
+  applies the ``ratchet`` marker (``test_ci_job_partition.py`` proves the same partition
+  per file).
 * ``windows-qualification.yml``: a ratchet that only executes on Windows (it skips off
   Windows) also carries ``windows_native`` and runs in exactly one shard. Every other
   ratchet executes on Linux only: a shard that lists a ratchet file deselects it.
@@ -36,6 +39,8 @@ HOOK_WORKFLOW = WORKFLOWS / "host-load-hook.yml"
 SELECTION_OPTIONS = ("-k", "--deselect", "--ignore", "--ignore-glob", "--lf", "--last-failed",
                      "--ff", "--sw", "--stepwise", "--co", "--collect-only", "-x", "--exitfirst",
                      "--maxfail", "--pyargs")
+MEMORY_JOB = "memory-flatness"
+FULL_SUITE_JOBS = ("test", MEMORY_JOB)
 PORTABLE = frozenset({"ratchet"})
 WINDOWS_NATIVE = frozenset({"ratchet", "windows_native"})
 
@@ -210,31 +215,32 @@ def test_ratchet_markers_are_registered() -> None:
     assert {"ratchet", "windows_native"} <= set(names)
 
 
-def test_each_ci_job_has_one_pytest_run_split_only_by_the_ratchet_marker() -> None:
+def test_each_ci_job_has_one_pytest_run_split_only_by_marker() -> None:
     runs = pytest_invocations()
-    assert sorted(runs) == ["audit", "test"]
-    assert len(runs["audit"]) == 1 and len(runs["test"]) == 1
+    assert sorted(runs) == ["audit", MEMORY_JOB, "test"]
+    assert all(len(runs[job]) == 1 for job in runs)
 
     audit_expression, audit_paths, audit_other = split_selection(runs["audit"][0])
     test_expression, test_paths, test_other = split_selection(runs["test"][0])
+    memory_expression, memory_paths, memory_other = split_selection(runs[MEMORY_JOB][0])
     assert audit_expression == "ratchet"
-    assert test_expression == "not ratchet"
-    # The test job runs the whole configured testpaths; neither job narrows further.
-    assert test_paths == []
-    for option in audit_other + test_other:
-        assert option.split()[0] not in SELECTION_OPTIONS, option
+    assert test_expression == "not ratchet and not memory_flatness"
+    assert memory_expression == "memory_flatness and not ratchet"
+    # The full-suite jobs run the whole configured testpaths; no job narrows further.
+    assert test_paths == [] and memory_paths == []
+    for option in audit_other + test_other + memory_other:
+        assert option.split()[0].split("=", 1)[0] not in SELECTION_OPTIONS, option
         assert not option.startswith(("-k", "--deselect=", "--ignore=", "--maxfail=")), option
     assert audit_paths and all(path.startswith("tests/") for path in audit_paths)
 
 
-def test_the_two_marker_expressions_are_exact_complements() -> None:
+def test_the_marker_expressions_partition_every_marker_combination() -> None:
     runs = pytest_invocations()
-    audit = split_selection(runs["audit"][0])[0]
-    test = split_selection(runs["test"][0])[0]
-    names = ("ratchet", "windows_native", "parametrize", "skipif", "quarantine", "slow")
+    expressions = [split_selection(runs[job][0])[0] for job in ("audit", *FULL_SUITE_JOBS)]
+    names = ("ratchet", "windows_native", "memory_flatness", "parametrize", "skipif", "quarantine", "slow")
     for present in itertools.product((False, True), repeat=len(names)):
         markers = frozenset(name for name, on in zip(names, present) if on)
-        assert _selects(audit, markers) != _selects(test, markers), markers
+        assert sum(_selects(expression, markers) for expression in expressions) == 1, markers
 
 
 def test_audit_job_lists_exactly_the_files_that_use_the_ratchet_marker() -> None:
@@ -261,7 +267,7 @@ def test_windows_native_marks_exactly_the_ratchets_that_skip_off_windows() -> No
 def test_every_ratchet_executes_exactly_once_across_all_workflows() -> None:
     runs = pytest_invocations()
     audit_expression, audit_paths, _ = split_selection(runs["audit"][0])
-    test_expression = split_selection(runs["test"][0])[0]
+    full_suite_expressions = [split_selection(runs[job][0])[0] for job in FULL_SUITE_JOBS]
     shards = windows_shards()
     assert shards and len({shard["shard"] for shard in shards}) == len(shards)
     for path, tests in ratchet_tests().items():
@@ -270,7 +276,7 @@ def test_every_ratchet_executes_exactly_once_across_all_workflows() -> None:
             linux = 0
             if category == PORTABLE:  # a windows_native ratchet only skips on Linux
                 linux += path in audit_paths and _selects(audit_expression, category)
-                linux += _selects(test_expression, category)
+                linux += sum(_selects(expression, category) for expression in full_suite_expressions)
             windows = 0
             for shard in shards:
                 if path in shard["files"] and _selects(shard["mark"], category):

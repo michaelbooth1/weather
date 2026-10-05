@@ -40,7 +40,7 @@ package contract, and `requires-python` is `>=3.11`.
 
 - The `CI` workflow runs on **pull requests and on pushes to `master` only**. A push to any other branch runs
   nothing. A branch has no CI evidence until a pull request exists for it.
-- One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
+- Ubuntu, Python 3.11, 30-minute job timeout, Git LFS disabled on purpose (tests stub model artifacts).
   Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
 - Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
   the Ubuntu job skips them. Every such file runs in a Windows qualification shard (below);
@@ -49,16 +49,21 @@ package contract, and `requires-python` is `>=3.11`.
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
-  check, then every test marked `@pytest.mark.ratchet`). The full Linux `test` job `needs` it, so a ratchet
-  failure stops the run before the long suite, and it runs `pytest -m "not ratchet"`, so each ratchet runs
-  exactly once per CI run. A ratchet is a repository-wide architecture or inventory check (imports, schema
-  registry, docs audit, path policy, module size, ops-script and task inventories). Mark a new one `ratchet`
-  and add its file to the audit job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the
-  list names exactly the files that use the marker and the two jobs' selections are exact complements. A ratchet
-  that skips off Windows also carries `windows_native` and executes in exactly one
-  [Windows qualification](../.github/workflows/windows-qualification.yml) shard (the `launch` shard selects
-  `-m "not ratchet or windows_native"`); the same meta-test proves every ratchet executes exactly once across
-  all workflows. Local and bounded-suite runs ignore both markers and run everything.
+  check, then every test marked `@pytest.mark.ratchet`, uploading a `linux-junit-audit-*` artifact). The Linux
+  `test` and `memory-flatness` jobs both `need` it, so a ratchet failure stops the run before the long suite, and
+  then run in parallel on the same Python and dependencies: `test` runs
+  `pytest -m "not ratchet and not memory_flatness"` and `memory-flatness` runs
+  `pytest -m "memory_flatness and not ratchet"` (the slow 5-to-50-run tracemalloc flatness tests). Each uploads a
+  `linux-junit-*` artifact. The three selections partition the suite, so each test runs exactly once per CI run;
+  `tests/operations/test_ci_job_partition.py` proves it by truth table, so a new marker split must keep that test
+  green. A ratchet is a repository-wide architecture or inventory check (imports, schema registry, docs audit, path
+  policy, module size, ops-script and task inventories). Mark a new one `ratchet` and add its file to the audit
+  job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the list names exactly the files that use
+  the marker and the jobs' selections are exact complements. A ratchet that skips off Windows also carries
+  `windows_native` and executes in exactly one [Windows qualification](../.github/workflows/windows-qualification.yml)
+  shard (shards holding ratchet files select `-m "not ratchet or windows_native"`); the same meta-test proves every
+  ratchet executes exactly once across all workflows. Local and bounded-suite runs ignore these markers and run
+  everything (plain `pytest -q`).
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is

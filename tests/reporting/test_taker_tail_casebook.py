@@ -3,6 +3,8 @@ import gc
 import json
 import tracemalloc
 
+import pytest
+
 from weather.market.taker_bot import load_settlement_labels, read_order_rows
 from weather.reporting.casebooks.taker_tail_casebook import (
     build_tail_casebook,
@@ -380,6 +382,7 @@ def _streamed_peak(root, run_count):
     return peak, counts
 
 
+@pytest.mark.memory_flatness
 def test_streamed_casebook_peak_memory_stays_flat_as_runs_grow(tmp_path):
     few_peak, few_counts = _streamed_peak(tmp_path / "few", 5)
     many_peak, many_counts = _streamed_peak(tmp_path / "many", 50)
