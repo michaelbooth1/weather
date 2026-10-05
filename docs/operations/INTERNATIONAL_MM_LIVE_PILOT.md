@@ -1742,7 +1742,10 @@ overlay, interpreter, and status-attestation helper closure. They rehash after
 acquiring those handles and retain them through child exit. The parent sends
 cooperative cleanup at the sealed execution stop, allows only the same
 sealer-owned 20-second grace already reserved by every window check, and then
-uses kill-on-close containment if required. For the colocated profile the
+uses kill-on-close containment if required. The parent starts the launcher
+with stdin on the null device: Windows PowerShell answers Ctrl+Break by entering
+its debugger and reading stdin, and an inherited open stdin would park it there
+until the forced teardown. For the colocated profile the
 reserved end may equal 09:00; it must never exceed it.
 
 The fixed launcher additionally proves the active shared lease is still held
