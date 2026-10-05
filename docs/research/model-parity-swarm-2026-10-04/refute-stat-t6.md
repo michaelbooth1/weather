@@ -211,4 +211,3 @@ them, there is no availability selection, and there is no PIT-age signature.
 
 Note: the subagent tool guard blocked writing report.md, so this report is in result.json under report_md. The
 docs copy refute-stat-t6.md was not written for the same reason.
-

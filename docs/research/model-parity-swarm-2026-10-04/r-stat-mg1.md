@@ -212,4 +212,3 @@ Flags (no contradicted number, but correct the wording):
 - C:\swarm\out\r-stat-mg1\stats.json: every table, the per-market deltas, and the LOMO/LOWO detail.
 - run.log, reg.py (registration).
 - Code: C:\pt\swarm\tools\research\model_parity\r-stat-mg1_refute.py.
-

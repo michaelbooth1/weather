@@ -241,4 +241,3 @@ Outputs in C:\swarm\out\ladder\:
 
 Registry ids (17): ladder-r0, ladder-r1, ladder-r1b, ladder-r2, ladder-r2b, ladder-inc-{t3, t5, t6, t7, t8, t9,
 t10, t11, t12, t13, t14} and ladder-inc-vs-t3r3.
-

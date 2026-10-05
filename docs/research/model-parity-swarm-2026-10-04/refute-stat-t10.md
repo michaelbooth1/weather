@@ -91,4 +91,3 @@ Judged block by block:
 | 06-09 (r1) | No. It depends on the rule fork, is fragile, and loses to v2_mean. |
 
 T10 is disqualified as a source lead. "Capture ECMWF IFS for T+0" should be closed. Serveability class: needs new capture, and it is not recommended.
-
