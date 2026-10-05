@@ -3581,8 +3581,17 @@ was made.
 
 - **Evening (17-23) is a serving defect, not missing information.** The late-day lock-in stages read WU-only
   `history_max`, empty since 2026-06-30 (§10e), so lock-in strength is 0 and the calibration taper (S7) is untapered.
-  Re-anchoring S1/S2 on `lockin_high = max(history_max, guidance_floor)` with production constants (a band-level
-  emulation, not a replay) closes 85% of the 17-23 gap. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
+  Re-anchoring S1/S2 with production constants (a band-level emulation, not a replay) closes 85% of the 17-23 gap. The
+  emulation used `max(history_max, guidance_floor)`; the **served rule is the v3 anchor** (owner decision 2026-10-05,
+  PR #191). It is the observed same-day station high, with METAR keyed by observation time and before-07:00 readings
+  included, and the D-1 report carried in by the M0 `reportTime` defect excluded. Once a late-day stage acts, no mass
+  is left below the anchor bucket. `guidance_floor` itself was not a safe anchor: production's captured-input replay
+  of the v2 rule found 679 rows where the new vector put more mass below the anchor than the old one (worst: austin
+  2026-08-25 18:07, a carried 84.02 °F "00:00" row). **v3 replay** (production, closed dates <= 2026-09-29;
+  development):
+  - `floor_check` PASS, with 0 rows worse below the anchor.
+  - 17-23 mean mass above the anchor fell 0.332 → 0.075.
+  - The settled check found 0 v3-rule anchors with a settled bucket below the anchor. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
   lock-in no-op; calibration moved above-high mass 0.031 → 0.087), and by a production multi-payload read (27 closing snapshots, 11 markets x 3 dates 08-12/09-14/09-27, where the floor agrees with the market): the per-band change made by `late_day_lockin` is median 8.4e-9, max 1.2e-7, a no-op in all 27; mass above the running high is 0.276 served vs 0.002 market ([synthesis §12](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md)); together these meet §10e's read-before-acting condition for
   these stages. An independent re-implementation (T27) reproduces the rung to 7e-6 and it clears Bonferroni at the full
   registry count. The taper reads the same lock-in strength (`model_distribution.py:544`), so the restored strength
@@ -3632,7 +3641,8 @@ was made.
   its statistics refuter on resampling robustness (W, date, market, LOMO, LOWO), not on multiplicity. Passing makes a
   result worth a pre-registration, not established.
 - **Consequences (owner decisions 2026-10-04, [DECISION_LOG](DECISION_LOG.md)):** the evening lock-in fix is approved and
-  built (PR #191: re-anchor on `max(history_max, guidance_floor)` so the restored strength reaches the S7 taper), with a
+  built (PR #191, re-anchored on the v3 same-day observed high, owner decision 2026-10-05, so the restored strength
+  reaches the S7 taper), with a
   production captured-input replay and then a quiet-window landing; the parser v2 landing is approved (PR #190), and its
   12Z/13Z/19Z rejection was verified correct; MG-1 is SIGNED at `b044e0f1`, with a narrow-scope reservation
   ([reserved-confirmation-window.md](reserved-confirmation-window.md)); RV-1, t3-r3 and HG-1 are held until the evening fix
