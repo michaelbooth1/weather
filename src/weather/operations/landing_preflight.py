@@ -261,9 +261,12 @@ class PreflightContext:
     git_version: str = ""
     plan: dict[str, Any] = field(default_factory=dict)
     plan_sha256: str | None = None
+    plan_file_sha256: str | None = None
     base_ref: str = ""
     base_sha: str = ""
     head_ref: str = ""
+    head_label: str = ""                # the head's plan-slot label (else the ref)
+    head_slot: dict[str, Any] = field(default_factory=dict)
     head_sha: str = ""
     earlier: list[dict[str, Any]] = field(default_factory=list)   # [{label, sha, prs, known_fix, ...}]
     chain: list[ChainStep] = field(default_factory=list)
@@ -355,19 +358,25 @@ def landing_slots(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def load_night_plan(path: Path, expect_sha256: str | None) -> tuple[dict[str, Any], str]:
+def load_night_plan(path: Path, expect_sha256: str | None) -> tuple[dict[str, Any], str, str]:
+    """``(plan, plan_sha256, file_sha256)``; ``plan_sha256`` is the canonical content hash (R-2).
+
+    ``--expect-plan-sha256`` may name the content hash or the file-bytes hash.
+    """
+
     raw = path.read_bytes()
     file_sha = hashlib.sha256(raw).hexdigest()
-    if expect_sha256 and expect_sha256.lower() != file_sha:
-        raise ValueError(f"night plan sha256 {file_sha} != --expect-plan-sha256 {expect_sha256}")
     plan = json.loads(raw.decode("utf-8-sig"))
     if not isinstance(plan, dict) or plan.get("schema") != NIGHT_PLAN_SCHEMA:
         raise ValueError(f"night plan schema must be {NIGHT_PLAN_SCHEMA}")
+    content_sha = plan_content_sha256(plan)
     embedded = plan.get("plan_sha256")
-    if embedded is not None and embedded != plan_content_sha256(plan):
+    if embedded is not None and embedded != content_sha:
         raise ValueError("night plan's embedded plan_sha256 does not match its content")
+    if expect_sha256 and expect_sha256.lower() not in (content_sha, file_sha):
+        raise ValueError(f"night plan sha256 {content_sha} (file {file_sha}) != --expect-plan-sha256 {expect_sha256}")
     landing_slots(plan)
-    return plan, file_sha
+    return plan, content_sha, file_sha
 
 
 def plan_from_earlier(entries: Sequence[str]) -> dict[str, Any]:
@@ -492,6 +501,9 @@ def _phase_refs(ctx: PreflightContext) -> CheckResult:
         if slots and opts.night_plan:
             warnings.append("head is not in the night plan; every plan slot is treated as earlier")
         head_index = len(slots)
+    else:
+        ctx.head_slot = slots[head_index]
+    ctx.head_label = ctx.head_slot.get("label") or opts.head
     earlier = slots[:head_index]
     for slot in earlier:
         sha = slot["sha"]
@@ -518,17 +530,35 @@ def _phase_already_landed(ctx: PreflightContext) -> CheckResult:
 
 
 def _phase_containment(ctx: PreflightContext) -> CheckResult:
-    rows, status = [], PASS
+    """Ruling R-1: a head stacked on an earlier head is INFO; an earlier head that already
+    contains this head makes it SUPERSEDED (exit 5); only a plan that lands a head before
+    one of its own ancestors-in-plan is ``order_inverted`` (FAIL)."""
+
+    rows: list[dict[str, Any]] = []
     for slot in ctx.earlier:
         if _is_ancestor(ctx, slot["sha"], ctx.base_sha):
             rows.append({"item": slot["label"], "relation": "earlier_already_in_base"})
-            status = WARN if status == PASS else status
         elif _is_ancestor(ctx, ctx.head_sha, slot["sha"]):
-            rows.append({"item": slot["label"], "relation": "lands_via"})
-            status = WARN if status == PASS else status
+            raise PreflightAbort("containment", INFO, f"earlier {slot['label']} @{slot['sha'][:12]} already contains "
+                                 f"head {ctx.head_sha[:12]}: the head lands via it", "SUPERSEDED",
+                                 relation="lands_via", item=slot["label"])
         elif _is_ancestor(ctx, slot["sha"], ctx.head_sha):
-            rows.append({"item": slot["label"], "relation": "order_inverted"})
-            status = FAIL
+            rows.append({"item": slot["label"], "relation": "stacked_on_earlier"})
+    try:
+        slots = landing_slots(ctx.plan) if ctx.plan else []
+    except ValueError:
+        slots = []
+    if not any(s["sha"] == ctx.head_sha for s in slots):
+        slots = [*slots, {"label": ctx.head_label or ctx.head_ref, "sha": ctx.head_sha}]
+    for i, first in enumerate(slots):
+        for later in slots[i + 1:]:
+            if (later["sha"] != first["sha"] and _is_ancestor(ctx, later["sha"], first["sha"])
+                    and not _is_ancestor(ctx, later["sha"], ctx.base_sha)):
+                rows.append({"item": first["label"], "relation": "order_inverted",
+                             "detail": f"{first['label']} is scheduled before its own ancestor {later['label']}"})
+    relations = {r["relation"] for r in rows}
+    status = (FAIL if "order_inverted" in relations else WARN if "earlier_already_in_base" in relations
+              else INFO if rows else PASS)
     return CheckResult(status, f"{len(rows)} containment relation(s)", details=rows,
                        attribution=[{"item": r["relation"], "introduced_by": r["item"]} for r in rows])
 
@@ -585,7 +615,8 @@ def _phase_merge_chain(ctx: PreflightContext) -> CheckResult:
     ctx.base_tree = ctx.git("rev-parse", f"{ctx.base_sha}^{{tree}}").stdout.strip()
     steps = [ChainStep(i + 1, s["label"], s["sha"], "earlier", prs=list(s.get("prs") or []), known_fix=s.get("known_fix"))
              for i, s in enumerate(ctx.earlier)]
-    steps.append(ChainStep(len(steps) + 1, ctx.head_ref, ctx.head_sha, "head"))
+    steps.append(ChainStep(len(steps) + 1, ctx.head_label or ctx.head_ref, ctx.head_sha, "head",
+                           prs=list(ctx.head_slot.get("prs") or []), known_fix=ctx.head_slot.get("known_fix")))
     ctx.chain = steps
     cur = ctx.base_sha
     for step in steps:
@@ -707,12 +738,16 @@ def _phase_import_probe(ctx: PreflightContext) -> CheckResult:
 
 
 def default_registry() -> CheckRegistry:
-    """The registry with every plug-in module's checks (L-P2, L-P3, L-P4)."""
+    """The registry with every plug-in module's checks (L-P4, L-P2, L-P3).
+
+    L-P4 registers first so ``roll_class`` has run before L-P2's object-phase
+    ``whitespace_only`` reads it.
+    """
 
     registry = CheckRegistry()
     from weather.operations import landing_preflight_checks, landing_preflight_rollclass, landing_preflight_routing
 
-    for module in (landing_preflight_checks, landing_preflight_rollclass, landing_preflight_routing):
+    for module in (landing_preflight_rollclass, landing_preflight_checks, landing_preflight_routing):
         module.register_checks(registry)
     return registry
 
@@ -782,6 +817,7 @@ def build_document(ctx: PreflightContext, registry: CheckRegistry, terminal: str
                                                   for e in ctx.earlier],
             "tests_mode": ctx.options.tests, "scratch": str(ctx.scratch_root), "dry_run": ctx.options.dry_run,
             "plan_source": ctx.options.night_plan or ("--earlier" if ctx.options.earlier else None),
+            "plan_file_sha256": ctx.plan_file_sha256,
         },
         "plan_sha256": ctx.plan_sha256,
         "closure_snapshot_sha256": _file_sha256(ctx.options.closure_snapshot),
@@ -886,7 +922,8 @@ def run_preflight(options: argparse.Namespace, *, registry: CheckRegistry | None
                 raise PreflightAbort("refs", ERROR, "--night-plan and --earlier are mutually exclusive", "ERROR")
             try:
                 if options.night_plan:
-                    ctx.plan, ctx.plan_sha256 = load_night_plan(Path(options.night_plan), options.expect_plan_sha256)
+                    ctx.plan, ctx.plan_sha256, ctx.plan_file_sha256 = load_night_plan(
+                        Path(options.night_plan), options.expect_plan_sha256)
                 else:
                     ctx.plan = plan_from_earlier(options.earlier or [])
                     ctx.plan_sha256 = ctx.plan["plan_sha256"]
@@ -958,6 +995,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--python", help="interpreter for worktree checks (default: the repo venv)")
     parser.add_argument("--host-assignment", help=argparse.SUPPRESS)
     parser.add_argument("--disk-floor-gib", type=float, default=DISK_FLOOR_BYTES / 1024**3, help=argparse.SUPPRESS)
+    from weather.operations import landing_preflight_rollclass
+
+    landing_preflight_rollclass.add_cli_arguments(parser)  # --no-execution-tape, --declared-roll-class (R-9)
     return parser
 
 

@@ -9,17 +9,16 @@ Object phase (git objects in the scratch store, no worktree):
 * ``diff_check``: ``git diff --check`` over the night span ``base..landing`` (the
   gate, F10) and over every chain step, so each hit names the step that
   introduced it.
-* ``schema_additive``: when a ``schema_registry*`` file changed, an AST
-  comparison of the ``SchemaSpec(...)`` / ``SchemaLiteralExclusion(...)``
-  entries (additive iff every base entry survives literal-identical and the rest
-  of the module is unchanged).  WARN when not additive.
+* ``schema_additive``: when a ``schema_registry*`` file changed, the additive-only
+  verdict of :func:`weather.operations.landing_preflight_rollclass.schema_additive_between`
+  (the single implementation, ruling R-10).  WARN when not additive.
 * ``docs_transaction``: blob OIDs of the documentation transaction's required
   documents as of the night's *final planned tip* and which tips touch them.
+* ``whitespace_only`` (M13 evidence, INFO): last in the object phase, after
+  ``diff_check`` and L-P4's ``roll_class`` (registered before this module).
 
 Worktree phase (the landing checkout, children run with the worktree interpreter):
 
-* ``whitespace_only`` (M13 evidence, INFO): runs here so the roll-class
-  prediction (object phase, L-P4) is already available.
 * the four audits (``agent_docs_audit``, ``correspondence_index``,
   ``roadmap_backlog``, ``schema_registry``), ``shard_coverage`` and
   ``ps1_param_defaults``.
@@ -47,6 +46,8 @@ from weather.operations.landing_preflight import (
     PreflightContext,
     landing_slots,
 )
+from weather.operations.landing_preflight_rollclass import schema_additive_between
+from weather.operations.landing_preflight_rollclass_schema import ADDITIVE, NO_ENTRY_CHANGE, is_schema_family
 
 OWNER = "L-P2"
 
@@ -67,7 +68,9 @@ def classify_conflict_path(path: str) -> str:
     every conflicted path); the class only says how the later PR fixes it.
     """
 
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):  # never lstrip("./"): it eats the dot of .github/ and .gitignore
+        normalized = normalized[2:]
     if normalized in _REGENERATED_INDEXES or normalized.startswith(_REGENERATED_INDEX_DIRS):
         return "regenerate_index"
     if normalized in _GENERATED_CONFIG or (
@@ -76,9 +79,9 @@ def classify_conflict_path(path: str) -> str:
         return "generated_config"
     if normalized.startswith(".github/workflows/"):
         return "ci_matrix"
-    if normalized.startswith("docs/") or normalized.endswith(".md"):
+    if normalized.startswith("docs/") or normalized.endswith(".md") or normalized == ".gitignore":
         return "docs"
-    if normalized.startswith("tests/"):
+    if normalized.startswith("tests/") or normalized == "pytest.ini":
         return "tests"
     return "src"
 
@@ -424,7 +427,7 @@ def run_docs_transaction(ctx: PreflightContext) -> CheckResult:
 
     # Continue the synthetic chain over the plan's later slots to reach the final planned tip.
     later, warnings = _later_slots(ctx), []
-    cur, final_tree, final_label = ctx.landing_commit, ctx.landing_tree, ctx.head_ref
+    cur, final_tree, final_label = ctx.landing_commit, ctx.landing_tree, ctx.head_label or ctx.head_ref
     date = ctx.git("log", "-1", "--format=%at", ctx.head_sha).stdout.strip() + " +0000"
     name, email = "landing-preflight", "landing-preflight@invalid"
     env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_AUTHOR_DATE": date,
@@ -475,115 +478,27 @@ def run_docs_transaction(ctx: PreflightContext) -> CheckResult:
     return CheckResult(status, summary, details=warnings, evidence=evidence)
 
 
-# --------------------------------------------------------------------------- schema_additive
-
-SCHEMA_ENTRY_CALLS = frozenset({"SchemaSpec", "SchemaLiteralExclusion"})
-_SCHEMA_DATA_PREFIX = "src/weather/schema_registry"
-
-
-def _call_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Call):
-        func = node.func
-        return func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else None)
-    return None
-
-
-class _StripEntries(ast.NodeTransformer):
-    def __init__(self) -> None:
-        self.entries: list[str] = []
-
-    def _filter(self, node: ast.Tuple | ast.List) -> ast.AST:
-        kept = []
-        for elt in node.elts:
-            if _call_name(elt) in SCHEMA_ENTRY_CALLS:
-                self.entries.append(ast.dump(elt, annotate_fields=True, include_attributes=False))
-            else:
-                kept.append(self.visit(elt))
-        node.elts = kept
-        return node
-
-    visit_Tuple = _filter
-    visit_List = _filter
-
-
-def schema_entries(source: str) -> tuple[list[str], str]:
-    """``(entries, skeleton)``: dumped registry entry calls and the module AST without them."""
-
-    tree = ast.parse(source)
-    stripper = _StripEntries()
-    stripped = stripper.visit(tree)
-    return stripper.entries, ast.dump(stripped, annotate_fields=True, include_attributes=False)
-
-
-def classify_schema_change(base_sources: dict[str, str], landing_sources: dict[str, str]) -> dict[str, Any]:
-    """Additive iff every base entry survives literal-identical and nothing else in the family changed.
-
-    Minimal local implementation (L-R3's classifier was not available when this was
-    written; L-P4 reconciles the two).  Entries may move between the family's data
-    modules; they are compared as a multiset over the whole family.
-    """
-
-    base_entries: list[str] = []
-    landing_entries: list[str] = []
-    reasons: list[str] = []
-    for path in sorted(set(base_sources) | set(landing_sources)):
-        old, new = base_sources.get(path), landing_sources.get(path)
-        if old is None or new is None:
-            reasons.append(f"{path} {'added' if old is None else 'deleted'}")
-            if new is not None:
-                landing_entries += schema_entries(new)[0]
-            if old is not None:
-                base_entries += schema_entries(old)[0]
-            continue
-        try:
-            old_entries, old_skeleton = schema_entries(old)
-            new_entries, new_skeleton = schema_entries(new)
-        except SyntaxError as exc:
-            return {"class": "not_additive", "reasons": [f"{path}: {exc}"], "added": 0, "removed_or_changed": 0}
-        if old_skeleton != new_skeleton:
-            reasons.append(f"{path}: module changed outside registry entries")
-        base_entries += old_entries
-        landing_entries += new_entries
-    remaining = list(landing_entries)
-    missing = 0
-    for entry in base_entries:
-        if entry in remaining:
-            remaining.remove(entry)
-        else:
-            missing += 1
-    if missing:
-        reasons.append(f"{missing} base entr{'y' if missing == 1 else 'ies'} removed or changed")
-    return {"class": "additive" if not reasons else "not_additive", "reasons": reasons,
-            "added": len(remaining), "removed_or_changed": missing}
+# --------------------------------------------------------------------------- schema_additive (R-10)
 
 
 def run_schema_additive(ctx: PreflightContext) -> CheckResult:
+    """The schema-registry family's additive-only verdict, from L-P4's single implementation."""
+
     family = sorted(r["path"] for r in ctx.changed_files
-                    if r["path"].startswith(_SCHEMA_DATA_PREFIX) or r.get("old_path", "").startswith(_SCHEMA_DATA_PREFIX))
+                    if is_schema_family(r["path"]) or is_schema_family(r.get("old_path", "")))
     if not family:
         return CheckResult(INFO, "no schema_registry* change", evidence={"applicable": False})
-    listing = _git_text(ctx, "ls-tree", "-r", "--name-only", "-z", ctx.base_tree, "--", "src/weather")
-    names = {p for p in listing.split("\0") if p.startswith(_SCHEMA_DATA_PREFIX) and p.endswith(".py")}
-    listing = _git_text(ctx, "ls-tree", "-r", "--name-only", "-z", ctx.landing_tree, "--", "src/weather")
-    names |= {p for p in listing.split("\0") if p.startswith(_SCHEMA_DATA_PREFIX) and p.endswith(".py")}
-
-    def read(tree: str) -> dict[str, str]:
-        out = {}
-        for path in sorted(names):
-            blob = ctx.git("cat-file", "blob", f"{tree}:{path}", check=False)
-            if blob.exit_code == 0:
-                out[path] = blob.stdout
-        return out
-
-    verdict = classify_schema_change(read(ctx.base_tree), read(ctx.landing_tree))
-    attribution = [{"item": p, "introduced_by": label} for r in ctx.changed_files if r["path"] in family
-                   for label in (r.get("introduced_by") or ["?"]) for p in [r["path"]]]
-    evidence = {"applicable": True, "changed": family, "implementation": "landing_preflight_checks (minimal AST)",
-                **verdict}
-    if verdict["class"] == "additive":
-        return CheckResult(INFO, f"additive: {verdict['added']} new entr{'y' if verdict['added'] == 1 else 'ies'}",
+    verdict = schema_additive_between(ctx.git_dir, ctx.base_tree, ctx.landing_tree).to_json()
+    attribution = [{"item": r["path"], "introduced_by": label} for r in ctx.changed_files if r["path"] in family
+                   for label in (r.get("introduced_by") or ["?"])]
+    evidence = {"applicable": True, "changed": family,
+                "implementation": "landing_preflight_rollclass.schema_additive_between", **verdict}
+    added = len(verdict["entries_added"])
+    if verdict["status"] in (ADDITIVE, NO_ENTRY_CHANGE):
+        return CheckResult(INFO, f"{verdict['status'].lower()}: {added} new entr{'y' if added == 1 else 'ies'}",
                            attribution=attribution, evidence=evidence)
-    return CheckResult(WARN, "not_additive: " + "; ".join(verdict["reasons"][:4]), attribution=attribution,
+    reasons = verdict["entries_removed_or_changed"][:4] or list(verdict["parse_errors"])[:4]
+    return CheckResult(WARN, f"{verdict['status'].lower()}: " + "; ".join(reasons), attribution=attribution,
                        evidence=evidence)
 
 
@@ -641,7 +556,7 @@ def run_schema_registry(ctx: PreflightContext) -> CheckResult:
     evidence["unregistered_versions"] = unregistered
     additive = ctx.results.get("schema_additive")
     if additive is not None:
-        evidence["schema_additive"] = additive.evidence.get("class") if additive.evidence.get("applicable") else None
+        evidence["schema_additive"] = additive.evidence.get("status") if additive.evidence.get("applicable") else None
     if result.exit_code != 0 or unregistered:
         return CheckResult(FAIL, f"unregistered schema versions: {', '.join(unregistered[:8]) or 'exit ' + str(result.exit_code)}",
                            details=unregistered, evidence=evidence, command=command, exit_code=result.exit_code,
@@ -819,10 +734,10 @@ def register_checks(registry: CheckRegistry) -> None:
                                 "schema_registry* change additive-only (AST over SchemaSpec entries); WARN when not"))
     registry.register(CheckSpec("docs_transaction", PHASE_OBJECTS, run_docs_transaction, OWNER, ("merge_chain",),
                                 "blob OIDs of the transaction's required docs as of the final planned tip"))
-    # Worktree phase.  whitespace_only runs first here because it reads roll_class (object phase, L-P4,
-    # registered after this module) and diff_check; it needs git objects only.
-    registry.register(CheckSpec("whitespace_only", PHASE_WORKTREE, run_whitespace_only, OWNER, ("merge_chain",),
+    # whitespace_only reads diff_check (above) and roll_class (L-P4, registered before this module).
+    registry.register(CheckSpec("whitespace_only", PHASE_OBJECTS, run_whitespace_only, OWNER, ("merge_chain",),
                                 "M13 evidence: --ignore-space-at-eol --ignore-blank-lines empty, no add/rename/mode/binary"))
+    # Worktree phase.
     for check_id, runner, text in (
         ("agent_docs_audit", run_agent_docs_audit, "-m weather.operations.agent_docs_audit --repo-root <wt>"),
         ("correspondence_index", run_correspondence_index, "-m weather.reporting.roadmap.correspondence_index --check"),
