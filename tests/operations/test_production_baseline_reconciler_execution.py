@@ -1785,7 +1785,11 @@ def test_start_identity_deadline_is_not_extended_by_marker_journaling(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, journal_delay_ms=11000, timeout=90)
+    # The journaling delay must outlast the push Start identity's wall-clock
+    # budget (10 s here, or its CI-scaled value) by one second: 11000 ms
+    # everywhere except hosted CI.
+    start_budget_ms = ci_scaled_seconds(10, cap=20) * 1000
+    result = _invoke(harness, journal_delay_ms=start_budget_ms + 1000, timeout=90)
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
