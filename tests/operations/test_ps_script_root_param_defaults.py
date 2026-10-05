@@ -1,5 +1,7 @@
 """Repository-root defaults of advanced ops scripts under Windows PowerShell 5.1.
 
+Guards: repository-root param defaults of advanced ops scripts under Windows PowerShell 5.1 -File (production incident 2026-10-04 03:36, quiet_window_merge.ps1).
+
 In an *advanced* script (``[CmdletBinding()]`` or any ``[Parameter()]``
 attribute), Windows PowerShell 5.1 leaves ``$PSScriptRoot`` and
 ``$PSCommandPath`` empty while it evaluates ``param()`` defaults under
@@ -321,6 +323,7 @@ def _assert_probe_isolated(info: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(("name", "root_name"), sorted(BINDING_TARGETS.items()))
+@pytest.mark.spawns
 def test_exec_default_root_binds_the_scripts_own_checkout_under_file(
     probes: dict[str, dict[str, Any]], name: str, root_name: str, tmp_path: Path
 ) -> None:
@@ -339,6 +342,7 @@ def test_exec_default_root_binds_the_scripts_own_checkout_under_file(
 
 
 @pytest.mark.parametrize(("name", "root_name"), sorted(BINDING_TARGETS.items()))
+@pytest.mark.spawns
 def test_exec_explicit_root_takes_precedence_under_file(
     probes: dict[str, dict[str, Any]], name: str, root_name: str, tmp_path: Path
 ) -> None:
@@ -373,6 +377,7 @@ def _ratchet_hits(paths: list[Path], tmp_path: Path) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
+@pytest.mark.spawns
 def test_ratchet_detector_flags_the_defect_and_spares_the_fix(tmp_path: Path) -> None:
     bad_cmdlet = tmp_path / "bad_cmdlet.ps1"
     bad_cmdlet.write_text(
@@ -398,6 +403,7 @@ def test_ratchet_detector_flags_the_defect_and_spares_the_fix(tmp_path: Path) ->
     assert len(hits) == 2, hits
 
 
+@pytest.mark.spawns
 def test_no_advanced_script_derives_a_param_default_from_the_script_location(tmp_path: Path) -> None:
     paths = _tracked_ps1()
     assert len(paths) > 50, "expected to scan the repository's PowerShell scripts"

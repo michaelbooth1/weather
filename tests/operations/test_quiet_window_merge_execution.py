@@ -1,5 +1,7 @@
 """Execution twins for the ordinary path of scripts/ops/quiet_window_merge.ps1.
 
+Guards: quiet-window merge ordinary path executed for real (AGENTS.md guarded-merge contract, docs/ops/streak-soak.md; execution twins for the substring gates).
+
 The substring gates in test_quiet_window_merge_script.py read the script as
 text. These twins run the real script under Windows PowerShell 5.1, the way
 production launches it (``powershell.exe -File``), against a disposable fixture
@@ -677,6 +679,7 @@ def _write_drift(fx: Fixture, relative: str) -> bytes:
     ids=("graded-roll-free", "near-close-roll-free", "after-midnight-roll-free",
          "sensitive-0045", "sensitive-0400", "sensitive-0500", "dormant-0500", "undecidable-0500"),
 )
+@pytest.mark.spawns
 def test_exec_refuses_outside_its_window_before_any_git_mutation(
     fx: Fixture, now: str, roll_exit: int, reason: str, lease_taken: bool
 ) -> None:
@@ -734,6 +737,7 @@ def _assert_published(fx: Fixture, outcome: Outcome, *, first_parent: str) -> st
     return merge
 
 
+@pytest.mark.spawns
 def test_exec_roll_free_branch_publishes_outside_the_quiet_window(fx: Fixture) -> None:
     outcome = _invoke(fx, now="2026-10-04T05:30:00", roll_exit=0)
 
@@ -742,6 +746,7 @@ def test_exec_roll_free_branch_publishes_outside_the_quiet_window(fx: Fixture) -
     assert _lines(fx, "roll.log") == [fx.reviewed_tip]
 
 
+@pytest.mark.spawns
 def test_exec_healthy_capture_publishes_the_merge_exactly_once(fx: Fixture) -> None:
     outcome = _invoke(fx, now="2026-10-04T01:30:00", roll_exit=3, capture_plan="ok")
 
@@ -763,6 +768,7 @@ def test_exec_healthy_capture_publishes_the_merge_exactly_once(fx: Fixture) -> N
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.spawns
 def test_exec_exact_tip_mismatch_refuses_before_drift_commit_or_merge(fx: Fixture) -> None:
     drift = _write_drift(fx, "config/locations.json")
 
@@ -784,6 +790,7 @@ def test_exec_exact_tip_mismatch_refuses_before_drift_commit_or_merge(fx: Fixtur
     assert _lines(fx, "python.log") == []
 
 
+@pytest.mark.spawns
 def test_exec_legacy_caller_freezes_the_observed_tip_and_refuses_when_fetch_moves_it(
     fx: Fixture,
 ) -> None:
@@ -803,6 +810,7 @@ def test_exec_legacy_caller_freezes_the_observed_tip_and_refuses_when_fetch_move
     _assert_untouched(fx, outcome)
 
 
+@pytest.mark.spawns
 def test_exec_malformed_expected_tip_refuses_before_the_lease(fx: Fixture) -> None:
     outcome = _invoke(fx, now="2026-10-04T01:30:00", expected_tip=fx.reviewed_tip[:12])
 
@@ -827,6 +835,7 @@ def test_exec_malformed_expected_tip_refuses_before_the_lease(fx: Fixture) -> No
     ),
     ids=("locations", "market-events", "both"),
 )
+@pytest.mark.spawns
 def test_exec_allowlisted_generated_drift_is_committed_then_merged(
     fx: Fixture, drifted: tuple[str, ...]
 ) -> None:
@@ -853,6 +862,7 @@ def test_exec_allowlisted_generated_drift_is_committed_then_merged(
     ("src/app.py", "config/other_generated.json", ".gitignore"),
     ids=("source", "other-config", "dotfile"),
 )
+@pytest.mark.spawns
 def test_exec_drift_outside_the_allowlist_refuses_without_losing_work(
     fx: Fixture, relative: str
 ) -> None:
@@ -884,6 +894,7 @@ def test_exec_drift_outside_the_allowlist_refuses_without_losing_work(
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.spawns
 def test_exec_unhealthy_capture_rolls_back_to_the_exact_pre_merge_commit(fx: Fixture) -> None:
     # Healthy before; unhealthy after the staged roll; healthy again on rollback.
     outcome = _invoke(fx, now="2026-10-04T01:30:00", capture_plan="ok,fail,ok")
@@ -908,6 +919,7 @@ def test_exec_unhealthy_capture_rolls_back_to_the_exact_pre_merge_commit(fx: Fix
     assert not any(call[0] == "commit" for call in git_calls)
 
 
+@pytest.mark.spawns
 def test_exec_unproven_rollback_recovery_keeps_the_marker_and_publishes_nothing(fx: Fixture) -> None:
     drift = _write_drift(fx, "config/location_market_events.json")
 
@@ -939,6 +951,7 @@ def test_exec_unproven_rollback_recovery_keeps_the_marker_and_publishes_nothing(
 
 
 @pytest.mark.parametrize("launch", ("file", "call", "dot_source"))
+@pytest.mark.spawns
 def test_exec_default_repo_root_binds_the_scripts_own_checkout(fx: Fixture, launch: str) -> None:
     # Production launches `powershell.exe -File <repo>\scripts\ops\quiet_window_merge.ps1
     # -Branch ... -ExpectedTip ...` without -RepoRoot from another directory. On
@@ -955,6 +968,7 @@ def test_exec_default_repo_root_binds_the_scripts_own_checkout(fx: Fixture, laun
     ).lower()
 
 
+@pytest.mark.spawns
 def test_exec_explicit_repo_root_takes_precedence_over_the_script_location(fx: Fixture) -> None:
     # A reviewed copy outside any checkout (an integration attempt's frozen
     # helper) must operate on the -RepoRoot it is given, not on its own parent.
