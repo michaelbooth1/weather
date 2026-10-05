@@ -115,4 +115,3 @@ In 10-12 at +120, the rung is HARM (+0.0181).
 - **Code:** C:\pt\swarm\tools\research\model_parity\r-pit-t18_shift.py
 - **Outputs (C:\swarm\out\refute-pit-t18\):** shift_summary.json, rpit18_*.score.json (17 files), nbp_s3_lastmod.json, v2_cycles_vs_s3.csv, s3_lastmod.py, shift_run.log
 - **Not written:** report.md and the docs copy. A tool guard blocks subagents from writing report files, so this text is the report.
-

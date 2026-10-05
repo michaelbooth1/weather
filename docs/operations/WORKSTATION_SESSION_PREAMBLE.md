@@ -8,9 +8,12 @@ prompt, usually as "read handoff X and do it".
 
 You are Claude Code on the owner's **32 GB workstation**, not the 16 GB production capture host. The
 capture-host rules in `CLAUDE.md` and `AGENTS.md` (time windows, the bounded suite, the shared lease) do not
-bind you. Instead, run heavy commands (pytest beyond a few files, compileall, training, replay) through
-`scripts\ops\workstation_heavy.ps1` ([host load policy](HOST_LOAD_POLICY.md)). Other Claude sessions may be
-running missions in parallel in this same clone.
+bind you. Focused pytest of at most 25 files with no `serial`-marked test (a file that starts PowerShell
+counts as `serial`) runs directly, with an explicit `--basetemp` deleted afterwards. Full suites, larger
+selections, xdist, compileall, training and replay go through `scripts\ops\workstation_heavy.ps1 -Queue`,
+which waits its turn first-in first-out (default limit 4 h; exit 75 on timeout) instead of refusing
+([host load policy](HOST_LOAD_POLICY.md), owner decision 2026-10-04). Other Claude sessions may be running
+missions in parallel in this same clone.
 
 ## Before you start
 
@@ -25,13 +28,13 @@ running missions in parallel in this same clone.
 ## Scratch space
 
 - Put every worktree and temp directory of the session under `C:\wt\<session-name>\` (for example
-  `C:\wt\<session-name>\wt` for the worktree and `C:\wt\<session-name>t` as pytest `--basetemp`). Never
-  use `C:	mp`: the owner cleared it on 2026-10-04 without knowing it held other sessions' worktrees.
+  `C:\wt\<session-name>\wt` for the worktree and `C:\wt\<session-name>\bt` as pytest `--basetemp`). Never
+  use `C:\tmp`: the owner cleared it on 2026-10-04 without knowing it held other sessions' worktrees.
 - Never delete, move or lock anything outside your own session folder. Space is freed from a list the owner
   approves: `scripts\ops\workstation_space_report.ps1 -JsonPath <json>` (read-only; a SAFE, IN USE or
   CHECK verdict per worktree and scratch folder) then `scripts\ops\workstation_space_clean.ps1 -FromReport
   <json>`, which lists by default and removes only still-SAFE items with `-Apply`. The scratch roots it
-  reports are `C:\wt`, `C:\pt`, `C:\swarm`, `C:	mp`, `C:t` and the Claude Code scratchpad root
+  reports are `C:\wt`, `C:\pt`, `C:\swarm`, `C:\tmp`, `C:\bt` and the Claude Code scratchpad root
   `%TEMP%\claude`; older sessions used the others.
 
 ## Boundaries
@@ -40,9 +43,11 @@ running missions in parallel in this same clone.
   places, cancels or signs orders.
 - Push and draft PRs are authorized. Never force-push, rebase a pushed branch or rewrite history; bring a
   branch up to date by merging `origin/master`.
-- Include the repo-wide audits (schema registry, imports, agent docs, path policy, module size) in your
-  test runs, and wait for the PR's full GitHub CI to finish green. Fix the real cause of a failure, never
-  by weakening a test.
+- Run focused and affected tests plus the repo-wide audits (schema registry, imports, agent docs, path
+  policy, module size). The PR's CI is the full-suite evidence, except that a change touching a
+  Windows-executing script still needs a local full suite until CI has a Windows lane for those tests
+  ([development.md](../development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)). Wait for the PR's full GitHub CI to finish
+  green. Fix the real cause of a failure, never by weakening a test.
 
 ## Finishing
 

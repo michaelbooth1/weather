@@ -98,4 +98,3 @@ Files:
 - Code: C:\pt\swarm\tools\research\model_parity\refute_pit_t8_shift.py
 - Outputs: C:\swarm\out\refute-pit-t8\ (shift_results.json, 28 *.score.json, run.log, hrrr_final_lastmodified.txt)
 - Background PID 61420 exited on its own.
-

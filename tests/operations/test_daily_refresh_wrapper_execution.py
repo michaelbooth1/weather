@@ -10,6 +10,9 @@ and Job helper from a temporary repository root under Windows PowerShell:
   `--without-pip` venv whose `pythonw.exe` cannot import the real package.
 
 Nothing touches Task Scheduler, `data/`, or the real repository.
+
+Guards: EF §8d (terminated wrapper left its daily_refresh child alive) - window refusal before lease or child,
+  lease release, kill-on-close teardown of the whole child tree.
 """
 
 from __future__ import annotations
@@ -27,10 +30,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPS = REPO_ROOT / "scripts" / "ops"
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.spawns, pytest.mark.skipif(
     os.name != "nt" or shutil.which("powershell") is None,
     reason="runs the real daily-refresh wrapper and kill-on-close Job under Windows PowerShell",
-)
+)]
 
 LEASE_STUB = r"""
 # TEST STUB: records lease calls instead of touching the host-global lease.

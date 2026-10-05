@@ -24,4 +24,3 @@ T19 tail lens: the tail confirms the board; per-market tail signs cannot rank ca
 
 ## Disk / issues
 C: free 142 GB; C:\swarm 1.5 GB; no STOP.
-

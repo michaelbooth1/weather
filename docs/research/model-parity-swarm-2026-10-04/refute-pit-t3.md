@@ -19,4 +19,3 @@ R-PIT-T3 verdict (development only, HARNESS_SHA256 8db69adc...): t3-r3 is NOT DI
 - Serve-only +2h turns 10-12 HARM (+0.0181). The table and the serve-time feed must share one availability basis in any serving stage.
 - Serveability (not PIT): in 00-09 the METAR running max since local midnight is at least 1F above captured high_so_far in 53-57% of rows. The midnight carry-over definition differs, as T3 disclosed.
 - The required report.md and docs copy were not written because a tool guard blocks report files for subagents. The content is in this output and result.json.
-

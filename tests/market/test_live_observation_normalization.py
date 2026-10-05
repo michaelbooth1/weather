@@ -2,6 +2,9 @@
 
 Inclusive tails and the range upper bound decide which band a settled value falls in; a missing or
 non-finite value is never inside any band.
+
+Guards: settlement band containment in the native unit (docs/operations/AGENT_CONTEXT.md settlement semantics)
+  - inclusive tails, range upper bound, non-finite values in no band.
 """
 import pytest
 
