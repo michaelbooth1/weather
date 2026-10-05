@@ -68,6 +68,21 @@ package contract, and `requires-python` is `>=3.11`.
   or reads CI status with `gh`; use the web UI, the workstation, or the push path in the
   [Git workflow SOP](git-workflow.md).
 
+### Known CI flakes
+
+A test enters this table on a proven same-SHA fail-then-pass. A row is tracked evidence, not a quarantine: one
+occurrence never justifies `@pytest.mark.quarantine`. Rerun the failed job on the same SHA; if a test reaches three
+occurrences, raise it with the owner. Counts come from the item K CI history (P0-3, the 500 runs to 2026-10-04)
+plus later sightings.
+
+| Test | Lane | Occurrences | Evidence |
+| --- | --- | --- | --- |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_holder_http_backoff_outcome_is_shared_without_second_provider_call` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_timeout_fetch_plus_holder_counts_two_fetches_and_one_write` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
+| `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
+| `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
+
 ## Where verification may run
 
 ### Production capture host (16 GB)
