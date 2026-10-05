@@ -1758,7 +1758,8 @@ def _summary_status(payload):
         return "BLOCK"
     if _int_value(mm.get("model_variant_bakeoff_skipped_input_row_count")) > 0:
         return "BLOCK"
-    if mm.get("paper_score_freshness_status") == "STALE":
+    # Owner decisions 2026-10-04/05 (freshness#3): a missing active day fails closed like a stale score.
+    if mm.get("paper_score_freshness_status") in {"STALE", "NO_ACTIVE_DAY"}:
         return "BLOCK"
     if taker.get("profitability_artifact_verification_status") == "BLOCK":
         return "BLOCK"

@@ -1107,3 +1107,23 @@ def test_maker_countability_gate_reports_the_first_blocker():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize(
+    ("freshness_status", "taker", "expected"),
+    [
+        ("NO_ACTIVE_DAY", {}, "BLOCK"),
+        ("STALE", {}, "BLOCK"),
+        ("PASS", {}, "OK"),
+        ("NO_ACTIVE_DAY", {"pnl_evidence_status": "PROVISIONAL_MTM_ONLY"}, "BLOCK"),
+        ("PASS", {"pnl_evidence_status": "PROVISIONAL_MTM_ONLY"}, "WARN"),
+    ],
+)
+def test_summary_status_fails_closed_on_paper_score_freshness(tmp_path, freshness_status, taker, expected):
+    """Owner decision 2026-10-05: a missing active day blocks the summary like a stale score."""
+    payload = {"market_making": {"paper_score_freshness_status": freshness_status}, "taker": taker}
+    json_out = tmp_path / "trading_evidence.json"
+
+    write_outputs(payload, json_out=json_out, report_out=tmp_path / "trading_evidence.md")
+
+    assert json.loads(json_out.read_text(encoding="utf-8"))["status"] == expected
