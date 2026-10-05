@@ -475,13 +475,13 @@ class RotatingJsonlWriter:
             index = self.parts[-1]["index"] + 1 if self.parts else 0
             current = {"index": index, "path": self._part_path(index), "rows": 0, "bytes": 0}
             self.parts.append(current)
-        self._handle = Path(current["path"]).open("ab")
+        self._handle = Path(current["path"]).open("ab", buffering=0)
 
     def _rotate(self) -> None:
         self.close_handle()
         index = self.parts[-1]["index"] + 1
         self.parts.append({"index": index, "path": self._part_path(index), "rows": 0, "bytes": 0})
-        self._handle = self._part_path(index).open("ab")
+        self._handle = self._part_path(index).open("ab", buffering=0)
 
     def append(self, payload: dict[str, Any]) -> JsonlWriteReceipt:
         encoded = canonical_json_bytes(payload) + b"\n"
