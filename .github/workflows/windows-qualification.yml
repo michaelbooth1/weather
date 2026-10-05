@@ -56,6 +56,7 @@ jobs:
               tests/collection/test_forecast_payload_cross_process_fanout.py
               tests/operations/test_ops_script_ratchets.py
               tests/operations/test_maker_replay_exam_step_script.py
+              tests/operations/test_quiet_window_merge_execution.py
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
