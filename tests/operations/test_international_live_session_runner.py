@@ -1533,19 +1533,19 @@ def test_default_runner_allows_cooperative_ctrl_break_cleanup(
     # Windows PowerShell answers Ctrl+Break inside a running script by entering
     # its debugger at the next statement and reading a command from stdin. If
     # that stdin is a console or an open pipe the read blocks, the script never
-    # reaches its own exit, and the runner rightly forces the tree. The test
-    # therefore hands the child an already-closed pipe: the debugger reads EOF
-    # and resumes, so the outcome depends only on the runner. The runner code
-    # path (Job, suspended start, Ctrl+Break, grace poll) is unchanged.
+    # reaches its own exit, and the runner rightly forces the tree. The runner
+    # starts the child with stdin on the null device (#229), so the debugger
+    # reads EOF and resumes and the outcome depends only on the runner. The
+    # Popen spy only records that stdin; it changes nothing the runner passes
+    # (test_international_live_session_runner_stdin.py covers an open caller stdin).
     real_popen = runner.subprocess.Popen
+    child_stdin = []
 
-    def popen_with_eof_stdin(*args, **kwargs):
-        kwargs.setdefault("stdin", subprocess.PIPE)
-        process = real_popen(*args, **kwargs)
-        process.stdin.close()
-        return process
+    def popen_spy(*args, **kwargs):
+        child_stdin.append(kwargs.get("stdin"))
+        return real_popen(*args, **kwargs)
 
-    monkeypatch.setattr(runner.subprocess, "Popen", popen_with_eof_stdin)
+    monkeypatch.setattr(runner.subprocess, "Popen", popen_spy)
 
     started_marker = tmp_path / "script-started.txt"
     started = time.monotonic()
@@ -1579,6 +1579,7 @@ def test_default_runner_allows_cooperative_ctrl_break_cleanup(
     # The break must have landed while the script ran, or this run did not
     # exercise cooperative cleanup at all (start-up exceeded the allowance).
     assert int(started_marker.read_text(encoding="utf-8")) < deadline_ms
+    assert child_stdin == [subprocess.DEVNULL]
     assert "debug mode" in capfd.readouterr().out
     assert caught.value.cooperative is True
     assert caught.value.forced is False
