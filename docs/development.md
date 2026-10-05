@@ -216,6 +216,47 @@ Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
 
+## Staged test cuts: the quarantine marker
+
+A test is never deleted in one step. Removing a test that is believed redundant, trivial or brittle is staged:
+
+1. **Quarantine.** Mark it
+   `@pytest.mark.quarantine(reason="...", added="YYYY-MM-DD", sunset="YYYY-MM-DD", replaced_by="...")` and add an
+   entry to [`tests/quarantine_registry.json`](../tests/quarantine_registry.json):
+   `"tests/x.py::test_y": {"first_added": "<added>", "renewals": []}` (the key is the test function; parametrized
+   cases share it). `reason`, `added` and `sunset` are required; `added` is not in the future and `sunset` is at
+   most 6 weeks after it. `replaced_by` names the surviving test that still kills the same fault. Name a twin
+   that CI actually runs: a Windows-only twin in no Windows qualification shard leaves pull-request CI with
+   neither test. A class-level or module `pytestmark` marker applies to every test under it; stacking two
+   markers on one test is refused.
+2. **Observe.** A quarantined test is still collected and still runs everywhere (CI, the workstation, the bounded
+   suite). If it fails in setup or call, the run does not fail: the result becomes a non-strict xfail with the
+   quarantine reason, a `QuarantinedFailureWarning` is shown, the terminal report ends with a "quarantined tests"
+   section naming each failure, and the JUnit test case carries `quarantine` and `quarantine_failure` properties.
+   A teardown error stays fatal. Every quarantined failure must be triaged: a real defect means the test is
+   restored (marker and registry entry removed), not deleted.
+3. **Renew at most within 12 weeks.** A renewal appends the new `added` date to the entry's `renewals` and sets a
+   new sunset, so it is a visible, reviewed registry diff. No sunset may fall more than 12 weeks after
+   `first_added`, however often the entry is renewed.
+4. **Delete or restore.** Deletion is an owner decision, taken only after at least two weeks of CI and at least
+   three bounded-suite runs with no real-defect failure.
+
+**When the sunset passes.** Under GitHub Actions (`GITHUB_ACTIONS=true`) collection fails with a usage error
+that names the test, in every job that collects it: the test job, and the audit job through
+`tests/test_quarantine_registry.py`. This also holds under `--collect-only` and under a `-k`/`-m` selection
+that would skip the test. Off CI (the workstation, and the capture-host bounded suite on an integration night)
+the expiry is only reported: a `QuarantineExpiredWarning`, an `EXPIRED QUARANTINE` line in the terminal
+section, and a `quarantine_expired` JUnit property. The test stays quarantined, so a calendar date alone never
+changes a local or bounded-suite outcome. `--quarantine-expired=fail|report` overrides the detection.
+Malformed markers and registry mismatches always fail collection; CI catches them before merge.
+
+[`tests/quarantine_plugin.py`](../tests/quarantine_plugin.py) implements the marker (registered in `pytest.ini`,
+loaded by `tests/conftest.py`). `tests/test_quarantine_marker.py` pins its behaviour, and
+`tests/test_quarantine_registry.py` proves that the hooks are registered (so a bad `conftest.py` merge cannot
+silently drop them) and that the registry matches the markers. Under pytest-xdist the terminal section sees only
+the controller's reports; the JUnit properties stay per test. Never-cut families (safety, parity, settlement,
+release binding, architecture ratchets and the like) are not quarantined without the review that froze them.
+
 ## Stateful command boundaries
 
 The following categories require inspection before execution because they can
