@@ -1617,6 +1617,106 @@ function Write-WeatherHeavyWorkloadRecoveryDecision {
 }
 
 
+function Write-WeatherHeavyWorkloadLeaseJournal {
+    # Append-only lease history: one JSON line per acquisition, busy refusal,
+    # window refusal and release, in the admitting checkout's
+    # data\logs\heavy_workload_journal.jsonl. heavy_workload.lock holds only the
+    # current holder, so without this every utilization figure is reconstructed.
+    # It records the process creation identity, not only the PID, because a PID
+    # alone can be reused. The journal is evidence only and FAILS OPEN: any
+    # failure is swallowed with a warning and never changes an admission or
+    # release decision. Past MaxBytes the journal is renamed (never deleted) to a
+    # timestamped sibling before the next append.
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("acquired", "busy", "refused_window", "released", "release_failed")]
+        [string]$Event,
+        [AllowEmptyString()][string]$Workload = "",
+        [AllowEmptyString()][string]$ExecutionHostProfile = "",
+        [AllowEmptyString()][string]$PolicyWindow = "",
+        [AllowEmptyString()][string]$AcquiredAtUtc = "",
+        [AllowEmptyString()][string]$Detail = "",
+        [long]$MaxBytes = 4194304
+    )
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return }
+        # A queued waiter at the head retries every few seconds; one busy line
+        # per workload per minute per process is enough history.
+        if ($Event -ceq "busy") {
+            $busyKey = "$RepoRoot|$Workload"
+            $lastBusy = Get-Variable -Scope Script -Name WeatherLeaseJournalLastBusy -ValueOnly -ErrorAction SilentlyContinue
+            if ($null -ne $lastBusy -and [string]$lastBusy.Key -ceq $busyKey -and
+                ([DateTime]::UtcNow - [datetime]$lastBusy.At).TotalSeconds -lt 60) {
+                return
+            }
+            $script:WeatherLeaseJournalLastBusy = @{ Key = $busyKey; At = [DateTime]::UtcNow }
+        }
+        $creationUtc = $null
+        try { $creationUtc = Get-WeatherProcessCreationIdentity -ProcessId $PID }
+        catch { $creationUtc = $null }
+        $nowUtc = [DateTime]::UtcNow
+        $heldSeconds = $null
+        if (-not [string]::IsNullOrWhiteSpace($AcquiredAtUtc)) {
+            try {
+                $heldSeconds = [Math]::Round(($nowUtc - [DateTime]::Parse(
+                            $AcquiredAtUtc,
+                            [Globalization.CultureInfo]::InvariantCulture,
+                            [Globalization.DateTimeStyles]::RoundtripKind
+                        ).ToUniversalTime()).TotalSeconds, 1)
+            }
+            catch { $heldSeconds = $null }
+        }
+        $record = [ordered]@{
+            schema_version = "weather_heavy_workload_lease_journal_v1"
+            recorded_at_utc = $nowUtc.ToString("o")
+            event = $Event
+            workload = $Workload
+            pid = [int]$PID
+            process_creation_utc = $creationUtc
+            execution_host_profile = $ExecutionHostProfile
+            policy_window = $PolicyWindow
+            host = [Environment]::MachineName
+            acquired_at_utc = if ($AcquiredAtUtc) { $AcquiredAtUtc } else { $null }
+            held_seconds = $heldSeconds
+            detail = $Detail
+        }
+        $line = $record | ConvertTo-Json -Compress -Depth 3
+        $logRoot = Join-Path $RepoRoot "data\logs"
+        if (-not (Test-Path -LiteralPath $logRoot)) {
+            New-Item -ItemType Directory -Path $logRoot -Force -ErrorAction Stop | Out-Null
+        }
+        $journalPath = Join-Path $logRoot "heavy_workload_journal.jsonl"
+        try {
+            $journalFile = New-Object IO.FileInfo($journalPath)
+            if ($journalFile.Exists -and $journalFile.Length -ge $MaxBytes) {
+                [IO.File]::Move(
+                    $journalPath,
+                    (Join-Path $logRoot (
+                        "heavy_workload_journal.{0}.jsonl" -f $nowUtc.ToString("yyyyMMddTHHmmssfffZ")
+                    ))
+                )
+            }
+        }
+        catch {
+            try { Write-Warning "heavy-workload lease journal rotation skipped: $($_.Exception.Message)" }
+            catch { }
+        }
+        [IO.File]::AppendAllText(
+            $journalPath,
+            $line + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
+    catch {
+        try { Write-Warning "heavy-workload lease journal could not be written: $($_.Exception.Message)" }
+        catch { }
+    }
+}
+
+
 function Enter-WeatherHeavyWorkloadLease {
     [CmdletBinding()]
     param(
@@ -1767,6 +1867,9 @@ function Enter-WeatherHeavyWorkloadLease {
             -AllowStageAWindow:$AllowStageAWindow `
             -OwnerApprovedException $OwnerApprovedException
         if ($null -eq $policyWindow) {
+            Write-WeatherHeavyWorkloadLeaseJournal -RepoRoot $RepoRoot `
+                -Event "refused_window" -Workload $Workload `
+                -ExecutionHostProfile $ExecutionHostProfile
             throw (
                 "heavy workload '{0}' is outside the 00:30-09:00 window; " +
                 "only the explicit Stage-A lane may acquire the lease at 09:30-11:55"
@@ -1809,6 +1912,10 @@ function Enter-WeatherHeavyWorkloadLease {
         }
         if (-not $mutexOwned) {
             $mutex.Dispose()
+            Write-WeatherHeavyWorkloadLeaseJournal -RepoRoot $RepoRoot `
+                -Event "busy" -Workload $Workload `
+                -ExecutionHostProfile $ExecutionHostProfile -PolicyWindow $policyWindow `
+                -Detail "host-global mutex is held"
             return $null
         }
     }
@@ -1980,6 +2087,10 @@ function Enter-WeatherHeavyWorkloadLease {
     catch [System.IO.IOException] {
         $mutex.ReleaseMutex()
         $mutex.Dispose()
+        Write-WeatherHeavyWorkloadLeaseJournal -RepoRoot $RepoRoot `
+            -Event "busy" -Workload $Workload `
+            -ExecutionHostProfile $ExecutionHostProfile -PolicyWindow $policyWindow `
+            -Detail "heavy_workload.lock is held open"
         return $null
     }
     catch {
@@ -2029,9 +2140,15 @@ function Enter-WeatherHeavyWorkloadLease {
                 -ExecutionHostProfile $ExecutionHostProfile `
                 -State "ACTIVE"
         }
+        Write-WeatherHeavyWorkloadLeaseJournal -RepoRoot $RepoRoot `
+            -Event "acquired" -Workload $Workload `
+            -ExecutionHostProfile $ExecutionHostProfile -PolicyWindow $policyWindow `
+            -AcquiredAtUtc ([string]$record.acquired_at)
         return [PSCustomObject]@{
             Path = $path
             Workload = $Workload
+            JournalRepoRoot = $RepoRoot
+            AcquiredAtUtc = [string]$record.acquired_at
             Stream = $stream
             Mutex = $mutex
             MutexOwned = $mutexOwned
@@ -2327,23 +2444,38 @@ function Exit-WeatherHeavyWorkloadLease {
             throw "workstation lease cleanup failed closed: $($_.Exception.Message)"
         }
     }
+    $leaseReleased = $false
     try {
-        if ($null -ne $Lease -and
-            $Lease.PSObject.Properties.Name -contains "Stream" -and
-            $null -ne $Lease.Stream) {
-            $Lease.Stream.Dispose()
+        try {
+            if ($null -ne $Lease -and
+                $Lease.PSObject.Properties.Name -contains "Stream" -and
+                $null -ne $Lease.Stream) {
+                $Lease.Stream.Dispose()
+            }
         }
+        finally {
+            if ($null -ne $Lease -and
+                $Lease.PSObject.Properties.Name -contains "MutexOwned" -and
+                $Lease.PSObject.Properties.Name -contains "Mutex" -and
+                $Lease.MutexOwned -and $null -ne $Lease.Mutex) {
+                try { $Lease.Mutex.ReleaseMutex() }
+                finally {
+                    $Lease.Mutex.Dispose()
+                    $Lease.MutexOwned = $false
+                }
+            }
+        }
+        $leaseReleased = $true
     }
     finally {
         if ($null -ne $Lease -and
-            $Lease.PSObject.Properties.Name -contains "MutexOwned" -and
-            $Lease.PSObject.Properties.Name -contains "Mutex" -and
-            $Lease.MutexOwned -and $null -ne $Lease.Mutex) {
-            try { $Lease.Mutex.ReleaseMutex() }
-            finally {
-                $Lease.Mutex.Dispose()
-                $Lease.MutexOwned = $false
-            }
+            $Lease.PSObject.Properties.Name -contains "JournalRepoRoot") {
+            Write-WeatherHeavyWorkloadLeaseJournal `
+                -RepoRoot ([string]$Lease.JournalRepoRoot) `
+                -Event $(if ($leaseReleased) { "released" } else { "release_failed" }) `
+                -Workload ([string]$Lease.Workload) `
+                -ExecutionHostProfile ([string]$Lease.ExecutionHostProfile) `
+                -AcquiredAtUtc ([string]$Lease.AcquiredAtUtc)
         }
     }
 }

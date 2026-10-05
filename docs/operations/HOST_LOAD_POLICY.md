@@ -70,6 +70,16 @@ in the admitting checkout. Add an allowlist entry, with tests, only for a
 long-running service that never runs tests, training, replay or order
 mutation.
 
+`heavy_workload.lock` holds only the current owner, so the admission script
+also appends lease history to `data\logs\heavy_workload_journal.jsonl` in the
+admitting checkout: `acquired`, `busy` (at most one per workload per minute per
+process), `refused_window`, `released` and `release_failed`, each with the
+workload, PID **and process creation time**, profile, policy window and, on
+release, the held seconds. The journal is evidence only and fails open: a write
+or rotation error is a warning and never changes admission or release. Past
+4 MiB it is renamed to `heavy_workload_journal.<UTC timestamp>.jsonl`; nothing
+is deleted.
+
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` admission is restricted to canonical live-stage workload

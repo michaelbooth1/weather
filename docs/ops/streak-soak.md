@@ -358,6 +358,18 @@ for a scheduled or already-reviewed merge: the script aborts before any automati
 the named branch no longer resolves to that exact full SHA, and merges the immutable commit
 object rather than the movable branch ref. The outcome lands in
 `data/alerts/quiet_window_merge_last.json` and is surfaced by `status.ps1`.
+On the ordinary path the report also carries `ordinary_publication_proof` and
+`ordinary_push_task_*`. `ordinary_push_task_terminal_ok` is true only when this
+run's `WeatherOneShotPush` readback shows `Ready`, a `LastRunTime` newer than
+before the start, and `LastTaskResult` 0 (at most 12 reads, 5 s apart, after the
+tracking-ref acknowledgement); an unreadable, stale, still-running or non-zero
+readback records false with its reason and a warning, while the tracking ref
+still decides publication. These report-only fields are deliberately not
+`push_terminal_proved`, which `status.ps1` treats as reconciliation-incident
+evidence. `settle_shadow` is a non-binding pilot log of what an event-based
+settle would have decided (per worker, the first changed PID or loaded-source
+fingerprint and when its heartbeat had also advanced; floor 150 s, the PT2M
+supervisor tick plus restart). The real wait stays exactly `-SettleSeconds`.
 An immutable attempt or hash-frozen bootstrap also passes
 `-ExpectedSelfSha256`; the child verifies its own exact bytes before entering
 the operational path. Roll classification and all later mutations remain
