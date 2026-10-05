@@ -132,7 +132,7 @@ def test_crash_restart_replays_physical_tail_with_stale_status(tmp_path, clock_a
         assert store.state["last_error"]
 
 
-def test_fsync_failure_surfaces_on_capture_and_close(tmp_path, monkeypatch, clock_and_batch):
+def test_persistent_fsync_failure_surfaces_on_capture_and_close(tmp_path, monkeypatch, clock_and_batch):
     clock, batch = clock_and_batch
     writer = tape.RotatingJsonlWriter(tmp_path, "rows")
     writer.append({"i": 0})
@@ -141,8 +141,9 @@ def test_fsync_failure_surfaces_on_capture_and_close(tmp_path, monkeypatch, cloc
         raise OSError("fixture storage failure")
 
     monkeypatch.setattr(io.os, "fsync", fail)
-    clock[0] = 1
-    batch.sync_due()
+    for attempt in range(1, io.MAX_SYNC_ATTEMPTS + 1):  # transient faults retry first
+        clock[0] = attempt
+        batch.sync_due()
     with pytest.raises(OSError, match="fixture storage failure"):
         writer.append({"i": 1})
     with pytest.raises(OSError, match="fixture storage failure"):
