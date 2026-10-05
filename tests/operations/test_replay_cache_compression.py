@@ -115,6 +115,24 @@ def test_resource_failure_blocks(field, value):
     assert admission.check_resources(**arguments)["status"] == "BLOCK"
 
 
+def test_memory_floor_is_inclusive_at_exactly_the_floor():
+    arguments = dict(now=NOW, commit=50, free_disk=30 * admission.GIB, loops=healthy_loops())
+    at_floor = admission.check_resources(available=admission.MIN_FREE_MEMORY_BYTES, **arguments)
+    assert at_floor["status"] == "PASS", at_floor["reasons"]
+    below = admission.check_resources(available=admission.MIN_FREE_MEMORY_BYTES - 1, **arguments)
+    assert below["status"] == "BLOCK"
+    assert below["reasons"] == ["physical_memory_below_4_gib"]
+
+
+def test_duplicated_capture_loop_row_blocks():
+    """Three named loops plus a duplicate row is not the exact three-loop evidence."""
+    loops = healthy_loops() + healthy_loops()[:1]
+    row = admission.check_resources(now=NOW, available=8 * admission.GIB, commit=50,
+                                    free_disk=30 * admission.GIB, loops=loops)
+    assert row["status"] == "BLOCK"
+    assert row["reasons"] == ["capture_loop_evidence_missing"]
+
+
 def test_dead_capture_pid_blocks_even_fresh_status():
     loops = healthy_loops()
     loops[0]["process_diagnostics"]["status_pid_alive"] = False

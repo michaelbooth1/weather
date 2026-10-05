@@ -40,6 +40,10 @@ jobs:
               tests/operations/test_production_cold_archive_wrapper.py
               tests/operations/test_cold_archive_reclaim.py
               tests/operations/test_cold_snapshot_compression_wrapper.py
+              tests/operations/test_workstation_space_scripts.py
+              tests/operations/test_cold_snapshot_nightly_verification.py
+              tests/operations/test_memory_commit_guard_execution.py
+              tests/operations/test_daily_refresh_wrapper_execution.py
           - shard: launch
             select: ''
             files: >-
