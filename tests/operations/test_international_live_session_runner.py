@@ -1516,12 +1516,16 @@ def test_default_launcher_runner_executes_safe_child_inside_job(tmp_path):
 # ordering "script running < deadline < script's own exit < deadline + grace" holds by construction:
 # - STARTUP_ALLOWANCE: launch to deadline. It must exceed Windows PowerShell 5.1 start-up so the break lands
 #   while the script runs. A break during start-up takes a different, nondeterministic path (immediate
-#   0xC000013A, or exit 2 about 3.3 s later, outside the grace). Workstation start-up is about 0.3 s.
-# - TAIL: the script keeps working this long past the deadline, then exits 3 on its own.
+#   0xC000013A, or exit 2 about 3.3 s later, outside the grace). Workstation start-up is about 0.2 s idle;
+#   a 3 s allowance was exceeded once under 32-way CPU load (1/30), so it is 5 s.
+# - TAIL: the script keeps working this long past the deadline, then exits 3 on its own. It is the budget
+#   for the break to be delivered and handled: a break handled after the script's own exit leaves no
+#   debugger entry and fails the "debug mode" check although cleanup was cooperative (seen once in a
+#   loaded 1,101-test run). Idle delivery takes milliseconds; 1.5 s leaves load headroom.
 # - GRACE: the runner's cleanup grace. TAIL plus the debugger resume must fit inside it; a forced
 #   teardown cannot finish before STARTUP_ALLOWANCE + GRACE, which the elapsed bound relies on.
-COOPERATIVE_STARTUP_ALLOWANCE_SECONDS = 3.0
-COOPERATIVE_TAIL_SECONDS = 0.5
+COOPERATIVE_STARTUP_ALLOWANCE_SECONDS = 5.0
+COOPERATIVE_TAIL_SECONDS = 1.5
 COOPERATIVE_GRACE_SECONDS = 3.0
 
 
@@ -1578,9 +1582,16 @@ def test_default_runner_allows_cooperative_ctrl_break_cleanup(
 
     # The break must have landed while the script ran, or this run did not
     # exercise cooperative cleanup at all (start-up exceeded the allowance).
-    assert int(started_marker.read_text(encoding="utf-8")) < deadline_ms
+    marker_ms = int(started_marker.read_text(encoding="utf-8"))
+    outcome = (
+        f"cooperative={caught.value.cooperative} forced={caught.value.forced} "
+        f"exit_code={caught.value.exit_code} elapsed={elapsed:.3f}s "
+        f"marker-deadline={marker_ms - deadline_ms}ms"
+    )
+    assert marker_ms < deadline_ms, outcome
     assert child_stdin == [subprocess.DEVNULL]
-    assert "debug mode" in capfd.readouterr().out
+    output = capfd.readouterr().out
+    assert "debug mode" in output, f"no debugger entry ({outcome}); output={output!r}"
     assert caught.value.cooperative is True
     assert caught.value.forced is False
     assert caught.value.exit_code == 3
