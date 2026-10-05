@@ -1,4 +1,8 @@
-"""Read-only old-vs-new late-day lock-in replay (weather.backtesting.lockin_anchor_replay)."""
+"""Read-only old-vs-new late-day lock-in replay (weather.backtesting.lockin_anchor_replay).
+
+Guards: the replay's read-only contract (closed dates <= 2026-09-29, no writes under data/,
+no overwrite) and its floor check (exit 3) that caught the v2 floor failure on PR #191.
+"""
 import json
 from datetime import datetime, timezone
 

@@ -14,6 +14,10 @@ Inputs are built with the production writers: AWC JSON items through
 ``parse_metar_payload`` (the AviationWeather parser ``fetch_metar`` uses),
 station rows through ``station_observation_data`` and the floor through
 ``guidance_physical_floor``.
+
+Guards: never weaken the trusted observed-high floor (DELEGATION_CONTRACT section 2); the
+v2 replay floor failure on PR #191 (austin 2026-08-25, M0 carried D-1 report) and the
+Defender mutants M1-M4 on the lockin-anchor-v3 floor.
 """
 import math
 import random
