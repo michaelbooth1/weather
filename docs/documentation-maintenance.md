@@ -116,6 +116,7 @@ The knowledge audit also enforces the controls added after the 2026-09-18 audit
 | `LINE_BUDGETS`, `NESTED_AGENT_FILE_LINE_BUDGET` | Always-loaded files growing by accretion; every agent pays for them on every task | Move detail to its owner file and link. Raise a budget only as a reviewed decision, with a comment saying why |
 | `unindexed_operations_docs` | A document nobody can find: every `docs/operations/*.md` must be linked from the operations index or `docs/README.md` | Add the index row, with its true status, in the same change that adds the file |
 | `RETIRED_CLAIMS` | A retracted claim surviving in another canonical file, where an agent reads it first and acts on it | **When you retract a claim, add its phrase to `RETIRED_CLAIMS` in the same change** |
+| `control_character_errors` | A literal control character (C0 except LF and CR, including TAB, plus DEL) in `docs/**/*.md` or any `AGENTS.md`/`README.md`, usually a `\t` or `\b` path escape that a shell or script expanded (2026-10-05) | Write the intended text; there is no allowlist, fenced code included |
 | `CLAUDE.md` must import `@AGENTS.md` | Two harnesses starting from two different entry points | Do not fork the entry point; add harness notes only |
 | `--max-state-age-days N` (off by default, so CI stays deterministic) | `STATE_OF_PLAY.md` going stale while nothing merges | `status.ps1` raises the same flag every morning at 3 days; rewrite or re-attest the file |
 
