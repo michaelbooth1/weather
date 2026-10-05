@@ -1,5 +1,7 @@
 """Repository checks for the quarantine marker; run in CI's fast audit job.
 
+Guards: quarantine hooks registered and tests/quarantine_registry.json in sync with markers (docs/development.md staged cuts).
+
 * The suite-wide hooks are registered: a bad merge of ``tests/conftest.py`` that drops
   them would otherwise leave quarantined failures fatal (or expiries silent) while the
   pytester tests in ``test_quarantine_marker.py`` stay green.

@@ -144,6 +144,7 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
 
 
 @WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
 def test_bounded_suite_powershell_parses_and_emits_invariant_timestamps(
     tmp_path: Path,
 ):
@@ -226,6 +227,7 @@ finally {
 
 @WINDOWS_POWERSHELL_REQUIRED
 @pytest.mark.parametrize("rows", [[], ["one"], ["one", "two"]])
+@pytest.mark.spawns
 def test_git_query_call_sites_preserve_empty_and_nonempty_rows(rows):
     """Execute the actual runner assignments with PowerShell 5.1 strict mode."""
     env = os.environ.copy()
@@ -287,6 +289,7 @@ foreach ($name in @('dirty', 'trackedTestFiles', 'finalWorktreeTipRows',
 
 @WINDOWS_POWERSHELL_REQUIRED
 @pytest.mark.parametrize("breach", ["disk", "commit", "capture"])
+@pytest.mark.spawns
 def test_running_chunk_rechecks_admission_and_disposes_child_tree(breach, tmp_path):
     """Exercise the real running-child try/finally before the child can finish."""
     env = os.environ.copy()
@@ -487,6 +490,7 @@ def test_bounded_suite_plans_time_packed_chunks_without_raising_the_cap():
 
 
 @WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
 def test_time_packing_places_every_tracked_test_file_in_exactly_one_chunk(tmp_path):
     """Meta-test over the real inventory and the checked-in timing table."""
     files = _tracked_test_files()
@@ -520,6 +524,7 @@ def test_time_packing_places_every_tracked_test_file_in_exactly_one_chunk(tmp_pa
 
 
 @WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
 def test_time_packing_is_deterministic_lpt_and_fails_closed_on_bad_tables(tmp_path):
     def table(path: Path, body) -> str:
         path.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")

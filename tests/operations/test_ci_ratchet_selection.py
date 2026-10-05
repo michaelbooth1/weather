@@ -1,5 +1,7 @@
 """Every ratchet runs exactly once per CI run, across every workflow, Windows included.
 
+Guards: ratchet exactly-once routing across ci.yml and Windows qualification (docs/development.md CI section, test-suite review K).
+
 * ``ci.yml``: the fast ``audit`` job runs ``pytest -m ratchet <files>``, the ``test`` job
   runs ``pytest -m "not ratchet and not memory_flatness"`` and the parallel
   ``memory-flatness`` job runs ``pytest -m "memory_flatness and not ratchet"``, both over

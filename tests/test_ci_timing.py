@@ -1,3 +1,8 @@
+"""CI-only deadline scale for the reconciler harness (tests/ci_timing.py).
+
+Guards: wall-clock budgets scale only under CI and stay exact locally (test-suite review K, #218 Defender C1/C2).
+"""
+
 from tests.ci_timing import (
     CI_DEADLINE_SCALE,
     ci_deadline_scale,

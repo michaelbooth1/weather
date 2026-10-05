@@ -1,5 +1,7 @@
 """Every Windows-only test runs in exactly one Windows qualification shard.
 
+Guards: pinned Windows qualification shard plan and Windows-only coverage (owner decision 2026-10-04, item K Defender condition).
+
 Shards are rebalanced by time, so file lists move between them. These checks
 prove by real pytest collection that no move can drop or duplicate a test:
 
@@ -124,6 +126,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_storage_recovery_inventory_cli.py",
             "tests/operations/test_production_cold_archive_stage_cli.py",
             "tests/market/test_mm_credential_import_cli.py",
+            "tests/operations/test_codex_host_load_hook_focused_exemption.py",
+            "tests/operations/test_workstation_heavy_queue.py",
         ],
     ),
     "reconciler-1": (

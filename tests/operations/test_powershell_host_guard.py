@@ -1,5 +1,7 @@
 """Guard the boundary of the shared PowerShell host (tests/powershell_host.py).
 
+Guards: shared PowerShell host boundary (tests/AGENTS.md shared-host rule; process identity and exit codes keep a real child).
+
 Inside the shared host ``$PID`` is the long-lived host process, not a fresh child, and an
 ``exit N`` is swallowed. A test that depends on process identity or exit codes must keep
 a real ``powershell.exe`` child. These guards find every shared-host call site by AST and
@@ -183,6 +185,7 @@ $report | ConvertTo-Json -Depth 4 -Compress
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires the Windows PowerShell parser")
+@pytest.mark.spawns
 def test_shared_host_sites_never_reach_process_identity_or_exit_in_ops_scripts(
     tmp_path: Path,
 ) -> None:

@@ -1,5 +1,7 @@
 """The Linux CI jobs' pytest selections partition the suite: every test runs once, none twice.
 
+Guards: CI Linux job partition (each test runs exactly once across audit, test and memory-flatness; docs/development.md CI section, test-suite review K).
+
 ``ci.yml`` splits the Linux suite by marker. The ``test`` job runs the whole ``testpaths``
 with ``-m "not ratchet and not memory_flatness"``, the parallel ``memory-flatness`` job runs
 the whole ``testpaths`` with ``-m "memory_flatness and not ratchet"``, and the fast ``audit``

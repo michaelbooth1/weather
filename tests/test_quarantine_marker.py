@@ -1,4 +1,7 @@
-"""Behaviour of the ``quarantine`` marker (tests/quarantine_plugin.py), run through pytester."""
+"""Behaviour of the ``quarantine`` marker (tests/quarantine_plugin.py), run through pytester.
+
+Guards: staged test-cut contract of the quarantine marker (docs/development.md, tests/AGENTS.md).
+"""
 
 from __future__ import annotations
 

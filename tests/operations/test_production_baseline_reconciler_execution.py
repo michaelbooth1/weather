@@ -1658,6 +1658,7 @@ def _assert_no_hard_reset(harness: Harness) -> None:
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
     tmp_path: Path,
 ) -> None:
@@ -1702,6 +1703,7 @@ def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
         "fresh-verdict-with-dormant-closure-evidence",
     ),
 )
+@pytest.mark.spawns
 def test_roll_verdict_faults_remain_sensitive_and_dry_run_is_read_only(
     tmp_path: Path,
     roll_mode: str,
@@ -1735,6 +1737,7 @@ def test_roll_verdict_faults_remain_sensitive_and_dry_run_is_read_only(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("good", "delayed_start"))
+@pytest.mark.spawns
 def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
     tmp_path: Path,
     task_mode: str,
@@ -1814,6 +1817,7 @@ def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_late_start_budget_refuses_before_any_production_mutation(
     tmp_path: Path,
 ) -> None:
@@ -1830,6 +1834,7 @@ def test_late_start_budget_refuses_before_any_production_mutation(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_midflight_quiet_window_crossing_rolls_back_before_merge_commit(
     tmp_path: Path,
 ) -> None:
@@ -1848,6 +1853,7 @@ def test_midflight_quiet_window_crossing_rolls_back_before_merge_commit(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_start_identity_deadline_is_not_extended_by_marker_journaling(
     tmp_path: Path,
 ) -> None:
@@ -1871,6 +1877,7 @@ def test_start_identity_deadline_is_not_extended_by_marker_journaling(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_remote_drift_after_start_journal_is_rejected_before_helper_launch(
     tmp_path: Path,
 ) -> None:
@@ -1890,6 +1897,7 @@ def test_remote_drift_after_start_journal_is_rejected_before_helper_launch(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -1911,6 +1919,7 @@ def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("hang_after_start", "hang_coarse"))
+@pytest.mark.spawns
 def test_on_demand_task_is_stopped_and_terminally_proved_at_its_deadline(
     tmp_path: Path,
     task_mode: str,
@@ -1939,6 +1948,7 @@ def test_on_demand_task_is_stopped_and_terminally_proved_at_its_deadline(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
     tmp_path: Path,
 ) -> None:
@@ -1994,6 +2004,7 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
         ("start_fail_before_dispatch", False),
     ),
 )
+@pytest.mark.spawns
 def test_ambiguous_dispatch_states_are_stopped_then_terminally_proved(
     tmp_path: Path,
     task_mode: str,
@@ -2022,6 +2033,7 @@ def test_ambiguous_dispatch_states_are_stopped_then_terminally_proved(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
     tmp_path: Path,
 ) -> None:
@@ -2065,6 +2077,7 @@ def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_post_start_readback_failure_is_bounded_by_pt15m(
     tmp_path: Path,
 ) -> None:
@@ -2096,6 +2109,7 @@ def test_post_start_readback_failure_is_bounded_by_pt15m(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("read_hang", "read_hang_spawn_child"))
+@pytest.mark.spawns
 def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns(
     tmp_path: Path,
     task_mode: str,
@@ -2162,6 +2176,7 @@ def test_stop_reserve_hang_sits_between_the_clamp_and_the_read_budget(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2194,6 +2209,7 @@ def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_normal_helper_exit_still_kills_its_surviving_descendant(
     tmp_path: Path,
 ) -> None:
@@ -2226,6 +2242,7 @@ def test_normal_helper_exit_still_kills_its_surviving_descendant(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_successful_start_with_lost_response_is_spent_and_never_passes(
     tmp_path: Path,
 ) -> None:
@@ -2249,6 +2266,7 @@ def test_successful_start_with_lost_response_is_spent_and_never_passes(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_successful_start_with_claimed_error_is_spent_and_never_passes(
     tmp_path: Path,
 ) -> None:
@@ -2269,6 +2287,7 @@ def test_successful_start_with_claimed_error_is_spent_and_never_passes(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
     tmp_path: Path,
 ) -> None:
@@ -2312,6 +2331,7 @@ def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
         "unexpected_dirty",
     ),
 )
+@pytest.mark.spawns
 def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
     tmp_path: Path,
     variation: str,
@@ -2406,6 +2426,7 @@ def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_special_inputs_without_switch_refuse_without_entering_mutation(
     tmp_path: Path,
 ) -> None:
@@ -2423,6 +2444,7 @@ def test_special_inputs_without_switch_refuse_without_entering_mutation(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("absent", "running", "disabled", "ambiguous"))
+@pytest.mark.spawns
 def test_reconciliation_refuses_unsafe_one_shot_task_states_before_mutation(
     tmp_path: Path,
     task_mode: str,
@@ -2457,6 +2479,7 @@ def test_reconciliation_refuses_unsafe_one_shot_task_states_before_mutation(
         ("prepush_drift", False, "documented_unpublished", True),
     ),
 )
+@pytest.mark.spawns
 def test_reconciliation_failure_injections_preserve_safe_state(
     tmp_path: Path,
     failure: str,
@@ -2628,6 +2651,7 @@ def test_reconciliation_failure_injections_preserve_safe_state(
         ),
     ),
 )
+@pytest.mark.spawns
 def test_marker_replacement_failure_preserves_the_prior_safe_marker(
     tmp_path: Path,
     phase: str,
@@ -2703,6 +2727,7 @@ def test_marker_replacement_failure_preserves_the_prior_safe_marker(
         ),
     ),
 )
+@pytest.mark.spawns
 def test_post_replace_fault_retains_complete_active_and_prior_marker_bytes(
     tmp_path: Path,
     phase: str,
