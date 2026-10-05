@@ -188,6 +188,12 @@ every check on that exact PR head finishes; exit 0 means all green, 1 a failure,
 4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
 ([guarded-merge runbook](docs/ops/streak-soak.md)).
 
+`scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
+folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.
+`scripts\ops\workstation_space_clean.ps1 -FromReport <json>` lists what it would remove, and with `-Apply`
+removes only items that are still SAFE on a fresh re-check, writing a JSON receipt
+([session preamble](docs/operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space)).
+
 The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
 (`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
 conflicts, age, linked work, roll heuristic and a proposed action; it changes nothing.

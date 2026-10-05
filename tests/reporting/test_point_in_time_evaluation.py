@@ -623,6 +623,29 @@ def test_date_clustered_interval_is_deterministic_and_uses_fleet_date_clusters()
     assert first["market_days"] == 3
 
 
+def test_date_clustered_interval_resamples_two_sided_quantiles():
+    """Two fleet dates (means 0.3 and 0.9): a 60% interval must resample dates
+    and take the alpha/2 and 1 - alpha/2 quantiles, landing on the two date means."""
+    from types import SimpleNamespace
+
+    rows = [
+        SimpleNamespace(target_date="2026-06-01", categorical_brier=0.2),
+        SimpleNamespace(target_date="2026-06-01", categorical_brier=0.4),
+        SimpleNamespace(target_date="2026-06-02", categorical_brier=0.9),
+    ]
+    interval = date_clustered_bootstrap_interval(
+        rows,
+        metric="categorical_brier",
+        iterations=2000,
+        seed=7,
+        confidence=0.6,
+        weighting="equal_fleet_date",
+    )
+    assert interval["lower"] == pytest.approx(0.3, abs=1e-12)
+    assert interval["upper"] == pytest.approx(0.9, abs=1e-12)
+    assert interval["lower"] < interval["point_estimate"] < interval["upper"]
+
+
 def test_partial_parity_failure_poisons_the_entire_cutoff():
     rows = _distribution_rows(
         target_date="2026-06-01",

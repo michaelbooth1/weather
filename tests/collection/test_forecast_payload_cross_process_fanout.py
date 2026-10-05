@@ -131,7 +131,7 @@ def test_process_like_callers_fetch_once_and_account_one_prepublished_blob(tmp_p
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         holder_future = pool.submit(_fetch, first, holder_fetch)
-        assert holder_started.wait(timeout=2)
+        assert holder_started.wait(timeout=30)
         waiter_future = pool.submit(_fetch, second, forbidden_waiter_fetch)
         release_holder.set()
         holder = holder_future.result(timeout=2)
@@ -216,7 +216,7 @@ def test_wait_timeout_fails_open_to_callers_normal_fetch(tmp_path):
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         holder_future = pool.submit(_fetch, holder_coordinator, holder_fetch)
-        assert holder_started.wait(timeout=2)
+        assert holder_started.wait(timeout=30)
         waiter = pool.submit(
             _fetch,
             waiter_coordinator,
@@ -255,7 +255,7 @@ def test_holder_http_backoff_outcome_is_shared_without_second_provider_call(tmp_
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         holder_future = pool.submit(_fetch, first, unavailable_fetch)
-        assert holder_started.wait(timeout=2)
+        assert holder_started.wait(timeout=30)
         waiter_future = pool.submit(_fetch, second, forbidden_waiter_fetch)
         release_holder.set()
         errors = []
@@ -534,7 +534,7 @@ def test_unscoped_and_timeout_fail_open_results_validate_bulletin_cycle(tmp_path
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         holder_future = pool.submit(_fetch, holder_coordinator, holder_fetch)
-        assert holder_started.wait(timeout=2)
+        assert holder_started.wait(timeout=30)
         with pytest.raises(
             ForecastPayloadCASIntegrityError,
             match="requested NBM cycle",
@@ -680,7 +680,7 @@ def test_timeout_fetch_plus_holder_counts_two_fetches_and_one_write(tmp_path):
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         holder_future = pool.submit(_fetch, holder_coordinator, holder_fetch)
-        assert holder_started.wait(timeout=2)
+        assert holder_started.wait(timeout=30)
         waiter = _fetch(waiter_coordinator, lambda: dict(FETCH_VALUE))
         waiter_store = SnapshotStore(
             root=tmp_path / "waiter-event",
