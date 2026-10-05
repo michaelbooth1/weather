@@ -7,6 +7,8 @@ dropped D's own 23:5x report, and (c) served D-1's reading as D's current
 temperature until the first report of D. These tests drive the production
 fetcher/parser (``fetch_metar`` -> ``parse_metar_payload``) and the production
 floor (``guidance_physical_floor``) with AWC-shaped fixtures.
+
+Guards: metar-parser-v4 obsTime keying (M0, docs/operations/AGENT_CONTEXT.md; PR #189).
 """
 
 import json

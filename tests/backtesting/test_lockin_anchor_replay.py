@@ -1,4 +1,7 @@
-"""Read-only old-vs-new late-day lock-in replay (weather.backtesting.lockin_anchor_replay)."""
+"""Read-only old-vs-new late-day lock-in replay (weather.backtesting.lockin_anchor_replay).
+
+Guards: read-only closed-date replay contract of weather.backtesting.lockin_anchor_replay (docs/architecture.md, late-day lock-in anchor; PR #191 floor check).
+"""
 import json
 from datetime import datetime, timezone
 

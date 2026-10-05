@@ -14,6 +14,8 @@ Inputs are built with the production writers: AWC JSON items through
 ``parse_metar_payload`` (the AviationWeather parser ``fetch_metar`` uses),
 station rows through ``station_observation_data`` and the floor through
 ``guidance_physical_floor``.
+
+Guards: lockin-anchor-v3 late-day lock-in contract (docs/architecture.md, no mass below the observed anchor; PR #191).
 """
 import random
 from datetime import datetime, timedelta, timezone
@@ -22,6 +24,7 @@ import pytest
 
 from weather.model.model_distribution import DistributionPipelineState
 from weather.model.model_distribution_constants import LATE_DAY_LOCKIN_ANCHOR_VERSION
+from weather.model.model_sources import METAR_KEYING_REPORT_TIME
 from weather.model.toronto_model import TorontoHighTempModel
 
 ATL_DATE = "2026-09-20"
@@ -71,7 +74,10 @@ def awc_metar_item(observed_local, temp_c, icao):
 
 
 def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL", carried=()):
-    """A captured ``metar`` source item exactly as ``fetch_metar`` shapes it.
+    """A captured ``metar`` source item exactly as a ``metar-parser-v3``
+    ``fetch_metar`` shaped it (every closed date the replay reads was captured
+    under v3, so the rows are keyed on ``reportTime``; ``metar-parser-v4``
+    serving keys on ``obsTime`` and never admits the carried report).
 
     ``carried`` adds reports observed before the target day (local datetimes)
     that AWC's nominal ``reportTime`` keys into it (capture defect M0)."""
@@ -82,7 +88,7 @@ def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL", car
             continue
         local = datetime(year, month, dom, hour, 52, tzinfo=model.spec.tz)
         payload.append(awc_metar_item(local, temp_c, icao))
-    rows = model.parse_metar_payload(payload)
+    rows = model.parse_metar_payload(payload, keying=METAR_KEYING_REPORT_TIME)
     latest = rows[-1]
     same_day_max = max(row["temp_native"] for row in rows)
     max_since_7am = model.station_max_since_7am_from_rows(rows)

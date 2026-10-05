@@ -6,6 +6,8 @@ built by ``metar_data_from_payload`` under the retired ``reportTime`` keying
 persisted by ``SnapshotStore.write_observation_payloads`` (content-addressed
 raw blob + manifest) and ``SnapshotStore.write_replay_input`` (stripped
 replay record).
+
+Guards: read-only combined v4 re-parse + lockin-anchor-v3 acceptance replay (docs/architecture.md; PRs #189 and #191, floor check exit 3).
 """
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -135,9 +137,9 @@ def test_carry_over_case_v4_drops_prior_day_row_and_the_floor(snapshots_root, tm
     assert carry["recorded_parser_version"] == "metar-parser-v3"
     assert [r["obs_time"] for r in carry["carried_prior_day_rows"]] == ["2026-08-25T04:53:00Z"]
     assert carry["guidance_physical_floor_captured"] == pytest.approx(95.0)
-    assert carry["guidance_physical_floor_v4"] == pytest.approx(33.9 * 9 / 5 + 32)
-    assert carry["floor_changed_by_v4"] is True
-    assert carry["floor_dropped_by_v4"] is True
+    assert carry["guidance_physical_floor_reparsed"] == pytest.approx(33.9 * 9 / 5 + 32)
+    assert carry["floor_changed_by_reparse"] is True
+    assert carry["floor_dropped_by_reparse"] is True
     # lockin-anchor-v3 already excluded the carried report from the anchor itself.
     assert carry["lockin_anchor"]["source"] == "observed_station_rows"
     assert carry["lockin_anchor"]["bucket"] == 93
@@ -155,7 +157,7 @@ def test_carry_over_case_v4_drops_prior_day_row_and_the_floor(snapshots_root, tm
     ]
     assert blocks["17-23"]["snapshots"] == 2
     assert blocks["17-23"]["carry_over_rows"] == 1
-    assert blocks["17-23"]["floor_dropped_by_v4"] == 1
+    assert blocks["17-23"]["floor_dropped_by_reparse"] == 1
     assert blocks["00-05"]["snapshots"] == 0
 
 
@@ -164,9 +166,9 @@ def test_normal_day_floor_and_anchor_unchanged_by_v4(snapshots_root, tmp_path):
     normal = rows["n-18"]
     assert normal["status"] == "ok"
     assert normal["carried_prior_day_rows"] == []
-    assert normal["floor_changed_by_v4"] is False
-    assert normal["anchor_changed_by_v4"] is False
-    assert normal["guidance_physical_floor_v4"] == pytest.approx(33.9 * 9 / 5 + 32)
+    assert normal["floor_changed_by_reparse"] is False
+    assert normal["anchor_changed_by_reparse"] is False
+    assert normal["guidance_physical_floor_reparsed"] == pytest.approx(33.9 * 9 / 5 + 32)
     assert normal["lockin_anchor"]["bucket"] == 93
     assert normal["l1_new_vs_v3_captured"] == pytest.approx(0.0, abs=1e-12)
     assert normal["l1_new_vs_old"] > 0.0  # the v3 lock-in itself still acts
@@ -186,8 +188,8 @@ def test_floor_check_fires_on_a_synthetic_bad_row():
     row = {"hour": 18, "l1_new_vs_old": 0.5, "l1_new_vs_v3_captured": 0.1,
            "old_mass_above_anchor": 0.8, "new_mass_above_anchor": 0.0,
            "old_mass_below_anchor": 0.14, "new_mass_below_anchor": 0.92,
-           "floor_changed_by_v4": True, "floor_dropped_by_v4": True,
-           "anchor_changed_by_v4": True, "carried_prior_day_rows": [{"obs_time": "x"}]}
+           "floor_changed_by_reparse": True, "floor_dropped_by_reparse": True,
+           "anchor_changed_by_reparse": True, "carried_prior_day_rows": [{"obs_time": "x"}]}
     failing = replay_cmd.summarize([row])
     assert failing["rows_new_below_anchor_exceeds_old"] == 1
     assert failing["floor_check"] == "FAIL"
@@ -202,8 +204,8 @@ def test_main_exits_3_when_the_floor_check_fails(tmp_path, monkeypatch, capsys):
         "hour": 18, "l1_new_vs_old": 0.5, "l1_new_vs_v3_captured": 0.0,
         "old_mass_above_anchor": 0.8, "new_mass_above_anchor": 0.0,
         "old_mass_below_anchor": 0.1, "new_mass_below_anchor": 0.9,
-        "floor_changed_by_v4": False, "floor_dropped_by_v4": False,
-        "anchor_changed_by_v4": False, "carried_prior_day_rows": [],
+        "floor_changed_by_reparse": False, "floor_dropped_by_reparse": False,
+        "anchor_changed_by_reparse": False, "carried_prior_day_rows": [],
     }]))
     code = replay_cmd.main(["--snapshots-root", str(tmp_path), "--out", str(tmp_path / "y.jsonl")])
     assert code == replay_cmd.FLOOR_CHECK_FAILED_EXIT

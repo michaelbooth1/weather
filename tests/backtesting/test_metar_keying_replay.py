@@ -1,4 +1,7 @@
-"""Read-only v3 (reportTime) vs v4 (obsTime) METAR keying replay (M0)."""
+"""Read-only v3 (reportTime) vs v4 (obsTime) METAR keying replay (M0).
+
+Guards: read-only closed-date METAR keying replay over SHA-256-verified raw payloads (docs/architecture.md, M0 obsTime keying; PR #189).
+"""
 
 import json
 from collections import Counter

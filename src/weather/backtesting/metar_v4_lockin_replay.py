@@ -172,16 +172,16 @@ def compare_snapshot(model, record, market_id, payload, status):
         "recorded_parser_version": (record.get("sources") or {}).get("metar", {}).get("parser_version"),
         "lockin_anchor": anchor,
         "lockin_anchor_v3_captured": captured_anchor,
-        "anchor_changed_by_v4": _anchor_key(captured_anchor) != _anchor_key(anchor),
+        "anchor_changed_by_reparse": _anchor_key(captured_anchor) != _anchor_key(anchor),
         "guidance_physical_floor_captured": floor_old,
-        "guidance_physical_floor_v4": floor_new,
-        "floor_changed_by_v4": floor_old != floor_new,
-        "floor_dropped_by_v4": (
+        "guidance_physical_floor_reparsed": floor_new,
+        "floor_changed_by_reparse": floor_old != floor_new,
+        "floor_dropped_by_reparse": (
             floor_old is not None and (floor_new is None or floor_new < floor_old)
         ),
         "carried_prior_day_rows": carried,
-        "metar_rows_only_v3": keyed["rows_only_old"] if keyed else [],
-        "metar_rows_only_v4": keyed["rows_only_new"] if keyed else [],
+        "metar_rows_only_report_time_keying": keyed["rows_only_old"] if keyed else [],
+        "metar_rows_only_obs_time_keying": keyed["rows_only_new"] if keyed else [],
         "old_lockin_strength": old_payload.get("lockin_strength"),
         "v3_captured_lockin_strength": mid_payload.get("lockin_strength"),
         "new_lockin_strength": new_payload.get("lockin_strength"),
@@ -212,12 +212,12 @@ def _mean(rows, key):
 def _counts(rows):
     carry = [row for row in rows if row["carried_prior_day_rows"]]
     return {
-        "floor_changed_by_v4": sum(1 for row in rows if row["floor_changed_by_v4"]),
-        "floor_dropped_by_v4": sum(1 for row in rows if row["floor_dropped_by_v4"]),
-        "anchor_changed_by_v4": sum(1 for row in rows if row["anchor_changed_by_v4"]),
+        "floor_changed_by_reparse": sum(1 for row in rows if row["floor_changed_by_reparse"]),
+        "floor_dropped_by_reparse": sum(1 for row in rows if row["floor_dropped_by_reparse"]),
+        "anchor_changed_by_reparse": sum(1 for row in rows if row["anchor_changed_by_reparse"]),
         "carry_over_rows": len(carry),
-        "carry_over_floor_dropped": sum(1 for row in carry if row["floor_dropped_by_v4"]),
-        "carry_over_anchor_changed": sum(1 for row in carry if row["anchor_changed_by_v4"]),
+        "carry_over_floor_dropped": sum(1 for row in carry if row["floor_dropped_by_reparse"]),
+        "carry_over_anchor_changed": sum(1 for row in carry if row["anchor_changed_by_reparse"]),
     }
 
 
@@ -229,7 +229,7 @@ def summarize(rows, status_counts=None):
             "block": label,
             "snapshots": len(group),
             "changed": sum(1 for row in group if row["l1_new_vs_old"] > 1e-12),
-            "changed_by_v4": sum(1 for row in group if row["l1_new_vs_v3_captured"] > 1e-12),
+            "changed_by_reparse": sum(1 for row in group if row["l1_new_vs_v3_captured"] > 1e-12),
             "max_l1_new_vs_old": max((row["l1_new_vs_old"] for row in group), default=None),
             "mean_old_mass_above_anchor": _mean(group, "old_mass_above_anchor"),
             "mean_new_mass_above_anchor": _mean(group, "new_mass_above_anchor"),
@@ -253,7 +253,7 @@ _SUMMARY_KEYS = (
     "hour", "l1_new_vs_old", "l1_new_vs_v3_captured",
     "old_mass_above_anchor", "new_mass_above_anchor",
     "old_mass_below_anchor", "new_mass_below_anchor",
-    "floor_changed_by_v4", "floor_dropped_by_v4", "anchor_changed_by_v4",
+    "floor_changed_by_reparse", "floor_dropped_by_reparse", "anchor_changed_by_reparse",
     "carried_prior_day_rows",
 )
 
