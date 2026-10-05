@@ -104,8 +104,8 @@ workstation.
 
 - **Focused-run exemption.** pytest naming at most 25 test files, none containing a test marked `serial`, and
   not using xdist, may run without `workstation_heavy.ps1`, with an explicit `--basetemp` deleted afterwards.
-  Never while a portable live stage holds the host-global mutex. Until the `serial` marker is registered (a
-  test-suite review K follow-up), treat any file that starts PowerShell as `serial`.
+  Never while a portable live stage holds the host-global mutex. A file that starts PowerShell counts as
+  `serial` even without the marker (see *Exemption* below).
 - **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
   -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only

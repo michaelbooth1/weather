@@ -8,8 +8,8 @@ prompt, usually as "read handoff X and do it".
 
 You are Claude Code on the owner's **32 GB workstation**, not the 16 GB production capture host. The
 capture-host rules in `CLAUDE.md` and `AGENTS.md` (time windows, the bounded suite, the shared lease) do not
-bind you. Focused pytest of at most 25 files with no `serial`-marked test (until that marker exists: no file
-that starts PowerShell) runs directly, with an explicit `--basetemp` deleted afterwards. Full suites, larger
+bind you. Focused pytest of at most 25 files with no `serial`-marked test (a file that starts PowerShell
+counts as `serial`) runs directly, with an explicit `--basetemp` deleted afterwards. Full suites, larger
 selections, xdist, compileall, training and replay go through `scripts\ops\workstation_heavy.ps1 -Queue`,
 which waits its turn first-in first-out (default limit 4 h; exit 75 on timeout) instead of refusing
 ([host load policy](HOST_LOAD_POLICY.md), owner decision 2026-10-04). Other Claude sessions may be running
