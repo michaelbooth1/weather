@@ -25,6 +25,18 @@ missions in parallel in this same clone.
 4. Create your **own** worktree (set `GIT_LFS_SKIP_SMUDGE=1`) on the branch the handoff names. Never work in
    another session's worktree or push to another session's branch.
 
+## Scratch space
+
+- Put every worktree and temp directory of the session under `C:\wt\<session-name>\` (for example
+  `C:\wt\<session-name>\wt` for the worktree and `C:\wt\<session-name>t` as pytest `--basetemp`). Never
+  use `C:	mp`: the owner cleared it on 2026-10-04 without knowing it held other sessions' worktrees.
+- Never delete, move or lock anything outside your own session folder. Space is freed from a list the owner
+  approves: `scripts\ops\workstation_space_report.ps1 -JsonPath <json>` (read-only; a SAFE, IN USE or
+  CHECK verdict per worktree and scratch folder) then `scripts\ops\workstation_space_clean.ps1 -FromReport
+  <json>`, which lists by default and removes only still-SAFE items with `-Apply`. The scratch roots it
+  reports are `C:\wt`, `C:\pt`, `C:\swarm`, `C:	mp`, `C:t` and the Claude Code scratchpad root
+  `%TEMP%\claude`; older sessions used the others.
+
 ## Boundaries
 
 - Fixtures only: no production data, credentials, `.env` files, Scheduler changes or venue calls. Nothing
@@ -38,6 +50,9 @@ missions in parallel in this same clone.
   green. Fix the real cause of a failure, never by weakening a test.
 
 ## Finishing
+
+At END SESSION remove your own worktree (`git worktree remove`, after the branch is pushed) and your temp
+directories, then say in the handback which paths you removed and anything you deliberately left.
 
 Write the report the handoff names (verdict first, per [delegation contract](DELEGATION_CONTRACT.md) §5),
 push it with the branch, then reply with: the report path, the PR link(s), the head SHA(s) and the CI

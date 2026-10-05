@@ -266,5 +266,26 @@ def payload_datetime(value):
     return datetime.fromisoformat(value)
 
 
+def test_cdf_probability_clamps_below_and_above_and_sorts_percentiles():
+    """Below p10 the CDF is 0.10, above p90 it is 0.90, and key order never matters (review K, A07)."""
+    from weather.sources.nbm_probabilistic_tmax import cdf_probability_from_percentiles
+
+    percentiles = {"10": 75.0, "50": 77.0, "90": 79.0}
+    assert cdf_probability_from_percentiles(percentiles, 70.0) == 0.10
+    assert cdf_probability_from_percentiles(percentiles, 80.0) == 0.90
+    unordered = {"90": 79.0, "10": 75.0, "50": 77.0}
+    assert abs(cdf_probability_from_percentiles(unordered, 76.0) - 0.30) < 1e-12
+
+
+def test_slot_index_for_target_skips_a_missing_forecast_hour():
+    """A slot with no max forecast hour is skipped, not treated as the end of the search (review K, A07)."""
+    from datetime import datetime, timezone
+
+    from weather.sources.nbm_probabilistic_tmax import _slot_index_for_target
+
+    issue = datetime(2026, 5, 30, 0, tzinfo=timezone.utc)
+    assert _slot_index_for_target([(None, None), (30.0, None)], issue, date(2026, 5, 30)) == 1
+
+
 if __name__ == "__main__":
     unittest.main()
