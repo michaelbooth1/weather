@@ -84,8 +84,11 @@ jobs:
           pip install -r requirements.txt
           pip install -e ".[test]"
 
+      # The memory-flatness tests run in the parallel `memory-flatness` job
+      # instead; tests/operations/test_ci_job_partition.py proves the two
+      # selections partition the suite (no test dropped, none run twice).
       - name: Run Test Suite
-        run: python -m pytest -q --junitxml=${{ runner.temp }}/linux-junit.xml
+        run: python -m pytest -q -m "not memory_flatness" --junitxml=$RUNNER_TEMP/linux-junit.xml
 
       # Per-test timings for suite review and shard balancing (same artifact
       # contract as PR #197). Uploaded even when tests fail.
@@ -94,6 +97,43 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-junit-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/linux-junit.xml
+          if-no-files-found: error
+          retention-days: 30
+
+  # The slow 5-to-50-run tracemalloc flatness tests (~45% of the suite's
+  # Linux time) run beside the `test` job on the same Python and dependencies.
+  memory-flatness:
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # LFS stays off for the same reason as the `test` job.
+          fetch-depth: 0
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".[test]"
+
+      - name: Run Memory-Flatness Tests
+        run: python -m pytest -q -m memory_flatness --junitxml=$RUNNER_TEMP/linux-junit.xml
+
+      - name: Upload JUnit Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-junit-memory-flatness-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/linux-junit.xml
           if-no-files-found: error
           retention-days: 30

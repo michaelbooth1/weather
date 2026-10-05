@@ -40,7 +40,7 @@ package contract, and `requires-python` is `>=3.11`.
 
 - The `CI` workflow runs on **pull requests and on pushes to `master` only**. A push to any other branch runs
   nothing. A branch has no CI evidence until a pull request exists for it.
-- One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
+- Ubuntu, Python 3.11, 30-minute job timeout, Git LFS disabled on purpose (tests stub model artifacts).
   Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
 - Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
   **CI never executes them**. Their static and portable contracts run on Ubuntu; executable Windows coverage
@@ -49,8 +49,12 @@ package contract, and `requires-python` is `>=3.11`.
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
-  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
-  job `needs` it, so a ratchet failure stops the run before the long suite.
+  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The Linux `test` and
+  `memory-flatness` jobs both `need` it, so a ratchet failure stops the run before the long suite, and then run in
+  parallel on the same Python and dependencies: `test` runs `pytest -m "not memory_flatness"` and
+  `memory-flatness` runs `pytest -m memory_flatness` (the slow 5-to-50-run tracemalloc flatness tests). Each
+  uploads a `linux-junit-*` artifact. `tests/operations/test_ci_job_partition.py` proves the selections partition
+  the suite, so a new marker split must keep that test green. Locally, plain `pytest -q` still runs everything.
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
