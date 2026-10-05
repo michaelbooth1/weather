@@ -1,0 +1,52 @@
+{
+ "book_records": 11148,
+ "book_rows_per_minute": 1,
+ "engine": {
+  "decision_sha256": "4a36068708e94eaa63876d6ce1a2dfd1b64b0e5c67bd80e0ee71013a12c07a4f",
+  "decisions": 25289,
+  "exclusions": {},
+  "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fill_bound": "strictly_through",
+  "fills": 0,
+  "final_cash": "100.000000",
+  "instants": 24407,
+  "intervals": 20317,
+  "policy": "informed-v0",
+  "stale_timers": 17699,
+  "timer_pops": 51833,
+  "wakes": 25329
+ },
+ "fixture": {
+  "coverage_groups": 6,
+  "events": 12,
+  "instantaneous_max": 31,
+  "instantaneous_mean": 30.99,
+  "instantaneous_min": 28,
+  "local_midnight_utc": {
+   "city00": "2026-09-27T04:00:00+00:00",
+   "city01": "2026-09-27T05:00:00+00:00",
+   "city02": "2026-09-27T06:00:00+00:00"
+  },
+  "t1_t2_share": 0.6572,
+  "union": 40
+ },
+ "fixture_build_seconds": 2.5,
+ "measurement": "S3",
+ "microseconds_per_wake": 79.4,
+ "minutes": 360,
+ "pass_seconds": [
+  2.089,
+  2.044,
+  2.01
+ ],
+ "pass_seconds_min": 2.01,
+ "process_peak_working_set_bytes": 301707264,
+ "process_working_set_bytes": 293490688,
+ "records": 27190,
+ "status": "MEASURED",
+ "traced_peak_bytes_per_pass": 3780456,
+ "trades": 2000,
+ "union": 40,
+ "view_cadence": "registered",
+ "wakes_per_band_minute": 2.27
+}

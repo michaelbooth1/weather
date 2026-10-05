@@ -1,0 +1,61 @@
+{
+ "book_records": 137976,
+ "book_rows_per_minute": 3,
+ "engine": {
+  "decision_sha256": "578c4842c4ba1d3d225b1bbd1adbce9f440462a732c98b3066c7bec5e1c2067d",
+  "decisions": 99848,
+  "exclusions": {},
+  "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fill_bound": "strictly_through",
+  "fills": 0,
+  "final_cash": "100.000000",
+  "instants": 96170,
+  "intervals": 76866,
+  "policy": "informed-v0",
+  "stale_timers": 250603,
+  "timer_pops": 536912,
+  "wakes": 100018
+ },
+ "fixture": {
+  "coverage_groups": 16,
+  "events": 48,
+  "instantaneous_max": 129,
+  "instantaneous_mean": 127.71,
+  "instantaneous_min": 121,
+  "local_midnight_utc": {
+   "city00": "2026-09-27T04:00:00+00:00",
+   "city01": "2026-09-27T05:00:00+00:00",
+   "city02": "2026-09-27T06:00:00+00:00",
+   "city03": "2026-09-27T07:00:00+00:00",
+   "city04": "2026-09-27T04:00:00+00:00",
+   "city05": "2026-09-27T03:00:00+00:00",
+   "city06": "2026-09-27T23:00:00+00:00",
+   "city07": "2026-09-27T22:00:00+00:00",
+   "city08": "2026-09-27T15:00:00+00:00",
+   "city09": "2026-09-27T15:00:00+00:00",
+   "city10": "2026-09-27T16:00:00+00:00",
+   "city11": "2026-09-27T18:30:00+00:00"
+  },
+  "t1_t2_share": 0.6811,
+  "union": 170
+ },
+ "fixture_build_seconds": 32.9,
+ "measurement": "S3",
+ "microseconds_per_wake": 83.5,
+ "minutes": 360,
+ "pass_seconds": [
+  8.543,
+  8.457,
+  8.352
+ ],
+ "pass_seconds_min": 8.352,
+ "process_peak_working_set_bytes": 2657914880,
+ "process_working_set_bytes": 2618281984,
+ "records": 336140,
+ "status": "MEASURED",
+ "traced_peak_bytes_per_pass": 18242072,
+ "trades": 2000,
+ "union": 170,
+ "view_cadence": "real",
+ "wakes_per_band_minute": 2.175
+}
