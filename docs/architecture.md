@@ -128,6 +128,12 @@ daily-roll liveness classification.
   source, model, label, replay, and reporting owners.
 - Intraday features align to the effective WU printed cutoff, not blindly to
   wall-clock time.
+- Station observation rows are keyed on the observation instant
+  (`metar-parser-v4` keys AWC rows on `obsTime`, never the nominal
+  `reportTime`; [durable domain context](operations/AGENT_CONTEXT.md)). Captured
+  v3 rows are not rewritten; `python -m weather.backtesting.metar_keying_replay`
+  re-derives both keyings from the retained raw payloads for closed dates up to
+  2026-09-29 and reports the per-snapshot difference. It is read-only.
 - Training extraction and live feature extraction change together. Captured
   input replay is the preferred proof against train/serve skew.
 - Snapshot, forecast, order-book, settlement, and trading tapes are local
