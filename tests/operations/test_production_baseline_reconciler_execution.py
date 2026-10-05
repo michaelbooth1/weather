@@ -13,6 +13,8 @@ from typing import Any
 
 import pytest
 
+from tests.ci_timing import ci_scaled_seconds, ci_scaled_timeout
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "quiet_window_merge.ps1"
@@ -485,6 +487,9 @@ function global:Get-ScheduledTask {
     if ($env:RECON_TEST_TASK_MODE -ceq "read_hang") {
         [Threading.Thread]::Sleep(60000)
     }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_delay_beyond_ci_budget") {
+        [Threading.Thread]::Sleep([int]$env:RECON_TEST_READ_DELAY_MS)
+    }
     if ($TaskName -ceq "WeatherExecutionTapeSupervisor") {
         return [PSCustomObject]@{
             TaskName = "WeatherExecutionTapeSupervisor"
@@ -736,17 +741,19 @@ def _adapt_script(
         + "-Algorithm SHA256).Hash.ToLowerInvariant()",
         1,
     )
+    # Shortened wall-clock RPC allowances. On hosted CI only, tests.ci_timing
+    # scales them (capped at the production value); elsewhere they are 3/10/3.
     adapted = adapted.replace(
         "-LogicalBoundary $logicalBoundary -MaximumSeconds 15",
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
+        f"-LogicalBoundary $logicalBoundary -MaximumSeconds {ci_scaled_seconds(3, cap=15)}",
     )
     adapted = adapted.replace(
         "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
+        f"-LogicalBoundary $pushContainmentDeadline -MaximumSeconds {ci_scaled_seconds(10, cap=20)}",
     )
     adapted = adapted.replace(
         "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20",
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
+        f"-LogicalBoundary $LogicalBoundary -MaximumSeconds {ci_scaled_seconds(3, cap=20)}",
     )
 
     classification_needle = (
@@ -1440,7 +1447,7 @@ def _invoke(
         cwd=harness.production,
         env=environment,
         check=False,
-        timeout=timeout,
+        timeout=ci_scaled_timeout(timeout),
     )
 
 
@@ -2045,6 +2052,38 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
             check=False,
         )
         assert probe.returncode == 0
+
+
+@WINDOWS_EXECUTION
+def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutant for tests.ci_timing: the CI scale widens the allowance, never removes it.
+
+    Builds the harness with the CI scale forced on, then makes every Scheduler
+    read take three seconds longer than the scaled read budget. The real
+    containment must still kill the read at its wall-clock deadline and refuse
+    before any mutation.
+    """
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    scaled_read = ci_scaled_seconds(3, cap=15)
+    assert scaled_read == 8
+    monkeypatch.setenv("RECON_TEST_READ_DELAY_MS", str((scaled_read + 3) * 1000))
+    harness = _build_harness(tmp_path)
+    assert (
+        f"-LogicalBoundary $logicalBoundary -MaximumSeconds {scaled_read}"
+        in harness.script.read_text(encoding="utf-8-sig")
+    )
+    before = _production_state(harness)
+
+    result = _invoke(harness, task_mode="read_delay_beyond_ci_budget", timeout=60)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert "reached its absolute UTC/wall-clock deadline" in result.stdout, diagnostic
+    _assert_no_git_config_or_scheduler_mutation(before, _production_state(harness))
+    assert _start_lines(harness) == []
 
 
 @WINDOWS_EXECUTION
