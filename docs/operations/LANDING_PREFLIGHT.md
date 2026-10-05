@@ -36,12 +36,24 @@ and the bounded suite stays the host's test gate. A PASS here grants nothing.
   Every git call carries `-c maintenance.auto=false -c gc.auto=0` and no hooks, so
   no `gc`, `prune` or `worktree prune` runs on a shared clone.
 - It never takes the capture-host lease. Focused test runs (at most 25 files, no
-  serial or PowerShell-spawning file) run directly with a `--basetemp` inside the
-  scratch; anything larger goes through the landing tree's
+  serial or PowerShell-spawning file) run directly; anything larger goes through the landing tree's
   `scripts\ops\workstation_heavy.ps1 -RepoRoot <scratch worktree> -Queue`, which
   takes the **workstation** heavy lease ([host load policy](HOST_LOAD_POLICY.md)).
   It never starts a direct full pytest. A queue timeout (wrapper exit 75) is
   NOT_RUN.
+- Every pytest run's `--basetemp` is `<SystemDrive>\lpf\<pid>\<tag>` on Windows
+  (inside the scratch elsewhere), whatever `--scratch` says, and is removed after
+  the run. A basetemp under a deep scratch pushed the reconciler execution tests'
+  temp files past MAX_PATH: 35 false failures on 2026-10-05 that pass on a short
+  path. Failure details keep the message (4,000 characters) and the untruncated
+  failing source line (`assert_line`).
+- Two Windows launcher tests are known load-sensitive
+  (`LOAD_SENSITIVE_TESTS`: the cooperative ctrl-break and caller-stdin tests).
+  When one fails only a start-up precondition (marker before the deadline,
+  debugger text, the script-started marker), it is re-run alone. It becomes
+  `WARN known_load_sensitive` only if it passes, or misses a precondition again;
+  a cooperative, forced, exit-code, cleanup-time or budget assert is FAIL and is
+  never re-run.
 - The child environment is offline and scrubbed with the bounded suite's
   sensitive-name rules (tokens, proxies, wallet and exchange names,
   `SETTLEMENT_LEDGER_ROOT`), plus `GIT_ALLOW_PROTOCOL=file`,
