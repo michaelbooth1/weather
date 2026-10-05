@@ -80,7 +80,7 @@ def test_replay_compares_old_and_new_vectors_per_snapshot(tmp_path):
     morning, evening = rows["s-morning"], rows["s-evening"]
     assert morning["l1_new_vs_old"] == 0.0
     assert morning["old_final"] == morning["new_final"]
-    assert evening["lockin_anchor"]["source"] == "guidance_physical_floor"
+    assert evening["lockin_anchor"]["source"] == "observed_station_rows"
     assert evening["lockin_anchor"]["bucket"] == 89
     assert evening["old_lockin_strength"] == 0.0
     assert evening["new_lockin_strength"] == pytest.approx(1.0)
@@ -132,3 +132,31 @@ def test_main_exits_2_on_refusal(tmp_path, capsys):
     assert code == 2
     assert "refused" in capsys.readouterr().err
     assert not (tmp_path / "x.jsonl").exists()
+
+
+def test_summary_counts_rows_with_more_mass_below_the_anchor(tmp_path):
+    root = tmp_path / "snapshots"
+    _write_folder(root, SLUG, [_record("s-evening", 23)])
+    summary = replay_cmd.run(
+        replay_cmd.select_folders([], root), tmp_path / "ok.jsonl", model_factory=_model_factory,
+    )
+    assert summary["rows_new_below_anchor_exceeds_old"] == 0
+    assert summary["floor_check"] == "PASS"
+
+    row = {"hour": 18, "l1_new_vs_old": 0.5, "l1_old_vs_recorded": None,
+           "old_mass_above_anchor": 0.8, "new_mass_above_anchor": 0.0,
+           "old_mass_below_anchor": 0.14, "new_mass_below_anchor": 0.92}
+    failing = replay_cmd.summarize([row])
+    assert failing["rows_new_below_anchor_exceeds_old"] == 1
+    assert failing["floor_check"] == "FAIL"
+
+
+def test_main_exits_3_when_the_floor_check_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(replay_cmd, "select_folders", lambda *a, **k: [])
+    monkeypatch.setattr(replay_cmd, "run", lambda *a, **k: {
+        "snapshots": 1, "blocks": [], "rows_new_below_anchor_exceeds_old": 2,
+        "floor_check": "FAIL", "old_vs_recorded_l1_max": None, "old_vs_recorded_rows": 0,
+    })
+    code = replay_cmd.main(["--snapshots-root", str(tmp_path), "--out", str(tmp_path / "y.jsonl")])
+    assert code == replay_cmd.FLOOR_CHECK_FAILED_EXIT
+    assert "floor check FAILED" in capsys.readouterr().err

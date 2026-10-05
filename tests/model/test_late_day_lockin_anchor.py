@@ -3,15 +3,20 @@
 Since paid WU access was disabled the printed WU history is empty, so every
 late-day lock-in stage read a missing high and served strength 0 (the
 2026-10-04 model-parity swarm, PR #187 ``d-defect-evening-stage.md``). The
-restoration re-anchors S1-S6 on ``max(history_max, guidance_physical_floor)``
-and the S7 calibration taper follows through the same strength.
+restoration re-anchors S1-S6 on the observed same-day station high (METAR
+keyed by observation time, so a D-1 report carried in by AWC's nominal
+``reportTime`` is excluded) and the S7 calibration taper follows through the
+same strength. Once a late-day stage acts, no mass stays below the observed
+anchor bucket (lockin-anchor-v3, after production's v2 replay found 679 rows
+whose new vector held more mass below a prior-day-carried anchor than old).
 
-Inputs are built with the production writers: METAR rows through
+Inputs are built with the production writers: AWC JSON items through
 ``parse_metar_payload`` (the AviationWeather parser ``fetch_metar`` uses),
 station rows through ``station_observation_data`` and the floor through
 ``guidance_physical_floor``.
 """
-from datetime import datetime, timezone
+import random
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -48,25 +53,42 @@ def _model(market_id="atlanta", target_date=ATL_DATE):
     return model
 
 
-def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL"):
-    """A captured ``metar`` source item exactly as ``fetch_metar`` shapes it."""
+def awc_metar_item(observed_local, temp_c, icao):
+    """One AviationWeather JSON item as AWC serves it: ``obsTime`` is the
+    observation epoch, ``reportTime`` the NOMINAL hour (a :5x routine report
+    is stamped with the next hour), ``rawOb`` carries the DDHHMMZ group."""
+    observed_utc = observed_local.astimezone(timezone.utc)
+    nominal = observed_utc.replace(minute=0, second=0, microsecond=0)
+    if observed_utc.minute >= 45:
+        nominal += timedelta(hours=1)
+    return {
+        "icaoId": icao,
+        "obsTime": int(observed_utc.timestamp()),
+        "reportTime": nominal.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "temp": temp_c,
+        "rawOb": f"{icao} {observed_utc:%d%H%M}Z AUTO 00000KT 10SM CLR {temp_c:02.0f}/15 A3000",
+    }
+
+
+def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL", carried=()):
+    """A captured ``metar`` source item exactly as ``fetch_metar`` shapes it.
+
+    ``carried`` adds reports observed before the target day (local datetimes)
+    that AWC's nominal ``reportTime`` keys into it (capture defect M0)."""
     year, month, dom = (int(part) for part in day.split("-"))
-    payload = []
+    payload = [awc_metar_item(observed, temp_c, icao) for observed, temp_c in carried]
     for hour, temp_c in readings:
         if hour > until_hour:
             continue
         local = datetime(year, month, dom, hour, 52, tzinfo=model.spec.tz)
-        payload.append({
-            "reportTime": local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "temp": temp_c,
-            "icaoId": icao,
-        })
+        payload.append(awc_metar_item(local, temp_c, icao))
     rows = model.parse_metar_payload(payload)
     latest = rows[-1]
     same_day_max = max(row["temp_native"] for row in rows)
     max_since_7am = model.station_max_since_7am_from_rows(rows)
     data = {
         "station_id": icao,
+        "raw_payload": payload,
         "rows": rows,
         "latest": latest,
         "report_time": latest.get("report_time"),
@@ -140,12 +162,15 @@ def _above(distribution, bucket):
     return sum(p for b, p in distribution.items() if int(b) > bucket)
 
 
-def _estimate(model, sources, now, *, feature_vector, legacy):
+def _estimate(model, sources, now, *, feature_vector, legacy, continuation=None):
     model.calibrated_weights = None
     model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
         dict(feature_vector), "hgb",
     )
-    model.predict_late_day_continuation = lambda sources, cutoff_hour, now: None
+    model.predict_late_day_continuation = lambda sources, cutoff_hour, now: (
+        None if continuation is None
+        else {"active": True, "continuation_probability": continuation}
+    )
     model.late_day_lockin_legacy_wu_anchor = legacy
     return model.estimate_distribution_result(sources, now=now)
 
@@ -159,7 +184,7 @@ def test_atlanta_evening_vector_moves_mass_off_bands_above_the_high():
     *_, floor, anchor = _stage_inputs(model, sources, now)
 
     assert floor == pytest.approx(89.06)
-    assert anchor["source"] == "guidance_physical_floor"
+    assert anchor["source"] == "observed_station_rows"
     assert anchor["bucket"] == 89
     assert anchor["first_reached_time"] == "15:52"
     assert anchor["version"] == LATE_DAY_LOCKIN_ANCHOR_VERSION
@@ -177,7 +202,7 @@ def test_atlanta_evening_vector_moves_mass_off_bands_above_the_high():
     scores, strength, context = _run_stage(model, ATL_EVENING_VECTOR, sources, now)
     assert strength == pytest.approx(1.0)
     assert context["stage_attribution"]["final_stage"] == "hard_lockin"
-    assert context["lockin_anchor"]["source"] == "guidance_physical_floor"
+    assert context["lockin_anchor"]["source"] == "observed_station_rows"
     after_above = _above(scores, 89)
     assert after_above < before_above / 5
     assert sum(scores.values()) == pytest.approx(1.0)
@@ -263,18 +288,18 @@ def test_lockin_acts_only_above_floor_bucket_and_never_weakens_the_floor():
     assert anchor["bucket"] == floor_bucket == 89
 
     scores = {85: 0.0, 86: 0.0, 87: 0.05, 88: 0.25, 89: 0.35, 90: 0.20, 91: 0.10, 92: 0.05}
-    out, strength, _ = _run_stage(model, scores, sources, now)
+    out, strength, context = _run_stage(model, scores, sources, now)
     assert strength > 0.9
+    assert context["lockin_anchor"]["observed_floor_bucket"] == floor_bucket
     for bucket, probability in scores.items():
-        if bucket <= floor_bucket:
-            # At or below B nothing is reduced and relative shape is kept.
-            assert out[bucket] >= probability
-            if probability == 0.0:
-                assert out[bucket] == 0.0  # no mass created below the floor
+        if bucket < floor_bucket:
+            # v3: an acting late-day stage leaves no mass below the observed floor.
+            assert out[bucket] == 0.0
+        elif bucket == floor_bucket:
+            assert out[bucket] >= probability + scores[87] + scores[88]
         else:
             assert out[bucket] < probability
-    assert out[87] / out[88] == pytest.approx(scores[87] / scores[88])
-    assert out[88] / out[89] == pytest.approx(scores[88] / scores[89])
+    assert sum(out.values()) == pytest.approx(1.0)
 
 
 def test_end_to_end_floor_mass_below_hard_floor_stays_zero():
@@ -356,3 +381,111 @@ def test_wu_history_present_keeps_the_wu_anchor(metar_peak_c):
     legacy = _estimate(model, sources, now, feature_vector=vector, legacy=True)
     restored = _estimate(model, sources, now, feature_vector=vector, legacy=False)
     assert restored.distribution == legacy.distribution
+
+
+# --- production v2 replay failure: austin 2026-08-25 18:07 (M0 carry) -------
+
+AUS_DATE = "2026-08-25"
+# The day's own reports peak at 27.8 C (82.04 F); the D-1 23:53 report at
+# 28.9 C (84.02 F) is stamped reportTime 00:00 D by AWC and parsed into D.
+AUS_METAR_C = ((7, 24.0), (9, 25.6), (11, 26.7), (13, 27.2), (14, 27.8),
+               (15, 27.8), (16, 27.2), (17, 26.7))
+# v2 replay snapshot 20260825T190722129454-0400: the old (served) final vector.
+AUS_OLD_FINAL = {
+    79: .005, 80: .029, 81: .042, 82: .042, 83: .021, 85: .054, 86: .046, 87: .039,
+    88: .124, 89: .078, 90: .112, 91: .021, 92: .026, 93: .034, 94: .028, 95: .026,
+    96: .023, 97: .022, 98: .030, 99: .086, 100: .019, 101: .025, 102: .038,
+    104: .009, 105: .006, 106: .008,
+}
+
+
+def _austin():
+    model = _model(market_id="austin", target_date=AUS_DATE)
+    carried = datetime(2026, 8, 24, 23, 53, tzinfo=model.spec.tz)
+    now = datetime(2026, 8, 25, 18, 7, 22, tzinfo=model.spec.tz)
+    sources = {"metar": _metar_source(
+        model, AUS_METAR_C, until_hour=17, day=AUS_DATE, icao="KAUS",
+        carried=((carried, 28.9),),
+    )}
+    return model, now, sources
+
+
+def _below(distribution, bucket):
+    return sum(p for b, p in distribution.items() if int(b) < bucket)
+
+
+def test_austin_prior_day_report_is_not_the_anchor_and_nothing_lands_below_it():
+    model, now, sources = _austin()
+    # (a)/(c): the guidance floor is observed-only, but the D-1 23:53 report
+    # keyed by its nominal reportTime enters D as a "00:00" row.
+    rows = model.source_data(sources, "metar")["rows"]
+    assert rows[0]["time"] == "00:00" and rows[0]["temp_native"] == pytest.approx(84.02)
+    assert model.guidance_physical_floor(sources=sources) == pytest.approx(84.02)
+
+    *_, anchor = _stage_inputs(model, sources, now)
+    assert anchor["source"] == "observed_station_rows"
+    assert anchor["excluded_prior_day_rows"] == 1
+    assert anchor["high"] == pytest.approx(82.04)
+    assert anchor["bucket"] == 82
+    assert anchor["first_reached_time"] == "14:52"
+    assert anchor["guidance_physical_floor"] == pytest.approx(84.02)
+
+    out, strength, context = _run_stage(model, AUS_OLD_FINAL, sources, now)
+    assert strength > 0.0
+    assert context["lockin_anchor"]["observed_floor_bucket"] == 82
+    assert _below(out, 82) == 0.0
+    assert _below(out, 82) <= _below(AUS_OLD_FINAL, 82)
+
+    legacy = _estimate(model, sources, now, feature_vector=AUS_OLD_FINAL, legacy=True)
+    restored = _estimate(model, sources, now, feature_vector=AUS_OLD_FINAL, legacy=False)
+    assert _below(restored.distribution, 82) == pytest.approx(0.0, abs=1e-12)
+    assert _below(restored.distribution, 82) <= _below(legacy.distribution, 82) + 1e-12
+    assert sum(restored.distribution.values()) == pytest.approx(1.0)
+
+
+def test_rawob_group_keys_rows_when_obstime_is_not_retained():
+    model, now, sources = _austin()
+    sources["metar"]["data"].pop("raw_payload")
+    *_, anchor = _stage_inputs(model, sources, now)
+    assert anchor["excluded_prior_day_rows"] == 1
+    assert anchor["bucket"] == 82
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_property_new_mass_below_anchor_never_exceeds_old(seed):
+    rng = random.Random(seed)
+    model = _model()
+    hour = rng.randint(13, 23)
+    now = datetime(2026, 9, 20, hour, rng.choice((5, 30, 55)), tzinfo=model.spec.tz)
+    # A third of the days peak before 07:00 (a frontal passage): there the
+    # max-since-07:00 hard floor sits below the observed anchor, so the old
+    # vector does carry mass below it.
+    front = rng.random() < 0.35
+    peak_hour = rng.randint(0, 5) if front else rng.randint(11, min(hour, 17))
+    peak = rng.uniform(26.0, 34.0)
+    readings = tuple(
+        (h, round(peak - abs(h - peak_hour) * rng.uniform(0.3, 1.2), 1))
+        for h in range(0, hour + 1)
+    )
+    carried = ()
+    if rng.random() < 0.5:
+        carried = ((datetime(2026, 9, 19, 23, 53, tzinfo=model.spec.tz),
+                    round(peak + rng.uniform(-1.0, 3.0), 1)),)
+    sources = {"metar": _metar_source(model, readings, until_hour=hour - 1 if hour > 7 else hour,
+                                      carried=carried)}
+    vector = {b: rng.random() ** 2 for b in range(70, 100) if rng.random() < 0.6}
+    continuation = rng.choice((None, rng.random()))
+
+    legacy = _estimate(model, sources, now, feature_vector=vector, legacy=True,
+                       continuation=continuation)
+    restored = _estimate(model, sources, now, feature_vector=vector, legacy=False,
+                         continuation=continuation)
+    anchor = restored.component_payload["high_has_stood_lockin"]["lockin_anchor"]
+    bucket = anchor["bucket"]
+    assert anchor["excluded_prior_day_rows"] == len(carried)
+    if bucket is None:
+        return
+    assert _below(restored.distribution, bucket) <= _below(legacy.distribution, bucket) + 1e-9
+    if anchor["observed_floor_bucket"] is not None:
+        assert _below(restored.distribution, bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(restored.distribution.values()) == pytest.approx(1.0)

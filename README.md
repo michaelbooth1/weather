@@ -431,8 +431,9 @@ Run it on the capture host only inside the admitted heavy window under the
 shared lease. It replays captured inputs through `estimate_distribution` with
 the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
 row per snapshot, holding both final vectors, to a new `--out` file outside
-`data/`, and prints a per-hour-block summary. It refuses later dates, an existing
-`--out`, and any `--out` inside `data/`:
+`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
+row's new vector holds more mass below the anchor bucket than the old one. It
+refuses later dates, an existing `--out`, and any `--out` inside `data/`:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14

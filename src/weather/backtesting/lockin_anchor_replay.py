@@ -7,7 +7,9 @@ through ``estimate_distribution`` twice with the current code and the active
 serving bundle: once with the pre-restoration WU-only anchor
 (``late_day_lockin_legacy_wu_anchor = True``) and once as served now. It writes
 one JSONL row per snapshot with both final vectors and prints a per-hour-block
-summary. It does not score against settlement or the market; that is the
+summary. The floor check counts rows whose new final vector holds more mass
+below the anchor bucket than the old one; any such row makes the command exit
+3 (``floor_check: FAIL``). It does not score against settlement or the market; that is the
 reviewer's next step on the written rows.
 
 Read-only contract:
@@ -47,6 +49,8 @@ from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
 
 LAST_REPLAYABLE_DATE = date(2026, 9, 29)
+BELOW_ANCHOR_TOLERANCE = 1e-9
+FLOOR_CHECK_FAILED_EXIT = 3
 HOUR_BLOCKS = (("00-12", 0, 12), ("13-16", 13, 16), ("17-23", 17, 23))
 
 
@@ -110,6 +114,12 @@ def _above(distribution, bucket):
     return sum(p for b, p in distribution.items() if b > bucket)
 
 
+def _below(distribution, bucket):
+    if bucket is None:
+        return None
+    return sum(p for b, p in distribution.items() if b < bucket)
+
+
 def _replay(model, record, *, legacy):
     target = record_target_date(record)
     if target is not None:
@@ -151,6 +161,8 @@ def compare_record(model, record, market_id):
         "new_lockin_strength": new_payload.get("lockin_strength"),
         "old_mass_above_anchor": _above(old, bucket),
         "new_mass_above_anchor": _above(new, bucket),
+        "old_mass_below_anchor": _below(old, bucket),
+        "new_mass_below_anchor": _below(new, bucket),
         "l1_new_vs_old": distribution_l1(new, old),
         "l1_old_vs_recorded": distribution_l1(old, recorded) if recorded else None,
         "old_final": {str(k): v for k, v in sorted(old.items())},
@@ -175,8 +187,15 @@ def summarize(rows):
             "mean_new_mass_above_anchor": mean("new_mass_above_anchor"),
         })
     fidelity = [row["l1_old_vs_recorded"] for row in rows if row["l1_old_vs_recorded"] is not None]
+    below_violations = [
+        row for row in rows
+        if row["new_mass_below_anchor"] is not None
+        and row["new_mass_below_anchor"] > row["old_mass_below_anchor"] + BELOW_ANCHOR_TOLERANCE
+    ]
     return {
         "snapshots": len(rows),
+        "rows_new_below_anchor_exceeds_old": len(below_violations),
+        "floor_check": "FAIL" if below_violations else "PASS",
         "blocks": blocks,
         "old_vs_recorded_l1_max": max(fidelity, default=None),
         "old_vs_recorded_rows": len(fidelity),
@@ -210,6 +229,7 @@ def run(folders, out_path, *, include_reconstructed=False, model_factory=None):
                 rows.append({key: row[key] for key in (
                     "hour", "l1_new_vs_old", "l1_old_vs_recorded",
                     "old_mass_above_anchor", "new_mass_above_anchor",
+                    "old_mass_below_anchor", "new_mass_below_anchor",
                 )})
     return summarize(rows)
 
@@ -248,6 +268,13 @@ def main(argv=None):
         return 2
     print(json.dumps({"folders": len(folders), "out": str(Path(args.out).resolve()), **summary},
                      indent=2, sort_keys=True))
+    if summary["rows_new_below_anchor_exceeds_old"]:
+        print(
+            "floor check FAILED: {} rows put more mass below the anchor bucket than the old "
+            "anchor did".format(summary["rows_new_below_anchor_exceeds_old"]),
+            file=sys.stderr,
+        )
+        return FLOOR_CHECK_FAILED_EXIT
     return 0
 
 
