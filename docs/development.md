@@ -211,6 +211,7 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 | Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
+| Landing preflight (`weather.operations.landing_preflight*`) | `tests/operations/test_landing_preflight.py` plus `tests/test_hygiene_ratchet.py` and the schema-registry tests (via the workstation wrapper); a `--tests none` dog-food run on a real night plan ([landing preflight](operations/LANDING_PREFLIGHT.md)) |
 | Canonical docs/agent files | `python -m weather.operations.agent_docs_audit` |
 | Roadmap item/index or generated backlog | roadmap lint plus `roadmap_backlog --fail-on-lint --check` after regeneration |
 

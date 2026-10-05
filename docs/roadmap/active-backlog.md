@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-09-29T20:57:09.446468+00:00
+Generated: 2026-10-05T18:08:36.514067+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 327 |
-| Active items | 11 |
+| Items | 328 |
+| Active items | 12 |
 | OPEN | 0 |
-| PARTIAL | 11 |
+| PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 27 |
-| Active, no disposition within 45 days of 2026-09-29 | 3 |
-| ROADMAP rows | 327 |
-| ROADMAP primary rows | 327 |
-| Metadata manifest rows | 327 |
+| Active, no disposition within 45 days of 2026-10-06 | 5 |
+| ROADMAP rows | 328 |
+| ROADMAP primary rows | 328 |
+| Metadata manifest rows | 328 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -39,6 +39,7 @@ Status: `OK`
 | 331 | PARTIAL | 2026-09-12 | LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
 | 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
+| 336 | PARTIAL | 2026-10-06 | WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
@@ -47,8 +48,10 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 
 | Item | Status | Date | Days | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 224 | PARTIAL | 2026-07-11 | 80 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
-| 323 | PARTIAL | 2026-07-15 | 76 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 224 | PARTIAL | 2026-07-11 | 87 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 309 | PARTIAL | 2026-08-19 | 48 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 323 | PARTIAL | 2026-07-15 | 83 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 326 | PARTIAL | 2026-08-15 | 52 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Dormant Items

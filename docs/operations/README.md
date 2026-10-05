@@ -70,6 +70,7 @@ For the independent public maker collector, its task and retention, read
 | --- | --- |
 | [OPERATIONS_DESIGN.md](OPERATIONS_DESIGN.md) | Touching capture supervision, status files, the dashboard, or restart guidance. |
 | [INTEGRATION_ATTEMPT_RUNBOOK.md](INTEGRATION_ATTEMPT_RUNBOOK.md) | Landing a reviewed branch on production: exact-tip preflight, full suite, quiet merge, failure closure, bounded repair. |
+| [LANDING_PREFLIGHT.md](LANDING_PREFLIGHT.md) | On a workstation, before handing production a head: the non-binding check of the head on the night's cumulative merge (never on the capture host). |
 | [Capture-day grading and guarded-merge runbook](../ops/streak-soak.md) | Checking capture-day health, `status.ps1` / `streak.ps1`, the watchdog, boot recovery, `quiet_window_merge.ps1`. The streak it measures is a diagnostic, not an objective. |
 | [NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md) | Candidate-only retraining or immutable inactive-release construction. |
 | [EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Publishing, reviewing, accepting or drift-checking exchange rules. |

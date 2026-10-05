@@ -375,12 +375,29 @@ def _slot_label(slot: dict[str, Any]) -> str:
     return str(slot.get("head") or slot.get("sha"))
 
 
+# Night-plan slot kinds that never land a head (the calendar's 91a nightly, replay,
+# unbooked retry).  A ``docs_light`` slot without ``prs`` is the docs transaction
+# window; a ``docs_light`` slot naming a PR lands that PR and needs a ``sha``.
+NON_LANDING_SLOT_KINDS = frozenset({"91a", "replay", "retry_unbooked"})
+
+
+def _non_landing_slot(slot: dict[str, Any]) -> bool:
+    kind = slot.get("kind")
+    if kind in NON_LANDING_SLOT_KINDS:
+        return True
+    if kind == "docs_light" and not slot.get("prs"):
+        return True
+    return not (slot.get("head") or slot.get("prs"))
+
+
 def landing_slots(plan: dict[str, Any]) -> list[dict[str, Any]]:
     """Slots that land a head: those carrying a 40-hex ``sha``, in plan order.
 
-    A slot without ``sha`` is a non-landing slot (replay, docs window) only when it
-    names no head.  A slot carrying ``head`` or ``prs`` but no ``sha``, or a slot that
-    is not an object, is malformed and refused (Defender C9), never silently dropped.
+    A slot without ``sha`` is a non-landing slot when it names no head, or when its
+    ``kind`` never lands a head (``NON_LANDING_SLOT_KINDS``, or ``docs_light`` without
+    ``prs``): the calendar's plans label those slots with a descriptive ``head``.  Any
+    other slot carrying ``head`` or ``prs`` but no ``sha``, or a slot that is not an
+    object, is malformed and refused (Defender C9), never silently dropped.
     """
 
     slots = plan.get("slots")
@@ -391,7 +408,7 @@ def landing_slots(plan: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(slot, dict):
             raise ValueError(f"night plan slot {index} is not an object: {slot!r}")
         if slot.get("sha") in (None, ""):
-            if slot.get("head") or slot.get("prs"):
+            if not _non_landing_slot(slot):
                 raise ValueError(f"night plan slot {index} names a head ({_slot_label(slot)}) but carries no sha")
             continue
         sha = str(slot["sha"]).lower()

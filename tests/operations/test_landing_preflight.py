@@ -386,9 +386,17 @@ def test_plan_hash_is_canonical_json_without_its_own_key():
     with pytest.raises(ValueError):
         lp.landing_slots({"slots": [{"sha": "abc"}]})
     # Defender C9: a slot naming a head without a sha, or a non-object slot, is refused, never dropped
-    for bad in ({"head": "x"}, {"prs": [7]}, "a" * 40):
+    for bad in ({"head": "x"}, {"prs": [7]}, "a" * 40, {"kind": "rs_guarded_merge", "head": "b", "prs": [8]},
+                {"kind": "docs_light", "head": "b", "prs": [9]}):
         with pytest.raises(ValueError):
             lp.landing_slots({"slots": [bad]})
+    # the calendar's non-landing slots carry a descriptive head and no sha (L-P6 dog-food on the real plans)
+    real = [{"kind": "91a", "head": "91a cold-snapshot nightly", "sha": None, "prs": []},
+            {"kind": "replay", "head": "#224 acceptance replay", "sha": None, "prs": [224]},
+            {"kind": "retry_unbooked", "head": None, "sha": None, "prs": []},
+            {"kind": "docs_light", "head": "docs closeout (documentation transaction)", "sha": None, "prs": []},
+            {"kind": "rf_guarded_merge", "head": "b", "sha": "D" * 40, "prs": [10]}]
+    assert [s["sha"] for s in lp.landing_slots({"slots": real})] == ["d" * 40]
 
 
 # --------------------------------------------------------------------------- exit 5 SUPERSEDED and containment (R-1)
