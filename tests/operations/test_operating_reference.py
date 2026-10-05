@@ -8,6 +8,8 @@ import pytest
 
 from weather.operations import operating_reference
 
+pytestmark = pytest.mark.ratchet
+
 
 def test_every_listed_constant_resolves_to_a_live_value():
     """The whole point: a renamed or deleted constant must fail loudly, not print stale."""
