@@ -102,4 +102,3 @@ the same mechanism. Splitting it out is a statistics or deep-dive question; this
 All numbers are development reads on a previously inspected from stratum.
 
 Note: a tool guard blocked writing report.md and the repo copy refute-pit-t5.md; this text is the full report.
-

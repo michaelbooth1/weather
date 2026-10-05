@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from weather.reporting.market.trading_evidence import (
-    _maker_countability_gate,
     build_trading_evidence_summary,
+    maker_countability_gate,
     write_outputs,
 )
 
@@ -1093,11 +1093,11 @@ MAKER_COUNTABILITY_GATE_TABLE = [
     [pytest.param(row, status, id=name) for name, row, status in MAKER_COUNTABILITY_GATE_TABLE],
 )
 def test_maker_countability_gate_status_table(market_making, status):
-    assert _maker_countability_gate(market_making)["status"] == status
+    assert maker_countability_gate(market_making)["status"] == status
 
 
 def test_maker_countability_gate_reports_the_first_blocker():
-    gate = _maker_countability_gate(
+    gate = maker_countability_gate(
         {"countability_status": "NON_COUNTABLE", "countability_blockers": ["first", "second"]}
     )
     assert gate["status"] == "BLOCK"

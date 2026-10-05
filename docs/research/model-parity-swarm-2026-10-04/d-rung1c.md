@@ -216,4 +216,3 @@ mass below B:
   - snapb_*.npy
   - run.log and attr.log
   - result.json
-

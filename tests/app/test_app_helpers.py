@@ -2,6 +2,9 @@
 
 Covers the Arrow-safe table normaliser, the Control Room timestamp label and the router's query-parameter
 normalisation. The router is driven through AppTest from a path anchored on this file, not the CWD.
+
+Guards: app UI contracts (app/AGENTS.md) - Control Room times are UTC labels (a naive time is UTC, never
+  host-local), Arrow-safe tables, router query-parameter normalisation; review K role 6 mutants.
 """
 import time
 from pathlib import Path
@@ -11,7 +14,6 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.table_utils import arrow_safe_dataframe
-from app.views.control_room import _timestamp
 
 
 ROUTER = Path(__file__).resolve().parents[2] / "app" / "streamlit_app.py"
@@ -40,12 +42,40 @@ def non_utc_local_zone(monkeypatch):
     time.tzset()
 
 
+def _control_room_page():
+    # Runs as an AppTest script: imports stay inside. Every timestamp the page labels is set here.
+    from unittest import mock as page_mock
+
+    from app.views import control_room
+
+    control = {
+        "run": {"available": True, "path": "run", "recorded_at": None, "payload": {}},
+        "readiness": {
+            "available": True,
+            "path": "readiness.json",
+            "recorded_at": "2026-08-15T14:05:00",
+            "payload": {"generated_at_utc": "2026-08-15T14:05:00+02:00"},
+        },
+        "platform_verification": {"available": True, "path": "pv.json", "recorded_at": "", "payload": {}},
+    }
+    with page_mock.patch.object(control_room, "_load_control_room_snapshot", return_value=(control, {})):
+        control_room.render_control_room_page()
+
+
 def test_control_room_timestamp_labels_are_utc(non_utc_local_zone):
-    assert _timestamp(None) == "not recorded"
-    assert _timestamp("") == "not recorded"
-    assert _timestamp("2026-08-15T14:05:00+02:00") == "2026-08-15 12:05 UTC"
+    app_test = AppTest.from_function(_control_room_page, default_timeout=30)
+    app_test.run()
+    assert not app_test.exception
+    tables = [frame.value.to_dict("records") for frame in app_test.dataframe]
+    generated = [row["Value"] for table in tables for row in table if row.get("Metric") == "Generated"]
+    recorded = {row["Artifact"]: row["Recorded"] for table in tables for row in table if "Artifact" in row}
+    # An offset timestamp is converted to UTC.
+    assert generated == ["2026-08-15 12:05 UTC"]
     # A naive timestamp is already UTC; it must not be shifted by the host's local zone.
-    assert _timestamp("2026-08-15T14:05:00") == "2026-08-15 14:05 UTC"
+    assert recorded["readiness"] == "2026-08-15 14:05 UTC"
+    # Missing and empty timestamps both read "not recorded".
+    assert recorded["run"] == "not recorded"
+    assert recorded["platform_verification"] == "not recorded"
 
 
 def _run_router(params):

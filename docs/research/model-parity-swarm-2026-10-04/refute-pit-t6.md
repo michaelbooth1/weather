@@ -103,4 +103,3 @@ All in C:\swarm\out\refute-pit-t6\:
 - indep_check.py/.json
 
 Note: a tool guard blocked writing report.md and the docs copy refute-pit-t6.md. This text, in result.json report_md, is the full report.
-

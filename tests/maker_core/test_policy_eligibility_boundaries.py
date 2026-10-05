@@ -3,6 +3,9 @@
 Each test pins one boundary of ``eligible`` in ``maker_core.quoting.policy`` that the existing veto table
 does not reach: the requote window's max-spread edge, the informed depth floor, the venue minimum order
 size and the touch buffer on a resting leg.
+
+Guards: maker_core resting-leg eligibility contract (docs/operations/maker-core-contracts.md, Pure decision
+  inputs) - max-spread edge, depth floor, venue min_order_size, touch buffer.
 """
 from dataclasses import replace
 from decimal import Decimal as D

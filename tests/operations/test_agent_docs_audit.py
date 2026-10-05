@@ -9,6 +9,7 @@ from weather.operations.agent_docs_audit import (
     _markdown_files,
     audit_repo,
     broken_local_links,
+    control_character_errors,
     legacy_command_matches,
     line_budget_errors,
     retired_claim_errors,
@@ -153,3 +154,36 @@ def test_state_of_play_age_is_measured_from_its_declared_date(tmp_path):
     assert "no parseable" in state_of_play_age_errors(
         root, today=dt.date(2026, 9, 19), max_age_days=3
     )[0]
+
+
+def test_control_character_check_rejects_a_backspace_and_passes_a_clean_doc(tmp_path):
+    root = tmp_path.resolve()
+    (root / "docs").mkdir()
+    corrupted = root / "docs" / "guide.md"
+    corrupted.write_text("scratch under `C:" + chr(8) + "t`\n", encoding="utf-8")
+    clean = root / "docs" / "clean.md"
+    clean.write_text("scratch under `C:" + chr(92) + "bt`\r\nline two\n", encoding="utf-8")
+
+    errors = control_character_errors(root, [corrupted, clean])
+
+    assert errors == [
+        "docs/guide.md:1: literal control character 0x08; write the intended text "
+        "(a path escape such as " + chr(92) + "t or " + chr(92) + "b)"
+    ]
+    assert control_character_errors(root, [clean]) == []
+
+
+def test_control_character_check_covers_agents_and_readme_at_any_level_only(tmp_path):
+    root = tmp_path.resolve()
+    (root / "pkg").mkdir()
+    agents = root / "pkg" / "AGENTS.md"
+    agents.write_text("rule" + chr(9) + "with a tab\n", encoding="utf-8")
+    readme = root / "README.md"
+    readme.write_text("ok\n" + chr(127) + "\n", encoding="utf-8")
+    outside = root / "pkg" / "notes.md"
+    outside.write_text("out of scope" + chr(8) + "\n", encoding="utf-8")
+
+    errors = control_character_errors(root, [agents, readme, outside])
+
+    assert [error.split(": ")[0] for error in errors] == ["pkg/AGENTS.md:1", "README.md:2"]
+    assert "0x09" in errors[0] and "0x7F" in errors[1]

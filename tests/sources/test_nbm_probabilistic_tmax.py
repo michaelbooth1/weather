@@ -278,13 +278,21 @@ def test_cdf_probability_clamps_below_and_above_and_sorts_percentiles():
 
 
 def test_slot_index_for_target_skips_a_missing_forecast_hour():
-    """A slot with no max forecast hour is skipped, not treated as the end of the search (review K, A07)."""
-    from datetime import datetime, timezone
+    """A slot with no max forecast hour is skipped, not treated as the end of the search (review K, A07).
 
-    from weather.sources.nbm_probabilistic_tmax import _slot_index_for_target
-
-    issue = datetime(2026, 5, 30, 0, tzinfo=timezone.utc)
-    assert _slot_index_for_target([(None, None), (30.0, None)], issue, date(2026, 5, 30)) == 1
+    Driven through the public parser: slot 0 has no forecast hour, so the 30 h slot (valid 05-31 06Z, the
+    05-30 maximum) must be chosen and its values read.
+    """
+    text = (
+        " KXYZ    NBM V5.0 NBP GUIDANCE    5/30/2026  0000 UTC\n"
+        "FHR         |  30  42\n"
+        "TXNP5  70  58|  73  62\n"
+    )
+    payload = parse_nbp_station_tmax(text, "KXYZ", date(2026, 5, 30))
+    assert payload["available"] is True
+    assert payload["forecast_hour"] == 30
+    assert payload["valid_time_utc"] == "2026-05-31T06:00:00+00:00"
+    assert payload["percentiles"]["50"] == 73.0
 
 
 if __name__ == "__main__":

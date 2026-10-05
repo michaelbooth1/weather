@@ -62,6 +62,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_cold_snapshot_nightly_verification.py",
             "tests/operations/test_memory_commit_guard_execution.py",
             "tests/operations/test_daily_refresh_wrapper_execution.py",
+            "tests/operations/test_guidance_all_hours_admission.py",
         ],
     ),
     "launch": (

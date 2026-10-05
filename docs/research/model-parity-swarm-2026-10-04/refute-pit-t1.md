@@ -106,4 +106,3 @@ IEM ingest lag from a primary source for the window (archive unavailable, sectio
 
 Note: `report.md` and the docs copy `refute-pit-t1.md` were not written by this agent: the harness blocked report .md
 writes from the subagent (as it did for T1). This text is `result.json["report_md"]` for the orchestrator to materialise.
-

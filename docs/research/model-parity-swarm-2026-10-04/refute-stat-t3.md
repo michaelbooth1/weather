@@ -20,4 +20,3 @@ R-STAT-T3 verdict: NOT DISQUALIFIED (development only). 17-23 is robust; 13-16 s
 - Not disqualifying: the 13-16 LEAD relies on the lax 5%-of-gap bar. It fails the -0.0133 line under every leave-one-market-out drop, and under +1 h latency it fails Bonferroni-40 and the market sign test, with LA carrying 42%.
 - Not disqualifying: the 13-16 r3 Bonferroni-40 upper bound is -0.0001, which is marginal. The multiplicity count must be redone with the final registry size.
 - Process: the harness refused to let this subagent write report.md and the docs copy refute-stat-t3.md. Neither file exists; result.json and the phase_log line exist.
-

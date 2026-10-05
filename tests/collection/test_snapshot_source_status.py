@@ -2,6 +2,9 @@
 
 These helpers label every captured source row, and the labels feed the training feature
 ``source_status_group``. The helpers read only their arguments, so the store is built without I/O.
+
+Guards: source-health labels behind the training feature source_status_group (train/serve parity, AGENTS.md) -
+  ok+stale is not fresh, 429 is rate-limited, missing fetched_at is unknown age.
 """
 from datetime import datetime, timezone
 from types import SimpleNamespace
