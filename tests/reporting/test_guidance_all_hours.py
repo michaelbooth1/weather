@@ -1,4 +1,8 @@
-"""Collect the 111h Part 2 pure-function contracts from its tool folder."""
+"""Collect the 111h Part 2 pure-function contracts from its tool folder.
+
+Guards: item 111h Part 2 pure-function contracts (guidance replacement, floor margin, exam-panel rows never
+  loaded, hour-block decision rule), collected from the tool folder into tests/.
+"""
 from tools.research.guidance_all_hours.test_guidance_all_hours import (  # noqa: F401
     test_only_nbm_values_and_flags_are_replaced,
     test_unavailable_v2_leaves_no_nbm_values_so_candidate_falls_back,

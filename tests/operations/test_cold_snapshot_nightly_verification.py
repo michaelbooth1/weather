@@ -3,6 +3,9 @@
 The production shape (as a fixture only): attempt nightly-20261004-0430019896438Z
 stopped on capture admission inside batch-0150 after compressing ordinal 002 and
 before its after-journal.
+
+Guards: 91a cold snapshot nightly -VerifyRetained contract (docs/operations/cold-snapshot-compression.md) -
+  read-only verification of an unfinished nightly batch; nightly mode accepts no verification flag.
 """
 from argparse import Namespace
 from contextlib import nullcontext
@@ -11,6 +14,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
@@ -319,6 +324,38 @@ def test_wrapper_routes_nightly_requests_through_the_attended_read_only_mode():
     assert "if ($Nightly -and ($VerifyRetained" in text  # Nightly scheduling never verifies.
     source = (repo_path() / "src/weather/operations/cold_snapshot_compression.py").read_text()
     assert "nightly.is_request(request)" in source and "nightly.read_preimage(" in source
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="runs the real wrapper")
+@pytest.mark.parametrize(
+    "forbidden",
+    [["-VerifyRetained"], ["-OwnerApprovedException", "storage-exception-2026-10-04"]],
+    ids=["verify-retained", "window-exception"],
+)
+def test_exec_nightly_wrapper_refuses_verification_before_any_side_effect(tmp_path, forbidden):
+    """Execution twin of the text assert above: the unmodified wrapper refuses -Nightly with -VerifyRetained
+    (or a window exception) before it reads the request or creates any output."""
+    production = tmp_path / "production"
+    output = tmp_path / "output"
+    result = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(repo_path() / "scripts/ops/cold_snapshot_compression_run.ps1"),
+            "-ProductionRepoRoot", str(production),
+            "-RequestPath", str(tmp_path / "request.json"),
+            "-RequestSha256", "0" * 64,
+            "-OutputRoot", str(output),
+            "-ExpectedSourceTip", "0" * 40,
+            "-Nightly", *forbidden,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode != 0
+    assert "nightly mode accepts no verification or window exception" in result.stdout + result.stderr
+    assert not output.exists() and not production.exists()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native NTFS interrupted nightly compression")
