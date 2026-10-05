@@ -33,13 +33,16 @@ from weather.operations import international_live_session_runner as runner
 # - STARTUP_ALLOWANCE: runner call to deadline; must exceed PowerShell start-up
 #   so the break lands while the script runs.
 # - TAIL: the script exits 3 on its own this long after the deadline.
-# - GRACE: the runner's cleanup grace. A forced teardown cannot report before
-#   the deadline plus GRACE; a cooperative exit must arrive within
-#   TAIL + MARGIN of the deadline, which is well inside GRACE.
+# - GRACE: the runner's cleanup grace (production reserve is 20 s). A forced
+#   teardown cannot report before the deadline plus GRACE; a cooperative exit
+#   must arrive within TAIL + MARGIN of the deadline, which leaves GAP seconds
+#   of separation below GRACE. MARGIN absorbs slow CI runners: a cooperative
+#   run on windows-latest was observed returning 4.9 s after the deadline.
 STARTUP_ALLOWANCE_SECONDS = 3.0
 TAIL_SECONDS = 0.5
-GRACE_SECONDS = 6.0
-MARGIN_SECONDS = 2.5
+GRACE_SECONDS = 12.0
+MARGIN_SECONDS = 7.5
+GAP_SECONDS = 4.0
 COOPERATIVE_EXIT_CODE = 3
 
 HELPER = r"""
@@ -134,4 +137,5 @@ def test_default_runner_shuts_down_cooperatively_with_caller_stdin_open(tmp_path
     assert outcome["forced"] is False, text
     assert outcome["exit_code"] == COOPERATIVE_EXIT_CODE, text
     cleanup_seconds = (outcome["returned_ms"] - outcome["deadline_ms"]) / 1000
-    assert cleanup_seconds < TAIL_SECONDS + MARGIN_SECONDS < GRACE_SECONDS, text
+    assert TAIL_SECONDS + MARGIN_SECONDS <= GRACE_SECONDS - GAP_SECONDS
+    assert cleanup_seconds < TAIL_SECONDS + MARGIN_SECONDS, text
