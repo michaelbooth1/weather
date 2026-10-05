@@ -102,7 +102,7 @@ def split_selection(argv: list[str]) -> tuple[str | None, list[str], list[str]]:
 
 
 def windows_shards() -> list[dict[str, object]]:
-    """The native-launch matrix: shard, select (-k), mark (-m) and files of each entry."""
+    """The native-launch matrix: shard, split_file, split_select (-k), mark (-m) and files of each entry."""
     lines = WINDOWS_WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = next(i for i, line in enumerate(lines) if line.strip() == "include:")
     shards: list[dict[str, object]] = []
@@ -115,10 +115,10 @@ def windows_shards() -> list[dict[str, object]]:
             continue
         entry = re.fullmatch(r"- shard:\s*(\S+)", stripped)
         if entry:
-            shards.append({"shard": entry.group(1), "select": "", "mark": "", "files": []})
+            shards.append({"shard": entry.group(1), "split_file": "", "split_select": "", "mark": "", "files": []})
             in_files = False
             continue
-        key = re.fullmatch(r"(select|mark|files):\s*(.*)", stripped)
+        key = re.fullmatch(r"(split_file|split_select|mark|files):\s*(.*)", stripped)
         if key and line.startswith("            ") and not line.startswith("             "):
             in_files = key.group(1) == "files"
             if not in_files:
@@ -274,7 +274,10 @@ def test_every_ratchet_executes_exactly_once_across_all_workflows() -> None:
             windows = 0
             for shard in shards:
                 if path in shard["files"] and _selects(shard["mark"], category):
-                    assert not shard["select"], f"{shard['shard']}: do not split a ratchet file with -k"
+                    # split_select (-k) narrows only split_file; a ratchet file must not be it.
+                    assert Path(path).name != shard["split_file"], (
+                        f"{shard['shard']}: do not split a ratchet file with -k"
+                    )
                     windows += 1
             assert linux + windows == 1, (
                 f"{path}::{name} ({sorted(category)}) executes {linux} time(s) on Linux and "

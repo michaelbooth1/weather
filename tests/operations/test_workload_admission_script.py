@@ -27,6 +27,103 @@ POWERSHELL = (
 HOST_GLOBAL_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
 
 
+_RECOVERY_DECISION_PREFIX = "WARNING: heavy-workload recovery decision: "
+_RECOVERY_DECISION_SCHEMA = "weather_heavy_workload_recovery_decision_v1"
+# Write-WeatherHeavyWorkloadRecoveryDecision's best-effort fallback when the
+# JSON-lines log cannot be appended. Accepted only through this exact pattern.
+_RECOVERY_LOG_FAILURE = re.compile(
+    r"WARNING: heavy-workload recovery decision could not be logged: [^{}\r\n]+"
+)
+_RECOVERY_WARNING_START = re.compile(r"(?=WARNING: heavy-workload recovery decision)")
+
+
+def _recovery_decision_outcomes(block: str) -> list[str]:
+    """Parse a warning block exactly and return its ordered recorded outcomes.
+
+    The block is the stdout lines before the payload, joined with no separator
+    because the PowerShell 5.1 host hard-wraps each record at its width, even
+    mid-token. It must be exactly a concatenation of recovery-decision records
+    (prefix plus one JSON object with the v1 schema), each optionally followed
+    by the explicit could-not-be-logged warning. Anything else is rejected: a
+    leading line, a stray line after a record, or an unrelated warning.
+    """
+    pieces = _RECOVERY_WARNING_START.split(block)
+    assert pieces[0] == "", f"output before the first recovery warning: {pieces[0]!r}"
+    outcomes: list[str] = []
+    for piece in pieces[1:]:
+        if piece.startswith(_RECOVERY_DECISION_PREFIX):
+            try:
+                record = json.loads(piece[len(_RECOVERY_DECISION_PREFIX):])
+            except json.JSONDecodeError as error:
+                raise AssertionError(f"recovery warning is not exactly one JSON record: {piece!r}") from error
+            assert isinstance(record, dict), piece
+            assert record.get("schema_version") == _RECOVERY_DECISION_SCHEMA, piece
+            assert isinstance(record.get("outcome"), str), piece
+            outcomes.append(record["outcome"])
+        else:
+            assert _RECOVERY_LOG_FAILURE.fullmatch(piece), f"unexpected warning: {piece!r}"
+            assert outcomes, "log-failure warning without a preceding decision"
+    return outcomes
+
+
+def _stdout_after_recovery_decisions(stdout: str, *outcomes: str) -> str:
+    """Return the probe payload after exactly the expected recovery warnings.
+
+    Every stale-marker decision is also emitted with Write-Warning, which a
+    redirected Windows PowerShell 5.1 -Command host writes to stdout. The lines
+    before the payload must parse as exactly those warnings (see
+    _recovery_decision_outcomes), and their ordered outcomes must equal
+    ``outcomes``, so the payload comparison stays exact.
+    """
+    lines = stdout.strip().splitlines()
+    recorded = _recovery_decision_outcomes("".join(lines[:-1]))
+    assert recorded == list(outcomes), recorded
+    return lines[-1] if lines else ""
+
+
+def test_recovery_decision_parser_accepts_only_exact_warning_records():
+    def record(outcome: str) -> str:
+        body = json.dumps(
+            {"schema_version": _RECOVERY_DECISION_SCHEMA, "outcome": outcome, "decisions": []},
+            separators=(",", ":"),
+        )
+        # Reproduce the host's hard wrap, including a mid-token break.
+        text = _RECOVERY_DECISION_PREFIX + "\n" + body
+        return text[:60] + "\n" + text[60:]
+
+    payload = '{"blocked":true,"preserved":true}'
+    owner_alive = record("refused_owner_alive")
+    assert _stdout_after_recovery_decisions(
+        owner_alive + "\n" + payload + "\n", "refused_owner_alive"
+    ) == payload
+    assert _stdout_after_recovery_decisions(payload, ) == payload
+    logged_failure = (
+        "WARNING: heavy-workload recovery decision could not be logged: "
+        "Access to the path is denied."
+    )
+    assert _stdout_after_recovery_decisions(
+        "\n".join([owner_alive, logged_failure, payload]), "refused_owner_alive"
+    ) == payload
+    clears = "\n".join([record("poison_residual_scan_clear")] * 2 + [payload])
+    assert _stdout_after_recovery_decisions(
+        clears, "poison_residual_scan_clear", "poison_residual_scan_clear"
+    ) == payload
+
+    rejected = {
+        "stray True line after a record": [owner_alive, "True", payload],
+        "contradictory recovered record": [owner_alive, record("recovered"), payload],
+        "unrelated warning": [owner_alive, "WARNING: something else", payload],
+        "stray line before the first warning": ["True", owner_alive, payload],
+        "wrong schema": [owner_alive.replace("_v1", "_v2"), payload],
+        "missing record": [payload],
+        "log failure alone": [logged_failure, payload],
+    }
+    for name, lines in rejected.items():
+        with pytest.raises(AssertionError):
+            _stdout_after_recovery_decisions("\n".join(lines), "refused_owner_alive")
+            raise RuntimeError(f"accepted: {name}")
+
+
 def _outer_job_owns_host_mutex() -> bool:
     # The capture-host bounded suite holds the host-global mutex for its whole run, exactly as
     # the workstation wrapper does, so the acquisition tests below cannot pass inside it.
@@ -1774,7 +1871,7 @@ $probe.Dispose()
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == (
+    assert _stdout_after_recovery_decisions(result.stdout, "refused_residual_processes") == (
         '{"classifier":true,"live_blocked":true,"mutex_released":true}'
     )
 
@@ -1832,7 +1929,9 @@ $preserved = Test-Path -LiteralPath $env:WEATHER_TEST_POISON_PATH
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == '{"blocked":true,"preserved":true}'
+    assert _stdout_after_recovery_decisions(result.stdout, "refused_owner_alive") == (
+        '{"blocked":true,"preserved":true}'
+    )
 
 
 @pytest.mark.skipif(
@@ -2350,7 +2449,15 @@ $cleared = -not (Test-Path -LiteralPath $env:WEATHER_TEST_POISON_PATH)
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == (
+    # Ordered and deterministic (all scans are mocked): the residual refusal,
+    # the swap scan (clear, then the reread detects the swapped marker), and the
+    # final zero scan. No `recovered` record may appear.
+    assert _stdout_after_recovery_decisions(
+        result.stdout,
+        "poison_refused_residual_processes",
+        "poison_residual_scan_clear",
+        "poison_residual_scan_clear",
+    ) == (
         '{"active_blocked":true,"active_preserved":true,'
         '"malformed_blocked":true,"same_boot_blocked":true,'
         '"residual_blocked":true,"residual_preserved":true,'
@@ -2441,7 +2548,7 @@ Write-Output 'RECOVERED'
         env=env,
     )
     assert recovered.returncode == 0, recovered.stderr
-    assert recovered.stdout.strip() == "RECOVERED"
+    assert _stdout_after_recovery_decisions(recovered.stdout, "recovered") == "RECOVERED"
     time.sleep(2.25)
     assert not survived.exists()
 

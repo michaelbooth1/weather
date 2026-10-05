@@ -13,6 +13,8 @@ from typing import Any
 
 import pytest
 
+from tests.ci_timing import ci_scaled_seconds, ci_scaled_timeout
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "quiet_window_merge.ps1"
@@ -497,9 +499,10 @@ function global:Get-ScheduledTask {
         $dispatchAt = [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
         # With the Stop-reserve clamp this helper is killed after two seconds,
         # before it can publish the synthetic late clock.  Without the clamp
-        # it survives the ordinary 15-second read allowance, advances beyond
+        # it gets its full read allowance (shortened here; see
+        # _read_hang_at_stop_reserve_ms), outlives this hang, advances beyond
         # the reserve, and consumes the remaining Stop identity budget.
-        [Threading.Thread]::Sleep(4000)
+        [Threading.Thread]::Sleep(__STOP_RESERVE_HANG_MS__)
         [IO.File]::WriteAllText(
             $env:RECON_TEST_CLOCK,
             $dispatchAt.AddMinutes(14).AddSeconds(57).ToString("o")
@@ -526,6 +529,9 @@ function global:Get-ScheduledTask {
     }
     if ($env:RECON_TEST_TASK_MODE -ceq "read_hang") {
         [Threading.Thread]::Sleep(60000)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_delay_beyond_ci_budget") {
+        [Threading.Thread]::Sleep([int]$env:RECON_TEST_READ_DELAY_MS)
     }
     if ($TaskName -ceq "WeatherExecutionTapeSupervisor") {
         return [PSCustomObject]@{
@@ -715,10 +721,42 @@ function global:Stop-ScheduledTask {
 & $env:RECON_TEST_REAL_SCHEDULER_HELPER `
     -Operation $Operation -RequestBase64 $RequestBase64 -ResultPath $ResultPath
 exit $LASTEXITCODE
-''',
+'''.replace("__STOP_RESERVE_HANG_MS__", str(_read_hang_at_stop_reserve_ms())),
         encoding="utf-8",
     )
     return wrapper
+
+
+# Production wall-clock RPC budget literal -> (shortened test budget, production cap).
+RPC_BUDGET_NEEDLES = {
+    "-LogicalBoundary $logicalBoundary -MaximumSeconds 15": (3, 15),
+    "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20": (10, 20),
+    "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20": (3, 20),
+}
+
+
+def _adapt_rpc_budgets(script: str) -> str:
+    for needle, (test_seconds, production_cap) in RPC_BUDGET_NEEDLES.items():
+        assert script.count(needle) == 1, (needle, script.count(needle))
+        prefix = needle.rsplit(" ", 1)[0]
+        script = script.replace(
+            needle, f"{prefix} {ci_scaled_seconds(test_seconds, cap=production_cap)}"
+        )
+    return script
+
+
+def _read_hang_at_stop_reserve_ms() -> int:
+    """Hang for the Stop-reserve clamp test: midway between clamp and read budget.
+
+    The clamp leaves 2 s (logical 14:20: 10 s to the Stop edge minus the 8 s
+    child reserve). Without the clamp the read gets its full wall-clock budget
+    (3 s, or the CI-scaled value). The hang sits midway, so the clamp kills the
+    read before it publishes the late clock, and a clamp-removal mutant lets it
+    publish, on and off CI (Defender C2 on #218).
+    """
+    clamp_ms = 2000
+    read_budget_ms = ci_scaled_seconds(3, cap=15) * 1000
+    return (clamp_ms + read_budget_ms) // 2
 
 
 def _adapt_script(
@@ -778,18 +816,11 @@ def _adapt_script(
         + "-Algorithm SHA256).Hash.ToLowerInvariant()",
         1,
     )
-    adapted = adapted.replace(
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 15",
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20",
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
-    )
+    # Shortened wall-clock RPC allowances. On hosted CI only, tests.ci_timing
+    # scales them (capped at the production value); elsewhere they are 3/10/3.
+    # Each production literal must occur exactly once, so a changed production
+    # budget can never pass through unshortened (Defender C1 on #218).
+    adapted = _adapt_rpc_budgets(adapted)
 
     classification_needle = (
         "$rollFree = ($rollVerdictExitCode -eq 0 -and "
@@ -1484,7 +1515,7 @@ def _invoke(
         cwd=harness.production,
         env=environment,
         check=False,
-        timeout=timeout,
+        timeout=ci_scaled_timeout(timeout),
     )
 
 
@@ -1822,7 +1853,11 @@ def test_start_identity_deadline_is_not_extended_by_marker_journaling(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, journal_delay_ms=11000, timeout=90)
+    # The journaling delay must outlast the push Start identity's wall-clock
+    # budget (10 s here, or its CI-scaled value) by one second: 11000 ms
+    # everywhere except hosted CI.
+    start_budget_ms = ci_scaled_seconds(10, cap=20) * 1000
+    result = _invoke(harness, journal_delay_ms=start_budget_ms + 1000, timeout=90)
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
@@ -1917,7 +1952,7 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
-    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _start_lines(harness) == ["WeatherOneShotPush"], diagnostic
     assert _stop_lines(harness) == ["WeatherOneShotPush"]
     assert (
         harness.production
@@ -2089,6 +2124,73 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
             check=False,
         )
         assert probe.returncode == 0
+
+
+def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defender C1 on #218: a changed production budget can never pass through."""
+    script = "\n".join(RPC_BUDGET_NEEDLES)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
+    ))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 8",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 8",
+    ))
+    for needle in RPC_BUDGET_NEEDLES:
+        changed = needle.rsplit(" ", 1)[0] + " 40"
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script.replace(needle, changed))
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script + "\n" + needle)
+
+
+def test_stop_reserve_hang_sits_between_the_clamp_and_the_read_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defender C2 on #218: the clamp-removal mutant is visible on and off CI."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 2500 < 3000
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 5000 < 8000
+
+
+@WINDOWS_EXECUTION
+def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutant for tests.ci_timing: the CI scale widens the allowance, never removes it.
+
+    Builds the harness with the CI scale forced on, then makes every Scheduler
+    read take three seconds longer than the scaled read budget. The real
+    containment must still kill the read at its wall-clock deadline and refuse
+    before any mutation.
+    """
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    scaled_read = ci_scaled_seconds(3, cap=15)
+    assert scaled_read == 8
+    monkeypatch.setenv("RECON_TEST_READ_DELAY_MS", str((scaled_read + 3) * 1000))
+    harness = _build_harness(tmp_path)
+    assert (
+        f"-LogicalBoundary $logicalBoundary -MaximumSeconds {scaled_read}"
+        in harness.script.read_text(encoding="utf-8-sig")
+    )
+    before = _production_state(harness)
+
+    result = _invoke(harness, task_mode="read_delay_beyond_ci_budget", timeout=60)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert "reached its absolute UTC/wall-clock deadline" in result.stdout, diagnostic
+    _assert_no_git_config_or_scheduler_mutation(before, _production_state(harness))
+    assert _start_lines(harness) == []
 
 
 @WINDOWS_EXECUTION

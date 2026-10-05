@@ -201,7 +201,8 @@ $expectedTestFileCount = @(
 if ($expectedTestFileCount -le 0) {
     throw "The exact suite worktree contains no pytest files to freeze."
 }
-$maxFilesPerChunk = 20
+# Owner decision 2026-10-04 (item K): the policy's hard maximum, 25 files per chunk.
+$maxFilesPerChunk = 25
 $expectedChunkCount = [int][math]::Ceiling($expectedTestFileCount / [double]$maxFilesPerChunk)
 
 if ($RepairClass -ne "initial") {
