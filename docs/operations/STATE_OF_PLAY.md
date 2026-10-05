@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-05 08:45 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batches landed `210db17a` and `728db62b`; MG-1 signed; 91a 10-04 attempt resolved; evening fix #191 v3 cleared, owner-approved, lands tonight; ~105 GiB free).**
+**Last updated: 2026-10-05 10:10 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batches landed `210db17a` and `728db62b`; MG-1 signed; 91a 10-04 attempt resolved; evening fix #191 v3 cleared, owner-approved, lands tonight; ~105 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -22,8 +22,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
   wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
-- 2026-09-30 through 2026-10-05 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm follow-ups, MG-1
-  signature, test-suite policy P1-P5, v2 rule 1, CI-only deadline scale).
+- Owner decisions 2026-09-30..10-05 are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm, MG-1, P1-P5, v2 rule 1, CI
+  deadline scale; 10-05: #191 floor rule, rule-1 readings, `_summary_status` fail-closed, #195 merge, Austin 10-03 out of v2 panel).
 - **Testing (owner 2026-10-04, PR #205):** definition of done = focused + affected tests with PR CI as full-suite evidence,
   effective once the Windows CI lane (#209) lands; until then a local full suite for Windows-executing scripts. Workstation
   focused runs (<= 25 files, no `serial`) are lease-exempt; full suites queue (`workstation_heavy.ps1 -Queue`, #213).
