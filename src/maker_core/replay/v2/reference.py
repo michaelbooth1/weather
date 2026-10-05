@@ -81,8 +81,7 @@ class ReferenceEngine(Kernel):
                 if previous.date() != at.date():
                     self.reset_day()
             self.now = at
-            repeat = self.config.repeat_book_wakes
-            before = {cid: record_signature(s, self.informed, repeat) for cid, s in self.states.items()}
+            before = {cid: record_signature(s, self.informed) for cid, s in self.states.items()}
             batch = self.records.pop(at, ())
             for item in batch:
                 if item.kind == "trade":
@@ -94,7 +93,7 @@ class ReferenceEngine(Kernel):
             for cid in sorted(self.states):
                 state = self.states[cid]
                 ok = coverage_ok(state, at)
-                wake = ok != cov[cid] or record_signature(state, self.informed, repeat) != before[cid]
+                wake = ok != cov[cid] or record_signature(state, self.informed) != before[cid]
                 cov[cid] = ok
                 if wake or at in self.deadlines(state):
                     woken.append(cid)

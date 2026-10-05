@@ -70,7 +70,7 @@ motivated by an outcome: no panel data has been read, and no economic result exi
 
 | # | Change | Class | Motivation | Effect on the estimand |
 | --- | --- | --- | --- | --- |
-| C1 | **Decision schedule:** a band is decided only at its own events (§5) | semantic | Cost: removes the band-squared term, which is what made the exam unrunnable. Defect: under the frozen loop, a band with resting `informed-v0` legs is cancelled by another band's event 10–60 s after its own book, because the 10 s freshness gate runs before the hold path. `blind_re1` returns before that gate, so the coupling penalizes only the informed policy, for reasons unrelated to information (plan B audit §A). | Same estimand; policy behaviour differs from the frozen loop, so the result is not comparable with the frozen engine's. |
+| C1 | **Decision schedule:** a band is decided only at its own events (§5) | semantic | Cost: removes the band-squared term, which is what made the exam unrunnable. Defect: under the frozen loop, a band with resting `informed-v0` legs is cancelled by another band's event 10–60 s after its own book, because the 10 s freshness gate runs before the hold path. `blind_re1` returns before that gate, so the coupling penalizes only the informed policy, for reasons unrelated to information (plan B audit §A). Live parity: the venue's book stream sends book *changes*, so a live maker re-decides a band when its book changes, not when a capture re-sends an unchanged book; waking on every re-sent book would re-create the same stale-book cancellation through the band's own re-projections (owner decision 2026-10-04, §5 rule 1). | Same estimand; policy behaviour differs from the frozen loop, so the result is not comparable with the frozen engine's. |
 | C2 | **Universe:** a band-minute is quotable only while its captured descriptor says local horizon 1 or 2 (§4) | population | Design: T+1/T+2 are "the bands the maker quotes" ([design](../operations/informed-maker-design-2026-09-25.md) build item 5 and band choice item 8); `informed-v0`'s `eligible_horizons` is already (1, 2); the hazard denominator is already T+1/T+2. Under the frozen universe the informed-minus-blind contrast on T+0 cells compared `blind_re1`'s T+0 quoting with an informed policy that refuses by construction. Cost: removes T+0 decisions. | Cells stay market × UTC date. The contrast becomes like-for-like on the bands the informed policy can quote. |
 | C3 | **Bundle format v0.2:** shared coverage groups, duplicate-elided descriptors and views, sorted streams (§6) | representation | Cost: per-condition coverage rows dominate the 1.30 GB per date and drive the 9.9 GiB export peak (exporter peak ≈ 6x output). | None, proven by an expansion-equivalence test on calibration dates (gate E3). |
 | C4 | **Per-cell aggregate report** with the full interval list in a hash-bound sidecar (§7) | representation | Cost: `excluded_intervals` made up most of the 225 MB fixture report and is read by no estimator. | None: every estimator reads cell sums. Band-day scores and excluded cells with reasons are still published. |
@@ -112,7 +112,15 @@ every record at that timestamp has been ingested. What changes is **who is decid
 
 A condition is decided at a timestamp only if one of these own events occurs:
 
-1. a book record for the condition;
+1. a book record that changes the condition's **decision-relevant book state**: every price level and size of all four
+   sides (`yes_bids`, `yes_asks`, `no_bids`, `no_asks`, as decoded: levels merged by price, zero sizes dropped, sorted)
+   and `post_only_available`. The book's `as_of_utc` is not part of that state. A book record whose state equals the
+   previous one (a re-sent unchanged book, including the exporter's re-projection of an earlier fetch) is not an own
+   event and never reaches `decide()`. It still becomes the condition's latest book, so its `as_of_utc` refreshes the
+   **freshness clock** that the book-gap timer, the 10 s submit freshness gate and the re-entry check read: a quiet but
+   healthy feed that keeps re-sending an unchanged book never looks stale, while a silent feed, or a re-projection that
+   carries the old `as_of_utc`, still goes stale on time (rule 5's book-gap timer wakes it and it is excluded). An
+   invalid book record drops the state and is a change;
 2. a change in the condition's trade-coverage state, whether by a coverage-group record or by its `valid_until` expiry.
    A refresh that leaves the state unchanged does not wake it;
 3. a terms record whose body differs from the previous one, or terms expiry (`as_of` + 1 h);
@@ -133,7 +141,10 @@ Covered, pulled and excluded time is recorded as run-length intervals per condit
 not in pops × bands. The pull endpoint's "final resting state at t, carried forward" is read from those intervals.
 
 **Cost (ESTIMATED; the gates measure it):** work per pass is O(Σ own events), which is linear in bands. At about
-3 own wakes per band-minute and ~115 T+1/T+2 bands, that is about 0.5 M decisions per pass per date.
+3 own wakes per band-minute and ~115 T+1/T+2 bands, that is about 0.5 M decisions per pass per date. Rule 1 counts
+book *changes*, not book records: the exporter re-projects every live band's latest book at each books row, and the
+number of rows grows with the band count, so waking on every record made the work per band grow with B (S3, measured
+2026-10-04: runtime(250)/runtime(40) = 11.0 under "every record", against 7.5 allowed).
 
 The bundle contract's cash-admission and inventory rules apply unchanged, and so do the fill model and settlement
 reconciliation.

@@ -64,8 +64,6 @@ class V2Config:
     max_outputs: int = MAX_OUTPUTS
     debug: bool = False
     keep: bool = False
-    # Registered rule 1 (True). False is a cost/coupling diagnostic only: see ``record_signature``.
-    repeat_book_wakes: bool = True
 
     def __post_init__(self):
         if self.policy not in POLICIES:
@@ -95,8 +93,6 @@ class CState:
     re1: object | None = None
     latest: dict = field(default_factory=dict)
     sha: dict = field(default_factory=dict)  # kind -> payload SHA-256 of the latest decoded record
-    book_captured: datetime | None = None  # capture time of the latest valid book (books are never elided)
-    book_record_at: datetime | None = None  # capture time of the latest book record, valid or not
     legs: tuple = ()
     reserve: Decimal = ZERO
     placed_at: datetime | None = None
@@ -154,17 +150,43 @@ def coverage_ok(state, at):
     return coverage is not None and coverage.trade_stream_ok and at < coverage.valid_until_utc
 
 
-def record_signature(state, informed, repeat_books=True):
+def book_state(book):
+    """The decision-relevant book state (registration draft §5 rule 1): what ``decide()`` reads of a book
+    other than its clock.
+
+    Every level of all four sides — ``yes_bids``, ``yes_asks``, ``no_bids``, ``no_asks`` — as decoded (each
+    side's levels merged by price, zero sizes dropped, bids high-to-low and asks low-to-high, exact Decimal
+    price and size), plus ``post_only_available``. ``as_of_utc`` is excluded: it is the data-freshness clock.
+    A book record whose state equals the condition's previous state is a re-send, not an own event.
+    """
+    if book is None:
+        return None
+    return (book.yes_bids, book.yes_asks, book.no_bids, book.no_asks, book.post_only_available)
+
+
+def freshness_clock(state):
+    """The clock every freshness and staleness check reads: the latest book record's ``as_of_utc``.
+
+    Every valid book record, changed or not, replaces the condition's latest book and re-arms its gap timer
+    (``as_of`` + ``max_book_gap_seconds``) without calling ``decide()``. So a quiet but healthy feed that re-sends
+    an unchanged book with a newer ``as_of`` never looks stale, and a silent feed, or a re-projection of an old
+    fetch (same ``as_of``), still goes stale on time: the gap timer wakes the band and it is excluded.
+    """
+    book = state.latest.get("book")
+    return None if book is None else book.as_of_utc
+
+
+def record_signature(state, informed):
     """Record-driven own events (§5 rules 1, 3, 4, 6), as a value compared across one instant.
 
-    Rule 1 as registered: every book record wakes its condition (``repeat_books``). The diagnostic
-    variant (off by default, never a scored setting) wakes only on a book whose payload changed, so an
-    exporter re-projection of an unchanged book is not an own event.
+    Rule 1: a change in the decision-relevant book state (``book_state``; an invalid book drops it), never a
+    re-sent unchanged book. Rule 3: a changed terms body. Rule 4 (``informed-v0`` only): a changed view or
+    event payload. Rule 6: a fill of a resting leg.
     """
     terms = state.latest.get("terms")
     body = (terms.min_size, terms.max_spread_cents, terms.rate_per_day) if terms is not None else None
-    book = state.book_record_at if repeat_books else (state.sha.get("book"), "book" in state.latest)
-    return (book, body, state.sha.get("outcome_view") if informed else None,
+    return (book_state(state.latest.get("book")), body,
+            state.sha.get("outcome_view") if informed else None,
             state.sha.get("info_event") if informed else None, state.last_fill)
 
 
@@ -336,8 +358,6 @@ class Kernel:
     def ingest(self, cid, kind, payload_sha, value, error, at):
         state = self.states[cid]
         self.before(cid)
-        if kind == "book":
-            state.book_record_at = at
         if error is not None:
             state.latest.pop(kind, None)
             state.sha.pop(kind, None)
@@ -360,7 +380,7 @@ class Kernel:
             self.deadline(cid, at, value.valid_until_utc, "coverage")
             self.coverage_touched(cid)
         elif kind == "book":
-            state.book_captured = at
+            # The freshness clock moves with every book record; whether decide() runs is rule 1's business.
             self.deadline(cid, at, value.as_of_utc + timedelta(seconds=self.config.max_book_gap_seconds), "book")
         elif kind == "outcome_view":
             if self.informed and isinstance(value, OutcomeView):
@@ -467,8 +487,8 @@ class Kernel:
             self.pull(cid, at, "DECIDED")
             return
         if state.resume_after is not None and not any(e.action_hint == "pull" and _event_active(e, at) for e in events):
-            # Payload clock of the view, never its capture time (§6); the book's capture time is kept.
-            if (state.book_captured <= state.resume_after
+            # Payload clocks only (§6): the book's freshness clock and the view's as_of, never a capture time.
+            if (freshness_clock(state) <= state.resume_after
                     or state.latest["outcome_view"].as_of_utc <= state.resume_after):
                 self.pull(cid, at, "AWAIT_FRESH_REENTRY_INPUTS")
                 return

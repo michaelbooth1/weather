@@ -166,8 +166,6 @@ def s3(args):
         engine, elapsed, _ = one_pass(False)
         timings.append(round(elapsed, 3))
     _, _, traced_peak = one_pass(True)
-    # Diagnostic only (not the registered rule): a re-projected unchanged book is not an own event.
-    variant, variant_seconds, _ = one_pass(False, replace(config, repeat_book_wakes=False))
     band_minutes = stats["instantaneous_mean"] * args.minutes
     current, peak = working_set()
     return dict(measurement="S3", status="MEASURED", union=args.union, trades=args.trades, minutes=args.minutes,
@@ -178,8 +176,7 @@ def s3(args):
                 book_rows_per_minute=max(1, -(-2 * round(stats["instantaneous_mean"]) // 100)),
                 traced_peak_bytes_per_pass=traced_peak, process_working_set_bytes=current,
                 process_peak_working_set_bytes=peak,
-                diagnostic_changed_book_wakes_only=dict(pass_seconds=round(variant_seconds, 3), engine=variant.summary(),
-                                                        wakes_per_band_minute=round(variant.wakes / band_minutes, 3)))
+                book_records=sum(1 for _, batch in batches for i in batch if i.kind == "book"))
 
 
 # -- S7 ---------------------------------------------------------------------------------------------------
@@ -227,9 +224,7 @@ def s8(args):
                 plan = run_plan([source])
                 markets = {c.condition_id: c.market_id for c in plan.days[0].conditions}
                 variants = {}
-                for name, config in (("v2", V2Config(hazard_per_minute=HAZARD)),
-                                     ("v2_changed_book_wakes_only",
-                                      V2Config(hazard_per_minute=HAZARD, repeat_book_wakes=False))):
+                for name, config in (("v2", V2Config(hazard_per_minute=HAZARD)),):
                     scorer, books = BandDayScorer("informed-v0", "strictly_through"), Books()
                     engine = EngineV2(config, plan, sink=scorer)
                     started = time.perf_counter()

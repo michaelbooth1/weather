@@ -17,6 +17,7 @@ from tools.research.maker_replay_v2.sources import ScaledDay, materialize, regro
 from .fixtures.replay_scenario import Scenario
 
 DAY = date(2026, 9, 27)
+DAY_START = __import__("datetime").datetime(2026, 9, 27, tzinfo=__import__("datetime").timezone.utc)
 POLICIES = ("informed-v0", "blind_re1", "no_quote", "clock_only")
 CONFIG = V2Config(hazard_per_minute=.001, debug=True, keep=True)
 
@@ -46,10 +47,9 @@ def test_v2_engine_equals_reference_on_typed_scenario(tmp_path, policy):
     assert v2.decision_count > 0
 
 
-@pytest.mark.parametrize("repeat_book_wakes", (True, False))
-def test_every_pass_and_clock_trial_equal_reference_on_dense_fixture(repeat_book_wakes):
+def test_every_pass_and_clock_trial_equal_reference_on_dense_fixture():
     source, _ = materialize(DenseDay(DAY, union=12, trades=20000, minutes=40))
-    result = differential(source, V2Config(hazard_per_minute=.001, repeat_book_wakes=repeat_book_wakes))
+    result = differential(source, V2Config(hazard_per_minute=.001))
     assert result["divergences"] == []
     assert result["engines_compared"] >= 9 and result["clock_trials"] >= 1
     assert result["quotes"]["strictly_through"]["informed-v0"] > 0
@@ -157,13 +157,78 @@ def test_money_not_representable_at_one_millionth_is_refused(tmp_path):
         drive([source], [engine])
 
 
-def test_registered_rule_wakes_on_every_book_record_and_the_diagnostic_only_on_changed_books():
-    assert V2Config().repeat_book_wakes is True
-    source, _ = materialize(DenseDay(DAY, union=12, trades=2000, minutes=20))
-    plan = run_plan([source])
-    registered, diagnostic = EngineV2(CONFIG, plan), EngineV2(replace(CONFIG, repeat_book_wakes=False), plan)
-    drive([source], [registered, diagnostic])
-    assert diagnostic.wakes < registered.wakes
+def _book(s, seconds, mid=D(".5"), as_of=None, depth=D(75)):
+    """A book record with an explicit freshness clock (``as_of``) and its trade coverage."""
+    from maker_core.quoting.policy import Book
+    s.add("a", "coverage", seconds, dict(trade_stream_ok=True, valid_until_utc=s.at(seconds + 60).isoformat()))
+    yb, ya = ((mid - D(".01"), depth),), ((mid + D(".01"), depth),)
+    nb, na = ((1 - mid - D(".01"), depth),), ((1 - mid + D(".01"), depth),)
+    s.add("a", "book", seconds, Book(s.at(seconds if as_of is None else as_of), yb, ya, nb, na))
+
+
+def _run(s, tmp_path):
+    source = bundle_source(s.bundle(tmp_path / "bundle"))
+    v2, ref = pair(source, CONFIG)
+    assert fingerprint(v2) == fingerprint(ref)
+    return v2
+
+
+def test_unchanged_resends_cause_no_decisions_and_keep_resting_informed_legs(tmp_path):
+    s = Scenario(markets=("a",), minutes=2)
+    _book(s, 0)
+    for seconds in (20, 40):  # exporter re-projections of the 0 s fetch: same payload, same clock
+        _book(s, seconds, as_of=0)
+    v2 = _run(s, tmp_path)
+    assert [d.decision.action for d in v2.decisions if d.at == s.at(0)] == ["QUOTE"]
+    assert not [d for d in v2.decisions if s.at(0) < d.at < s.at(60)]
+    resting = [i for i in v2.intervals if i.start < s.at(60) and i.legs]
+    assert resting and resting[0].start == s.at(0) and resting[-1].end >= s.at(60)
+
+
+def test_a_quiet_resend_keeps_the_book_fresh_without_deciding(tmp_path):
+    s = Scenario(markets=("a",), minutes=3)
+    _book(s, 0)
+    for seconds in (50, 100):  # re-fetched, levels unchanged: the freshness clock moves
+        _book(s, seconds)
+    s.view("a", 105, p=.5)  # an own event 5 s after the last re-send reads a fresh book
+    v2 = _run(s, tmp_path)
+    assert not [d for d in v2.decisions if d.at in (s.at(50), s.at(100))]
+    assert not [d for d in v2.decisions if d.decision.reasons[0] in ("CAPTURE_GAP", "BOOK_STALE_OR_FUTURE")
+                and d.at < s.at(160)]
+    at_view = [d for d in v2.decisions if d.at == s.at(105)]
+    assert at_view and at_view[0].decision.reasons[0] not in ("CAPTURE_GAP", "BOOK_STALE_OR_FUTURE")
+    assert any(d.decision.reasons == ("CAPTURE_GAP",) and d.at == s.at(160) for d in v2.decisions)
+
+
+def test_a_changed_book_wakes(tmp_path):
+    s = Scenario(markets=("a",), minutes=2)
+    _book(s, 0)
+    _book(s, 20, as_of=0)  # re-send: no wake
+    _book(s, 40, mid=D(".52"))  # changed levels: wake
+    v2 = _run(s, tmp_path)
+    assert not [d for d in v2.decisions if d.at == s.at(20)]
+    assert [d for d in v2.decisions if d.at == s.at(40)]
+
+
+def test_a_silent_feed_goes_stale_on_schedule(tmp_path):
+    s = Scenario(markets=("a",), minutes=3)
+    _book(s, 0)
+    _book(s, 30, as_of=0)  # a re-projection of the old fetch does not refresh the clock
+    v2 = _run(s, tmp_path)
+    stale = [d for d in v2.decisions if d.decision.reasons[0] == "CAPTURE_GAP"]
+    assert stale and stale[0].at == s.at(60) and stale[0].decision.action == "CANCEL"
+
+
+def test_book_state_excludes_only_the_clock():
+    from dataclasses import replace as dc_replace
+    from maker_core.quoting.policy import Book
+    from maker_core.replay.v2.kernel import book_state
+    level = ((D(".49"), D(75)),)
+    book = Book(DAY_START, level, ((D(".51"), D(75)),), level, ((D(".51"), D(75)),))
+    assert book_state(book) == book_state(dc_replace(book, as_of_utc=DAY_START + timedelta(seconds=9)))
+    assert book_state(book) != book_state(dc_replace(book, yes_bids=((D(".49"), D(76)),)))
+    assert book_state(book) != book_state(dc_replace(book, no_asks=((D(".51"), D(75)), (D(".52"), D(1)))))
+    assert book_state(book) != book_state(dc_replace(book, post_only_available=False))
 
 
 def test_config_quantizes_caps_and_refuses_inexact_caps():

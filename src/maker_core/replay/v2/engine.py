@@ -7,7 +7,8 @@ Cost is O(own events), not O(instants x bands):
   RE-1 session end), plus the fixed active-interval and clock-calendar boundaries. A popped timer is
   checked against the condition's *current* state and dropped if a newer record superseded it.
 - **Record wakes** are decided per instant by comparing a condition's record signature before and after
-  the instant (a book record, a changed terms body, a changed view or event payload, a fill), and by a
+  the instant (a changed decision-relevant book state — never an unchanged re-send, which only refreshes
+  the freshness clock — a changed terms body, a changed view or event payload, a fill), and by a
   coverage state that changed (a refresh that leaves it unchanged wakes nothing).
 - **Exact running totals.** Reserve, inventory, per-event and per-factor commitments are 1e-6 sums
   maintained on every change (``money``); a portfolio is read from them in O(factors). With
@@ -90,7 +91,7 @@ class EngineV2(Kernel):
     # -- per-instant bookkeeping --------------------------------------------------------------------------
     def before(self, cid):
         if cid not in self.pre:
-            self.pre[cid] = record_signature(self.states[cid], self.informed, self.config.repeat_book_wakes)
+            self.pre[cid] = record_signature(self.states[cid], self.informed)
             self.touched.add(cid)
 
     def coverage_touched(self, cid):
@@ -154,9 +155,8 @@ class EngineV2(Kernel):
             if ok != self.cov.get(cid, False):
                 self.cov[cid] = ok
                 woken.add(cid)
-        repeat = self.config.repeat_book_wakes
         for cid, signature in self.pre.items():
-            if cid not in woken and record_signature(self.states[cid], self.informed, repeat) != signature:
+            if cid not in woken and record_signature(self.states[cid], self.informed) != signature:
                 woken.add(cid)
         self.wakes += len(woken)
         for cid in sorted(woken):
