@@ -49,6 +49,11 @@ Every measurement reports MEASURED or ESTIMATED, a fresh process per run, and ru
 | S8 | `informed-v0` quoted fraction vs B and T under the v2 schedule and the frozen loop (cross-band coupling hypothesis) | report only; v2 fraction should not fall with B |
 | S9 | Exact arithmetic on adversarial extremes (max caps, 16 days, max sizes) | no Inexact trap; running totals equal recomputation |
 
+**Watch: S7 sidecar size.** MEASURED 2026-10-04 on one fictional full day at B = 170: sidecar 408,141,863 bytes
+(389 MiB), against the 512 MiB per-date cap (8 GiB / 16), about 76–80% used; the scored report was 1.9 MB. Trigger: if
+any measured day's sidecar reaches 85% of the cap (about 435 MiB), act before the next scaling step — compress or
+shard the sidecar, or revisit the cap as an owner decision. Report agent-report-2026-10-04-mrv2-w3-w5.
+
 ## Production measurements (calibration dates only, after W1–W6 land)
 
 These fill the registration's `[GATE: …]` cells. No panel date may be touched.
