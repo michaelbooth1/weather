@@ -28,13 +28,13 @@ missions in parallel in this same clone.
 ## Scratch space
 
 - Put every worktree and temp directory of the session under `C:\wt\<session-name>\` (for example
-  `C:\wt\<session-name>\wt` for the worktree and `C:\wt\<session-name>t` as pytest `--basetemp`). Never
-  use `C:	mp`: the owner cleared it on 2026-10-04 without knowing it held other sessions' worktrees.
+  `C:\wt\<session-name>\wt` for the worktree and `C:\wt\<session-name>\bt` as pytest `--basetemp`). Never
+  use `C:\tmp`: the owner cleared it on 2026-10-04 without knowing it held other sessions' worktrees.
 - Never delete, move or lock anything outside your own session folder. Space is freed from a list the owner
   approves: `scripts\ops\workstation_space_report.ps1 -JsonPath <json>` (read-only; a SAFE, IN USE or
   CHECK verdict per worktree and scratch folder) then `scripts\ops\workstation_space_clean.ps1 -FromReport
   <json>`, which lists by default and removes only still-SAFE items with `-Apply`. The scratch roots it
-  reports are `C:\wt`, `C:\pt`, `C:\swarm`, `C:	mp`, `C:t` and the Claude Code scratchpad root
+  reports are `C:\wt`, `C:\pt`, `C:\swarm`, `C:\tmp`, `C:\bt` and the Claude Code scratchpad root
   `%TEMP%\claude`; older sessions used the others.
 
 ## Boundaries
