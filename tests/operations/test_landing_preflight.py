@@ -512,7 +512,7 @@ def test_parse_junit_and_fallback_selection(tmp_path):
     parsed = routing.parse_junit(junit, tmp_path)
     assert parsed["tests"] == 3 and parsed["skipped"] == 1
     assert parsed["failures"] == [{"nodeid": "tests/test_a.py::test_bad", "file": "tests/test_a.py",
-                                   "kind": "failure", "message": "boom"}]
+                                   "kind": "failure", "message": "boom", "assert_line": None}]
     assert routing.parse_junit(tmp_path / "absent.xml", tmp_path)["present"] is False
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_user.py").write_text("from weather.free import MODE\n", encoding="utf-8")
@@ -1127,3 +1127,120 @@ def test_a_conflicting_merge_that_names_no_path_is_an_error(fx, monkeypatch):
     code, doc = run(fx, fx.options(head))
     assert code == lp.EXIT_ERROR and doc["checks"]["merge_chain"]["status"] == "ERROR"
     assert "named no path" in doc["checks"]["merge_chain"]["summary"]
+
+
+# --------------------------------------------------------------------------- MAX_PATH basetemp, untruncated asserts, load-sensitive isolation
+
+
+CTRL_BREAK = routing.LOAD_SENSITIVE_TESTS[0]
+STDIN_OPEN = routing.LOAD_SENSITIVE_TESTS[1]
+
+
+def _failure(nodeid: str, assert_line: str | None, message: str = "AssertionError") -> dict:
+    return {"nodeid": nodeid, "file": nodeid.split("::")[0], "kind": "failure", "message": message,
+            "assert_line": assert_line}
+
+
+def test_windows_basetemp_is_a_short_root_independent_of_the_scratch(monkeypatch, tmp_path):
+    """2026-10-05: a deep --scratch pushed reconciler temp files past MAX_PATH (35 false failures)."""
+    ctx = lp.PreflightContext(repo=tmp_path, options=None, scratch_root=tmp_path,
+                              run_dir=tmp_path / ("deep" * 30) / "run-x", runner=None, python=sys.executable)
+    monkeypatch.setattr(routing, "_is_windows", lambda: True)
+    monkeypatch.setenv("SystemDrive", "Q:")
+    assert routing.basetemp_root(ctx) == Path("Q:\\") / "lpf" / str(os.getpid())
+    monkeypatch.setattr(routing, "_is_windows", lambda: False)
+    assert routing.basetemp_root(ctx) == ctx.run_dir / "bt"
+
+
+def test_parse_junit_keeps_the_failing_assert_line_untruncated(tmp_path):
+    long_tail = "x" * 1000
+    junit = tmp_path / "j.xml"
+    junit.write_text(
+        '<testsuite><testcase classname="tests.test_a" name="test_bad" file="tests/test_a.py">'
+        f'<failure message="AssertionError: OUTCOME {long_tail}">def test_bad():\n'
+        '&gt;       assert outcome["cooperative"] is True, text\nE       AssertionError</failure>'
+        '</testcase></testsuite>', encoding="utf-8")
+    (failure,) = routing.parse_junit(junit, tmp_path)["failures"]
+    assert failure["assert_line"] == 'assert outcome["cooperative"] is True, text'
+    assert failure["message"].endswith(long_tail)
+
+
+@pytest.mark.parametrize(("line", "message", "miss"), [
+    ("assert marker_ms < deadline_ms, outcome", "AssertionError", True),
+    ('assert int(started_marker.read_text(encoding="utf-8")) < deadline_ms', "AssertionError", True),
+    ('assert int(marker.read_text(encoding="utf-8")) < outcome["deadline_ms"], text', "AssertionError", True),
+    ('assert "debug mode" in capfd.readouterr().out', "AssertionError", True),
+    ('assert "debug mode" in output, f"no debugger entry ({outcome}); output={output!r}"', "AssertionError", True),
+    ("return io.open(self, mode, buffering, encoding, errors, newline)",
+     "FileNotFoundError: [Errno 2] No such file or directory: 'C:\\b\\script-started.txt'", True),
+    ('assert outcome["cooperative"] is True, text', "AssertionError", False),
+    ("assert caught.value.forced is False", "AssertionError", False),
+    ("assert caught.value.exit_code == 3", "AssertionError", False),
+    ("assert cleanup_seconds < TAIL_SECONDS + MARGIN_SECONDS, text", "AssertionError", False),
+    ("assert elapsed < COOPERATIVE_STARTUP_ALLOWANCE_SECONDS + COOPERATIVE_GRACE_SECONDS", "AssertionError", False),
+    ("assert helper.returncode == 0, text", "AssertionError", False),
+    (None, "AssertionError", False),
+])
+def test_only_start_up_precondition_misses_are_tolerable(line, message, miss):
+    assert routing.precondition_miss(_failure(CTRL_BREAK, line, message)) is miss
+
+
+def _isolation(monkeypatch, failures, isolated):
+    calls = []
+
+    def fake_run_pytest(ctx, tag, targets, *, route, extra=None):
+        calls.append((tag, list(targets), route))
+        return isolated(targets)
+
+    monkeypatch.setattr(routing, "run_pytest", fake_run_pytest)
+    return routing.isolate_load_sensitive(None, failures), calls
+
+
+def _junit(tests, failures):
+    return {"present": True, "tests": tests, "failures": failures, "skipped": 0}
+
+
+def _result(code):
+    return lp.CommandResult(argv=["pytest"], exit_code=code, stdout="", stderr="", duration_s=1.0)
+
+
+def test_a_precondition_miss_that_passes_alone_is_tolerated_and_others_still_fail(monkeypatch):
+    other = _failure("tests/test_other.py::test_x", "assert 1 == 2")
+    miss = _failure(CTRL_BREAK, 'assert "debug mode" in capfd.readouterr().out')
+    (failing, tolerated, evidence), calls = _isolation(
+        monkeypatch, [other, miss], lambda targets: (_result(0), _junit(len(targets), []), None))
+    assert calls == [("isolated", [CTRL_BREAK], "wrapper")]
+    assert failing == [other]
+    assert [t["nodeid"] for t in tolerated] == [CTRL_BREAK] and tolerated[0]["isolated"] == "passed"
+    assert evidence["first_run_precondition_misses"] == [CTRL_BREAK]
+
+
+def test_an_outcome_assert_is_never_retried_or_tolerated(monkeypatch):
+    """Mutant guard: a real park (forced teardown) must fail even on a load-sensitive node."""
+    forced = _failure(STDIN_OPEN, 'assert outcome["forced"] is False, text')
+    (failing, tolerated, _), calls = _isolation(
+        monkeypatch, [forced], lambda targets: pytest.fail("an outcome failure must not be re-run"))
+    assert calls == [] and failing == [forced] and tolerated == []
+
+
+def test_an_isolated_rerun_that_fails_an_outcome_assert_stays_failing(monkeypatch):
+    miss = _failure(CTRL_BREAK, "assert marker_ms < deadline_ms, outcome")
+    again = _failure(CTRL_BREAK, "assert caught.value.cooperative is True")
+    (failing, tolerated, _), _calls = _isolation(
+        monkeypatch, [miss], lambda targets: (_result(1), _junit(1, [again]), None))
+    assert tolerated == [] and failing[0]["isolated"] == "failed"
+    assert failing[0]["isolated_assert_line"] == "assert caught.value.cooperative is True"
+
+
+def test_an_isolated_rerun_that_did_not_run_tolerates_nothing(monkeypatch):
+    miss = _failure(CTRL_BREAK, "assert marker_ms < deadline_ms, outcome")
+    (failing, tolerated, evidence), _calls = _isolation(
+        monkeypatch, [miss], lambda targets: (None, {"present": False}, "workstation_heavy -Queue timed out"))
+    assert failing == [miss] and tolerated == []
+    assert evidence["isolated_run"]["not_run"] == "workstation_heavy -Queue timed out"
+
+
+def test_a_non_sensitive_node_with_a_precondition_shaped_assert_is_not_tolerated(monkeypatch):
+    lookalike = _failure("tests/test_other.py::test_y", 'assert "debug mode" in out')
+    (failing, tolerated, evidence), calls = _isolation(monkeypatch, [lookalike], lambda t: pytest.fail("no re-run"))
+    assert failing == [lookalike] and tolerated == [] and evidence == {} and calls == []

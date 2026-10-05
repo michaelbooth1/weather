@@ -89,6 +89,20 @@ AFFECTED_TESTS_RELATIVE = "src/weather/operations/affected_tests.py"
 CI_WORKFLOW_RELATIVE = ".github/workflows/ci.yml"
 PYTEST_INI_RELATIVE = "pytest.ini"
 WRAPPER_CLOSURE = (WRAPPER_RELATIVE, "scripts/ops/workload_admission.ps1", "scripts/ops/windows_kill_on_close_job.ps1")
+SHORT_BASETEMP_DIR = "lpf"         # Windows basetemp root: <SystemDrive>\lpf\<pid>\<tag> (MAX_PATH)
+FAILURE_MESSAGE_LIMIT = 4000
+
+# Windows launcher tests whose start-up timing preconditions can miss on a loaded
+# host (#228/#229/#230, 2026-10-05). A failure is re-run alone; only a precondition
+# miss (marker or start-up not reached, debugger text absent) may become WARN. Any
+# outcome, cleanup-time or budget assert stays FAIL: those bound the safety property.
+LOAD_SENSITIVE_TESTS = (
+    "tests/operations/test_international_live_session_runner.py::test_default_runner_allows_cooperative_ctrl_break_cleanup",
+    "tests/operations/test_international_live_session_runner_stdin.py::test_default_runner_shuts_down_cooperatively_with_caller_stdin_open",
+)
+_PRECONDITION_ASSERT = re.compile(r"marker.*<.*deadline|[\"']debug mode[\"']\s+in\b")
+_PRECONDITION_MISSING_MARKER = re.compile(r"FileNotFoundError.*script-started")
+_OUTCOME_ASSERT = re.compile(r"cooperative|forced|exit_code|cleanup_seconds|elapsed|GRACE|TAIL|MARGIN|GAP")
 
 # Portable repository ratchets when the landing tree has no `ratchet` marker: the
 # CI audit job's list plus #204's always-run set and the hygiene ratchet.
@@ -391,15 +405,38 @@ def parse_junit(path: Path, wt: Path) -> dict[str, Any]:
         inner = cls[len(module) + 1:] if module and cls.startswith(module + ".") else ""
         nodeid = "::".join(p for p in (file, inner.replace(".", "::"), case.get("name") or "") if p)
         out["failures"].append({"nodeid": nodeid, "file": file, "kind": kind,
-                                "message": (bad.get("message") or "")[:300]})
+                                "message": (bad.get("message") or "")[:FAILURE_MESSAGE_LIMIT],
+                                "assert_line": failing_source_line(bad.text or "")})
     return out
+
+
+def failing_source_line(text: str) -> str | None:
+    """The innermost ``>`` source line of a pytest failure body: the statement that raised, untruncated."""
+
+    lines = [line[1:].strip() for line in text.splitlines() if line.startswith(">")]
+    return lines[-1] if lines else None
 
 
 # --------------------------------------------------------------------------- running
 
 
+def basetemp_root(ctx: PreflightContext) -> Path:
+    """Where pytest's ``--basetemp`` lives.
+
+    On Windows it is a short root on the system drive, not under the scratch run
+    directory: a run directory under a deep ``--scratch`` (or %TEMP%) pushed the
+    reconciler execution tests' manifest temp files past MAX_PATH ("Could not find
+    a part of the path"), 35 false failures on the 2026-10-05 N0 dog-food that pass
+    on a short basetemp.
+    """
+
+    if _is_windows():
+        return Path(os.environ.get("SystemDrive", "C:") + "\\") / SHORT_BASETEMP_DIR / str(os.getpid())
+    return ctx.run_dir / "bt"
+
+
 def _pytest_args(ctx: PreflightContext, tag: str, targets: list[str], extra: list[str]) -> tuple[list[str], Path, Path]:
-    basetemp = ctx.run_dir / "bt" / tag
+    basetemp = basetemp_root(ctx) / tag
     junit = ctx.run_dir / f"junit-{tag}.xml"
     shutil.rmtree(basetemp, ignore_errors=True)
     junit.unlink(missing_ok=True)
@@ -513,6 +550,10 @@ def run_pytest(ctx: PreflightContext, tag: str, targets: list[str], *, route: st
         return result, parse_junit(junit, wt), None
     finally:
         shutil.rmtree(basetemp, ignore_errors=True)
+        try:
+            basetemp.parent.rmdir()  # the per-process short root, once empty
+        except OSError:
+            pass
 
 
 def _outcome(result: CommandResult | None, junit: dict[str, Any], not_run: str | None) -> tuple[str, str]:
@@ -825,6 +866,52 @@ def classify_failures(ctx: PreflightContext, failures: list[dict[str, Any]], ear
     return rows
 
 
+def precondition_miss(failure: dict[str, Any]) -> bool:
+    """True only for a load-sensitive start-up precondition miss; any outcome or budget assert is not one."""
+
+    line = failure.get("assert_line") or ""
+    if _OUTCOME_ASSERT.search(line):
+        return False
+    return bool(_PRECONDITION_ASSERT.search(line)
+                or _PRECONDITION_MISSING_MARKER.search(failure.get("message") or ""))
+
+
+def isolate_load_sensitive(ctx: PreflightContext, failures: list[dict[str, Any]]) -> tuple[
+        list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Re-run failed :data:`LOAD_SENSITIVE_TESTS` alone.
+
+    Returns ``(still_failing, tolerated, evidence)``: a node that passes alone, or
+    fails alone only on a precondition miss in both runs, is tolerated (WARN); any
+    other failure, in either run, stays failing.
+    """
+
+    sensitive = [f for f in failures if f["nodeid"] in LOAD_SENSITIVE_TESTS]
+    others = [f for f in failures if f["nodeid"] not in LOAD_SENSITIVE_TESTS]
+    if not sensitive:
+        return failures, [], {}
+    hard = [f for f in sensitive if not precondition_miss(f)]
+    soft = [f for f in sensitive if precondition_miss(f)]
+    evidence: dict[str, Any] = {"first_run_precondition_misses": [f["nodeid"] for f in soft]}
+    if not soft:
+        return failures, [], evidence
+    result, junit, not_run = run_pytest(ctx, "isolated", [f["nodeid"] for f in soft], route="wrapper")
+    evidence["isolated_run"] = {"not_run": not_run, "exit_code": result.exit_code if result else None,
+                                "tests": junit.get("tests"), "failures": junit.get("failures", [])}
+    if not_run or not junit.get("present") or junit.get("tests", 0) < len(soft):
+        return failures, [], evidence  # an isolated run that did not run every node tolerates nothing
+    again = {f["nodeid"]: f for f in junit["failures"]}
+    tolerated, still = [], []
+    for failure in soft:
+        retry = again.get(failure["nodeid"])
+        if retry is None or precondition_miss(retry):
+            tolerated.append({**failure, "isolated": "passed" if retry is None else "precondition_miss",
+                              "isolated_assert_line": retry.get("assert_line") if retry else None})
+        else:
+            still.append({**failure, "isolated": "failed", "isolated_assert_line": retry.get("assert_line"),
+                          "isolated_message": retry.get("message")})
+    return others + hard + still, tolerated, evidence
+
+
 def _tests(ctx: PreflightContext) -> CheckResult:
     mode = ctx.options.tests
     if mode == "none":
@@ -862,6 +949,19 @@ def _tests(ctx: PreflightContext) -> CheckResult:
     status, summary = _outcome(result, junit, not_run)
     details, attribution = [], []
     if status == FAIL:
+        failing, tolerated, isolation = isolate_load_sensitive(ctx, junit["failures"])
+        if isolation:
+            evidence["load_sensitive"] = {**isolation, "tolerated": [
+                {k: t.get(k) for k in ("nodeid", "assert_line", "isolated", "isolated_assert_line")} for t in tolerated]}
+        warnings += [f"known_load_sensitive: {t['nodeid']} missed its start-up precondition under load "
+                     f"(isolated re-run: {t['isolated']}); no outcome assert failed" for t in tolerated]
+        junit = {**junit, "failures": failing}
+        if failing:
+            summary = f"{len(failing)} failing test(s) of {junit['tests']}"
+        else:
+            status = WARN
+            summary = f"{junit['tests']} test(s); {len(tolerated)} known load-sensitive precondition miss(es) tolerated"
+    if status == FAIL:
         details = classify_failures(ctx, junit["failures"], earlier_by, head_changed)
         attribution = [{"item": d["nodeid"], "introduced_by": ",".join(d["introduced_by"]) or d["class"],
                         "class": d["class"]} for d in details]
@@ -869,6 +969,7 @@ def _tests(ctx: PreflightContext) -> CheckResult:
         summary += f" (head {counts['head']}, interaction {counts['interaction']})"
     elif status == PASS and warnings:
         status = WARN
+    evidence["warnings"] = warnings
     return CheckResult(status, f"{summary} [{evidence['mode_effective']}, {route}]", details=details,
                        attribution=attribution,
                        evidence={**evidence, "junit": {k: v for k, v in junit.items() if k != "failures"}},
