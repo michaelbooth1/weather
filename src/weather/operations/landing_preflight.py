@@ -597,7 +597,7 @@ def _phase_merge_chain(ctx: PreflightContext) -> CheckResult:
             if conflicts:
                 step.result, step.conflicts = "conflict", conflicts
                 step.conflicts_fix_class = {p: classify_fix(p) for p in conflicts}
-                step.pairwise_conflicts = _pairwise(ctx, step, steps)
+                step.pairwise_conflicts = _pairwise(ctx, step, steps, date)
                 for later in steps[step.step:]:
                     later.result = "skipped"
                 raise PreflightAbort(
@@ -616,13 +616,12 @@ def _phase_merge_chain(ctx: PreflightContext) -> CheckResult:
                        evidence={"landing_commit": ctx.landing_commit, "landing_tree": ctx.landing_tree})
 
 
-def _pairwise(ctx: PreflightContext, failing: ChainStep, steps: list[ChainStep]) -> list[dict[str, Any]]:
+def _pairwise(ctx: PreflightContext, failing: ChainStep, steps: list[ChainStep], date: str) -> list[dict[str, Any]]:
     """Attribute a chain conflict to pairs: base vs the step, and base+earlier_j vs the step."""
 
     rows = []
     _, with_base = _merge_tree(ctx, ctx.base_sha, failing.sha)
     rows.append({"with": "base", "paths": with_base})
-    date = "0 +0000"
     for other in steps[: failing.step - 1]:
         if other.result == "already_in_chain":
             continue
