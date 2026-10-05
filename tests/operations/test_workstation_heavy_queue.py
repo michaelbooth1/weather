@@ -363,6 +363,39 @@ def test_queue_timeout_exits_75_without_starting_the_child(workstation: Path) ->
     assert _queue_tickets(repo) == []
 
 
+def test_a_dead_owners_pending_teardown_still_fails_closed_in_the_queue(workstation: Path) -> None:
+    repo = workstation
+    dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, check=True)
+    (repo / ".test-heavy-workload.poison").write_text(
+        json.dumps(
+            {
+                "boot_session_id": 1,
+                "execution_host_profile": "workstation_offline_v1",
+                "owner_process_start_utc": "2026-10-04T00:00:00.0000000Z",
+                "pid": int(dead.stdout.strip()),
+                "schema_version": "weather_heavy_workload_state_v1",
+                "state": "TEARDOWN_PENDING",
+                "state_changed_at_utc": "2026-10-04T00:00:01.0000000Z",
+                "workload": "WorkstationOffline-pytest-dead",
+            }
+        ),
+        encoding="utf-8",
+    )
+    sentinel = repo / "never.txt"
+    result = subprocess.run(
+        _wrapper_argv(repo, _child_test(repo, "poisoned", sentinel), "-Queue", "-QueuePollMilliseconds", "100"),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 1
+    assert "teardown is pending; a proved reboot and explicit poison recovery are required" in result.stderr
+    assert not sentinel.exists()
+    assert [e["event"] for e in _events(repo)] == ["enqueue", "error"]
+    assert _queue_tickets(repo) == []
+
+
 def test_without_queue_a_busy_lease_is_still_refused_at_once(workstation: Path) -> None:
     repo = workstation
     release = repo / "release.flag"
@@ -396,8 +429,10 @@ def _exemption(repo: Path, arguments: list[str]) -> dict:
     encoded = base64.b64encode(json.dumps(arguments).encode("utf-8")).decode("ascii")
     result = _admission(
         repo,
-        "$arguments = @([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("
-        f"'{encoded}')) | ConvertFrom-Json)\n"
+        # Windows PowerShell 5.1 emits a JSON array as one object; unroll it explicitly.
+        "$parsed = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("
+        f"'{encoded}')) | ConvertFrom-Json\n"
+        "[string[]]$arguments = @($parsed | ForEach-Object { $_ })\n"
         f"Test-WeatherWorkstationFocusedPytestExemption -RepoRoot '{repo}' -PythonPath '{sys.executable}' "
         f"-Arguments $arguments -WorkingDirectory '{repo}' | ConvertTo-Json -Compress\n",
     )

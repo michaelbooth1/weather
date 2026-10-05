@@ -2742,6 +2742,23 @@ function Write-WeatherHeavyWorkloadQueueEvent {
 }
 
 
+function Test-WeatherHeavyWorkloadTeardownInProgress {
+    # True when the host-global marker is absent (teardown just finished) or is
+    # TEARDOWN_PENDING with its exact owner process still alive.
+    [CmdletBinding()]
+    param()
+
+    try {
+        $marker = Get-WeatherHeavyWorkloadPoisonState `
+            -Path (Get-WeatherHeavyWorkloadPoisonPath)
+        if ($null -eq $marker) { return $true }
+        if ([string]$marker.state -cne "TEARDOWN_PENDING") { return $true }
+        return -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)
+    }
+    catch { return $false }
+}
+
+
 function Enter-WeatherHeavyWorkloadLeaseQueued {
     # FIFO admission for the workstation_offline_v1 profile. Only the head
     # ticket attempts the lease; everyone else waits. Returns the lease, or
@@ -2801,8 +2818,16 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
                 }
                 catch {
                     # The stale-ACTIVE recovery asks for an exact retry; the next
-                    # poll is that retry. Every other refusal is final.
-                    if ($_.Exception.Message -cnotmatch
+                    # poll is that retry. A TEARDOWN_PENDING marker whose owner is
+                    # still alive (or that has already been cleared) is the
+                    # holder's ordinary teardown, so it is still "busy". Every
+                    # other refusal, including a dead owner's pending teardown,
+                    # is final.
+                    $message = $_.Exception.Message
+                    if ($message -cmatch 'teardown is pending') {
+                        if (-not (Test-WeatherHeavyWorkloadTeardownInProgress)) { throw }
+                    }
+                    elseif ($message -cnotmatch
                         'stale ACTIVE workload marker was recovered') { throw }
                 }
                 if ($null -ne $lease) {
