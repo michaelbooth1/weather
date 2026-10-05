@@ -228,6 +228,10 @@ valuable output by falsifying their own premise.
 5. **Exact reproduction commands**, with paths that exist on the host that will run them — not
    workstation-local scratch paths.
 6. **Commit hash and branch.**
+7. **For a head handed over for landing: the landing preflight handback line** (its receipt `sha256`)
+   and the verdict JSON ([landing preflight](LANDING_PREFLIGHT.md)). The receipt is valid only while
+   `origin/master` equals its base: production refuses a stale or edited one
+   (`--verify-receipt`), and it never replaces production's own gates.
 
 Accepting a handback updates the rows of every open question it served in the same commit (answered results also go
 to the findings digest and established findings).

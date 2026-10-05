@@ -36,3 +36,11 @@ Acceptance:
   roll-sensitive head.
 - [ ] Production decides whether and how the verdict feeds its landing checklist;
   until then it is non-binding pre-evidence only.
+- [x] M3a (owner-adopted 2026-10-05): the handback carries the receipt
+  (delegation contract §5), `--verify-receipt` refuses a stale or edited one, and
+  `docs_transaction` is a real pre-check (FAIL on a missing required document or the
+  transaction's `git diff --check`).
+- [ ] Pilots (owner-approved, non-binding; stacked branch
+  `codex/landing-preflight-pilots-20261006`): M13 `eof_newline_only`, M3b binding
+  shadow, M5 dual-run recorder. Built and tested; adoption needs the evidence each
+  pilot names (M5: the later of 5 concordant landings or 14 days).

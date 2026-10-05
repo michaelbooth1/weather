@@ -13,8 +13,10 @@ Object phase (git objects in the scratch store, no worktree):
 * ``schema_additive``: when a ``schema_registry*`` file changed, the additive-only
   verdict of :func:`weather.operations.landing_preflight_rollclass.schema_additive_between`
   (the single implementation, ruling R-10).  WARN when not additive.
-* ``docs_transaction``: blob OIDs of the documentation transaction's required
-  documents as of the night's *final planned tip* and which tips touch them.
+* ``docs_transaction`` (M3a, a real check): FAIL when the morning documentation
+  transaction would fail on this plan (a required document absent; a ``--check``
+  hit up to this head); blob OIDs of the required documents as of the night's
+  *final planned tip*, and the M3b binding shadow as an INFO row.
 * ``whitespace_only`` (M13 evidence, INFO): last in the object phase, after
   ``diff_check`` and L-P4's ``roll_class`` (registered before this module).
 
@@ -440,7 +442,17 @@ def _later_slots(ctx: PreflightContext) -> list[dict[str, Any]]:
 
 
 def run_docs_transaction(ctx: PreflightContext) -> CheckResult:
-    """Blob OIDs of the transaction's required documents as of the final planned tip (M3)."""
+    """Pre-check of the morning documentation transaction on the planned night (M3a, adopted; a real check).
+
+    FAIL when the transaction would fail on this plan: a required document absent from
+    the landing tree (``reviewed document must be a committed file``), or a ``git diff
+    --check`` hit over the night span up to this head (the transaction's
+    ``git_diff_check`` over ``first_integration..HEAD``; ``diff_check`` attributes it).
+    WARN for what a later slot causes (a later ``--check`` hit, a document absent from
+    the final tip, an unknown final tip) and for reviews that a later head makes stale.
+    It also reports the blob OIDs of the required documents as of the night's final
+    planned tip and, as an INFO row, the M3b binding shadow (never relaxes this status).
+    """
 
     reviewed, disposition, source = required_documents(ctx, ctx.landing_tree)
     docs = sorted(set(reviewed) | set(disposition))
@@ -451,7 +463,7 @@ def run_docs_transaction(ctx: PreflightContext) -> CheckResult:
             touched[path].append(label)
 
     # Continue the synthetic chain over the plan's later slots to reach the final planned tip.
-    later, warnings = _later_slots(ctx), []
+    later, warnings, failures = _later_slots(ctx), [], []
     cur, final_tree, final_label = ctx.landing_commit, ctx.landing_tree, ctx.head_label or ctx.head_ref
     date = ctx.git("log", "-1", "--format=%at", ctx.head_sha).stdout.strip() + " +0000"
     name, email = "landing-preflight", "landing-preflight@invalid"
@@ -491,16 +503,43 @@ def run_docs_transaction(ctx: PreflightContext) -> CheckResult:
             warnings.append(f"{doc} changes after this head ({', '.join(later_touch)}): an unchanged review bound "
                             "at this head will not match the final tip")
         if landing_oid is None:
-            warnings.append(f"{doc} is absent from the landing tree")
+            failures.append(f"{doc} is absent from the landing tree: the transaction requires it to be a committed file")
+        elif final_tree and final_oid is None:
+            warnings.append(f"{doc} is absent from the final planned tip ({final_label})")
+    diff_check = ctx.results.get("diff_check")
+    if diff_check is not None and diff_check.status == FAIL:
+        failures.append(f"the transaction's git_diff_check (first_integration..HEAD) would fail: {diff_check.summary}")
+    later_hits: list[dict[str, Any]] = []
+    if final_tree and final_tree != ctx.landing_tree:
+        later_hits, _ = _diff_check(ctx, ctx.landing_tree, final_tree)
+        if later_hits:
+            warnings.append(f"later slots add {len(later_hits)} git diff --check hit(s) after this head; the "
+                            "transaction's git_diff_check fails unless they are fixed before they land")
+    status = FAIL if failures else (WARN if warnings else INFO)
+    from weather.operations.landing_preflight_pilots import m3b_binding_shadow
+
+    try:
+        shadow = m3b_binding_shadow(rows, status, final_tip_known=bool(final_tree))
+    except Exception as exc:  # a pilot row never changes the check
+        shadow = {"status": INFO, "binding": False, "error": f"{type(exc).__name__}: {exc}"}
     evidence = {"required_from": source, "final_tip": final_label, "final_tree": final_tree,
                 "later_slots": [{"label": s["label"], "sha": s["sha"]} for s in later], "documents": rows,
+                "failures": failures, "later_diff_check_hits": later_hits[:50],
+                "transaction_checks_covered": {"git_diff_check": "diff_check (this head) + later_diff_check_hits",
+                                               "agent_docs_audit": "agent_docs_audit check (worktree phase)",
+                                               "roadmap_parity": "roadmap_backlog check (worktree phase)",
+                                               "required_documents_committed": "this check"},
                 "rule": "bind documents_unchanged blob_oid to final_tip_oid (the night's final integration), never to "
                         "an intermediate tip; STATE_OF_PLAY and active-backlog need an update or a bound review after "
-                        "the last integration"}
-    status = WARN if warnings else INFO
-    summary = (f"{len(docs)} required document(s) as of {'the final planned tip ' + final_label if final_tree else 'an unknown final tip'}"
-               + (f"; {len(warnings)} warning(s)" if warnings else ""))
-    return CheckResult(status, summary, details=warnings, evidence=evidence)
+                        "the last integration",
+                "m3b_binding_shadow": shadow}
+    where = 'the final planned tip ' + final_label if final_tree else 'an unknown final tip'
+    summary = (f"{len(docs)} required document(s) as of {where}"
+               + (f"; {len(failures)} failure(s)" if failures else "")
+               + (f"; {len(warnings)} warning(s)" if warnings else "")
+               + f"; M3b shadow (INFO) would conclude {shadow.get('would_conclude', 'n/a')}")
+    return CheckResult(status, summary, details=failures + warnings, evidence=evidence,
+                       attribution=[{"item": f, "introduced_by": ctx.head_label or ctx.head_ref} for f in failures])
 
 
 # --------------------------------------------------------------------------- schema_additive (R-10)
@@ -758,7 +797,7 @@ def register_checks(registry: CheckRegistry) -> None:
     registry.register(CheckSpec("schema_additive", PHASE_OBJECTS, run_schema_additive, OWNER, ("merge_chain",),
                                 "schema_registry* change additive-only (AST over SchemaSpec entries); WARN when not"))
     registry.register(CheckSpec("docs_transaction", PHASE_OBJECTS, run_docs_transaction, OWNER, ("merge_chain",),
-                                "blob OIDs of the transaction's required docs as of the final planned tip"))
+                                "transaction pre-check: required docs committed, --check span; final-tip blob OIDs"))
     # whitespace_only reads diff_check (above) and roll_class (L-P4, registered before this module).
     registry.register(CheckSpec("whitespace_only", PHASE_OBJECTS, run_whitespace_only, OWNER, ("merge_chain",),
                                 "M13 evidence: --ignore-space-at-eol --ignore-blank-lines empty, no add/rename/mode/binary"))

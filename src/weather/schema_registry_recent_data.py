@@ -1470,4 +1470,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
     ),
+    SchemaSpec(
+        "landing_preflight_m5_concordance",
+        "landing_preflight_m5_concordance_v0.1",
+        "weather.operations.landing_preflight_m5",
+        "active",
+        "Workstation M5 shadow dual-run ledger row: preflight and CI at a ROLL-FREE tip beside the host bounded suite; non-binding.",
+    ),
 )

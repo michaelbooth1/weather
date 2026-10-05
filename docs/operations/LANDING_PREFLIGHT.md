@@ -1,8 +1,9 @@
 # Landing preflight (non-binding workstation check)
 
 Status: canonical runbook. Owns `weather.operations.landing_preflight` and its
-`landing_preflight_*` helper modules, the `landing_preflight_v0.1` verdict and the
-`landing_night_plan_v0.1` plan schema.
+`landing_preflight_*` helper modules, the `landing_preflight_v0.1` verdict, the
+`landing_night_plan_v0.1` plan schema, and the owner-approved pilots (non-binding
+shadows) and their `landing_preflight_m5_concordance_v0.1` ledger.
 
 Read when a workstation is about to hand production a head for a landing night.
 The preflight judges the head on the night's **cumulative** merge: current
@@ -61,6 +62,10 @@ and the bounded suite stays the host's test gate. A PASS here grants nothing.
 
 # Resolve refs and print the plan only; judges nothing (exit 6):
 .\venv\Scripts\python.exe -m weather.operations.landing_preflight --head <ref> --earlier ... --dry-run
+
+# Check a handed-back verdict (production, before relying on it): exit 0 current and intact, 2 refuse:
+.\venv\Scripts\python.exe -m weather.operations.landing_preflight --verify-receipt <verdict.json> `
+    --expect-head <sha40> [--origin-master <sha40>]
 ```
 
 | Option | Meaning |
@@ -78,7 +83,11 @@ and the bounded suite stays the host's test gate. A PASS here grants nothing.
 
 The last stdout line is the handback line, for example
 `landing_preflight PASS_NO_TESTS tests=none(skipped) binding=false sha256=<receipt> head=<sha> earlier=[...] base=<sha> plan=<sha256> landing=<sha> git=<version>`.
-Paste it, with the verdict JSON, into the handback.
+Paste it, with the verdict JSON, into the handback
+([delegation contract](DELEGATION_CONTRACT.md) §5). `--verify-receipt` refuses a
+receipt whose `sha256` no longer matches the verdict body or whose base is not the
+current `origin/master` (default: the repository's `origin/master` ref, without a
+fetch): a stale receipt is refused, never warned.
 
 ## Exit codes and verdicts
 
@@ -104,7 +113,7 @@ ERROR, INFO, NOT_RUN), a summary, details, attribution and evidence.
 | --- | --- |
 | Preconditions | `host_identity`, `git_version`, `disk_floor`, `refs` (fetch, resolve, `--expect-*`, head drift of earlier slots) |
 | Chain | `already_landed`, `containment` (a head stacked on an earlier head is INFO; an earlier head containing this one is SUPERSEDED; a plan landing a head before its own ancestor is `order_inverted` FAIL), `merge_chain` (two-parent synthetic commits with a pinned date, so identical inputs give an identical `landing_commit`; a conflict is attributed pairwise: base alone, then base plus each earlier head) |
-| Objects | `diff_check` (`git diff --check` over the span and per step, attributed), `whitespace_only` (INFO evidence: no non-whitespace change, no added/renamed/binary file, expected ROLL-FREE), `schema_additive`, `roll_class`, `landing_path`, `docs_transaction` (blob ids of the four required docs as of the final planned tip) |
+| Objects | `diff_check` (`git diff --check` over the span and per step, attributed), `whitespace_only` (INFO evidence: no non-whitespace change, no added/renamed/binary file, expected ROLL-FREE), `schema_additive`, `roll_class`, `landing_path`, `docs_transaction` (the documentation-transaction pre-check, below), `eof_newline_only` (M13 pilot, INFO only; see [pilots](#pilots-non-binding)) |
 | Worktree | `worktree`, `import_probe`, `agent_docs_audit`, `correspondence_index` (`--check`), `roadmap_backlog` (`--fail-on-lint --check`), `schema_registry` (no unregistered versions), `shard_coverage`, `ps1_param_defaults`, `ratchets` |
 | Tests | `tests`, `windows_scripts` |
 
@@ -124,6 +133,17 @@ wrapper's cap escalates to `full` (through the wrapper), never a silent partial.
 reaches both the head's and an earlier head's changes, else `head`. It names the
 step that introduced it and carries the plan's `known_fix` for that step. If the night span changes the wrapper or
 its lease scripts, the base tree's copies run instead (warned).
+
+**Documentation transaction (M3a, adopted).** `docs_transaction` is a real check.
+It FAILs when the morning transaction would fail on this plan: a required document
+(read from the landing tree's `documentation_transaction.py`) is absent from the
+landing tree, or `diff_check` FAILs (the transaction's `git_diff_check` over
+`first_integration..HEAD`). It WARNs for what a later slot causes: a `--check` hit
+added after this head, a required document absent from the final planned tip, an
+unknown final tip, or an unchanged review that a later head makes stale. It reports
+the required documents' blob ids as of the final planned tip and carries the M3b
+shadow row. The transaction's `agent_docs_audit` and roadmap parity are the
+worktree-phase checks of the same names.
 
 **Roll class.** `roll_class` predicts EXPECTED-ROLL-FREE, EXPECTED-ROLL-SENSITIVE
 or EXPECTED-UNDECIDABLE (schedule as roll-sensitive) from the closure snapshot
@@ -187,7 +207,83 @@ snapshot hash and the git version. A verdict is valid only while
 Run it after the head is final and before the handback; re-run whenever
 `origin/master` or an earlier head moves. A changed head needs a new verdict.
 
+## Pilots (non-binding)
+
+The owner approved these as pilots (Swarm L, 2026-10-05). Each is a shadow that
+records what an adopted rule would conclude. None changes a verdict, another check's
+status or an exit code, and none grants anything; production's gates are unchanged.
+
+**M13 `eof_newline_only` (object phase, always INFO).** The predicate is byte-exact.
+Every file the head step changes (from the tree before the head step to the landing
+tree) must satisfy `new == old.rstrip(b"\n") + b"\n"`. That is, the blobs are equal
+once their trailing `\n`/`\r\n` run is stripped, the new blob ends in exactly one LF,
+and no CR byte changes. No literal parsing is needed, because no Python or
+PowerShell string can be open at end of file. Never `-w` or `--ignore-space-at-eol`:
+those admit indentation changes and whitespace removed inside triple-quoted strings
+and here-strings.
+
+- Also disqualified: any add, delete, rename, mode or type change; an LFS path; a
+  YAML file (a `|+` block keeps trailing newlines as content); a hash-frozen file;
+  `diff_check` other than PASS; a roll class other than EXPECTED-ROLL-FREE.
+- Hash-frozen files are derived from the tree
+  (`landing_preflight_pilots.hash_frozen_paths`): `quiet_window_merge.ps1`,
+  `boot_recovery.ps1`, `health_watchdog.ps1` and `status.ps1` always; any `.ps1`
+  declaring `[string]$ExpectedSelfSha256`; any `.ps1` named by a `register_*.ps1`
+  that declares an `Expected*Sha256` parameter; and a changed path that a tracked
+  JSON under `config/` or `artifacts/` names next to a `*sha256*` key.
+- The row reports `suite_skip_eligible: true|false`. The host `roll_verdict.ps1`
+  exit 0 would still be required. Calibration: the 10-05 05:51 landing (`6c6ab479`
+  on `202245b4`, 37 files) is eligible.
+
+**M3b binding shadow (INFO row in `docs_transaction`).** `evidence.m3b_binding_shadow`
+computes what binding the unchanged reviews to the night's **final** integration
+commit would conclude. Each required disposition document needs a review whose blob
+id equals its blob at the final planned tip; by default the reviews are assumed bound
+at this head. `effective_if_adopted` is `strictest(current status, would_conclude)`,
+so the shadow can add a FAIL but never turn a FAIL into a PASS (tested). A night
+whose later integration moves STATE_OF_PLAY concludes FAIL without a review bound to
+the final tip.
+
+**M5 shadow dual run (`python -m weather.operations.landing_preflight_m5`).** It
+applies to a ROLL-FREE tip that production landed **with** the bounded suite. The
+workstation records three things for that exact tip: the preflight verdict (receipt
+re-verified), the CI conclusion at that SHA (the Windows `native-launch` lane and the
+rest), and the host bounded-suite outcome the production agent hands back. It appends
+one `landing_preflight_m5_concordance_v0.1` JSON line to
+`data/workstation/landing_preflight/m5_concordance.jsonl` (override with `--ledger`).
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.landing_preflight_m5 record --preflight <verdict.json> `
+    --host-outcome <handback.json> --ci-checks <check-runs.json> [--host-only-nodeids <json>]
+.\venv\Scripts\python.exe -m weather.operations.landing_preflight_m5 progress
+.\venv\Scripts\python.exe -m weather.operations.landing_preflight_m5 host-only --ref <sha> `
+    [--host-junit <host.xml> ... --ci-junit <shard.xml> ...]
+```
+
+- `--fetch-ci` reads the check runs with `gh api` instead of `--ci-checks`.
+- The handback file carries `tip_sha` (40 hex), `roll_verdict` (the production
+  `roll_verdict.ps1` result), `bounded_suite.outcome` (`PASS` or `FAIL`) and
+  `landed_at` (ISO 8601); `landing_sha` and `source` are optional.
+- A row is concordant when "preflight PASS or PASS_NO_TESTS, and every CI lane green"
+  equals "the host bounded suite passed". A row is recorded but not counted when the
+  host verdict is not ROLL-FREE, CI is still pending, or a disqualifier applies.
+- Disqualifiers: a changed host-only test; a changed `src` module that a host-only
+  test imports directly; a changed hash-frozen script (the M13 derivation).
+- **Host-only tests are enumerated mechanically** (`host-only` lists them):
+  - a test file with a Windows-only skip condition that is in no shard of
+    `windows-qualification.yml`;
+  - a skip condition on `GITHUB_ACTIONS` or `CI`;
+  - a file naming a host-identity, ACL or Scheduler surface (`icacls`, `whoami`,
+    `USERDOMAIN`, `MachineGuid`, `Register-ScheduledTask`, `schtasks`,
+    `ProgramData`, `S4U`): the 10-04 icacls 1332 class;
+  - when JUnit is supplied, every node id the host bounded suite ran that every CI
+    JUnit skipped or never listed.
+- `progress` reports the owner's threshold: the later of 5 concordant landings or 14
+  days since the current run began. Any discordance resets both. The output is always
+  `binding: false`. The recorder refuses to run on the capture host.
+
 ## Update this file when
 
 The CLI, exit codes, checks, night-plan or verdict schema, the host refusal, the
-routing of test runs, or the production gates it composes with change.
+routing of test runs, the production gates it composes with, or a pilot's rule,
+ledger or adoption status change.
