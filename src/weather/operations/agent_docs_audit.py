@@ -388,6 +388,36 @@ def line_budget_errors(repo_root: Path) -> list[str]:
     return errors
 
 
+# C0 controls except LF and CR, plus DEL. TAB is included: no in-scope document uses
+# one, and the ones found were "\t" path escapes an editor or shell expanded (2026-10-05).
+_CONTROL_CHARACTER = re.compile("[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _control_character_scope(repo_root: Path, path: Path) -> bool:
+    relative = path.relative_to(repo_root).as_posix()
+    return relative.startswith("docs/") or path.name in {"AGENTS.md", "README.md"}
+
+
+def control_character_errors(repo_root: Path, paths: list[Path] | None = None) -> list[str]:
+    """Docs Markdown and every AGENTS.md/README.md must hold no literal control character."""
+    root = repo_root.resolve()
+    candidates = paths if paths is not None else _markdown_files(root)
+    errors: list[str] = []
+    for path in candidates:
+        path = path.resolve()
+        if not _control_character_scope(root, path):
+            continue
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        for number, line in enumerate(text.split("\n"), start=1):
+            found = sorted({f"0x{ord(char):02X}" for char in _CONTROL_CHARACTER.findall(line)})
+            if found:
+                errors.append(
+                    f"{path.relative_to(root).as_posix()}:{number}: literal control character "
+                    f"{', '.join(found)}; write the intended text (a path escape such as \\t or \\b)"
+                )
+    return errors
+
+
 def unindexed_operations_docs(repo_root: Path) -> list[str]:
     """Every operations document must be reachable from an index an agent reads."""
     operations = repo_root / "docs" / "operations"
@@ -531,6 +561,7 @@ def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
     current_paths = list(active_paths)
     current_paths.extend(repo_root / relative for relative in REQUIRED_FILES)
     errors.extend(line_budget_errors(repo_root))
+    errors.extend(control_character_errors(repo_root))
     errors.extend(unindexed_operations_docs(repo_root))
     errors.extend(retired_claim_errors(repo_root, current_paths))
     errors.extend(knowledge_structure_errors(repo_root))

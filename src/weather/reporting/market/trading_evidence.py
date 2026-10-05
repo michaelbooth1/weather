@@ -1081,7 +1081,8 @@ def summarize_market_making_run(path, payload, selection_summary=None):
     }
 
 
-def _maker_countability_gate(market_making):
+def maker_countability_gate(market_making):
+    """Fail-closed maker evidence countability gate (public contract; tested directly)."""
     mm = market_making or {}
     blockers = list(mm.get("countability_blockers") or [])
     quote_gate = mm.get("quote_starvation_gate") or {}
@@ -1702,7 +1703,7 @@ def build_trading_evidence_summary(
         "preflight_blocked_market_fraction"
     )
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
-    market_making["maker_countability_gate"] = _maker_countability_gate(market_making)
+    market_making["maker_countability_gate"] = maker_countability_gate(market_making)
     market_making["maker_evidence_countability_status"] = (
         market_making["maker_countability_gate"].get("status")
     )

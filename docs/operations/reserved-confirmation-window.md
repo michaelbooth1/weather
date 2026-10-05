@@ -1,8 +1,9 @@
 # Reserved confirmation window
 
-**Status: NONE RESERVED.** No target date is held out. Research, diagnostics and MM scoring may use
-any settled date. **Read further only if this line says a window is reserved** — or if you are
-about to freeze a retrain candidate, which is the event that must declare one here first.
+**Status: RESERVED (narrow scope, MG-1, signed 2026-10-04): the first 45 promotion-countable local target dates on or
+after D0 (first eligible date per MG-1 §3; D0 >= 2026-10-15; dated start recorded here once D0 is determined) are held
+out ONLY against NBM-guidance-to-band forecast candidates.** Everything else may use those dates (see the exemption below).
+**Read further** before scoring any forecast candidate that reads NBM station guidance, or before freezing a retrain candidate.
 
 **Single source of truth for which dates are held out and what they are held out *for*.** Every
 research handoff must carry this status line. If this file and a handoff disagree, this file wins.
@@ -12,10 +13,12 @@ When a window is declared, replace the status line with the dated range and its 
 
 | | |
 | :--- | :--- |
-| **Reserved dates** | **NONE ARE CURRENTLY RESERVED.** The window is *armed but not dated*. |
+| **Reserved dates** | **MG-1 (narrow scope):** first 45 promotion-countable local target dates on or after D0 (MG-1 §3, D0 >= 2026-10-15; not yet dated). The retrain-triggered window below stays *armed but not dated*. |
+| **MG-1 binding** | `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md` at `02c410a5`, raw SHA-256 `b044e0f196512379d2f74a22a2a97a10cf58fdbcf5a255c4eb6a470f7f6ba665`, signed 2026-10-04T16:10Z (DECISION_LOG). |
+| **MG-1 scope and exemption (owner, 2026-10-04; explicit exemption under rule 4)** | Reserved **only** against reading or modifying the morning guidance-read (forecast-scoring) family: do not score, enumerate outcomes for, or join to an outcome the MG-1 vector or any other candidate that reads NBM station guidance into band probabilities (including the held RV-1 and HG-1), do not substitute reserved dates for such a candidate, and do not modify MG-1, without a new explicit owner decision. **Exempt and untouched:** the 88a desk-study decision panel (UTC 2026-10-15..10-30), MM paper scoring, and every other use of these dates' captures, served vectors and settlements; outcome-blind operational checks (coverage, PIT, replay reproduction, parser version) are permitted. |
 | **Trigger** | The reservation begins on the **first target date after the first retrain candidate is fitted and frozen**, and runs forward from there. |
 | **Size** | Computed at freeze time against endpoints that still stand — see *Sizing at freeze* below. Not fixed in advance. |
-| Status | No date is held out today. Nothing is off-limits to research or MM scoring right now. |
+| Status | MG-1 narrow reservation active from its signature; no date is held out against anything else. |
 | Declared | 2026-08-04 by the operator (re-base). Previously 2026-08-03. |
 | Supersedes | 2026-08-06 → 2026-11-03 (90 dates); before that, 2026-08-06 → 08-19 (14 dates) |
 

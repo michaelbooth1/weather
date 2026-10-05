@@ -3,7 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.market.trading_evidence import build_trading_evidence_summary, write_outputs
+import pytest
+
+from weather.reporting.market.trading_evidence import (
+    build_trading_evidence_summary,
+    maker_countability_gate,
+    write_outputs,
+)
 
 
 def _write_active_mm_run(root, target_date, run_id):
@@ -1056,6 +1062,47 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertIn("2026-06-19:atlanta:PROVISIONAL", taker["settlement_source_audit_blockers"])
         self.assertEqual(saved["status"], "BLOCK")
         self.assertIn("Settlement source audit", report)
+
+
+# The NON_COUNTABLE-without-blockers -> WARN row is deliberately not pinned: the
+# owner has not ruled on whether that permissive outcome is correct (item K,
+# Defender condition on R17-add-assert / R18-freshness3).
+MAKER_COUNTABILITY_GATE_TABLE = [
+    (
+        "quote_starvation_block_without_blockers",
+        {"countability_status": "NON_COUNTABLE", "countability_blockers": [],
+         "quote_starvation_gate": {"status": "BLOCK"}},
+        "BLOCK",
+    ),
+    (
+        "countable_but_not_counted_toward_live_gate",
+        {"countability_status": "COUNTABLE", "counts_toward_live_forward_gate": False},
+        "UNKNOWN",
+    ),
+    (
+        "countable_and_counted",
+        {"countability_status": "COUNTABLE", "counts_toward_live_forward_gate": True},
+        "PASS",
+    ),
+    ("missing_artifact", {"exists": False}, "MISSING"),
+]
+
+
+@pytest.mark.parametrize(
+    "market_making,status",
+    [pytest.param(row, status, id=name) for name, row, status in MAKER_COUNTABILITY_GATE_TABLE],
+)
+def test_maker_countability_gate_status_table(market_making, status):
+    assert maker_countability_gate(market_making)["status"] == status
+
+
+def test_maker_countability_gate_reports_the_first_blocker():
+    gate = maker_countability_gate(
+        {"countability_status": "NON_COUNTABLE", "countability_blockers": ["first", "second"]}
+    )
+    assert gate["status"] == "BLOCK"
+    assert gate["blockers"] == ["first", "second"]
+    assert gate["first_blocker"] == "first"
 
 
 if __name__ == "__main__":

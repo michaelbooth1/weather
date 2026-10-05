@@ -3,6 +3,28 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+
+# Every scan below is repo-relative. Anchor it on this file, not on the process
+# CWD: from any other CWD the globs came back empty and the ratchets passed
+# vacuously (item K, test-suite review 2026-10-04).
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _repo_glob(directory, pattern, *, recursive=False):
+    """Glob ``directory`` under REPO_ROOT; return the same repo-relative paths a
+    glob run with CWD == REPO_ROOT returns."""
+    base = REPO_ROOT / directory
+    found = base.rglob(pattern) if recursive else base.glob(pattern)
+    return [path.relative_to(REPO_ROOT) for path in found]
+
+
+@pytest.fixture(autouse=True)
+def _run_from_repo_root(monkeypatch):
+    """Resolve the in-test repo-relative paths and globs against REPO_ROOT."""
+    monkeypatch.chdir(REPO_ROOT)
+
 
 TARGET_MODULES = [
     Path("src/weather/io.py"),
@@ -211,16 +233,16 @@ POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_reporting.py"),
     Path("src/weather/calibration/pooled_feature_cli.py"),
 ]
-PROMOTION_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("promotion_refresh_*.py"))
+PROMOTION_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/reporting", "promotion_refresh_*.py"))
 PROMOTION_REFRESH_IMPL_MODULES = sorted(
-    path for path in Path("src/weather/reporting/promotion").glob("*.py")
+    path for path in _repo_glob("src/weather/reporting/promotion", "*.py")
     if path.name != "__init__.py"
 )
 FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(
-    Path("src/weather/reporting/fleet").glob("fleet_observability_*.py")
+    _repo_glob("src/weather/reporting/fleet", "fleet_observability_*.py")
 )
 HOURLY_MODEL_SPLIT_MODULES = sorted(
-    Path("src/weather/reporting/hourly").glob("hourly_model_*.py")
+    _repo_glob("src/weather/reporting/hourly", "hourly_model_*.py")
 )
 REPORTING_HOURLY_MODULES = [
     *HOURLY_MODEL_SPLIT_MODULES,
@@ -396,7 +418,7 @@ REPORTING_ROOT_SHARED_MODULES = {
     "__init__.py",
     "formatting.py",
 }
-DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
+DAILY_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/operations", "daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
@@ -407,36 +429,36 @@ TARGET_MODULES.extend(
 
 NATIVE_RUNTIME_MODULES = [
     path
-    for path in Path("src/weather/model").glob("*.py")
+    for path in _repo_glob("src/weather/model", "*.py")
     if path.name != "feature_store.py"
 ] + [
     Path("src/weather/operations/observation_trigger.py"),
 ]
 
 APP_AND_TEST_MODULES = [
-    *Path("app").rglob("*.py"),
+    *_repo_glob("app", "*.py", recursive=True),
     *(
         path
-        for path in Path("tests").rglob("*.py")
+        for path in _repo_glob("tests", "*.py", recursive=True)
         if path != Path("tests/operations/test_import_architecture.py")
     ),
 ]
 
 SOURCE_MODULES_EXCEPT_BACKTEST_CLI = [
     path
-    for path in Path("src/weather").rglob("*.py")
+    for path in _repo_glob("src/weather", "*.py", recursive=True)
     if path != Path("src/weather/backtesting/backtest.py")
 ]
 
 PATH_POLICY_MODULES = [
-    *Path("src/weather").rglob("*.py"),
-    *Path("app").rglob("*.py"),
-    *Path("tools").rglob("*.py"),
+    *_repo_glob("src/weather", "*.py", recursive=True),
+    *_repo_glob("app", "*.py", recursive=True),
+    *_repo_glob("tools", "*.py", recursive=True),
 ]
 
 WRAPPER_MODULE_NAMES = sorted(
     path.stem
-    for path in Path("src").glob("*.py")
+    for path in _repo_glob("src", "*.py")
     if path.name != "__init__.py"
 )
 WRAPPER_MODULE_PATTERN = "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES) or r"(?!)"
@@ -1217,3 +1239,43 @@ def test_model_runtime_uses_calibration_runtime_boundary():
             offenders[str(path)] = matches
 
     assert offenders == {}
+
+
+def test_ratchet_scans_are_anchored_on_the_repository_and_non_empty():
+    """Each scan above must see the real tree; an empty scan makes its ratchet vacuous."""
+    assert REPO_ROOT == Path(__file__).resolve().parents[2]
+    assert (REPO_ROOT / "src" / "weather" / "__init__.py").is_file()
+    assert Path.cwd().resolve() == REPO_ROOT
+    import_time_scans = {
+        "PROMOTION_REFRESH_IMPL_MODULES": PROMOTION_REFRESH_IMPL_MODULES,
+        "FLEET_OBSERVABILITY_SPLIT_MODULES": FLEET_OBSERVABILITY_SPLIT_MODULES,
+        "HOURLY_MODEL_SPLIT_MODULES": HOURLY_MODEL_SPLIT_MODULES,
+        "DAILY_REFRESH_SPLIT_MODULES": DAILY_REFRESH_SPLIT_MODULES,
+        "NATIVE_RUNTIME_MODULES": NATIVE_RUNTIME_MODULES,
+        "APP_AND_TEST_MODULES": APP_AND_TEST_MODULES,
+        "SOURCE_MODULES_EXCEPT_BACKTEST_CLI": SOURCE_MODULES_EXCEPT_BACKTEST_CLI,
+        "PATH_POLICY_MODULES": PATH_POLICY_MODULES,
+    }
+    for name, paths in import_time_scans.items():
+        assert paths, name
+        assert not any(path.is_absolute() for path in paths), name
+        assert all((REPO_ROOT / path).is_file() for path in paths), name
+    in_test_scan_roots = [
+        ("docs/operations", "*.md", True),
+        ("src/weather", "*.py", True),
+        ("src/weather/reporting", "*.py", False),
+        ("src/weather/model", "*.py", False),
+        ("src/maker_core", "*.py", True),
+        # src/weather/market/maker_plugin is pre-registered for a plugin that
+        # does not exist yet; its scan is empty by design.
+        ("tests", "*.py", True),
+        ("scripts", "*", False),
+    ]
+    for directory, pattern, recursive in in_test_scan_roots:
+        assert _repo_glob(directory, pattern, recursive=recursive), directory
+    tree_scan_roots = {*FIRST_PARTY_SHIM_CALLER_ROOTS, Path("app"), Path("config"), Path("docs"), Path("src")}
+    for root in sorted(tree_scan_roots):
+        if (REPO_ROOT / root).is_file():
+            continue
+        assert _repo_glob(root, "*", recursive=True), root
+    assert (REPO_ROOT / "README.md").is_file()

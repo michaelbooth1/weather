@@ -117,6 +117,7 @@ propagate.
   the sealed `portable_execution_v1` live lane are owned by the host load policy
   and [the portable execution-host runbook](../../docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
   Never generalize the live lane to another heavy command or unattended session.
+  Its `-Queue` and `workstation_focused_exemption.ps1` never touch capture admission.
 - `install_codex_host_load_hook.ps1` owns the user-layer PreToolUse guard. It
   must never overwrite an existing `~/.codex/hooks.json`, must point at the
   repository-owned policy script, and must say that Codex needs review/trust on
