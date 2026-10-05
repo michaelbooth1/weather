@@ -613,8 +613,9 @@ def test_exec_ordinary_publication_proves_the_push_task_terminal_success(fx: Fix
     assert report["ordinary_push_task_terminal_detail"] == "Ready with a new LastRunTime and LastTaskResult 0"
     # One exact read before the start and one after the tracking-ref acknowledgement.
     assert _lines(fx, "taskinfo.log") == ["WeatherOneShotPush\t\\"] * 2
-    history = (fx.repo / "data" / "alerts" / "quiet_window_merge_history.jsonl").read_text(encoding="utf-8")
-    assert json.loads(history.splitlines()[-1])["ordinary_push_task_terminal_ok"] is True
+    history = (fx.repo / "data" / "alerts" / "quiet_window_merge_history.jsonl").read_text(encoding="utf-8-sig")
+    last_row = history.splitlines()[-1].lstrip("﻿")
+    assert json.loads(last_row)["ordinary_push_task_terminal_ok"] is True
 
 
 @pytest.mark.parametrize(
