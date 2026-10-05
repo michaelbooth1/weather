@@ -470,7 +470,7 @@ def _chunk_lists(result: dict) -> list[list[str]]:
 
 def test_bounded_suite_plans_time_packed_chunks_without_raising_the_cap():
     text = SCRIPT.read_text(encoding="utf-8-sig")
-    assert "[ValidateRange(1, 25)]\n    [int]$MaxFilesPerChunk = 20" in text
+    assert "[ValidateRange(1, 25)]\n    [int]$MaxFilesPerChunk = 25" in text
     assert r'Join-Path $WorktreeRoot "tests\bounded_suite_file_timings.json"' in text
     assert "-TestFiles $testFiles -MaxFilesPerChunk $MaxFilesPerChunk -TimingTable $timingTable" in text
     assert (
