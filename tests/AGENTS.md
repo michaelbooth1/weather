@@ -22,6 +22,11 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   `@pytest.mark.quarantine(reason=, added=, sunset=, replaced_by=)` plus a
   `tests/quarantine_registry.json` entry; the staged-cut rules live in [development.md](../docs/development.md).
 
+- A test that only evaluates PowerShell logic (parse a script, define its
+  functions, print JSON) may call `tests/powershell_host.py`'s `run_command`:
+  one shared host per pytest process, a fresh runspace per call. Exit codes,
+  kill-on-close jobs, timeouts, mutexes, the workload lease, `-File` startup
+  and scheduled-task behaviour keep a real `powershell.exe` child.
 - Tests that write large temporary layouts must stay under `tmp_path`. On a
   shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
   default temp root is not cleaned promptly and has filled the capture disk.
