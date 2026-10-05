@@ -7,7 +7,7 @@
 # Re-running replaces the existing tasks.
 
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [ValidateSet("WeatherTrainingWindow")]
     [string]$WindowTaskName = "WeatherTrainingWindow",
     [ValidateSet("WeatherTrainingWindowRestore")]
@@ -35,6 +35,12 @@ param(
     [string]$BaseRetrainRuntimeId,
     [switch]$EnableWindow
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path

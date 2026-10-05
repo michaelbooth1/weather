@@ -1,5 +1,5 @@
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)]
     [string]$AttemptRoot,
     [Parameter(Mandatory = $true)]
@@ -23,6 +23,12 @@ param(
     [string]$GitExecutablePath = "",
     [switch]$RequireLiveSdkContract
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"

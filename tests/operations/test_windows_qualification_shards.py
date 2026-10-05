@@ -65,6 +65,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_memory_commit_guard_execution.py",
             "tests/operations/test_daily_refresh_wrapper_execution.py",
             "tests/operations/test_guidance_all_hours_admission.py",
+            "tests/operations/test_ps_script_root_param_defaults.py",
         ],
     ),
     "launch": (
