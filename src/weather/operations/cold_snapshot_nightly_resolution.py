@@ -3,7 +3,9 @@
 A failed or unfinished nightly attempt blocks later automatic runs. This reads
 only that attempt's retained receipts (never a source payload), proves every
 started file has a VERIFIED equal-hash after-journal, and writes one create-only
-resolution the scheduled runner accepts. It never deletes, renames, retries or
+resolution the scheduled runner accepts. The one unfinished file an interrupted
+attempt can hold (a before-journal without its after-journal) is accepted only
+with a hash-bound read-only nightly retained-file verification attempt. It never deletes, renames, retries or
 recompresses anything, and credits no savings to any nightly total.
 """
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pathlib import Path
 import re
 
 from weather.operations import cold_snapshot_compression as cold
+from weather.operations import cold_snapshot_nightly_verification as retained
 from weather.operations import storage_recovery_inventory as inventory
 from weather.operations.replay_cache_compression import IDENTITY_FIELDS
 from weather.schema_registry import schema_version
@@ -32,8 +35,12 @@ def _receipt(path, maximum=cold.MAX_RECEIPT_BYTES):
     return payload, hashlib.sha256(raw).hexdigest()
 
 
-def verify_batch(batch):
-    """Every started file must be VERIFIED; return its per-file proof rows."""
+def verify_batch(batch, retained_check=None):
+    """Every started file must be VERIFIED; return its per-file proof rows.
+
+    ``retained_check(batch, ordinal, before_path, selected_row, preimage)`` may prove
+    the last started file of the last batch when its after-journal is missing.
+    """
     inventory.checked_stat(batch, directory=True)
     selection, _ = _receipt(batch / "selection.json")
     phases = {}
@@ -47,11 +54,21 @@ def verify_batch(batch):
         raise ValueError(f"{batch.name} journals are not a contiguous selection prefix")
     rows = []
     for ordinal in sorted(phases):
+        path = selection["files"][ordinal]["path"]
+        if set(phases[ordinal]) == {"before"} and retained_check and ordinal == max(phases):
+            before, _ = _receipt(phases[ordinal]["before"])
+            if "result.json" in {entry.name for entry in batch.iterdir()}:
+                raise ValueError(f"{batch.name} finished without an after-journal")
+            proof = retained_check(batch.name, ordinal, phases[ordinal]["before"],
+                                   selection["files"][ordinal], before)
+            rows.append({"batch": batch.name, "ordinal": ordinal, "path": path, "sha256": before["sha256"],
+                         "reclaimed_bytes": proof["reclaimed_bytes"], "verified_by": "retained_verification",
+                         "verification_wrapper_sha256": proof["verification_wrapper_sha256"]})
+            continue
         if set(phases[ordinal]) != {"before", "after"}:
             raise ValueError(f"{batch.name}/{ordinal:03d} is unfinished; verify the retained file first")
         before, _ = _receipt(phases[ordinal]["before"])
         after, _ = _receipt(phases[ordinal]["after"])
-        path = selection["files"][ordinal]["path"]
         if (before.get("path") != path or after.get("path") != path
                 or before.get("action") != "COMPRESS_AND_RETAIN"
                 or after.get("status") != "VERIFIED" or after.get("before") != before.get("before")
@@ -67,7 +84,7 @@ def verify_batch(batch):
     return rows
 
 
-def resolve(root, name, approved_by, *, now=None):
+def resolve(root, name, approved_by, *, now=None, verified_retained=None, verified_retained_sha256=None):
     root = inventory.validate_root(Path(root))
     parent = inventory.validate_root(root / "scratch" / cold.WORKLOAD)
     if not isinstance(name, str) or not ATTEMPT.fullmatch(name):
@@ -91,7 +108,19 @@ def resolve(root, name, approved_by, *, now=None):
     batches = sorted(p for p in attempt.iterdir() if p.is_dir())
     if len(batches) > MAX_BATCHES or any(not re.fullmatch(r"batch-[0-9]{4}", p.name) for p in batches):
         raise ValueError("unexpected attempt directory layout")
-    files = [row for batch in batches for row in verify_batch(batch)]
+    used = []
+
+    def retained_check(batch, ordinal, before_path, row, preimage):
+        if verified_retained is None:
+            raise ValueError(f"{batch}/{ordinal:03d} is unfinished; verify the retained file first")
+        used.append(batch)
+        return retained.accept(root, name, wrapper_sha256, batch, ordinal, before_path, row, preimage,
+                               verified_retained, verified_retained_sha256)
+
+    files = [row for index, batch in enumerate(batches)
+             for row in verify_batch(batch, retained_check if index == len(batches) - 1 else None)]
+    if verified_retained is not None and not used:
+        raise ValueError("the retained-file verification matches no unfinished file of this attempt")
     if files and wrapper.get("apply") is not True:
         raise ValueError("a dry-run attempt cannot hold compression journals")
     target_dir = parent / RESOLUTION_DIR
@@ -107,6 +136,8 @@ def resolve(root, name, approved_by, *, now=None):
         "approved_by": approved_by.strip(),
         "resolved_at_utc": (now or datetime.now(timezone.utc)).isoformat(),
         "files_verified": len(files), "files": files,
+        "retained_verifications": [row["verification_wrapper_sha256"] for row in files
+                                   if row.get("verified_by") == "retained_verification"],
         # Reported for reconciliation only; never added to any nightly total.
         "verified_reclaimed_bytes": sum(row["reclaimed_bytes"] for row in files),
         "payload_bytes_read": 0, "source_files_changed": 0,
@@ -121,9 +152,15 @@ def main(argv=None):
     parser.add_argument("--production-repo-root", required=True)
     parser.add_argument("--attempt", required=True)
     parser.add_argument("--approved-by", required=True)
+    parser.add_argument("--verified-retained", help="wrapper-result.json of a PASS nightly retained-file verification")
+    parser.add_argument("--verified-retained-sha256")
     args = parser.parse_args(argv)
     try:
-        record = resolve(args.production_repo_root, args.attempt, args.approved_by)
+        if (args.verified_retained is None) != (args.verified_retained_sha256 is None):
+            raise ValueError("--verified-retained and --verified-retained-sha256 go together")
+        record = resolve(args.production_repo_root, args.attempt, args.approved_by,
+                         verified_retained=args.verified_retained,
+                         verified_retained_sha256=args.verified_retained_sha256)
     except Exception as exc:
         print(f"REFUSED: {exc}")
         return 1
