@@ -98,6 +98,10 @@ TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_gem": "official_gridded_forecast",
 }
 TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
+# Hard ceiling on the AWC METAR ``hours`` look-back: the longest local day is
+# 25 hours (DST fall-back). AWC documents no maximum (OpenAPI v4.0: ``number``,
+# default 1.5) and retains about 30 days; this cap keeps requests bounded.
+METAR_QUERY_HOURS_CAP = 25
 
 # Explicit capture contracts for every source adapter. These version the
 # parser/normalizer code that turned a provider response into the source data
@@ -1397,18 +1401,32 @@ class SourceFetchMixin:
             "raw": latest.get("raw"),
         }
 
-    def metar_query_hours(self):
-        now = datetime.now(self.spec.tz)
+    def metar_query_hours(self, now=None):
+        """Return the AWC ``hours`` look-back that covers the local target day.
+
+        Elapsed time is measured between absolute instants (UTC), not on the
+        wall clock: subtracting two datetimes that share one ``tzinfo`` ignores
+        their UTC offsets, so on a 25-hour fall-back day the wall-clock span
+        under-counted by an hour and late fetches dropped the day's first
+        local hour. The cap is the local day's true length rounded up, never
+        below the historical 24 and never above ``METAR_QUERY_HOURS_CAP``;
+        a normal 24-hour day requests exactly what it always did.
+        """
+
+        now = (now or datetime.now(self.spec.tz)).astimezone(self.spec.tz)
         if now.date() != self.target_date:
             return 24
-        start = datetime(
-            self.target_date.year,
-            self.target_date.month,
-            self.target_date.day,
-            tzinfo=self.spec.tz,
-        )
-        elapsed_seconds = max(0.0, (now - start).total_seconds())
-        return max(1, min(24, int(elapsed_seconds // 3600) + 2))
+        next_date = self.target_date + timedelta(days=1)
+        day_start_utc = datetime(
+            self.target_date.year, self.target_date.month, self.target_date.day, tzinfo=self.spec.tz
+        ).astimezone(timezone.utc)
+        day_end_utc = datetime(
+            next_date.year, next_date.month, next_date.day, tzinfo=self.spec.tz
+        ).astimezone(timezone.utc)
+        day_hours = -(-int((day_end_utc - day_start_utc).total_seconds()) // 3600)
+        cap = min(METAR_QUERY_HOURS_CAP, max(24, day_hours))
+        elapsed_seconds = max(0.0, (now.astimezone(timezone.utc) - day_start_utc).total_seconds())
+        return max(1, min(cap, int(elapsed_seconds // 3600) + 2))
 
     def fetch_weather_com_forecast(self):
         paid_weather_provider_disabled(

@@ -34,6 +34,11 @@ generated reports for dynamic state.
   target-date, cutoff-aligned current station observation or its captured
   max-since-07:00 summary. This exception never admits forecast, climatology,
   post-cutoff, unit-implausible, or missing evidence.
+- The station-local day is not always 24 hours. Any look-back or window over
+  it is measured between UTC instants from local midnight, never on the wall
+  clock: the AWC METAR fetch (`metar_query_hours`) asks for the elapsed span
+  plus 2 hours, capped at the day's true length rounded up (at least 24, at
+  most 25), so the 25-hour fall-back day keeps its first local hour.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
