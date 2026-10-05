@@ -12,7 +12,7 @@ def pytest_runtest_makereport(item, call):
         rec["error"] = str(call.excinfo.value)[:300]
         tb = call.excinfo.tb
         while tb is not None:
-            if tb.tb_frame.f_code.co_name == item.name:
+            if tb.tb_frame.f_code.co_name == item.originalname:
                 loc = tb.tb_frame.f_locals
                 caught = loc.get("caught")
                 v = getattr(caught, "value", None) if caught is not None else None
