@@ -2082,12 +2082,23 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
         assert probe.returncode == 0
 
 
-def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal():
+def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Defender C1 on #218: a changed production budget can never pass through."""
     script = "\n".join(RPC_BUDGET_NEEDLES)
-    adapted = _adapt_rpc_budgets(script)
-    assert "MaximumSeconds 15" not in adapted
-    assert "MaximumSeconds 20" not in adapted
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
+    ))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 8",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 8",
+    ))
     for needle in RPC_BUDGET_NEEDLES:
         changed = needle.rsplit(" ", 1)[0] + " 40"
         with pytest.raises(AssertionError):
