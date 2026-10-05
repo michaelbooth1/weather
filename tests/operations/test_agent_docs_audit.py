@@ -2,6 +2,8 @@ import datetime as dt
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from weather.operations.agent_docs_audit import (
     LINE_BUDGETS,
     NESTED_AGENT_FILE_LINE_BUDGET,
@@ -213,6 +215,7 @@ def test_trailing_blank_line_check_matches_git_for_lf_and_crlf(tmp_path):
     assert "git diff --check" in errors[0]
 
 
+@pytest.mark.spawns
 def test_trailing_blank_line_check_scans_tracked_text_only_and_flags_stale_exemptions(tmp_path):
     root = tmp_path.resolve()
 
