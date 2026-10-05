@@ -128,4 +128,3 @@ These are not defects:
 HARNESS_SHA256 8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74. Rows with target > 2026-09-29: 0. No new rules were registered, and every number here is development.
 
 Note: writing report.md (and the docs copy refute-stat-t18.md) was blocked by a subagent tool guard. The orchestrator should write C:\swarm\out\refute-stat-t18\report.md and C:\pt\swarm\docs\research\model-parity-swarm-2026-10-04\refute-stat-t18.md from this text.
-

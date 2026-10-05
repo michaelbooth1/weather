@@ -164,4 +164,3 @@ disqualified = true. I found no harness defect and no leakage. The hunter's own 
 a reason to capture Single-Runs, and its LEAD label itself is fragile.
 
 (report.md and the docs copy were blocked by the subagent tool guard; this text is the full report.)
-
