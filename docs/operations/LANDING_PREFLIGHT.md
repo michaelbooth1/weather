@@ -54,6 +54,14 @@ and the bounded suite stays the host's test gate. A PASS here grants nothing.
   `WARN known_load_sensitive` only if it passes, or misses a precondition again;
   a cooperative, forced, exit-code, cleanup-time or budget assert is FAIL and is
   never re-run.
+- The default scratch root is `<SystemDrive>\lpf-s` on Windows: short, and
+  outside `%TEMP%`, whose real-time scanning timed spawning tests out in the
+  2026-10-05 dog-food.
+- Checks run with `GIT_ALTERNATE_OBJECT_DIRECTORIES` set to the scratch store's
+  objects and the caller's objects. The scratch worktree's objects otherwise sit
+  behind alternates, and a test that `git clone --shared`s the repository and
+  pushes between its own clones hit "missing object". On a real clone that test
+  passes.
 - The child environment is offline and scrubbed with the bounded suite's
   sensitive-name rules (tokens, proxies, wallet and exchange names,
   `SETTLEMENT_LEDGER_ROOT`), plus `GIT_ALLOW_PROTOCOL=file`,

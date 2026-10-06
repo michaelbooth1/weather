@@ -1244,3 +1244,37 @@ def test_a_non_sensitive_node_with_a_precondition_shaped_assert_is_not_tolerated
     lookalike = _failure("tests/test_other.py::test_y", 'assert "debug mode" in out')
     (failing, tolerated, evidence), calls = _isolation(monkeypatch, [lookalike], lambda t: pytest.fail("no re-run"))
     assert failing == [lookalike] and tolerated == [] and evidence == {} and calls == []
+
+
+# --------------------------------------------------------------------------- scratch root and object visibility (2026-10-06)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows default scratch root")
+def test_default_scratch_root_is_short_and_outside_temp(monkeypatch):
+    """%TEMP% scanning timed reconciler tests out in the 2026-10-05 dog-food; MAX_PATH needs a short root."""
+    import tempfile
+    monkeypatch.setenv("SystemDrive", "Q:")
+    root = lp.default_scratch_root()
+    assert root == Path("Q:\\") / "lpf-s"
+    assert not str(root).lower().startswith(tempfile.gettempdir().lower())
+
+
+@pytest.mark.spawns
+def test_checks_see_the_scratch_store_and_caller_objects(fx):
+    """A test that clones the scratch worktree with --shared and pushes between clones needs every
+    object a real clone has (reconciler config_blob 'missing object' in the 2026-10-05 dog-food)."""
+    seen = {}
+
+    def capture(ctx):
+        seen.update(env=dict(ctx.child_env), store=ctx.git_dir)
+        return lp.CheckResult(lp.PASS, "captured")
+
+    registry = lp.CheckRegistry()
+    registry.register(lp.CheckSpec("capture_env", lp.PHASE_WORKTREE, capture, "test"))
+    head = fx.commit(fx.base, {"docs/z.md": "z\n"}, "head")
+    run(fx, fx.options(head), registry=registry)
+    dirs = seen["env"]["GIT_ALTERNATE_OBJECT_DIRECTORIES"].split(os.pathsep)
+    assert dirs[0] == str(seen["store"] / "objects")
+    common = subprocess.run(["git", "-C", str(fx.repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    assert Path(dirs[1]) == Path(common) / "objects"

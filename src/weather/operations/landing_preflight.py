@@ -792,6 +792,14 @@ _PROBE = (
 
 def _phase_import_probe(ctx: PreflightContext) -> CheckResult:
     ctx.child_env, removed = scrubbed_child_env(dict(os.environ), ctx.worktree)
+    # The scratch worktree's objects live behind alternates (store -> caller). Tests that
+    # `git clone --shared` the repository and push between their own clones then hit
+    # "missing object" (2026-10-05 dog-food: reconciler config_blob, which passes on a real
+    # clone). Every git process under the checks sees both object stores, as a real clone would.
+    if ctx.git_dir is not None:
+        common = _caller_git(ctx, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+        ctx.child_env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.pathsep.join(
+            [str(ctx.git_dir / "objects"), str(Path(common) / "objects")])
     result = ctx.run([ctx.python, "-c", _PROBE], cwd=ctx.worktree, timeout=120)
     root = os.path.realpath(str(ctx.worktree))
     evidence: dict[str, Any] = {"python": ctx.python, "scrubbed_env_names": removed}
@@ -982,13 +990,22 @@ def _cleanup(ctx: PreflightContext) -> dict[str, Any]:
     return state
 
 
+def default_scratch_root() -> Path:
+    """``<SystemDrive>/lpf-s`` on Windows: short, and outside %TEMP%, which real-time
+    scanning slows enough to time out spawning tests (2026-10-05 dog-food); else the temp dir."""
+
+    if os.name == "nt":
+        return Path(os.environ.get("SystemDrive", "C:") + "\\") / "lpf-s"
+    return Path(tempfile.gettempdir()) / "weather-landing-preflight"
+
+
 def run_preflight(options: argparse.Namespace, *, registry: CheckRegistry | None = None,
                   runner: CommandRunner | None = None, host_id_fn: Callable[[], str] | None = None) -> tuple[int, dict[str, Any]]:
     """Run the preflight; returns ``(exit_code, document)``.  Seams are for tests."""
 
     started = time.monotonic()
     repo = Path(options.repo).resolve()
-    scratch_root = Path(options.scratch).resolve() if options.scratch else Path(tempfile.gettempdir()) / "weather-landing-preflight"
+    scratch_root = Path(options.scratch).resolve() if options.scratch else default_scratch_root()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     ctx = PreflightContext(repo=repo, options=options, scratch_root=scratch_root,
                            run_dir=scratch_root / f"run-{stamp}-{os.getpid()}", runner=runner or run_command,
