@@ -18,7 +18,8 @@ This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
-admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
+admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+the focused runs exempted below (owner decision 2026-10-04).
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
@@ -52,6 +53,23 @@ portable/offline profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 
+The residual scan counts every Python process whose command line it cannot
+read as heavy, because a non-elevated session cannot read S4U or service
+command lines. The single exception is the explicit allowlist in
+`Get-WeatherKnownReadOnlyServiceDefinition` (today only the S4U
+`\WeatherWalletReader` task running `-m weather.market.wallet_reader serve`).
+A process is excluded only when the registered task definition matches the
+allowlisted logon type, executable and arguments, the Scheduler reports exactly
+one running instance whose engine PID is that process, and its creation time
+falls just after the task's last start; the engine's direct `python.exe`
+children (the venv redirector's interpreter) are excluded with it. Any
+mismatch, or a Scheduler that cannot be read, excludes nothing. Every
+recovery decision (owner alive, residuals found, scan failure, recovered) is
+echoed as a warning and appended to `data\logs\heavy_workload_recovery.jsonl`
+in the admitting checkout. Add an allowlist entry, with tests, only for a
+long-running service that never runs tests, training, replay or order
+mutation.
+
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` admission is restricted to canonical live-stage workload
@@ -76,6 +94,52 @@ capture wrappers and exact per-lane disk reservations. They retain the shared
 lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
+
+## Workstation focused runs, FIFO queue and xdist (owner decision 2026-10-04)
+
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](DECISION_LOG.md) row of 2026-10-04;
+record: [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) P3).
+**Every capture-host rule in this file is unchanged**; this section applies only to the non-capture
+workstation.
+
+- **Focused-run exemption.** pytest naming at most 25 test files, none containing a test marked `serial`, and
+  not using xdist, may run without `workstation_heavy.ps1`, with an explicit `--basetemp` deleted afterwards.
+  Never while a portable live stage holds the host-global mutex. A file that starts PowerShell counts as
+  `serial` even without the marker (see *Exemption* below).
+- **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
+  -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
+- **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
+  on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
+  outcomes) has been shown against a serial run.
+
+**Mechanism (implemented 2026-10-04, test-suite review K item M).** Host identity is the existing one: the
+SHA-256 of the Windows `MachineGuid` compared with `dedicated_capture_execution_host_id` in
+`config/international_live_execution_host.json`. On that identity, or when it cannot be proved, nothing
+below applies: no exemption, no queue state, the same windows and the same bounded-suite rule.
+
+- *Exemption.* The Codex hook (`.codex/hooks/pre_tool_use_host_load.py`, `focused_pytest_verdict`) admits
+  one static `python -m pytest` (or `pytest`) command with no chaining, at most 25 distinct existing test
+  files (node ids of one file count once), an explicit `--basetemp`, only allowlisted options (`-k`/`-m` only
+  beside named files; no xdist, `--pyargs`, directories, globs or `@argfiles`), and no `serial` file. A file
+  is `serial` when it carries `pytest.mark.serial`, or when it, a local `tests.*` module it imports, or an
+  ancestor `conftest.py` names PowerShell (a `powershell`/`pwsh` string, identifier or import, or a `.ps1`
+  string) and imports a process-spawning module (`subprocess`, `asyncio`, `os`, `multiprocessing`); an
+  unparsable file is `serial`. A host-global state marker naming `portable_execution_v1`, or one that cannot
+  be read, refuses the exemption. `scripts/ops/workstation_focused_exemption.ps1` exposes the same verdict as
+  `Test-WeatherWorkstationFocusedPytestExemption`: it proves the non-capture identity with
+  `workload_admission.ps1` before it asks the hook's classifier (`--classify-focused-pytest`);
+  `workload_admission.ps1` itself stays independent of the hook. A denial names the reason.
+- *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
+  `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
+  process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
+  every checkout and worktree). Only the head ticket tries the lease; each poll first reaps tickets whose PID
+  has exited or names a different process, and unreadable tickets older than 60 s. Events go to stdout and to
+  `data\logs\heavy_workload_queue.jsonl` in the admitting checkout: `enqueue`, `wait` (on every position
+  change and every `-QueueReportSeconds`, default 60), `reaped`, `start`, `finish` (with the exit code),
+  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known. A timeout exits
+  **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
+  only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
+  first. Kill-on-close Job and child-tree teardown are unchanged.
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
@@ -386,19 +450,20 @@ Stage-A, workstation or live authority is added.
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
-6. **Codex verification is serial and time-gated.** The OS guard terminates
-   recognized Codex-owned pytest, compileall, inline/bare Python, and recursive
+6. **Agent verification is serial and time-gated.** The OS guard terminates
+   recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
    data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. A Codex-owned tool tree is independently terminated when
+   inside the window. An agent-owned tool tree is independently terminated when
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
-   wait for global commit to reach 92%. A user-layer `PreToolUse` hook rejects these commands
+   wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned 25-file bounded wrapper. Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
-   exact definition on the next session.
+   exact definition on the next session. Claude Code sessions have no hook; the
+   S4U guard is their only backstop.
 7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
    point it at a directory you own outside `data\`, and delete that directory
    when the run ends — pass or fail. Measure free space on the volume before
@@ -408,6 +473,15 @@ Stage-A, workstation or live authority is added.
    volume from roughly 20 GiB to 7 GiB free. pytest keeps its last three
    base-temp roots by default, so an undeleted run is a standing cost. This
    applies on every host; on the capture host it is also a capture risk.
+
+**Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
+run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
+never walks the main working tree or a worktree's `data\` (unless `-IncludeWorktreeData`, workstation only),
+never follows a reparse point, and caps each walk (`-MaxEntriesPerItem`) and the whole run
+(`-MaxTotalSeconds`); a capped item is reported CHECK, never SAFE. Its companion
+`workstation_space_clean.ps1 -Apply` deletes files, so on the capture host it is a bulk file operation under
+rule 1 (never 12:00-00:30). The session rule for where scratch goes is in
+[the workstation session preamble](WORKSTATION_SESSION_PREAMBLE.md#scratch-space).
 
 Incident-bearing watchdog samples append to
 `data/logs/memory_commit_guard_history.jsonl` without raw command lines. The

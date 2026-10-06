@@ -77,22 +77,35 @@ Canonical Streamlit entrypoint:
 The former root wrapper was retired on 2026-07-20. Use the canonical entrypoint
 above for every dashboard launch.
 
-The operator launcher starts Streamlit if needed, opens the read-only Control
-Room, and writes Streamlit logs under `data/logs/`:
+The operator launcher starts Streamlit if needed, opens the read-only Owner
+Cockpit, and writes Streamlit logs under `data/logs/`:
 
 ```powershell
 .\scripts\launch\start_weather_dashboard.cmd
 ```
 
-The frontend deliberately has only two pages:
+The frontend deliberately has only three pages:
 
 ```text
+http://localhost:8501/?cockpit
 http://localhost:8501/?market=control
 http://localhost:8501/?roadmap
 ```
 
-The **Control Room** is the decision-first surface for the capped International
-Polymarket maker pilot. It binds the latest maker run to an exact-target-date
+The **Owner Cockpit** is the default page. Its Money, Work, Health and Exam
+columns read the watchdog record (`data/alerts/host_health_latest.json`), the
+tail of `data/alerts/disk_free_trail.jsonl` (24 h slope, days to 50 and 40
+GiB), 88a maker-evidence status and closed UTC dates, the `docs/roadmap/work/`
+registry (owner waits over three days are flagged), and the wallet reader's
+`summary` and `rewards` routes through its GET-only LAN client. Every source is
+optional and states why it is unavailable; campaign P&L is shown only when the
+reader reports it complete, otherwise `INCOMPLETE` with the reasons. Exam dates
+are constants from the signed replay calendar. During an exam it shows no policy
+P&L or policy comparison for panel dates. It has no mutation controls and fails
+closed on any exception.
+
+The **Control Room** (historical pilot view) is the decision-first surface for
+the capped International Polymarket maker pilot. It binds the latest maker run to an exact-target-date
 readiness receipt, the canonical host digest, International platform identity,
 execution-tape integrity, and the explicitly accepted exchange-economics
 baseline. Missing, stale, US-platform, or contradictory evidence produces
@@ -102,9 +115,9 @@ promotion, or risk-setting controls.
 
 The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
 roadmap index, separates dependency-held items from work with a clear path, and
-surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
-to the Control Room; the retired frontend pages are not retained as hidden
-code.
+surfaces roadmap-integrity failures. Any `?market=` route, including the
+retired ones, falls back to the Control Room; other unknown routes open the
+Cockpit. The retired frontend pages are not retained as hidden code.
 
 ## Tests And Local Checks
 
@@ -120,6 +133,15 @@ local only, and the full suite runs only through
 `scripts/ops/bounded_worktree_test_suite.ps1` (25-file chunks under the shared
 workload lease). See [development.md](docs/development.md) and the
 [host load policy](docs/operations/HOST_LOAD_POLICY.md).
+
+On the non-capture workstation, a focused run (at most 25 named test files, none
+`serial` or starting PowerShell, an explicit `--basetemp`, no xdist) runs directly;
+larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit 75):
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
+.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+```
 
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
@@ -166,9 +188,24 @@ Environment variables used by operator-facing code:
 ## Core Commands
 
 The owner-started [read-only wallet LAN API](docs/operations/wallet-reader.md)
-provides account summaries, positions, open orders, trades and reward reads via
+provides account summaries, positions, open orders, trades, reward and settlement reads via
 `python -m weather.market.wallet_reader_client`; its runbook owns startup,
 credential selection and the scoped firewall commands.
+
+`scripts\ops\wait_pr_ci.ps1 -Pr <n> -ExpectedHead <sha>` waits (read-only, via `gh`) until
+every check on that exact PR head finishes; exit 0 means all green, 1 a failure, 2 a timeout,
+4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
+([guarded-merge runbook](docs/ops/streak-soak.md)).
+
+`scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
+folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.
+`scripts\ops\workstation_space_clean.ps1 -FromReport <json>` lists what it would remove, and with `-Apply`
+removes only items that are still SAFE on a fresh re-check, writing a JSON receipt
+([session preamble](docs/operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space)).
+
+The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
+(`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
+conflicts, age, linked work, roll heuristic and a proposed action; it changes nothing.
 
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
@@ -402,6 +439,19 @@ health proof are completed.
 .\venv\Scripts\python.exe -m weather.calibration.feature_model --market nyc --skip-loo
 .\venv\Scripts\python.exe -m weather.calibration.intraday_calibration
 .\venv\Scripts\python.exe -m weather.artifacts size-audit
+```
+
+Late-day lock-in anchor replay (read-only, closed dates up to 2026-09-29 only).
+Run it on the capture host only inside the admitted heavy window under the
+shared lease. It replays captured inputs through `estimate_distribution` with
+the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
+row per snapshot, holding both final vectors, to a new `--out` file outside
+`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
+row's new vector holds more mass below the anchor bucket than the old one. It
+refuses later dates, an existing `--out`, and any `--out` inside `data/`:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
 ```
 
 `weather.calibration.feature_model` trains one market/unit-family at a time.

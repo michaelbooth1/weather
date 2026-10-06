@@ -236,7 +236,9 @@ seven hours). These rules bind every production and workstation agent:
 2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
    Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
    or quiet window. The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
-   diff is only `docs/**/*.md`, and names the published commit. Never run the merge tool's `-DryRun` for such a branch (that
+   diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch <b> -ExpectedTip
+   <sha>` does exactly this (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
+   receipt. Never run the merge tool's `-DryRun` for such a branch (that
    dry run left the 09-24 marker).
 3. **Lanes do not block each other.** Landing, research runs, disk work and workstation missions are independent lanes;
    a stall in one never pauses the others. Record the stall and move to the next lane. This never licenses parallel heavy

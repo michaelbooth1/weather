@@ -1,0 +1,430 @@
+{
+  "schema": "weather_universe_desk_study_v1",
+  "asof": "2026-09-24T20:20:00+00:00",
+  "cutoff": "2026-07-26T20:20:00+00:00",
+  "families": 215,
+  "events": 5492,
+  "markets": 60347,
+  "excluded_events": 123,
+  "markets_without_condition_id": 44,
+  "buckets": {
+    "Not worth it": 66,
+    "Ingest later": 147,
+    "Ingest now": 2
+  },
+  "routes": [
+    {
+      "tag": "103037",
+      "closed": false,
+      "pages": 1,
+      "scanned": 40,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "103037",
+      "closed": true,
+      "pages": 2,
+      "scanned": 116,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "103545",
+      "closed": false,
+      "pages": 1,
+      "scanned": 1,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "103545",
+      "closed": true,
+      "pages": 1,
+      "scanned": 6,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "104615",
+      "closed": false,
+      "pages": 1,
+      "scanned": 1,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "104615",
+      "closed": true,
+      "pages": 2,
+      "scanned": 158,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "105879",
+      "closed": false,
+      "pages": 1,
+      "scanned": 2,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "105879",
+      "closed": true,
+      "pages": 1,
+      "scanned": 37,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "496",
+      "closed": false,
+      "pages": 1,
+      "scanned": 15,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "496",
+      "closed": true,
+      "pages": 1,
+      "scanned": 70,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "84",
+      "closed": false,
+      "pages": 4,
+      "scanned": 342,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "84",
+      "closed": true,
+      "pages": 53,
+      "scanned": 5300,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "85",
+      "closed": false,
+      "pages": 1,
+      "scanned": 7,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "85",
+      "closed": true,
+      "pages": 1,
+      "scanned": 37,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "87",
+      "closed": false,
+      "pages": 1,
+      "scanned": 40,
+      "terminal_or_cutoff": true
+    },
+    {
+      "tag": "87",
+      "closed": true,
+      "pages": 2,
+      "scanned": 120,
+      "terminal_or_cutoff": true
+    },
+    {
+      "search": "temperature",
+      "filters": {},
+      "pages": 101,
+      "http_status": 422,
+      "has_more": true
+    },
+    {
+      "search": "rain",
+      "filters": {},
+      "pages": 25,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "precipitation",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "snow",
+      "filters": {},
+      "pages": 2,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "hurricane",
+      "filters": {},
+      "pages": 14,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "storm",
+      "filters": {},
+      "pages": 10,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "heat",
+      "filters": {},
+      "pages": 12,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "climate",
+      "filters": {},
+      "pages": 6,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "drought",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "flood",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "tornado",
+      "filters": {},
+      "pages": 2,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "weather",
+      "filters": {},
+      "pages": 101,
+      "http_status": 422,
+      "has_more": true
+    },
+    {
+      "search": "wildfire",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "sea ice",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "El Nino",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "La Nina",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "wind gust",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "wind speed",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "river",
+      "filters": {},
+      "pages": 7,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "lake",
+      "filters": {},
+      "pages": 17,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "hottest",
+      "filters": {},
+      "pages": 3,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "coldest",
+      "filters": {},
+      "pages": 2,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "hail",
+      "filters": {},
+      "pages": 3,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "blizzard",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "monsoon",
+      "filters": {},
+      "pages": 2,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "humidity",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "frost",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "cyclone",
+      "filters": {},
+      "pages": 2,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "typhoon",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "wave height",
+      "filters": {},
+      "pages": 1,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "temperature",
+      "filters": {
+        "events_status": "active"
+      },
+      "pages": 6,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "temperature August",
+      "filters": {},
+      "pages": 48,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "temperature July",
+      "filters": {},
+      "pages": 37,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "temperature September",
+      "filters": {},
+      "pages": 55,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "weather",
+      "filters": {
+        "events_status": "active"
+      },
+      "pages": 8,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "weather August",
+      "filters": {},
+      "pages": 49,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "weather July",
+      "filters": {},
+      "pages": 38,
+      "http_status": 200,
+      "has_more": false
+    },
+    {
+      "search": "weather September",
+      "filters": {},
+      "pages": 57,
+      "http_status": 200,
+      "has_more": false
+    }
+  ],
+  "errors": [
+    {
+      "route": "search:temperature",
+      "status": 422
+    },
+    {
+      "route": "search:weather",
+      "status": 422
+    }
+  ],
+  "reward_routes": [
+    {
+      "route": "current_rewards",
+      "pages": 33,
+      "count": 16364,
+      "terminal": "LTE="
+    }
+  ],
+  "baseline_pool": 4800.0,
+  "incremental_ingest_now_pool": 500.0,
+  "all_weather_pool": 20587.004,
+  "daily_family_target_dates": 5336,
+  "daily_target_date_clusters": 67,
+  "daily_city_clusters": 51,
+  "stale_open_daily_events": 6,
+  "incremental_ingest_now_gib_per_day": 0.2,
+  "interpretation": "Descriptive sequential public snapshot; pool is not income. No historical book/reward backfill, inference interval, power claim, or promotion evidence. 0.1 GiB/day/family is the handoff planning assumption, not measured.",
+  "source_hashes": {
+    "discovery.json": "9f5e2cd64289147b5f74961a6f1f6f4625ebf67b9b7b46c71ac6a2714c2515c1",
+    "enrichment.json": "6b7cd71f104a6bc43fc099e0b98abdcfda33418dfb9b063dae23c48c18cf4250"
+  }
+}

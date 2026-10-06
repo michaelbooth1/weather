@@ -15,8 +15,10 @@
 # publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
-# Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
-# window can cost the streak day. See docs/ops/streak-soak.md.
+# Window rule: every branch is refused 12:00-00:30 (the 12:00-18:00 graded capture window,
+# where a roll can cost the day, and the 18:00-00:30 near-close window). A roll-sensitive
+# branch (roll_verdict.ps1 not a clean ROLL-FREE) is further confined to 01:00-04:00 unless
+# -Force; a ROLL-FREE branch may run 00:30-12:00. See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -27,7 +29,7 @@ param(
     [string]$ExpectedPublishedTarget = "",
     [string]$ExpectedSourceTip = "",
     [string]$ExpectedSourceTree = "",
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$OwnerApprovedException = "",
@@ -38,6 +40,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`, so a default derived there failed
+# binding before the script ran (2026-10-04). Derive it in the body instead; an
+# explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath)))
+}
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
     if ($ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {

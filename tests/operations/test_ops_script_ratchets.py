@@ -8,10 +8,13 @@ import subprocess
 
 import pytest
 
+pytestmark = pytest.mark.ratchet
+
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
 
 
+@pytest.mark.windows_native
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell AST")
 def test_all_ops_scripts_parse_and_do_not_bind_operators_as_parameters():
     source = r"""
@@ -132,6 +135,7 @@ RETIRED_REGISTRARS = [
 ]
 
 
+@pytest.mark.windows_native
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell fixture")
 @pytest.mark.parametrize("name", RETIRED_REGISTRARS)
 @pytest.mark.parametrize("acknowledge", [False, True])

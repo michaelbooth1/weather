@@ -1,4 +1,4 @@
-# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]
+# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [DORMANT 2026-09-29 - TAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]
 
 Goal: keep the taker paper loop's steady-state memory and per-tick I/O bounded
 by its current working set rather than elapsed tick count or cumulative tape

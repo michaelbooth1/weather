@@ -1,0 +1,30 @@
+{
+  "id": "W-0009",
+  "title": "Land 110k/l/m/n/o handoffs and night documentation",
+  "workstream": "canon",
+  "status": "handed-off",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": "codex/handoff-110k-20260926",
+  "tip": "d52969fa28ea7aa871e85d26888fcba326046da2",
+  "pr": null,
+  "roll": "free",
+  "depends_on": [
+    "W-0001"
+  ],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "morning docs light path after integration"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Earlier tips 7f883abd1, b5a1cf81e, 2c8b90618 superseded by d52969fa2.",
+    "Four DECISION_LOG rows due: owner-discretionary default, manual-trades isolation, ten repo-health decisions, RE-1 read-only access.",
+    "STATE_OF_PLAY rewrite <=95 lines; integration/adoption, dry-run and parity verdict, ledger adapter gap, dotenv gap, repo-health critical path. Say replay_cache deleted only with receipt."
+  ]
+}

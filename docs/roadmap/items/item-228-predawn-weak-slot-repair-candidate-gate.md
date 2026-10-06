@@ -1,4 +1,4 @@
-# 228. Predawn Weak-Slot Repair Candidate Gate [PARTIAL 2026-06-22 - PARAMETER SWEEP BLOCKS BROAD HOURLY]
+# 228. Predawn Weak-Slot Repair Candidate Gate [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - PARAMETER SWEEP BLOCKS BROAD HOURLY]
 
 Goal: turn the predawn weak-slot repair from a promising diagnostic probe into
 a promotion-compatible candidate gate.

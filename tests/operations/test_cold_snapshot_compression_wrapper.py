@@ -19,12 +19,16 @@ import venv
 
 import pytest
 
+from tests.git_template import commit_fixture_tree
+
 from weather.execution_host import current_execution_host_id
 from weather.paths import repo_path
 from weather.operations.process_lock_identity import observe_process_identity
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell/Job/lease orchestration")
+
+FIXTURE_GIT_CONFIG = ("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false")
 
 CHILD = '''
 import argparse, json, os, subprocess, sys, time
@@ -69,7 +73,7 @@ def replace_once(text, before, after):
 
 
 @pytest.fixture
-def wrapper_fixture(tmp_path, request):
+def wrapper_fixture(tmp_path, tmp_path_factory, request):
     source = tmp_path / "source checkout"
     production = tmp_path / "fixture production"
     scripts = source / "scripts/ops"
@@ -91,7 +95,8 @@ def wrapper_fixture(tmp_path, request):
     wrapper = replace_once(wrapper, "$deadline = [DateTime]::UtcNow.AddSeconds(",
         "$windowEnd = [DateTime]::UtcNow.AddHours(1)\n$deadline = [DateTime]::UtcNow.AddSeconds(")
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
-        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
+        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
+        "    # Identity, time and live lease")
     wrapper_path = scripts / "cold_snapshot_compression_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
@@ -110,11 +115,9 @@ def wrapper_fixture(tmp_path, request):
     (package / "cold_snapshot_nightly.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
-    command("git", "init", str(source))
-    command("git", "-C", str(source), "add", ".")
-    command("git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-            "-c", "commit.gpgSign=false", "commit", "-m", "Isolated launcher fixture")
-    head = command("git", "-C", str(source), "rev-parse", "HEAD")
+    # Same one-commit checkout as git init/add/commit; see tests/git_template.py.
+    head = commit_fixture_tree(source, cache_root=tmp_path_factory.getbasetemp() / "git-templates",
+                               config=FIXTURE_GIT_CONFIG, message="Isolated launcher fixture")
     return source, production, wrapper_path, head
 
 
@@ -134,7 +137,11 @@ def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=Non
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
-    process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
+    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
     return process, output
 
 
