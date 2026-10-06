@@ -149,7 +149,7 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
 
 - **Never run recursive `Get-ChildItem` over `data\`.** The tree holds millions of files and the scan
   starves capture. Target subtrees. A full `pytest` run breaches the memory ceiling too — use the
-  bounded 25-file wrapper (`scripts\ops\bounded_worktree_test_suite.ps1`).
+  full-suite wrapper (at most 25 files per chunk) (`scripts\ops\bounded_worktree_test_suite.ps1`).
 - **Test runs are disk writers.** Always pass `--basetemp` and delete it afterwards; measure free
   space before and after (`HOST_LOAD_POLICY.md` rule 7).
 - **Abandoning a tool call does NOT kill the process.** An abandoned scan ran 13 h × 2.94 GB and
