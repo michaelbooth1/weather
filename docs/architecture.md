@@ -152,7 +152,8 @@ daily-roll liveness classification.
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
   standing-high partial, late-day continuation) read one anchor built by
   `late_day_lockin_anchor` in `weather.model.model_distribution`
-  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`). With WU printed history
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`; the pre-lock-in floor
+  of `lockin-anchor-v4` is model `v0.5.12`). With WU printed history
   present it is that history, unchanged. With WU history empty it is the
   observed same-day station high: point-in-time METAR rows keyed by observation
   time (AWC `obsTime`, else the raw `DDHHMMZ` group), never by the nominal
