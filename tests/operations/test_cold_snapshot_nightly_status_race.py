@@ -7,7 +7,8 @@ transient capture_unhealthy read. Guards: transient status reads back off and wa
 sustained unreadable or BLOCKed capture status fails the night.
 """
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+import json
 import os
 
 import pytest
@@ -97,7 +98,7 @@ def test_selection_refuses_an_error_inside_a_selected_closed_folder(tmp_path, mo
 
 
 def notes():
-    return {"admission_retries": 0, "admission_retry_notes": []}
+    return {"admission_retries": 0, "admission_retry_notes": [], "admission_wait_seconds": 0.0, "admission_episodes": 0}
 
 
 PASS = {"status": "PASS", "reasons": []}
@@ -193,8 +194,9 @@ def test_a_transient_capture_unhealthy_read_is_waited_out():
 def test_a_persistent_permission_error_still_fails_closed():
     observe, calls = always(DENIED)
     clock = Clock()
-    with pytest.raises(PermissionError, match="unreadable for 60 s"):
+    with pytest.raises(night.AdmissionUnknown, match=r"\(sustained\) after 58\.8 s") as caught:
         observe_with(clock, observe)
+    assert isinstance(caught.value.__cause__, PermissionError)
     # Bounded: it gave up before the sustained bound, after the backoff and wait polls.
     assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
     assert sum(clock.slept) + night.ADMISSION_WAIT_POLL_SECONDS > night.ADMISSION_SUSTAINED_SECONDS
@@ -208,10 +210,96 @@ def test_a_persistent_block_is_returned_for_the_guard_to_refuse():
     assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
 
 
-def test_the_admission_wait_fits_inside_the_child_stop_reserve():
-    """A sustained wait that starts just before the child deadline still ends before the wrapper hard stop."""
-    worst = night.ADMISSION_SUSTAINED_SECONDS + night.ADMISSION_WAIT_POLL_SECONDS
-    assert worst < 120  # cold_snapshot_compression_run.ps1 $nightlyChildStopReserveSeconds
+@pytest.mark.parametrize("error", [FileNotFoundError(2, "No such file", ".clob_loop_status.json.writer.lock"),
+                                   json.JSONDecodeError("Expecting value", "", 0)])
+def test_a_writer_lock_caught_mid_restart_is_transient_too(error):
+    """Defender #238: the writer lock is unlinked on release and written after an O_EXCL create."""
+    observe, calls = sequence(error, error, PASS)
+    assert observe_with(Clock(), observe) is PASS and len(calls) == 3
+
+
+def test_a_mixed_unreadable_and_blocked_episode_fails_closed_on_its_last_observation():
+    observe, _ = always(DENIED)
+    outcomes = iter([BLOCK, DENIED] * 20)
+
+    def mixed(root, resources):
+        outcome = next(outcomes)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    with pytest.raises(night.AdmissionUnknown, match="sustained"):
+        observe_with(Clock(), mixed)
+
+
+class Wall:
+    """Wall clock tied to the fake monotonic clock."""
+
+    def __init__(self, clock, start):
+        self.clock, self.start = clock, start
+
+    def __call__(self):
+        return self.start + timedelta(seconds=self.clock.now)
+
+
+def test_a_wait_never_crosses_the_child_deadline():
+    """Defender #238: a wait starting just before the deadline stops instead of carrying work past it."""
+    clock = Clock()
+    start = datetime(2026, 10, 7, 12, 57, 0, tzinfo=timezone.utc)
+    deadline = start + timedelta(seconds=10)
+    observe, _ = always(DENIED)
+    with pytest.raises(night.AdmissionUnknown, match="deadline"):
+        night.observe_admission("root", None, notes(), observe=observe, sleep=clock.sleep, monotonic=clock.monotonic,
+                                deadline=deadline, now=Wall(clock, start))
+    assert start + timedelta(seconds=sum(clock.slept)) < deadline
+    observe, _ = always(BLOCK)
+    clock = Clock()
+    assert night.observe_admission("root", None, notes(), observe=observe, sleep=clock.sleep,
+                                   monotonic=clock.monotonic, deadline=deadline, now=Wall(clock, start)) is BLOCK
+    assert start + timedelta(seconds=sum(clock.slept)) < deadline
+
+
+def test_a_flapping_capture_spends_the_night_budget_then_fails_closed():
+    """Defender #238: 'sustained' is also counted across the night, not only per episode."""
+    record = notes()
+    episodes = 0
+    with pytest.raises(night.AdmissionUnknown, match="night_budget"):
+        while True:  # each episode: unreadable for ~49 s, then a brief PASS
+            observe, _ = sequence(*([DENIED] * 13), PASS)
+            observe_with(Clock(), observe, record)
+            episodes += 1
+            assert episodes < 20
+    assert record["admission_wait_seconds"] <= night.ADMISSION_NIGHT_WAIT_BUDGET_SECONDS
+    assert record["admission_episodes"] == episodes + 1
+
+
+def test_throttle_does_not_burst_after_a_long_guard_pause(monkeypatch, tmp_path):
+    """Defender #238: time spent waiting inside guard() is not owed back as unthrottled reads."""
+    from weather.operations import ntfs_file_compression as ntfs
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"x" * (4 * ntfs.MIB))
+
+    class FakeTime:
+        def __init__(self):
+            self.now, self.sleeps = 0.0, []
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    fake = FakeTime()
+    monkeypatch.setattr(ntfs, "time", fake)
+    pauses = iter([0, 60, 0, 0, 0, 0])
+
+    def guard():
+        fake.now += next(pauses)  # a 60 s admission wait before the second block
+
+    stub = type("Stub", (), {"path": path, "metadata": lambda self: {"size_bytes": 4 * ntfs.MIB}})()
+    ntfs.LockedNtfsFile.digest(stub, guard=guard, bytes_per_second=8 * ntfs.MIB)
+    # Every MiB after the pause is still paced at 1/8 s; none is read in a burst.
+    assert fake.sleeps == pytest.approx([0.125] * 4)
 
 
 def test_other_errors_are_not_retried():

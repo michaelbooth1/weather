@@ -269,16 +269,27 @@ delete-pending file (the 2026-10-03 night failed after 87 batches with
 
 - **Quick retries.** A `PermissionError` or `BLOCK` from an admission
   observation is re-observed after 0.25, 0.5, 1 and 2 s.
-- **Waiting.** After that, the night treats admission as unknown and waits,
-  re-observing every 5 s. No compression happens while it waits.
-- **Failing closed.** The night fails only when the capture status stays
-  unreadable (`PermissionError`) or `BLOCK`ed for 60 s.
+- **What counts as transient.** A `PermissionError` (the delete-pending status
+  file). Also a `FileNotFoundError` or `JSONDecodeError` on the writer lock,
+  which a restarting loop unlinks and then re-creates before writing.
+- **Waiting.** After the quick retries, the night treats admission as unknown and
+  waits, re-observing every 5 s. No compression happens while it waits; the
+  current closed-day file stays locked meanwhile, which capture never touches.
+  Time spent waiting is not owed back as an unthrottled read burst afterwards.
+- **Failing closed.** The night fails when the status stays unreadable or
+  `BLOCK`ed:
+  - for 60 s in one episode;
+  - for 300 s of waiting across the night (a flapping capture);
+  - or when the next wait would cross the child deadline.
+  A final unreadable status raises `AdmissionUnknown`, and a final `BLOCK`
+  refuses.
 - **Unchanged.** The admission criteria are the same, and other read errors are
   never retried.
-- **Deadline.** The wait (at most 60 s) fits inside the 120 s child stop
-  reserve, so it cannot push past the wrapper deadline.
-- **Receipt.** It counts the retries as `admission_retries` and keeps the first
-  32 observations in `admission_retry_notes`.
+- **Deadline.** The guard re-checks the deadline after a wait, so no work starts
+  past it and the 120 s child stop reserve holds.
+- **Receipt.** It records `admission_retries`, `admission_episodes`,
+  `admission_wait_seconds` and the first 32 observations in
+  `admission_retry_notes`.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total

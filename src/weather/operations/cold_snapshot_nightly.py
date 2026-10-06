@@ -44,11 +44,19 @@ CLUSTER_BYTES = 4096
 # 2026-10-04 on a transient capture_unhealthy read. So: quick retries with backoff,
 # then "admission unknown, wait" polling; the night fails closed only when the
 # capture status stays unreadable or BLOCKed for ADMISSION_SUSTAINED_SECONDS.
-# The admission criteria themselves are unchanged. The wait (at most 60 s) fits
-# inside the 120 s child stop reserve, so it cannot push past the wrapper deadline.
+# The admission criteria themselves are unchanged. A wait never crosses the child
+# deadline (it stops first), so the 120 s child stop reserve still holds.
 ADMISSION_RETRY_DELAYS = (0.25, 0.5, 1.0, 2.0)
 ADMISSION_WAIT_POLL_SECONDS = 5.0
 ADMISSION_SUSTAINED_SECONDS = 60.0
+# Across the whole night: a capture that flaps (mostly BLOCKed, briefly PASS) must
+# not keep the night limping along; once this much waiting is spent, fail closed.
+ADMISSION_NIGHT_WAIT_BUDGET_SECONDS = 300.0
+# Transient during a status replace or a loop restart: the delete-pending status
+# file (PermissionError), and the writer lock between its unlink and re-create
+# (FileNotFoundError) or between O_EXCL create and write (JSONDecodeError). The
+# plain ValueError of an over-bound read is never retried.
+TRANSIENT_ADMISSION_ERRORS = (PermissionError, FileNotFoundError, json.JSONDecodeError)
 # Owner decision 2026-10-05: the nightly runs 06:50-09:00 America/Toronto, after
 # the 04:45-06:45 tiering jobs, so 01:00-04:00 stays free for roll-sensitive merges.
 WINDOW_START_MINUTE = 6 * 60 + 50
@@ -107,17 +115,25 @@ def closed_folders(data_root, as_of, guard):
     return [name for _, name in sorted(selected)]
 
 
-def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep, monotonic=time.monotonic):
-    """Capture admission that rides out a status file's atomic replace.
+class AdmissionUnknown(RuntimeError):
+    """Capture admission stayed unreadable past its wait bounds: fail the night closed."""
 
-    Returns the first PASS. A PermissionError (sharing violation or delete-pending
-    read) or a BLOCK is re-observed: first after ADMISSION_RETRY_DELAYS, then every
-    ADMISSION_WAIT_POLL_SECONDS. Once the next wait would pass
-    ADMISSION_SUSTAINED_SECONDS, a BLOCK is returned for the guard to refuse and a
-    still-unreadable status raises PermissionError (fail closed). Other errors are
-    never retried.
+
+def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep, monotonic=time.monotonic,
+                      deadline=None, now=None):
+    """Capture admission that rides out a status file's atomic replace or a loop restart.
+
+    Returns the first PASS. A transient read error (:data:`TRANSIENT_ADMISSION_ERRORS`) or a
+    BLOCK is re-observed after ADMISSION_RETRY_DELAYS, then every ADMISSION_WAIT_POLL_SECONDS.
+    It stops waiting when the next wait would pass ADMISSION_SUSTAINED_SECONDS in this
+    episode, the night's ADMISSION_NIGHT_WAIT_BUDGET_SECONDS (``notes["admission_wait_seconds"]``),
+    or ``deadline``. Then a BLOCK is returned for the guard to refuse and an unreadable status
+    raises :class:`AdmissionUnknown`. Other errors are never retried.
     """
     observe = observe or cold.observe_capture_admission
+    now = now or (lambda: datetime.now(timezone.utc))
+    notes.setdefault("admission_wait_seconds", 0.0)
+    notes.setdefault("admission_episodes", 0)
     started = monotonic()
     attempt = 0
     while True:
@@ -126,19 +142,27 @@ def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep,
             if admission["status"] == "PASS":
                 return admission
             last, error = "BLOCK: " + ",".join(admission["reasons"]), None
-        except PermissionError as exc:
-            admission, last, error = None, f"PermissionError: {exc}", exc
+        except TRANSIENT_ADMISSION_ERRORS as exc:
+            admission, last, error = None, f"{type(exc).__name__}: {exc}", exc
+        if attempt == 0:
+            notes["admission_episodes"] += 1
         delay = ADMISSION_RETRY_DELAYS[attempt] if attempt < len(ADMISSION_RETRY_DELAYS) else ADMISSION_WAIT_POLL_SECONDS
-        if monotonic() - started + delay > ADMISSION_SUSTAINED_SECONDS:
+        elapsed = monotonic() - started
+        stop = ("sustained" if elapsed + delay > ADMISSION_SUSTAINED_SECONDS
+                else "night_budget" if notes["admission_wait_seconds"] + delay > ADMISSION_NIGHT_WAIT_BUDGET_SECONDS
+                else "deadline" if deadline is not None and now() + timedelta(seconds=delay) >= deadline
+                else None)
+        if stop:
             if error is not None:
-                raise PermissionError(f"capture status unreadable for {ADMISSION_SUSTAINED_SECONDS:.0f} s "
-                                      f"after {attempt + 1} observations: {error}") from error
+                raise AdmissionUnknown(f"capture admission unknown ({stop}) after {elapsed:.1f} s and "
+                                       f"{attempt + 1} observation(s): {last}") from error
             return admission
         notes["admission_retries"] += 1
         if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
             notes["admission_retry_notes"].append({
                 "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": last[:512]})
         sleep(delay)
+        notes["admission_wait_seconds"] += delay
         attempt += 1
 
 
@@ -326,9 +350,11 @@ def run(args):
                     result["status"] = "BLOCK"
                     result["reasons"].append("large_file_disk_reservation_unmet")
                 return result
-            admission = observe_admission(root, resources, receipt)
+            admission = observe_admission(root, resources, receipt, deadline=deadline)
             if admission["status"] != "PASS":
                 raise ValueError("nightly capture admission refused: " + ",".join(admission["reasons"]))
+            if datetime.now(timezone.utc) >= deadline:  # an admission wait must not carry work past it
+                raise ValueError("nightly deadline, approval or 06:50-09:00 window ended")
             cold.verify_current_lease(lease, owner, lease_path, workload=cold.WORKLOAD)
             last_check = time.monotonic()
 
@@ -338,6 +364,7 @@ def run(args):
         "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
         "reclaimed_bytes": 0, "logical_bytes_processed": 0, "files_processed": 0,
         "files_skipped_unshrinkable": 0, "admission_retries": 0, "admission_retry_notes": [],
+        "admission_wait_seconds": 0.0, "admission_episodes": 0,
         "nightly_budget_bytes": budget, "batches": [], "stopped_at_soft_deadline": False,
         "status": "FAILED_RETAIN_AND_INSPECT"}
     with PinnedNtfsDirectory(output):
