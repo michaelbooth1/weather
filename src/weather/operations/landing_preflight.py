@@ -145,6 +145,9 @@ def scrubbed_child_env(base: dict[str, str], worktree: Path | None) -> tuple[dic
     env.update({
         "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "PYTHONHASHSEED": "0",
         "PYTHONUTF8": "1", "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1",
+        # The scratch worktree never smudges LFS content, so a test that pushes between its own
+        # clones must not try to upload it (2026-10-06 dog-food: reconciler config_blob).
+        "GIT_LFS_SKIP_PUSH": "1",
         "WEATHER_INTEGRATION_TEST_OFFLINE": "1",
         # the bounded suite's child git settings (Defender C14)
         "GIT_ALLOW_PROTOCOL": "file", "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_REPLACE_OBJECTS": "1",

@@ -769,6 +769,7 @@ def test_child_environment_is_scrubbed_and_offline():
     assert env["PATH"] == "p" and env["WEATHER_INTEGRATION_TEST_OFFLINE"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0"
     # Defender C14: the bounded suite's child git settings
     assert (env["GIT_ALLOW_PROTOCOL"], env["GIT_CONFIG_NOSYSTEM"], env["GIT_NO_REPLACE_OBJECTS"]) == ("file", "1", "1")
+    assert (env["GIT_LFS_SKIP_SMUDGE"], env["GIT_LFS_SKIP_PUSH"]) == ("1", "1")
 
 
 def test_verdict_precedence():

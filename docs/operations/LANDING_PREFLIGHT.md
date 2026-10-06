@@ -61,7 +61,8 @@ and the bounded suite stays the host's test gate. A PASS here grants nothing.
   objects and the caller's objects. The scratch worktree's objects otherwise sit
   behind alternates, and a test that `git clone --shared`s the repository and
   pushes between its own clones hit "missing object". On a real clone that test
-  passes.
+  passes. LFS content is never smudged in the scratch worktree, so checks also run
+  with `GIT_LFS_SKIP_PUSH=1`.
 - The child environment is offline and scrubbed with the bounded suite's
   sensitive-name rules (tokens, proxies, wallet and exchange names,
   `SETTLEMENT_LEDGER_ROOT`), plus `GIT_ALLOW_PROTOCOL=file`,
