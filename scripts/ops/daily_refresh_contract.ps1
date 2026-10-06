@@ -48,7 +48,8 @@ function Get-WeatherSharedLeaseEntryPoints {
     # Derives, from source rather than a hand list, every scripts/ops script
     # and weather.* module that takes the shared heavy-workload lease, directly
     # or by launching something that does: scripts that call
-    # Enter-WeatherHeavyWorkloadLease; scripts or modules that name one of
+    # Enter-WeatherHeavyWorkloadLease or Enter-WeatherHeavyWorkloadLeaseQueued (never the
+    # defining library workload_admission.ps1); scripts or modules that name one of
     # those in a quoted path literal (a launch such as '-File',
     # (Join-Path ... 'x.ps1')); scripts that name a holder module as a quoted
     # 'weather.x.y' token (-m); and modules that import a holder module.
@@ -75,7 +76,11 @@ function Get-WeatherSharedLeaseEntryPoints {
         $kind[$node] = "py"
     }
 
-    $leaseCall = [regex]'(?m)^(?!\s*function\b)[^#\n]*\bEnter-WeatherHeavyWorkloadLease\b'
+    # Both the direct and the queued entry take the lease. workload_admission.ps1 defines
+    # them (and its queued entry calls the direct one), so the defining library is never
+    # itself a holder; a script that only dot-sources it is not either.
+    $leaseCall = [regex]'(?m)^(?!\s*function\b)[^#\n]*\bEnter-WeatherHeavyWorkloadLease(?:Queued)?\b'
+    $leaseLibrary = "workload_admission.ps1"
     $pathLiteral = [regex]'([''"])[^''"\s]*?([A-Za-z0-9_.-]+\.ps1)\1'
     $moduleLiteral = [regex]'([''"])(weather(?:\.\w+)+)\1'
     $fromImport = [regex]'(?m)^\s*from\s+(\.+[\w.]*|weather[\w.]*)\s+import\s+(?:\(([^)]*)\)|([^\n]+))'
@@ -85,7 +90,7 @@ function Get-WeatherSharedLeaseEntryPoints {
     foreach ($node in @($code.Keys)) {
         $text = $code[$node]
         $targets = @{}
-        if ($kind[$node] -eq "ps1" -and $leaseCall.IsMatch($text)) { $holders[$node] = $true }
+        if ($kind[$node] -eq "ps1" -and $node -ne $leaseLibrary -and $leaseCall.IsMatch($text)) { $holders[$node] = $true }
         $referenceOnly = $script:DailyRefreshReferenceOnlyScripts -contains $node -or
             ($kind[$node] -eq "ps1" -and $node.StartsWith("register_"))
         if (-not $referenceOnly) {
@@ -113,7 +118,7 @@ function Get-WeatherSharedLeaseEntryPoints {
             }
             foreach ($match in $plainImport.Matches($text)) { $targets[$match.Groups[1].Value] = $true }
         }
-        $edges[$node] = @($targets.Keys | Where-Object { $_ -ne $node -and $code.ContainsKey($_) })
+        $edges[$node] = @($targets.Keys | Where-Object { $_ -ne $node -and $_ -ne $leaseLibrary -and $code.ContainsKey($_) })
     }
     do {
         $grew = $false

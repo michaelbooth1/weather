@@ -71,6 +71,11 @@ def _strip_comments(text, *, powershell):
     )
 
 
+# Defines Enter-WeatherHeavyWorkloadLease(Queued); its queued entry calls the direct one,
+# so the library itself (and a script that only dot-sources it) is never a lease holder.
+LEASE_LIBRARY = "workload_admission.ps1"
+
+
 def _independent_lease_entry_points(repo_root=REPO_ROOT):
     """Re-derive the lease-taking entry points without the PowerShell code."""
 
@@ -87,7 +92,7 @@ def _independent_lease_entry_points(repo_root=REPO_ROOT):
         kind[node] = "py"
 
     lease_call = re.compile(
-        r"(?m)^(?!\s*function\b)[^#\n]*\bEnter-WeatherHeavyWorkloadLease\b"
+        r"(?m)^(?!\s*function\b)[^#\n]*\bEnter-WeatherHeavyWorkloadLease(?:Queued)?\b"
     )
     path_literal = re.compile(r"""(['"])[^'"\s]*?([A-Za-z0-9_.-]+\.ps1)\1""")
     module_literal = re.compile(r"""(['"])(weather(?:\.\w+)+)\1""")
@@ -99,7 +104,7 @@ def _independent_lease_entry_points(repo_root=REPO_ROOT):
     holders, edges = set(), {}
     for node, text in code.items():
         targets = set()
-        if kind[node] == "ps1" and lease_call.search(text):
+        if kind[node] == "ps1" and node != LEASE_LIBRARY and lease_call.search(text):
             holders.add(node)
         reference_only = node in REFERENCE_ONLY or (
             kind[node] == "ps1" and node.startswith("register_")
@@ -121,7 +126,7 @@ def _independent_lease_entry_points(repo_root=REPO_ROOT):
                 names = match.group(2) or match.group(3)
                 targets |= {f"{base}.{word}" for word in re.findall(r"\w+", names)}
             targets |= {m.group(1) for m in plain_import.finditer(text)}
-        edges[node] = {t for t in targets if t != node and t in code}
+        edges[node] = {t for t in targets if t != node and t != LEASE_LIBRARY and t in code}
 
     grew = True
     while grew:
@@ -382,6 +387,36 @@ $collisions = @(Get-DailyRefreshEvidenceTriggerCollisions -Holders $holders -Evi
     assert holders["PyTask"]["recurring"] is False
     assert holders["Logon"]["limit"] == ""
     assert sorted(result["collisions"]) == ["Launcher", "Logon", "PyTask"]
+
+
+@windows_only
+@pytest.mark.spawns
+def test_queued_lease_callers_count_and_the_defining_library_does_not(tmp_path):
+    """Master's workload_admission.ps1 enters the lease inside its own queued function, so a
+    scan that counted the library would make every script that dot-sources it a holder."""
+    ops = tmp_path / "scripts" / "ops"
+    _write(ops / "workload_admission.ps1",
+           "function Enter-WeatherHeavyWorkloadLease { param($RepoRoot) }\n"
+           "function Enter-WeatherHeavyWorkloadLeaseQueued {\n"
+           "    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot\n"
+           "}\n")
+    _write(ops / "queued_job.ps1",
+           ". (Join-Path $PSScriptRoot 'workload_admission.ps1')\n"
+           "$lease = Enter-WeatherHeavyWorkloadLeaseQueued -RepoRoot $r -Workload 'q'\n")
+    _write(ops / "direct_job.ps1",
+           ". (Join-Path $PSScriptRoot 'workload_admission.ps1')\n"
+           "$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $r -Workload 'd'\n")
+    _write(ops / "sourcer_only.ps1",
+           ". (Join-Path $PSScriptRoot 'workload_admission.ps1')\n" "$x = Get-WeatherBootSessionId\n")
+    _write(tmp_path / "src" / "weather" / "__init__.py", "")
+
+    names = _run_contract(
+        "@(Get-WeatherSharedLeaseEntryPoints -RepoRoot $env:WEATHER_REPO) | ConvertTo-Json -Compress",
+        {"WEATHER_REPO": str(tmp_path)},
+    )
+    expected = {"queued_job.ps1", "direct_job.ps1"}
+    assert set(names) == expected
+    assert _independent_lease_entry_points(tmp_path) == expected
 
 
 @windows_only
