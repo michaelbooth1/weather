@@ -117,6 +117,7 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
 | Modes | `-PreflightOnly`, `-SmokeTest`, `-IntegrationPreflight`, `-RequireLiveSdkContract` |
+| Reconciler file (L5, owner decision 2026-10-06) | `test_production_baseline_reconciler_execution.py` (~19 min) runs only when the diff from `-ReconcilerSurfaceBase` (40-hex) to the tip touches its surface. `scripts/ops/reconciler_surface.ps1` derives that surface from the test file, the scripts it names and their closure, the Python modules those scripts launch, and a floor: `quiet_window_merge.ps1`, `production_baseline_scheduler_rpc.ps1`, `workload_admission.ps1` and the integration-attempt scripts. The log records `reconciler: INCLUDED` or `SKIPPED` with the reason. `-IncludeReconciler` forces the file (the once-a-night final-tip run). No base, or a predicate that cannot be evaluated (a missing floor or test file), means the file is included, so integration attempts, which pass no base, run every file as before |
 
 The only merge-eligible result is the final log line `VERDICT: ALL CHUNKS PASSED`. When free disk is under the
 floor the suite cannot be admitted at all; that is a blocker to report, not a limit to lower.

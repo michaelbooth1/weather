@@ -484,6 +484,13 @@ Stage-A, workstation or live authority is added.
    - This changes scheduling only; the windows, the lease and serial heavy work are
      unchanged. Head composition (caps, RS batching) is in
      [the git workflow](../git-workflow.md#integration-heads-for-a-night).
+9. **The reconciler execution file runs once a night, or when touched** (L5, owner
+   2026-10-06). The bounded suite skips
+   `tests/operations/test_production_baseline_reconciler_execution.py` (~19 min) when
+   it is given `-ReconcilerSurfaceBase` and the tip changes nothing on the file's
+   derived surface; the skip is logged. The night's final-tip run passes
+   `-IncludeReconciler`. With no base, or a surface that cannot be derived, the file
+   runs. Details are in [development](../development.md).
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
