@@ -101,7 +101,7 @@ from weather.operations.daily_refresh_report import render_report as render_dail
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 from weather.operations import daily_refresh_gate_report_steps as refresh_gate_report_steps
 from weather.operations import daily_refresh_reporting_steps as refresh_reporting_steps
-from weather.reporting.promotion.readers import _serving_gauntlet_summary
+from weather.reporting.promotion.readers import serving_gauntlet_summary
 
 
 def _recent_active_variant_row(as_of=None):
@@ -1449,7 +1449,7 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertIn(str(Path(args.backtest_root) / "market_benchmark_residual_edge.json"), commands[0])
 
     def test_forecast_tracker_is_not_copied_into_promotion_display_summary(self):
-        summary = _serving_gauntlet_summary(
+        summary = serving_gauntlet_summary(
             {"verdict": "BLOCK", "forecast_tracker": {"status": "PASS"}},
             "fixture-report.json",
             "fixture-replay.json",

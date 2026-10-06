@@ -309,7 +309,7 @@ def _candidate_evidence_accounting(candidate_report):
     }
 
 
-def _serving_gauntlet_summary(report, report_path, replay_report_path):
+def serving_gauntlet_summary(report, report_path, replay_report_path):
     if not report:
         return None
     return {

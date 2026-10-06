@@ -15,7 +15,7 @@ from weather.operations.long_job_guard import (
 from weather.reporting.serving_gates.runtime_identity_evidence import build_runtime_identity_evidence
 
 SERVING_GAUNTLET_MANIFEST_SCHEMA_VERSION = "serving_gauntlet_manifest_v0.1"
-# Fields _serving_gauntlet_summary consumes; the manifest stores only these
+# Fields serving_gauntlet_summary consumes; the manifest stores only these
 # (the full report embeds every replay row and would bloat the manifest).
 _GAUNTLET_CARRY_FIELDS = (
     "verdict",
@@ -625,7 +625,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         candidate_json_path,
         candidate_report_path,
     )
-    serving_summary = _serving_gauntlet_summary(
+    serving_summary = serving_gauntlet_summary(
         serving_report,
         args.serving_gauntlet_report,
         args.serving_replay_report,
