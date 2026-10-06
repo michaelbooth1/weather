@@ -57,6 +57,11 @@ if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSecond
 if (($deadline - [DateTime]::UtcNow).TotalSeconds -lt 30) {
     throw 'REFUSED: insufficient time for a bounded child and teardown'
 }
+# A nightly child needs its stop reserve plus a soft-stop reserve, or it would refuse
+# its deadline before writing result.json: an unresolvable attempt. Refuse first.
+if ($Nightly -and ($deadline - [DateTime]::UtcNow).TotalSeconds -lt 720) {
+    throw 'REFUSED: a nightly run needs at least 720 s to its deadline (120 s child reserve + 600 s soft stop)'
+}
 
 foreach ($path in @($ProductionRepoRoot, $RequestPath, $OutputRoot)) {
     if (-not [IO.Path]::IsPathRooted($path) -or $path -match '["\r\n]' -or
@@ -137,6 +142,7 @@ try {
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = [string]$PID
     $childDeadline = if ($Nightly) { $deadline.AddSeconds(-$nightlyChildStopReserveSeconds) } else { $deadline }
+    $receipt.deadline_utc = $deadline.ToString('o')
     $receipt.child_deadline_utc = $childDeadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $childDeadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException

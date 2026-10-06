@@ -193,6 +193,71 @@ def soft_stop_reached(now: datetime, deadline: datetime) -> bool:
     return (deadline - now).total_seconds() < SOFT_STOP_RESERVE_SECONDS
 
 
+def compress_night(root, output, receipt, *, now, budget, deadline, guard, args, policy, clock=None):
+    """Select and compress closed folders oldest first; sets ``receipt["status"] = "PASS"`` at the end.
+
+    Stops before a new folder or batch once :func:`soft_stop_reached` (still PASS, with
+    ``stopped_at_soft_deadline``); any guard failure raises and the caller records
+    ``FAILED_RETAIN_AND_INSPECT``. ``clock`` is a test seam.
+    """
+    clock = clock or (lambda: datetime.now(timezone.utc))
+    as_of = now.astimezone(ZoneInfo("America/Toronto")).date()
+    inventory_bytes = 0
+    for number, folder in enumerate(closed_folders(root / "data", as_of, guard)):
+        guard()
+        if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
+            break
+        if soft_stop_reached(clock(), deadline):
+            receipt["stopped_at_soft_deadline"] = True
+            break
+        manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
+            traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
+        manifest.update(source_git_sha=args.source_git_sha, request_sha256=args.request_sha256,
+                        execution_host_id=policy["execution_host_id"])
+        manifest_path = output / f"inventory-{number:04d}.json"
+        manifest_raw = (json.dumps(manifest, sort_keys=True) + "\n").encode()
+        inventory_bytes += len(manifest_raw)
+        if inventory_bytes > MAX_INVENTORY_BYTES:
+            raise ValueError("nightly inventory evidence budget exceeded")
+        cold.write_receipt_bytes(manifest_path, manifest_raw, inventory.MAX_OUTPUT_BYTES)
+        if manifest["status"] != "PASS":
+            raise ValueError("incomplete nightly inventory; retain and inspect")
+        manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        skipped = []
+        batches = list(plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"],
+            now=now, remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"], skipped=skipped))
+        if skipped:
+            skipped_raw = (json.dumps({"inventory": manifest_path.name, "inventory_sha256": manifest_sha256,
+                                       "files": skipped}, sort_keys=True) + "\n").encode()
+            inventory_bytes += len(skipped_raw)
+            if inventory_bytes > MAX_INVENTORY_BYTES:
+                raise ValueError("nightly inventory evidence budget exceeded")
+            cold.write_receipt_bytes(output / f"skipped-{number:04d}.json", skipped_raw,
+                                     inventory.MAX_OUTPUT_BYTES)
+            receipt["files_skipped_unshrinkable"] += len(skipped)
+        for rows in batches:
+            if soft_stop_reached(clock(), deadline):
+                receipt["stopped_at_soft_deadline"] = True
+                break
+            batch_path = output / f"batch-{len(receipt['batches']):04d}"
+            batch_path.mkdir()
+            selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
+            cold.write_receipt(batch_path / "selection.json", selection)
+            results = execute_batch(rows, root, batch_path, apply=args.apply, guard=guard)
+            cold.write_receipt(batch_path / "result.json", {"status": "PASS", "results": results})
+            logical = sum(row["size_bytes"] for row in rows)
+            saved = sum(row["reclaimed_bytes"] for row in results)
+            receipt["logical_bytes_processed"] += logical
+            receipt["files_processed"] += len(results)
+            receipt["reclaimed_bytes"] += saved
+            receipt["batches"].append({"path": batch_path.name, "files": len(results),
+                                       "logical_bytes": logical, "verified_savings_bytes": saved})
+        if receipt.get("stopped_at_soft_deadline"):
+            break
+    guard()
+    receipt["status"] = "PASS"
+
+
 def run(args):
     if os.name != "nt":
         raise ValueError("nightly compression requires native Windows")
@@ -255,61 +320,8 @@ def run(args):
         cold.write_receipt_bytes(output / "request.json", raw, cold.MAX_REQUEST_BYTES)
         try:
             guard()
-            as_of = now.astimezone(ZoneInfo("America/Toronto")).date()
-            inventory_bytes = 0
-            for number, folder in enumerate(closed_folders(root / "data", as_of, guard)):
-                guard()
-                if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
-                    break
-                if soft_stop_reached(datetime.now(timezone.utc), deadline):
-                    receipt["stopped_at_soft_deadline"] = True
-                    break
-                manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
-                    traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
-                manifest.update(source_git_sha=args.source_git_sha, request_sha256=args.request_sha256,
-                                execution_host_id=policy["execution_host_id"])
-                manifest_path = output / f"inventory-{number:04d}.json"
-                manifest_raw = (json.dumps(manifest, sort_keys=True) + "\n").encode()
-                inventory_bytes += len(manifest_raw)
-                if inventory_bytes > MAX_INVENTORY_BYTES:
-                    raise ValueError("nightly inventory evidence budget exceeded")
-                cold.write_receipt_bytes(manifest_path, manifest_raw, inventory.MAX_OUTPUT_BYTES)
-                if manifest["status"] != "PASS":
-                    raise ValueError("incomplete nightly inventory; retain and inspect")
-                manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-                skipped = []
-                batches = list(plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"],
-                    now=now, remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"], skipped=skipped))
-                if skipped:
-                    skipped_raw = (json.dumps({"inventory": manifest_path.name, "inventory_sha256": manifest_sha256,
-                                               "files": skipped}, sort_keys=True) + "\n").encode()
-                    inventory_bytes += len(skipped_raw)
-                    if inventory_bytes > MAX_INVENTORY_BYTES:
-                        raise ValueError("nightly inventory evidence budget exceeded")
-                    cold.write_receipt_bytes(output / f"skipped-{number:04d}.json", skipped_raw,
-                                             inventory.MAX_OUTPUT_BYTES)
-                    receipt["files_skipped_unshrinkable"] += len(skipped)
-                for rows in batches:
-                    if soft_stop_reached(datetime.now(timezone.utc), deadline):
-                        receipt["stopped_at_soft_deadline"] = True
-                        break
-                    batch_path = output / f"batch-{len(receipt['batches']):04d}"
-                    batch_path.mkdir()
-                    selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
-                    cold.write_receipt(batch_path / "selection.json", selection)
-                    results = execute_batch(rows, root, batch_path, apply=args.apply, guard=guard)
-                    cold.write_receipt(batch_path / "result.json", {"status": "PASS", "results": results})
-                    logical = sum(row["size_bytes"] for row in rows)
-                    saved = sum(row["reclaimed_bytes"] for row in results)
-                    receipt["logical_bytes_processed"] += logical
-                    receipt["files_processed"] += len(results)
-                    receipt["reclaimed_bytes"] += saved
-                    receipt["batches"].append({"path": batch_path.name, "files": len(results),
-                                               "logical_bytes": logical, "verified_savings_bytes": saved})
-                if receipt.get("stopped_at_soft_deadline"):
-                    break
-            guard()
-            receipt["status"] = "PASS"
+            compress_night(root, output, receipt, now=now, budget=budget, deadline=deadline, guard=guard,
+                           args=args, policy=policy)
         except Exception as exc:
             receipt["error"] = str(exc)
         cold.write_receipt(output / "result.json", receipt)

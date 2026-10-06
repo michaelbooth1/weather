@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime
 import venv
 
 import pytest
@@ -48,6 +49,7 @@ if mode == 'source_drift': Path('tracked.txt').write_text('changed')
 result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding' else a.source_git_sha,
           'owner_approved_exception': os.environ.get('WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION', ''),
           'request_sha256': a.request_sha256, 'apply': a.apply, 'deleted_files': 0, 'reclaimed_bytes': 0, 'cleanup_eligible': False,
+          'deadline_env': os.environ.get('WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC'),
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
 if a.verify_retained:
     result.update(verify_retained=mode != 'wrong_verify', source_files_changed=1 if mode == 'verify_write' else 0,
@@ -118,7 +120,8 @@ def wrapper_fixture(tmp_path, request):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=None, exception="", nightly=False):
+def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=None, exception="", nightly=False,
+           max_runtime=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -129,7 +132,7 @@ def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=Non
                  "-ExpectedSourceTip", head]
     if exception: arguments += ["-OwnerApprovedException", exception]
     if apply: arguments.append("-Apply")
-    if nightly: arguments.append("-Nightly")
+    if nightly: arguments += ["-Nightly", "-MaxRuntimeSeconds", str(max_runtime or 15300)]
     if verify: arguments.append("-VerifyRetained")
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
@@ -157,7 +160,23 @@ def test_nightly_mode_uses_same_bound_wrapper_and_receipt(wrapper_fixture):
     receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
     assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
     # The nightly child stops itself 120 s before the wrapper deadline (resolvable, never a hard stop).
-    assert receipt["hard_stop"] is False and "child_deadline_utc" in receipt
+    assert receipt["hard_stop"] is False
+    wrapper_deadline = datetime.fromisoformat(receipt["deadline_utc"][:26])
+    child_deadline = datetime.fromisoformat(receipt["child_deadline_utc"][:26])
+    assert (wrapper_deadline - child_deadline).total_seconds() == 120
+    child = json.loads((output / "result.json").read_text(encoding="utf-8-sig"))
+    assert child["deadline_env"] == receipt["child_deadline_utc"]
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T06:50:00"], indirect=True)
+@pytest.mark.parametrize("max_runtime", [60, 300, 719])
+def test_a_manual_nightly_too_short_for_its_reserves_refuses_before_any_attempt(wrapper_fixture, max_runtime):
+    """Defender #238: under 720 s the child would refuse before result.json, leaving an unresolvable attempt."""
+    process, output = launch(wrapper_fixture, "success", nightly=True, max_runtime=max_runtime)
+    code, text = finish(process)
+    assert code != 0 and "at least 720 s" in text
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T01:00:00", "2026-09-24T06:49:00",

@@ -219,6 +219,14 @@ for roll-sensitive merges. Until 2026-10-06 it was 00:30-04:45.
   - Wrapper hard stop: 09:00 - 15 s, a backstop. A hard-stopped receipt cannot be
     resolved by the tool.
   - Runner backstop: 09:00, so the wrapper can still write its receipt.
+- **Manual `-Nightly` runs** need at least 720 s to their deadline (the 120 s
+  child reserve plus the 600 s soft stop); a shorter one refuses before creating
+  an attempt, because its child would refuse before writing `result.json`.
+- **Morning lease contention.** The nightly holds the shared heavy lease from about
+  06:50 to 08:50. Disabled-by-default Stage B (00:35 trigger, 09:00 teardown) or
+  any other heavy morning work makes it refuse with "lease busy": no attempt is
+  created, and only the task's nonzero `LastTaskResult` shows it. Check that
+  each morning.
 - **One attempt per local date** is unchanged. Attempts are still named
   `nightly-YYYYMMDD-*` by the local date of the start.
 

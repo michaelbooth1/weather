@@ -25,8 +25,6 @@ import pytest
 from weather.operations import cold_snapshot_nightly as nightly
 from weather.paths import repo_path
 
-pytestmark = pytest.mark.spawns
-
 TORONTO = ZoneInfo("America/Toronto")
 POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), r"System32\WindowsPowerShell\v1.0\powershell.exe")
 windows_only = pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell 5.1 orchestration")
@@ -55,13 +53,90 @@ def test_soft_stop_leaves_a_full_batch_of_time_before_the_child_deadline():
     assert nightly.cold.MAX_BATCH_BYTES / rate * 2 < reserve
 
 
-def test_the_run_loop_stops_at_the_soft_deadline_as_a_pass_not_a_failure():
-    """The soft stop breaks before a new batch and still reaches status PASS (like the byte budget)."""
-    import inspect
-    source = inspect.getsource(nightly.run)
-    assert source.count("soft_stop_reached(datetime.now(timezone.utc), deadline)") == 2
-    assert 'receipt["stopped_at_soft_deadline"] = True' in source
-    assert source.index("stopped_at_soft_deadline") < source.index('receipt["status"] = "PASS"')
+# --------------------------------------------------------------------------- compress_night (real loop, stubbed I/O)
+
+
+DEADLINE = datetime(2026, 10, 7, 12, 57, 45, tzinfo=timezone.utc)
+INSIDE_RESERVE = DEADLINE - timedelta(seconds=nightly.SOFT_STOP_RESERVE_SECONDS - 1)
+OUTSIDE_RESERVE = DEADLINE - timedelta(seconds=nightly.SOFT_STOP_RESERVE_SECONDS + 60)
+
+
+class _Args:
+    source_git_sha, request_sha256, apply = "a" * 40, "b" * 64, True
+
+
+def _receipt():
+    return {"logical_bytes_processed": 0, "files_processed": 0, "reclaimed_bytes": 0, "files_skipped_unshrinkable": 0,
+            "batches": [], "stopped_at_soft_deadline": False, "status": "FAILED_RETAIN_AND_INSPECT"}
+
+
+@pytest.fixture
+def night(monkeypatch, tmp_path):
+    """Two closed folders of two 1 KiB files each, one file per batch; I/O and compression stubbed."""
+    executed = []
+    rows = {f"f{n}": [{"path": f"f{n}/{i}.json", "size_bytes": 1024} for i in range(2)] for n in range(2)}
+    monkeypatch.setattr(nightly, "closed_folders", lambda data, as_of, guard: iter(rows))
+    monkeypatch.setattr(nightly.inventory, "inventory",
+                        lambda data, folders, **kw: {"status": "PASS", "files": rows[folders[0]]})
+    monkeypatch.setattr(nightly, "plan_batches", lambda files, remaining, **kw: ([row] for row in files))
+
+    def execute(batch_rows, root, batch_path, *, apply, guard):
+        executed.append(batch_path.name)
+        return [{**row, "reclaimed_bytes": 512} for row in batch_rows]
+
+    monkeypatch.setattr(nightly, "execute_batch", execute)
+    output = tmp_path / "attempt"
+    output.mkdir()
+    return output, executed
+
+
+def _run_night(output, clock, guard=lambda: None):
+    receipt = _receipt()
+    nightly.compress_night(output.parent, output, receipt, now=OUTSIDE_RESERVE, budget=10**9, deadline=DEADLINE,
+                           guard=guard, args=_Args, policy={"execution_host_id": "c" * 64}, clock=clock)
+    return receipt
+
+
+def test_a_night_with_time_left_compresses_everything_and_passes(night):
+    output, executed = night
+    receipt = _run_night(output, lambda: OUTSIDE_RESERVE)
+    assert receipt["status"] == "PASS" and receipt["stopped_at_soft_deadline"] is False
+    assert executed == ["batch-0000", "batch-0001", "batch-0002", "batch-0003"]
+
+
+def test_inside_the_reserve_no_batch_starts_and_the_night_still_passes(night):
+    output, executed = night
+    receipt = _run_night(output, lambda: INSIDE_RESERVE)
+    assert receipt["status"] == "PASS" and receipt["stopped_at_soft_deadline"] is True
+    assert executed == [] and not list(output.glob("batch-*"))
+
+
+def test_the_soft_stop_lands_between_batches_never_inside_one(night):
+    """Two batches before the reserve, then stop: every started batch has its result.json, no later folder starts."""
+    output, executed = night
+    times = iter([OUTSIDE_RESERVE] * 3 + [INSIDE_RESERVE] * 10)  # folder check, batch, batch, then inside
+    receipt = _run_night(output, lambda: next(times))
+    assert receipt["status"] == "PASS" and receipt["stopped_at_soft_deadline"] is True
+    assert executed == ["batch-0000", "batch-0001"]
+    assert sorted(p.name for p in output.glob("batch-*")) == executed
+    assert all((output / name / "result.json").is_file() for name in executed)
+    assert receipt["files_processed"] == 2 and len(receipt["batches"]) == 2
+    assert not (output / "inventory-0001.json").exists()  # the second folder never started
+
+
+def test_a_guard_trip_at_the_child_deadline_raises_for_a_resolvable_failure(night):
+    """Past the child deadline the guard raises; run() records FAILED_RETAIN_AND_INSPECT and writes result.json."""
+    output, _executed = night
+
+    def guard():
+        raise ValueError("nightly deadline, approval or 06:50-09:00 window ended")
+
+    receipt = _receipt()
+    with pytest.raises(ValueError, match="06:50-09:00"):
+        nightly.compress_night(output.parent, output, receipt, now=OUTSIDE_RESERVE, budget=10**9, deadline=DEADLINE,
+                               guard=guard, args=_Args, policy={"execution_host_id": "c" * 64},
+                               clock=lambda: OUTSIDE_RESERVE)
+    assert receipt["status"] == "FAILED_RETAIN_AND_INSPECT"
 
 
 # --------------------------------------------------------------------------- scheduled entrypoint (execution)
@@ -113,6 +188,7 @@ def run_entry(entry, local_clock: str):
                                                                if child.exists() else None)
 
 
+@pytest.mark.spawns
 @windows_only
 @pytest.mark.parametrize("clock", ["2026-10-07T00:30:00", "2026-10-07T04:00:00", "2026-10-07T06:49:00",
                                    "2026-10-07T09:00:00", "2026-10-07T12:00:00"])
@@ -122,6 +198,7 @@ def test_entrypoint_refuses_outside_0650_0900_without_an_attempt(entry, clock):
     assert list((entry[1] / "scratch/cold_snapshot_compression").iterdir()) == []
 
 
+@pytest.mark.spawns
 @windows_only
 @pytest.mark.parametrize("clock", ["2026-10-07T07:31:00", "2026-10-07T08:45:00"])
 def test_entrypoint_refuses_a_start_with_under_90_minutes_left(entry, clock):
@@ -130,6 +207,7 @@ def test_entrypoint_refuses_a_start_with_under_90_minutes_left(entry, clock):
     assert list((entry[1] / "scratch/cold_snapshot_compression").iterdir()) == []
 
 
+@pytest.mark.spawns
 @windows_only
 @pytest.mark.parametrize("clock", ["2026-10-07T06:50:00", "2026-10-07T07:30:00"])
 def test_entrypoint_launches_a_dated_nightly_attempt_inside_the_window(entry, clock):
@@ -140,6 +218,7 @@ def test_entrypoint_launches_a_dated_nightly_attempt_inside_the_window(entry, cl
     assert "-Nightly" in child["args"]
 
 
+@pytest.mark.spawns
 @windows_only
 def test_one_attempt_per_local_date_survives_the_new_time(entry):
     parent = entry[1] / "scratch/cold_snapshot_compression"
@@ -217,6 +296,7 @@ def run_registration(registration, readback_at=None):
                                                                if out.exists() else None)
 
 
+@pytest.mark.spawns
 @windows_only
 def test_registration_registers_and_reads_back_a_0650_trigger(registration):
     code, text, registered = run_registration(registration)
@@ -224,6 +304,7 @@ def test_registration_registers_and_reads_back_a_0650_trigger(registration):
     assert registered == {"task": "WeatherColdSnapshotNightly", "at": "06:50", "limit": "PT2H20M"}
 
 
+@pytest.mark.spawns
 @windows_only
 def test_registration_readback_rejects_the_old_0030_trigger(registration):
     """Mutant: a Scheduler readback still at 00:30 must fail the registration check."""
