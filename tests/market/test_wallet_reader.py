@@ -396,6 +396,7 @@ def test_client_twenty_second_get_and_secret_refusal(tmp_path):
     assert len(opener.calls) == 1
 
 
+@pytest.mark.ratchet
 def test_no_signing_imports_and_no_unapproved_file_access():
     permitted = {"__future__", "argparse", "base64", "collections", "contextlib", "copy", "datetime",
                  "decimal", "dotenv", "hashlib", "hmac", "http", "io", "ipaddress", "json", "logging", "math",
@@ -431,6 +432,19 @@ def test_firewall_scope_and_whatif_structure():
     assert "-RemoteAddress $AllowIp -Profile Private" in script
     assert "[switch]$Unregister" in script
     assert "-Name $ruleName" in script
+
+
+def test_logon_task_scope_and_whatif_structure():
+    script = (REPO_ROOT / "scripts/ops/register_wallet_reader_logon_task.ps1").read_text()
+    assert "SupportsShouldProcess = $true" in script
+    assert "$taskName = 'WeatherWalletReader'" in script
+    assert "-m weather.market.wallet_reader serve --bind $Bind --allow $AllowIp" in script
+    assert "[ValidateSet(2, 3)][int]$SignatureType" in script
+    assert "New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME" in script
+    assert "-ExecutionTimeLimit ([TimeSpan]::Zero)" in script
+    assert "Get-NetFirewallRule -Name $ruleName" in script
+    assert "Task already exists" in script and "-Force" not in script
+    assert "POLYMM" not in script and "READER_TOKEN" not in script
 
 
 def test_invalid_startup_does_not_load_credentials(monkeypatch):
@@ -495,7 +509,7 @@ def test_campaign_config_validates_before_credentials(tmp_path, monkeypatch):
     def forbidden():
         raise AssertionError("credentials were requested")
     monkeypatch.setattr(core, "load_owner_credentials", forbidden)
-    assert core.main(["serve", "--bind", "192.168.1.106", "--allow", "192.168.1.247",
+    assert core.main(["serve", "--bind", "192.168.1.20", "--allow", "192.168.1.30",
                       "--signature-type", "2", "--campaigns", str(config)]) == 1
 
 

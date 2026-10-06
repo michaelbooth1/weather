@@ -134,6 +134,15 @@ local only, and the full suite runs only through
 workload lease). See [development.md](docs/development.md) and the
 [host load policy](docs/operations/HOST_LOAD_POLICY.md).
 
+On the non-capture workstation, a focused run (at most 25 named test files, none
+`serial` or starting PowerShell, an explicit `--basetemp`, no xdist) runs directly;
+larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit 75):
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
+.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+```
+
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
 
@@ -182,6 +191,17 @@ The owner-started [read-only wallet LAN API](docs/operations/wallet-reader.md)
 provides account summaries, positions, open orders, trades, reward and settlement reads via
 `python -m weather.market.wallet_reader_client`; its runbook owns startup,
 credential selection and the scoped firewall commands.
+
+`scripts\ops\wait_pr_ci.ps1 -Pr <n> -ExpectedHead <sha>` waits (read-only, via `gh`) until
+every check on that exact PR head finishes; exit 0 means all green, 1 a failure, 2 a timeout,
+4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
+([guarded-merge runbook](docs/ops/streak-soak.md)).
+
+`scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
+folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.
+`scripts\ops\workstation_space_clean.ps1 -FromReport <json>` lists what it would remove, and with `-Apply`
+removes only items that are still SAFE on a fresh re-check, writing a JSON receipt
+([session preamble](docs/operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space)).
 
 The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
 (`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
@@ -419,6 +439,19 @@ health proof are completed.
 .\venv\Scripts\python.exe -m weather.calibration.feature_model --market nyc --skip-loo
 .\venv\Scripts\python.exe -m weather.calibration.intraday_calibration
 .\venv\Scripts\python.exe -m weather.artifacts size-audit
+```
+
+Late-day lock-in anchor replay (read-only, closed dates up to 2026-09-29 only).
+Run it on the capture host only inside the admitted heavy window under the
+shared lease. It replays captured inputs through `estimate_distribution` with
+the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
+row per snapshot, holding both final vectors, to a new `--out` file outside
+`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
+row's new vector holds more mass below the anchor bucket than the old one. It
+refuses later dates, an existing `--out`, and any `--out` inside `data/`:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
 ```
 
 `weather.calibration.feature_model` trains one market/unit-family at a time.

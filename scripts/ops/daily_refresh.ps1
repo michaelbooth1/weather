@@ -6,7 +6,7 @@
 
 [CmdletBinding(DefaultParameterSetName = "Full")]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)]
     [ValidateSet("settlement", "evidence")]
     [string]$Stage,
@@ -22,6 +22,12 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "ProvenanceOnly")]
     [switch]$ProvenanceOnly
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path

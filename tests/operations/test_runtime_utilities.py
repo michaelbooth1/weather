@@ -19,6 +19,7 @@ from weather.operations.supervisor import jsonl_integrity
 from weather.paths import REPO_ROOT, SRC_ROOT
 
 
+@pytest.mark.ratchet
 def test_repo_root_import_helpers_are_tracked():
     result = subprocess.run(
         ["git", "ls-files", "sitecustomize.py", "weather/__init__.py"],

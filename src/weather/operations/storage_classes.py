@@ -55,7 +55,7 @@ STORAGE_CLASS_CONTRACTS = (
     StorageClassContract(
         ANALYSIS_PROJECTION,
         "Derived tables or partitions built from canonical evidence for fast analysis.",
-        ("parquet", "csv", "csv.gz", "json", "sqlite3"),
+        ("parquet", "csv", "csv.gz", "json", "jsonl", "sqlite3"),
         "Keep while actively queried; local copies may be rebuilt from named canonical evidence.",
         "Projection cleanup must name its rebuild source.",
         "Reviewed cleanup manifest plus current rebuild source.",
@@ -282,6 +282,43 @@ ARTIFACT_FAMILIES = (
         "canonical_evidence_review_gate",
         True,
         examples=("data/settlements/<market>.jsonl", "data/backtest/market_day_labels.csv"),
+    ),
+    # Registered before market_making_lifecycle_risk: its substring globs
+    # (*risk*, *order*) would otherwise capture a run id that contains them.
+    ArtifactFamilyClassification(
+        "mm_scoring_projection",
+        "market",
+        ANALYSIS_PROJECTION,
+        (
+            "mm_runs/*/*/mm_scoring_projection.csv",
+            "mm_runs/*/*/model_variant_mm_scoring_projection.csv",
+        ),
+        "rebuildable_maker_scoring_projection",
+        "sibling quote_intents_long.csv / model_variant_quote_intents_long.csv, "
+        "bound by size+mtime in mm_scoring_projection_manifest.json",
+        "projection_rebuild_source_gate",
+        False,
+        examples=(
+            "data/mm_runs/<date>/<run>/mm_scoring_projection.csv",
+            "data/mm_runs/<date>/<run>/model_variant_mm_scoring_projection.csv",
+        ),
+        notes=(
+            "Readers use a projection only when the whole run-level manifest binding validates "
+            "and otherwise fail closed to the canonical quote-intent tapes; "
+            "weather.market.mm_scoring_projection backfill rebuilds it. Storage 5g, 2026-09-29."
+        ),
+    ),
+    ArtifactFamilyClassification(
+        "mm_scoring_projection_manifest",
+        "market",
+        CANONICAL_EVIDENCE,
+        ("mm_runs/*/*/mm_scoring_projection_manifest.json",),
+        "retained_projection_binding_manifest",
+        "not a cleanup candidate; records the canonical/projection size+mtime binding",
+        "canonical_evidence_review_gate",
+        True,
+        examples=("data/mm_runs/<date>/<run>/mm_scoring_projection_manifest.json",),
+        notes="Kept when its projections are reclaimed so the binding and its rebuild source stay auditable.",
     ),
     ArtifactFamilyClassification(
         "market_making_lifecycle_risk",
@@ -521,12 +558,17 @@ ARTIFACT_FAMILIES = (
             "backtest/*source_state_ablation*.csv",
             "backtest/*variant_rows.csv",
             "backtest/*variant_export*.csv",
+            # Sidecar written with active_variant_shadow_long.csv by the same refresh (storage 5f).
+            "backtest/active_variant_shadow_attribution.jsonl",
         ),
         "rebuildable_backtest_projection",
         "promotion corpora, model artifacts, and source evidence named by paired reports",
         "projection_rebuild_source_gate",
         False,
-        examples=("data/backtest/active_variant_shadow_long.csv",),
+        examples=(
+            "data/backtest/active_variant_shadow_long.csv",
+            "data/backtest/active_variant_shadow_attribution.jsonl",
+        ),
     ),
     ArtifactFamilyClassification(
         "model_artifacts_and_manifests",

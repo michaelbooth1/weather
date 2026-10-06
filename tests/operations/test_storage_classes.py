@@ -47,6 +47,15 @@ def test_wu_orphan_pid_reuse_and_non_wu_scope():
     assert classify_storage_path("wunderground/cyyz/day.tmp", wu_orphan_proof=proof).protected
 
 
+def test_wu_orphan_writer_pid_zero_is_never_proved():
+    """PID 0 is never a writer; a temp file named for it stays protected even with every other proof."""
+    path = "wunderground/cyyz/day.json.0.123.tmp"
+    proof = WuAtomicOrphanProof(path, 0, False, None, 1, 86402, True, True)
+    assert classify_storage_path(path, wu_orphan_proof=proof).protected
+    control = "wunderground/cyyz/day.json.42.123.tmp"
+    assert not classify_storage_path(control, wu_orphan_proof=replace(proof, path=control, writer_pid=42)).protected
+
+
 def test_retired_paper_maker_tasks_are_expected_disabled():
     from weather.paths import repo_path
 
@@ -183,3 +192,31 @@ class TestStorageClassRegistry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("name", ["mm_scoring_projection.csv", "model_variant_mm_scoring_projection.csv"])
+@pytest.mark.parametrize("run", ["run-1", "risk-order-run"])
+def test_storage_5g_mm_scoring_projection_is_rebuildable_projection(name, run):
+    classification = classify_storage_path(f"data/mm_runs/2026-09-01/{run}/{name}")
+    assert classification.artifact_family == "mm_scoring_projection"
+    assert classification.storage_class == ANALYSIS_PROJECTION
+    assert not classification.protected
+    assert "quote_intents_long.csv" in classification.rebuild_source
+    assert "mm_scoring_projection_manifest.json" in classification.rebuild_source
+
+
+def test_storage_5g_projection_manifest_and_canonical_tapes_stay_retained():
+    manifest = classify_storage_path("data/mm_runs/2026-09-01/run-1/mm_scoring_projection_manifest.json")
+    assert manifest.artifact_family == "mm_scoring_projection_manifest"
+    assert manifest.storage_class == CANONICAL_EVIDENCE
+    assert manifest.protected
+    lifecycle = classify_storage_path("data/mm_runs/2026-09-01/run-1/order_lifecycle.jsonl")
+    assert lifecycle.artifact_family == "market_making_lifecycle_risk"
+
+
+def test_storage_5f_attribution_sidecar_matches_its_shadow_export_sibling():
+    sidecar = classify_storage_path("data/backtest/active_variant_shadow_attribution.jsonl")
+    sibling = classify_storage_path("data/backtest/active_variant_shadow_long.csv")
+    assert sidecar == sibling
+    assert sidecar.artifact_family == "backtest_row_exports"
+    assert sidecar.storage_class == ANALYSIS_PROJECTION

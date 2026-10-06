@@ -571,11 +571,14 @@
       "settlement": {
         "source_type": "hong_kong_observatory_daily_extract",
         "resolution_source_url": "https://www.weather.gov.hk/en/cis/climat.htm",
+        "resolution_view": "daily_extract_absolute_daily_max",
         "station_id": "HKO",
         "station_name": "Hong Kong Observatory",
         "station_iata": null,
         "station_wmo": "45005",
-        "precision": "whole_degree",
+        "precision": "tenth_degree",
+        "band_mapping": "floor_to_whole_degree",
+        "finality": "initial_publication",
         "unit": "C"
       },
       "coordinates": {
@@ -591,7 +594,8 @@
         "open_meteo"
       ],
       "notes": [
-        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted."
+        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted.",
+        "Venue pays floor(HKO Absolute Daily Max): 10/10 resolved days 2026-09-20..29, four of which contradict half-up rounding (docs/research/foreign-settlement-desk-study-2026-10.md)."
       ]
     },
     {
@@ -822,8 +826,12 @@
         "event_slug_prefix": "highest-temperature-in-london-on"
       },
       "settlement": {
-        "source_type": "wunderground_history",
-        "resolution_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+        "source_type": "nws_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=eglc",
+        "resolution_view": "all_times_temp_column_metric",
+        "fallback_source_type": "wunderground_history",
+        "fallback_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+        "finality": "first_datapoint_of_following_local_date",
         "station_id": "EGLC",
         "station_name": "London City Airport Station",
         "station_iata": "LCY",
@@ -1250,8 +1258,12 @@
         "event_slug_prefix": "highest-temperature-in-paris-on"
       },
       "settlement": {
-        "source_type": "wunderground_history",
-        "resolution_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+        "source_type": "nws_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=lfpb",
+        "resolution_view": "all_times_temp_column_metric",
+        "fallback_source_type": "wunderground_history",
+        "fallback_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+        "finality": "first_datapoint_of_following_local_date",
         "station_id": "LFPB",
         "station_name": "Paris-Le Bourget Airport Station",
         "station_iata": "LBG",
@@ -1429,8 +1441,12 @@
         "event_slug_prefix": "highest-temperature-in-seoul-on"
       },
       "settlement": {
-        "source_type": "wunderground_history",
-        "resolution_source_url": "https://www.wunderground.com/history/daily/kr/incheon/RKSI",
+        "source_type": "nws_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=rksi",
+        "resolution_view": "all_times_temp_column_metric",
+        "fallback_source_type": "wunderground_history",
+        "fallback_source_url": "https://www.wunderground.com/history/daily/kr/incheon/RKSI",
+        "finality": "first_datapoint_of_following_local_date",
         "station_id": "RKSI",
         "station_name": "Incheon Intl Airport Station",
         "station_iata": "ICN",
@@ -1464,8 +1480,12 @@
         "event_slug_prefix": "highest-temperature-in-shanghai-on"
       },
       "settlement": {
-        "source_type": "wunderground_history",
-        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD",
+        "source_type": "nws_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=zspd",
+        "resolution_view": "all_times_temp_column_metric",
+        "fallback_source_type": "wunderground_history",
+        "fallback_source_url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD",
+        "finality": "first_datapoint_of_following_local_date",
         "station_id": "ZSPD",
         "station_name": "Shanghai Pudong International Airport Station",
         "station_iata": "PVG",
@@ -1641,8 +1661,12 @@
         "event_slug_prefix": "highest-temperature-in-tokyo-on"
       },
       "settlement": {
-        "source_type": "wunderground_history",
-        "resolution_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
+        "source_type": "nws_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=rjtt",
+        "resolution_view": "all_times_temp_column_metric",
+        "fallback_source_type": "wunderground_history",
+        "fallback_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
+        "finality": "first_datapoint_of_following_local_date",
         "station_id": "RJTT",
         "station_name": "Tokyo Haneda Airport Station",
         "station_iata": "HND",
@@ -1845,7 +1869,7 @@
     }
   ],
   "event_metadata": {
-    "last_refreshed_at_utc": "2026-10-01T04:00:03.023636+00:00",
+    "last_refreshed_at_utc": "2026-10-06T04:00:02.786069+00:00",
     "path": "config/location_market_events.json",
     "schema_version": "location_market_events_v0.1"
   }

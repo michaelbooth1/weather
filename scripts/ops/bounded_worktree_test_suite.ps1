@@ -18,7 +18,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$LogPath,
     [ValidateRange(1, 25)]
-    [int]$MaxFilesPerChunk = 20,
+    [int]$MaxFilesPerChunk = 25,
     [ValidateRange(1.0, 99.0)]
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
@@ -404,6 +404,138 @@ function Assert-HostAdmission {
     }
 }
 
+function Read-SuiteFileTimingTable {
+    # The exact-tip worktree carries a checked-in per-file timing table. It only
+    # decides which files share a chunk; it can never add, drop or duplicate a
+    # file, raise the per-chunk cap, or change the chunk count. A malformed table
+    # fails closed; an absent table (older candidates) packs every file at the
+    # same weight.
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $seconds = New-Object 'System.Collections.Generic.Dictionary[string,double]' ([StringComparer]::Ordinal)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [pscustomobject]@{
+            Present = $false; Sha256 = ""; DefaultSeconds = [double]1.0; Seconds = $seconds
+        }
+    }
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        [int64]$item.Length -le 0 -or [int64]$item.Length -gt 1048576) {
+        throw "suite file timing table is not one bounded regular file: $Path"
+    }
+    $bytes = [IO.File]::ReadAllBytes($item.FullName)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = (($sha256.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally { $sha256.Dispose() }
+    try {
+        $table = (New-Object Text.UTF8Encoding($false, $true)).GetString($bytes) |
+            ConvertFrom-Json -ErrorAction Stop
+    }
+    catch { throw "suite file timing table is not valid UTF-8 JSON: $Path" }
+    $numberTypes = @([int], [long], [double], [decimal])
+    if ($null -eq $table -or
+        @($table.PSObject.Properties.Name) -notcontains "format_version" -or
+        [string]$table.format_version -cne "1" -or
+        @($table.PSObject.Properties.Name) -notcontains "default_seconds" -or
+        @($table.PSObject.Properties.Name) -notcontains "files" -or
+        $null -eq $table.files -or
+        $table.files -isnot [Management.Automation.PSCustomObject]) {
+        throw "suite file timing table does not match format_version 1: $Path"
+    }
+    $default = $table.default_seconds
+    if ($null -eq $default -or @($numberTypes | Where-Object { $default -is $_ }).Count -eq 0 -or
+        [double]$default -le 0 -or [double]$default -gt 3600) {
+        throw "suite file timing table default_seconds must be in (0, 3600]"
+    }
+    foreach ($property in @($table.files.PSObject.Properties)) {
+        $value = $property.Value
+        if ([string]$property.Name -notmatch '^tests/(?:.*/)?test_[^/]*\.py$' -or
+            $null -eq $value -or @($numberTypes | Where-Object { $value -is $_ }).Count -eq 0 -or
+            [double]$value -lt 0 -or [double]$value -gt 86400 -or
+            $seconds.ContainsKey([string]$property.Name)) {
+            throw "suite file timing table has an invalid entry: $($property.Name)"
+        }
+        $seconds[[string]$property.Name] = [double]$value
+    }
+    return [pscustomobject]@{
+        Present = $true; Sha256 = $digest; DefaultSeconds = [double]$default; Seconds = $seconds
+    }
+}
+
+function Get-SuiteTimePackedChunks {
+    # Deterministic longest-processing-time packing under a hard file cap. The
+    # chunk count stays ceil(files / MaxFilesPerChunk), exactly as the integration
+    # manifest expects; only the grouping changes so chunk wall times even out.
+    # Ties break on file count, then chunk index; files sort by weight then
+    # ordinal path, and each chunk lists its files in ordinal path order.
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$TestFiles,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 25)][int]$MaxFilesPerChunk,
+        [Parameter(Mandatory = $true)][object]$TimingTable
+    )
+
+    $fileCount = $TestFiles.Count
+    if ($fileCount -eq 0) { return ,@() }
+    $chunkCount = [int][math]::Ceiling($fileCount / [double]$MaxFilesPerChunk)
+    $weighted = New-Object 'System.Collections.Generic.List[object]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($file in $TestFiles) {
+        if (-not $seen.Add([string]$file)) { throw "suite test inventory repeats a file: $file" }
+        $value = [double]$TimingTable.DefaultSeconds
+        if ($TimingTable.Seconds.ContainsKey([string]$file)) { $value = $TimingTable.Seconds[[string]$file] }
+        $weighted.Add([pscustomobject]@{
+            Path = [string]$file
+            Milliseconds = [int64][math]::Round($value * 1000.0, [MidpointRounding]::AwayFromZero)
+        })
+    }
+    $weighted.Sort([Comparison[object]]{
+        param($left, $right)
+        $byWeight = $right.Milliseconds.CompareTo($left.Milliseconds)
+        if ($byWeight -ne 0) { return $byWeight }
+        return [string]::CompareOrdinal($left.Path, $right.Path)
+    })
+    $loads = New-Object 'int64[]' $chunkCount
+    $members = @()
+    for ($index = 0; $index -lt $chunkCount; $index++) {
+        $members += ,(New-Object 'System.Collections.Generic.List[string]')
+    }
+    foreach ($entry in $weighted) {
+        $target = -1
+        for ($index = 0; $index -lt $chunkCount; $index++) {
+            if ($members[$index].Count -ge $MaxFilesPerChunk) { continue }
+            if ($target -lt 0 -or
+                $loads[$index] -lt $loads[$target] -or
+                ($loads[$index] -eq $loads[$target] -and
+                    $members[$index].Count -lt $members[$target].Count)) {
+                $target = $index
+            }
+        }
+        if ($target -lt 0) { throw "suite chunk packing ran out of capacity" }
+        $members[$target].Add($entry.Path)
+        $loads[$target] += $entry.Milliseconds
+    }
+    $chunks = @()
+    $placed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    for ($index = 0; $index -lt $chunkCount; $index++) {
+        $chunkFiles = $members[$index].ToArray()
+        [Array]::Sort($chunkFiles, [StringComparer]::Ordinal)
+        if ($chunkFiles.Count -lt 1 -or $chunkFiles.Count -gt $MaxFilesPerChunk) {
+            throw "suite chunk packing produced a chunk outside 1..$MaxFilesPerChunk files"
+        }
+        foreach ($file in $chunkFiles) {
+            if (-not $placed.Add($file)) { throw "suite chunk packing placed a file twice: $file" }
+        }
+        $chunks += ,@($chunkFiles)
+    }
+    if ($placed.Count -ne $fileCount -or $chunks.Count -ne $chunkCount) {
+        throw "suite chunk packing did not place every test file exactly once"
+    }
+    return ,$chunks
+}
+
 Assert-SuiteDiskHeadroom
 
 $localNow = Get-Date
@@ -639,12 +771,27 @@ try {
         $testFiles = @($testFiles | Select-Object -First ([math]::Min(2, $testFiles.Count)))
     }
 
-    $chunks = @()
-    for ($offset = 0; $offset -lt $testFiles.Count; $offset += $MaxFilesPerChunk) {
-        $last = [math]::Min($offset + $MaxFilesPerChunk - 1, $testFiles.Count - 1)
-        $chunks += ,@($testFiles[$offset..$last])
-    }
+    $timingTable = Read-SuiteFileTimingTable `
+        -Path (Join-Path $WorktreeRoot "tests\bounded_suite_file_timings.json")
+    $chunks = Get-SuiteTimePackedChunks `
+        -TestFiles $testFiles -MaxFilesPerChunk $MaxFilesPerChunk -TimingTable $timingTable
     Write-SuiteLog "planned chunks=$($chunks.Count) files=$($testFiles.Count) max_files=$MaxFilesPerChunk"
+    $projectedChunkSeconds = @($chunks | ForEach-Object {
+        $chunkSeconds = 0.0
+        foreach ($file in @($_)) {
+            $chunkSeconds += if ($timingTable.Seconds.ContainsKey([string]$file)) {
+                $timingTable.Seconds[[string]$file]
+            } else { $timingTable.DefaultSeconds }
+        }
+        $chunkSeconds
+    })
+    $defaultedFiles = @($testFiles | Where-Object { -not $timingTable.Seconds.ContainsKey([string]$_) }).Count
+    Write-SuiteLog (
+        "chunk packing=time_lpt_v1 timing_table_present=$($timingTable.Present) " +
+        "timing_table_sha256=$($timingTable.Sha256) defaulted_files=$defaultedFiles " +
+        "projected_max_s=$([math]::Round(($projectedChunkSeconds | Measure-Object -Maximum).Maximum, 1)) " +
+        "projected_min_s=$([math]::Round(($projectedChunkSeconds | Measure-Object -Minimum).Minimum, 1))"
+    )
 
     $runTag = Get-Date -Format "yyyyMMddTHHmmss"
     $failedChunks = 0
