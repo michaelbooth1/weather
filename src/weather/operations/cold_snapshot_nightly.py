@@ -29,6 +29,20 @@ MAX_FILES_PER_NIGHT = 8192
 MAX_INVENTORY_BYTES = 64 * MIB
 MIN_FREE_DISK_BYTES = 8 * 1024**3 + 2 * MAX_FILE_BYTES + 128 * MIB
 LARGE_OPENER = partial(LockedNtfsFile, max_file_bytes=MAX_FILE_BYTES)
+# Owner decision 2026-09-30: a closed market-day is selectable once it is at
+# least two local days old (strictly older than a one-day hot window) and each
+# file has been unchanged for two days.
+HOT_WINDOW_DAYS = 1
+UNCHANGED_SECONDS = 2 * 86400
+# NTFS cannot shrink a file that fits in one 4 KiB cluster (or is resident in
+# its MFT record); such files are skipped at selection, never compressed.
+CLUSTER_BYTES = 4096
+# The capture loops atomically replace their status files. An admission read
+# that lands inside a replace meets a delete-pending file (PermissionError) or,
+# through the tolerant loop reader, an unreadable row (BLOCK). One fresh complete
+# observation after a short pause decides; the admission criteria are unchanged.
+ADMISSION_RETRY_SECONDS = 0.25
+MAX_ADMISSION_NOTES = 32
 
 
 def validate_policy(policy, root, now):
@@ -54,6 +68,13 @@ def validate_policy(policy, root, now):
 
 
 def closed_folders(data_root, as_of, guard):
+    """Closed built-in event folders, oldest first.
+
+    Root entries are classified by name only. Live status files, locks and hot
+    event folders are never stat'ed or opened, so a producer replacing one cannot
+    fail selection; only selected closed-day folders are checked, and an error on
+    one of those refuses.
+    """
     snapshots = inventory.validate_root(data_root / "snapshots")
     selected = []
     with PinnedNtfsDirectory(snapshots), os.scandir(snapshots) as entries:
@@ -64,11 +85,29 @@ def closed_folders(data_root, as_of, guard):
             if not inventory.EVENT.fullmatch(entry.name):
                 continue
             day = inventory.event_date(entry.name)
-            if day >= as_of - timedelta(days=14):
+            if day >= as_of - timedelta(days=HOT_WINDOW_DAYS):
                 continue
             inventory.checked_stat(Path(entry.path), directory=True)
             selected.append((day, "snapshots/" + entry.name))
     return [name for _, name in sorted(selected)]
+
+
+def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep):
+    """Capture admission, re-observed once after a transient status-read race."""
+    observe = observe or cold.observe_capture_admission
+    try:
+        admission = observe(root, resources)
+        if admission["status"] == "PASS":
+            return admission
+        first = "BLOCK: " + ",".join(admission["reasons"])
+    except PermissionError as exc:
+        first = f"PermissionError: {exc}"
+    notes["admission_retries"] += 1
+    if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
+        notes["admission_retry_notes"].append({
+            "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": first[:512]})
+    sleep(ADMISSION_RETRY_SECONDS)
+    return observe(root, resources)
 
 
 def eligible(row, *, now):
@@ -77,19 +116,38 @@ def eligible(row, *, now):
             or PurePosixPath(parts[-1]).suffix not in {".json", ".jsonl", ".csv"}):
         return False
     inventory.validate_folders(["/".join(parts[:2])],
-        as_of=now.astimezone(ZoneInfo("America/Toronto")).date(), min_age_days=14)
-    # Closed-day identity plus a full fourteen days without a write. A later
+        as_of=now.astimezone(ZoneInfo("America/Toronto")).date(), min_age_days=HOT_WINDOW_DAYS)
+    # Closed-day identity plus two full days without a write. A later
     # backfill is retained untouched until its own cold interval has elapsed.
     return (0 < row["size_bytes"] <= MAX_FILE_BYTES and row["allocated_bytes"] > 0
             and not row["attributes"] & ~(0x20 | 0x80)
-            and now.timestamp() - int(row["mtime_ns"]) / 1e9 >= 14 * 86400)
+            and now.timestamp() - int(row["mtime_ns"]) / 1e9 >= UNCHANGED_SECONDS)
 
 
-def plan_batches(rows, remaining, *, now, remaining_files=MAX_FILES_PER_NIGHT):
-    """Deterministic exact-file budgets; compressed files never count twice."""
+def unshrinkable(row):
+    """Reason an eligible file cannot reclaim a cluster, or None."""
+    if row["size_bytes"] < CLUSTER_BYTES:
+        return "logical_size_below_one_cluster"
+    if row["allocated_bytes"] <= CLUSTER_BYTES:
+        return "allocation_not_above_one_cluster"
+    return None
+
+
+def plan_batches(rows, remaining, *, now, remaining_files=MAX_FILES_PER_NIGHT, skipped=None):
+    """Deterministic exact-file budgets; compressed files never count twice.
+
+    Unshrinkable files are appended to ``skipped`` with a reason and consume no
+    budget. Every selected file keeps the positive-savings stop rule.
+    """
     batch, size, used = [], 0, 0
     for row in sorted(rows, key=lambda row: row["path"]):
         if not eligible(row, now=now):
+            continue
+        reason = unshrinkable(row)
+        if reason:
+            if skipped is not None:
+                skipped.append({"path": row["path"], "size_bytes": row["size_bytes"],
+                                "allocated_bytes": row["allocated_bytes"], "reason": reason})
             continue
         amount = row["size_bytes"]
         if amount > remaining or used >= remaining_files:
@@ -161,7 +219,7 @@ def run(args):
                     result["status"] = "BLOCK"
                     result["reasons"].append("large_file_disk_reservation_unmet")
                 return result
-            admission = cold.observe_capture_admission(root, resources)
+            admission = observe_admission(root, resources, receipt)
             if admission["status"] != "PASS":
                 raise ValueError("nightly capture admission refused: " + ",".join(admission["reasons"]))
             cold.verify_current_lease(lease, owner, lease_path, workload=cold.WORKLOAD)
@@ -172,6 +230,7 @@ def run(args):
         "execution_host_id": policy["execution_host_id"], "owner_approved_exception": "",
         "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
         "reclaimed_bytes": 0, "logical_bytes_processed": 0, "files_processed": 0,
+        "files_skipped_unshrinkable": 0, "admission_retries": 0, "admission_retry_notes": [],
         "nightly_budget_bytes": budget, "batches": [], "status": "FAILED_RETAIN_AND_INSPECT"}
     with PinnedNtfsDirectory(output):
         cold.write_receipt_bytes(output / "request.json", raw, cold.MAX_REQUEST_BYTES)
@@ -184,7 +243,7 @@ def run(args):
                 if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
                     break
                 manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
-                    traversal_scope="immediate_files", min_age_days=14)
+                    traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
                 manifest.update(source_git_sha=args.source_git_sha, request_sha256=args.request_sha256,
                                 execution_host_id=policy["execution_host_id"])
                 manifest_path = output / f"inventory-{number:04d}.json"
@@ -195,12 +254,23 @@ def run(args):
                 cold.write_receipt_bytes(manifest_path, manifest_raw, inventory.MAX_OUTPUT_BYTES)
                 if manifest["status"] != "PASS":
                     raise ValueError("incomplete nightly inventory; retain and inspect")
-                for rows in plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"], now=now,
-                                         remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"]):
+                manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+                skipped = []
+                batches = list(plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"],
+                    now=now, remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"], skipped=skipped))
+                if skipped:
+                    skipped_raw = (json.dumps({"inventory": manifest_path.name, "inventory_sha256": manifest_sha256,
+                                               "files": skipped}, sort_keys=True) + "\n").encode()
+                    inventory_bytes += len(skipped_raw)
+                    if inventory_bytes > MAX_INVENTORY_BYTES:
+                        raise ValueError("nightly inventory evidence budget exceeded")
+                    cold.write_receipt_bytes(output / f"skipped-{number:04d}.json", skipped_raw,
+                                             inventory.MAX_OUTPUT_BYTES)
+                    receipt["files_skipped_unshrinkable"] += len(skipped)
+                for rows in batches:
                     batch_path = output / f"batch-{len(receipt['batches']):04d}"
                     batch_path.mkdir()
-                    selection = {"inventory": manifest_path.name,
-                        "inventory_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(), "files": rows}
+                    selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
                     cold.write_receipt(batch_path / "selection.json", selection)
                     results = execute_batch(rows, root, batch_path, apply=args.apply, guard=guard)
                     cold.write_receipt(batch_path / "result.json", {"status": "PASS", "results": results})

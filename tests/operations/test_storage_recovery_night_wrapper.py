@@ -12,10 +12,13 @@ import venv
 
 import pytest
 
+from tests.git_template import commit_fixture_tree
+
 from weather.paths import repo_path
 from weather.operations.process_lock_identity import observe_process_identity
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="native Windows Job and PowerShell contract")
+FIXTURE_GIT_CONFIG = ("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false")
 CHILD = '''
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
@@ -70,7 +73,7 @@ def command(*args, cwd=None):
 
 
 @pytest.fixture
-def native_fixture(tmp_path):
+def native_fixture(tmp_path, tmp_path_factory):
     source, production = tmp_path / "source checkout", tmp_path / "fixture production"
     scripts = source / "scripts/ops"
     scripts.mkdir(parents=True)
@@ -107,11 +110,9 @@ def native_fixture(tmp_path):
     (package / "operations/storage_recovery_night.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
-    command("git", "init", str(source))
-    command("git", "-C", str(source), "add", ".")
-    command("git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-            "-c", "commit.gpgSign=false", "commit", "-m", "Isolated night launcher fixture")
-    head = command("git", "-C", str(source), "rev-parse", "HEAD")
+    # Same one-commit checkout as git init/add/commit; see tests/git_template.py.
+    head = commit_fixture_tree(source, cache_root=tmp_path_factory.getbasetemp() / "git-templates",
+                               config=FIXTURE_GIT_CONFIG, message="Isolated night launcher fixture")
     return source, production, head, host
 
 

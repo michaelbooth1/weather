@@ -388,6 +388,141 @@ def line_budget_errors(repo_root: Path) -> list[str]:
     return errors
 
 
+# C0 controls except LF and CR, plus DEL. TAB is included: no in-scope document uses
+# one, and the ones found were "\t" path escapes an editor or shell expanded (2026-10-05).
+_CONTROL_CHARACTER = re.compile("[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _control_character_scope(repo_root: Path, path: Path) -> bool:
+    relative = path.relative_to(repo_root).as_posix()
+    return relative.startswith("docs/") or path.name in {"AGENTS.md", "README.md"}
+
+
+def control_character_errors(repo_root: Path, paths: list[Path] | None = None) -> list[str]:
+    """Docs Markdown and every AGENTS.md/README.md must hold no literal control character."""
+    root = repo_root.resolve()
+    candidates = paths if paths is not None else _markdown_files(root)
+    errors: list[str] = []
+    for path in candidates:
+        path = path.resolve()
+        if not _control_character_scope(root, path):
+            continue
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        for number, line in enumerate(text.split("\n"), start=1):
+            found = sorted({f"0x{ord(char):02X}" for char in _CONTROL_CHARACTER.findall(line)})
+            if found:
+                errors.append(
+                    f"{path.relative_to(root).as_posix()}:{number}: literal control character "
+                    f"{', '.join(found)}; write the intended text (a path escape such as \\t or \\b)"
+                )
+    return errors
+
+
+# git diff --check reports "new blank line at EOF" when a file's last line is blank,
+# meaning it holds only whitespace (git's isspace: space, TAB, CR, VT, FF). A single final
+# newline is fine. The repository sets no rule for a missing final newline (no
+# .editorconfig), so neither does this check.
+_TRAILING_BLANK_LINE = re.compile(rb"\n[ \t\r\v\f]*\n\Z")
+_TAIL_BYTES = 4096
+
+# Offenders left in place on purpose: Python modules that roll_verdict.ps1 weighs against
+# the capture loops' import closures, so a whitespace edit could restart live capture.
+# Fix them in a quiet-window merge and delete their entries; a stale entry fails the audit.
+TRAILING_BLANK_LINE_EXEMPT = frozenset(
+    {
+        "src/weather/__init__.py",
+        "src/weather/market/wallet_reader_settlement.py",
+        "src/weather/reporting/daily/daily_learning_render.py",
+        "src/weather/reporting/formatting.py",
+        "src/weather/reporting/promotion/__init__.py",
+        "src/weather/reporting/promotion/decisions.py",
+        "src/weather/reporting/promotion/report.py",
+        "src/weather/scoring/__init__.py",
+        "src/weather/scoring/trading.py",
+        "weather/__init__.py",
+    }
+)
+
+
+def _tracked_text_files(repo_root: Path) -> list[str] | None:
+    """Tracked files git treats as text, outside ``data/``; None when git is unavailable.
+
+    ``git ls-files --eol`` gives each file's index content class and attributes, so
+    binary content (``i/-text``), ``-text`` attributes (the LFS patterns among them)
+    and empty files (``i/none``) drop out exactly as git diff --check would skip them.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "--eol", "-z"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    relatives: list[str] = []
+    for record in completed.stdout.split(b"\0"):
+        if not record or b"\t" not in record:
+            continue
+        info, raw_path = record.split(b"\t", 1)
+        fields = info.split()
+        if b"i/-text" in fields or b"i/none" in fields or b"attr/-text" in fields:
+            continue
+        relative = os.fsdecode(raw_path)
+        if relative.startswith("data/"):
+            continue
+        relatives.append(relative)
+    return relatives
+
+
+def _ends_with_blank_line(path: Path) -> bool:
+    with path.open("rb") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, size - _TAIL_BYTES))
+        tail = handle.read()
+        if size > _TAIL_BYTES and not tail.strip():
+            handle.seek(0)
+            tail = handle.read()
+    return _TRAILING_BLANK_LINE.search(tail) is not None
+
+
+def trailing_blank_line_errors(
+    repo_root: Path,
+    paths: list[Path] | None = None,
+    *,
+    exempt: frozenset[str] = TRAILING_BLANK_LINE_EXEMPT,
+) -> list[str]:
+    """Tracked text files must not end in a blank line (git diff --check fails landings on it)."""
+    root = repo_root.resolve()
+    if paths is None:
+        relatives = _tracked_text_files(root)
+        if relatives is None:
+            return []
+        candidates = [(relative, root / relative) for relative in relatives]
+    else:
+        candidates = [(path.resolve().relative_to(root).as_posix(), path) for path in paths]
+    errors: list[str] = []
+    exempt_seen: set[str] = set()
+    for relative, path in candidates:
+        if not path.is_file() or not _ends_with_blank_line(path):
+            continue
+        if relative in exempt:
+            exempt_seen.add(relative)
+            continue
+        errors.append(
+            f"{relative}: blank line at end of file (git diff --check rejects it); "
+            "end the file with exactly one newline"
+        )
+    if paths is None:
+        for relative in sorted(exempt - exempt_seen):
+            errors.append(
+                f"{relative}: stale TRAILING_BLANK_LINE_EXEMPT entry; the file no longer "
+                "ends in a blank line, so delete the entry"
+            )
+    return errors
+
+
 def unindexed_operations_docs(repo_root: Path) -> list[str]:
     """Every operations document must be reachable from an index an agent reads."""
     operations = repo_root / "docs" / "operations"
@@ -531,6 +666,8 @@ def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
     current_paths = list(active_paths)
     current_paths.extend(repo_root / relative for relative in REQUIRED_FILES)
     errors.extend(line_budget_errors(repo_root))
+    errors.extend(control_character_errors(repo_root))
+    errors.extend(trailing_blank_line_errors(repo_root))
     errors.extend(unindexed_operations_docs(repo_root))
     errors.extend(retired_claim_errors(repo_root, current_paths))
     errors.extend(knowledge_structure_errors(repo_root))

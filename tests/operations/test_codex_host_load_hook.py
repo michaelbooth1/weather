@@ -1115,7 +1115,7 @@ def remote_workstation_command(kind="pytest", arguments=None):
         "-o BatchMode=yes -o StrictHostKeyChecking=yes "
         "-o PermitLocalCommand=no -o ProxyCommand=none -o ProxyJump=none "
         "-o ClearAllForwardings=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "
-        "-o HostName=192.168.1.106 "
+        "-o HostName=192.168.1.20 "
         "-i C:/Users/controller/.ssh/id_ed25519_workstation_codex "
         "-o UserKnownHostsFile=C:/Users/controller/.ssh/known_hosts "
         "-l worker weather-workstation "
@@ -1241,11 +1241,11 @@ def test_remote_workstation_transport_paths_and_destination_fail_closed(monkeypa
         ("id_ed25519_workstation_codex", "id_other"),
         (".ssh/known_hosts", ".ssh/untrusted_hosts"),
         ("weather-workstation", "another-workstation"),
-        ("192.168.1.106", "127.0.0.1"),
-        ("192.168.1.106", "8.8.8.8"),
-        ("192.168.1.106", "169.254.1.2"),
-        ("192.168.1.106", "192.168.1.999"),
-        ("192.168.1.106", "192.168.1.0106"),
+        ("192.168.1.20", "127.0.0.1"),
+        ("192.168.1.20", "8.8.8.8"),
+        ("192.168.1.20", "169.254.1.2"),
+        ("192.168.1.20", "192.168.1.999"),
+        ("192.168.1.20", "192.168.1.020"),
         ("/repo/scripts", "/other/scripts"),
         ("/repo/scripts", "/repo/../repo/scripts"),
         ("/repo/scripts", "/repo./scripts"),

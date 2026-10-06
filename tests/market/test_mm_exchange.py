@@ -8,8 +8,11 @@ from pathlib import Path
 from weather.market.mm_exchange import (  # noqa: E402
     PolymarketGlobalHTTPAdapter,
     PolymarketUSHTTPAdapter,
+    PolymarketUSOrderMutationRefused,
     RecordingTransport,
     build_adapter_request_plan,
+    classify_polymarket_us_exception,
+    classify_polymarket_us_response,
     build_exchange_reconciliation,
     credential_diagnostics,
     lifecycle_events_from_user_events,
@@ -1666,49 +1669,83 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(ready["headers"]["POLY_SIGNATURE"], "<signed-redacted>")
         self.assertNotIn("fake-hmac-signature", text)
 
-    def test_polymarket_us_http_adapter_sends_signed_post_only_request_via_transport(self):
-        transport = RecordingTransport(responses=[{"id": "order-1"}])
-        adapter = PolymarketUSHTTPAdapter(
+    def _us_adapter(self, transport):
+        return PolymarketUSHTTPAdapter(
             key_id="key-id",
             signer=lambda message: b"fake-us-signature",
             transport=transport,
             base_url="https://api.polymarket.us",
         )
-        response = adapter.place_order({
+
+    def test_polymarket_us_http_adapter_refuses_every_order_mutation_before_transport(self):
+        transport = RecordingTransport(responses=[{"id": "order-1"}])
+        adapter = self._us_adapter(transport)
+        intent = {
             "lifecycle_key": "life-1",
             "event_slug": "weather-market",
             "side": "YES_BID",
             "price": 0.49,
             "size": 5.0,
-        })
-        request = transport.requests[0]
+        }
+        calls = {
+            "create_post_only": lambda: adapter.place_order(intent),
+            "preview_post_only": lambda: adapter.preview_order(intent),
+            "cancel_order": lambda: adapter.cancel_order("order-1", market_slug="weather-market"),
+            "cancel_all": lambda: adapter.cancel_all(["weather-market"]),
+        }
 
-        self.assertEqual(response["id"], "order-1")
-        self.assertEqual(request["method"], "POST")
-        self.assertEqual(request["url"], "https://api.polymarket.us/v1/orders")
-        self.assertEqual(request["headers"]["X-PM-Access-Key"], "key-id")
-        self.assertEqual(request["headers"]["X-PM-Signature"], "ZmFrZS11cy1zaWduYXR1cmU=")
-        self.assertTrue(request["json_body"]["participateDontInitiate"])
+        for action, call in calls.items():
+            with self.subTest(action=action):
+                with self.assertRaises(PolymarketUSOrderMutationRefused) as refused:
+                    call()
+                self.assertEqual(refused.exception.action, action)
+                self.assertIn("International Polymarket only", str(refused.exception))
+                self.assertIn("AGENTS.md", str(refused.exception))
+        with self.assertRaises(PolymarketUSOrderMutationRefused):
+            adapter._request("create_post_only", leg=intent)
+        self.assertEqual(transport.requests, [])
+        self.assertFalse(adapter.supports_trading)
+        self.assertFalse(adapter.diagnostics()["supports_trading"])
+        self.assertTrue(adapter.diagnostics()["read_only"])
+        self.assertEqual(adapter.diagnostics()["order_mutation"], "refused_international_only")
+
+    def test_polymarket_us_http_adapter_read_paths_are_unchanged(self):
+        transport = RecordingTransport(responses=[{"orders": [{"id": "order-1"}]}, {"positions": []}])
+        adapter = self._us_adapter(transport)
+
+        orders = adapter.open_orders()
+        positions = adapter.positions()
+
+        self.assertEqual(orders, [{"id": "order-1"}])
+        self.assertEqual(positions, [])
+        self.assertEqual([r["method"] for r in transport.requests], ["GET", "GET"])
+        self.assertEqual(transport.requests[0]["url"], "https://api.polymarket.us/v1/orders/open")
+        self.assertEqual(transport.requests[0]["headers"]["X-PM-Access-Key"], "key-id")
+        self.assertEqual(transport.requests[0]["headers"]["X-PM-Signature"], "ZmFrZS11cy1zaWduYXR1cmU=")
+
+    def test_polymarket_us_order_request_plan_is_still_buildable_for_evidence(self):
+        plan = build_adapter_request_plan(
+            "polymarket_us",
+            "create_post_only",
+            leg={
+                "lifecycle_key": "life-1",
+                "event_slug": "weather-market",
+                "side": "YES_BID",
+                "price": 0.49,
+                "size": 5.0,
+            },
+            signer=lambda message: b"fake-us-signature",
+        )
+
+        self.assertEqual(plan["method"], "POST")
+        self.assertEqual(plan["url"], "https://api.polymarket.us/v1/orders")
+        self.assertTrue(plan["body"]["participateDontInitiate"])
 
     def test_polymarket_us_latency_stopgap_order_reject_is_not_rate_limit_backoff(self):
-        transport = RecordingTransport(responses=[{
-            "status": 429,
-            "message": "Global Rate Limit Exceeded",
-        }])
-        adapter = PolymarketUSHTTPAdapter(
-            key_id="key-id",
-            signer=lambda message: b"fake-us-signature",
-            transport=transport,
-            base_url="https://api.polymarket.us",
+        response = classify_polymarket_us_response(
+            "create_post_only",
+            {"status": 429, "message": "Global Rate Limit Exceeded"},
         )
-
-        response = adapter.place_order({
-            "lifecycle_key": "life-1",
-            "event_slug": "weather-market",
-            "side": "YES_BID",
-            "price": 0.49,
-            "size": 5.0,
-        })
 
         self.assertFalse(response["success"])
         self.assertEqual(response["status"], "rejected")
@@ -1719,18 +1756,10 @@ class TestMMExchange(unittest.TestCase):
         self.assertIn("refresh book", response["retry_guidance"])
 
     def test_polymarket_us_latency_stopgap_on_cancel_is_live_readiness_blocker(self):
-        transport = RecordingTransport(responses=[{
-            "status": 429,
-            "message": "Global Rate Limit Exceeded",
-        }])
-        adapter = PolymarketUSHTTPAdapter(
-            key_id="key-id",
-            signer=lambda message: b"fake-us-signature",
-            transport=transport,
-            base_url="https://api.polymarket.us",
+        response = classify_polymarket_us_response(
+            "cancel_all",
+            {"status": 429, "message": "Global Rate Limit Exceeded"},
         )
-
-        response = adapter.cancel_all()
 
         self.assertFalse(response["success"])
         self.assertEqual(response["status"], "unexpected_cancel_reject")
@@ -1748,24 +1777,10 @@ class TestMMExchange(unittest.TestCase):
         class FakeHTTPError(Exception):
             response = FakeResponse()
 
-        class RaisingTransport:
-            def request(self, *_args, **_kwargs):
-                raise FakeHTTPError("429 Global Rate Limit Exceeded")
-
-        adapter = PolymarketUSHTTPAdapter(
-            key_id="key-id",
-            signer=lambda message: b"fake-us-signature",
-            transport=RaisingTransport(),
-            base_url="https://api.polymarket.us",
+        response = classify_polymarket_us_exception(
+            "create_post_only",
+            FakeHTTPError("429 Global Rate Limit Exceeded"),
         )
-
-        response = adapter.place_order({
-            "lifecycle_key": "life-1",
-            "event_slug": "weather-market",
-            "side": "YES_BID",
-            "price": 0.49,
-            "size": 5.0,
-        })
 
         self.assertEqual(response["http_status"], 429)
         self.assertEqual(response["reject_class"], "latency_stopgap")

@@ -1,4 +1,9 @@
-"""The retained maker paper-score freshness reader keeps its verdicts."""
+"""The retained maker paper-score freshness reader keeps its verdicts.
+
+Guards: owner decision 2026-10-04 freshness#3 - maker evidence countability fails closed: NO_ACTIVE_DAY
+and STALE (including a missing paper report) block, and only a report covering the latest completed
+active day passes.
+"""
 
 import json
 from pathlib import Path
@@ -6,6 +11,7 @@ from pathlib import Path
 from weather.reporting.market.retired_trading_evidence import (
     ACTIVE_DAY_EVIDENCE_MODE,
     discover_run_folders,
+    maker_paper_score_freshness,
     maker_paper_score_freshness_from_report,
 )
 
@@ -98,5 +104,25 @@ def test_no_active_day_runs_reports_no_active_day(tmp_path: Path) -> None:
     freshness = maker_paper_score_freshness_from_report(runs_root, report)
 
     assert freshness["status"] == "NO_ACTIVE_DAY"
-    assert freshness["blocks_maker_evidence_countability"] is False
+    # Owner decision 2026-10-04 (freshness#3): a missing active day fails closed.
+    assert freshness["blocks_maker_evidence_countability"] is True
     assert freshness["completed_active_run_count"] == 0
+
+
+def test_countability_block_fails_closed_per_status(tmp_path: Path) -> None:
+    """Owner decision 2026-10-04 (freshness#3): only PASS leaves countability unblocked."""
+    runs_root = tmp_path / "mm_runs"
+    diagnostic = _write_run(runs_root, "2026-06-17", "diagnostic-run", active=False)
+    old_run = _write_run(runs_root, "2026-06-18", "old-active")
+    new_run = _write_run(runs_root, "2026-06-19", "new-active")
+
+    no_active_day = maker_paper_score_freshness([diagnostic], [])
+    stale = maker_paper_score_freshness([old_run, new_run], [old_run])
+    passing = maker_paper_score_freshness([old_run, new_run], [old_run, new_run])
+
+    assert no_active_day["status"] == "NO_ACTIVE_DAY"
+    assert no_active_day["blocks_maker_evidence_countability"] is True
+    assert stale["status"] == "STALE"
+    assert stale["blocks_maker_evidence_countability"] is True
+    assert passing["status"] == "PASS"
+    assert passing["blocks_maker_evidence_countability"] is False

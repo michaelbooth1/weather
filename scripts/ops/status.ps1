@@ -4713,6 +4713,22 @@ if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
     catch { $flags.Add("MAKER_EVIDENCE: status unreadable or missing") }
 }
 
+# ---- merged branch retirement (git-workflow branch lifecycle; hygiene, never the verdict) ----
+# Merged codex/* branches are retired within 7 days of landing through a recorded retirement.
+# Read-only over cached remote-tracking refs; production executes the deletions.
+try {
+    $retirementRaw = @(& $py -m weather.operations.merged_branch_retirement --repo-root $repo --json 2>$null)
+    $retirement = (($retirementRaw -join "`n") | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 0 -or -not $retirement.ok) {
+        $warns.Add("merged-branch retirement check failed to run")
+    }
+    elseif (@($retirement.overdue).Count -gt 0) {
+        $warns.Add(("{0} merged codex/* branch(es) landed more than {1} days ago - list them in a recorded retirement (docs/git-workflow.md branch lifecycle); first: {2}" -f
+            @($retirement.overdue).Count, $retirement.max_age_days, [string]@($retirement.overdue)[0].branch))
+    }
+}
+catch { $warns.Add("merged-branch retirement check failed to run") }
+
 # ---- sweep findings (its nonzero task exit is a verdict, not a task failure) ----
 foreach ($sweepFlag in @(Get-WeatherSweepFlags -Path (Join-Path $repo 'data\alerts\STALENESS_SWEEP.md'))) {
     $flags.Add($sweepFlag)

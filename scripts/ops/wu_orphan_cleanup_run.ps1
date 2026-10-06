@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('plan', 'preflight', 'apply')][string]$Command = 'plan',
-    [string]$RepoRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$ApprovedManifest = '',
     [string]$ManifestSha256 = '',
@@ -10,6 +10,12 @@ param(
     [ValidateRange(1, 1073741824)][long]$MaxBytes = 1GB,
     [ValidateRange(1, 1800)][int]$MaxRuntimeSeconds = 300
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')

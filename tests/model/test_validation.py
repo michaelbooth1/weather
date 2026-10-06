@@ -388,5 +388,12 @@ class TestWundergroundHistoryRebuildAndAudit(unittest.TestCase):
         self.assertTrue(success)
 
 
+def test_source_rows_until_cutoff_drops_untimed_and_unparseable_rows():
+    """WU cutoff/PIT: a row whose time is missing or unparseable is never inside the cutoff (review K, A02)."""
+    model = TorontoHighTempModel(target_date="2026-06-22", market_id="toronto")
+    rows = [{"time": "10:00", "t": 1}, {"time": None, "t": 2}, {"time": "garbage", "t": 3}, {"time": "15:00", "t": 4}]
+    assert [row["t"] for row in model.source_rows_until_cutoff(rows, 14)] == [1]
+
+
 if __name__ == "__main__":
     unittest.main()

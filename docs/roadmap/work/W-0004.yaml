@@ -1,0 +1,32 @@
+{
+  "id": "W-0004",
+  "title": "110g disable afternoon centering and prove adoption",
+  "workstream": "model",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/d52969fa28ea7aa871e85d26888fcba326046da2/docs/roadmap/workstation-handoff-2026-09-110g-disable-afternoon-centering.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/ba42a13c8148914ba9bd003eb8e797d57abefc4f/docs/roadmap/agent-report-2026-09-110g-disable-afternoon-centering.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/disable-afternoon-centering-20260926",
+  "tip": "ba42a13c8148914ba9bd003eb8e797d57abefc4f",
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": {
+    "date": "2026-09-26",
+    "window": "01:00-04:00 America/Toronto; suite 00:30 first"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Included in W-0001. Production proves fresh snapshot reason=artifact_disabled, active=false, zero shift; no bound release pointer; receipt 110g-activation-20260927.json."
+  ]
+}

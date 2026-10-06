@@ -39,13 +39,69 @@ def test_excluded_files_are_retained(change):
     assert list(night.plan_batches([{**row(), **change}], night.MAX_NIGHT_BYTES, now=NOW)) == []
 
 
-def test_fourteen_day_boundary_refuses_and_old_attended_contract_stays_thirty_days():
-    hot = "snapshots/highest-temperature-in-nyc-on-september-10-2026"
-    with pytest.raises(ValueError, match="fourteen"):
-        list(night.plan_batches([{**row(), "path": hot + "/snapshots.jsonl"}], night.MAX_NIGHT_BYTES, now=NOW))
+def test_two_day_boundary_and_old_attended_contract_stays_thirty_days():
+    # NOW is 2026-09-24 01:00 Toronto: 09-22 is two local days old, 09-23 is not.
+    closed = "snapshots/highest-temperature-in-nyc-on-september-22-2026/snapshots.jsonl"
+    hot = "snapshots/highest-temperature-in-nyc-on-september-23-2026/snapshots.jsonl"
+    assert sum(map(len, night.plan_batches([{**row(), "path": closed}], night.MAX_NIGHT_BYTES, now=NOW))) == 1
+    with pytest.raises(ValueError, match="one-day hot window"):
+        list(night.plan_batches([{**row(), "path": hot}], night.MAX_NIGHT_BYTES, now=NOW))
     with pytest.raises(ValueError, match="thirty"):
-        inventory.validate_folders([FOLDER], as_of=NOW.date())
-    assert inventory.validate_folders([FOLDER], as_of=NOW.date(), min_age_days=14)
+        inventory.validate_folders([closed.rsplit("/", 1)[0]], as_of=NOW.date())
+    with pytest.raises(ValueError, match="unsupported"):
+        inventory.validate_folders([FOLDER], as_of=NOW.date(), min_age_days=14)
+
+
+@pytest.mark.parametrize("age, selected", [(timedelta(days=2), 1), (timedelta(days=2) - timedelta(seconds=1), 0)])
+def test_files_must_be_unchanged_for_two_days(age, selected):
+    fresh = {**row(), "mtime_ns": str(int((NOW - age).timestamp()) * 10**9)}
+    assert sum(map(len, night.plan_batches([fresh], night.MAX_NIGHT_BYTES, now=NOW))) == selected
+
+
+@pytest.mark.parametrize("size, allocated, reason", [
+    (385, 392, "logical_size_below_one_cluster"),  # MFT-resident, as measured 2026-09-30
+    (4095, 4096, "logical_size_below_one_cluster"),
+    (4096, 4096, "allocation_not_above_one_cluster"),
+])
+def test_unshrinkable_files_are_skipped_with_reason_and_never_counted(size, allocated, reason):
+    skipped = []
+    tiny = {**row("replay_input_status.json"), "size_bytes": size, "allocated_bytes": allocated}
+    batches = list(night.plan_batches([tiny, row("z.jsonl", MIB)], 2 * MIB, now=NOW, skipped=skipped))
+    assert [item["path"] for batch in batches for item in batch] == [FOLDER + "/z.jsonl"]
+    assert skipped == [{"path": tiny["path"], "size_bytes": size, "allocated_bytes": allocated, "reason": reason}]
+    assert night.unshrinkable({**tiny, "size_bytes": 4096, "allocated_bytes": 8192}) is None
+
+
+class ZeroSavingsOpener:
+    """Native-shaped fake whose compression leaves allocation unchanged."""
+    def __init__(self, path, *, writable, **_):
+        self.state = {"size_bytes": 8192, "mtime_ns": 1, "volume_serial": 2, "file_index": 1,
+                      "allocation_bytes": 8192, "attributes": 32, "compression_format": 0,
+                      "creation_filetime": 5}
+    def __enter__(self):
+        return self
+    def __exit__(self, *_):
+        return False
+    def metadata(self):
+        return dict(self.state)
+    def digest(self, **_):
+        return "a" * 64
+    def compress(self):
+        self.state.update(compression_format=2, attributes=0x820)
+
+
+def test_selected_file_with_zero_savings_still_stops_the_batch(tmp_path):
+    touched = []
+    def compress(path, expected, **kwargs):
+        touched.append(expected["path"])
+        return cold.compress_candidate(path, expected, **{**kwargs, "opener": ZeroSavingsOpener})
+    shaped = {**row("a.jsonl", 8192), "allocated_bytes": 8192, "mtime_ns": "1", "file_id": "1", "device": "2"}
+    assert night.unshrinkable(shaped) is None
+    with pytest.raises(ValueError, match="no positive allocated-byte savings"):
+        night.execute_batch([shaped, {**shaped, "path": FOLDER + "/b.jsonl"}], tmp_path, tmp_path,
+                            apply=True, guard=lambda: None, compress=compress)
+    assert touched == [FOLDER + "/a.jsonl"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["000-after.json", "000-before.json"]
 
 
 def test_batch_stops_on_first_failure_and_never_mutates_later_file(tmp_path):

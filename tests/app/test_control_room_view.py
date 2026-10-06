@@ -121,13 +121,14 @@ def test_control_room_route_is_read_only_and_decision_first(mock_load):
 
     assert not app_test.exception
     assert mock_load.called
-    assert app_test.selectbox[0].value == "Control Room"
+    assert app_test.selectbox[0].value == "Control Room (historical pilot view)"
     assert app_test.title[0].value == "Operator Control Room"
     text = _visible_text(app_test)
     assert "International Polymarket / read-only operations" in text
     assert "READY FOR EXPLICIT APPROVAL" in text
     assert "never grants trading authority" not in text.lower()
     assert "not trading authority" in text
+    assert "Historical pilot view" in text
     assert [metric.label for metric in app_test.metric] == [
         "Capture",
         "Host",

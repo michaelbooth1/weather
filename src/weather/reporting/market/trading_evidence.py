@@ -1081,7 +1081,8 @@ def summarize_market_making_run(path, payload, selection_summary=None):
     }
 
 
-def _maker_countability_gate(market_making):
+def maker_countability_gate(market_making):
+    """Fail-closed maker evidence countability gate (public contract; tested directly)."""
     mm = market_making or {}
     blockers = list(mm.get("countability_blockers") or [])
     quote_gate = mm.get("quote_starvation_gate") or {}
@@ -1702,7 +1703,7 @@ def build_trading_evidence_summary(
         "preflight_blocked_market_fraction"
     )
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
-    market_making["maker_countability_gate"] = _maker_countability_gate(market_making)
+    market_making["maker_countability_gate"] = maker_countability_gate(market_making)
     market_making["maker_evidence_countability_status"] = (
         market_making["maker_countability_gate"].get("status")
     )
@@ -1757,7 +1758,8 @@ def _summary_status(payload):
         return "BLOCK"
     if _int_value(mm.get("model_variant_bakeoff_skipped_input_row_count")) > 0:
         return "BLOCK"
-    if mm.get("paper_score_freshness_status") == "STALE":
+    # Owner decisions 2026-10-04/05 (freshness#3): a missing active day fails closed like a stale score.
+    if mm.get("paper_score_freshness_status") in {"STALE", "NO_ACTIVE_DAY"}:
         return "BLOCK"
     if taker.get("profitability_artifact_verification_status") == "BLOCK":
         return "BLOCK"

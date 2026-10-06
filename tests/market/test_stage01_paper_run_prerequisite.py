@@ -6,6 +6,10 @@ paper market-harvest tick (docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md,
 prerequisite 7 and the attempt-local public-substrate sequence) through the real
 CLI on fixtures, then feeds its run folder to the exact loader that
 ``mm_live_candidate_cli`` and ``portable_live_candidate_preflight`` use.
+
+Guards: DECISION_LOG 2026-09-29 (110o part 3 keeps the Stage 0/1 paper-run tool) - the only documented
+attended path to a live start (INTERNATIONAL_MM_LIVE_PILOT.md prerequisite 7) must still produce a
+PASS paper run whose folder the live-candidate loader accepts.
 """
 
 import json
@@ -19,7 +23,7 @@ from tests.market.test_market_making_run import (
 )
 from weather.market import exchange_economics, market_making_run
 from weather.market.execution_contract import SCHEMA_VERSION as RUN_SCHEMA_VERSION
-from weather.market.mm_live_candidate_cli import _load_paper_quote_evidence
+from weather.market.mm_live_candidate_cli import load_paper_quote_evidence
 
 EVENT_SLUG = "highest-temperature-in-atlanta-on-june-14-2026"
 TOKENS = {"token-80": "80000000000000000001", "token-82": "82000000000000000001"}
@@ -106,7 +110,7 @@ def test_strict_market_harvest_paper_tick_feeds_the_live_candidate_loader(tmp_pa
     assert config["policy_config"]["quote_ttl_seconds"] == 600.0
     assert preflight["status"] == "PASS"
 
-    evidence = _load_paper_quote_evidence(
+    evidence = load_paper_quote_evidence(
         run_folder / "run_config.json",
         run_folder / "quote_intents_long.csv",
         target_date=TARGET_DATE,

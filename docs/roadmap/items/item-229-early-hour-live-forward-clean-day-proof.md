@@ -1,4 +1,4 @@
-# 229. Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]
+# 229. Early-Hour Live-Forward Clean-Day Proof [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-25, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]
 
 Goal: collect one clean current-code active day so early-hour model fixes can be
 counted as production evidence rather than only backtest evidence.

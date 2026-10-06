@@ -155,5 +155,23 @@ class TestSettlementLedger(unittest.TestCase):
         self.assertFalse(result["polymarket_repair_candidate"]["promotion_countable"])
 
 
+def test_ledger_resolve_outcome_matches_settlement_io_on_inclusive_boundaries():
+    """Settlement units: the ledger and settlement_io agree on every tail and range boundary (review K, A05)."""
+    from weather.backtesting import settlement_io, settlement_ledger
+
+    for kind in ("lte", "gte", "range"):
+        for value in (27, 28):
+            for bucket in (26, 27, 28, 29):
+                for value_hi in (None, 29):
+                    ledger = settlement_ledger.resolve_outcome(kind, value, bucket, value_hi)
+                    reference = settlement_io.resolve_outcome(kind, value, bucket, value_hi)
+                    assert int(ledger) == reference, (kind, value, bucket, value_hi)
+    assert settlement_ledger.resolve_outcome("gte", 28, 28) is True
+    assert settlement_ledger.resolve_outcome("gte", 28, 27) is False
+    assert settlement_ledger.resolve_outcome("lte", 28, 28) is True
+    assert settlement_io.resolve_outcome("gte", 28, 28) == 1
+    assert settlement_io.resolve_outcome("lte", 28, 28) == 1
+
+
 if __name__ == "__main__":
     unittest.main()

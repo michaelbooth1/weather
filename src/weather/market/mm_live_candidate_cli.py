@@ -1078,6 +1078,11 @@ def _candidate_for_book(market, token_id, outcome_index, book):
     return result
 
 
+# Public name of the paper-run evidence loader shared with portable_live_candidate_preflight and the
+# Stage 0/1 paper-run prerequisite test (DECISION_LOG 2026-09-29).
+load_paper_quote_evidence = _load_paper_quote_evidence
+
+
 def select_live_pilot_candidate(
     economics_snapshot,
     target_date,

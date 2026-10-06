@@ -5215,7 +5215,10 @@ class TestDailyRefresh(unittest.TestCase):
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             report_exists = Path(result["report_out"]).exists()
 
-        self.assertEqual(result["status"], "WARN")
+        # No maker active day: owner decision 2026-10-05 makes the summary fail closed,
+        # ahead of the taker's sample-pending WARN.
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(payload["market_making"]["paper_score_freshness_status"], "NO_ACTIVE_DAY")
         self.assertEqual(result["taker_quality_status"], "SAMPLE_PENDING_NEGATIVE_LATEST")
         self.assertEqual(payload["taker"]["run_id"], "taker-1")
         self.assertTrue(report_exists)

@@ -1,9 +1,11 @@
 from pathlib import Path
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.ratchet
 def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
     registrars = {
         path: path.read_text(encoding="utf-8-sig")
