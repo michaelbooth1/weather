@@ -1,5 +1,7 @@
 """Stage B's overnight trigger cannot collide with another shared-lease holder.
 
+Guards: Stage B evidence trigger never overlaps a shared-lease holder (docs/operations/HOST_LOAD_POLICY.md; docs/roadmap/agent-report-2026-10-01b-stage-b-trigger.md).
+
 The 00:35 trigger fell inside the cold-snapshot nightly's lease, and a 05:00
 trigger would have starved daily CLOB projection and raw-tape tiering, which
 skip on a busy lease without retrying. The guard therefore derives lease
@@ -302,6 +304,7 @@ def _run_contract(body, extra_env=None):
 
 
 @windows_only
+@pytest.mark.spawns
 def test_powershell_scan_matches_the_independent_scan():
     names = _run_contract(
         "@(Get-WeatherSharedLeaseEntryPoints -RepoRoot $env:WEATHER_REPO) | ConvertTo-Json -Compress",
@@ -317,6 +320,7 @@ def _write(path, text):
 
 
 @windows_only
+@pytest.mark.spawns
 def test_new_lease_taking_task_is_detected_without_a_hand_list(tmp_path):
     ops = tmp_path / "scripts" / "ops"
     _write(ops / "new_job_run.ps1", "$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $r -Workload 'x'\n")
@@ -381,6 +385,7 @@ $collisions = @(Get-DailyRefreshEvidenceTriggerCollisions -Holders $holders -Evi
 
 
 @windows_only
+@pytest.mark.spawns
 def test_collision_check_classifies_lease_holder_windows():
     rows = _run_contract(r"""
 $now = [datetime]'2026-10-01T12:00:00'
@@ -432,6 +437,7 @@ $out | ConvertTo-Json -Compress
 
 
 @windows_only
+@pytest.mark.spawns
 def test_lease_wait_retries_then_acquires_or_refuses_within_budget():
     result = _run_contract(r"""
 function Run-Case([int]$freeAfter, [int]$wait, [int]$retry) {
