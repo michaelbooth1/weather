@@ -32,8 +32,25 @@ generated reports for dynamic state.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
   target-date, cutoff-aligned current station observation or its captured
-  max-since-07:00 summary. This exception never admits forecast, climatology,
-  post-cutoff, unit-implausible, or missing evidence.
+  max-since-07:00 summary. This is the hard floor for every stage. This
+  exception never admits forecast, climatology, post-cutoff, unit-implausible,
+  or missing evidence.
+- The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
+  standing-high partial, late-day continuation) have a stricter anchor when WU
+  is empty. Owner decision 2026-10-05, PR #191, `lockin-anchor-v3`:
+  - The anchor is the observed same-day station high: the maximum of the
+    target-date station rows at or before model emission, same-day readings
+    before 07:00 included.
+  - METAR rows are keyed by observation time (AWC `obsTime`, or the raw
+    `DDHHMMZ` group), never by AWC's nominal `reportTime`. So the D-1 23:5x
+    report carried into D as a "00:00" row (the M0 defect) is excluded.
+  - Once any late-day stage acts, no mass is left below the anchor bucket: it
+    moves onto that bucket. The calibration floor is
+    `max(hard floor, anchor bucket)`.
+  - The owner accepted both trades: an exact zero below a METAR-derived anchor
+    (a non-resolution source), and the pre-07:00 widening of the observed
+    floor for these stages.
+  - With WU history present, the stages keep the WU high, unchanged.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
