@@ -2,6 +2,8 @@ import datetime as dt
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from weather.operations.agent_docs_audit import (
     LINE_BUDGETS,
     NESTED_AGENT_FILE_LINE_BUDGET,
@@ -14,8 +16,12 @@ from weather.operations.agent_docs_audit import (
     line_budget_errors,
     retired_claim_errors,
     state_of_play_age_errors,
+    trailing_blank_line_errors,
     unindexed_operations_docs,
 )
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_agent_docs_audit_passes_repository_contracts():
@@ -184,3 +190,58 @@ def test_control_character_check_covers_agents_and_readme_at_any_level_only(tmp_
 
     assert [error.split(": ")[0] for error in errors] == ["pkg/AGENTS.md:1", "README.md:2"]
     assert "0x09" in errors[0] and "0x7F" in errors[1]
+
+
+def test_trailing_blank_line_check_matches_git_for_lf_and_crlf(tmp_path):
+    root = tmp_path.resolve()
+    cases = {
+        "lf_blank.md": b"text\n\n",
+        "crlf_blank.md": b"text\r\n\r\n",
+        "whitespace_blank.py": b"x = 1\n   \n",
+        "lf_single.md": b"text\n",
+        "crlf_single.md": b"text\r\n",
+        "no_final_newline.md": b"text",
+        "trailing_space_kept.md": b"text  \n",
+    }
+    paths = []
+    for name, content in cases.items():
+        (root / name).write_bytes(content)
+        paths.append(root / name)
+
+    errors = trailing_blank_line_errors(root, paths, exempt=frozenset())
+
+    assert [error.split(": ")[0] for error in errors] == [
+        "lf_blank.md",
+        "crlf_blank.md",
+        "whitespace_blank.py",
+    ]
+    assert "git diff --check" in errors[0]
+
+
+@pytest.mark.spawns
+def test_trailing_blank_line_check_scans_tracked_text_only_and_flags_stale_exemptions(tmp_path):
+    root = tmp_path.resolve()
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    files = {
+        ".gitattributes": b"*.md text eol=lf\n*.lfs -text\n",
+        "data/tape.md": b"row\n\n",
+        "docs.md": b"doc\n\n",
+        "clean.md": b"doc\n",
+        "blob.bin": b"\x00\x01binary\n\n",
+        "pointer.lfs": b"oid\n\n",
+        "exempt.py": b"x = 1\n\n",
+    }
+    (root / "data").mkdir()
+    for name, content in files.items():
+        (root / name).write_bytes(content)
+    (root / "untracked.md").write_bytes(b"doc\n\n")
+    git("add", "-f", *files)
+
+    errors = trailing_blank_line_errors(root, exempt=frozenset({"exempt.py", "fixed.py"}))
+
+    assert [error.split(": ")[0] for error in errors] == ["docs.md", "fixed.py"]
+    assert "stale TRAILING_BLANK_LINE_EXEMPT entry" in errors[1]
