@@ -156,6 +156,7 @@ _READ_ONLY_ASSIGNMENT = re.compile(
 )
 
 
+@pytest.mark.ratchet
 def test_no_ops_script_assigns_to_a_read_only_automatic_variable():
     offenders = []
     for script in sorted(SCRIPT.parent.rglob("*.ps1")):

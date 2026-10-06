@@ -13,6 +13,8 @@ from typing import Any
 
 import pytest
 
+from tests.ci_timing import ci_scaled_seconds, ci_scaled_timeout
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "quiet_window_merge.ps1"
@@ -209,6 +211,48 @@ def _make_config_changed_target(root: Path, origin: Path) -> str:
         "push",
         "origin",
         f"{target}:refs/heads/config-changed-target",
+    )
+    return target
+
+
+# The conflict and config-changed targets are deterministic commits (fixed
+# parent, file bytes, identity and dates), so their SHAs never vary between
+# tests. Each is built once per module exactly as before, in a private bare
+# clone, and later harnesses fetch that one commit into their own origin under
+# the same ref the original push created. This skips a full clone plus two full
+# checkouts of the repository per harness; every harness still gets its own
+# origin, production clone and source clone.
+_TARGET_CACHE: dict[str, Any] = {}
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _deterministic_target_cache(tmp_path_factory: pytest.TempPathFactory):
+    _TARGET_CACHE.clear()
+    _TARGET_CACHE["root"] = tmp_path_factory.mktemp("rt")
+    yield
+    _TARGET_CACHE.clear()
+
+
+def _cached_target(name: str, origin: Path, make: Any, *, master: str | None = None) -> str:
+    cached = _TARGET_CACHE.get(name)
+    if cached is None:
+        cache_root = _TARGET_CACHE["root"] / name
+        cache_root.mkdir()
+        cache_origin = cache_root / "origin.git"
+        _git(REPO_ROOT, "clone", "--bare", "--shared", str(REPO_ROOT), str(cache_origin))
+        if master is not None:
+            _git(cache_root, f"--git-dir={cache_origin}", "update-ref", "refs/heads/master", master)
+        cached = (cache_origin, make(cache_root, cache_origin))
+        _TARGET_CACHE[name] = cached
+    cache_origin, target = cached
+    _git(
+        origin.parent,
+        f"--git-dir={origin}",
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        str(cache_origin),
+        f"{target}:refs/heads/{name}",
     )
     return target
 
@@ -455,9 +499,10 @@ function global:Get-ScheduledTask {
         $dispatchAt = [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
         # With the Stop-reserve clamp this helper is killed after two seconds,
         # before it can publish the synthetic late clock.  Without the clamp
-        # it survives the ordinary 15-second read allowance, advances beyond
+        # it gets its full read allowance (shortened here; see
+        # _read_hang_at_stop_reserve_ms), outlives this hang, advances beyond
         # the reserve, and consumes the remaining Stop identity budget.
-        [Threading.Thread]::Sleep(4000)
+        [Threading.Thread]::Sleep(__STOP_RESERVE_HANG_MS__)
         [IO.File]::WriteAllText(
             $env:RECON_TEST_CLOCK,
             $dispatchAt.AddMinutes(14).AddSeconds(57).ToString("o")
@@ -484,6 +529,9 @@ function global:Get-ScheduledTask {
     }
     if ($env:RECON_TEST_TASK_MODE -ceq "read_hang") {
         [Threading.Thread]::Sleep(60000)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_delay_beyond_ci_budget") {
+        [Threading.Thread]::Sleep([int]$env:RECON_TEST_READ_DELAY_MS)
     }
     if ($TaskName -ceq "WeatherExecutionTapeSupervisor") {
         return [PSCustomObject]@{
@@ -673,10 +721,42 @@ function global:Stop-ScheduledTask {
 & $env:RECON_TEST_REAL_SCHEDULER_HELPER `
     -Operation $Operation -RequestBase64 $RequestBase64 -ResultPath $ResultPath
 exit $LASTEXITCODE
-''',
+'''.replace("__STOP_RESERVE_HANG_MS__", str(_read_hang_at_stop_reserve_ms())),
         encoding="utf-8",
     )
     return wrapper
+
+
+# Production wall-clock RPC budget literal -> (shortened test budget, production cap).
+RPC_BUDGET_NEEDLES = {
+    "-LogicalBoundary $logicalBoundary -MaximumSeconds 15": (3, 15),
+    "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20": (10, 20),
+    "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20": (3, 20),
+}
+
+
+def _adapt_rpc_budgets(script: str) -> str:
+    for needle, (test_seconds, production_cap) in RPC_BUDGET_NEEDLES.items():
+        assert script.count(needle) == 1, (needle, script.count(needle))
+        prefix = needle.rsplit(" ", 1)[0]
+        script = script.replace(
+            needle, f"{prefix} {ci_scaled_seconds(test_seconds, cap=production_cap)}"
+        )
+    return script
+
+
+def _read_hang_at_stop_reserve_ms() -> int:
+    """Hang for the Stop-reserve clamp test: midway between clamp and read budget.
+
+    The clamp leaves 2 s (logical 14:20: 10 s to the Stop edge minus the 8 s
+    child reserve). Without the clamp the read gets its full wall-clock budget
+    (3 s, or the CI-scaled value). The hang sits midway, so the clamp kills the
+    read before it publishes the late clock, and a clamp-removal mutant lets it
+    publish, on and off CI (Defender C2 on #218).
+    """
+    clamp_ms = 2000
+    read_budget_ms = ci_scaled_seconds(3, cap=15) * 1000
+    return (clamp_ms + read_budget_ms) // 2
 
 
 def _adapt_script(
@@ -736,18 +816,11 @@ def _adapt_script(
         + "-Algorithm SHA256).Hash.ToLowerInvariant()",
         1,
     )
-    adapted = adapted.replace(
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 15",
-        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
-        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
-    )
-    adapted = adapted.replace(
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20",
-        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
-    )
+    # Shortened wall-clock RPC allowances. On hosted CI only, tests.ci_timing
+    # scales them (capped at the production value); elsewhere they are 3/10/3.
+    # Each production literal must occur exactly once, so a changed production
+    # budget can never pass through unshortened (Defender C1 on #218).
+    adapted = _adapt_rpc_budgets(adapted)
 
     classification_needle = (
         "$rollFree = ($rollVerdictExitCode -eq 0 -and "
@@ -1168,7 +1241,7 @@ def _build_harness(
     if unrelated_target:
         published_target = _make_unrelated_target(origin)
     elif changed_target_config:
-        published_target = _make_config_changed_target(root, origin)
+        published_target = _cached_target("config-changed-target", origin, _make_config_changed_target)
     else:
         published_target = PUBLISHED_TARGET
     published_tree = _rev(REPO_ROOT, f"{PUBLISHED_TARGET}^{{tree}}")
@@ -1181,7 +1254,9 @@ def _build_harness(
         "refs/heads/master",
         published_target,
     )
-    conflict_target = _make_conflict_target(root, origin)
+    conflict_target = _cached_target(
+        "merge-conflict-target", origin, _make_conflict_target, master=PUBLISHED_TARGET
+    )
 
     production = root / "production"
     _git(root, "clone", "--no-checkout", str(origin), str(production))
@@ -1440,7 +1515,7 @@ def _invoke(
         cwd=harness.production,
         env=environment,
         check=False,
-        timeout=timeout,
+        timeout=ci_scaled_timeout(timeout),
     )
 
 
@@ -1583,6 +1658,7 @@ def _assert_no_hard_reset(harness: Harness) -> None:
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
     tmp_path: Path,
 ) -> None:
@@ -1627,6 +1703,7 @@ def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
         "fresh-verdict-with-dormant-closure-evidence",
     ),
 )
+@pytest.mark.spawns
 def test_roll_verdict_faults_remain_sensitive_and_dry_run_is_read_only(
     tmp_path: Path,
     roll_mode: str,
@@ -1660,6 +1737,7 @@ def test_roll_verdict_faults_remain_sensitive_and_dry_run_is_read_only(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("good", "delayed_start"))
+@pytest.mark.spawns
 def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
     tmp_path: Path,
     task_mode: str,
@@ -1739,6 +1817,7 @@ def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_late_start_budget_refuses_before_any_production_mutation(
     tmp_path: Path,
 ) -> None:
@@ -1755,6 +1834,7 @@ def test_late_start_budget_refuses_before_any_production_mutation(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_midflight_quiet_window_crossing_rolls_back_before_merge_commit(
     tmp_path: Path,
 ) -> None:
@@ -1773,12 +1853,17 @@ def test_midflight_quiet_window_crossing_rolls_back_before_merge_commit(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_start_identity_deadline_is_not_extended_by_marker_journaling(
     tmp_path: Path,
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, journal_delay_ms=11000, timeout=90)
+    # The journaling delay must outlast the push Start identity's wall-clock
+    # budget (10 s here, or its CI-scaled value) by one second: 11000 ms
+    # everywhere except hosted CI.
+    start_budget_ms = ci_scaled_seconds(10, cap=20) * 1000
+    result = _invoke(harness, journal_delay_ms=start_budget_ms + 1000, timeout=90)
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
@@ -1792,6 +1877,7 @@ def test_start_identity_deadline_is_not_extended_by_marker_journaling(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_remote_drift_after_start_journal_is_rejected_before_helper_launch(
     tmp_path: Path,
 ) -> None:
@@ -1811,6 +1897,7 @@ def test_remote_drift_after_start_journal_is_rejected_before_helper_launch(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -1832,6 +1919,7 @@ def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("hang_after_start", "hang_coarse"))
+@pytest.mark.spawns
 def test_on_demand_task_is_stopped_and_terminally_proved_at_its_deadline(
     tmp_path: Path,
     task_mode: str,
@@ -1860,6 +1948,7 @@ def test_on_demand_task_is_stopped_and_terminally_proved_at_its_deadline(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
     tmp_path: Path,
 ) -> None:
@@ -1873,7 +1962,7 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
-    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _start_lines(harness) == ["WeatherOneShotPush"], diagnostic
     assert _stop_lines(harness) == ["WeatherOneShotPush"]
     assert (
         harness.production
@@ -1915,6 +2004,7 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
         ("start_fail_before_dispatch", False),
     ),
 )
+@pytest.mark.spawns
 def test_ambiguous_dispatch_states_are_stopped_then_terminally_proved(
     tmp_path: Path,
     task_mode: str,
@@ -1943,6 +2033,7 @@ def test_ambiguous_dispatch_states_are_stopped_then_terminally_proved(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
     tmp_path: Path,
 ) -> None:
@@ -1986,6 +2077,7 @@ def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_post_start_readback_failure_is_bounded_by_pt15m(
     tmp_path: Path,
 ) -> None:
@@ -2017,6 +2109,7 @@ def test_post_start_readback_failure_is_bounded_by_pt15m(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("read_hang", "read_hang_spawn_child"))
+@pytest.mark.spawns
 def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns(
     tmp_path: Path,
     task_mode: str,
@@ -2047,7 +2140,76 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
         assert probe.returncode == 0
 
 
+def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defender C1 on #218: a changed production budget can never pass through."""
+    script = "\n".join(RPC_BUDGET_NEEDLES)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
+    ))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert _adapt_rpc_budgets(script) == "\n".join((
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 8",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 8",
+    ))
+    for needle in RPC_BUDGET_NEEDLES:
+        changed = needle.rsplit(" ", 1)[0] + " 40"
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script.replace(needle, changed))
+        with pytest.raises(AssertionError):
+            _adapt_rpc_budgets(script + "\n" + needle)
+
+
+def test_stop_reserve_hang_sits_between_the_clamp_and_the_read_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defender C2 on #218: the clamp-removal mutant is visible on and off CI."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 2500 < 3000
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert 2000 < _read_hang_at_stop_reserve_ms() == 5000 < 8000
+
+
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
+def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutant for tests.ci_timing: the CI scale widens the allowance, never removes it.
+
+    Builds the harness with the CI scale forced on, then makes every Scheduler
+    read take three seconds longer than the scaled read budget. The real
+    containment must still kill the read at its wall-clock deadline and refuse
+    before any mutation.
+    """
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    scaled_read = ci_scaled_seconds(3, cap=15)
+    assert scaled_read == 8
+    monkeypatch.setenv("RECON_TEST_READ_DELAY_MS", str((scaled_read + 3) * 1000))
+    harness = _build_harness(tmp_path)
+    assert (
+        f"-LogicalBoundary $logicalBoundary -MaximumSeconds {scaled_read}"
+        in harness.script.read_text(encoding="utf-8-sig")
+    )
+    before = _production_state(harness)
+
+    result = _invoke(harness, task_mode="read_delay_beyond_ci_budget", timeout=60)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert "reached its absolute UTC/wall-clock deadline" in result.stdout, diagnostic
+    _assert_no_git_config_or_scheduler_mutation(before, _production_state(harness))
+    assert _start_lines(harness) == []
+
+
+@WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_normal_helper_exit_still_kills_its_surviving_descendant(
     tmp_path: Path,
 ) -> None:
@@ -2080,6 +2242,7 @@ def test_normal_helper_exit_still_kills_its_surviving_descendant(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_successful_start_with_lost_response_is_spent_and_never_passes(
     tmp_path: Path,
 ) -> None:
@@ -2103,6 +2266,7 @@ def test_successful_start_with_lost_response_is_spent_and_never_passes(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_successful_start_with_claimed_error_is_spent_and_never_passes(
     tmp_path: Path,
 ) -> None:
@@ -2123,6 +2287,7 @@ def test_successful_start_with_claimed_error_is_spent_and_never_passes(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
     tmp_path: Path,
 ) -> None:
@@ -2166,6 +2331,7 @@ def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
         "unexpected_dirty",
     ),
 )
+@pytest.mark.spawns
 def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
     tmp_path: Path,
     variation: str,
@@ -2260,6 +2426,7 @@ def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
 
 
 @WINDOWS_EXECUTION
+@pytest.mark.spawns
 def test_special_inputs_without_switch_refuse_without_entering_mutation(
     tmp_path: Path,
 ) -> None:
@@ -2277,6 +2444,7 @@ def test_special_inputs_without_switch_refuse_without_entering_mutation(
 
 @WINDOWS_EXECUTION
 @pytest.mark.parametrize("task_mode", ("absent", "running", "disabled", "ambiguous"))
+@pytest.mark.spawns
 def test_reconciliation_refuses_unsafe_one_shot_task_states_before_mutation(
     tmp_path: Path,
     task_mode: str,
@@ -2311,6 +2479,7 @@ def test_reconciliation_refuses_unsafe_one_shot_task_states_before_mutation(
         ("prepush_drift", False, "documented_unpublished", True),
     ),
 )
+@pytest.mark.spawns
 def test_reconciliation_failure_injections_preserve_safe_state(
     tmp_path: Path,
     failure: str,
@@ -2482,6 +2651,7 @@ def test_reconciliation_failure_injections_preserve_safe_state(
         ),
     ),
 )
+@pytest.mark.spawns
 def test_marker_replacement_failure_preserves_the_prior_safe_marker(
     tmp_path: Path,
     phase: str,
@@ -2557,6 +2727,7 @@ def test_marker_replacement_failure_preserves_the_prior_safe_marker(
         ),
     ),
 )
+@pytest.mark.spawns
 def test_post_replace_fault_retains_complete_active_and_prior_marker_bytes(
     tmp_path: Path,
     phase: str,

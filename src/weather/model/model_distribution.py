@@ -2,7 +2,8 @@ import math
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
@@ -51,6 +52,7 @@ from weather.model.model_distribution_constants import (
     HIGH_HAS_STOOD_START_HOUR,
     LATE_DAY_CONTINUATION_BLEND_15H,
     LATE_DAY_CONTINUATION_BLEND_17H,
+    LATE_DAY_LOCKIN_ANCHOR_VERSION,
     LATE_LOCKIN_BASE,
     LATE_LOCKIN_FULL_HOUR,
     LATE_LOCKIN_HEDGE,
@@ -75,6 +77,9 @@ from weather.model.model_distribution_constants import (
     WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
 )
 
+
+# METAR observation day/time group, e.g. "KAUS 250453Z".
+METAR_OBSERVATION_GROUP_RE = re.compile(r"\b(\d{2})(\d{2})(\d{2})Z\b")
 
 EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS = frozenset({
     # Item 181 settled stage attribution: empirical fallback forecast-shape
@@ -505,13 +510,23 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
 
+        # One re-anchored history view for every late-day stage (S1-S6); the
+        # S7 calibration taper below reads the strength it produces.
+        lockin_anchor = self.late_day_lockin_anchor(
+            history=history,
+            history_max=history_max,
+            guidance_floor=guidance_floor,
+            station=station,
+            metar=metar,
+            now=now,
+        )
         scores, late_day_continuation = self.distribution_late_day_continuation_stage(
             scores,
             sources=sources,
             cutoff_hour=cutoff_hour,
             now=now,
             using_feature_model=using_feature_model,
-            observed_bucket=observed_bucket,
+            observed_bucket=lockin_anchor["bucket"],
             observed_support_bucket=observed_support_bucket,
             pipeline=pipeline,
         )
@@ -529,6 +544,8 @@ class DistributionMixin(DistributionSignalMixin):
             eccc_city=eccc_city,
             official_current_stale=bool((sources.get("metar") or {}).get("stale")),
             pipeline=pipeline,
+            lockin_anchor=lockin_anchor,
+            continuation_blended="late_day_continuation_blend" in pipeline.components,
         )
 
         scores = self.normalize_scores(scores)
@@ -540,7 +557,10 @@ class DistributionMixin(DistributionSignalMixin):
         calibrated_scores = apply_exact_distribution_calibration(
             scores,
             getattr(self, "probability_calibration", None),
-            floor_bucket=hard_floor_bucket,
+            floor_bucket=self.max_value(
+                hard_floor_bucket,
+                lockin_anchor.get("observed_floor_bucket"),
+            ),
             resolution_weight=lockin_strength,
             cutoff_hour=cutoff_hour,
         )
@@ -1173,6 +1193,164 @@ class DistributionMixin(DistributionSignalMixin):
                 )
         return scores, late_day_continuation
 
+    def late_day_lockin_anchor(
+        self,
+        *,
+        history,
+        history_max,
+        guidance_floor,
+        station=None,
+        metar=None,
+        now=None,
+    ):
+        """Return the one history view every late-day lock-in stage reads.
+
+        Lock-in anchor contract ``LATE_DAY_LOCKIN_ANCHOR_VERSION``.  While the
+        WU printed history supplies the high, the view is that history,
+        untouched (the pre-restoration anchor).  When it is empty, as it has
+        been since paid WU access was disabled, the lock-in re-anchors on the
+        OBSERVED high of the target local day: the maximum of the
+        point-in-time station rows (METAR rows, plus SWOB rows where SWOB is
+        the station source) observed on the target local day at or before
+        ``now``.  METAR rows are keyed by observation time (``obsTime`` from
+        the retained AWC payload, else the ``DDHHMMZ`` group of the raw
+        report), not by AWC ``reportTime``: a D-1 23:5x report carried into
+        day D as a "00:00" row (capture defect M0) is excluded, so the anchor
+        is never a prior-day reading.  It never exceeds
+        ``guidance_physical_floor``.  ``max_times`` is the first such row whose
+        value reached ``B = round_half_up(anchor)``.  Every stage acts only
+        above ``B``; ``apply_lockin_observed_floor`` handles the mass below it.
+        """
+        history = history or {}
+        legacy = bool(getattr(self, "late_day_lockin_legacy_wu_anchor", False))
+        anchor = {
+            "version": LATE_DAY_LOCKIN_ANCHOR_VERSION,
+            "source": "wu_history" if history_max is not None else None,
+            "high": history_max,
+            "bucket": self.round_half_up(history_max),
+            "first_reached_time": (history.get("max_times") or [None])[0],
+            "guidance_physical_floor": self.to_number(guidance_floor),
+            "excluded_prior_day_rows": 0,
+            "legacy_wu_anchor": legacy,
+            "history": history,
+        }
+        if history_max is not None or legacy:
+            return anchor
+        rows, excluded = self.lockin_observed_rows(station=station, metar=metar, now=now)
+        anchor["excluded_prior_day_rows"] = excluded
+        if not rows:
+            return anchor
+        high = max(value for _, _, value in rows)
+        bucket = self.round_half_up(high)
+        first_time = next(
+            (time for _, time, value in rows if self.round_half_up(value) >= bucket),
+            None,
+        )
+        view = dict(history)
+        view["max_native"] = high
+        view["max_c"] = high
+        view["max_times"] = [first_time] if first_time else []
+        anchor.update({
+            "source": "observed_station_rows",
+            "high": high,
+            "bucket": bucket,
+            "first_reached_time": first_time,
+            "history": view,
+        })
+        return anchor
+
+    def lockin_observed_rows(self, *, station=None, metar=None, now=None):
+        """Point-in-time observed rows of the target local day, keyed by
+        observation time: ``([(minute, "HH:MM", value)], excluded_count)``."""
+        target = getattr(self, "target_date", None)
+        tz = self.spec.tz
+        raw_obs_times = {}
+        for item in (metar or {}).get("raw_payload") or []:
+            if isinstance(item, dict) and item.get("rawOb") and item.get("obsTime") is not None:
+                raw_obs_times[str(item["rawOb"])] = item["obsTime"]
+        row_sets = [(metar or {}).get("rows") or []]
+        station = station or {}
+        station_source = station.get("station_observation_source") or station.get("source")
+        if station_source not in (None, "metar") or not row_sets[0]:
+            row_sets.append(station.get("rows") or [])
+        now_minute = now.hour * 60 + now.minute if now is not None else None
+        now_local = now.astimezone(tz) if now is not None and now.tzinfo else None
+        rows = []
+        excluded = 0
+        for source_rows in row_sets:
+            for row in source_rows:
+                value = self.row_temp_native(row)
+                if value is None:
+                    continue
+                observed = self.metar_observation_local_time(row, raw_obs_times)
+                if observed is not None:
+                    if target is not None and observed.date() != target:
+                        excluded += 1
+                        continue
+                    if now_local is not None and observed > now_local:
+                        continue
+                    minute = observed.hour * 60 + observed.minute
+                else:
+                    minute = self.minute_of_day(row.get("local_time") or row.get("time"))
+                    if minute is None:
+                        continue
+                    if now_minute is not None and minute > now_minute:
+                        continue
+                rows.append((minute, "%02d:%02d" % divmod(minute, 60), value))
+        rows.sort(key=lambda item: item[0])
+        return rows, excluded
+
+    def metar_observation_local_time(self, row, raw_obs_times=None):
+        """Local observation time of a METAR row, or None when it is not one.
+
+        AWC ``reportTime`` is the nominal hour, so the observation time comes
+        from the payload ``obsTime`` (epoch seconds) when retained, else from
+        the ``DDHHMMZ`` group of the raw report anchored on ``reportTime``.
+        """
+        raw = row.get("raw")
+        if not raw:
+            return None
+        obs_epoch = (raw_obs_times or {}).get(str(raw))
+        if obs_epoch is not None:
+            try:
+                return datetime.fromtimestamp(float(obs_epoch), timezone.utc).astimezone(self.spec.tz)
+            except (TypeError, ValueError, OverflowError, OSError):
+                pass
+        match = METAR_OBSERVATION_GROUP_RE.search(str(raw))
+        report = row.get("report_time") or row.get("datetime")
+        if not match or not report:
+            return None
+        try:
+            report_dt = datetime.fromisoformat(str(report).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if report_dt.tzinfo is None:
+            return None
+        report_utc = report_dt.astimezone(timezone.utc)
+        day, hour, minute = (int(part) for part in match.groups())
+        for offset in (0, -1, -2, 1):
+            candidate = report_utc + timedelta(days=offset)
+            if candidate.day == day:
+                observed = candidate.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                return observed.astimezone(self.spec.tz)
+        return None
+
+    def apply_lockin_observed_floor(self, scores, bucket):
+        """Move every probability below the observed anchor bucket onto it.
+
+        The anchor is an observed same-day reading, so the settled high cannot
+        round below ``bucket``.  Moving that mass onto ``bucket`` (instead of
+        renormalizing it across the support) means a late-day stage never
+        leaves or adds mass below its anchor; buckets at or above ``bucket``
+        keep their mass.
+        """
+        if bucket is None or not scores:
+            return self.normalize_scores(scores)
+        below = sum(max(0.0, p) for b, p in scores.items() if b < bucket)
+        adjusted = {b: (0.0 if b < bucket else max(0.0, p)) for b, p in scores.items()}
+        adjusted[bucket] = adjusted.get(bucket, 0.0) + below
+        return self.normalize_scores(adjusted)
+
     def distribution_late_day_lockin_stage(
         self,
         scores,
@@ -1189,8 +1367,23 @@ class DistributionMixin(DistributionSignalMixin):
         eccc_city,
         pipeline,
         official_current_stale=False,
+        lockin_anchor=None,
+        continuation_blended=False,
     ):
-        """Apply late-day lock-in and return the metadata needed downstream."""
+        """Apply late-day lock-in and return the metadata needed downstream.
+
+        ``lockin_anchor`` (from ``late_day_lockin_anchor``) supplies the one
+        history view and high that S1-S5 read; without it the stage reads the
+        WU history exactly as before.  When the anchor is the observed station
+        high and any late-day stage acted (hard or partial lock-in here, or the
+        ``continuation_blended`` S6 blend upstream), the mass below the anchor
+        bucket moves onto it, so a late-day stage never leaves mass below an
+        observed floor.  ``lockin_anchor["observed_floor_bucket"]`` then
+        carries that bucket to the calibration floor.
+        """
+        if lockin_anchor is not None:
+            history = lockin_anchor["history"]
+            history_max = lockin_anchor["high"]
         current_reading = current_temp if current_temp is not None else metar_temp
         heuristic_lockin_strength = self.late_day_lockin_strength(
             now.hour,
@@ -1289,12 +1482,28 @@ class DistributionMixin(DistributionSignalMixin):
         high_has_stood_context["standing_high_partial_lockin"] = partial_lockin_context
         high_has_stood_context["heuristic_lockin_strength"] = heuristic_lockin_strength
         high_has_stood_context["learned_lockin_strength"] = learned_lockin_strength
+        if lockin_anchor is not None:
+            high_has_stood_context["lockin_anchor"] = {
+                key: value for key, value in lockin_anchor.items() if key != "history"
+            }
         partial_strength = (
             partial_lockin_context.get("strength") or 0.0
             if partial_lockin_context.get("active")
             else 0.0
         )
         effective_lockin_strength = max(lockin_strength, partial_strength)
+        observed_floor_bucket = None
+        if (
+            lockin_anchor is not None
+            and lockin_anchor.get("source") == "observed_station_rows"
+            and lockin_anchor.get("bucket") is not None
+            and (effective_lockin_strength > 0.0 or continuation_blended)
+        ):
+            observed_floor_bucket = lockin_anchor["bucket"]
+            scores = self.apply_lockin_observed_floor(scores, observed_floor_bucket)
+        if lockin_anchor is not None:
+            lockin_anchor["observed_floor_bucket"] = observed_floor_bucket
+            high_has_stood_context["lockin_anchor"]["observed_floor_bucket"] = observed_floor_bucket
         high_has_stood_context["stage_attribution"] = {
             "hard_lockin_strength": lockin_strength,
             "partial_dampener_strength": partial_strength,

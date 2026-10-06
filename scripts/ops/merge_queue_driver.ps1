@@ -8,7 +8,7 @@
 # docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md ("Merge-train dry pilot").
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)][string]$QueueFile,
     [Parameter(Mandatory = $true)][string]$LogFile,
     # Detached SSH signature made by the owner over the exact queue bytes.
@@ -31,6 +31,12 @@ param(
     # failed where the final tip passed (the cost of skipping per-head suites).
     [switch]$TrainOnce
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
