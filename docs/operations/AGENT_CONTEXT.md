@@ -58,6 +58,14 @@ generated reports for dynamic state.
   can advance before WU history prints a row. Any station rescue used as a
   floor must be captured by the build and must not use an observation after
   the model-emission time.
+- Station observation rows are keyed on the observation instant and its
+  station-local date, never on a provider's nominal report hour. AviationWeather
+  `reportTime` is the top of the hour for a routine METAR, so a 23:5x report
+  carries the next day's date; `metar-parser-v4` keys on `obsTime` (the IEM
+  `valid` key the training history uses), falls back to `reportTime` only when
+  `obsTime` is absent, and records `row_time_basis` per row. SPECI and COR rows
+  are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
+  their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
 Paid weather-provider access is unsupported. Do not add credentials, required
 environment variables, operator commands, or roadmap dependencies for paid
