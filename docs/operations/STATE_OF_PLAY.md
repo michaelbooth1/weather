@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-05 10:10 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batches landed `210db17a` and `728db62b`; MG-1 signed; 91a 10-04 attempt resolved; evening fix #191 v3 cleared, owner-approved, lands tonight; ~105 GiB free).**
+**Last updated: 2026-10-06 03:40 America/Toronto (ALL LIVE TRADING PAUSED; evening fix #191 LIVE `094f5b39`; roll-free batch #226 `a103ef8b`; #230 held (host-suite precondition failure); 91a 10-06 attempt resolved; ~106 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -19,7 +19,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   as a fail-closed guard (#180, unmerged); with today's shared
   wallet it would HALT, so a live run first needs a complete ledger (a dedicated wallet). Owner trades stay `owner-discretionary`.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
-  01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
+  01:00-04:00 only; roll-free 00:30-09:00 (the lease refuses later); docs-only by the light path before 12:00; never 12:00-00:30.
 - **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
   wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
 - Owner decisions 2026-09-30..10-05 are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm, MG-1, P1-P5, v2 rule 1, CI
@@ -32,14 +32,13 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master`. 2026-10-05: MG-1 signature (light path `94ad3ed0`); roll-free batch
-  `210db17a` (PR #217: #187 swarm canon (EF §10q), #193 space report, #194 91a `-VerifyRetained`, #198 PS execution twins,
-  #206/#208 mutation-informed assertions; suite 24/24 on `a96fc469`); #213 + #205 `728db62b` (heavy-work queue,
-  focused-test exemption, test hygiene ratchet, docs control-character audit; suite 24/24 on `1b319d50`).
-- **Model, evening (EF §10q):** the late-day lock-in has been a no-op since WU history went dark (06-30). Fix #191 v3
-  (anchor = same-day observed station high, observation-time keyed; no mass below it) replayed on 228,501 snapshots (<= 09-29):
-  floor check PASS, 00-12 unchanged, 17-23 mass above the anchor 0.332 -> 0.075; 0 v3 anchors settled below. Owner approved
-  the floor rule 10-05; lands in the 10-05/06 quiet window. v2 (`max(history_max, guidance_floor)`) failed: M0 carry (#189).
+- **Production source:** `master` = `origin/master` `a103ef8b`. 10-06 night (sequencer, Fable-reviewed): #191 `094f5b39`
+  (evening lock-in v3, roll-sensitive, suite 24/24); #226 `a103ef8b` (#199-#203, #209 Windows CI lane, #216, #218 CI deadline
+  scale, #219, #222, #223 EOF check). #230 (#228 + #229 live-launcher stdin) FAILED the host suite on its tests' console-text
+  precondition only (outcomes correct); held for a test fix. Any live seal must be RESEALED after #229 lands.
+- **Model, evening (EF §10q):** #191 v3 is LIVE from 2026-10-06 01:43 (anchor = same-day observed station high,
+  observation-time keyed; no mass below it; owner floor rule 10-05). Replay <= 09-29: floor check PASS, 17-23 mass above the
+  anchor 0.332 -> 0.075, 0 v3 anchors settled below. First live evening: 10-06; check lockin-anchor-v3 in served payloads.
 - **Model, morning:** MG-1 (captured NBM v2 guidance read) SIGNED 2026-10-04T16:10Z at `b044e0f1`; narrow reservation;
   needs parser v2 (#190) landed; scored on new dates >= 10-15.
 - **Exam `maker-replay-2026-10-15`: closed NOT EXECUTED (owner 2026-10-03)**; panel UTC 09-30..10-14 never read.
@@ -57,10 +56,11 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Pinned deployments (detached, locked worktrees):** watchdog `weather-watchdog-deployed-110n-1fc7ba35`; order journal
   `weather-manual-order-journal-deployed-ebe72984`; cold-snapshot nightly `weather-cold-snapshot-deployed-979c0e7` (its
   runner accepts the new resolution record, so no re-pin was needed); exam tree `weather-exam-deployed-664c894` (closed; v2 provenance).
-- **Disk:** 91a nightly (trigger 00:30 local; attempt names are UTC) reclaims ~10-20 GiB a night. The FAILED 10-04 attempt is
-  RESOLVED (10-05 01:24: `-VerifyRetained` PASS on the unfinished file, LZNT1, hash equal; 2,336 files, 10.18 GB verified). The
-  10-05 00:30 run refused before the resolution and created no attempt; next run 10-06 00:30. Each morning check
-  `scratch\cold_snapshot_compression\nightly-<date>-*\wrapper-result.json`. Policy expires 10-30 (renewal ~10-27).
+- **Disk:** 91a nightly reclaims ~5-20 GiB a night but failed 3 of 4 nights (10-03, 10-04, 10-06) on transient reads of a
+  capture status file; each was resolved by `-VerifyRetained` (10-06: 756 files, 5.58 GB). #238 (owner-approved) moves it
+  to 06:50-09:00 and makes those reads retry; it applies after landing and a production re-pin. Check
+  `scratch\cold_snapshot_compression
+ightly-<date>-*\wrapper-result.json` each morning. Policy expires 10-30.
 - **88a retention hold:** keep 88a data for UTC 09-27..10-15 (v2 calibration/panel/settlement) and 10-15..10-30 (desk-study
   panel); lossless compression allowed.
 - **Learning lane:** Stage B (`WeatherEveningEvidenceRefresh`) disabled since 2026-08-13. Stage A exits 2 daily on the known
@@ -69,13 +69,12 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Ordered critical path
 
-1. **Maker replay v2:** W3-W5 with rule 1 on #195 (S3 5.82 <= 7.5, S5 0 divergences, S7 579 s; sidecar 389 MiB of a 512 MiB/date
-   cap, act at 85%); two rule-1 readings await owner confirmation; then W6-W8; production P1-P4 on calibration dates only;
-   gates; owner signature by 10-23.
-2. **Merges:** roll-free next: integration `claude/integration-20261005-k` (#199, #200, #219, #201, #202, #218 + #203, #209;
-   every speed PR proven identical-pass-set), then #216 -> #222. Quiet window: #104 -> #145 + #207; #191 after its fix; #190 ->
-   #210; #189 -> #196 (before 11-01); #152 + #173; #180 + #192; #117 -> #174, #119, #160-#163, #142. After 10-14: #118, #172 +
-   #182, #177 (restart 88a explicitly).
+1. **Maker replay v2:** build branch `501f4757` holds W2 (#212), W3-W5 with rule 1 (#195) and rule 4 = B (#237: S3 5.45,
+   S5 0 divergences); then W6-W8; production P1-P4 on calibration dates only; gates; owner signature by 10-23. Austin
+   2026-10-03 is excluded from the panel (owner).
+2. **Merges (Swarm L calendar, owner-approved 10-05):** N1 10-07: preflight #232 + #189, then #207 (quiet window); RF
+   batches #238 (91a move) + #153 + #120 + #204, and #105 + #125 + #121; #230 once its test fix lands. Then #190 -> #210;
+   #196; #161 -> #162 -> #160; #152 + #173; #163; #142. After 10-14: #118, #172 + #182, #177. M4 merge-tool change on 10-11/12.
 3. **Measurements (09-29 only; never 88a 09-30..10-14):** #173 execution-tape and #177 88a disconnect reports.
 4. **Research:** NBS/NBH probe (after 111h); T+1/T+2 NWP-timing pilot; hour-gated guidance needs a new pre-registration.
 5. **Live:** not before the v2 look and >= 7 days of shadow agreeing with replay; the shadow runner (Phase 3) awaits the owner.
