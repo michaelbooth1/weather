@@ -2,6 +2,8 @@ import datetime as dt
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from weather.operations.agent_docs_audit import (
     LINE_BUDGETS,
     NESTED_AGENT_FILE_LINE_BUDGET,
@@ -9,12 +11,17 @@ from weather.operations.agent_docs_audit import (
     _markdown_files,
     audit_repo,
     broken_local_links,
+    control_character_errors,
     legacy_command_matches,
     line_budget_errors,
     retired_claim_errors,
     state_of_play_age_errors,
+    trailing_blank_line_errors,
     unindexed_operations_docs,
 )
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_agent_docs_audit_passes_repository_contracts():
@@ -150,3 +157,91 @@ def test_state_of_play_age_is_measured_from_its_declared_date(tmp_path):
     assert "no parseable" in state_of_play_age_errors(
         root, today=dt.date(2026, 9, 19), max_age_days=3
     )[0]
+
+
+def test_control_character_check_rejects_a_backspace_and_passes_a_clean_doc(tmp_path):
+    root = tmp_path.resolve()
+    (root / "docs").mkdir()
+    corrupted = root / "docs" / "guide.md"
+    corrupted.write_text("scratch under `C:" + chr(8) + "t`\n", encoding="utf-8")
+    clean = root / "docs" / "clean.md"
+    clean.write_text("scratch under `C:" + chr(92) + "bt`\r\nline two\n", encoding="utf-8")
+
+    errors = control_character_errors(root, [corrupted, clean])
+
+    assert errors == [
+        "docs/guide.md:1: literal control character 0x08; write the intended text "
+        "(a path escape such as " + chr(92) + "t or " + chr(92) + "b)"
+    ]
+    assert control_character_errors(root, [clean]) == []
+
+
+def test_control_character_check_covers_agents_and_readme_at_any_level_only(tmp_path):
+    root = tmp_path.resolve()
+    (root / "pkg").mkdir()
+    agents = root / "pkg" / "AGENTS.md"
+    agents.write_text("rule" + chr(9) + "with a tab\n", encoding="utf-8")
+    readme = root / "README.md"
+    readme.write_text("ok\n" + chr(127) + "\n", encoding="utf-8")
+    outside = root / "pkg" / "notes.md"
+    outside.write_text("out of scope" + chr(8) + "\n", encoding="utf-8")
+
+    errors = control_character_errors(root, [agents, readme, outside])
+
+    assert [error.split(": ")[0] for error in errors] == ["pkg/AGENTS.md:1", "README.md:2"]
+    assert "0x09" in errors[0] and "0x7F" in errors[1]
+
+
+def test_trailing_blank_line_check_matches_git_for_lf_and_crlf(tmp_path):
+    root = tmp_path.resolve()
+    cases = {
+        "lf_blank.md": b"text\n\n",
+        "crlf_blank.md": b"text\r\n\r\n",
+        "whitespace_blank.py": b"x = 1\n   \n",
+        "lf_single.md": b"text\n",
+        "crlf_single.md": b"text\r\n",
+        "no_final_newline.md": b"text",
+        "trailing_space_kept.md": b"text  \n",
+    }
+    paths = []
+    for name, content in cases.items():
+        (root / name).write_bytes(content)
+        paths.append(root / name)
+
+    errors = trailing_blank_line_errors(root, paths, exempt=frozenset())
+
+    assert [error.split(": ")[0] for error in errors] == [
+        "lf_blank.md",
+        "crlf_blank.md",
+        "whitespace_blank.py",
+    ]
+    assert "git diff --check" in errors[0]
+
+
+@pytest.mark.spawns
+def test_trailing_blank_line_check_scans_tracked_text_only_and_flags_stale_exemptions(tmp_path):
+    root = tmp_path.resolve()
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    files = {
+        ".gitattributes": b"*.md text eol=lf\n*.lfs -text\n",
+        "data/tape.md": b"row\n\n",
+        "docs.md": b"doc\n\n",
+        "clean.md": b"doc\n",
+        "blob.bin": b"\x00\x01binary\n\n",
+        "pointer.lfs": b"oid\n\n",
+        "exempt.py": b"x = 1\n\n",
+    }
+    (root / "data").mkdir()
+    for name, content in files.items():
+        (root / name).write_bytes(content)
+    (root / "untracked.md").write_bytes(b"doc\n\n")
+    git("add", "-f", *files)
+
+    errors = trailing_blank_line_errors(root, exempt=frozenset({"exempt.py", "fixed.py"}))
+
+    assert [error.split(": ")[0] for error in errors] == ["docs.md", "fixed.py"]
+    assert "stale TRAILING_BLANK_LINE_EXEMPT entry" in errors[1]

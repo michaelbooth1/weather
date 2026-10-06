@@ -18,6 +18,8 @@ import threading
 import time
 import tracemalloc
 
+import pytest
+
 from weather.operations.windows_process_metrics import windows_process_memory_metrics
 from weather.reporting.source_gates import settlement_source_audit as audit
 
@@ -123,6 +125,7 @@ def test_superseded_history_does_not_accumulate_in_python_memory(tmp_path):
     assert large["peak_traced_python_bytes"] <= small["peak_traced_python_bytes"] + 8 * 1024 * 1024
 
 
+@pytest.mark.memory_flatness
 def test_selected_output_and_consumers_do_not_accumulate_in_python_memory(tmp_path):
     small = _profile(tmp_path / "small", 2048, event_count=2048)
     large = _profile(tmp_path / "large", 16384, event_count=16384)

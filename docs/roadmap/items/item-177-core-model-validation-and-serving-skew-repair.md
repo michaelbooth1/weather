@@ -1,4 +1,4 @@
-# 177. Core Model Validation And Serving Skew Repair [PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]
+# 177. Core Model Validation And Serving Skew Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-21, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]
 
 Goal: close the model-quality issues surfaced by the core model audit that are
 not already covered by the 10-minute weak-slot and late-day lock-in items.

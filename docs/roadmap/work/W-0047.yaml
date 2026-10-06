@@ -1,0 +1,34 @@
+{
+  "id": "W-0047",
+  "title": "Record storage approvals 1-9; 10 keep and 11 no",
+  "workstream": "storage",
+  "status": "blocked",
+  "owner": "production",
+  "handoff": null,
+  "handbacks": [],
+  "branch": null,
+  "tip": null,
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [],
+  "landing_slot": null,
+  "needs_owner": [
+    {
+      "question": "Record storage approvals 1-9; 10 keep and 11 no",
+      "status": "approved",
+      "since": "2026-09-26T23:30:00Z",
+      "decision": {
+        "date": "2026-09-26",
+        "text": "Storage value assessment decisions: 1-9 approved (delete `backtest/replay_cache` under an owner waiver of the release-reachability manifest; sign the step (a) exact-path delete manifests; delete the 8 FAIL_CLOSED staging tarballs; register 91a; resume Drive campaigns; delete `order_books_long.csv.gz` only where a `jsonl.gz` twin proves parity; registry corrections; gzip-and-retain counts as retaining EF Â§8e incident logs except the 07-13 file; source-side compress-on-close first, long-CSV write stop second); 10 keep remaining taker evidence; 11 no â€” `replay_inputs` stays local"
+      }
+    }
+  ],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Owner approval is attested by seed; production docs step must append its DECISION_LOG row and link the exact date/text here.",
+    "Exact decision row already exists on owner-decisions-0926-day at ed075014161e6e0b0f8d3e9d0fc8dd265356d2c2; absent on this origin/master base until W-0008 lands. Do not create a duplicate."
+  ]
+}

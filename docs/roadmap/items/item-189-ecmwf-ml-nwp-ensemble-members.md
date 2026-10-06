@@ -1,4 +1,4 @@
-# 189. ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]
+# 189. ECMWF & ML-NWP Ensemble Forecast Members [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-24, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]
 
 Goal: widen the forecast ensemble the model already consumes with ECMWF and the
 new machine-learning NWP models, which now lead surface-temperature skill.

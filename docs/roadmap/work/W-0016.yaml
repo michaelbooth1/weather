@@ -1,0 +1,34 @@
+{
+  "id": "W-0016",
+  "title": "110j D cold archive lane extensions",
+  "workstream": "storage",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/ed075014161e6e0b0f8d3e9d0fc8dd265356d2c2/docs/roadmap/workstation-handoff-2026-09-110j-storage-decisions-code.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/caf62294c0273e38ac2648b324e3cf9beac0824a/docs/roadmap/agent-report-2026-09-110j-d.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/cold-archive-lane-extensions-20260926",
+  "tip": "caf62294c0273e38ac2648b324e3cf9beac0824a",
+  "pr": null,
+  "roll": "unknown",
+  "depends_on": [
+    "W-0001"
+  ],
+  "landing_slot": {
+    "date": "2026-09-29",
+    "window": "01:00-04:00 America/Toronto; one combined integration"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Final seed queue moves D from 09-27/28 to 09-29/30. Final queue typo caaf62294c corrected to caf62294c using branch ref and earlier seed entry."
+  ]
+}
