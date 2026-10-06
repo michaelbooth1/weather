@@ -8,8 +8,11 @@ The production ``_default_launcher_runner`` runs in a helper process started EXA
 scripts/ops/international_live_templates/fixed_session_launcher.ps1.tmpl starts the
 live runner: ``python -I -S -B -c`` with ``src`` inserted first and site-packages
 appended from ``WEATHER_FIXED_SESSION_SRC`` / ``WEATHER_FIXED_SESSION_SITE_PACKAGES``,
-in the repository working directory, sharing the caller's console. Isolated mode never
-loads the repository ``sitecustomize.py``.
+in the repository working directory. The helper shares whatever console its parent
+has (under the bounded suite, pytest's own hidden console); the runner and its
+PowerShell child then share the helper's. Isolated mode never loads the repository
+``sitecustomize.py``, and ``tests/operations/test_live_runner_console_guards.py``
+binds these flags and this bootstrap to the template.
 
 Root cause of the 2026-10-06 host failures (chunks 16 and 18): when the repository
 root is on sys.path at start-up, ``sitecustomize.py`` (and
@@ -135,6 +138,9 @@ def run_break_case(tmp_path: Path, runner_file: str, *, allowance: float, tail: 
     text = output.read_text(encoding="utf-8", errors="replace")
     found = re.findall(r"OUTCOME (\{.*\})", text)
     outcome = json.loads(found[0]) if len(found) == 1 else None
+    if outcome is not None and mutant != "sitecustomize":
+        # A production-shaped run must load neither console-silencing Popen patch.
+        assert outcome["sitecustomize_loaded"] is False and outcome["popen_silenced"] is False, text
     events = []
     if marker.exists():
         for line in marker.read_text(encoding="utf-8").splitlines():

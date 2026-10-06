@@ -47,14 +47,13 @@ COOPERATIVE_EXIT_CODE = 3
 def test_default_runner_shuts_down_cooperatively_with_caller_stdin_open(tmp_path):
     # The helper's stdin is a pipe this test keeps open for the whole run, so the
     # launcher's caller has exactly the open-stdin shape that blocked. The helper
-    # gets its own hidden console, so Ctrl+Break is delivered on every host, and
-    # the stub's DebuggerStop handler proves it without console text.
+    # starts as the live template starts the runner (python -I -S), so the break
+    # stays on the runner's console on every host; the stub's DebuggerStop
+    # handler proves delivery without console text.
     rc, text, outcome, events = run_break_case(
         tmp_path, runner.__file__, allowance=STARTUP_ALLOWANCE_SECONDS, tail=TAIL_SECONDS,
         grace=GRACE_SECONDS, caller_stdin_open=True)
     assert TAIL_SECONDS + MARGIN_SECONDS <= GRACE_SECONDS - GAP_SECONDS
-    # Started as the live template starts the runner: no silencing Popen patch loaded.
-    assert outcome is not None and outcome["sitecustomize_loaded"] is False and outcome["popen_silenced"] is False, text
     assert_cooperative_break(
         rc, text, outcome, events, runner_file=runner.__file__,
         max_return_after_deadline_s=TAIL_SECONDS + MARGIN_SECONDS,

@@ -1535,10 +1535,11 @@ def test_default_runner_allows_cooperative_ctrl_break_cleanup(tmp_path):
     # reaches its own exit, and the runner rightly forces the tree. The runner
     # starts the child with stdin on the null device (#229), so the debugger
     # reads EOF and resumes and the outcome depends only on the runner.
-    # The runner runs in a helper with its own hidden console, so the break is
-    # delivered on every host (the production suite has no shared console); the
-    # stub's DebuggerStop handler proves delivery without console text
-    # (tests/operations/live_launcher_break_harness.py).
+    # The runner runs in a helper started exactly as the live template starts it
+    # (python -I -S), so the repository sitecustomize cannot add CREATE_NO_WINDOW
+    # to the child and move it off the runner's console, which silently dropped the
+    # break under the bounded suite (2026-10-06). The stub's DebuggerStop handler
+    # proves delivery without console text (tests/operations/live_launcher_break_harness.py).
     rc, text, outcome, events = run_break_case(
         tmp_path, runner.__file__, allowance=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS,
         tail=COOPERATIVE_TAIL_SECONDS, grace=COOPERATIVE_GRACE_SECONDS, caller_stdin_open=False)

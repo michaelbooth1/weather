@@ -22,9 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.operations.live_launcher_break_harness import BOOTSTRAP, PRODUCTION_FLAGS
 from weather.operations import international_live_session_runner as runner
-
-pytestmark = pytest.mark.spawns
 
 SRC = Path(runner.__file__).resolve().parents[2]
 REPO = SRC.parent
@@ -55,6 +54,7 @@ def _runner_tokens() -> list[str]:
     return json.loads(result.stdout)
 
 
+@pytest.mark.spawns
 @windows_only
 def test_live_template_starts_the_runner_isolated():
     tokens = _runner_tokens()
@@ -65,6 +65,17 @@ def test_live_template_starts_the_runner_isolated():
     assert "sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC'])" in bootstrap
 
 
+@pytest.mark.spawns
+@windows_only
+def test_the_break_harness_starts_the_runner_exactly_as_the_template_does():
+    """The Ctrl+Break tests' helper must not drift from the live template (Defender #230)."""
+    tokens = _runner_tokens()
+    assert tokens[: tokens.index("-c")] == list(PRODUCTION_FLAGS)
+    assert tokens[tokens.index("-c") + 1] == (
+        BOOTSTRAP + "runpy.run_module('" + RUNNER_MODULE + "',run_name='__main__')")
+
+
+@pytest.mark.spawns
 @windows_only
 def test_runner_import_under_isolation_leaves_popen_unpatched():
     """Execution twin of the template check: the template's own flags and bootstrap, then the import."""
@@ -115,9 +126,39 @@ def _imports(module: str, tree: ast.AST, is_package: bool) -> set[str]:
     return found
 
 
+def _patches_popen(tree: ast.AST) -> bool:
+    """Any assignment to a ``.Popen`` attribute (the inline form sitecustomize itself uses)."""
+    for node in ast.walk(tree):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(
+            node, (ast.AugAssign, ast.AnnAssign)) else []
+        if any(isinstance(t, ast.Attribute) and t.attr == "Popen" for t in targets):
+            return True
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "setattr" and len(node.args) >= 2 and (
+                isinstance(node.args[1], ast.Constant) and node.args[1].value == "Popen"):
+            return True
+    return False
+
+
+CONSOLE_DETACHING_FLAGS = {"CREATE_NO_WINDOW", "DETACHED_PROCESS", "CREATE_NEW_CONSOLE"}
+
+
+def test_the_runner_never_detaches_its_launcher_child_from_the_console():
+    """The runner's own Popen calls must not add a console-detaching creation flag."""
+    tree = ast.parse(Path(runner.__file__).read_text(encoding="utf-8"))
+    flagged = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == "creationflags":
+            names = {n.attr if isinstance(n, ast.Attribute) else getattr(n, "id", None) for n in ast.walk(node.value)}
+            if names & CONSOLE_DETACHING_FLAGS:
+                flagged.append(ast.unparse(node.value))
+    assert not flagged, flagged
+    assert not _patches_popen(tree)
+
+
 def test_runner_import_closure_never_reaches_a_console_silencer():
     seen: set[str] = set()
     calls: list[str] = []
+    patchers: list[str] = []
     stack = [RUNNER_MODULE]
     while stack:
         module = stack.pop()
@@ -134,12 +175,17 @@ def test_runner_import_closure_never_reaches_a_console_silencer():
                and getattr(node.func, "id", getattr(node.func, "attr", None)) == SILENCER_CALL
                for node in ast.walk(tree)):
             calls.append(module)
+        if _patches_popen(tree):
+            patchers.append(module)
         stack.extend(name for name in _imports(module, tree, path.name == "__init__.py")
                      if name.startswith("weather") or name == "sitecustomize")
-    assert RUNNER_MODULE in seen and len(seen) > 5, sorted(seen)
+    # The resolver really walked the closure (a broken resolver would see only the runner).
+    assert {RUNNER_MODULE, "weather.paths", "weather.operations.live_path_security",
+            "weather.operations.international_live_wrapper_sealer"} <= seen, sorted(seen)
     assert SILENCER_MODULE not in seen, "the live runner's import closure reaches windows_silent"
     assert "sitecustomize" not in seen
     assert not calls, "modules in the runner's closure call " + SILENCER_CALL + ": " + str(calls)
+    assert not patchers, "modules in the runner's closure reassign subprocess.Popen: " + str(patchers)
 
 
 def test_the_closure_check_sees_a_silencer_when_one_is_imported(monkeypatch):

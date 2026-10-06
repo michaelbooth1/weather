@@ -1751,7 +1751,10 @@ fixed session launcher). The repository `sitecustomize.py` and
 `weather.operations.windows_silent` add `CREATE_NO_WINDOW` to every child, which
 puts the launcher on its own console and silently drops the break; the runner
 still reports a cooperative exit (2026-10-06 root cause; guarded by
-`tests/operations/test_live_runner_console_guards.py`). For the colocated profile the
+`tests/operations/test_live_runner_console_guards.py`). A receipt's
+`cooperative` means only that the launcher tree exited within the grace period:
+it cannot tell a handled break from a launcher that finished on its own. Only the
+tests' `BREAK` marker and the C3 rehearsal step below prove delivery. For the colocated profile the
 reserved end may equal 09:00; it must never exceed it.
 
 **Reseal after the stdin change (PR #229).** `live_path_security` and the
