@@ -198,11 +198,37 @@ compression receipts can establish saved bytes.
 
 `cold_snapshot_nightly_run.ps1` calls the same guarded compression wrapper with
 `-Nightly`. `register_cold_snapshot_nightly.ps1` registers
-`WeatherColdSnapshotNightly` at 00:30, current-user S4U/Limited, IgnoreNew,
-255-minute Scheduler limit, with no late catch-up. Registration is production
+`WeatherColdSnapshotNightly` daily at 06:50, current-user S4U/Limited, IgnoreNew,
+140-minute Scheduler limit, with no late catch-up. Registration is production
 work after review and guarded integration; it is not performed by workstation tests.
-The wrapper and runner each contain their child tree in a kill-on-close Job;
-the wrapper reserves teardown before 04:45. A busy shared lease refuses.
+The wrapper and runner each contain their child tree in a kill-on-close Job.
+A busy shared lease refuses.
+
+The nightly window is **06:50-09:00 America/Toronto** (owner decision 2026-10-05):
+after the 04:45-06:45 tiering reserve, so the 01:00-04:00 quiet window stays free
+for roll-sensitive merges. Until 2026-10-06 it was 00:30-04:45.
+
+- **Late start.** A start needs 90 minutes before 09:00, so the latest start is
+  07:30. The biggest night so far (2026-10-02, 21.3 GB) took 73 minutes. A refused
+  start creates no attempt and does not consume the local date.
+- **Deadlines, in order.**
+  - Soft stop: the child takes no new batch (at most 1 GiB) in its last 600 s
+    and ends `PASS` with `stopped_at_soft_deadline: true`, like the byte budget.
+  - Child deadline: 09:00 - 15 s - 120 s. A guard trip there ends in the child's
+    own `FAILED_RETAIN_AND_INSPECT` receipt, which the resolution below can clear.
+  - Wrapper hard stop: 09:00 - 15 s, a backstop. A hard-stopped receipt cannot be
+    resolved by the tool.
+  - Runner backstop: 09:00, so the wrapper can still write its receipt.
+- **Manual `-Nightly` runs** need at least 720 s to their deadline (the 120 s
+  child reserve plus the 600 s soft stop); a shorter one refuses before creating
+  an attempt, because its child would refuse before writing `result.json`.
+- **Morning lease contention.** The nightly holds the shared heavy lease from about
+  06:50 to 08:50. Disabled-by-default Stage B (00:35 trigger, 09:00 teardown) or
+  any other heavy morning work makes it refuse with "lease busy": no attempt is
+  created, and only the task's nonzero `LastTaskResult` shows it. Check that
+  each morning.
+- **One attempt per local date** is unchanged. Attempts are still named
+  `nightly-YYYYMMDD-*` by the local date of the start.
 
 The nightly policy schema is `cold_snapshot_nightly_policy` (version from the
 central registry). Exact fields: `schema_version`, `production_repo_root`,
@@ -214,7 +240,7 @@ create-only policy and reviewed re-registration. No policy changes itself.
 
 Selection is oldest built-in event first, once the closed market-day is at
 least two local calendar days old (owner decision 2026-09-30 in
-[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at 00:30 on day D+2 the
+[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at the 06:50 run on day D+2 the
 market-day D is selectable, D+1 and later are not. Only immediate ordinary
 nonempty JSON/JSONL/CSV files qualify; each must also be unchanged for two full
 days, so a file last written late on D is picked up a night later and a later
@@ -238,11 +264,32 @@ writer locks and hot event folders are never stat'ed or opened, and an error on
 a selected closed-day folder refuses. The capture loops atomically replace their
 status files, so the per-second capture-admission read can land on a
 delete-pending file (the 2026-10-03 night failed after 87 batches with
-`PermissionError` on `clob_loop_status.json`). A `PermissionError` or `BLOCK`
-from one admission observation is followed, after 0.25 s, by one fresh complete
-observation that decides; criteria are unchanged and a second failure refuses.
-The receipt counts these as `admission_retries` and keeps the first 32 first
-observations in `admission_retry_notes`.
+`PermissionError` on `clob_loop_status.json`). The same thing happened on
+2026-10-06, and 2026-10-04 failed on a transient `capture_unhealthy` read.
+
+- **Quick retries.** A `PermissionError` or `BLOCK` from an admission
+  observation is re-observed after 0.25, 0.5, 1 and 2 s.
+- **What counts as transient.** A `PermissionError` (the delete-pending status
+  file). Also a `FileNotFoundError` or `JSONDecodeError` on the writer lock,
+  which a restarting loop unlinks and then re-creates before writing.
+- **Waiting.** After the quick retries, the night treats admission as unknown and
+  waits, re-observing every 5 s. No compression happens while it waits; the
+  current closed-day file stays locked meanwhile, which capture never touches.
+  Time spent waiting is not owed back as an unthrottled read burst afterwards.
+- **Failing closed.** The night fails when the status stays unreadable or
+  `BLOCK`ed:
+  - for 60 s in one episode;
+  - for 300 s of waiting across the night (a flapping capture);
+  - or when the next wait would cross the child deadline.
+  A final unreadable status raises `AdmissionUnknown`, and a final `BLOCK`
+  refuses.
+- **Unchanged.** The admission criteria are the same, and other read errors are
+  never retried.
+- **Deadline.** The guard re-checks the deadline after a wait, so no work starts
+  past it and the 120 s child stop reserve holds.
+- **Receipt.** It records `admission_retries`, `admission_episodes`,
+  `admission_wait_seconds` and the first 32 observations in
+  `admission_retry_notes`.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
