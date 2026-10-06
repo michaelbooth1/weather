@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-05 06:00 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batches landed `210db17a` and `728db62b`; MG-1 signed; 91a 10-04 attempt resolved; evening fix #191 HELD after its replay crossed the floor; ~105 GiB free).**
+**Last updated: 2026-10-05 10:10 America/Toronto (ALL LIVE TRADING PAUSED; roll-free batches landed `210db17a` and `728db62b`; MG-1 signed; 91a 10-04 attempt resolved; evening fix #191 v3 cleared, owner-approved, lands tonight; ~105 GiB free).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -22,8 +22,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
   wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
-- 2026-09-30 through 2026-10-04 owner decisions are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm follow-ups, MG-1
-  signature, test-suite policy P1-P5, v2 rule 1, CI-only deadline scale).
+- Owner decisions 2026-09-30..10-05 are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm, MG-1, P1-P5, v2 rule 1, CI
+  deadline scale; 10-05: #191 floor rule, rule-1 readings, `_summary_status` fail-closed, #195 merge, Austin 10-03 out of v2 panel).
 - **Testing (owner 2026-10-04, PR #205):** definition of done = focused + affected tests with PR CI as full-suite evidence,
   effective once the Windows CI lane (#209) lands; until then a local full suite for Windows-executing scripts. Workstation
   focused runs (<= 25 files, no `serial`) are lease-exempt; full suites queue (`workstation_heavy.ps1 -Queue`, #213).
@@ -36,10 +36,10 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   `210db17a` (PR #217: #187 swarm canon (EF §10q), #193 space report, #194 91a `-VerifyRetained`, #198 PS execution twins,
   #206/#208 mutation-informed assertions; suite 24/24 on `a96fc469`); #213 + #205 `728db62b` (heavy-work queue,
   focused-test exemption, test hygiene ratchet, docs control-character audit; suite 24/24 on `1b319d50`).
-- **Model, evening (EF §10q):** the late-day lock-in has been a no-op since WU history went dark (06-30). Fix #191
-  (`max(history_max, guidance_floor)`) replayed on 228,501 production snapshots (dates <= 09-29): 00-12 unchanged, 17-23 mass above
-  the anchor 0.340 -> 0.093, **but 679 rows put more mass below a guidance-floor anchor (worst 92% below 84.02 F, austin
-  08-25 h18)**. HELD until diagnosed and a re-run shows zero such rows.
+- **Model, evening (EF §10q):** the late-day lock-in has been a no-op since WU history went dark (06-30). Fix #191 v3
+  (anchor = same-day observed station high, observation-time keyed; no mass below it) replayed on 228,501 snapshots (<= 09-29):
+  floor check PASS, 00-12 unchanged, 17-23 mass above the anchor 0.332 -> 0.075; 0 v3 anchors settled below. Owner approved
+  the floor rule 10-05; lands in the 10-05/06 quiet window. v2 (`max(history_max, guidance_floor)`) failed: M0 carry (#189).
 - **Model, morning:** MG-1 (captured NBM v2 guidance read) SIGNED 2026-10-04T16:10Z at `b044e0f1`; narrow reservation;
   needs parser v2 (#190) landed; scored on new dates >= 10-15.
 - **Exam `maker-replay-2026-10-15`: closed NOT EXECUTED (owner 2026-10-03)**; panel UTC 09-30..10-14 never read.

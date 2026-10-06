@@ -15,8 +15,13 @@ Inputs are built with the production writers: AWC JSON items through
 station rows through ``station_observation_data`` and the floor through
 ``guidance_physical_floor``.
 
-Guards: lockin-anchor-v3 late-day lock-in contract (docs/architecture.md, no mass below the observed anchor; PR #191).
+Guards: never weaken the trusted observed-high floor (DELEGATION_CONTRACT section 2); the
+v2 replay floor failure on PR #191 (austin 2026-08-25, M0 carried D-1 report) and the
+Defender mutants M1-M4 on the lockin-anchor-v3 floor. With PR #189 (metar-parser-v4,
+obsTime keying) the M0 carried-report fixtures parse explicitly under v3 ``reportTime``
+keying, the capture every closed date in the replay was made under.
 """
+import math
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -477,8 +482,8 @@ def test_property_new_mass_below_anchor_never_exceeds_old(seed):
     if rng.random() < 0.5:
         carried = ((datetime(2026, 9, 19, 23, 53, tzinfo=model.spec.tz),
                     round(peak + rng.uniform(-1.0, 3.0), 1)),)
-    sources = {"metar": _metar_source(model, readings, until_hour=hour - 1 if hour > 7 else hour,
-                                      carried=carried)}
+    until_hour = hour - 1 if hour > 7 else hour
+    sources = {"metar": _metar_source(model, readings, until_hour=until_hour, carried=carried)}
     vector = {b: rng.random() ** 2 for b in range(70, 100) if rng.random() < 0.6}
     continuation = rng.choice((None, rng.random()))
 
@@ -486,12 +491,101 @@ def test_property_new_mass_below_anchor_never_exceeds_old(seed):
                        continuation=continuation)
     restored = _estimate(model, sources, now, feature_vector=vector, legacy=False,
                          continuation=continuation)
+
+    # Independent oracle: the observed same-day high of this fixture, computed
+    # here from the readings themselves -- the target day's reports observed
+    # at HH:52 up to ``until_hour`` (all at or before ``now``), the carried
+    # D-1 report excluded -- never from the code's own anchor fields.
+    expected_bucket = _oracle_bucket(max(temp for h, temp in readings if h <= until_hour))
     anchor = restored.component_payload["high_has_stood_lockin"]["lockin_anchor"]
-    bucket = anchor["bucket"]
+    assert anchor["bucket"] == expected_bucket
     assert anchor["excluded_prior_day_rows"] == len(carried)
-    if bucket is None:
-        return
-    assert _below(restored.distribution, bucket) <= _below(legacy.distribution, bucket) + 1e-9
-    if anchor["observed_floor_bucket"] is not None:
-        assert _below(restored.distribution, bucket) == pytest.approx(0.0, abs=1e-12)
+
+    assert _below(restored.distribution, expected_bucket) <= (
+        _below(legacy.distribution, expected_bucket) + 1e-9
+    )
+    if _late_day_stage_acted(restored):
+        assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
     assert sum(restored.distribution.values()) == pytest.approx(1.0)
+
+
+def _oracle_bucket(temp_c):
+    """Fahrenheit market bucket of a METAR Celsius reading, computed in the
+    test: F = C * 9/5 + 32, rounded half up."""
+    return math.floor(temp_c * 9.0 / 5.0 + 32.0 + 0.5)
+
+
+def _late_day_stage_acted(result):
+    """Behavioural, not self-reported: the S6 blend ran, or the lock-in
+    stage changed the vector it received."""
+    components = result.component_payload["components"]
+    if "late_day_continuation_blend" in components:
+        return True
+    before = components["wu_floor_residual"]
+    after = components["late_day_lockin"]
+    return any(abs(after.get(b, 0.0) - before.get(b, 0.0)) > 1e-12 for b in set(before) | set(after))
+
+
+# --- Defender conditions on the v3 floor (calibration prior, S6 only) -------
+
+# A frontal day: the 01:52 report (31.7 C = 89.06 F) is the day's observed
+# high, so the anchor bucket (89) sits above the max-since-07:00 hard floor.
+FRONTAL_METAR_C = ((1, 31.7), (3, 30.5), (5, 29.0), (7, 26.0), (10, 27.0),
+                   (13, 28.0), (15, 28.5), (16, 28.0))
+SYNTHETIC_CALIBRATION = {
+    "exact_distribution": {
+        "enabled": True,
+        "method": "temperature",
+        "temperature": 1.4,
+        "temperature_by_hour": {},
+        "prior_weight": 0.3,
+    },
+}
+
+
+def test_calibration_prior_with_partial_lockin_puts_no_mass_below_the_anchor():
+    """Kills "calibration floor left at the hard floor": with prior_weight > 0
+    and strength < 1 the calibration prior spreads uniform mass over every
+    bucket at or above its floor, so only an anchor-level floor keeps the
+    buckets between the hard floor and the anchor empty."""
+    model = _model()
+    model.probability_calibration = SYNTHETIC_CALIBRATION
+    now = datetime(2026, 9, 20, 16, 55, tzinfo=model.spec.tz)
+    sources = {"metar": _metar_source(model, FRONTAL_METAR_C, until_hour=16)}
+    vector = {80: 0.1, 82: 0.1, 84: 0.15, 86: 0.15, 88: 0.15, 89: 0.15, 90: 0.1, 92: 0.1}
+    anchor_bucket = _oracle_bucket(31.7)
+
+    result = _estimate(model, sources, now, feature_vector=vector, legacy=False)
+
+    strength = result.component_payload["lockin_strength"]
+    assert 0.0 < strength < 1.0
+    hard_floor = result.calibration_context["observed_floor_bucket"]
+    assert hard_floor is not None and hard_floor < anchor_bucket
+    assert _below(result.distribution, anchor_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(result.distribution.values()) == pytest.approx(1.0)
+
+
+def test_s6_blend_alone_puts_no_mass_below_the_anchor():
+    """Kills "clamp skipped when only S6 acts": at 15:55 the lock-in strength
+    is 0 (S1 starts after 15h, S2 at 17h, S3/S5 need remaining forecasts, the
+    reading has not rolled 0.25 C below the high for S4), yet the late-day
+    continuation blend reshapes the vector around the anchor bucket."""
+    model = _model()
+    readings = ((1, 31.4), (3, 30.5), (5, 29.0), (7, 27.0), (9, 28.0), (11, 29.5),
+                (13, 30.6), (14, 31.0), (15, 31.2))
+    now = datetime(2026, 9, 20, 15, 55, tzinfo=model.spec.tz)
+    sources = {"metar": _metar_source(model, readings, until_hour=15)}
+    vector = {84: 0.1, 86: 0.15, 87: 0.15, 88: 0.25, 89: 0.15, 90: 0.1, 92: 0.1}
+    anchor_bucket = _oracle_bucket(31.4)  # 88.52 F -> 89; the 31.2 C reading is 88
+
+    result = _estimate(model, sources, now, feature_vector=vector, legacy=False,
+                       continuation=0.4)
+
+    components = result.component_payload["components"]
+    assert "late_day_continuation_blend" in components
+    assert result.component_payload["lockin_strength"] == 0.0
+    assert components["late_day_lockin"] != components["wu_floor_residual"]
+    hard_floor = result.calibration_context["observed_floor_bucket"]
+    assert hard_floor is not None and hard_floor < anchor_bucket
+    assert _below(result.distribution, anchor_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(result.distribution.values()) == pytest.approx(1.0)
