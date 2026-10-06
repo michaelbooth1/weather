@@ -62,23 +62,33 @@ def eof_newline_only(old: bytes, new: bytes) -> bool:
     return new != old and new == old.rstrip(b"\n") + b"\n"
 
 
+PIN_SOURCES = ("*.ps1", "*.psm1", "*.py", "*.json")
+
+
 def hash_pinned_paths(repo_root: Path, head: str, candidates: list[str]) -> set[str]:
-    """Candidates named (by path or file name) on a line with a 64-hex literal at ``head``."""
+    """Candidates named on a line with a 64-hex literal in code or config at ``head``.
+
+    Pins live in code and config (PowerShell, Python, JSON), never in prose, where
+    receipts cite hashes beside document names. A full repo path (either slash)
+    must appear on the line; a bare file name counts only for PowerShell scripts,
+    which pins name through ``Join-Path``.
+    """
     if not candidates:
         return set()
-    names = {path: (path, path.rsplit("/", 1)[-1]) for path in candidates}
     pinned: set[str] = set()
     # One grep for lines carrying a 64-hex literal; -I skips binaries.
     try:
-        out = _git(repo_root, "grep", "-I", "-h", "-E", "[0-9a-fA-F]{64}", head, "--")
+        out = _git(repo_root, "grep", "-I", "-h", "-E", "[0-9a-fA-F]{64}", head, "--", *PIN_SOURCES)
     except ClassError:
         out = b""  # no matching line: git grep exits 1
-    for line in out.decode("utf-8", errors="replace").splitlines():
-        if not SHA256_RE.search(line):
-            continue
-        for path, (full, base) in names.items():
-            if full in line or full.replace("/", "\\") in line or base in line:
-                pinned.add(path)
+    lines = [line for line in out.decode("utf-8", errors="replace").splitlines() if SHA256_RE.search(line)]
+    for path in candidates:
+        names = {path, path.replace("/", "\\")}
+        base = path.rsplit("/", 1)[-1]
+        if base.lower().endswith((".ps1", ".psm1")):
+            names.add(base)
+        if any(name in line for line in lines for name in names):
+            pinned.add(path)
     return pinned
 
 
