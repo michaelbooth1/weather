@@ -2430,6 +2430,67 @@ def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
     _assert_no_hard_reset(harness)
 
 
+def _assert_refused_before_mutation(harness: Harness, before: dict[str, Any], result: Any, reason: str) -> None:
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    # The refusal must come from the named check, not from any earlier or later one.
+    assert reason in result.stdout + result.stderr, diagnostic
+    after = _production_state(harness)
+    assert after["head"] == before["head"]
+    assert after["master"] == before["master"]
+    assert after["origin_master"] == before["origin_master"]
+    assert after["status"] == before["status"]
+    assert after["config"] == before["config"] == RAW_CONFIG_BYTES
+    assert after["marker"] is None
+    assert after["start_count"] == 0
+    _assert_no_hard_reset(harness)
+
+
+# Killer tests for the source-side safety checks (2026-10-06): the adversarial cases above
+# only assert a refusal, and each is refused by an earlier check, so disabling the source
+# tree compare, the tracked-vs-disk dependency compare or the source clean check failed no
+# test. Each case below isolates one check and asserts that check's own refusal.
+@WINDOWS_EXECUTION
+@pytest.mark.spawns
+def test_source_tree_mismatch_alone_is_refused_by_the_tip_tree_contract(tmp_path: Path) -> None:
+    harness = _build_harness(tmp_path)
+    before = _production_state(harness)
+    # Tip correct, tree wrong: only the tree half of the tip/tree contract can refuse.
+    result = _invoke(harness, expected_source_tree="3" * 40)
+    _assert_refused_before_mutation(
+        harness, before, result,
+        "isolated source worktree tip/tree does not match the frozen reconciliation contract")
+
+
+@WINDOWS_EXECUTION
+@pytest.mark.spawns
+def test_dependency_disk_bytes_alone_are_refused_by_the_tracked_blob_check(tmp_path: Path) -> None:
+    harness = _build_harness(tmp_path)
+    dependency = "scripts/ops/health_watchdog.ps1"
+    # A hidden local edit: status stays exactly clean (assume-unchanged), tip and tree are
+    # unchanged, but the bytes on disk are no longer the tracked blob.
+    _git(harness.source, "update-index", "--assume-unchanged", "--", dependency)
+    path = harness.source / dependency
+    path.write_bytes(path.read_bytes() + b"\n# hidden local edit\n")
+    assert not _git(harness.source, "status", "--porcelain=v1", "--untracked-files=all").stdout.strip()
+    before = _production_state(harness)
+    result = _invoke(harness)
+    _assert_refused_before_mutation(
+        harness, before, result, f"safety-tip dependency is not the exact tracked blob: {dependency}")
+
+
+@WINDOWS_EXECUTION
+@pytest.mark.spawns
+def test_dirty_source_alone_is_refused_by_the_source_clean_check(tmp_path: Path) -> None:
+    harness = _build_harness(tmp_path)
+    # Only an untracked file: tip, tree and every tracked dependency blob are unchanged.
+    (harness.source / "untracked-in-source.txt").write_text("dirty\n", encoding="utf-8")
+    before = _production_state(harness)
+    result = _invoke(harness)
+    _assert_refused_before_mutation(
+        harness, before, result, "reconciliation source worktree must be exactly clean")
+
+
 @WINDOWS_EXECUTION
 @pytest.mark.spawns
 def test_special_inputs_without_switch_refuse_without_entering_mutation(
