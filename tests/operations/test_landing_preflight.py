@@ -35,6 +35,19 @@ WORKSTATION = "d" * 64
 BASE_TS = 1_700_000_000
 
 GUARDED_TEST = '"""Guards: fixture contract."""\n'
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_git_environment(monkeypatch):
+    """Fixture repositories must not see an outer preflight's object stores or LFS settings.
+
+    When the preflight runs this file inside its own scratch worktree (2026-10-06 pf
+    dog-food), its checks carry GIT_ALTERNATE_OBJECT_DIRECTORIES naming the outer store;
+    inherited by these fixtures' git calls it broke 31 nested-preflight tests.
+    """
+    for name in ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+                 "GIT_INDEX_FILE", "GIT_LFS_SKIP_PUSH"):
+        monkeypatch.delenv(name, raising=False)
 BASE_FILES: dict[str, str] = {
     "src/weather/__init__.py": "",
     "src/weather/paths.py": "from pathlib import Path\nREPO_ROOT = Path(__file__).resolve().parents[2]\n",
