@@ -17,6 +17,7 @@ from weather.operations.documentation_transaction import (
     REQUIRED_REVIEWED_DOCUMENTS,
     begin_transaction,
     complete_transaction,
+    precheck_transaction,
     transaction_status,
 )
 
@@ -300,3 +301,105 @@ def test_completion_runs_the_strict_correspondence_index_check(tmp_path, monkeyp
     strict = [c for c in ran.values() if "weather.reporting.roadmap.correspondence_index" in c]
     assert len(strict) == 1 and strict[0][-1] == "--check"
     assert "--check-structure" not in strict[0]
+
+
+# --- M3 (Swarm L): reviews bind the night's final tip; advisory pre-check -------------
+
+STATE = "docs/operations/STATE_OF_PLAY.md"
+
+
+def _two_integration_night(tmp_path: Path):
+    """Two integrations; the LATER one moves STATE_OF_PLAY (the 10-05 second failure)."""
+    root = _repo(tmp_path)
+    for relative in REQUIRED_REVIEWED_DOCUMENTS:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"Accurate contract for {relative}\n", encoding="utf-8")
+    _git(root, "add", "docs")
+    _git(root, "commit", "-m", "first integration")
+    first = _git(root, "rev-parse", "HEAD")
+    begin_transaction(root, integration_tip=first, branch="first")
+    stale_blob = _git(root, "rev-parse", f"{first}:{STATE}")
+    (root / STATE).write_text("Moved by the later integration\n", encoding="utf-8")
+    _git(root, "add", "docs")
+    _git(root, "commit", "-m", "second integration")
+    final = _git(root, "rev-parse", "HEAD")
+    pending = begin_transaction(root, integration_tip=final, branch="second")
+    _git(root, "update-ref", "refs/remotes/origin/master", final)
+    evidence = root / "data/alerts/merge.json"
+    evidence.write_text('{"recovered": true}\n', encoding="utf-8")
+    payload = {
+        "schema_version": COMPLETION_SCHEMA,
+        "pending_sha256": pending["pending_sha256"],
+        "integration_tips": [first, final],
+        "documentation_tip": final,
+        "documents_reviewed": sorted(REQUIRED_REVIEWED_DOCUMENTS),
+        "documents_unchanged": {
+            path: {"blob_oid": _git(root, "rev-parse", f"{final}:{path}"),
+                   "reason": "Reviewed against the night's final tip."}
+            for path in sorted(REQUIRED_DISPOSITION_DOCUMENTS)
+        },
+        "evidence_paths": [str(evidence)],
+        "summary": "Two integrations; the later one moved STATE_OF_PLAY.",
+    }
+    return root, payload, first, final, stale_blob
+
+
+@pytest.mark.spawns
+def test_no_relaxation_a_later_integration_moving_state_of_play_needs_a_final_tip_review(tmp_path):
+    """Defender M3 condition: never accept a review bound to an earlier integration's bytes."""
+    root, payload, first, final, stale_blob = _two_integration_night(tmp_path)
+    manifest = root / "manifest.json"
+
+    # A review of the FIRST integration's STATE_OF_PLAY bytes is refused.
+    stale = json.loads(json.dumps(payload))
+    stale["documents_unchanged"][STATE]["blob_oid"] = stale_blob
+    manifest.write_text(json.dumps(stale), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not bind the committed blob"):
+        complete_transaction(root, manifest_path=manifest, run_checks=False)
+
+    # No review and no post-integration update is refused.
+    missing = json.loads(json.dumps(payload))
+    missing["documents_unchanged"].pop(STATE)
+    manifest.write_text(json.dumps(missing), encoding="utf-8")
+    with pytest.raises(ValueError, match="need an update or bound unchanged review"):
+        complete_transaction(root, manifest_path=manifest, run_checks=False)
+
+    # A review bound to the final tip's bytes is accepted.
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    receipt = complete_transaction(root, manifest_path=manifest, run_checks=False)
+    assert receipt["documents_unchanged"][STATE]["blob_oid"] == _git(root, "rev-parse", f"{final}:{STATE}")
+    assert receipt["integration_tips"] == [first, final]
+
+
+@pytest.mark.spawns
+def test_precheck_predicts_the_final_tip_blobs_and_runs_diff_check_over_the_span(tmp_path):
+    root, _, first, final, stale_blob = _two_integration_night(tmp_path)
+    base = _git(root, "rev-parse", f"{first}^")
+    _git(root, "update-ref", "refs/remotes/origin/master", base)
+    result = precheck_transaction(root, base=base, final_tip=final)
+    assert result["status"] == "PASS" and result["diff_check_issues"] == []
+    state = result["documents"][STATE]
+    assert state["changed_in_night"] is True and state["requires_disposition"] is True
+    assert state["predicted_blob_oid"] == _git(root, "rev-parse", f"{final}:{STATE}") != stale_blob
+
+    # A trailing blank line inside the span fails the pre-check.
+    (root / "bad.md").write_text("text\n\n", encoding="utf-8")
+    _git(root, "add", "bad.md")
+    _git(root, "commit", "-m", "blank line at EOF")
+    bad = _git(root, "rev-parse", "HEAD")
+    failing = precheck_transaction(root, base=base, final_tip=bad)
+    assert failing["status"] == "FAIL" and any("bad.md" in line for line in failing["diff_check_issues"])
+
+
+@pytest.mark.spawns
+def test_precheck_is_stale_once_origin_master_moves_and_refuses_a_non_ancestor_base(tmp_path, capsys):
+    root, _, first, final, _ = _two_integration_night(tmp_path)
+    base = _git(root, "rev-parse", f"{first}^")
+    _git(root, "update-ref", "refs/remotes/origin/master", final)  # moved off the plan base
+    assert precheck_transaction(root, base=base, final_tip=final)["status"] == "STALE"
+    assert documentation_transaction.main(
+        ["--repo-root", str(root), "precheck", "--base", base, "--final-tip", final]) == 3
+    with pytest.raises(ValueError, match="not an ancestor"):
+        precheck_transaction(root, base=final, final_tip=base)
+    capsys.readouterr()
