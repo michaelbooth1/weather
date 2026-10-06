@@ -8,7 +8,8 @@ Cost is O(own events), not O(instants x bands):
   checked against the condition's *current* state and dropped if a newer record superseded it.
 - **Record wakes** are decided per instant by comparing a condition's record signature before and after
   the instant (a changed decision-relevant book state — never an unchanged re-send, which only refreshes
-  the freshness clock — a changed terms body, a changed view or event payload, a fill), and by a
+  the freshness clock — a changed terms body, a changed view state (never a re-stamp that moves only its
+  ``as_of_utc`` or ``stdev``) or event payload, a fill), and by a
   coverage state that changed (a refresh that leaves it unchanged wakes nothing).
 - **Exact running totals.** Reserve, inventory, per-event and per-factor commitments are 1e-6 sums
   maintained on every change (``money``); a portfolio is read from them in O(factors). With

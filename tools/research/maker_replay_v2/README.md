@@ -43,3 +43,8 @@ W3-W5 (the v2 engine, reference schedule, scorer and report in `src/maker_core/r
   schedule on every pass and clock trial), `s7` (scored report and sidecar bytes per date), `s8`
   (`informed-v0` quoted fraction, v2 schedule vs the frozen loop) and `s9` (exact money on adversarial
   extremes over 16 carried days), reached through `run.py`. Results: `docs/roadmap/agent-report-2026-10-04-mrv2-w3-w5.md`.
+
+Rule 4 = option B (owner, 2026-10-05) adds `rule4.py`: real view cadence on any fictional day (`RealCadence`,
+`restamped`: every view re-stamped at each book record, with NBP-like `stdev` drift), and the lazy-delivery
+harness behind `tests/maker_core/test_replay_v2_rule4.py`. `s3` and `s5` take `--view-cadence real` to measure
+under it.

@@ -31,6 +31,7 @@ from maker_core.replay.v2.reference import ReferenceEngine
 from maker_core.replay.v2.report import build_report, report_bytes
 from maker_core.replay.v2.score import BandDayScorer, Books
 from tools.research.maker_replay_v2.dense import DenseDay
+from tools.research.maker_replay_v2.rule4 import RealCadence
 from tools.research.maker_replay_v2.sources import ScaledDay, materialize, plan_of
 
 DAY = date(2026, 9, 27)  # fictional
@@ -124,21 +125,26 @@ def s5(args):
             days.append((f"dense 10:00-{args.dense_minutes} min",
                          DenseDay(DAY, union=union, trades=trades, minutes=args.dense_minutes)))
             for label, day in days:
-                source, records = materialize(day)
+                source, records = materialize(cadence(day, args))
                 result = differential(source, V2Config(hazard_per_minute=HAZARD))
                 cases.append(dict(union=union, trades=trades, window=label, records=records, **result))
                 if result["divergences"]:
-                    return dict(measurement="S5", status="MEASURED", cases=cases, pass_=False,
+                    return dict(measurement="S5", status="MEASURED", view_cadence=args.view_cadence, cases=cases,
+                                pass_=False,
                                 stopped="divergence")
-    return dict(measurement="S5", status="MEASURED", cases=cases,
+    return dict(measurement="S5", status="MEASURED", view_cadence=args.view_cadence, cases=cases,
                 pass_=all(not c["divergences"] for c in cases))
+
+
+def cadence(day, args):
+    return RealCadence(day, "drift") if args.view_cadence == "real" else day
 
 
 # -- S3 ---------------------------------------------------------------------------------------------------
 def s3(args):
     day = ScaledDay(DAY, union=args.union, trades=args.trades, start_minute=0, minutes=args.minutes)
     built = time.perf_counter()
-    source, records = materialize(day)
+    source, records = materialize(cadence(day, args))
     built = time.perf_counter() - built
     stats = day.stats()
     batches = list(items(source))  # parse and decode once, outside every timed pass
@@ -168,7 +174,8 @@ def s3(args):
     _, _, traced_peak = one_pass(True)
     band_minutes = stats["instantaneous_mean"] * args.minutes
     current, peak = working_set()
-    return dict(measurement="S3", status="MEASURED", union=args.union, trades=args.trades, minutes=args.minutes,
+    return dict(measurement="S3", status="MEASURED", view_cadence=args.view_cadence, union=args.union,
+                trades=args.trades, minutes=args.minutes,
                 fixture=stats, records=records, fixture_build_seconds=round(built, 1),
                 pass_seconds=timings, pass_seconds_min=min(timings), engine=engine.summary(),
                 wakes_per_band_minute=round(engine.wakes / band_minutes, 3),
@@ -322,6 +329,8 @@ def add_arguments(parser):
     parser.add_argument("--days", type=int)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--dense-minutes", type=int)
+    parser.add_argument("--view-cadence", choices=("registered", "real"), default="registered",
+                        help="s3/s5: real re-stamps every view at each book record (rule4.RealCadence)")
 
 
 def run(name, args):

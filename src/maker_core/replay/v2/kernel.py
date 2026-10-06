@@ -176,17 +176,41 @@ def freshness_clock(state):
     return None if book is None else book.as_of_utc
 
 
+def view_state(state):
+    """Rule 4's decision-relevant outcome-view state (registration draft §5 rule 4; owner decision 2026-10-05,
+    option B): the view's content without its clocks.
+
+    An ``OutcomeView`` reduces to its condition, exact ``p_yes``, joint, ``valid_until_utc``, calibration
+    grade, model and ``inputs_hash``; ``as_of_utc`` and ``stdev`` are excluded. An ``Unavailable`` reduces to
+    its reason and kind. ``as_of_utc`` is the evaluation clock, and a producer's ``stdev`` may change only with
+    its inputs (pinned by ``inputs_hash``) and with time (the producer contract test pins this). So a view
+    re-stamped at every evaluation is not an own event; it still becomes the condition's latest view, and
+    every wake reads its ``as_of_utc`` and ``stdev``, as rule 1 treats a book's ``as_of_utc``.
+    """
+    view = state.latest.get("outcome_view")
+    if view is None:
+        return None
+    if isinstance(view, OutcomeView):
+        joint = None if view.joint is None else tuple(sorted(view.joint.items()))
+        return ("view", view.condition_id, view.p_yes, joint, view.valid_until_utc, view.calibration_grade,
+                view.model_id, view.inputs_hash)
+    if isinstance(view, Unavailable):
+        return ("unavailable", view.reason, view.kind)
+    raise BundleError("invalid_view_value")
+
+
 def record_signature(state, informed):
     """Record-driven own events (§5 rules 1, 3, 4, 6), as a value compared across one instant.
 
     Rule 1: a change in the decision-relevant book state (``book_state``; an invalid book drops it), never a
-    re-sent unchanged book. Rule 3: a changed terms body. Rule 4 (``informed-v0`` only): a changed view or
-    event payload. Rule 6: a fill of a resting leg.
+    re-sent unchanged book. Rule 3: a changed terms body. Rule 4 (``informed-v0`` only): a changed view state
+    (``view_state``; never a re-stamp that moves only ``as_of_utc`` or ``stdev``) or a changed event payload.
+    Rule 6: a fill of a resting leg.
     """
     terms = state.latest.get("terms")
     body = (terms.min_size, terms.max_spread_cents, terms.rate_per_day) if terms is not None else None
     return (book_state(state.latest.get("book")), body,
-            state.sha.get("outcome_view") if informed else None,
+            view_state(state) if informed else None,
             state.sha.get("info_event") if informed else None, state.last_fill)
 
 
