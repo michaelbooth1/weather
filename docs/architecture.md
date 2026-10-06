@@ -152,15 +152,19 @@ daily-roll liveness classification.
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
   standing-high partial, late-day continuation) read one anchor built by
   `late_day_lockin_anchor` in `weather.model.model_distribution`
-  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`). With WU printed history
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`; the pre-lock-in floor
+  of `lockin-anchor-v4` is model `v0.5.12`). With WU printed history
   present it is that history, unchanged. With WU history empty it is the
   observed same-day station high: point-in-time METAR rows keyed by observation
   time (AWC `obsTime`, else the raw `DDHHMMZ` group), never by the nominal
   `reportTime`, so a D-1 23:5x report carried into D as a "00:00" row is
   excluded. It is never higher than `guidance_physical_floor`, which still
-  carries that report. Once a late-day stage acts, mass below the anchor bucket
-  moves onto it and the calibration floor follows, so no mass stays below an
-  observed floor. The calibration taper reads the resulting strength.
+  carries that report. Once a late-day stage acts, mass below the anchor
+  bucket moves onto it and the calibration floor follows. Before lock-in
+  (`lockin-anchor-v4`) the same move applies at the same-day METAR high bucket,
+  because the hard floor otherwise reads only the current reading and the max
+  since 07:00; SWOB rows keep their hedge until lock-in. Implausible readings
+  never anchor. The calibration taper reads the resulting strength.
   `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
   to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
   when any row puts more mass below the anchor than before.
