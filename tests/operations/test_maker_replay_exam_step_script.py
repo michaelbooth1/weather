@@ -17,6 +17,8 @@ import venv
 
 import pytest
 
+from tests.git_template import commit_fixture_tree
+
 from weather.operations.process_lock_identity import observe_process_identity
 from weather.paths import repo_path
 
@@ -140,7 +142,7 @@ def write(path, text):
 
 
 @pytest.fixture
-def exam(tmp_path, request):
+def exam(tmp_path, tmp_path_factory, request):
     variant = getattr(request, "param", "")
     repo, pin, root = tmp_path / "production", tmp_path / "pinned", tmp_path / "exam"
     ops = repo / "scripts/ops"
@@ -177,11 +179,10 @@ def exam(tmp_path, request):
         site = next((repo / "venv/Lib").glob("site-packages"))
         shutil.copytree(src / "maker_core", site / "maker_core")
         shutil.rmtree(src / "maker_core")
-    git("init", "-q", str(repo))
-    git("-C", str(repo), "add", ".")
-    git("-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-        "-c", "commit.gpgSign=false", "commit", "-q", "-m", "exam fixture")
-    head = git("-C", str(repo), "rev-parse", "HEAD")
+    # Same one-commit checkout as git init/add/commit; see tests/git_template.py.
+    head = commit_fixture_tree(repo, cache_root=tmp_path_factory.getbasetemp() / "git-templates", quiet=True,
+                               config=("user.name=Fixture", "user.email=fixture@example.invalid",
+                                       "commit.gpgSign=false"), message="exam fixture", timeout=60)
     git("-C", str(repo), "worktree", "add", "--detach", str(pin), head)
     if variant != "unlocked":
         git("-C", str(repo), "worktree", "lock", str(pin), "--reason", "fixture")

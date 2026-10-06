@@ -11,11 +11,28 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
 - Preserve architecture ratchets. New package edges, compatibility calls, large
   facades, schema literals, or canonical-doc commands may need explicit owner
   documentation as well as tests.
+  Mark a repository-wide ratchet `@pytest.mark.ratchet` and list its file in
+  the CI `audit` job (`test_ci_ratchet_selection.py` enforces both).
 - Prefer focused behavioral tests over snapshots of large generated reports.
   Assert fail-closed behavior for evidence, promotion, release, and live gates.
+- A fixture that turns a freshly written tree into a one-commit repository
+  (`git init`, `git add .`, `git commit`) may use `tests/git_template.py`'s
+  `commit_fixture_tree`, which reuses a per-session `.git` of the same shape and
+  spawns one git commit instead of three. Wait for a condition by polling with
+  the old wait as the ceiling; keep a fixed sleep only where it proves that
+  something did *not* happen.
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths
   and verify training/serving parity where applicable.
 
+- Never delete a test in one step: quarantine it first with
+  `@pytest.mark.quarantine(reason=, added=, sunset=, replaced_by=)` plus a
+  `tests/quarantine_registry.json` entry; the staged-cut rules live in [development.md](../docs/development.md).
+
+- A test that only evaluates PowerShell logic (parse a script, define its
+  functions, print JSON) may call `tests/powershell_host.py`'s `run_command`:
+  one shared host per pytest process, a fresh runspace per call. Exit codes,
+  kill-on-close jobs, timeouts, mutexes, the workload lease, `-File` startup
+  and scheduled-task behaviour keep a real `powershell.exe` child.
 - Tests that write large temporary layouts must stay under `tmp_path`. On a
   shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
   default temp root is not cleaned promptly and has filled the capture disk.
