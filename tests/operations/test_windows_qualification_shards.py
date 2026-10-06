@@ -79,6 +79,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_quiet_window_merge_execution.py",
+            "tests/operations/test_landing_preflight.py",
         ],
     ),
     "windows-lane-a": (
