@@ -170,8 +170,13 @@ daily-roll liveness classification.
   functions (`metar_data_from_payload`, `derive_station_observations_source`),
   and compares the old anchor on captured inputs with `lockin-anchor-v3` on the
   v4 inputs per hour block, with the same floor check and exit 3, plus counts
-  of rows where v4 moved `guidance_physical_floor` or the anchor. Same
-  read-only and closed-date contract.
+  of rows where v4 moved `guidance_physical_floor` or the anchor. Carry-over
+  rows (a D-1 report v3 keyed into the day) are a separate defect-baseline
+  class: their old vector was propped by the report v4 removes, so they are
+  counted but never fail the check. It also reports the absolute count of rows
+  with any mass below the same-day anchor. `--compare-pre-lockin-floor` adds a
+  run with the model's `pre_lockin_same_day_floor` switch off and reports that
+  floor's effect. Same read-only and closed-date contract.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.

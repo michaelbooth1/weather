@@ -174,6 +174,47 @@ def test_normal_day_floor_and_anchor_unchanged_by_v4(snapshots_root, tmp_path):
     assert normal["l1_new_vs_old"] > 0.0  # the v3 lock-in itself still acts
 
 
+def test_pre_lockin_floor_comparison_is_inert_without_the_switch(snapshots_root, tmp_path):
+    """On code without the lockin-anchor-v4 floor the switch changes nothing and is restored."""
+    out = tmp_path / "out" / "b.jsonl"
+    models = {}
+
+    def factory(market_id):
+        models[market_id] = _model_factory(market_id)
+        return models[market_id]
+
+    summary = replay_cmd.run(replay_cmd.select_folders([], snapshots_root), out,
+                             model_factory=factory, compare_pre_lockin_floor=True)
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert all(row["l1_new_vs_b_off"] == pytest.approx(0.0, abs=1e-12) for row in rows)
+    assert all(row["b_off_final"] == row["new_final"] for row in rows)
+    assert summary["pre_lockin_floor"]["rows"] == 2
+    assert summary["pre_lockin_floor"]["rows_changed"] == 0
+    assert set(summary["anchor_versions"]) == {rows[0]["anchor_version"]}
+    assert all(replay_cmd.PRE_LOCKIN_FLOOR_SWITCH not in vars(m) for m in models.values())
+
+
+def test_pre_lockin_floor_effect_summary_on_synthetic_rows():
+    base = {"hour": 4, "l1_new_vs_old": 0.2, "l1_new_vs_v3_captured": 0.2,
+            "old_mass_above_anchor": 0.7, "new_mass_above_anchor": 0.7,
+            "old_mass_below_anchor": 0.0, "new_mass_below_anchor": 0.0,
+            "floor_changed_by_reparse": False, "floor_dropped_by_reparse": False,
+            "anchor_changed_by_reparse": False, "carried_prior_day_rows": []}
+    moved = {**base, "b_off_mass_below_anchor": 0.28, "l1_new_vs_b_off": 0.56,
+             "mean_shift_new_vs_b_off": 1.4}
+    untouched = {**base, "b_off_mass_below_anchor": 0.0, "l1_new_vs_b_off": 0.0,
+                 "mean_shift_new_vs_b_off": 0.0}
+    effect = replay_cmd.summarize([moved, untouched])["pre_lockin_floor"]
+    assert effect["rows"] == 2 and effect["rows_changed"] == 1
+    assert effect["rows_b_off_below_anchor_positive"] == 1
+    assert effect["max_mass_moved_onto_anchor"] == 0.28
+    assert effect["mean_mass_moved_onto_anchor"] == pytest.approx(0.14)
+    assert effect["max_shift_new_vs_b_off"] == 1.4
+    block = {b["block"]: b for b in replay_cmd.summarize([moved])["blocks"]}["00-05"]
+    assert block["pre_lockin_floor"]["rows_changed"] == 1
+    assert "pre_lockin_floor" not in replay_cmd.summarize([base])  # not requested, not reported
+
+
 def test_tampered_blob_is_reported_and_not_replayed(snapshots_root, tmp_path):
     blob = next((snapshots_root).rglob("observation_payloads/sha256/*/*.json"))
     blob.write_bytes(blob.read_bytes().replace(b"KAUS", b"KXXX", 1))
@@ -190,12 +231,32 @@ def test_floor_check_fires_on_a_synthetic_bad_row():
            "old_mass_below_anchor": 0.14, "new_mass_below_anchor": 0.92,
            "floor_changed_by_reparse": True, "floor_dropped_by_reparse": True,
            "anchor_changed_by_reparse": True, "carried_prior_day_rows": [{"obs_time": "x"}]}
-    failing = replay_cmd.summarize([row])
+    failing = replay_cmd.summarize([{**row, "carried_prior_day_rows": []}])
     assert failing["rows_new_below_anchor_exceeds_old"] == 1
     assert failing["floor_check"] == "FAIL"
+    assert failing["rows_new_below_anchor_positive"] == 1
+    assert failing["max_new_mass_below_anchor"] == 0.92
     block = {b["block"]: b for b in failing["blocks"]}["17-23"]
     assert block["rows_new_below_anchor_exceeds_old"] == 1
+
+
+def test_carry_over_rows_are_a_defect_baseline_class_and_never_fail_the_check():
+    """The old vector of a carry row was propped by the D-1 report v4 removes."""
+    carry = {"hour": 4, "l1_new_vs_old": 0.3, "l1_new_vs_v3_captured": 0.3,
+             "old_mass_above_anchor": 0.9, "new_mass_above_anchor": 0.7,
+             "old_mass_below_anchor": 0.0, "new_mass_below_anchor": 0.28,
+             "floor_changed_by_reparse": True, "floor_dropped_by_reparse": True,
+             "anchor_changed_by_reparse": True, "carried_prior_day_rows": [{"obs_time": "x"}]}
+    summary = replay_cmd.summarize([carry])
+    assert summary["floor_check"] == "PASS"
+    assert summary["rows_new_below_anchor_exceeds_old"] == 0
+    assert summary["defect_baseline_below_increase"] == 1
+    assert summary["rows_new_below_anchor_positive"] == 1  # still visible in the absolute count
+    block = {b["block"]: b for b in summary["blocks"]}["00-05"]
+    assert block["defect_baseline_below_increase"] == 1
     assert block["carry_over_anchor_changed"] == 1
+    # Mutant: the same row without carry-over fails the check.
+    assert replay_cmd.summarize([{**carry, "carried_prior_day_rows": []}])["floor_check"] == "FAIL"
 
 
 def test_main_exits_3_when_the_floor_check_fails(tmp_path, monkeypatch, capsys):
