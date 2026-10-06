@@ -1,20 +1,26 @@
 """Shared harness for the live launcher's cooperative Ctrl+Break tests.
 
 Guards: cooperative Ctrl+Break shutdown of the live launcher child
-(docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md), proved without console text.
+(docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md), proved without console text, in the
+interpreter configuration production uses.
 
-The production ``_default_launcher_runner`` runs in a helper process that gets
-its OWN hidden console (CREATE_NEW_CONSOLE with SW_HIDE). Ctrl+Break is a
-console event: it reaches only processes on the sender's console. Under the
-production bounded suite (pytest started with CREATE_NO_WINDOW, 2026-10-06
-host chunks 16 and 18) the launcher child landed on no shared console, the
-break was never delivered, and the stub simply reached its own exit; the old
-"debug mode" console-text precondition failed there. With a console of its own
-the helper delivers the break on every host.
+The production ``_default_launcher_runner`` runs in a helper process started EXACTLY as
+scripts/ops/international_live_templates/fixed_session_launcher.ps1.tmpl starts the
+live runner: ``python -I -S -B -c`` with ``src`` inserted first and site-packages
+appended from ``WEATHER_FIXED_SESSION_SRC`` / ``WEATHER_FIXED_SESSION_SITE_PACKAGES``,
+in the repository working directory, sharing the caller's console. Isolated mode never
+loads the repository ``sitecustomize.py``.
 
-The stub script proves delivery itself: a ``DebuggerStop`` handler on its
-runspace debugger appends ``BREAK <ms>`` to a marker file when PowerShell
-answers Ctrl+Break, so the precondition needs no console text. The stub writes
+Root cause of the 2026-10-06 host failures (chunks 16 and 18): when the repository
+root is on sys.path at start-up, ``sitecustomize.py`` (and
+``weather.operations.windows_silent``) wrap ``subprocess.Popen`` to add
+CREATE_NO_WINDOW. The runner's PowerShell child then gets its own windowless console,
+Ctrl+Break (a console event for the sender's console) never reaches it, and the stub
+simply exits on its own: the runner still reports "cooperative". The live runner is
+started with ``-I -S`` and never loads either patch.
+
+The stub proves delivery itself: a ``DebuggerStop`` handler on its runspace debugger
+appends ``BREAK <ms>`` to a marker file when PowerShell answers Ctrl+Break. It writes
 ``START <ms>`` first and ``EXIT <ms>`` before exiting 3 at its release time.
 """
 
@@ -25,9 +31,18 @@ import os
 import re
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 COOPERATIVE_EXIT_CODE = 3
+
+# The template's runner bootstrap, verbatim apart from running the helper body instead of runpy.
+PRODUCTION_FLAGS = ("-I", "-S", "-B")
+BOOTSTRAP = (
+    "import os,runpy,sys;sys.dont_write_bytecode=True;"
+    "sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);"
+    "sys.path.append(os.environ['WEATHER_FIXED_SESSION_SITE_PACKAGES']);"
+)
 
 HELPER = r"""
 import json, os, sys, time
@@ -49,18 +64,20 @@ deadline = datetime.now().astimezone() + timedelta(seconds=allowance)
 deadline_ms = int(deadline.timestamp() * 1000)
 release_ms = deadline_ms + int(tail * 1000)
 lit = str(marker).replace("'", "''")
-script.write_text(
+stamp = "$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+script.write_text("\n".join([
     "$onStop = [EventHandler[System.Management.Automation.DebuggerStopEventArgs]]{ param($s, $e) "
-    f"[IO.File]::AppendAllText('{lit}', \"BREAK $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())`n\") }}\n"
-    "$Host.Runspace.Debugger.add_DebuggerStop($onStop)\n"
-    f"[IO.File]::AppendAllText('{lit}', \"START $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())`n\")\n"
-    f"$release = [DateTimeOffset]::FromUnixTimeMilliseconds({release_ms})\n"
-    "while ([DateTimeOffset]::UtcNow -lt $release) { Start-Sleep -Milliseconds 50 }\n"
-    f"[IO.File]::AppendAllText('{lit}', \"EXIT $([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())`n\")\n"
-    "exit 3\n",
-    encoding="utf-8",
-)
-outcome = {"deadline_ms": deadline_ms, "release_ms": release_ms, "raised": False}
+    + "[IO.File]::AppendAllText('" + lit + "', \"BREAK " + stamp + "`n\") }",
+    "$Host.Runspace.Debugger.add_DebuggerStop($onStop)",
+    "[IO.File]::AppendAllText('" + lit + "', \"START " + stamp + "`n\")",
+    "$release = [DateTimeOffset]::FromUnixTimeMilliseconds(" + str(release_ms) + ")",
+    "while ([DateTimeOffset]::UtcNow -lt $release) { Start-Sleep -Milliseconds 50 }",
+    "[IO.File]::AppendAllText('" + lit + "', \"EXIT " + stamp + "`n\")",
+    "exit 3",
+]) + "\n", encoding="utf-8")
+outcome = {"deadline_ms": deadline_ms, "release_ms": release_ms, "raised": False,
+           "popen_silenced": bool(getattr(real_popen, "_weather_silent_windows_children", False)),
+           "sitecustomize_loaded": "sitecustomize" in sys.modules}
 started = time.monotonic()
 try:
     runner._default_launcher_runner(
@@ -76,28 +93,36 @@ print("OUTCOME " + json.dumps(outcome), flush=True)
 
 
 def run_break_case(tmp_path: Path, runner_file: str, *, allowance: float, tail: float, grace: float,
-                   caller_stdin_open: bool, mutant: str | None = None) -> tuple[int, str, dict | None, list[tuple[str, int]]]:
-    """Run the real runner once in a hidden-console helper; return (rc, output, outcome, marker events)."""
+                   caller_stdin_open: bool, mutant: str | None = None,
+                   ) -> tuple[int, str, dict | None, list[tuple[str, int]]]:
+    """Run the real runner once in a helper started like production; return (rc, output, outcome, markers).
+
+    ``mutant="no_break"`` makes the runner send no Ctrl+Break. ``mutant="sitecustomize"``
+    starts the helper the way the failing test contexts did (no isolation, repository root
+    on PYTHONPATH), so the repository ``sitecustomize.py`` silences console children.
+    """
 
     src_root = Path(runner_file).resolve().parents[2]
+    repo_root = src_root.parent
     script = tmp_path / "cooperative.ps1"
     marker = tmp_path / "markers.txt"
     output = tmp_path / "helper-output.txt"
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(part for part in (str(src_root), env.get("PYTHONPATH", "")) if part)
-    env.pop("BREAK_HARNESS_MUTANT", None)
-    if mutant:
-        env["BREAK_HARNESS_MUTANT"] = mutant
-    startup = subprocess.STARTUPINFO()
-    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startup.wShowWindow = 0  # SW_HIDE
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("BREAK_HARNESS_MUTANT", "WEATHER_ALLOW_CONSOLE_CHILDREN", "PYTHONPATH")}
+    env["WEATHER_FIXED_SESSION_SRC"] = str(src_root)
+    env["WEATHER_FIXED_SESSION_SITE_PACKAGES"] = sysconfig.get_paths()["purelib"]
+    args = [str(script), str(marker), str(allowance), str(tail), str(grace)]
+    if mutant == "sitecustomize":
+        env["PYTHONPATH"] = os.pathsep.join([str(repo_root), str(src_root)])
+        command = [sys.executable, "-c", HELPER, *args]
+    else:
+        if mutant:
+            env["BREAK_HARNESS_MUTANT"] = mutant
+        command = [sys.executable, *PRODUCTION_FLAGS, "-c", BOOTSTRAP + HELPER, *args]
     with output.open("wb") as sink:
         helper = subprocess.Popen(
-            [sys.executable, "-c", HELPER, str(script), str(marker), str(allowance), str(tail), str(grace)],
-            stdin=subprocess.PIPE if caller_stdin_open else subprocess.DEVNULL,
-            stdout=sink, stderr=subprocess.STDOUT, env=env,
-            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=startup,
-        )
+            command, stdin=subprocess.PIPE if caller_stdin_open else subprocess.DEVNULL,
+            stdout=sink, stderr=subprocess.STDOUT, env=env, cwd=str(repo_root))
         try:
             # An open caller stdin stays open (never written, never closed) until the runner returns.
             helper.wait(timeout=allowance + grace + 60)

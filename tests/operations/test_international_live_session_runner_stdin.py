@@ -53,6 +53,8 @@ def test_default_runner_shuts_down_cooperatively_with_caller_stdin_open(tmp_path
         tmp_path, runner.__file__, allowance=STARTUP_ALLOWANCE_SECONDS, tail=TAIL_SECONDS,
         grace=GRACE_SECONDS, caller_stdin_open=True)
     assert TAIL_SECONDS + MARGIN_SECONDS <= GRACE_SECONDS - GAP_SECONDS
+    # Started as the live template starts the runner: no silencing Popen patch loaded.
+    assert outcome is not None and outcome["sitecustomize_loaded"] is False and outcome["popen_silenced"] is False, text
     assert_cooperative_break(
         rc, text, outcome, events, runner_file=runner.__file__,
         max_return_after_deadline_s=TAIL_SECONDS + MARGIN_SECONDS,
@@ -69,6 +71,25 @@ def test_a_runner_that_never_sends_ctrl_break_fails_the_precondition(tmp_path):
         grace=GRACE_SECONDS, caller_stdin_open=True, mutant="no_break")
     assert outcome is not None and outcome["cooperative"] is True  # the outcome alone cannot see it
     assert "BREAK" not in dict(events)
+    with pytest.raises(AssertionError, match="never reached the stub"):
+        assert_cooperative_break(
+            rc, text, outcome, events, runner_file=runner.__file__,
+            max_return_after_deadline_s=TAIL_SECONDS + MARGIN_SECONDS,
+            max_elapsed_s=STARTUP_ALLOWANCE_SECONDS + GRACE_SECONDS)
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
+def test_a_helper_that_loads_sitecustomize_loses_the_break_and_fails(tmp_path):
+    """Mutant (2026-10-06 root cause): with the repository sitecustomize loaded, every child is
+    created with CREATE_NO_WINDOW, so the PowerShell child sits on its own console and the
+    runner's Ctrl+Break never reaches it. The outcome still reads "cooperative"; only the
+    BREAK marker exposes it, and the check must fail."""
+    rc, text, outcome, events = run_break_case(
+        tmp_path, runner.__file__, allowance=STARTUP_ALLOWANCE_SECONDS, tail=TAIL_SECONDS,
+        grace=GRACE_SECONDS, caller_stdin_open=True, mutant="sitecustomize")
+    assert outcome is not None and outcome["sitecustomize_loaded"] is True and outcome["popen_silenced"] is True, text
+    assert outcome["cooperative"] is True and "BREAK" not in dict(events), (events, outcome)
     with pytest.raises(AssertionError, match="never reached the stub"):
         assert_cooperative_break(
             rc, text, outcome, events, runner_file=runner.__file__,
