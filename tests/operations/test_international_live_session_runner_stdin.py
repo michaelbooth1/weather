@@ -18,15 +18,11 @@ Guards: cooperative Ctrl+Break shutdown of the live launcher child
 
 from __future__ import annotations
 
-import json
 import os
-import re
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
+from tests.operations.live_launcher_break_harness import assert_cooperative_break, run_break_case
 from weather.operations import international_live_session_runner as runner
 
 # Timing contract (same shape as the cooperative Ctrl+Break test beside it):
@@ -45,97 +41,36 @@ MARGIN_SECONDS = 7.5
 GAP_SECONDS = 4.0
 COOPERATIVE_EXIT_CODE = 3
 
-HELPER = r"""
-import json, sys, time
-from datetime import datetime, timedelta
-from pathlib import Path
-from weather.operations import international_live_session_runner as runner
-script, marker = Path(sys.argv[1]), Path(sys.argv[2])
-allowance, tail, grace = (float(value) for value in sys.argv[3:6])
-deadline = datetime.now().astimezone() + timedelta(seconds=allowance)
-deadline_ms = int(deadline.timestamp() * 1000)
-release_ms = deadline_ms + int(tail * 1000)
-marker_literal = str(marker).replace("'", "''")
-script.write_text(
-    f"[IO.File]::WriteAllText('{marker_literal}', "
-    "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString())\n"
-    f"$release = [DateTimeOffset]::FromUnixTimeMilliseconds({release_ms})\n"
-    "while ([DateTimeOffset]::UtcNow -lt $release) { Start-Sleep -Milliseconds 50 }\n"
-    "exit 3\n",
-    encoding="utf-8",
-)
-outcome = {"deadline_ms": deadline_ms, "raised": False}
-try:
-    runner._default_launcher_runner(
-        script,
-        timeout_seconds=allowance + grace,
-        absolute_deadline=deadline,
-        cleanup_grace_seconds=grace,
-    )
-except runner.LauncherControlError as exc:
-    outcome.update(
-        raised=True,
-        cooperative=exc.cooperative,
-        forced=exc.forced,
-        exit_code=exc.exit_code,
-    )
-outcome["returned_ms"] = int(time.time() * 1000)
-outcome["runner_file"] = runner.__file__
-print("OUTCOME " + json.dumps(outcome), flush=True)
-"""
-
 
 @pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
 def test_default_runner_shuts_down_cooperatively_with_caller_stdin_open(tmp_path):
-    src_root = Path(runner.__file__).resolve().parents[2]
-    script = tmp_path / "cooperative.ps1"
-    marker = tmp_path / "script-started.txt"
-    output = tmp_path / "helper-output.txt"
-    # The helper imports the same runner module this test imported.
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        part for part in (str(src_root), env.get("PYTHONPATH", "")) if part
-    )
-
-    with output.open("wb") as sink:
-        helper = subprocess.Popen(
-            [
-                sys.executable, "-c", HELPER, str(script), str(marker),
-                str(STARTUP_ALLOWANCE_SECONDS), str(TAIL_SECONDS), str(GRACE_SECONDS),
-            ],
-            stdin=subprocess.PIPE,
-            stdout=sink,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
-        try:
-            # The caller's stdin stays open (never written, never closed) until
-            # the runner has returned, as in an operator console run.
-            helper.wait(timeout=STARTUP_ALLOWANCE_SECONDS + GRACE_SECONDS + 60)
-        finally:
-            if helper.poll() is None:
-                helper.kill()
-                helper.wait(timeout=10)
-            helper.stdin.close()
-
-    text = output.read_text(encoding="utf-8", errors="replace")
-    # A parked debugger prompt has no trailing newline, so the outcome can
-    # share its line; match the marker anywhere.
-    outcomes = re.findall(r"OUTCOME (\{.*\})", text)
-    assert helper.returncode == 0, text
-    assert len(outcomes) == 1, text
-    outcome = json.loads(outcomes[0])
-    assert Path(outcome["runner_file"]).resolve() == Path(runner.__file__).resolve()
-
-    # The break landed while the script ran and PowerShell entered its debugger,
-    # so this run exercised the stdin-dependent path.
-    assert int(marker.read_text(encoding="utf-8")) < outcome["deadline_ms"], text
-    assert "debug mode" in text, text
-    assert outcome["raised"] is True, text
-    assert outcome["cooperative"] is True, text
-    assert outcome["forced"] is False, text
-    assert outcome["exit_code"] == COOPERATIVE_EXIT_CODE, text
-    cleanup_seconds = (outcome["returned_ms"] - outcome["deadline_ms"]) / 1000
+    # The helper's stdin is a pipe this test keeps open for the whole run, so the
+    # launcher's caller has exactly the open-stdin shape that blocked. The helper
+    # gets its own hidden console, so Ctrl+Break is delivered on every host, and
+    # the stub's DebuggerStop handler proves it without console text.
+    rc, text, outcome, events = run_break_case(
+        tmp_path, runner.__file__, allowance=STARTUP_ALLOWANCE_SECONDS, tail=TAIL_SECONDS,
+        grace=GRACE_SECONDS, caller_stdin_open=True)
     assert TAIL_SECONDS + MARGIN_SECONDS <= GRACE_SECONDS - GAP_SECONDS
-    assert cleanup_seconds < TAIL_SECONDS + MARGIN_SECONDS, text
+    assert_cooperative_break(
+        rc, text, outcome, events, runner_file=runner.__file__,
+        max_return_after_deadline_s=TAIL_SECONDS + MARGIN_SECONDS,
+        max_elapsed_s=STARTUP_ALLOWANCE_SECONDS + GRACE_SECONDS)
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
+def test_a_runner_that_never_sends_ctrl_break_fails_the_precondition(tmp_path):
+    """Mutant: with no Ctrl+Break the stub still exits 3 on its own and the runner reports a
+    'cooperative' outcome; only the stub's own BREAK marker tells the two apart."""
+    rc, text, outcome, events = run_break_case(
+        tmp_path, runner.__file__, allowance=STARTUP_ALLOWANCE_SECONDS, tail=TAIL_SECONDS,
+        grace=GRACE_SECONDS, caller_stdin_open=True, mutant="no_break")
+    assert outcome is not None and outcome["cooperative"] is True  # the outcome alone cannot see it
+    assert "BREAK" not in dict(events)
+    with pytest.raises(AssertionError, match="never reached the stub"):
+        assert_cooperative_break(
+            rc, text, outcome, events, runner_file=runner.__file__,
+            max_return_after_deadline_s=TAIL_SECONDS + MARGIN_SECONDS,
+            max_elapsed_s=STARTUP_ALLOWANCE_SECONDS + GRACE_SECONDS)
