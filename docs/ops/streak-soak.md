@@ -656,6 +656,16 @@ that every subscribed asset traded or that the public stream can identify our ow
 It writes the latest result and append-only history under `data/alerts/`. The probe neither
 registers nor authorizes continuous capture.
 
+**EOF-newline-only class (M13 pilot, shadow only).** `python -m weather.operations.eof_newline_class
+--base origin/master --head <tip>` says whether a branch's only change is a byte-exact end-of-file
+newline fix: every changed file is an in-place modification with
+`new == old.rstrip(b"\n") + b"\n"`, and no file is YAML, under `scripts/ops/`, or named beside a
+pinned SHA-256. Exit 0 means in class, 1 not, 2 error. No `git diff` whitespace flag can stand in for
+it, because `-w` and the ignore-space flags hide re-indentation and whitespace inside Python
+triple-quoted strings and PowerShell here-strings. During the pilot the verdict grants nothing: record
+it beside the landing's real bounded-suite result. `roll_verdict.ps1` must still exit 0, and the
+suite still runs.
+
 ## Why every task is S4U
 
 Scheduled tasks with `LogonType=Interactive` run **only while a user session exists**. On
