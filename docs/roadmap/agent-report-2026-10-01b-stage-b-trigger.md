@@ -23,7 +23,7 @@ and it would have missed the storage-recovery night too, which launches the comp
   - a quoted, whitespace-free `.ps1` path literal, such as `'-File', (Join-Path ... 'x.ps1')`;
   - a quoted `'weather.x.y'` module token in a script (`-m`);
   - a module import.
-  
+
   Python modules count when they name a lease script (for example `storage_recovery_night_steps.py`).
 - **Not counted:** comments and prose strings.
 - **Reference-only files:** their quoted paths are data, not launches.
@@ -110,7 +110,7 @@ Paths needed:
     `market_beating_objective_scoreboard`.
   - **B2, diagnostics:** the audits, attribution and casebook steps, run on alternate nights or after the
     cold-snapshot policy ends (valid to 10-30), which frees 00:30-04:45.
-  
+
   The memory hold already requires chunking before enablement. This rule sizes the chunks. A timed-out run
   is stopped at 09:00, so an overrun never reaches Stage A.
 
