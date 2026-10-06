@@ -198,7 +198,7 @@ a committed timetable.
 | Window | Load class |
 | --- | --- |
 | 00:00–00:30 | **PROTECTED for ad-hoc work — tail of the near-close window.** 00:05–00:30 is the taker/MM daily roll-over spike (scheduled, brief). The lease does not open until 00:30 |
-| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it. The 91a cold-snapshot nightly runs 06:50–09:00 (latest start 07:30), after the 04:45–06:45 tiering reserve, so it never takes the quiet window ([cold snapshot compression](cold-snapshot-compression.md)) |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:00 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch. Continues through 00:30 (first row) |

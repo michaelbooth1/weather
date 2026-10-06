@@ -198,11 +198,29 @@ compression receipts can establish saved bytes.
 
 `cold_snapshot_nightly_run.ps1` calls the same guarded compression wrapper with
 `-Nightly`. `register_cold_snapshot_nightly.ps1` registers
-`WeatherColdSnapshotNightly` at 00:30, current-user S4U/Limited, IgnoreNew,
-255-minute Scheduler limit, with no late catch-up. Registration is production
+`WeatherColdSnapshotNightly` daily at 06:50, current-user S4U/Limited, IgnoreNew,
+140-minute Scheduler limit, with no late catch-up. Registration is production
 work after review and guarded integration; it is not performed by workstation tests.
-The wrapper and runner each contain their child tree in a kill-on-close Job;
-the wrapper reserves teardown before 04:45. A busy shared lease refuses.
+The wrapper and runner each contain their child tree in a kill-on-close Job.
+A busy shared lease refuses.
+
+The nightly window is **06:50-09:00 America/Toronto** (owner decision 2026-10-05):
+after the 04:45-06:45 tiering reserve, so the 01:00-04:00 quiet window stays free
+for roll-sensitive merges. Until 2026-10-06 it was 00:30-04:45.
+
+- **Late start.** A start needs 90 minutes before 09:00, so the latest start is
+  07:30. The biggest night so far (2026-10-02, 21.3 GB) took 73 minutes. A refused
+  start creates no attempt and does not consume the local date.
+- **Deadlines, in order.**
+  - Soft stop: the child takes no new batch (at most 1 GiB) in its last 600 s
+    and ends `PASS` with `stopped_at_soft_deadline: true`, like the byte budget.
+  - Child deadline: 09:00 - 15 s - 120 s. A guard trip there ends in the child's
+    own `FAILED_RETAIN_AND_INSPECT` receipt, which the resolution below can clear.
+  - Wrapper hard stop: 09:00 - 15 s, a backstop. A hard-stopped receipt cannot be
+    resolved by the tool.
+  - Runner backstop: 09:00, so the wrapper can still write its receipt.
+- **One attempt per local date** is unchanged. Attempts are still named
+  `nightly-YYYYMMDD-*` by the local date of the start.
 
 The nightly policy schema is `cold_snapshot_nightly_policy` (version from the
 central registry). Exact fields: `schema_version`, `production_repo_root`,
@@ -214,7 +232,7 @@ create-only policy and reviewed re-registration. No policy changes itself.
 
 Selection is oldest built-in event first, once the closed market-day is at
 least two local calendar days old (owner decision 2026-09-30 in
-[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at 00:30 on day D+2 the
+[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at the 06:50 run on day D+2 the
 market-day D is selectable, D+1 and later are not. Only immediate ordinary
 nonempty JSON/JSONL/CSV files qualify; each must also be unchanged for two full
 days, so a file last written late on D is picked up a night later and a later

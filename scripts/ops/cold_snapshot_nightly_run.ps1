@@ -10,8 +10,20 @@ param(
 $ErrorActionPreference = 'Stop'
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
-if ($now.Hour * 60 + $now.Minute -lt 30 -or $now.Hour * 60 + $now.Minute -ge 285) {
-    throw 'Nightly compression refuses outside 00:30-04:45'
+# Owner decision 2026-10-05: 06:50-09:00, after the 04:45-06:45 tiering jobs, so the
+# 01:00-04:00 quiet window stays free for roll-sensitive merges.
+$windowStartMinute = 6 * 60 + 50
+$windowEndMinute = 9 * 60
+# The biggest night (2026-10-02, 21.3 GB) took 73 minutes; with the child's soft-stop
+# and stop reserves a start needs 90 minutes before 09:00, so the latest start is 07:30.
+# A refused start creates no attempt and consumes no local date.
+$minimumRunMinutes = 90
+$minute = $now.Hour * 60 + $now.Minute
+if ($minute -lt $windowStartMinute -or $minute -ge $windowEndMinute) {
+    throw 'Nightly compression refuses outside 06:50-09:00'
+}
+if ($windowEndMinute - $minute -lt $minimumRunMinutes) {
+    throw 'Nightly compression refuses a start after 07:30: a run needs 90 minutes before 09:00'
 }
 $parent = Join-Path $ProductionRepoRoot 'scratch\cold_snapshot_compression'
 $dayPrefix = 'nightly-' + $now.ToString('yyyyMMdd') + '-'
@@ -56,7 +68,10 @@ if ($Apply) { $arguments += '-Apply' }
 $job = New-WeatherKillOnCloseJob
 $child = $null
 $exitCode = 1
-$deadline = [TimeZoneInfo]::ConvertTimeToUtc($now.Date.AddMinutes(285), $zone).AddSeconds(-10)
+# Backstop only. The compression wrapper hard-stops at 09:00 - 15 s and then writes its
+# receipt; killing it earlier would leave an attempt without a receipt, which no
+# resolution can clear.
+$deadline = [TimeZoneInfo]::ConvertTimeToUtc($now.Date.AddMinutes($windowEndMinute), $zone)
 try {
     $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $child = Start-WeatherProcessInJob -Job $job -FilePath $exe `

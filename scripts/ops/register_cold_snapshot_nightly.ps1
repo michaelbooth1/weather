@@ -29,9 +29,9 @@ if ($Apply) { $tokens += '-Apply' }
 $argsText = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
 $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument $argsText -WorkingDirectory $sourceRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At '00:30'
+$trigger = New-ScheduledTaskTrigger -Daily -At '06:50'
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 255) -MultipleInstances IgnoreNew
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 140) -MultipleInstances IgnoreNew
 $taskName = 'WeatherColdSnapshotNightly'
 $null = Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
 $actual = Get-ScheduledTask -TaskName $taskName
@@ -39,7 +39,7 @@ if ($actual.Actions.Count -ne 1 -or $actual.Actions[0].Execute -cne $exe -or
     $actual.Actions[0].Arguments -cne $argsText -or $actual.Actions[0].WorkingDirectory -cne $sourceRoot -or
     $actual.Principal.LogonType -ne 'S4U' -or $actual.Principal.RunLevel -ne 'Limited' -or
     $actual.Settings.StartWhenAvailable -or $actual.Settings.MultipleInstances -ne 'IgnoreNew' -or
-    $actual.Settings.ExecutionTimeLimit -ne 'PT4H15M' -or $actual.Triggers.Count -ne 1 -or
-    ([DateTime]$actual.Triggers[0].StartBoundary).ToString('HH:mm') -ne '00:30' -or
+    $actual.Settings.ExecutionTimeLimit -ne 'PT2H20M' -or $actual.Triggers.Count -ne 1 -or
+    ([DateTime]$actual.Triggers[0].StartBoundary).ToString('HH:mm') -ne '06:50' -or
     $actual.Triggers[0].DaysInterval -ne 1) { throw 'Scheduled-task readback mismatch; inspect registration' }
 $actual

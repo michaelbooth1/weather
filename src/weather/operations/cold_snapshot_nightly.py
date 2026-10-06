@@ -42,6 +42,14 @@ CLUSTER_BYTES = 4096
 # through the tolerant loop reader, an unreadable row (BLOCK). One fresh complete
 # observation after a short pause decides; the admission criteria are unchanged.
 ADMISSION_RETRY_SECONDS = 0.25
+# Owner decision 2026-10-05: the nightly runs 06:50-09:00 America/Toronto, after
+# the 04:45-06:45 tiering jobs, so 01:00-04:00 stays free for roll-sensitive merges.
+WINDOW_START_MINUTE = 6 * 60 + 50
+WINDOW_END_MINUTE = 9 * 60
+# No new batch (at most 1 GiB, about 3.5 min at the 2026-10-02 rate) starts in the
+# last SOFT_STOP_RESERVE_SECONDS before the child deadline: the night ends PASS with
+# the work done, like the byte budget, instead of a deadline failure mid-file.
+SOFT_STOP_RESERVE_SECONDS = 600
 MAX_ADMISSION_NOTES = 32
 
 
@@ -175,6 +183,16 @@ def execute_batch(rows, root, output, *, apply, guard, compress=cold.compress_ca
     return results
 
 
+def in_window(local: datetime) -> bool:
+    """True inside the 06:50-09:00 America/Toronto nightly window."""
+    return WINDOW_START_MINUTE <= local.hour * 60 + local.minute < WINDOW_END_MINUTE
+
+
+def soft_stop_reached(now: datetime, deadline: datetime) -> bool:
+    """True once a new batch could no longer finish before the child deadline."""
+    return (deadline - now).total_seconds() < SOFT_STOP_RESERVE_SECONDS
+
+
 def run(args):
     if os.name != "nt":
         raise ValueError("nightly compression requires native Windows")
@@ -210,8 +228,8 @@ def run(args):
         current = datetime.now(timezone.utc)
         local = current.astimezone(ZoneInfo("America/Toronto"))
         if (current >= deadline or current >= cold._utc(policy["expires_at_utc"])
-                or not 30 <= local.hour * 60 + local.minute < 285):
-            raise ValueError("nightly deadline, approval or 00:30-04:45 window ended")
+                or not in_window(local)):
+            raise ValueError("nightly deadline, approval or 06:50-09:00 window ended")
         if time.monotonic() - last_check >= 1:
             def resources(**observed):
                 result = cold.check_resources(**observed)
@@ -231,7 +249,8 @@ def run(args):
         "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
         "reclaimed_bytes": 0, "logical_bytes_processed": 0, "files_processed": 0,
         "files_skipped_unshrinkable": 0, "admission_retries": 0, "admission_retry_notes": [],
-        "nightly_budget_bytes": budget, "batches": [], "status": "FAILED_RETAIN_AND_INSPECT"}
+        "nightly_budget_bytes": budget, "batches": [], "stopped_at_soft_deadline": False,
+        "status": "FAILED_RETAIN_AND_INSPECT"}
     with PinnedNtfsDirectory(output):
         cold.write_receipt_bytes(output / "request.json", raw, cold.MAX_REQUEST_BYTES)
         try:
@@ -241,6 +260,9 @@ def run(args):
             for number, folder in enumerate(closed_folders(root / "data", as_of, guard)):
                 guard()
                 if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
+                    break
+                if soft_stop_reached(datetime.now(timezone.utc), deadline):
+                    receipt["stopped_at_soft_deadline"] = True
                     break
                 manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
                     traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
@@ -268,6 +290,9 @@ def run(args):
                                              inventory.MAX_OUTPUT_BYTES)
                     receipt["files_skipped_unshrinkable"] += len(skipped)
                 for rows in batches:
+                    if soft_stop_reached(datetime.now(timezone.utc), deadline):
+                        receipt["stopped_at_soft_deadline"] = True
+                        break
                     batch_path = output / f"batch-{len(receipt['batches']):04d}"
                     batch_path.mkdir()
                     selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
@@ -281,6 +306,8 @@ def run(args):
                     receipt["reclaimed_bytes"] += saved
                     receipt["batches"].append({"path": batch_path.name, "files": len(results),
                                                "logical_bytes": logical, "verified_savings_bytes": saved})
+                if receipt.get("stopped_at_soft_deadline"):
+                    break
             guard()
             receipt["status"] = "PASS"
         except Exception as exc:

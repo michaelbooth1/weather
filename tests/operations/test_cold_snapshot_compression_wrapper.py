@@ -148,19 +148,32 @@ def finish(process):
             process.communicate(timeout=10)
 
 
+@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T06:50:00", "2026-09-24T07:30:00"], indirect=True)
 def test_nightly_mode_uses_same_bound_wrapper_and_receipt(wrapper_fixture):
     process, output = launch(wrapper_fixture, "success", nightly=True)
     code, text = finish(process)
     assert code == 0, text
     receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
     assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+    # The nightly child stops itself 120 s before the wrapper deadline (resolvable, never a hard stop).
+    assert receipt["hard_stop"] is False and "child_deadline_utc" in receipt
 
 
-@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T07:00:00"], indirect=True)
-def test_nightly_rejects_attended_late_window(wrapper_fixture):
+@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T01:00:00", "2026-09-24T06:49:00",
+                                             "2026-09-24T09:00:00", "2026-09-24T05:30:00"], indirect=True)
+def test_nightly_rejects_outside_0650_0900(wrapper_fixture):
+    """Owner decision 2026-10-05: 06:50-09:00 (the old 00:30-04:45 window now refuses)."""
     process, output = launch(wrapper_fixture, "success", nightly=True)
     code, text = finish(process)
-    assert code != 0 and "00:30-04:45" in text
+    assert code != 0 and "06:50-09:00" in text
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T07:31:00", "2026-09-24T08:30:00"], indirect=True)
+def test_nightly_refuses_a_start_with_less_than_90_minutes_left(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success", nightly=True)
+    code, text = finish(process)
+    assert code != 0 and "latest start 07:30" in text
     assert not output.exists()
 
 

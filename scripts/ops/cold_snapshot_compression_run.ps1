@@ -22,7 +22,11 @@ $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
-if ($Nightly -and ($minute -lt 30 -or $minute -ge 285)) { throw 'nightly mode is restricted to 00:30-04:45' }
+if ($Nightly -and ($minute -lt 410 -or $minute -ge 540)) { throw 'nightly mode is restricted to 06:50-09:00' }
+if ($Nightly -and 540 - $minute -lt 90) { throw 'REFUSED: a nightly run needs 90 minutes before 09:00 (latest start 07:30)' }
+# The nightly child stops itself this long before the wrapper deadline, so a deadline
+# ends in its own resolvable FAILED_RETAIN_AND_INSPECT receipt, never a hard stop.
+$nightlyChildStopReserveSeconds = 120
 if ($OwnerApprovedException) {
     $exceptionDate = @{
         'OWNER_APPROVED_STORAGE_RECOVERY_20260908' = '2026-09-08'
@@ -132,7 +136,9 @@ try {
     $env:PYTHONPATH = Join-Path $sourceRoot 'src'
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = [string]$PID
-    $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $deadline.ToString('o')
+    $childDeadline = if ($Nightly) { $deadline.AddSeconds(-$nightlyChildStopReserveSeconds) } else { $deadline }
+    $receipt.child_deadline_utc = $childDeadline.ToString('o')
+    $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $childDeadline.ToString('o')
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException
     $compressionModule = if ($Nightly) { 'weather.operations.cold_snapshot_nightly' } else { 'weather.operations.cold_snapshot_compression' }
     $arguments = @('-m', $compressionModule,
