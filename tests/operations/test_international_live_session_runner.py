@@ -15,6 +15,7 @@ import pytest
 from weather.market import mm_geographic_eligibility as geography
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
+from tests.operations.live_launcher_break_harness import assert_cooperative_break, run_break_case
 from weather.operations import international_live_wrapper_sealer as sealer
 from tests.live_candidate_fixture import build_live_candidate_payload
 
@@ -1527,64 +1528,24 @@ COOPERATIVE_GRACE_SECONDS = 3.0
 
 @pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
-def test_default_runner_allows_cooperative_ctrl_break_cleanup(
-    tmp_path, monkeypatch, capfd
-):
+def test_default_runner_allows_cooperative_ctrl_break_cleanup(tmp_path):
     # Windows PowerShell answers Ctrl+Break inside a running script by entering
     # its debugger at the next statement and reading a command from stdin. If
     # that stdin is a console or an open pipe the read blocks, the script never
     # reaches its own exit, and the runner rightly forces the tree. The runner
     # starts the child with stdin on the null device (#229), so the debugger
-    # reads EOF and resumes and the outcome depends only on the runner. The
-    # Popen spy only records that stdin; it changes nothing the runner passes
-    # (test_international_live_session_runner_stdin.py covers an open caller stdin).
-    real_popen = runner.subprocess.Popen
-    child_stdin = []
-
-    def popen_spy(*args, **kwargs):
-        child_stdin.append(kwargs.get("stdin"))
-        return real_popen(*args, **kwargs)
-
-    monkeypatch.setattr(runner.subprocess, "Popen", popen_spy)
-
-    started_marker = tmp_path / "script-started.txt"
-    started = time.monotonic()
-    absolute_deadline = datetime.now().astimezone() + timedelta(
-        seconds=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS
-    )
-    deadline_ms = int(absolute_deadline.timestamp() * 1000)
-    release_ms = deadline_ms + int(COOPERATIVE_TAIL_SECONDS * 1000)
-    marker_literal = str(started_marker).replace("'", "''")
-    script = tmp_path / "cooperative.ps1"
-    script.write_text(
-        f"[IO.File]::WriteAllText('{marker_literal}', "
-        "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString())\n"
-        f"$release = [DateTimeOffset]::FromUnixTimeMilliseconds({release_ms})\n"
-        "while ([DateTimeOffset]::UtcNow -lt $release) "
-        "{ Start-Sleep -Milliseconds 50 }\n"
-        "exit 3\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(runner.LauncherControlError) as caught:
-        runner._default_launcher_runner(
-            script,
-            timeout_seconds=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS
-            + COOPERATIVE_GRACE_SECONDS,
-            absolute_deadline=absolute_deadline,
-            cleanup_grace_seconds=COOPERATIVE_GRACE_SECONDS,
-        )
-    elapsed = time.monotonic() - started
-
-    # The break must have landed while the script ran, or this run did not
-    # exercise cooperative cleanup at all (start-up exceeded the allowance).
-    assert int(started_marker.read_text(encoding="utf-8")) < deadline_ms
-    assert child_stdin == [subprocess.DEVNULL]
-    assert "debug mode" in capfd.readouterr().out
-    assert caught.value.cooperative is True
-    assert caught.value.forced is False
-    assert caught.value.exit_code == 3
-    assert elapsed < COOPERATIVE_STARTUP_ALLOWANCE_SECONDS + COOPERATIVE_GRACE_SECONDS
+    # reads EOF and resumes and the outcome depends only on the runner.
+    # The runner runs in a helper with its own hidden console, so the break is
+    # delivered on every host (the production suite has no shared console); the
+    # stub's DebuggerStop handler proves delivery without console text
+    # (tests/operations/live_launcher_break_harness.py).
+    rc, text, outcome, events = run_break_case(
+        tmp_path, runner.__file__, allowance=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS,
+        tail=COOPERATIVE_TAIL_SECONDS, grace=COOPERATIVE_GRACE_SECONDS, caller_stdin_open=False)
+    assert_cooperative_break(
+        rc, text, outcome, events, runner_file=runner.__file__,
+        max_return_after_deadline_s=COOPERATIVE_GRACE_SECONDS,
+        max_elapsed_s=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS + COOPERATIVE_GRACE_SECONDS)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
