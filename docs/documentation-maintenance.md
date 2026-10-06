@@ -180,7 +180,17 @@ the documentation tip) and `reason` (why the document remains accurate for these
 integrations). Obtain the blob with `git rev-parse <documentation-tip>:<path>`.
 The same form may record other reviewed unchanged documents. A changed document
 must not be claimed unchanged. The documentation tip may equal the final
-integration tip when no follow-up changes are needed. Complete it with:
+integration tip when no follow-up changes are needed.
+
+Before completing, regenerate the correspondence index once for the night's
+landings (branches never commit it):
+`scripts\ops\correspondence_index_closeout.ps1 -Land` regenerates it on
+origin/master, refuses unless only the index files changed and the strict check
+passes, and lands the result through the docs light path. It is idempotent: on
+an already regenerated master it reports `unchanged`, and a rerun on the same
+origin/master reuses the pushed branch. `complete` re-runs the strict
+`correspondence_index --check` and fails while the index is stale. Complete it
+with:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.documentation_transaction `
@@ -217,7 +227,9 @@ blocker, and never claim the refused code landed.
   `**Last updated: YYYY-MM-DD` line is machine-read by `status.ps1` and the
   knowledge audit, so keep that exact form and make it true.
 - Generated documents include generator metadata and should be reproduced, not
-  hand-edited.
+  hand-edited. The correspondence index is the exception to "regenerate in the
+  same change": branches never commit it, CI checks it structurally, and the
+  closeout regenerates it (see the closeout above).
 - Dynamic host inventories belong under ignored `data/`; a tracked generated
   document must depend only on repository-owned inputs.
 - Dated documents retain historical facts and commands. Add a visible historical

@@ -195,7 +195,9 @@ credential selection and the scoped firewall commands.
 `scripts\ops\wait_pr_ci.ps1 -Pr <n> -ExpectedHead <sha>` waits (read-only, via `gh`) until
 every check on that exact PR head finishes; exit 0 means all green, 1 a failure, 2 a timeout,
 4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
-([guarded-merge runbook](docs/ops/streak-soak.md)).
+([guarded-merge runbook](docs/ops/streak-soak.md)). `scripts\ops\correspondence_index_closeout.ps1 [-Land]`
+regenerates the correspondence index on origin/master after the night's landings and pushes it as
+a docs-only branch (`-Land` hands it to the light path); it is idempotent.
 
 `scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
 folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.

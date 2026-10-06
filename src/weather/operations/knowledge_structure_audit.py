@@ -182,7 +182,10 @@ def decision_errors(root: Path) -> list[str]:
 
 
 def generated_index_errors(root: Path) -> list[str]:
-    errors = correspondence_index.parity_errors(root)
+    # Structural, not byte parity: branches never commit the regenerated index
+    # (the closeout does, strictly, after landings), so a source without a row is
+    # pending, while a wrong, stray or misplaced committed row still fails.
+    errors = correspondence_index.structural_errors(root)
     # Share exactly the CLI's --check parity and --fail-on-lint implementation, without writes.
     payload = roadmap_backlog.build_payload(root / "docs/roadmap")
     if payload["status"] != "OK":

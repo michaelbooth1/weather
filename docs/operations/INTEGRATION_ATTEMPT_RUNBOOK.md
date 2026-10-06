@@ -599,6 +599,17 @@ because production cannot freeze hashes for attempt scripts that do not exist
 there yet. Adopt the registrar only afterwards and under separate explicit
 scheduler authorization.
 
+## Correspondence index after the night
+
+Integration branches never carry the regenerated correspondence index, so no
+attempt conflicts on it. After the night's last successful merge, the morning
+closeout runs `scripts\ops\correspondence_index_closeout.ps1 -Land` once. It
+regenerates the index on origin/master, refuses unless only the index files
+changed and the strict check passes, and lands the result as a docs light-path
+commit (Markdown under `docs/`, roll-free, no lease). It is idempotent, and
+`documentation_transaction complete` fails while the index is stale. A failed
+attempt changes nothing here: the closeout regenerates whatever really landed.
+
 ## Update this file when
 
 Update this runbook when attempt schemas, repair classes, task identity,

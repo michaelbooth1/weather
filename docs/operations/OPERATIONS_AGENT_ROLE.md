@@ -239,7 +239,8 @@ seven hours). These rules bind every production and workstation agent:
    diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch <b> -ExpectedTip
    <sha>` does exactly this (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
    receipt. Never run the merge tool's `-DryRun` for such a branch (that
-   dry run left the 09-24 marker).
+   dry run left the 09-24 marker). The morning closeout's correspondence-index regeneration is such a branch:
+   `scripts\ops\correspondence_index_closeout.ps1 -Land` prepares and lands it in one idempotent command.
 3. **Lanes do not block each other.** Landing, research runs, disk work and workstation missions are independent lanes;
    a stall in one never pauses the others. Record the stall and move to the next lane. This never licenses parallel heavy
    work on the capture host: heavy jobs stay serial under the shared lease.
