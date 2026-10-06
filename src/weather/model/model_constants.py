@@ -119,7 +119,13 @@ SOURCE_CACHE_TTL_MINUTES = {
 # Stale prior-day observations cannot act as same-day settlement evidence, and
 # the morning forecast pull can no longer inject fresh mass below the median
 # consensus forecast bucket.
-ML_MODEL_VERSION = "v0.5.10"
+# v0.5.11: late-day lock-in re-anchored on captured station evidence. While the
+# WU printed history is empty, the lock-in stages (S1-S6) and the calibration
+# taper read the observed same-day station high (METAR keyed by observation
+# time) instead of a missing WU high, and once a late-day stage acts no mass
+# stays below that observed floor (LATE_DAY_LOCKIN_ANCHOR_VERSION; constants
+# unchanged).
+ML_MODEL_VERSION = "v0.5.11"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

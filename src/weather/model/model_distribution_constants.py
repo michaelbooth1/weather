@@ -167,4 +167,14 @@ STANDING_HIGH_PARTIAL_ONE_UP_RETAINED = 0.55
 STANDING_HIGH_PARTIAL_TWO_UP_RETAINED = 0.30
 STANDING_HIGH_PARTIAL_BASE = 0.18
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
+# Serving-stage version of the late-day lock-in anchor (stamped into the
+# component payload as high_has_stood_lockin.lockin_anchor.version). v3: when WU
+# history is empty the anchor is the observed same-day station high, METAR rows
+# keyed by observation time (a D-1 23:5x report carried in as "00:00" is
+# excluded), and once a late-day stage acts the mass below the anchor bucket
+# moves onto it (the calibration floor follows). v2 anchored on the whole
+# guidance_physical_floor and renormalized below it.
+# A behaviour label like ML_MODEL_VERSION, not a payload schema version (the
+# components payload shape stays COMPONENT_SCHEMA_VERSION).
+LATE_DAY_LOCKIN_ANCHOR_VERSION = "lockin-anchor-v3"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})

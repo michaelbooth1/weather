@@ -1,12 +1,18 @@
 # Run only by the production agent after guarded integration and review.
 [CmdletBinding()]
 param(
-    [string]$ProductionRepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$ProductionRepoRoot = "",
     [Parameter(Mandatory=$true)][string]$RequestPath,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
     [switch]$Apply
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -ProductionRepoRoot always wins.
+if (-not $ProductionRepoRoot) {
+    $ProductionRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')
 . (Join-Path $PSScriptRoot 'training_window_contract.ps1')
