@@ -79,7 +79,6 @@ EXPECTED_SHARDS = {
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_quiet_window_merge_execution.py",
-            "tests/operations/test_thin_ensure.py",
         ],
     ),
     "windows-lane-a": (
@@ -132,6 +131,7 @@ EXPECTED_SHARDS = {
             "tests/market/test_mm_credential_import_cli.py",
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
+            "tests/operations/test_thin_ensure.py",
         ],
     ),
     "reconciler-1": (
