@@ -149,6 +149,7 @@ def finish(process):
 
 
 @pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T06:50:00", "2026-09-24T07:30:00"], indirect=True)
+@pytest.mark.spawns
 def test_nightly_mode_uses_same_bound_wrapper_and_receipt(wrapper_fixture):
     process, output = launch(wrapper_fixture, "success", nightly=True)
     code, text = finish(process)
@@ -161,6 +162,7 @@ def test_nightly_mode_uses_same_bound_wrapper_and_receipt(wrapper_fixture):
 
 @pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T01:00:00", "2026-09-24T06:49:00",
                                              "2026-09-24T09:00:00", "2026-09-24T05:30:00"], indirect=True)
+@pytest.mark.spawns
 def test_nightly_rejects_outside_0650_0900(wrapper_fixture):
     """Owner decision 2026-10-05: 06:50-09:00 (the old 00:30-04:45 window now refuses)."""
     process, output = launch(wrapper_fixture, "success", nightly=True)
@@ -170,6 +172,7 @@ def test_nightly_rejects_outside_0650_0900(wrapper_fixture):
 
 
 @pytest.mark.parametrize("wrapper_fixture", ["2026-09-24T07:31:00", "2026-09-24T08:30:00"], indirect=True)
+@pytest.mark.spawns
 def test_nightly_refuses_a_start_with_less_than_90_minutes_left(wrapper_fixture):
     process, output = launch(wrapper_fixture, "success", nightly=True)
     code, text = finish(process)
