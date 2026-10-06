@@ -473,6 +473,17 @@ Stage-A, workstation or live authority is added.
    volume from roughly 20 GiB to 7 GiB free. pytest keeps its last three
    base-temp roots by default, so an undeleted run is a standing cost. This
    applies on every host; on the capture host it is also a capture risk.
+8. **No idle between a night's units** (Swarm L M1, owner 2026-10-05). Build and
+   preflight every head the day before, so the night only runs suites and merges.
+   - Plan **2 roll-sensitive + 5 roll-free heads** per night, not 3 + 5. The
+     third RS head had a one-minute margin.
+   - Start the next unit as soon as its gate opens. A gate is the shared lease state,
+     or the previous unit's Scheduler `LastRunTime` plus its status artefact. Never
+     gate on a guessed attempt name, a guessed time or a bare exit code (the
+     2026-10-05 mis-gated 91a wait).
+   - This changes scheduling only; the windows, the lease and serial heavy work are
+     unchanged. Head composition (caps, RS batching) is in
+     [the git workflow](../git-workflow.md#integration-heads-for-a-night).
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
