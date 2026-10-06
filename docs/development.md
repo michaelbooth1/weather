@@ -40,20 +40,35 @@ package contract, and `requires-python` is `>=3.11`.
 
 - The `CI` workflow runs on **pull requests and on pushes to `master` only**. A push to any other branch runs
   nothing. A branch has no CI evidence until a pull request exists for it.
-- One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
+- Ubuntu, Python 3.11, 30-minute job timeout, Git LFS disabled on purpose (tests stub model artifacts).
   Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
 - Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
-  **CI never executes them**. Their static and portable contracts run on Ubuntu; executable Windows coverage
-  exists only in the admitted production-host bounded suite below.
+  the Ubuntu job skips them. Every such file runs in a Windows qualification shard (below);
+  `test_windows_qualification_shards.py` fails when a test file that skips off Windows is in no shard.
 - The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
-  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
-  job `needs` it, so a ratchet failure stops the run before the long suite.
+  check, then every test marked `@pytest.mark.ratchet`, uploading a `linux-junit-audit-*` artifact). The Linux
+  `test` and `memory-flatness` jobs both `need` it, so a ratchet failure stops the run before the long suite, and
+  then run in parallel on the same Python and dependencies: `test` runs
+  `pytest -m "not ratchet and not memory_flatness"` and `memory-flatness` runs
+  `pytest -m "memory_flatness and not ratchet"` (the slow 5-to-50-run tracemalloc flatness tests). Each uploads a
+  `linux-junit-*` artifact. The three selections partition the suite, so each test runs exactly once per CI run;
+  `tests/operations/test_ci_job_partition.py` proves it by truth table, so a new marker split must keep that test
+  green. A ratchet is a repository-wide architecture or inventory check (imports, schema registry, docs audit, path
+  policy, module size, ops-script and task inventories). Mark a new one `ratchet` and add its file to the audit
+  job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the list names exactly the files that use
+  the marker and the jobs' selections are exact complements. A ratchet that skips off Windows also carries
+  `windows_native` and executes in exactly one [Windows qualification](../.github/workflows/windows-qualification.yml)
+  shard (shards holding ratchet files select `-m "not ratchet or windows_native"`); the same meta-test proves every
+  ratchet executes exactly once across all workflows. Local and bounded-suite runs ignore these markers and run
+  everything (plain `pytest -q`).
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
   launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
-  balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
+  balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is
+  split across shards by `split_select` -k expressions; `tests/operations/test_windows_qualification_shards.py` pins the
+  plan and proves by collection that every listed test runs exactly once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.
@@ -65,6 +80,21 @@ package contract, and `requires-python` is `>=3.11`.
 - The GitHub CLI (`gh`) is not installed on the capture host. Do not plan a step there that opens a pull request
   or reads CI status with `gh`; use the web UI, the workstation, or the push path in the
   [Git workflow SOP](git-workflow.md).
+
+### Known CI flakes
+
+A test enters this table on a proven same-SHA fail-then-pass. A row is tracked evidence, not a quarantine: one
+occurrence never justifies `@pytest.mark.quarantine`. Rerun the failed job on the same SHA; if a test reaches three
+occurrences, raise it with the owner. Counts come from the item K CI history (P0-3, the 500 runs to 2026-10-04)
+plus later sightings.
+
+| Test | Lane | Occurrences | Evidence |
+| --- | --- | --- | --- |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_holder_http_backoff_outcome_is_shared_without_second_provider_call` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_timeout_fetch_plus_holder_counts_two_fetches_and_one_write` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
+| `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
+| `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
 
 ## Where verification may run
 
@@ -80,7 +110,8 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Limit | Value in the script |
 | --- | --- |
 | Mandatory parameters | `-RepoRoot`, `-WorktreeRoot`, `-ExpectedTip` (40-hex), `-BranchRef`, `-LogPath` |
-| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files |
+| Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
+| Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
@@ -218,6 +249,47 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
+
+## Staged test cuts: the quarantine marker
+
+A test is never deleted in one step. Removing a test that is believed redundant, trivial or brittle is staged:
+
+1. **Quarantine.** Mark it
+   `@pytest.mark.quarantine(reason="...", added="YYYY-MM-DD", sunset="YYYY-MM-DD", replaced_by="...")` and add an
+   entry to [`tests/quarantine_registry.json`](../tests/quarantine_registry.json):
+   `"tests/x.py::test_y": {"first_added": "<added>", "renewals": []}` (the key is the test function; parametrized
+   cases share it). `reason`, `added` and `sunset` are required; `added` is not in the future and `sunset` is at
+   most 6 weeks after it. `replaced_by` names the surviving test that still kills the same fault. Name a twin
+   that CI actually runs: a Windows-only twin in no Windows qualification shard leaves pull-request CI with
+   neither test. A class-level or module `pytestmark` marker applies to every test under it; stacking two
+   markers on one test is refused.
+2. **Observe.** A quarantined test is still collected and still runs everywhere (CI, the workstation, the bounded
+   suite). If it fails in setup or call, the run does not fail: the result becomes a non-strict xfail with the
+   quarantine reason, a `QuarantinedFailureWarning` is shown, the terminal report ends with a "quarantined tests"
+   section naming each failure, and the JUnit test case carries `quarantine` and `quarantine_failure` properties.
+   A teardown error stays fatal. Every quarantined failure must be triaged: a real defect means the test is
+   restored (marker and registry entry removed), not deleted.
+3. **Renew at most within 12 weeks.** A renewal appends the new `added` date to the entry's `renewals` and sets a
+   new sunset, so it is a visible, reviewed registry diff. No sunset may fall more than 12 weeks after
+   `first_added`, however often the entry is renewed.
+4. **Delete or restore.** Deletion is an owner decision, taken only after at least two weeks of CI and at least
+   three bounded-suite runs with no real-defect failure.
+
+**When the sunset passes.** Under GitHub Actions (`GITHUB_ACTIONS=true`) collection fails with a usage error
+that names the test, in every job that collects it: the test job, and the audit job through
+`tests/test_quarantine_registry.py`. This also holds under `--collect-only` and under a `-k`/`-m` selection
+that would skip the test. Off CI (the workstation, and the capture-host bounded suite on an integration night)
+the expiry is only reported: a `QuarantineExpiredWarning`, an `EXPIRED QUARANTINE` line in the terminal
+section, and a `quarantine_expired` JUnit property. The test stays quarantined, so a calendar date alone never
+changes a local or bounded-suite outcome. `--quarantine-expired=fail|report` overrides the detection.
+Malformed markers and registry mismatches always fail collection; CI catches them before merge.
+
+[`tests/quarantine_plugin.py`](../tests/quarantine_plugin.py) implements the marker (registered in `pytest.ini`,
+loaded by `tests/conftest.py`). `tests/test_quarantine_marker.py` pins its behaviour, and
+`tests/test_quarantine_registry.py` proves that the hooks are registered (so a bad `conftest.py` merge cannot
+silently drop them) and that the registry matches the markers. Under pytest-xdist the terminal section sees only
+the controller's reports; the JUnit properties stay per test. Never-cut families (safety, parity, settlement,
+release binding, architecture ratchets and the like) are not quarantined without the review that froze them.
 
 ## Stateful command boundaries
 

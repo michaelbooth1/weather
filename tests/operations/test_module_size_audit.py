@@ -8,6 +8,9 @@ from weather.operations.module_size_audit import (
     render_report,
 )
 from weather.paths import REPO_ROOT
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_module_size_audit_warns_for_modules_above_threshold(tmp_path):

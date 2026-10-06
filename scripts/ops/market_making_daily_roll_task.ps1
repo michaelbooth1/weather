@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet("start", "ensure")][string]$Verb = "ensure",
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$Timezone = "America/Toronto",
     [string]$StartAfterLocalTime = "07:05",
     [string]$StartNoLaterThanLocalTime = "20:00",
@@ -16,6 +16,12 @@ param(
     [double]$MaxEventNotional = 25.0,
     [long]$MinFreeBytes = 34359738368
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path

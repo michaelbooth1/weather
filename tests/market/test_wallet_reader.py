@@ -396,6 +396,7 @@ def test_client_twenty_second_get_and_secret_refusal(tmp_path):
     assert len(opener.calls) == 1
 
 
+@pytest.mark.ratchet
 def test_no_signing_imports_and_no_unapproved_file_access():
     permitted = {"__future__", "argparse", "base64", "collections", "contextlib", "copy", "datetime",
                  "decimal", "dotenv", "hashlib", "hmac", "http", "io", "ipaddress", "json", "logging", "math",

@@ -1,8 +1,14 @@
 [CmdletBinding()]
 param(
     [switch]$Json,
-    [string]$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+    [string]$RepoRoot = ""
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 # Lightweight, execution-host-only status for a portable International live
 # session.  It deliberately does not inspect capture workers, the execution

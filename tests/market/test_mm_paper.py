@@ -8,6 +8,9 @@ import tracemalloc
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+
+import pytest
+
 from weather.market import exchange_economics
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_run_constants import RUN_QUOTE_COLUMNS
@@ -1623,6 +1626,7 @@ class TestMMPaper(unittest.TestCase):
                     },
                 )
 
+    @pytest.mark.memory_flatness
     def test_streamed_build_peak_memory_stays_roughly_flat_as_runs_grow(self):
         def measured_peak(run_count):
             with tempfile.TemporaryDirectory() as tmp:
