@@ -85,6 +85,18 @@ def test_disqualifiers(repo, edits, kind):
     assert [d["kind"] for d in verdict["disqualifiers"]] == [kind]
 
 
+def test_a_script_bound_by_a_runtime_hash_check_disqualifies(repo):
+    """register_health_watchdog.ps1 binds status.ps1 through a parameter, with no literal."""
+    binder = ("param([string]$ExpectedStatusScriptSha256)\n"
+              "$p = Join-Path $PSScriptRoot 'status.ps1'\n"
+              "if ((Get-FileHash -LiteralPath $p).Hash -ne $ExpectedStatusScriptSha256) { throw 'x' }\n")
+    tip(repo, {"scripts/ops/register.ps1": binder, "scripts/ops/status.ps1": "'v1'\n",
+               "scripts/ops/free.ps1": "'v1'\n"})
+    git(repo, "checkout", "-q", "-B", "master", "work")
+    verdict = tip(repo, {"scripts/ops/status.ps1": "'v2'\n", "scripts/ops/free.ps1": "'v2'\n"})
+    assert verdict["disqualifiers"] == [{"path": "scripts/ops/status.ps1", "kind": "hash_bound_script"}]
+
+
 def test_sharded_windows_test_does_not_disqualify(repo):
     assert tip(repo, {"tests/test_win_sharded.py": WIN_ONLY + "\n"})["eligible"] is True
 

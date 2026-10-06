@@ -11,7 +11,11 @@ when the CI runner cannot stand in for the capture host:
 - it adds or changes a **Windows-only test in no CI shard** (``windows-
   qualification.yml``), which no CI lane would run at all;
 - it touches a **hash-pinned file** (named beside a pinned SHA-256 at the head,
-  as ``eof_newline_class`` defines it), whose frozen hash binds host tasks.
+  as ``eof_newline_class`` defines it), whose frozen hash binds host tasks;
+- it touches a **hash-bound script**: a ``.ps1`` named by a tracked ``.ps1``
+  that calls ``Get-FileHash`` (runtime pins such as
+  ``register_health_watchdog.ps1`` binding ``status.ps1`` through an
+  ``Expected...Sha256`` parameter, which carry no literal to find).
 
 ``--enumerate`` lists the host-divergent and unsharded Windows-only test files
 at a ref; the report asks for that enumeration before any adoption. ``--base``
@@ -111,6 +115,20 @@ def enumerate_tests(repo_root: Path, ref: str) -> dict[str, Any]:
     }
 
 
+def hash_bound_scripts(repo_root: Path, ref: str, candidates: list[str]) -> set[str]:
+    """``.ps1`` candidates named by a tracked ``.ps1`` that calls ``Get-FileHash`` at ``ref``."""
+    scripts = [path for path in candidates if path.lower().endswith(".ps1")]
+    if not scripts:
+        return set()
+    try:
+        out = _git(repo_root, "grep", "-l", "Get-FileHash", ref, "--", "*.ps1")
+    except ClassError:
+        return set()  # no caller: git grep exits 1
+    binders = [line.split(":", 1)[1] for line in out.decode().splitlines() if ":" in line]
+    text = "\n".join(_show(repo_root, ref, path) for path in binders)
+    return {path for path in scripts if path.rsplit("/", 1)[-1] in text}
+
+
 def classify_tip(repo_root: Path, base: str, head: str) -> dict[str, Any]:
     base_sha = _git(repo_root, "rev-parse", "--verify", f"{base}^{{commit}}").decode().strip()
     head_sha = _git(repo_root, "rev-parse", "--verify", f"{head}^{{commit}}").decode().strip()
@@ -124,6 +142,8 @@ def classify_tip(repo_root: Path, base: str, head: str) -> dict[str, Any]:
     ]
     disqualifiers += [{"path": path, "kind": "hash_pinned"}
                       for path in sorted(hash_pinned_paths(repo_root, head_sha, changed))]
+    disqualifiers += [{"path": path, "kind": "hash_bound_script"}
+                      for path in sorted(hash_bound_scripts(repo_root, head_sha, changed))]
     return {
         "schema": SCHEMA, "mode": "tip", "base": base_sha, "head": head_sha,
         "eligible": not disqualifiers, "disqualifiers": disqualifiers, "changed_files": len(changed),

@@ -666,6 +666,21 @@ triple-quoted strings and PowerShell here-strings. During the pilot the verdict 
 it beside the landing's real bounded-suite result. `roll_verdict.ps1` must still exit 0, and the
 suite still runs.
 
+**CI lane plus preflight in place of the host suite (M5 pilot, shadow dual run).**
+`python -m weather.operations.m5_host_divergence --base origin/master --head <tip>` says whether CI
+could vouch for a roll-free tip. A tip is disqualified when it adds or changes any of these:
+- a host-divergent test, one that exercises identity, ACL or Task Scheduler APIs (the 10-04
+  `WORKGROUP\micha` class);
+- a Windows-only test that is in no CI shard;
+- a file named beside a pinned SHA-256;
+- a `.ps1` named by a script that calls `Get-FileHash` (runtime pins such as
+  `register_health_watchdog.ps1` binding `status.ps1`).
+
+`--enumerate <ref>` lists the host-divergent and unsharded Windows-only test files, the enumeration
+the pilot runs first. The verdict grants nothing: the bounded suite still runs. Each landing records
+CI, preflight and host-suite results as one concordance row, and adoption needs the later of 5
+concordant landings or 14 days, plus an owner decision.
+
 ## Why every task is S4U
 
 Scheduled tasks with `LogonType=Interactive` run **only while a user session exists**. On
