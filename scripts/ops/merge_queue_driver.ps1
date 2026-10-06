@@ -24,7 +24,12 @@ param(
     # Dry only: evaluate as of this local wall clock (yyyy-MM-ddTHH:mm:ss) instead of now.
     [string]$EvaluatedAt = "",
     # Dry only: receipt path; default data\merge_train_dry\<night>\receipt-<time>.json.
-    [string]$ReceiptOut = ""
+    [string]$ReceiptOut = "",
+    # Dry only: "test the train once". When every pending entry is ROLL-FREE, plan ONE bounded
+    # suite on the final tip of the stacked chain, then merge each head in order. The receipt
+    # records, from the chained per-entry preflight receipts, which intermediate tips would have
+    # failed where the final tip passed (the cost of skipping per-head suites).
+    [switch]$TrainOnce
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,8 +44,8 @@ if (-not $AllowedSignersFile) {
     $AllowedSignersFile = Join-Path $RepoRoot "scripts\ops\merge_queue_allowed_signers"
 }
 $GateTaskName = @($GateTaskName | ForEach-Object { $_ -split "," } | Where-Object { $_ })
-if (-not $Dry -and ($EvaluatedAt -or $ReceiptOut -or $GateTaskName.Count -gt 0)) {
-    throw "-EvaluatedAt, -ReceiptOut and -GateTaskName are dry-run parameters"
+if (-not $Dry -and ($EvaluatedAt -or $ReceiptOut -or $GateTaskName.Count -gt 0 -or $TrainOnce)) {
+    throw "-EvaluatedAt, -ReceiptOut, -GateTaskName and -TrainOnce are dry-run parameters"
 }
 
 $logParent = Split-Path -Parent ([IO.Path]::GetFullPath($LogFile))
@@ -202,6 +207,50 @@ function Get-GateTaskObservation([string]$Name, [datetime]$NightStart) {
     return $row
 }
 
+function Get-ReceiptVerdict($Entry) {
+    # The preflight receipt was hash-checked by Get-QueueRefusals. Its verdict is either a
+    # string or an object with a status (weather.operations.landing_preflight).
+    try {
+        $path = Join-Path (Split-Path -Parent $QueueFile) ([string]$Entry.preflight_receipt)
+        $verdict = Get-Field (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json) "verdict"
+        $status = if ($verdict -is [string]) { $verdict } else { [string](Get-Field $verdict "status") }
+        if ($status) { return $status.ToUpperInvariant() }
+    }
+    catch { }
+    return "UNKNOWN"
+}
+
+function Get-TrainPlan($Payload, $EntriesOut) {
+    $pendingOrders = @($EntriesOut | Where-Object { $_.status -ne "merged" } | ForEach-Object { [int]$_.order })
+    $pending = @(@($Payload.entries) | Where-Object { $pendingOrders -contains [int]$_.order })
+    $plan = [ordered]@{ mode = "TRAIN_ONCE"; eligible = $false; ineligible_reason = $null
+        pending_orders = $pendingOrders; final_tip = $null; suites_planned = 0; suites_saved = 0
+        receipt_verdicts = @(); intermediate_failures = @(); intermediate_failed_where_final_passed = $false }
+    if ($pending.Count -eq 0) { $plan.ineligible_reason = "no pending entries"; return $plan }
+    $sensitive = @($pending | Where-Object { [string]$_.roll_class -ne "ROLL-FREE" } | ForEach-Object { [int]$_.order })
+    $verdicts = @($pending | ForEach-Object {
+        [ordered]@{ order = [int]$_.order; expected_tip = [string]$_.expected_tip; verdict = (Get-ReceiptVerdict $_) } })
+    $plan.receipt_verdicts = $verdicts
+    $final = $verdicts[$verdicts.Count - 1]
+    $plan.final_tip = $final.expected_tip
+    $intermediate = @()
+    if ($verdicts.Count -gt 1) { $intermediate = @($verdicts[0..($verdicts.Count - 2)]) }
+    $plan.intermediate_failures = @($intermediate | Where-Object { $_.verdict -ne "PASS" } | ForEach-Object { [int]$_.order })
+    $plan.intermediate_failed_where_final_passed = ($final.verdict -eq "PASS" -and $plan.intermediate_failures.Count -gt 0)
+    if ($sensitive.Count -gt 0) {
+        $plan.ineligible_reason = "ROLL-SENSITIVE entries: " + ($sensitive -join ",")
+    }
+    elseif ($final.verdict -ne "PASS") {
+        $plan.ineligible_reason = "the final tip's chained preflight is $($final.verdict)"
+    }
+    else {
+        $plan.eligible = $true
+        $plan.suites_planned = 1
+        $plan.suites_saved = $pending.Count - 1
+    }
+    return $plan
+}
+
 function Invoke-DryEvaluation($Payload, [string]$QueueSha, $Signature, [string[]]$Refusals) {
     $wallClock = Get-Date
     if ($EvaluatedAt) {
@@ -239,6 +288,8 @@ function Invoke-DryEvaluation($Payload, [string]$QueueSha, $Signature, [string[]
             $refusalList.Add("master moved since signing and no queue entry explains it")
         }
     }
+    $train = $null
+    if ($TrainOnce -and $Signature.verified -and $refusalList.Count -eq 0) { $train = Get-TrainPlan $Payload $entriesOut }
     $lease = [ordered]@{ active = $null; workload = $null; pid = $null }
     $gates = @()
     $blockedBy = New-Object System.Collections.Generic.List[string]
@@ -279,6 +330,14 @@ function Invoke-DryEvaluation($Payload, [string]$QueueSha, $Signature, [string[]
                 suite_at_local = ConvertTo-LocalStamp $suiteAt; merge_at_local = ConvertTo-LocalStamp $mergeAt
                 summary = ("would have run {0} at {1} (merge {2})" -f $next.branch, (ConvertTo-LocalStamp $suiteAt), (ConvertTo-LocalStamp $mergeAt))
             }
+            if ($train -and $train.eligible) {
+                $wouldRun.train_once = $true
+                $wouldRun.suite_tip = [ordered]@{ kind = "synthetic_chain"; base = $master; orders = $train.pending_orders
+                    final_tip = $train.final_tip }
+                $wouldRun.merge_orders = $train.pending_orders
+                $wouldRun.summary = ("would have run ONE bounded suite on the final tip of {0} heads at {1}, then merged orders {2} in sequence from {3}" -f
+                    $train.pending_orders.Count, (ConvertTo-LocalStamp $suiteAt), ($train.pending_orders -join ","), (ConvertTo-LocalStamp $mergeAt))
+            }
         }
     }
     $receipt = [ordered]@{
@@ -288,7 +347,7 @@ function Invoke-DryEvaluation($Payload, [string]$QueueSha, $Signature, [string[]
         queue_sha256 = $QueueSha; plan_sha256 = [string](Get-Field $Payload "plan_sha256")
         base_sha = [string](Get-Field $Payload "base_sha"); master_sha = $master; origin_master_sha = $originMaster
         signature = $Signature; refusals = @($refusalList); entries = @($entriesOut)
-        lease = $lease; gate_tasks = @($gates); blocked_by = @($blockedBy); would_run = $wouldRun
+        lease = $lease; gate_tasks = @($gates); blocked_by = @($blockedBy); would_run = $wouldRun; train = $train
         driver_sha256 = Get-Sha256 $PSCommandPath
         mutations = "NONE: dry mode takes no lease, registers no task, merges, fetches and pushes nothing"
     }
@@ -300,6 +359,12 @@ function Invoke-DryEvaluation($Payload, [string]$QueueSha, $Signature, [string[]
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($ReceiptOut), ($receipt | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))
     Note ("DRY verdict {0}; receipt {1}" -f $verdict, $ReceiptOut)
     if ($wouldRun) { Note $wouldRun.summary }
+    if ($train) {
+        $masked = if ($train.intermediate_failed_where_final_passed) { $train.intermediate_failures.Count } else { 0 }
+        $reason = if ($train.ineligible_reason) { " ($($train.ineligible_reason))" } else { "" }
+        Note ("train: eligible={0}{1}; intermediate tips failing where the final passed: {2} of {3}" -f
+            $train.eligible, $reason, $masked, [Math]::Max($train.pending_orders.Count - 1, 0))
+    }
     foreach ($item in $refusalList) { Note "refused: $item" }
     if ($Signature.reason) { Note "signature: $($Signature.reason)" }
     if ($verdict -like "REFUSED*") { exit 4 }

@@ -678,6 +678,15 @@ not moved before 12:00, because heads keep being refreshed through the evening.
    - `DONE`.
 3. Once a night, run the dry driver against a copy of the queue without its `.sig`. It must refuse with
    exit 4.
+4. **Test the train once** (pilot only). Add `-TrainOnce` to the 00:35 run. When every unmerged entry is
+   ROLL-FREE and the final entry's chained preflight receipt is PASS, the receipt's `would_run` plans
+   ONE bounded suite on the final tip of the stacked chain (`suite_tip.kind = synthetic_chain`, the
+   unmerged orders on `master`), then the merges in order (`merge_orders`). Otherwise `train.eligible` is
+   false with `ineligible_reason`, and the per-head plan stands. Every run's `train` block also lists
+   each unmerged entry's chained preflight verdict. `intermediate_failed_where_final_passed` is true when
+   some earlier tip failed while the final tip passed (`intermediate_failures` names them): that is
+   the risk one final-tip suite hides. Report across the dry nights how often it was true, against
+   `suites_saved`. Nothing changes in live mode; `-TrainOnce` is a dry-only parameter.
 
 **What to compare in the morning** (one table per night):
 

@@ -346,3 +346,74 @@ def test_live_mode_controls_prove_the_stubs_catch_real_calls(fx):
 
     code, _, _ = _run(fx, queue, "-EvaluatedAt", "2026-10-07T01:10:00", dry=False)
     assert code != 0
+
+
+# --- "test the train once" (M6 follow-up): one suite on the final tip, then merge in order ---
+
+def _train_queue(fx: dict, verdicts=("PASS", "PASS"), roll=("ROLL-FREE", "ROLL-FREE")) -> Path:
+    payload = json.loads(json.dumps(fx["queue"]))
+    for entry, verdict, roll_class, name in zip(payload["entries"], verdicts, roll, ("one", "two")):
+        receipt = fx["queue_dir"] / "receipts" / f"{name}.json"
+        # The landing preflight writes an object verdict; the pilot's older fixtures a string.
+        receipt.write_text(json.dumps({"head_sha": entry["expected_tip"], "verdict": {"status": verdict}}),
+                           encoding="utf-8")
+        entry["preflight_receipt_sha256"] = hashlib.sha256(receipt.read_bytes()).hexdigest()
+        entry["roll_class"] = roll_class
+    return _write_queue(fx, payload)
+
+
+def test_train_once_plans_one_suite_on_the_final_tip_then_merges_in_order(fx):
+    code, receipt, journal = _run(fx, _train_queue(fx), "-TrainOnce")
+
+    assert code == 0 and receipt["verdict"] == "WOULD_RUN"
+    train = receipt["train"]
+    assert train["eligible"] is True and train["ineligible_reason"] is None
+    assert train["pending_orders"] == [1, 2]
+    assert train["suites_planned"] == 1 and train["suites_saved"] == 1
+    assert train["final_tip"] == fx["tips"][1]
+    assert train["intermediate_failed_where_final_passed"] is False
+    run = receipt["would_run"]
+    assert run["train_once"] is True and run["merge_orders"] == [1, 2]
+    assert run["suite_tip"]["final_tip"] == fx["tips"][1] and run["suite_tip"]["base"] == fx["base"]
+    assert run["summary"].startswith("would have run ONE bounded suite on the final tip of 2 heads")
+    _assert_read_only(journal)
+
+
+def test_train_once_reports_an_intermediate_tip_that_failed_where_the_final_passed(fx):
+    code, receipt, _ = _run(fx, _train_queue(fx, verdicts=("FAIL", "PASS")), "-TrainOnce")
+
+    assert code == 0
+    train = receipt["train"]
+    assert train["intermediate_failures"] == [1]
+    assert train["intermediate_failed_where_final_passed"] is True
+    assert [v["verdict"] for v in train["receipt_verdicts"]] == ["FAIL", "PASS"]
+
+
+@pytest.mark.parametrize(("verdicts", "roll", "reason"), [
+    (("PASS", "PASS"), ("ROLL-SENSITIVE", "ROLL-FREE"), "ROLL-SENSITIVE entries: 1"),
+    (("PASS", "FAIL"), ("ROLL-FREE", "ROLL-FREE"), "the final tip's chained preflight is FAIL"),
+])
+def test_train_once_falls_back_to_per_head_when_ineligible(fx, verdicts, roll, reason):
+    code, receipt, journal = _run(fx, _train_queue(fx, verdicts=verdicts, roll=roll), "-TrainOnce")
+
+    assert code == 0 and receipt["verdict"] == "WOULD_RUN"
+    assert receipt["train"]["eligible"] is False
+    assert receipt["train"]["ineligible_reason"] == reason
+    assert "train_once" not in receipt["would_run"] and receipt["would_run"]["order"] == 1
+    _assert_read_only(journal)
+
+
+def test_train_once_counts_only_unmerged_heads(fx):
+    queue = _train_queue(fx, verdicts=("FAIL", "PASS"))
+    _git(fx["repo"], "merge", "-q", "--no-edit", "--no-ff", fx["tips"][0])
+    _, receipt, _ = _run(fx, queue, "-TrainOnce")
+
+    train = receipt["train"]
+    assert train["pending_orders"] == [2] and train["suites_saved"] == 0
+    assert train["intermediate_failures"] == [] and train["intermediate_failed_where_final_passed"] is False
+
+
+def test_train_once_is_a_dry_only_parameter(fx):
+    code, _, journal = _run(fx, _train_queue(fx), "-TrainOnce", dry=False)
+    assert code != 0
+    assert [line for line in journal if line.startswith("MUTATION")] == []
