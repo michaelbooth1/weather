@@ -36,6 +36,7 @@ research established) · **Generated** (edit the generator) · **History**
 | A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [workstation session preamble](operations/WORKSTATION_SESSION_PREAMBLE.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
+| Freeing disk from old worktrees and agent scratch folders | [Workstation session preamble, scratch space](operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
@@ -84,6 +85,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current

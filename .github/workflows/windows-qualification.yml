@@ -15,47 +15,164 @@ concurrency:
 
 jobs:
   native-launch:
-    # Sharded so the slowest file (test_status_script.py, ~8 min alone) no longer
-    # serialises the whole job. Shards are balanced from JUnit timings; every
-    # listed file runs in exactly one shard, and the status script is split by a
-    # -k expression and its complement so a new test there cannot be skipped.
+    # Sharded so no single job serialises the Windows-only regressions. Shards are
+    # balanced from per-file JUnit medians (item K role 13, 2026-10-04); names are
+    # labels. Every listed file runs in exactly one shard, except a file named by
+    # `split_file`, which several shards share: each narrows that file only with
+    # `split_select` (the job env ORs it with `not <split_file>`, so other files in
+    # the shard are never filtered), and the selections partition its tests.
+    # tests/operations/test_windows_qualification_shards.py pins this plan, proves
+    # the partitions by collection, and fails when a test file that is skipped off
+    # Windows is in no shard. The windows-lane and reconciler shards (owner
+    # decision 2026-10-04) run the Windows-only tests no CI lane ran before.
     name: native-launch (${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - shard: status-evidence
-            select: invalid_reconciliation_evidence
+            split_file: test_status_script.py
+            split_select: invalid_reconciliation_evidence and not origin
             files: >-
               tests/operations/test_status_script.py
+              tests/operations/test_live_wrapper_credential_launcher.py
+              tests/operations/test_integration_attempt_registration_safety.py
+            mark: ''
           - shard: status-rest
-            select: not invalid_reconciliation_evidence
+            split_file: test_status_script.py
+            split_select: not invalid_reconciliation_evidence or origin
             files: >-
               tests/operations/test_status_script.py
-              tests/operations/test_health_watchdog_script.py
-              tests/operations/test_ops_alarm_path.py
+              tests/operations/test_replay_cache_compression_wrapper.py
+              tests/operations/test_cold_archive_reclaim.py
+              tests/operations/test_ops_script_ratchets.py
+              tests/collection/test_forecast_payload_cross_process_fanout.py
+              tests/operations/test_integration_attempt_evidence_recovery_hardening.py
+            # Ratchets run once in CI: portable ones in ci.yml's audit job, the
+            # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
+            mark: not ratchet or windows_native
           - shard: archive
-            select: ''
+            split_file: ''
+            split_select: ''
             files: >-
               tests/operations/test_production_cold_archive_wrapper.py
-              tests/operations/test_cold_archive_reclaim.py
-              tests/operations/test_cold_snapshot_compression_wrapper.py
-          - shard: launch
-            select: ''
-            files: >-
-              tests/operations/test_integration_phase_output.py
+              tests/operations/test_storage_recovery_inventory_wrapper.py
+              tests/operations/test_integration_attempt_scripts.py
               tests/operations/test_windows_job_output_capture.py
               tests/operations/test_integration_launch_diagnostics.py
-              tests/operations/test_bounded_worktree_test_suite_script.py
-              tests/operations/test_integration_attempt_scripts.py
-              tests/operations/test_integration_attempt_registration_safety.py
-              tests/operations/test_integration_attempt_evidence_recovery_hardening.py
-              tests/operations/test_storage_recovery_inventory_wrapper.py
-              tests/operations/test_replay_cache_compression_wrapper.py
-              tests/operations/test_live_wrapper_credential_launcher.py
-              tests/collection/test_forecast_payload_cross_process_fanout.py
-              tests/operations/test_ops_script_ratchets.py
+              tests/operations/test_ops_alarm_path.py
+              tests/operations/test_workstation_space_scripts.py
+              tests/operations/test_cold_snapshot_nightly_verification.py
+              tests/operations/test_memory_commit_guard_execution.py
+              tests/operations/test_daily_refresh_wrapper_execution.py
+              tests/operations/test_guidance_all_hours_admission.py
+              tests/operations/test_ps_script_root_param_defaults.py
+            mark: ''
+          - shard: launch
+            split_file: ''
+            split_select: ''
+            files: >-
               tests/operations/test_maker_replay_exam_step_script.py
+              tests/operations/test_cold_snapshot_compression_wrapper.py
+              tests/operations/test_integration_phase_output.py
+              tests/operations/test_health_watchdog_script.py
+              tests/operations/test_bounded_worktree_test_suite_script.py
+              tests/operations/test_powershell_host_guard.py
+              tests/operations/test_quiet_window_merge_execution.py
+            mark: ''
+          - shard: windows-lane-a
+            split_file: ''
+            split_select: ''
+            files: >-
+              tests/operations/test_production_baseline_reconciliation.py
+              tests/operations/test_production_baseline_scheduler_rpc.py
+              tests/operations/test_monitoring_fixes.py
+              tests/operations/test_bulk_cold_archive_crypt.py
+              tests/operations/test_cold_snapshot_nightly.py
+              tests/operations/test_workload_admission_script.py
+              tests/operations/test_long_job_guard.py
+              tests/operations/test_replay_cache_compression.py
+              tests/operations/test_wait_pr_ci_script.py
+              tests/operations/test_storage_daytime_exception.py
+              tests/operations/test_cold_snapshot_verification.py
+              tests/operations/test_live_path_security.py
+              tests/operations/test_supervisor.py
+              tests/operations/test_wu_orphan_cleanup.py
+              tests/operations/test_daily_refresh_script.py
+              tests/operations/test_cold_snapshot_compression.py
+              tests/operations/test_memory_commit_guard_script.py
+              tests/operations/test_storage_inventory_scope.py
+              tests/operations/test_cold_snapshot_nightly_status_race.py
+            # Ratchets run once in CI: portable ones in ci.yml's audit job, the
+            # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
+            mark: not ratchet or windows_native
+          - shard: windows-lane-b
+            split_file: ''
+            split_select: ''
+            files: >-
+              tests/operations/test_international_live_session_launcher_sealer.py
+              tests/operations/test_storage_recovery_night_wrapper.py
+              tests/operations/test_docs_light_path_script.py
+              tests/operations/test_international_live_session_runner.py
+              tests/operations/test_cold_archive_catalog.py
+              tests/market/test_wallet_reader_logon_task.py
+              tests/operations/test_reconcile_ordinary_quiet_merge.py
+              tests/operations/test_workstation_cold_archive_stage.py
+              tests/operations/test_producer_provenance.py
+              tests/operations/test_workload_admission_service_allowlist.py
+              tests/operations/test_international_live_execution_host_status_script.py
+              tests/operations/test_production_cold_archive_stage.py
+              tests/operations/test_training_window_script.py
+              tests/operations/test_storage_recovery_inventory.py
+              tests/operations/test_tiering_registration_scripts.py
+              tests/operations/test_storage_recovery_inventory_cli.py
+              tests/operations/test_production_cold_archive_stage_cli.py
+              tests/market/test_mm_credential_import_cli.py
+              tests/operations/test_codex_host_load_hook_focused_exemption.py
+              tests/operations/test_workstation_heavy_queue.py
+            mark: ''
+          - shard: reconciler-1
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: reconciliation_failure
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-2
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: marker_replacement or special_inputs
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-3
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: reconciliation_adversarial or with_claimed or normal_helper
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-4
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: roll_verdict or post_replace or scheduler_read
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-5
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: reconciliation_success or start_hung or scheduler_helper or persistent_stop or late_start
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-6
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: on_demand or reconciliation_refuses or with_lost or remote_drift or midflight_quiet
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
+          - shard: reconciler-7
+            split_file: test_production_baseline_reconciler_execution.py
+            split_select: not (reconciliation_failure or marker_replacement or special_inputs or reconciliation_adversarial or with_claimed or normal_helper or roll_verdict or post_replace or scheduler_read or reconciliation_success or start_hung or scheduler_helper or persistent_stop or late_start or on_demand or reconciliation_refuses or with_lost or remote_drift or midflight_quiet)
+            files: >-
+              tests/operations/test_production_baseline_reconciler_execution.py
+            mark: ''
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -63,10 +180,18 @@ jobs:
         shell: powershell
     env:
       PYTHONUTF8: '1'
+      # The checkout has no LFS objects (lfs: false), unlike the production and
+      # workstation clones. Never smudge LFS pointers in test clones, and let the
+      # LFS pre-push hook pass pointers whose objects are absent locally (tests
+      # only push to throwaway local remotes).
+      GIT_LFS_SKIP_SMUDGE: '1'
+      GIT_LFS_SKIP_PUSH: '1'
       EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SHARD: ${{ matrix.shard }}
       SHARD_FILES: ${{ matrix.files }}
-      SHARD_SELECT: ${{ matrix.select }}
+      # split_select narrows split_file only; other files in the shard always run.
+      SHARD_SELECT: ${{ matrix.split_select && format('({0}) or not {1}', matrix.split_select, matrix.split_file) || '' }}
+      SHARD_MARK: ${{ matrix.mark }}
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -85,6 +210,11 @@ jobs:
           if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
             throw 'Native qualification requires Windows PowerShell 5.1.'
           }
+
+      - name: Allow LFS pointers without local objects in test pushes
+        run: |
+          git config --global lfs.allowincompletepush true
+          if ($LASTEXITCODE -ne 0) { throw 'Could not configure git-lfs.' }
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -109,6 +239,7 @@ jobs:
         run: |
           $pytestArgs = @('-m', 'pytest', '-q') + @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
           if ($env:SHARD_SELECT) { $pytestArgs += @('-k', $env:SHARD_SELECT) }
+          if ($env:SHARD_MARK) { $pytestArgs += @('-m', $env:SHARD_MARK) }
           $pytestArgs += @('--junitxml', "$env:RUNNER_TEMP/reliability-windows-junit.xml")
           python @pytestArgs
           if ($LASTEXITCODE -ne 0) { throw 'Native qualification failed.' }
@@ -134,6 +265,7 @@ jobs:
             shard = $env:SHARD
             shard_files = @($env:SHARD_FILES -split '\s+' | Where-Object { $_ })
             shard_select = $env:SHARD_SELECT
+            shard_mark = $env:SHARD_MARK
             production_adoption_authorized = $false
             candidate_commit = $actual
             expected_candidate_commit = $env:EXPECTED_CANDIDATE_SHA

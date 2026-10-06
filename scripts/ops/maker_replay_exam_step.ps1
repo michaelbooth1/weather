@@ -44,7 +44,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Worktree,
     [Parameter(Mandatory = $true)][ValidatePattern('\A[0-9a-f]{40}\z')][string]$Pin,
     [string]$ExamRoot = '',
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$DataRoot = '',
     [string]$ReleaseRoot = '',
     [ValidateSet('', 'rehearsal-panel', 'panel')][string]$Kind = '',
@@ -55,6 +55,12 @@ param(
     [string]$PanelRoot = '',
     [ValidatePattern('\A(|[0-9a-f]{64})\z')][string]$ModuleSha256 = ''
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

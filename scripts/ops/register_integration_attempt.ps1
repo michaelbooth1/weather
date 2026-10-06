@@ -3,13 +3,19 @@
 
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)]
     [string]$ManifestPath,
     [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9a-fA-F]{64}$")]
     [string]$ExpectedManifestSha256
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"

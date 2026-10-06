@@ -1,0 +1,6092 @@
+{
+  "header": {
+    "mission": "2026-09-111h",
+    "part": 2,
+    "stage": "score",
+    "started_at_utc": "2026-10-04T01:30:45.386314+00:00",
+    "freeze": {
+      "preregistration": "docs/research/guidance-all-hours-preregistration-2026-09-29.md",
+      "preregistration_sha256": "ffc0491c68dc6fecb8294bbb914941d2602bdffaf5c581ca542b2eff1ea8a382",
+      "freeze_commit": "ee10a75ac9901b75b8809678561d581fcd70e8c7",
+      "freeze_ref": "refs/heads/codex/guidance-all-hours-20260930",
+      "remote_ref_sha": "03a028bd88527e55627ec1b92e68057fcb32d3a4",
+      "head": "5e6a3d9c5052f395dea13334ddd607e6e19ceae5",
+      "verified_at_utc": "2026-10-04T01:30:45.975846+00:00"
+    },
+    "source_sha256": {
+      "__init__.py": "5044f046a6364b85e339c8b9951348e9c4fa6269258f9368e6122674b5350371",
+      "features.py": "1c9db2b64c1cb317481631b904d6508d4aec5935f0b4582649685785fc136f7e",
+      "publish.py": "e6f41411829122f672f6462d37b67e63eff88fd76410df37ea8e504321962ec2",
+      "run.py": "76458658d7ef3e5aedf38d93b1dec9a4f9ed96aa5c11b3c86a252d7eacd7e86e",
+      "test_guidance_all_hours.py": "12e92594d063c95b5c9bf7c966ed9b7c0a7ebe5ce16f97705a46e2d6e957c770"
+    },
+    "dependency_sha256": {
+      "tools/research/morning_guidance/candidate.py": "99049f8d765686196044889d9fa378bceef37007e9002c59cdc1299c5be0908b",
+      "tools/research/morning_guidance/statistics.py": "dc415683efd66e331f170261e335a42933b6a81e8270fe427d392b94bb83dd36",
+      "tools/research/missing_information/methods.py": "388de45254db1979f32ef8fbe346169a305f26d9916014f014ad387e57a5d03c",
+      "tools/research/missing_information/extract.py": "6f71d67ecb753bb4a6ad788a83386da9e76abcadeba482ac9986320a6a0eb398"
+    },
+    "input": {
+      "input_path": "C:\\Users\\Michael\\Documents\\nbm-guidance-111h",
+      "sha256": {
+        "guidance_rows.jsonl.gz": "32bc466fd6ed7e0fd45f9f26b735df2f6ce89c1d319da210c99e37f13e58af63",
+        "market_days.jsonl.gz": "82d04f35d44a4eac82f0c0666423363818f63e0c3a2d559bb293c0d01bb9fc1c",
+        "manifest.json": "d092b578b08747094b9c0069d3e4de2285ecad0591c8e01f76d5e2e76b33f5d1"
+      },
+      "status": "COMPLETE",
+      "parser_head": "2e17ce0eba891b028a968ac45895d3c203ea7dda",
+      "rows": 110807,
+      "market_days_admitted": 626,
+      "started_at_utc": "2026-10-03T05:51:15.643213+00:00",
+      "finished_at_utc": "2026-10-03T06:35:31.568288+00:00",
+      "arguments": {
+        "data_root": "C:\\Users\\micha\\Desktop\\github\\weather\\data",
+        "from": "2026-08-01",
+        "to": "2026-09-29",
+        "lookback_hours": 24,
+        "max_input_bytes": 171798691840,
+        "max_file_bytes": 4294967296,
+        "max_runtime_seconds": 7169
+      }
+    },
+    "exam_panel_exclusion": {
+      "rows_with_target_on_or_after_2026_09_30": 0,
+      "by_target_date": {}
+    },
+    "rows_loaded": 110807,
+    "control_sha256": "5f0f3a3a717f27a3808f981d2f5493020ecf4892c38b51601513999c12dd3b42",
+    "first_score_at_utc": "2026-10-04T01:30:52.778925+00:00"
+  },
+  "source_output_sha256": {
+    "control": "5f0f3a3a717f27a3808f981d2f5493020ecf4892c38b51601513999c12dd3b42",
+    "census": "5f4092446e206b85fd92e75b4502e8591c727937b7ebb77b83ef754597ac12e3",
+    "development": "10e57e71c361da40b5609495b6edc67dd0ae92da643027995aeabf8cfa32889b"
+  },
+  "control": {
+    "header": {
+      "mission": "2026-09-111h",
+      "part": 2,
+      "stage": "control",
+      "started_at_utc": "2026-10-04T01:30:07.337776+00:00",
+      "freeze": {
+        "preregistration": "docs/research/guidance-all-hours-preregistration-2026-09-29.md",
+        "preregistration_sha256": "ffc0491c68dc6fecb8294bbb914941d2602bdffaf5c581ca542b2eff1ea8a382",
+        "freeze_commit": "ee10a75ac9901b75b8809678561d581fcd70e8c7",
+        "freeze_ref": "refs/heads/codex/guidance-all-hours-20260930",
+        "remote_ref_sha": "03a028bd88527e55627ec1b92e68057fcb32d3a4",
+        "head": "5e6a3d9c5052f395dea13334ddd607e6e19ceae5",
+        "verified_at_utc": "2026-10-04T01:30:08.148705+00:00"
+      },
+      "source_sha256": {
+        "__init__.py": "5044f046a6364b85e339c8b9951348e9c4fa6269258f9368e6122674b5350371",
+        "features.py": "1c9db2b64c1cb317481631b904d6508d4aec5935f0b4582649685785fc136f7e",
+        "publish.py": "e6f41411829122f672f6462d37b67e63eff88fd76410df37ea8e504321962ec2",
+        "run.py": "76458658d7ef3e5aedf38d93b1dec9a4f9ed96aa5c11b3c86a252d7eacd7e86e",
+        "test_guidance_all_hours.py": "12e92594d063c95b5c9bf7c966ed9b7c0a7ebe5ce16f97705a46e2d6e957c770"
+      },
+      "dependency_sha256": {
+        "tools/research/morning_guidance/candidate.py": "99049f8d765686196044889d9fa378bceef37007e9002c59cdc1299c5be0908b",
+        "tools/research/morning_guidance/statistics.py": "dc415683efd66e331f170261e335a42933b6a81e8270fe427d392b94bb83dd36",
+        "tools/research/missing_information/methods.py": "388de45254db1979f32ef8fbe346169a305f26d9916014f014ad387e57a5d03c",
+        "tools/research/missing_information/extract.py": "6f71d67ecb753bb4a6ad788a83386da9e76abcadeba482ac9986320a6a0eb398"
+      },
+      "input": {
+        "input_path": "C:\\Users\\Michael\\Documents\\nbm-guidance-111h",
+        "sha256": {
+          "guidance_rows.jsonl.gz": "32bc466fd6ed7e0fd45f9f26b735df2f6ce89c1d319da210c99e37f13e58af63",
+          "market_days.jsonl.gz": "82d04f35d44a4eac82f0c0666423363818f63e0c3a2d559bb293c0d01bb9fc1c",
+          "manifest.json": "d092b578b08747094b9c0069d3e4de2285ecad0591c8e01f76d5e2e76b33f5d1"
+        },
+        "status": "COMPLETE",
+        "parser_head": "2e17ce0eba891b028a968ac45895d3c203ea7dda",
+        "rows": 110807,
+        "market_days_admitted": 626,
+        "started_at_utc": "2026-10-03T05:51:15.643213+00:00",
+        "finished_at_utc": "2026-10-03T06:35:31.568288+00:00",
+        "arguments": {
+          "data_root": "C:\\Users\\micha\\Desktop\\github\\weather\\data",
+          "from": "2026-08-01",
+          "to": "2026-09-29",
+          "lookback_hours": 24,
+          "max_input_bytes": 171798691840,
+          "max_file_bytes": 4294967296,
+          "max_runtime_seconds": 7169
+        }
+      },
+      "exam_panel_exclusion": {
+        "rows_with_target_on_or_after_2026_09_30": 0,
+        "by_target_date": {}
+      },
+      "rows_loaded": 110807
+    },
+    "rule": "C1 on captured features, local 06-09, target 2026-08-01..2026-09-19, pooled US",
+    "reference_interval_81a": [
+      -0.011525,
+      -0.002373
+    ],
+    "pooled_C1_minus_served": -0.0068914401027701236,
+    "verdict": "PASS",
+    "label_for_v2_tables": null,
+    "tables": [
+      {
+        "stratum": "before_20260823",
+        "snapshots": 6867,
+        "market_days": 227,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 3136,
+          "incomplete_or_invalid_nbm": 3716,
+          "missing_captured_floor": 15
+        },
+        "served": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.0804391822224837,
+          "ci95": [
+            0.0730881361083176,
+            0.08818214796831936
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.499,
+          "mde80": 0.010706296956270726,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.05230210373282949,
+          "ci95": [
+            0.04516081875395303,
+            0.05984062869793234
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.5065,
+          "mde80": 0.010518527366333371,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.0006816573352543161,
+          "ci95": [
+            -0.0017083388147014337,
+            0.0030223894819268312
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0033440942243052763,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.07341848721632134,
+            "ci95": [
+              0.06652481972923259,
+              0.08081769556188531
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.535,
+            "mde80": 0.010416705851186585,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.007020695006162359,
+            "ci95": [
+              -0.013003498811040739,
+              -0.001996164021931687
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.766,
+            "mde80": 0.007791826136935244,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.4037387022013288,
+            "ci95": [
+              1.2264312080787245,
+              1.6195111971535396
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.16,
+            "mde80": 0.27932041676540065,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3136,
+          "changed_snapshot_share": 0.4566768603465851,
+          "changed_date_clusters": 20,
+          "changed_market_clusters": 11,
+          "changed_market_days": 217,
+          "changed_market_day_share": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.4520824318109152,
+            "ci95": [
+              0.28454879614354867,
+              0.610722723518126
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.231,
+            "mde80": 0.23873889305018278,
+            "status": "DESCRIPTIVE"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.07410014455157564,
+            "ci95": [
+              0.06710102639168802,
+              0.08171959398806133
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5315,
+            "mde80": 0.010483797977645865,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.006339037670908044,
+            "ci95": [
+              -0.010399345567812562,
+              -0.0029335316207754585
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9915,
+            "mde80": 0.005318722707110608,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.4167717790109415,
+            "ci95": [
+              1.2342643647488791,
+              1.655861733937267
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.148,
+            "mde80": 0.3038625543994762,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3136,
+          "changed_snapshot_share": 0.4566768603465851,
+          "changed_date_clusters": 20,
+          "changed_market_clusters": 11,
+          "changed_market_days": 217,
+          "changed_market_day_share": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.4520824318109152,
+            "ci95": [
+              0.28454879614354867,
+              0.610722723518126
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.231,
+            "mde80": 0.23873889305018278,
+            "status": "DESCRIPTIVE"
+          }
+        }
+      },
+      {
+        "stratum": "from_20260823",
+        "snapshots": 8364,
+        "market_days": 286,
+        "date_clusters": 26,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 3895,
+          "incomplete_or_invalid_nbm": 4458,
+          "missing_captured_floor": 11
+        },
+        "served": {
+          "market_days": 286,
+          "date_clusters": 26,
+          "market_clusters": 11,
+          "estimate": 0.08083784864229082,
+          "ci95": [
+            0.07290239283429834,
+            0.08872377704458058
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.461,
+          "mde80": 0.011099091455435809,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 286,
+          "date_clusters": 26,
+          "market_clusters": 11,
+          "estimate": 0.05539260726986479,
+          "ci95": [
+            0.048478835896073956,
+            0.06249530589572984
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.5685,
+          "mde80": 0.00987288542330847,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 286,
+          "date_clusters": 26,
+          "market_clusters": 11,
+          "estimate": 0.0003084656992859317,
+          "ci95": [
+            -0.0019057730959322326,
+            0.0027367745685640747
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9995,
+          "mde80": 0.00315079207490278,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 0.07404899896983551,
+            "ci95": [
+              0.06700222535214598,
+              0.08174073186400334
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5155,
+            "mde80": 0.010517961349573998,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": -0.006788849672455306,
+            "ci95": [
+              -0.013344912001776094,
+              -0.0015549366336284314
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.6775,
+            "mde80": 0.008510688973616128,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 1.3368029168419437,
+            "ci95": [
+              1.1739971114403471,
+              1.5453989614962955
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.171,
+            "mde80": 0.2713391611611501,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3895,
+          "changed_snapshot_share": 0.46568627450980393,
+          "changed_date_clusters": 26,
+          "changed_market_clusters": 11,
+          "changed_market_days": 280,
+          "changed_market_day_share": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 0.46717743725761746,
+            "ci95": [
+              0.2997321903800667,
+              0.6262722346502722
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.245,
+            "mde80": 0.23097689855747727,
+            "status": "DESCRIPTIVE"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 0.07435746466912144,
+            "ci95": [
+              0.06691027834673095,
+              0.08206606879072582
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4975,
+            "mde80": 0.01075277764008738,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": -0.006480383973169374,
+            "ci95": [
+              -0.010880310444312525,
+              -0.0028474588364503107
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.965,
+            "mde80": 0.005902359500100568,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 1.342371632858201,
+            "ci95": [
+              1.1676869747260699,
+              1.5534293662665895
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.1635,
+            "mde80": 0.2819784898121844,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3895,
+          "changed_snapshot_share": 0.46568627450980393,
+          "changed_date_clusters": 26,
+          "changed_market_clusters": 11,
+          "changed_market_days": 280,
+          "changed_market_day_share": {
+            "market_days": 286,
+            "date_clusters": 26,
+            "market_clusters": 11,
+            "estimate": 0.46717743725761746,
+            "ci95": [
+              0.2997321903800667,
+              0.6262722346502722
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.245,
+            "mde80": 0.23097689855747727,
+            "status": "DESCRIPTIVE"
+          }
+        }
+      },
+      {
+        "stratum": "pooled",
+        "snapshots": 15231,
+        "market_days": 513,
+        "date_clusters": 47,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 7031,
+          "incomplete_or_invalid_nbm": 8174,
+          "missing_captured_floor": 26
+        },
+        "served": {
+          "market_days": 513,
+          "date_clusters": 47,
+          "market_clusters": 11,
+          "estimate": 0.08066144069434497,
+          "ci95": [
+            0.07449571654507468,
+            0.08775684917148217
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.6105,
+          "mde80": 0.00943072814575159,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 513,
+          "date_clusters": 47,
+          "market_clusters": 11,
+          "estimate": 0.054025074515660076,
+          "ci95": [
+            0.04848536248971226,
+            0.05942523445149257
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.775,
+          "mde80": 0.0077147984463886606,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 513,
+          "date_clusters": 47,
+          "market_clusters": 11,
+          "estimate": 0.00047360117952925207,
+          "ci95": [
+            -0.0011224592218712509,
+            0.0020109171350198955
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0021755687870832533,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 0.07377000059157486,
+            "ci95": [
+              0.06775774254030745,
+              0.08142416492740959
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.6145,
+            "mde80": 0.009442742748185925,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": -0.0068914401027701236,
+            "ci95": [
+              -0.011894062063577916,
+              -0.002688192279929519
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.899,
+            "mde80": 0.006541461855618684,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 1.3654770725062375,
+            "ci95": [
+              1.2282088120768324,
+              1.5524376360429062
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.25,
+            "mde80": 0.23180959904051274,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 7031,
+          "changed_snapshot_share": 0.4616243188234522,
+          "changed_date_clusters": 46,
+          "changed_market_clusters": 11,
+          "changed_market_days": 497,
+          "changed_market_day_share": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 0.4604979709098564,
+            "ci95": [
+              0.2936696657844039,
+              0.6119065838130281
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.2535,
+            "mde80": 0.2314102678806833,
+            "status": "DESCRIPTIVE"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 0.0742436017711041,
+            "ci95": [
+              0.06823712783398982,
+              0.08190881280678014
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.6285,
+            "mde80": 0.009298164407509732,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": -0.006417838923240871,
+            "ci95": [
+              -0.010178693567818024,
+              -0.0032242954304916123
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9965,
+            "mde80": 0.004859749995858314,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 1.3742433941406844,
+            "ci95": [
+              1.2266132544104449,
+              1.5684900696640223
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.2155,
+            "mde80": 0.24551026055388026,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 7031,
+          "changed_snapshot_share": 0.4616243188234522,
+          "changed_date_clusters": 46,
+          "changed_market_clusters": 11,
+          "changed_market_days": 497,
+          "changed_market_day_share": {
+            "market_days": 513,
+            "date_clusters": 47,
+            "market_clusters": 11,
+            "estimate": 0.4604979709098564,
+            "ci95": [
+              0.2936696657844039,
+              0.6119065838130281
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.2535,
+            "mde80": 0.2314102678806833,
+            "status": "DESCRIPTIVE"
+          }
+        }
+      }
+    ]
+  },
+  "census": {
+    "header": {
+      "mission": "2026-09-111h",
+      "part": 2,
+      "stage": "census",
+      "started_at_utc": "2026-10-04T01:30:33.154725+00:00",
+      "freeze": {
+        "preregistration": "docs/research/guidance-all-hours-preregistration-2026-09-29.md",
+        "preregistration_sha256": "ffc0491c68dc6fecb8294bbb914941d2602bdffaf5c581ca542b2eff1ea8a382",
+        "freeze_commit": "ee10a75ac9901b75b8809678561d581fcd70e8c7",
+        "freeze_ref": "refs/heads/codex/guidance-all-hours-20260930",
+        "remote_ref_sha": "03a028bd88527e55627ec1b92e68057fcb32d3a4",
+        "head": "5e6a3d9c5052f395dea13334ddd607e6e19ceae5",
+        "verified_at_utc": "2026-10-04T01:30:33.778000+00:00"
+      },
+      "source_sha256": {
+        "__init__.py": "5044f046a6364b85e339c8b9951348e9c4fa6269258f9368e6122674b5350371",
+        "features.py": "1c9db2b64c1cb317481631b904d6508d4aec5935f0b4582649685785fc136f7e",
+        "publish.py": "e6f41411829122f672f6462d37b67e63eff88fd76410df37ea8e504321962ec2",
+        "run.py": "76458658d7ef3e5aedf38d93b1dec9a4f9ed96aa5c11b3c86a252d7eacd7e86e",
+        "test_guidance_all_hours.py": "12e92594d063c95b5c9bf7c966ed9b7c0a7ebe5ce16f97705a46e2d6e957c770"
+      },
+      "dependency_sha256": {
+        "tools/research/morning_guidance/candidate.py": "99049f8d765686196044889d9fa378bceef37007e9002c59cdc1299c5be0908b",
+        "tools/research/morning_guidance/statistics.py": "dc415683efd66e331f170261e335a42933b6a81e8270fe427d392b94bb83dd36",
+        "tools/research/missing_information/methods.py": "388de45254db1979f32ef8fbe346169a305f26d9916014f014ad387e57a5d03c",
+        "tools/research/missing_information/extract.py": "6f71d67ecb753bb4a6ad788a83386da9e76abcadeba482ac9986320a6a0eb398"
+      },
+      "input": {
+        "input_path": "C:\\Users\\Michael\\Documents\\nbm-guidance-111h",
+        "sha256": {
+          "guidance_rows.jsonl.gz": "32bc466fd6ed7e0fd45f9f26b735df2f6ce89c1d319da210c99e37f13e58af63",
+          "market_days.jsonl.gz": "82d04f35d44a4eac82f0c0666423363818f63e0c3a2d559bb293c0d01bb9fc1c",
+          "manifest.json": "d092b578b08747094b9c0069d3e4de2285ecad0591c8e01f76d5e2e76b33f5d1"
+        },
+        "status": "COMPLETE",
+        "parser_head": "2e17ce0eba891b028a968ac45895d3c203ea7dda",
+        "rows": 110807,
+        "market_days_admitted": 626,
+        "started_at_utc": "2026-10-03T05:51:15.643213+00:00",
+        "finished_at_utc": "2026-10-03T06:35:31.568288+00:00",
+        "arguments": {
+          "data_root": "C:\\Users\\micha\\Desktop\\github\\weather\\data",
+          "from": "2026-08-01",
+          "to": "2026-09-29",
+          "lookback_hours": 24,
+          "max_input_bytes": 171798691840,
+          "max_file_bytes": 4294967296,
+          "max_runtime_seconds": 7169
+        }
+      },
+      "exam_panel_exclusion": {
+        "rows_with_target_on_or_after_2026_09_30": 0,
+        "by_target_date": {}
+      },
+      "rows_loaded": 110807
+    },
+    "population_rows": 15231,
+    "eligible_rows": 7031,
+    "eligible_rows_with_candidate_reason_eligible": 7031,
+    "wrong_period_minimum": {
+      "rows": 81,
+      "share_of_eligible": 0.011520409614564074,
+      "market_days": 8,
+      "dates": [
+        "2026-08-05",
+        "2026-08-08",
+        "2026-08-17",
+        "2026-08-20",
+        "2026-08-26",
+        "2026-09-08",
+        "2026-09-14",
+        "2026-09-16"
+      ],
+      "markets": {
+        "chicago": 23,
+        "denver": 5,
+        "nyc": 8,
+        "san-francisco": 45
+      }
+    },
+    "by_v1_period": {
+      "minimum": {
+        "rows": 81,
+        "share_of_eligible": 0.011520409614564074,
+        "market_days": 8,
+        "dates": [
+          "2026-08-05",
+          "2026-08-08",
+          "2026-08-17",
+          "2026-08-20",
+          "2026-08-26",
+          "2026-09-08",
+          "2026-09-14",
+          "2026-09-16"
+        ],
+        "markets": {
+          "chicago": 23,
+          "denver": 5,
+          "nyc": 8,
+          "san-francisco": 45
+        }
+      },
+      "maximum": {
+        "rows": 6950,
+        "share_of_eligible": 0.988479590385436,
+        "market_days": 497,
+        "dates": [
+          "2026-08-01",
+          "2026-08-02",
+          "2026-08-03",
+          "2026-08-04",
+          "2026-08-05",
+          "2026-08-06",
+          "2026-08-07",
+          "2026-08-08",
+          "2026-08-10",
+          "2026-08-11",
+          "2026-08-12",
+          "2026-08-13",
+          "2026-08-14",
+          "2026-08-15",
+          "2026-08-17",
+          "2026-08-18",
+          "2026-08-19",
+          "2026-08-20",
+          "2026-08-21",
+          "2026-08-22",
+          "2026-08-23",
+          "2026-08-24",
+          "2026-08-25",
+          "2026-08-26",
+          "2026-08-27",
+          "2026-08-28",
+          "2026-08-29",
+          "2026-08-30",
+          "2026-08-31",
+          "2026-09-03",
+          "2026-09-04",
+          "2026-09-05",
+          "2026-09-06",
+          "2026-09-07",
+          "2026-09-08",
+          "2026-09-09",
+          "2026-09-10",
+          "2026-09-11",
+          "2026-09-12",
+          "2026-09-13",
+          "2026-09-14",
+          "2026-09-15",
+          "2026-09-16",
+          "2026-09-17",
+          "2026-09-18",
+          "2026-09-19"
+        ],
+        "markets": {
+          "atlanta": 1102,
+          "austin": 767,
+          "chicago": 751,
+          "dallas": 736,
+          "denver": 439,
+          "houston": 768,
+          "los-angeles": 87,
+          "miami": 1093,
+          "nyc": 1027,
+          "san-francisco": 88,
+          "seattle": 92
+        }
+      },
+      "unknown": {
+        "rows": 0,
+        "share_of_eligible": 0.0,
+        "market_days": 0,
+        "dates": [],
+        "markets": {}
+      },
+      "no_manifest_row": {
+        "rows": 0,
+        "share_of_eligible": 0.0,
+        "market_days": 0,
+        "dates": [],
+        "markets": {}
+      }
+    },
+    "unavailable_note": "rows with v1_period unknown or no_manifest_row are unavailable, not zero"
+  },
+  "development": {
+    "tables": [
+      {
+        "block": "00-05",
+        "stratum": "before_20260823",
+        "snapshots": 9667,
+        "market_days": 230,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 9347,
+          "missing_captured_floor": 225,
+          "not_recorded_valid": 95
+        },
+        "served": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.07860025524229719,
+          "ci95": [
+            0.0711121719221821,
+            0.08741715853940422
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.4635,
+          "mde80": 0.011325617157028112,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.05482560452015829,
+          "ci95": [
+            0.0476984835787528,
+            0.062346136276286816
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.5025,
+          "mde80": 0.010343048493480476,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.00024365792202112637,
+          "ci95": [
+            -0.004232672118882738,
+            0.005112313092630362
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.8825,
+          "mde80": 0.006638055666489583,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06628256653237898,
+            "ci95": [
+              0.058876327981022526,
+              0.073157956683677
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5205,
+            "mde80": 0.010293562963681644,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.01231768870991821,
+            "ci95": [
+              -0.024144549498464434,
+              -0.00266310197157559
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.2525,
+            "mde80": 0.015087245965041171,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.208971011126894,
+            "ci95": [
+              1.0980088552260967,
+              1.3315639174277296
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.3905,
+            "mde80": 0.1637768599134421,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 9347,
+          "changed_snapshot_share": 0.9668976931829937,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 229,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9674543070485931,
+            "ci95": [
+              0.9231329740754801,
+              0.9958098506188209
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9945,
+            "mde80": 0.052062825896368806,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.006158844354959105,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.068,
+              "3": 0.071,
+              "4": 0.072,
+              "5": 0.0725,
+              "6": 0.1035,
+              "7": 0.108,
+              "8": 0.101,
+              "9": 0.1025,
+              "10": 0.1365,
+              "11": 0.1385,
+              "12": 0.1485,
+              "13": 0.135,
+              "14": 0.178,
+              "15": 0.1695,
+              "16": 0.1585,
+              "17": 0.153,
+              "18": 0.1825,
+              "19": 0.181,
+              "20": 0.1605,
+              "21": 0.181,
+              "22": 0.219,
+              "23": 0.1895,
+              "24": 0.158,
+              "25": 0.1555,
+              "26": 0.192,
+              "27": 0.2135,
+              "28": 0.219,
+              "29": 0.2155,
+              "30": 0.2385,
+              "31": 0.209,
+              "32": 0.2175,
+              "33": 0.235,
+              "34": 0.238,
+              "35": 0.234,
+              "36": 0.2415,
+              "37": 0.233,
+              "38": 0.24,
+              "39": 0.217,
+              "40": 0.267,
+              "41": 0.238,
+              "42": 0.2435,
+              "43": 0.2365,
+              "44": 0.2515,
+              "45": 0.243
+            },
+            "infinite_date_market_only_power": 0.417,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06652622445440011,
+            "ci95": [
+              0.06119379108274459,
+              0.07233341510213266
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.74,
+            "mde80": 0.008068131080991515,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.01207403078789708,
+            "ci95": [
+              -0.01933610283196196,
+              -0.0064734700171847626
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.6035,
+            "mde80": 0.009215661364340443,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.2134152470665367,
+            "ci95": [
+              1.1056719816674119,
+              1.3556588345214837
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.374,
+            "mde80": 0.17341465196359668,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 9347,
+          "changed_snapshot_share": 0.9668976931829937,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 229,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9674543070485931,
+            "ci95": [
+              0.9231329740754801,
+              0.9958098506188209
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9945,
+            "mde80": 0.052062825896368806,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00603701539394854,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.1115,
+              "3": 0.133,
+              "4": 0.151,
+              "5": 0.1375,
+              "6": 0.2045,
+              "7": 0.213,
+              "8": 0.212,
+              "9": 0.2295,
+              "10": 0.287,
+              "11": 0.3075,
+              "12": 0.3265,
+              "13": 0.3215,
+              "14": 0.3785,
+              "15": 0.389,
+              "16": 0.389,
+              "17": 0.3665,
+              "18": 0.3955,
+              "19": 0.3745,
+              "20": 0.3555,
+              "21": 0.4075,
+              "22": 0.46,
+              "23": 0.475,
+              "24": 0.398,
+              "25": 0.3895,
+              "26": 0.426,
+              "27": 0.454,
+              "28": 0.4745,
+              "29": 0.4825,
+              "30": 0.5095,
+              "31": 0.485,
+              "32": 0.494,
+              "33": 0.5115,
+              "34": 0.5055,
+              "35": 0.4955,
+              "36": 0.4755,
+              "37": 0.4915,
+              "38": 0.49,
+              "39": 0.509,
+              "40": 0.5275,
+              "41": 0.5185,
+              "42": 0.5385,
+              "43": 0.521,
+              "44": 0.547,
+              "45": 0.52
+            },
+            "infinite_date_market_only_power": 0.736,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "00-05",
+        "stratum": "from_20260823",
+        "snapshots": 17495,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 16554,
+          "missing_captured_floor": 349,
+          "not_recorded_valid": 592
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.08100493724600884,
+          "ci95": [
+            0.07311238387083777,
+            0.08946977605125439
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.462,
+          "mde80": 0.011345692167342058,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.056564256134815714,
+          "ci95": [
+            0.05132861803998899,
+            0.06190212524111532
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.7975,
+          "mde80": 0.007514513099705239,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.000935139362945624,
+          "ci95": [
+            -0.002421055774191781,
+            0.0043696469570642296
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9865,
+          "mde80": 0.004743918589642456,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06807977799738843,
+            "ci95": [
+              0.06262960542462942,
+              0.0735366310108996
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.762,
+            "mde80": 0.007842048093869736,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.012925159248620411,
+            "ci95": [
+              -0.021407601860391437,
+              -0.005349413641272184
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.41,
+            "mde80": 0.011708992810013225,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.203583016015035,
+            "ci95": [
+              1.108013921201835,
+              1.3245015293523077
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.432,
+            "mde80": 0.15654654703478665,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 16554,
+          "changed_snapshot_share": 0.9462132037725064,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 386,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.9470070575328253,
+            "ci95": [
+              0.8924680552948208,
+              0.987718140701796
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9715,
+            "mde80": 0.06611346101283173,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0064625796243102055,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.076,
+              "3": 0.092,
+              "4": 0.107,
+              "5": 0.1405,
+              "6": 0.1105,
+              "7": 0.122,
+              "8": 0.128,
+              "9": 0.15,
+              "10": 0.1695,
+              "11": 0.1675,
+              "12": 0.175,
+              "13": 0.1895,
+              "14": 0.202,
+              "15": 0.1695,
+              "16": 0.176,
+              "17": 0.21,
+              "18": 0.2115,
+              "19": 0.215,
+              "20": 0.179,
+              "21": 0.191,
+              "22": 0.1885,
+              "23": 0.2305,
+              "24": 0.2205,
+              "25": 0.2265,
+              "26": 0.238,
+              "27": 0.2545,
+              "28": 0.2345,
+              "29": 0.247,
+              "30": 0.2385,
+              "31": 0.2545,
+              "32": 0.24,
+              "33": 0.251,
+              "34": 0.251,
+              "35": 0.2575,
+              "36": 0.269,
+              "37": 0.2865,
+              "38": 0.283,
+              "39": 0.2815,
+              "40": 0.297,
+              "41": 0.2775,
+              "42": 0.293,
+              "43": 0.266,
+              "44": 0.26,
+              "45": 0.266
+            },
+            "infinite_date_market_only_power": 0.404,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06901491736033405,
+            "ci95": [
+              0.06420044951129614,
+              0.07383297726872019
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.8575,
+            "mde80": 0.006954758133088623,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.01199001988567479,
+            "ci95": [
+              -0.017452837872676194,
+              -0.007183998920170271
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7965,
+            "mde80": 0.0075206779718670486,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.2201153533398077,
+            "ci95": [
+              1.1231460620360088,
+              1.334577786733794
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.45,
+            "mde80": 0.14964672969051124,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 16554,
+          "changed_snapshot_share": 0.9462132037725064,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 386,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.9470070575328253,
+            "ci95": [
+              0.8924680552948208,
+              0.987718140701796
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9715,
+            "mde80": 0.06611346101283173,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.005995009942837395,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.119,
+              "3": 0.1525,
+              "4": 0.187,
+              "5": 0.256,
+              "6": 0.271,
+              "7": 0.23,
+              "8": 0.2665,
+              "9": 0.3065,
+              "10": 0.3745,
+              "11": 0.3135,
+              "12": 0.344,
+              "13": 0.3865,
+              "14": 0.361,
+              "15": 0.3565,
+              "16": 0.3815,
+              "17": 0.4115,
+              "18": 0.4275,
+              "19": 0.409,
+              "20": 0.384,
+              "21": 0.391,
+              "22": 0.409,
+              "23": 0.47,
+              "24": 0.452,
+              "25": 0.441,
+              "26": 0.4895,
+              "27": 0.5015,
+              "28": 0.475,
+              "29": 0.4775,
+              "30": 0.472,
+              "31": 0.522,
+              "32": 0.466,
+              "33": 0.4815,
+              "34": 0.469,
+              "35": 0.4985,
+              "36": 0.4905,
+              "37": 0.518,
+              "38": 0.5185,
+              "39": 0.5085,
+              "40": 0.547,
+              "41": 0.526,
+              "42": 0.5495,
+              "43": 0.521,
+              "44": 0.525,
+              "45": 0.532
+            },
+            "infinite_date_market_only_power": 0.6345,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "00-05",
+        "stratum": "pooled",
+        "snapshots": 27162,
+        "market_days": 626,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 25901,
+          "missing_captured_floor": 574,
+          "not_recorded_valid": 687
+        },
+        "served": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.08012142788362277,
+          "ci95": [
+            0.0738207890392011,
+            0.08750112069578679
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.576,
+          "mde80": 0.00985739129100912,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.05592545442336011,
+          "ci95": [
+            0.05139866227632157,
+            0.060456064090661156
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.895,
+          "mde80": 0.006480265592409859,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.0006810806865676138,
+          "ci95": [
+            -0.0017399693809228968,
+            0.0035428011420275156
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0038087470665304868,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06741946068596325,
+            "ci95": [
+              0.06284614798578772,
+              0.0717648128854343
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.916,
+            "mde80": 0.006366429946262005,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.01270196719765954,
+            "ci95": [
+              -0.020714162428661677,
+              -0.0061055007227149806
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.507,
+            "mde80": 0.010439083563655107,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.2055236990224987,
+            "ci95": [
+              1.132395527170379,
+              1.2858982127286258
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.7515,
+            "mde80": 0.10693279097788139,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 25901,
+          "changed_snapshot_share": 0.9535748472130182,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 615,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.9545196252462863,
+            "ci95": [
+              0.9112197197664554,
+              0.9888862705457984
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.997,
+            "mde80": 0.053647368680392715,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00635098359882977,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.064,
+              "3": 0.0955,
+              "4": 0.0965,
+              "5": 0.099,
+              "6": 0.103,
+              "7": 0.116,
+              "8": 0.1395,
+              "9": 0.1345,
+              "10": 0.1355,
+              "11": 0.138,
+              "12": 0.1365,
+              "13": 0.1415,
+              "14": 0.1795,
+              "15": 0.175,
+              "16": 0.172,
+              "17": 0.2155,
+              "18": 0.204,
+              "19": 0.192,
+              "20": 0.1755,
+              "21": 0.2405,
+              "22": 0.232,
+              "23": 0.2495,
+              "24": 0.2185,
+              "25": 0.2505,
+              "26": 0.2375,
+              "27": 0.24,
+              "28": 0.278,
+              "29": 0.2435,
+              "30": 0.249,
+              "31": 0.2595,
+              "32": 0.28,
+              "33": 0.278,
+              "34": 0.3345,
+              "35": 0.2445,
+              "36": 0.2335,
+              "37": 0.273,
+              "38": 0.297,
+              "39": 0.3135,
+              "40": 0.325,
+              "41": 0.2885,
+              "42": 0.2815,
+              "43": 0.3155,
+              "44": 0.3205,
+              "45": 0.3055
+            },
+            "infinite_date_market_only_power": 0.54,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06810054137253084,
+            "ci95": [
+              0.06419033402164225,
+              0.07232165798699927
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9405,
+            "mde80": 0.005877515330057865,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.012020886511091925,
+            "ci95": [
+              -0.017605432668574957,
+              -0.007461707133195856
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.843,
+            "mde80": 0.007085637878481651,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.2177020656283697,
+            "ci95": [
+              1.1411672001518414,
+              1.3051122809517843
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.688,
+            "mde80": 0.11711308813234511,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 25901,
+          "changed_snapshot_share": 0.9535748472130182,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 615,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.9545196252462863,
+            "ci95": [
+              0.9112197197664554,
+              0.9888862705457984
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.997,
+            "mde80": 0.053647368680392715,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.006010443255545963,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.102,
+              "3": 0.182,
+              "4": 0.1795,
+              "5": 0.1855,
+              "6": 0.2215,
+              "7": 0.2335,
+              "8": 0.2935,
+              "9": 0.2725,
+              "10": 0.2705,
+              "11": 0.3155,
+              "12": 0.295,
+              "13": 0.325,
+              "14": 0.3495,
+              "15": 0.361,
+              "16": 0.3995,
+              "17": 0.4295,
+              "18": 0.414,
+              "19": 0.4155,
+              "20": 0.39,
+              "21": 0.4675,
+              "22": 0.446,
+              "23": 0.5035,
+              "24": 0.433,
+              "25": 0.513,
+              "26": 0.4875,
+              "27": 0.4995,
+              "28": 0.4965,
+              "29": 0.5025,
+              "30": 0.5115,
+              "31": 0.5085,
+              "32": 0.567,
+              "33": 0.558,
+              "34": 0.543,
+              "35": 0.481,
+              "36": 0.4795,
+              "37": 0.5405,
+              "38": 0.579,
+              "39": 0.5825,
+              "40": 0.5515,
+              "41": 0.56,
+              "42": 0.573,
+              "43": 0.5795,
+              "44": 0.598,
+              "45": 0.5845
+            },
+            "infinite_date_market_only_power": 0.749,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "06-09",
+        "stratum": "before_20260823",
+        "snapshots": 6867,
+        "market_days": 227,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 6788,
+          "missing_captured_floor": 16,
+          "not_recorded_valid": 63
+        },
+        "served": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.0804391822224837,
+          "ci95": [
+            0.0730881361083176,
+            0.08818214796831936
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.499,
+          "mde80": 0.010706296956270726,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.05230210373282949,
+          "ci95": [
+            0.04516081875395303,
+            0.05984062869793234
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.5065,
+          "mde80": 0.010518527366333371,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 227,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.0013009876609726544,
+          "ci95": [
+            -0.0032205582233955496,
+            0.005717096308758292
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9065,
+          "mde80": 0.006304956738187349,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06498136322355279,
+            "ci95": [
+              0.057285229462012095,
+              0.0720031582035498
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5135,
+            "mde80": 0.010370200927798123,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.015457818998930898,
+            "ci95": [
+              -0.026941749216624032,
+              -0.005208251873206578
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.2535,
+            "mde80": 0.015187675612386703,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.2424235085359419,
+            "ci95": [
+              1.1219131269144251,
+              1.3763605957007203
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.34,
+            "mde80": 0.17881790800598535,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 6788,
+          "changed_snapshot_share": 0.9884957040920344,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 226,
+          "changed_market_day_share": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9908579309031993,
+            "ci95": [
+              0.9677468419289513,
+              0.9986947672013289
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 1.0,
+            "mde80": 0.020771122167604752,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.007728909499465449,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 227,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0735,
+              "3": 0.08,
+              "4": 0.097,
+              "5": 0.1,
+              "6": 0.1325,
+              "7": 0.1475,
+              "8": 0.119,
+              "9": 0.172,
+              "10": 0.168,
+              "11": 0.1935,
+              "12": 0.2055,
+              "13": 0.198,
+              "14": 0.2565,
+              "15": 0.2455,
+              "16": 0.21,
+              "17": 0.235,
+              "18": 0.268,
+              "19": 0.257,
+              "20": 0.245,
+              "21": 0.2545,
+              "22": 0.294,
+              "23": 0.3055,
+              "24": 0.289,
+              "25": 0.259,
+              "26": 0.282,
+              "27": 0.2815,
+              "28": 0.297,
+              "29": 0.2885,
+              "30": 0.328,
+              "31": 0.313,
+              "32": 0.312,
+              "33": 0.326,
+              "34": 0.3365,
+              "35": 0.313,
+              "36": 0.3215,
+              "37": 0.3395,
+              "38": 0.3865,
+              "39": 0.335,
+              "40": 0.34,
+              "41": 0.378,
+              "42": 0.383,
+              "43": 0.388,
+              "44": 0.402,
+              "45": 0.3455
+            },
+            "infinite_date_market_only_power": 0.57,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06628235088452546,
+            "ci95": [
+              0.061072747916042905,
+              0.07120937860577387
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.8175,
+            "mde80": 0.007345381774774877,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.014156831337958245,
+            "ci95": [
+              -0.021605813232513624,
+              -0.00789873673880818
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.561,
+            "mde80": 0.009704304993908942,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.2672979890657956,
+            "ci95": [
+              1.1407796465100433,
+              1.4237445263050887
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.287,
+            "mde80": 0.20294781546974683,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 6788,
+          "changed_snapshot_share": 0.9884957040920344,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 226,
+          "changed_market_day_share": {
+            "market_days": 227,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9908579309031993,
+            "ci95": [
+              0.9677468419289513,
+              0.9986947672013289
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 1.0,
+            "mde80": 0.020771122167604752,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.007078415668979122,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 227,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.1345,
+              "3": 0.135,
+              "4": 0.198,
+              "5": 0.2225,
+              "6": 0.2415,
+              "7": 0.272,
+              "8": 0.2665,
+              "9": 0.316,
+              "10": 0.328,
+              "11": 0.364,
+              "12": 0.3965,
+              "13": 0.4125,
+              "14": 0.474,
+              "15": 0.467,
+              "16": 0.4845,
+              "17": 0.476,
+              "18": 0.4705,
+              "19": 0.4725,
+              "20": 0.451,
+              "21": 0.478,
+              "22": 0.5315,
+              "23": 0.5345,
+              "24": 0.534,
+              "25": 0.5035,
+              "26": 0.5185,
+              "27": 0.537,
+              "28": 0.545,
+              "29": 0.5455,
+              "30": 0.579,
+              "31": 0.567,
+              "32": 0.569,
+              "33": 0.5975,
+              "34": 0.574,
+              "35": 0.5745,
+              "36": 0.581,
+              "37": 0.554,
+              "38": 0.591,
+              "39": 0.581,
+              "40": 0.606,
+              "41": 0.5985,
+              "42": 0.6085,
+              "43": 0.61,
+              "44": 0.624,
+              "45": 0.6065
+            },
+            "infinite_date_market_only_power": 0.749,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "06-09",
+        "stratum": "from_20260823",
+        "snapshots": 11620,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 11243,
+          "missing_captured_floor": 23,
+          "not_recorded_valid": 354
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.08137720722859776,
+          "ci95": [
+            0.07382430951502955,
+            0.08876248517194367
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.5215,
+          "mde80": 0.010462635491809555,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.056044153539817565,
+          "ci95": [
+            0.05052064639482756,
+            0.0617261006112353
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.754,
+          "mde80": 0.008033622205879196,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": -2.497530868190218e-05,
+          "ci95": [
+            -0.0038280842377988425,
+            0.0036242575377912942
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9785,
+          "mde80": 0.005135068274668109,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06911019937142186,
+            "ci95": [
+              0.06299871106617931,
+              0.07505940370488558
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.678,
+            "mde80": 0.008746015850529948,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.012267007857175903,
+            "ci95": [
+              -0.021033895052994602,
+              -0.0039817300438591665
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.3775,
+            "mde80": 0.012412648820919425,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.2331384275849806,
+            "ci95": [
+              1.1139246039098827,
+              1.3925423458098682
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.261,
+            "mde80": 0.1992982351003818,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 11243,
+          "changed_snapshot_share": 0.9675559380378658,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 385,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.9673345053320062,
+            "ci95": [
+              0.9258599716793724,
+              0.9924352884611001
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9985,
+            "mde80": 0.04376711534129343,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0061335039285879515,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.076,
+              "3": 0.089,
+              "4": 0.1075,
+              "5": 0.1385,
+              "6": 0.13,
+              "7": 0.1145,
+              "8": 0.13,
+              "9": 0.1525,
+              "10": 0.145,
+              "11": 0.15,
+              "12": 0.171,
+              "13": 0.176,
+              "14": 0.1715,
+              "15": 0.1435,
+              "16": 0.1555,
+              "17": 0.1825,
+              "18": 0.174,
+              "19": 0.1995,
+              "20": 0.1705,
+              "21": 0.217,
+              "22": 0.227,
+              "23": 0.2135,
+              "24": 0.214,
+              "25": 0.1745,
+              "26": 0.201,
+              "27": 0.222,
+              "28": 0.234,
+              "29": 0.236,
+              "30": 0.228,
+              "31": 0.229,
+              "32": 0.2175,
+              "33": 0.2235,
+              "34": 0.2075,
+              "35": 0.228,
+              "36": 0.2485,
+              "37": 0.224,
+              "38": 0.2305,
+              "39": 0.254,
+              "40": 0.2595,
+              "41": 0.2445,
+              "42": 0.2705,
+              "43": 0.2435,
+              "44": 0.248,
+              "45": 0.251
+            },
+            "infinite_date_market_only_power": 0.3845,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06908522406273995,
+            "ci95": [
+              0.06444793677397186,
+              0.07350977955825037
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.8785,
+            "mde80": 0.006705990519487372,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.012291983165857806,
+            "ci95": [
+              -0.017648431167819886,
+              -0.007439158626773618
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.815,
+            "mde80": 0.007382501042680803,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.232692791294584,
+            "ci95": [
+              1.1205767377533034,
+              1.3718291971293433
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.3255,
+            "mde80": 0.17893362460497508,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 11243,
+          "changed_snapshot_share": 0.9675559380378658,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 385,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.9673345053320062,
+            "ci95": [
+              0.9258599716793724,
+              0.9924352884611001
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.9985,
+            "mde80": 0.04376711534129343,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.006145991582928903,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.148,
+              "3": 0.163,
+              "4": 0.237,
+              "5": 0.2925,
+              "6": 0.301,
+              "7": 0.2595,
+              "8": 0.297,
+              "9": 0.361,
+              "10": 0.366,
+              "11": 0.3865,
+              "12": 0.426,
+              "13": 0.4255,
+              "14": 0.4205,
+              "15": 0.4015,
+              "16": 0.4255,
+              "17": 0.4465,
+              "18": 0.4805,
+              "19": 0.4555,
+              "20": 0.4525,
+              "21": 0.485,
+              "22": 0.498,
+              "23": 0.5085,
+              "24": 0.495,
+              "25": 0.5175,
+              "26": 0.504,
+              "27": 0.559,
+              "28": 0.5195,
+              "29": 0.5465,
+              "30": 0.5305,
+              "31": 0.5725,
+              "32": 0.5485,
+              "33": 0.5355,
+              "34": 0.5425,
+              "35": 0.5745,
+              "36": 0.5695,
+              "37": 0.578,
+              "38": 0.575,
+              "39": 0.5865,
+              "40": 0.6105,
+              "41": 0.5925,
+              "42": 0.578,
+              "43": 0.591,
+              "44": 0.595,
+              "45": 0.5955
+            },
+            "infinite_date_market_only_power": 0.721,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "06-09",
+        "stratum": "pooled",
+        "snapshots": 18487,
+        "market_days": 623,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 18031,
+          "missing_captured_floor": 39,
+          "not_recorded_valid": 417
+        },
+        "served": {
+          "market_days": 623,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.08103542283632185,
+          "ci95": [
+            0.07522190284073074,
+            0.08792085822631185
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.6335,
+          "mde80": 0.009232544421096747,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 623,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.05468067792796155,
+          "ci95": [
+            0.049884449016453385,
+            0.05950843669104732
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.869,
+          "mde80": 0.0067987705124367605,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 623,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.0004581604764089232,
+          "ci95": [
+            -0.002172909297046333,
+            0.0033353678258224205
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9995,
+          "mde80": 0.003951544296344988,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06760579197885962,
+            "ci95": [
+              0.06273498562309618,
+              0.0721291086611282
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.8855,
+            "mde80": 0.006700315232118471,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.013429630857462233,
+            "ci95": [
+              -0.021560117628661057,
+              -0.0064158048904169335
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4975,
+            "mde80": 0.010527086028463192,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.2363744295183414,
+            "ci95": [
+              1.146095728216755,
+              1.3354169843732868
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.5635,
+            "mde80": 0.1334302461403502,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 18031,
+          "changed_snapshot_share": 0.9753340184994861,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 611,
+          "changed_market_day_share": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.9759056411340301,
+            "ci95": [
+              0.9497623956605016,
+              0.9942196327982414
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 1.0,
+            "mde80": 0.02927263131371119,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.006714815428731116,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 623,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0715,
+              "3": 0.106,
+              "4": 0.112,
+              "5": 0.1115,
+              "6": 0.1245,
+              "7": 0.133,
+              "8": 0.1575,
+              "9": 0.159,
+              "10": 0.136,
+              "11": 0.161,
+              "12": 0.164,
+              "13": 0.158,
+              "14": 0.1675,
+              "15": 0.198,
+              "16": 0.205,
+              "17": 0.2405,
+              "18": 0.2245,
+              "19": 0.21,
+              "20": 0.196,
+              "21": 0.2395,
+              "22": 0.2445,
+              "23": 0.257,
+              "24": 0.272,
+              "25": 0.287,
+              "26": 0.242,
+              "27": 0.242,
+              "28": 0.308,
+              "29": 0.2635,
+              "30": 0.282,
+              "31": 0.295,
+              "32": 0.3355,
+              "33": 0.329,
+              "34": 0.324,
+              "35": 0.277,
+              "36": 0.27,
+              "37": 0.33,
+              "38": 0.341,
+              "39": 0.3495,
+              "40": 0.343,
+              "41": 0.334,
+              "42": 0.3325,
+              "43": 0.339,
+              "44": 0.3445,
+              "45": 0.354
+            },
+            "infinite_date_market_only_power": 0.5525,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06806395245526854,
+            "ci95": [
+              0.064262662175711,
+              0.0718204645729496
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9735,
+            "mde80": 0.005457030312796411,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.012971470381053311,
+            "ci95": [
+              -0.01835051776433973,
+              -0.008235778450943266
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.833,
+            "mde80": 0.00722170211714994,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.2447532663171923,
+            "ci95": [
+              1.1552481538184114,
+              1.3466767520933198
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.5495,
+            "mde80": 0.13750911932091686,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 18031,
+          "changed_snapshot_share": 0.9753340184994861,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 611,
+          "changed_market_day_share": {
+            "market_days": 623,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.9759056411340301,
+            "ci95": [
+              0.9497623956605016,
+              0.9942196327982414
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 1.0,
+            "mde80": 0.02927263131371119,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0064857351905266555,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 623,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.1285,
+              "3": 0.202,
+              "4": 0.2225,
+              "5": 0.2155,
+              "6": 0.258,
+              "7": 0.278,
+              "8": 0.3535,
+              "9": 0.35,
+              "10": 0.325,
+              "11": 0.3705,
+              "12": 0.3635,
+              "13": 0.4185,
+              "14": 0.3935,
+              "15": 0.435,
+              "16": 0.4655,
+              "17": 0.482,
+              "18": 0.487,
+              "19": 0.4415,
+              "20": 0.458,
+              "21": 0.523,
+              "22": 0.5095,
+              "23": 0.529,
+              "24": 0.536,
+              "25": 0.586,
+              "26": 0.5815,
+              "27": 0.519,
+              "28": 0.574,
+              "29": 0.553,
+              "30": 0.5755,
+              "31": 0.5885,
+              "32": 0.6165,
+              "33": 0.5985,
+              "34": 0.604,
+              "35": 0.589,
+              "36": 0.5705,
+              "37": 0.6305,
+              "38": 0.627,
+              "39": 0.6445,
+              "40": 0.6475,
+              "41": 0.6685,
+              "42": 0.662,
+              "43": 0.655,
+              "44": 0.6625,
+              "45": 0.6745
+            },
+            "infinite_date_market_only_power": 0.774,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "10-12",
+        "stratum": "before_20260823",
+        "snapshots": 5361,
+        "market_days": 230,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 4941,
+          "missing_captured_floor": 14,
+          "not_recorded_valid": 406
+        },
+        "served": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.07559084513505068,
+          "ci95": [
+            0.0693065308224323,
+            0.08183782070676521
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.6585,
+          "mde80": 0.00891730648347103,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.049648936414013134,
+          "ci95": [
+            0.041985411381644,
+            0.057873000553138244
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.451,
+          "mde80": 0.011350439841392578,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.00023972036316058254,
+          "ci95": [
+            -0.004026793576859591,
+            0.004296883210166653
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.951,
+          "mde80": 0.005839012649994288,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06426251947711097,
+            "ci95": [
+              0.057065973358663834,
+              0.07113094244946772
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5425,
+            "mde80": 0.009966791375291262,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.011328325657939713,
+            "ci95": [
+              -0.019948463697870598,
+              -0.0033471867879726913
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4225,
+            "mde80": 0.011505409456668435,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.294338290376211,
+            "ci95": [
+              1.1508937667989272,
+              1.4771537991368702
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.2095,
+            "mde80": 0.2251172345152306,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 4941,
+          "changed_snapshot_share": 0.9216564073866816,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 226,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9223363189811538,
+            "ci95": [
+              0.8445690544853792,
+              0.9724930290057593
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.85,
+            "mde80": 0.09188964211779818,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.005664162828969857,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0775,
+              "3": 0.0805,
+              "4": 0.09,
+              "5": 0.102,
+              "6": 0.113,
+              "7": 0.1355,
+              "8": 0.12,
+              "9": 0.1605,
+              "10": 0.155,
+              "11": 0.174,
+              "12": 0.165,
+              "13": 0.186,
+              "14": 0.199,
+              "15": 0.2275,
+              "16": 0.1965,
+              "17": 0.231,
+              "18": 0.2315,
+              "19": 0.263,
+              "20": 0.2755,
+              "21": 0.2715,
+              "22": 0.2745,
+              "23": 0.297,
+              "24": 0.2795,
+              "25": 0.291,
+              "26": 0.294,
+              "27": 0.317,
+              "28": 0.3015,
+              "29": 0.2955,
+              "30": 0.35,
+              "31": 0.3715,
+              "32": 0.3255,
+              "33": 0.343,
+              "34": 0.3645,
+              "35": 0.3635,
+              "36": 0.3565,
+              "37": 0.3645,
+              "38": 0.3665,
+              "39": 0.369,
+              "40": 0.351,
+              "41": 0.342,
+              "42": 0.365,
+              "43": 0.389,
+              "44": 0.388,
+              "45": 0.385
+            },
+            "infinite_date_market_only_power": 0.61,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.06450223984027156,
+            "ci95": [
+              0.059191517083324825,
+              0.06988487220812399
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.783,
+            "mde80": 0.007633920670058806,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.01108860529477913,
+            "ci95": [
+              -0.016169234552371955,
+              -0.006833192953200817
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.891,
+            "mde80": 0.006612307026616984,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.2991665985027259,
+            "ci95": [
+              1.14898608392634,
+              1.4914287738554977
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.203,
+            "mde80": 0.24011889279327886,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 4941,
+          "changed_snapshot_share": 0.9216564073866816,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 226,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.9223363189811538,
+            "ci95": [
+              0.8445690544853792,
+              0.9724930290057593
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.85,
+            "mde80": 0.09188964211779818,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.005544302647389565,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": 58,
+            "end_date_at_full_accrual": "2026-11-26",
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.141,
+              "3": 0.174,
+              "4": 0.1915,
+              "5": 0.253,
+              "6": 0.281,
+              "7": 0.3015,
+              "8": 0.291,
+              "9": 0.3785,
+              "10": 0.3865,
+              "11": 0.478,
+              "12": 0.4435,
+              "13": 0.457,
+              "14": 0.5285,
+              "15": 0.5335,
+              "16": 0.524,
+              "17": 0.5635,
+              "18": 0.558,
+              "19": 0.5875,
+              "20": 0.5585,
+              "21": 0.6005,
+              "22": 0.584,
+              "23": 0.652,
+              "24": 0.6735,
+              "25": 0.629,
+              "26": 0.6785,
+              "27": 0.678,
+              "28": 0.71,
+              "29": 0.7365,
+              "30": 0.719,
+              "31": 0.72,
+              "32": 0.6945,
+              "33": 0.718,
+              "34": 0.715,
+              "35": 0.7045,
+              "36": 0.73,
+              "37": 0.7585,
+              "38": 0.771,
+              "39": 0.73,
+              "40": 0.7495,
+              "41": 0.751,
+              "42": 0.7585,
+              "43": 0.7925,
+              "44": 0.796,
+              "45": 0.7645,
+              "60": 0.835,
+              "52": 0.7635,
+              "56": 0.782,
+              "58": 0.804,
+              "57": 0.7925
+            },
+            "infinite_date_market_only_power": 0.935,
+            "status": "PLUG_IN_PLANNING_ONLY",
+            "market_days_at_12_per_day": 696
+          }
+        }
+      },
+      {
+        "block": "10-12",
+        "stratum": "from_20260823",
+        "snapshots": 9190,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 7935,
+          "not_recorded_valid": 1247,
+          "missing_captured_floor": 8
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.07515556254333763,
+          "ci95": [
+            0.0690081868551229,
+            0.08084202175180702
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.7115,
+          "mde80": 0.008404505759524299,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.05238645176957432,
+          "ci95": [
+            0.046803490703791036,
+            0.05775962787202503
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.755,
+          "mde80": 0.00794544839741159,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": -0.0021926889809841775,
+          "ci95": [
+            -0.005510074042091226,
+            0.0007760169809062269
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9965,
+          "mde80": 0.004312269810677773,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.0690197992028921,
+            "ci95": [
+              0.06335662492330985,
+              0.07503672068258621
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7,
+            "mde80": 0.008338958730396324,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.0061357633404455336,
+            "ci95": [
+              -0.01179725384448296,
+              -0.00034780803494160843
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7185,
+            "mde80": 0.008281142097192832,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.3175123886320987,
+            "ci95": [
+              1.180990572612431,
+              1.4998586414005626
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.216,
+            "mde80": 0.2227859861315632,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 7935,
+          "changed_snapshot_share": 0.8634385201305768,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 373,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.8624507427909137,
+            "ci95": [
+              0.758563806852042,
+              0.9502424985456525
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.589,
+            "mde80": 0.13257801898177762,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0030678816702227668,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.051,
+              "3": 0.0615,
+              "4": 0.0665,
+              "5": 0.074,
+              "6": 0.0685,
+              "7": 0.0725,
+              "8": 0.08,
+              "9": 0.0725,
+              "10": 0.0875,
+              "11": 0.1045,
+              "12": 0.0865,
+              "13": 0.0965,
+              "14": 0.0915,
+              "15": 0.097,
+              "16": 0.1,
+              "17": 0.1075,
+              "18": 0.109,
+              "19": 0.1035,
+              "20": 0.111,
+              "21": 0.1155,
+              "22": 0.1365,
+              "23": 0.128,
+              "24": 0.1355,
+              "25": 0.127,
+              "26": 0.137,
+              "27": 0.136,
+              "28": 0.133,
+              "29": 0.1405,
+              "30": 0.1345,
+              "31": 0.141,
+              "32": 0.139,
+              "33": 0.1465,
+              "34": 0.1445,
+              "35": 0.144,
+              "36": 0.157,
+              "37": 0.149,
+              "38": 0.1755,
+              "39": 0.1605,
+              "40": 0.1725,
+              "41": 0.1685,
+              "42": 0.1575,
+              "43": 0.189,
+              "44": 0.1695,
+              "45": 0.15
+            },
+            "infinite_date_market_only_power": 0.5785,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06682711022190793,
+            "ci95": [
+              0.06198344830205161,
+              0.07138576731634803
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.889,
+            "mde80": 0.006726233991782987,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.008328452321429713,
+            "ci95": [
+              -0.011706127370093545,
+              -0.005197603803719556
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9955,
+            "mde80": 0.004779940762759349,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.2756563570262767,
+            "ci95": [
+              1.148964995309872,
+              1.4425445608737941
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.276,
+            "mde80": 0.20154362395333164,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 7935,
+          "changed_snapshot_share": 0.8634385201305768,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 373,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.8624507427909137,
+            "ci95": [
+              0.758563806852042,
+              0.9502424985456525
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.589,
+            "mde80": 0.13257801898177762,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.004164226160714856,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": 95,
+            "end_date_at_full_accrual": "2027-01-02",
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.121,
+              "3": 0.121,
+              "4": 0.182,
+              "5": 0.2005,
+              "6": 0.2185,
+              "7": 0.2485,
+              "8": 0.2445,
+              "9": 0.28,
+              "10": 0.2885,
+              "11": 0.329,
+              "12": 0.358,
+              "13": 0.3835,
+              "14": 0.4005,
+              "15": 0.4515,
+              "16": 0.4185,
+              "17": 0.4145,
+              "18": 0.461,
+              "19": 0.4525,
+              "20": 0.4575,
+              "21": 0.499,
+              "22": 0.504,
+              "23": 0.4575,
+              "24": 0.5125,
+              "25": 0.503,
+              "26": 0.5275,
+              "27": 0.5315,
+              "28": 0.5785,
+              "29": 0.551,
+              "30": 0.568,
+              "31": 0.6055,
+              "32": 0.596,
+              "33": 0.5965,
+              "34": 0.6475,
+              "35": 0.6185,
+              "36": 0.643,
+              "37": 0.624,
+              "38": 0.685,
+              "39": 0.6935,
+              "40": 0.677,
+              "41": 0.619,
+              "42": 0.638,
+              "43": 0.687,
+              "44": 0.6965,
+              "45": 0.648,
+              "60": 0.782,
+              "90": 0.7925,
+              "120": 0.862,
+              "105": 0.852,
+              "97": 0.8425,
+              "93": 0.796,
+              "95": 0.806,
+              "94": 0.798
+            },
+            "infinite_date_market_only_power": 0.9485,
+            "status": "PLUG_IN_PLANNING_ONLY",
+            "market_days_at_12_per_day": 1140
+          }
+        }
+      },
+      {
+        "block": "10-12",
+        "stratum": "pooled",
+        "snapshots": 14551,
+        "market_days": 626,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 12876,
+          "missing_captured_floor": 22,
+          "not_recorded_valid": 1653
+        },
+        "served": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.075315490652114,
+          "ci95": [
+            0.07092790488647928,
+            0.07985827664305652
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9145,
+          "mde80": 0.006287724282124329,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.051380655392930435,
+          "ci95": [
+            0.04640933688523559,
+            0.05665737040204878
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.836,
+          "mde80": 0.007196153886461404,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": -0.0012989922570971252,
+          "ci95": [
+            -0.003546977046953946,
+            0.0009631497412974828
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0032081039845905553,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06727191687552843,
+            "ci95": [
+              0.06277335789721789,
+              0.07157520654570813
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.929,
+            "mde80": 0.006273795948318747,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.008043573776585568,
+            "ci95": [
+              -0.013316038270474851,
+              -0.0033150548518034112
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.8305,
+            "mde80": 0.0072214606772820055,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.3092849120173835,
+            "ci95": [
+              1.1979349368446974,
+              1.4349657974033827
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.389,
+            "mde80": 0.16520635810923967,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 12876,
+          "changed_snapshot_share": 0.8848876365885506,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 599,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.8844534305285419,
+            "ci95": [
+              0.790204208336185,
+              0.9549022976093003
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.698,
+            "mde80": 0.11531183836242362,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.004021786888292784,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0515,
+              "3": 0.0645,
+              "4": 0.071,
+              "5": 0.076,
+              "6": 0.063,
+              "7": 0.101,
+              "8": 0.1005,
+              "9": 0.1035,
+              "10": 0.1255,
+              "11": 0.107,
+              "12": 0.111,
+              "13": 0.125,
+              "14": 0.1125,
+              "15": 0.159,
+              "16": 0.1565,
+              "17": 0.156,
+              "18": 0.1925,
+              "19": 0.137,
+              "20": 0.1455,
+              "21": 0.1455,
+              "22": 0.153,
+              "23": 0.1675,
+              "24": 0.1795,
+              "25": 0.218,
+              "26": 0.2235,
+              "27": 0.2265,
+              "28": 0.2035,
+              "29": 0.196,
+              "30": 0.188,
+              "31": 0.202,
+              "32": 0.2415,
+              "33": 0.24,
+              "34": 0.248,
+              "35": 0.231,
+              "36": 0.216,
+              "37": 0.23,
+              "38": 0.2575,
+              "39": 0.2915,
+              "40": 0.258,
+              "41": 0.258,
+              "42": 0.247,
+              "43": 0.2675,
+              "44": 0.2475,
+              "45": 0.281,
+              "60": 0.3085,
+              "90": 0.401,
+              "120": 0.464,
+              "180": 0.525,
+              "270": 0.5625,
+              "365": 0.6055,
+              "730": 0.694,
+              "1460": 0.766,
+              "3650": 0.7805
+            },
+            "infinite_date_market_only_power": 0.8055,
+            "status": "NOT_REACHED_THROUGH_3650_DATES"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06597292461843131,
+            "ci95": [
+              0.06215662332655586,
+              0.06945905518734458
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9825,
+            "mde80": 0.005209008932293785,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.009342566033682694,
+            "ci95": [
+              -0.012862798682917261,
+              -0.006249347842484821
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.995,
+            "mde80": 0.004671451873582443,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.284003174227876,
+            "ci95": [
+              1.1766711236128384,
+              1.408896510618963
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.388,
+            "mde80": 0.16751186434006188,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 12876,
+          "changed_snapshot_share": 0.8848876365885506,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 599,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.8844534305285419,
+            "ci95": [
+              0.790204208336185,
+              0.9549022976093003
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.698,
+            "mde80": 0.11531183836242362,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.004671283016841347,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": 63,
+            "end_date_at_full_accrual": "2026-12-01",
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.111,
+              "3": 0.154,
+              "4": 0.1945,
+              "5": 0.1695,
+              "6": 0.2235,
+              "7": 0.235,
+              "8": 0.311,
+              "9": 0.3155,
+              "10": 0.366,
+              "11": 0.34,
+              "12": 0.3855,
+              "13": 0.3795,
+              "14": 0.3625,
+              "15": 0.453,
+              "16": 0.441,
+              "17": 0.521,
+              "18": 0.53,
+              "19": 0.466,
+              "20": 0.4855,
+              "21": 0.553,
+              "22": 0.5675,
+              "23": 0.5345,
+              "24": 0.5485,
+              "25": 0.5925,
+              "26": 0.604,
+              "27": 0.637,
+              "28": 0.63,
+              "29": 0.6165,
+              "30": 0.625,
+              "31": 0.67,
+              "32": 0.6695,
+              "33": 0.6375,
+              "34": 0.6775,
+              "35": 0.644,
+              "36": 0.643,
+              "37": 0.6755,
+              "38": 0.7325,
+              "39": 0.7465,
+              "40": 0.702,
+              "41": 0.709,
+              "42": 0.71,
+              "43": 0.731,
+              "44": 0.725,
+              "45": 0.748,
+              "60": 0.7995,
+              "90": 0.851,
+              "75": 0.8275,
+              "67": 0.8255,
+              "63": 0.807,
+              "61": 0.785,
+              "62": 0.7865
+            },
+            "infinite_date_market_only_power": 0.96,
+            "status": "PLUG_IN_PLANNING_ONLY",
+            "market_days_at_12_per_day": 756
+          }
+        }
+      },
+      {
+        "block": "13-16",
+        "stratum": "before_20260823",
+        "snapshots": 6833,
+        "market_days": 230,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 3505,
+          "not_recorded_valid": 3316,
+          "missing_captured_floor": 12
+        },
+        "served": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.05265905736981011,
+          "ci95": [
+            0.04325562030057956,
+            0.06159228569690978
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.36,
+          "mde80": 0.013035408532828084,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.028017615406358658,
+          "ci95": [
+            0.020574120267719077,
+            0.03508217573697001
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.545,
+          "mde80": 0.010335889294398645,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": -0.005076169963351229,
+          "ci95": [
+            -0.009902250614161164,
+            -0.0009195906918464273
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9195,
+          "mde80": 0.006387396792549244,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.05618663571218595,
+            "ci95": [
+              0.04736873815344105,
+              0.0647881282005204
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.382,
+            "mde80": 0.01206330676437477,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.0035275783423758373,
+            "ci95": [
+              -0.0038196902727152073,
+              0.011123823230073474
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.514,
+            "mde80": 0.010602704798863074,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 2.005403918116253,
+            "ci95": [
+              1.618031886550191,
+              2.6543398803287834
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.0405,
+            "mde80": 0.7731416984656336,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3505,
+          "changed_snapshot_share": 0.51295185130982,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 182,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.5135093337186765,
+            "ci95": [
+              0.4014111158465578,
+              0.6202457489661555
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.419,
+            "mde80": 0.15741776752184022,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.051110465748834724,
+            "ci95": [
+              0.04260361510032999,
+              0.058777654792436886
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4345,
+            "mde80": 0.011295257280708064,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.001548591620975393,
+            "ci95": [
+              -0.004852885626748879,
+              0.0016669400568451124
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.993,
+            "mde80": 0.004692749111966937,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.8242261165893188,
+            "ci95": [
+              1.480505820076244,
+              2.3918078431016525
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.041,
+            "mde80": 0.6771229273825268,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 3505,
+          "changed_snapshot_share": 0.51295185130982,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 182,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.5135093337186765,
+            "ci95": [
+              0.4014111158465578,
+              0.6202457489661555
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.419,
+            "mde80": 0.15741776752184022,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0007742958104876965,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.043,
+              "3": 0.0475,
+              "4": 0.048,
+              "5": 0.0505,
+              "6": 0.052,
+              "7": 0.0535,
+              "8": 0.047,
+              "9": 0.0605,
+              "10": 0.058,
+              "11": 0.0545,
+              "12": 0.0655,
+              "13": 0.06,
+              "14": 0.063,
+              "15": 0.0635,
+              "16": 0.0595,
+              "17": 0.061,
+              "18": 0.065,
+              "19": 0.0705,
+              "20": 0.058,
+              "21": 0.063,
+              "22": 0.0665,
+              "23": 0.077,
+              "24": 0.079,
+              "25": 0.0655,
+              "26": 0.0655,
+              "27": 0.059,
+              "28": 0.072,
+              "29": 0.071,
+              "30": 0.062,
+              "31": 0.0795,
+              "32": 0.0745,
+              "33": 0.074,
+              "34": 0.0755,
+              "35": 0.076,
+              "36": 0.083,
+              "37": 0.083,
+              "38": 0.0795,
+              "39": 0.0895,
+              "40": 0.081,
+              "41": 0.0735,
+              "42": 0.0695,
+              "43": 0.0745,
+              "44": 0.0805,
+              "45": 0.0775
+            },
+            "infinite_date_market_only_power": 0.079,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "13-16",
+        "stratum": "from_20260823",
+        "snapshots": 11766,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 5888,
+          "not_recorded_valid": 5868,
+          "missing_captured_floor": 10
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.052455561566463846,
+          "ci95": [
+            0.04619528274172601,
+            0.05871973914033647
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.625,
+          "mde80": 0.009097747511932517,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.028399169953236932,
+          "ci95": [
+            0.022466661416463595,
+            0.034655773021614406
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.657,
+          "mde80": 0.008811400343813409,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": -0.007618176067039629,
+          "ci95": [
+            -0.011640209831370046,
+            -0.004457874974530082
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9925,
+          "mde80": 0.0050669421001890026,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.05986973403285197,
+            "ci95": [
+              0.05208801892991953,
+              0.06869315680727565
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.3935,
+            "mde80": 0.011986577233333656,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.007414172466388118,
+            "ci95": [
+              0.002524419529832735,
+              0.01313133493634114
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.794,
+            "mde80": 0.0075651658735013845,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 2.1081508414307732,
+            "ci95": [
+              1.7862074061204933,
+              2.6031699309884297
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.0565,
+            "mde80": 0.589694583327208,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 5888,
+          "changed_snapshot_share": 0.5004249532551419,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 291,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.5004263871835998,
+            "ci95": [
+              0.3849016449166074,
+              0.6204133482604254
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.4015,
+            "mde80": 0.16823881078144726,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.05225155796581234,
+            "ci95": [
+              0.04607017351502852,
+              0.058449983823830744
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.639,
+            "mde80": 0.009057303142843517,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.00020400360065151214,
+            "ci95": [
+              -0.0024953338265790237,
+              0.0019453348287776328
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 1.0,
+            "mde80": 0.003159416272371884,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.8398973650233998,
+            "ci95": [
+              1.5480395627935517,
+              2.307471839787511
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.061,
+            "mde80": 0.5288807025067734,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 5888,
+          "changed_snapshot_share": 0.5004249532551419,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 291,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.5004263871835998,
+            "ci95": [
+              0.3849016449166074,
+              0.6204133482604254
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.4015,
+            "mde80": 0.16823881078144726,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00010200180032575607,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0265,
+              "3": 0.027,
+              "4": 0.0265,
+              "5": 0.0265,
+              "6": 0.028,
+              "7": 0.028,
+              "8": 0.0285,
+              "9": 0.028,
+              "10": 0.027,
+              "11": 0.0265,
+              "12": 0.0265,
+              "13": 0.0285,
+              "14": 0.027,
+              "15": 0.0285,
+              "16": 0.027,
+              "17": 0.0285,
+              "18": 0.0285,
+              "19": 0.028,
+              "20": 0.029,
+              "21": 0.0285,
+              "22": 0.027,
+              "23": 0.0285,
+              "24": 0.0285,
+              "25": 0.0295,
+              "26": 0.0315,
+              "27": 0.0305,
+              "28": 0.0275,
+              "29": 0.03,
+              "30": 0.029,
+              "31": 0.0265,
+              "32": 0.031,
+              "33": 0.03,
+              "34": 0.027,
+              "35": 0.0305,
+              "36": 0.0325,
+              "37": 0.0305,
+              "38": 0.0295,
+              "39": 0.0305,
+              "40": 0.0325,
+              "41": 0.028,
+              "42": 0.0305,
+              "43": 0.0315,
+              "44": 0.0315,
+              "45": 0.032
+            },
+            "infinite_date_market_only_power": 0.047,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "13-16",
+        "stratum": "pooled",
+        "snapshots": 18599,
+        "market_days": 626,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 9393,
+          "not_recorded_valid": 9184,
+          "missing_captured_floor": 22
+        },
+        "served": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.05253032839516934,
+          "ci95": [
+            0.04546196692636258,
+            0.0584144434458593
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.6295,
+          "mde80": 0.008937441382311437,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.02825898218042223,
+          "ci95": [
+            0.022165274582208593,
+            0.03422490993575305
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.704,
+          "mde80": 0.008360330887356594,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": -0.006684212163128557,
+          "ci95": [
+            -0.009348535910203461,
+            -0.004416036491101321
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0034739431715137964,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.05851651899490758,
+            "ci95": [
+              0.05148708193007299,
+              0.0646556102172483
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.609,
+            "mde80": 0.009247095609236318,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.005986190599738239,
+            "ci95": [
+              0.002282421586461127,
+              0.009940701102375563
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9595,
+            "mde80": 0.005476501053224508,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 2.0707228102308552,
+            "ci95": [
+              1.7437397736954212,
+              2.582307418827972
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.057,
+            "mde80": 0.5970046171604795,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 9393,
+          "changed_snapshot_share": 0.5050271519974192,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 473,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.5052332205750817,
+            "ci95": [
+              0.40317538500054523,
+              0.602427536556841
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.494,
+            "mde80": 0.1419681610100566,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.051832306831779015,
+            "ci95": [
+              0.04515549926341987,
+              0.05723322207274841
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7045,
+            "mde80": 0.008282633040601702,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.0006980215633903183,
+            "ci95": [
+              -0.0026788972254710745,
+              0.001138404477422119
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 1.0,
+            "mde80": 0.0026782693618191606,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.8341887369067504,
+            "ci95": [
+              1.549594400007739,
+              2.2985382692280343
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.0595,
+            "mde80": 0.5294286418703383,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 9393,
+          "changed_snapshot_share": 0.5050271519974192,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 473,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.5052332205750817,
+            "ci95": [
+              0.40317538500054523,
+              0.602427536556841
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.494,
+            "mde80": 0.1419681610100566,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00034901078169515914,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.032,
+              "3": 0.0325,
+              "4": 0.0315,
+              "5": 0.036,
+              "6": 0.036,
+              "7": 0.032,
+              "8": 0.031,
+              "9": 0.0355,
+              "10": 0.04,
+              "11": 0.033,
+              "12": 0.036,
+              "13": 0.037,
+              "14": 0.0365,
+              "15": 0.0385,
+              "16": 0.039,
+              "17": 0.039,
+              "18": 0.0335,
+              "19": 0.0385,
+              "20": 0.0475,
+              "21": 0.0465,
+              "22": 0.0405,
+              "23": 0.038,
+              "24": 0.0455,
+              "25": 0.0435,
+              "26": 0.04,
+              "27": 0.042,
+              "28": 0.038,
+              "29": 0.0415,
+              "30": 0.043,
+              "31": 0.049,
+              "32": 0.038,
+              "33": 0.038,
+              "34": 0.042,
+              "35": 0.046,
+              "36": 0.045,
+              "37": 0.0425,
+              "38": 0.0425,
+              "39": 0.0495,
+              "40": 0.042,
+              "41": 0.043,
+              "42": 0.039,
+              "43": 0.0445,
+              "44": 0.042,
+              "45": 0.043
+            },
+            "infinite_date_market_only_power": 0.0835,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "17-23",
+        "stratum": "before_20260823",
+        "snapshots": 11813,
+        "market_days": 230,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "not_recorded_valid": 8992,
+          "missing_captured_floor": 14,
+          "eligible": 2807
+        },
+        "served": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.03381617214277312,
+          "ci95": [
+            0.02392096611800634,
+            0.04482441092463346
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.3075,
+          "mde80": 0.014628632530431746,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.0005840749196761684,
+          "ci95": [
+            0.00017212807443879366,
+            0.0012939628189551804
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0007432505685974727,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": -0.008739531348708151,
+          "ci95": [
+            -0.013950929069929128,
+            -0.004333888392544247
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.8745,
+          "mde80": 0.006825513378316647,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.0467065636644812,
+            "ci95": [
+              0.03659241589196558,
+              0.05678407317510646
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.298,
+            "mde80": 0.0143840575107473,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.012890391521708082,
+            "ci95": [
+              0.005807904149906261,
+              0.020912565187618165
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.526,
+            "mde80": 0.010520550254562153,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 79.96673387444363,
+            "ci95": [
+              33.16274505408066,
+              278.61689991488794
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.05,
+            "mde80": 207.24264926630048,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 2807,
+          "changed_snapshot_share": 0.2376195716583425,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 60,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.24105766126997938,
+            "ci95": [
+              0.14103752938216335,
+              0.36075872297486816
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.406,
+            "mde80": 0.15776935140509654,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.03796703231577305,
+            "ci95": [
+              0.02891435633960025,
+              0.047579035638026866
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.341,
+            "mde80": 0.013486014048782764,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.004150860172999933,
+            "ci95": [
+              0.001515022048757074,
+              0.007177390492152289
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.996,
+            "mde80": 0.0038582580468089233,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 65.00370249902753,
+            "ci95": [
+              27.60822398780715,
+              225.90039229575984
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.05,
+            "mde80": 163.9002618853558,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 2807,
+          "changed_snapshot_share": 0.2376195716583425,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 60,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.24105766126997938,
+            "ci95": [
+              0.14103752938216335,
+              0.36075872297486816
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.406,
+            "mde80": 0.15776935140509654,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        }
+      },
+      {
+        "block": "17-23",
+        "stratum": "from_20260823",
+        "snapshots": 20195,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "not_recorded_valid": 14503,
+          "eligible": 5633,
+          "missing_captured_floor": 59
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.03067519989076892,
+          "ci95": [
+            0.021411393849981582,
+            0.041174193002012124
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.3465,
+          "mde80": 0.014112194242918312,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.0008614112642593932,
+          "ci95": [
+            0.00022831000308775874,
+            0.0022386014060380003
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0012853183448201266,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": -0.012099405792128669,
+          "ci95": [
+            -0.018099102597998525,
+            -0.007457337632855569
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.8145,
+          "mde80": 0.007356526792486134,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.047683762994161195,
+            "ci95": [
+              0.037079780144451215,
+              0.058710884799273964
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.271,
+            "mde80": 0.01539509618860235,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.017008563103392275,
+            "ci95": [
+              0.010122430338533567,
+              0.025327637770060335
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4845,
+            "mde80": 0.010917253418262926,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 55.3553975581661,
+            "ci95": [
+              20.4472018051248,
+              204.0730590934271
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.05,
+            "mde80": 161.31644553734196,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 5633,
+          "changed_snapshot_share": 0.2789304283238425,
+          "changed_date_clusters": 33,
+          "changed_market_clusters": 11,
+          "changed_market_days": 116,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.2777300023422738,
+            "ci95": [
+              0.1996742257365772,
+              0.3759617147743818
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.6025,
+            "mde80": 0.12374267112254675,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.03558435720203252,
+            "ci95": [
+              0.02656080789712347,
+              0.04500885582205132
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.387,
+            "mde80": 0.012985826135656794,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.004909157311263603,
+            "ci95": [
+              0.0023315951795188144,
+              0.007638003098378912
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.9985,
+            "mde80": 0.003772303911250197,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 41.30937065540526,
+            "ci95": [
+              15.205053878367218,
+              159.65809413217804
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.05,
+            "mde80": 125.75858868694945,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 5633,
+          "changed_snapshot_share": 0.2789304283238425,
+          "changed_date_clusters": 33,
+          "changed_market_clusters": 11,
+          "changed_market_days": 116,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.2777300023422738,
+            "ci95": [
+              0.1996742257365772,
+              0.3759617147743818
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.6025,
+            "mde80": 0.12374267112254675,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        }
+      },
+      {
+        "block": "17-23",
+        "stratum": "pooled",
+        "snapshots": 32008,
+        "market_days": 626,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "not_recorded_valid": 23495,
+          "missing_captured_floor": 73,
+          "eligible": 8440
+        },
+        "served": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.031829231229364714,
+          "ci95": [
+            0.023789555586194954,
+            0.04151965011256883
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.4025,
+          "mde80": 0.012877031664437443,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.0007595145242368026,
+          "ci95": [
+            0.0002587071205022994,
+            0.0015753263064534177
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.0008394619171997329,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": -0.010864947130808031,
+          "ci95": [
+            -0.014527765402668601,
+            -0.007417103849037007
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.9855,
+          "mde80": 0.00513375883968914,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.047324728096674935,
+            "ci95": [
+              0.03899231283222912,
+              0.055570468034928336
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.422,
+            "mde80": 0.011783240318415883,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.015495496867310221,
+            "ci95": [
+              0.010078900180489112,
+              0.020988518768634005
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7645,
+            "mde80": 0.007783635460870237,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 62.309181176264055,
+            "ci95": [
+              29.32932723650805,
+              185.08460904007552
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.0495,
+            "mde80": 127.65544305162683,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 8440,
+          "changed_snapshot_share": 0.2636840789802549,
+          "changed_date_clusters": 54,
+          "changed_market_clusters": 11,
+          "changed_market_days": 176,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.2642561390090027,
+            "ci95": [
+              0.20832020634302215,
+              0.3278362292345304
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.911,
+            "mde80": 0.08613122684158128,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.0364597809658669,
+            "ci95": [
+              0.028785585452911523,
+              0.04480732955332358
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4545,
+            "mde80": 0.01161664975947304,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.004630549736502191,
+            "ci95": [
+              0.0024703429253514664,
+              0.00664791727473621
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 1.0,
+            "mde80": 0.002988356050042386,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 48.00406022847749,
+            "ci95": [
+              22.398996535666384,
+              141.70353136669206
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.0495,
+            "mde80": 99.29514095892961,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 8440,
+          "changed_snapshot_share": 0.2636840789802549,
+          "changed_date_clusters": 54,
+          "changed_market_clusters": 11,
+          "changed_market_days": 176,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.2642561390090027,
+            "ci95": [
+              0.20832020634302215,
+              0.3278362292345304
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.911,
+            "mde80": 0.08613122684158128,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        }
+      },
+      {
+        "block": "all_hours",
+        "stratum": "before_20260823",
+        "snapshots": 40541,
+        "market_days": 230,
+        "date_clusters": 21,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 27388,
+          "not_recorded_valid": 12872,
+          "missing_captured_floor": 281
+        },
+        "served": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.06092744590639642,
+          "ci95": [
+            0.05432831969607272,
+            0.06783026873872959
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.58,
+          "mde80": 0.009568420966623954,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": 0.03334200078523821,
+          "ci95": [
+            0.02875868044020332,
+            0.03802083195061216
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.89,
+          "mde80": 0.006654559675479309,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 230,
+          "date_clusters": 21,
+          "market_clusters": 11,
+          "estimate": -0.003125808557504194,
+          "ci95": [
+            -0.007090357009579766,
+            0.0007239761597534827
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.964,
+          "mde80": 0.005436870605068739,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.05831403347077299,
+            "ci95": [
+              0.05173683938019203,
+              0.06511334439304337
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.597,
+            "mde80": 0.009427174674834473,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.0026134124356234287,
+            "ci95": [
+              -0.010427895613990967,
+              0.0048395990009996274
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.4885,
+            "mde80": 0.01045706314268474,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.7489662317022936,
+            "ci95": [
+              1.5548563477713562,
+              1.9910553312688044
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.127,
+            "mde80": 0.3074016640724886,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 27388,
+          "changed_snapshot_share": 0.6755630102858834,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 229,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.6749513711327447,
+            "ci95": [
+              0.6232635276364925,
+              0.7274642052230791
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.966,
+            "mde80": 0.07542984483877851,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0013067062178117143,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.032,
+              "3": 0.0385,
+              "4": 0.035,
+              "5": 0.042,
+              "6": 0.0405,
+              "7": 0.0425,
+              "8": 0.044,
+              "9": 0.045,
+              "10": 0.0475,
+              "11": 0.045,
+              "12": 0.0415,
+              "13": 0.0465,
+              "14": 0.049,
+              "15": 0.051,
+              "16": 0.044,
+              "17": 0.044,
+              "18": 0.051,
+              "19": 0.054,
+              "20": 0.0595,
+              "21": 0.054,
+              "22": 0.056,
+              "23": 0.049,
+              "24": 0.0505,
+              "25": 0.0525,
+              "26": 0.0485,
+              "27": 0.0485,
+              "28": 0.049,
+              "29": 0.052,
+              "30": 0.053,
+              "31": 0.054,
+              "32": 0.055,
+              "33": 0.057,
+              "34": 0.0595,
+              "35": 0.0645,
+              "36": 0.0575,
+              "37": 0.0565,
+              "38": 0.0585,
+              "39": 0.0555,
+              "40": 0.0575,
+              "41": 0.0675,
+              "42": 0.0645,
+              "43": 0.0615,
+              "44": 0.064,
+              "45": 0.0545
+            },
+            "infinite_date_market_only_power": 0.09,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.05518822491326879,
+            "ci95": [
+              0.04959378560950669,
+              0.06059944668957439
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.753,
+            "mde80": 0.007952943651357694,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": -0.005739220993127623,
+            "ci95": [
+              -0.010036648278820849,
+              -0.001970762427729209
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.964,
+            "mde80": 0.005570217326830799,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 1.6552163521543297,
+            "ci95": [
+              1.455206714710826,
+              1.9231165713812004
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.1185,
+            "mde80": 0.32794869785201064,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 27388,
+          "changed_snapshot_share": 0.6755630102858834,
+          "changed_date_clusters": 21,
+          "changed_market_clusters": 11,
+          "changed_market_days": 229,
+          "changed_market_day_share": {
+            "market_days": 230,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "estimate": 0.6749513711327447,
+            "ci95": [
+              0.6232635276364925,
+              0.7274642052230791
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.966,
+            "mde80": 0.07542984483877851,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0028696104965638116,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 21,
+            "market_clusters": 11,
+            "market_days": 230,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.0805,
+              "3": 0.0895,
+              "4": 0.105,
+              "5": 0.105,
+              "6": 0.1445,
+              "7": 0.1575,
+              "8": 0.1415,
+              "9": 0.162,
+              "10": 0.182,
+              "11": 0.2075,
+              "12": 0.222,
+              "13": 0.2165,
+              "14": 0.2575,
+              "15": 0.263,
+              "16": 0.2515,
+              "17": 0.2355,
+              "18": 0.2605,
+              "19": 0.2715,
+              "20": 0.254,
+              "21": 0.2705,
+              "22": 0.299,
+              "23": 0.3,
+              "24": 0.2685,
+              "25": 0.2745,
+              "26": 0.287,
+              "27": 0.3255,
+              "28": 0.304,
+              "29": 0.315,
+              "30": 0.351,
+              "31": 0.332,
+              "32": 0.3045,
+              "33": 0.327,
+              "34": 0.347,
+              "35": 0.3455,
+              "36": 0.3335,
+              "37": 0.3205,
+              "38": 0.3325,
+              "39": 0.351,
+              "40": 0.354,
+              "41": 0.362,
+              "42": 0.374,
+              "43": 0.385,
+              "44": 0.393,
+              "45": 0.3655
+            },
+            "infinite_date_market_only_power": 0.505,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "all_hours",
+        "stratum": "from_20260823",
+        "snapshots": 70266,
+        "market_days": 396,
+        "date_clusters": 36,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 47253,
+          "not_recorded_valid": 22564,
+          "missing_captured_floor": 449
+        },
+        "served": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.06106312518527874,
+          "ci95": [
+            0.054870471467209116,
+            0.06787203352077605
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.633,
+          "mde80": 0.009192350325625046,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": 0.035186735959788766,
+          "ci95": [
+            0.031886402550725,
+            0.03848689693321772
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.989,
+          "mde80": 0.00470991957138956,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 396,
+          "date_clusters": 36,
+          "market_clusters": 11,
+          "estimate": -0.004804583758059894,
+          "ci95": [
+            -0.008899403703991495,
+            -0.001480458071926084
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.988,
+          "mde80": 0.005088511731104703,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.06111965168949428,
+            "ci95": [
+              0.054664287951649744,
+              0.06815723974130024
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.5775,
+            "mde80": 0.00989251821369556,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 5.652650421554256e-05,
+            "ci95": [
+              -0.005779550412302859,
+              0.006557326090526642
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.651,
+            "mde80": 0.00894878470910666,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.7370082794647825,
+            "ci95": [
+              1.5429188725422625,
+              1.9876955182397051
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.116,
+            "mde80": 0.3179015639857022,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 47253,
+          "changed_snapshot_share": 0.6724874050038425,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 386,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.6717936182586322,
+            "ci95": [
+              0.6194786405839235,
+              0.7269213924636716
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.961,
+            "mde80": 0.07576819104959145,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.0,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "status": "NONBENEFICIAL_DEVELOPMENT_EFFECT"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.05631506793143439,
+            "ci95": [
+              0.05091949825656439,
+              0.061739277726313796
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.7765,
+            "mde80": 0.007750900180064619,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": -0.004748057253844352,
+            "ci95": [
+              -0.007689614904533805,
+              -0.0017677286108724558
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.999,
+            "mde80": 0.004341125917450233,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 1.6004629697904058,
+            "ci95": [
+              1.431036050194424,
+              1.8344759924861684
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.156,
+            "mde80": 0.27613543685929354,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 47253,
+          "changed_snapshot_share": 0.6724874050038425,
+          "changed_date_clusters": 36,
+          "changed_market_clusters": 11,
+          "changed_market_days": 386,
+          "changed_market_day_share": {
+            "market_days": 396,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "estimate": 0.6717936182586322,
+            "ci95": [
+              0.6194786405839235,
+              0.7269213924636716
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.961,
+            "mde80": 0.07576819104959145,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.002374028626922176,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 36,
+            "market_clusters": 11,
+            "market_days": 396,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.074,
+              "3": 0.1015,
+              "4": 0.117,
+              "5": 0.158,
+              "6": 0.152,
+              "7": 0.153,
+              "8": 0.1475,
+              "9": 0.1805,
+              "10": 0.187,
+              "11": 0.186,
+              "12": 0.2005,
+              "13": 0.2195,
+              "14": 0.209,
+              "15": 0.194,
+              "16": 0.2245,
+              "17": 0.23,
+              "18": 0.241,
+              "19": 0.2425,
+              "20": 0.216,
+              "21": 0.246,
+              "22": 0.249,
+              "23": 0.2445,
+              "24": 0.2425,
+              "25": 0.2275,
+              "26": 0.2765,
+              "27": 0.282,
+              "28": 0.268,
+              "29": 0.268,
+              "30": 0.2805,
+              "31": 0.3005,
+              "32": 0.2845,
+              "33": 0.278,
+              "34": 0.266,
+              "35": 0.288,
+              "36": 0.31,
+              "37": 0.2975,
+              "38": 0.321,
+              "39": 0.3005,
+              "40": 0.3475,
+              "41": 0.323,
+              "42": 0.316,
+              "43": 0.319,
+              "44": 0.319,
+              "45": 0.3115
+            },
+            "infinite_date_market_only_power": 0.441,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      },
+      {
+        "block": "all_hours",
+        "stratum": "pooled",
+        "snapshots": 110807,
+        "market_days": 626,
+        "date_clusters": 57,
+        "market_clusters": 11,
+        "reason_counts": {
+          "eligible": 74641,
+          "not_recorded_valid": 35436,
+          "missing_captured_floor": 730
+        },
+        "served": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.061013274970992896,
+          "ci95": [
+            0.05582287981571085,
+            0.06702690795327818
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.7535,
+          "mde80": 0.008044577677344174,
+          "status": "DESCRIPTIVE"
+        },
+        "market": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": 0.03450895786051301,
+          "ci95": [
+            0.03164976277641634,
+            0.037428096368209894
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 0.997,
+          "mde80": 0.004085962922504689,
+          "status": "DESCRIPTIVE"
+        },
+        "C2_minus_C1": {
+          "market_days": 626,
+          "date_clusters": 57,
+          "market_clusters": 11,
+          "estimate": -0.004187781368079365,
+          "ci95": [
+            -0.0066534079504446154,
+            -0.0017096816107561778
+          ],
+          "valid_draws": 2000,
+          "alternative_shift": -0.0075,
+          "power": 1.0,
+          "mde80": 0.003560947299624843,
+          "status": "DESCRIPTIVE"
+        },
+        "C1": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.06008883349411745,
+            "ci95": [
+              0.054706185109305264,
+              0.06502353427220077
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.812,
+            "mde80": 0.007378827973726866,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.0009244414768754531,
+            "ci95": [
+              -0.006082566747718328,
+              0.003924182594144452
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.838,
+            "mde80": 0.0071448491280954474,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.7412532055299852,
+            "ci95": [
+              1.5837326784584826,
+              1.9261213350125266
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.201,
+            "mde80": 0.24130315358023083,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 74641,
+          "changed_snapshot_share": 0.6736126778994107,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 615,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.6729538150015169,
+            "ci95": [
+              0.633068150540573,
+              0.7132439600411478
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.996,
+            "mde80": 0.056702659568979075,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00046222073843772655,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.028,
+              "3": 0.028,
+              "4": 0.026,
+              "5": 0.0305,
+              "6": 0.0305,
+              "7": 0.0305,
+              "8": 0.0305,
+              "9": 0.0335,
+              "10": 0.0315,
+              "11": 0.029,
+              "12": 0.0325,
+              "13": 0.0295,
+              "14": 0.029,
+              "15": 0.0315,
+              "16": 0.032,
+              "17": 0.0335,
+              "18": 0.0325,
+              "19": 0.0375,
+              "20": 0.033,
+              "21": 0.0345,
+              "22": 0.0325,
+              "23": 0.036,
+              "24": 0.0335,
+              "25": 0.035,
+              "26": 0.0345,
+              "27": 0.033,
+              "28": 0.0325,
+              "29": 0.035,
+              "30": 0.036,
+              "31": 0.036,
+              "32": 0.039,
+              "33": 0.033,
+              "34": 0.0415,
+              "35": 0.0325,
+              "36": 0.034,
+              "37": 0.042,
+              "38": 0.0385,
+              "39": 0.0335,
+              "40": 0.0355,
+              "41": 0.0365,
+              "42": 0.034,
+              "43": 0.038,
+              "44": 0.034,
+              "45": 0.033
+            },
+            "infinite_date_market_only_power": 0.043,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        },
+        "C2": {
+          "brier": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.055901052126038075,
+            "ci95": [
+              0.05135109167026636,
+              0.06022358356627411
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 0.908,
+            "mde80": 0.006346244180698587,
+            "status": "DESCRIPTIVE"
+          },
+          "delta": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": -0.00511222284495482,
+            "ci95": [
+              -0.008163745446421162,
+              -0.002370233800591685
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.0075,
+            "power": 1.0,
+            "mde80": 0.004054685983516364,
+            "status": "DESCRIPTIVE"
+          },
+          "ratio_to_market": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 1.6198997475378138,
+            "ci95": [
+              1.4688939521719984,
+              1.81385010042473
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": -0.1,
+            "power": 0.233,
+            "mde80": 0.24062048714695006,
+            "status": "DESCRIPTIVE"
+          },
+          "changed_snapshots": 74641,
+          "changed_snapshot_share": 0.6736126778994107,
+          "changed_date_clusters": 57,
+          "changed_market_clusters": 11,
+          "changed_market_days": 615,
+          "changed_market_day_share": {
+            "market_days": 626,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "estimate": 0.6729538150015169,
+            "ci95": [
+              0.633068150540573,
+              0.7132439600411478
+            ],
+            "valid_draws": 2000,
+            "alternative_shift": 0.1,
+            "power": 0.996,
+            "mde80": 0.056702659568979075,
+            "status": "DESCRIPTIVE"
+          },
+          "planning": {
+            "half_development_effect": 0.00255611142247741,
+            "alpha_one_sided": 0.025,
+            "target_power": 0.8,
+            "date_clusters": 57,
+            "market_clusters": 11,
+            "market_days": 626,
+            "new_dates": null,
+            "end_date_at_full_accrual": null,
+            "monte_carlo_se_at_80pct": 0.00894427190999916,
+            "power_by_new_dates": {
+              "2": 0.067,
+              "3": 0.1005,
+              "4": 0.118,
+              "5": 0.122,
+              "6": 0.128,
+              "7": 0.1295,
+              "8": 0.1945,
+              "9": 0.171,
+              "10": 0.173,
+              "11": 0.191,
+              "12": 0.175,
+              "13": 0.2,
+              "14": 0.186,
+              "15": 0.205,
+              "16": 0.245,
+              "17": 0.255,
+              "18": 0.2645,
+              "19": 0.225,
+              "20": 0.2125,
+              "21": 0.272,
+              "22": 0.261,
+              "23": 0.278,
+              "24": 0.291,
+              "25": 0.3205,
+              "26": 0.293,
+              "27": 0.279,
+              "28": 0.3185,
+              "29": 0.338,
+              "30": 0.3045,
+              "31": 0.315,
+              "32": 0.3705,
+              "33": 0.3605,
+              "34": 0.379,
+              "35": 0.302,
+              "36": 0.285,
+              "37": 0.344,
+              "38": 0.359,
+              "39": 0.358,
+              "40": 0.364,
+              "41": 0.3345,
+              "42": 0.328,
+              "43": 0.36,
+              "44": 0.372,
+              "45": 0.369
+            },
+            "infinite_date_market_only_power": 0.564,
+            "status": "MARKET_CLUSTER_FLOOR_LIMITED"
+          }
+        }
+      }
+    ],
+    "decision": {
+      "label": null,
+      "line": -0.013344,
+      "C1": {
+        "estimate": -0.0009244414768754531,
+        "ci95": [
+          -0.006082566747718328,
+          0.003924182594144452
+        ],
+        "reaches_twice_descriptive": false,
+        "reaches_twice_interval": false,
+        "strata_estimates": {
+          "before_20260823": -0.0026134124356234287,
+          "from_20260823": 5.652650421554256e-05
+        },
+        "strata_opposite_sign": true
+      },
+      "C2": {
+        "estimate": -0.00511222284495482,
+        "ci95": [
+          -0.008163745446421162,
+          -0.002370233800591685
+        ],
+        "reaches_twice_descriptive": false,
+        "reaches_twice_interval": false,
+        "strata_estimates": {
+          "before_20260823": -0.005739220993127623,
+          "from_20260823": -0.004748057253844352
+        },
+        "strata_opposite_sign": false
+      },
+      "falsifier_1_stale_07z_adds_nothing": {
+        "13-16": {
+          "estimate": 0.005986190599738239,
+          "ci95": [
+            0.002282421586461127,
+            0.009940701102375563
+          ],
+          "afternoon_route_falsified": true
+        },
+        "17-23": {
+          "estimate": 0.015495496867310221,
+          "ci95": [
+            0.010078900180489112,
+            0.020988518768634005
+          ],
+          "afternoon_route_falsified": true
+        }
+      },
+      "falsifier_2_pooled_near_81a": {
+        "estimate": -0.0009244414768754531,
+        "all_hours_route_closed": true
+      }
+    }
+  }
+}

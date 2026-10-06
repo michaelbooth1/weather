@@ -29,7 +29,7 @@ param(
     [string]$ExpectedPublishedTarget = "",
     [string]$ExpectedSourceTip = "",
     [string]$ExpectedSourceTree = "",
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$OwnerApprovedException = "",
@@ -40,6 +40,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`, so a default derived there failed
+# binding before the script ran (2026-10-04). Derive it in the body instead; an
+# explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath)))
+}
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
     if ($ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {
