@@ -19,7 +19,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   as a fail-closed guard (#180, unmerged); with today's shared
   wallet it would HALT, so a live run first needs a complete ledger (a dedicated wallet). Owner trades stay `owner-discretionary`.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
-  01:00-04:00 only; roll-free 00:30-12:00; docs-only by the light path before 12:00; never 12:00-00:30.
+  01:00-04:00 only; roll-free 00:30-09:00 (the lease refuses later); docs-only by the light path before 12:00; never 12:00-00:30.
 - **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
   wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
 - Owner decisions 2026-09-30..10-05 are rows in [DECISION_LOG](DECISION_LOG.md) (10-04: swarm, MG-1, P1-P5, v2 rule 1, CI
