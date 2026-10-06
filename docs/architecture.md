@@ -73,9 +73,14 @@ owns its exact-target-date reduction and fail-closed `HOLD` decision; the
 `app/views/control_room.py` view only renders that result. Even a complete
 software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
 grant trading authority or expose order, cancel, credential, promotion, or
-risk-setting actions. The frontend intentionally contains only this Control
-Room and the active Roadmap; retired market, history, overview, and operations
-views are not hidden routes or retained application code.
+risk-setting actions. The default page is the Owner Cockpit:
+`weather.reporting.market.cockpit_snapshot` reads money, work, health and exam
+sources (each optional, with an explicit unavailable reason) and
+`app/views/cockpit.py` renders it without controls, failing closed. The
+frontend intentionally contains only the Cockpit, this Control Room (now a
+historical pilot view) and the active Roadmap; retired market, history,
+overview, and operations views are not hidden routes or retained application
+code.
 
 The taker track is paused by owner decision (maker focus); read
 [STATE_OF_PLAY](operations/STATE_OF_PLAY.md) for whether it is running. Its storage contract still binds the code
@@ -138,6 +143,21 @@ daily-roll liveness classification.
   Source fingerprints exclude artifacts, so a source-roll verdict alone does not
   prove activation. Preserve fitted contexts when toggling the switch; never
   refit against this stage's own output. See [the decision and evidence](operations/ESTABLISHED_FINDINGS.md#2-the-cool-bias-is-real-and-is-not-correctable-at-serve).
+- The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
+  standing-high partial, late-day continuation) read one anchor built by
+  `late_day_lockin_anchor` in `weather.model.model_distribution`
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`). With WU printed history
+  present it is that history, unchanged. With WU history empty it is the
+  observed same-day station high: point-in-time METAR rows keyed by observation
+  time (AWC `obsTime`, else the raw `DDHHMMZ` group), never by the nominal
+  `reportTime`, so a D-1 23:5x report carried into D as a "00:00" row is
+  excluded. It is never higher than `guidance_physical_floor`, which still
+  carries that report. Once a late-day stage acts, mass below the anchor bucket
+  moves onto it and the calibration floor follows, so no mass stays below an
+  observed floor. The calibration taper reads the resulting strength.
+  `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
+  to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
+  when any row puts more mass below the anchor than before.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.

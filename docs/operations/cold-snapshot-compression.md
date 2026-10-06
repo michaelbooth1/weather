@@ -2,7 +2,8 @@
 
 - **Owns:** the attended compress-and-retain lane for old snapshot files
   (`cold_snapshot_compression_run.ps1`), its request schema, bounds, receipts,
-  the read-only `-VerifyRetained` mode and the batch planner.
+  the read-only `-VerifyRetained` mode, the batch planner, the nightly
+  selection and the failed-nightly resolution record.
 - **Read when:** the owner asks for more retained-file capacity, or you must
   reconcile an interrupted compression attempt.
 - **Do not use for:** replay-cache files
@@ -125,7 +126,9 @@ Use the same wrapper with `-VerifyRetained`, never together with `-Apply`.
 This mode opens one exact file without write access, denies concurrent writers,
 streams its hash under the unchanged resource/capture/lease/deadline gates,
 and compares every original native identity field and timestamp. It neither
-compresses nor decompresses the source.
+compresses nor decompresses the source. This section covers attended-lane
+journals; an unfinished file in a nightly batch uses the nightly request in
+[Resolving a failed nightly attempt](#resolving-a-failed-nightly-attempt).
 
 First obtain a fresh completed inventory at the new reviewed execution source.
 The request uses schema `cold_snapshot_verification_request_v1`, operation
@@ -209,12 +212,37 @@ at most 31 days. The approved policy's file and SHA-256 and the reviewed full
 source SHA are frozen into the scheduled action; renewal requires a new
 create-only policy and reviewed re-registration. No policy changes itself.
 
-Selection is oldest built-in event first, strictly older than fourteen local
-calendar days. Only immediate ordinary nonempty JSON/JSONL/CSV files qualify;
-each must also be unchanged for fourteen days. Nested directories, RE-1
-campaigns, mm_runs, payload CAS, settlement roots, links and already-compressed
-files are excluded. The metadata inventory's original CLI still uses thirty
-days; only this separate nightly consumer selects its fourteen-day profile.
+Selection is oldest built-in event first, once the closed market-day is at
+least two local calendar days old (owner decision 2026-09-30 in
+[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at 00:30 on day D+2 the
+market-day D is selectable, D+1 and later are not. Only immediate ordinary
+nonempty JSON/JSONL/CSV files qualify; each must also be unchanged for two full
+days, so a file last written late on D is picked up a night later and a later
+backfill waits out its own two days. Nested directories, RE-1 campaigns,
+mm_runs, payload CAS, settlement roots, links and already-compressed files are
+excluded. The metadata inventory's original CLI still uses thirty days; only
+this separate nightly consumer selects its two-day profile (`HOT_WINDOW_DAYS`
+and `UNCHANGED_SECONDS` in `cold_snapshot_nightly.py`). Every hash, identity,
+writer-exclusion and admission check is unchanged by the shorter age.
+
+Files that cannot shrink are skipped at selection: logical size below one
+4 KiB cluster (including files NTFS keeps resident in their MFT record) or
+allocation not above one cluster. They are never opened, compressed or counted
+against the budget; each night records them with a reason in
+`skipped-NNNN.json` (bound to its inventory hash, inside the 64 MiB evidence
+bound) and counts them as `files_skipped_unshrinkable`. A selected file that
+still reclaims nothing stops its batch exactly as before.
+
+Snapshot-root selection classifies entries by name only: live status files,
+writer locks and hot event folders are never stat'ed or opened, and an error on
+a selected closed-day folder refuses. The capture loops atomically replace their
+status files, so the per-second capture-admission read can land on a
+delete-pending file (the 2026-10-03 night failed after 87 batches with
+`PermissionError` on `clob_loop_status.json`). A `PermissionError` or `BLOCK`
+from one admission observation is followed, after 0.25 s, by one fresh complete
+observation that decides; criteria are unchanged and a second failure refuses.
+The receipt counts these as `admission_retries` and keeps the first 32 first
+observations in `admission_retry_notes`.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
@@ -229,10 +257,93 @@ hash-bound exact batch selections, flushed before/after file journals and
 batch/night/wrapper results. Count only verified allocation differences;
 uncompleted batches can have per-file proofs but receive no aggregate credit.
 Any failure stops expansion. A failed or unfinished prior nightly attempt
-blocks subsequent automatic runs; production must inspect and explicitly
-resolve it through the retained-file verification contract. Never delete or
-rename a failed attempt to clear this interlock. A second scheduled-entrypoint
-attempt on the same local date refuses, so the budget is not reset by a retry.
+blocks subsequent automatic runs. Never delete or rename a failed attempt to
+clear this interlock. A second scheduled-entrypoint attempt on the same local
+date refuses, so the budget is not reset by a retry, and a resolved attempt
+still consumes its date.
+
+### Resolving a failed nightly attempt
+
+After inspecting the attempt, production records a resolution with the
+reviewed source (read-only over the attempt's receipts; no lease needed, no
+source payload read):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.cold_snapshot_nightly_resolution `
+  --production-repo-root $productionRepo --attempt nightly-YYYYMMDD-... `
+  --approved-by "<reviewer>"
+```
+
+It refuses unless the wrapper receipt is `FAILED` with proved teardown and no
+hard stop, the child result is the bound `FAILED_RETAIN_AND_INSPECT`, and every
+started file in every batch has both journals, follows its hash-bound
+selection in order, and has an after-journal `VERIFIED` with the preimage
+SHA-256, unchanged identity fields and LZNT1 format. It writes one create-only
+`scratch/cold_snapshot_compression/resolved-nightly/<attempt>.json` binding the
+attempt's `wrapper-result.json` SHA-256. The scheduled runner accepts a failed
+prior attempt only when that record exists and its hash matches. The record's
+`verified_reclaimed_bytes` is for reconciliation and is never added to a
+nightly total; its files are already compressed and can never be selected again.
+
+An attempt with a started but unfinished file (a before-journal without its
+after-journal) is refused and stays blocking until that file is verified. Such
+a file can only be the last started file of the attempt's last batch. Verify it
+read-only with the attended wrapper in its ordinary window (00:30-09:00 outside
+04:45-06:45, shared lease, capture admission, 600-second bound) and a new
+reviewed request with schema `cold_snapshot_verification_request_v1`, operation
+`verify_retained_nightly` (which selects this contract) and exactly these other
+fields: `production_repo_root`, `execution_host_id`, `approved_by`, `approved_at_utc`,
+`expires_at_utc` (at most 72 hours later), `attempt` (the `nightly-*` name),
+`batch` (`batch-NNNN`), `ordinal` (integer), `preimage_sha256` (hash of that
+`NNN-before.json`) and `predecessor_wrapper_sha256` (hash of the attempt's
+`wrapper-result.json`). Name the output directory anything **but**
+`nightly-*` (for example `verify-nightly-YYYYMMDD-a`): the scheduled runner
+treats every `nightly-*` directory as an attempt, and the verifier refuses
+such a name.
+
+```powershell
+& .\scripts\ops\cold_snapshot_compression_run.ps1 `
+  -ProductionRepoRoot $productionRepo -RequestPath $verifyRequestPath `
+  -RequestSha256 $verifyRequestSha256 -ExpectedSourceTip $reviewedSourceTip `
+  -OutputRoot "$productionRepo\scratch\cold_snapshot_compression\verify-nightly-YYYYMMDD-a" `
+  -VerifyRetained
+```
+
+The verifier refuses unless the attempt is a torn-down `FAILED` apply on this
+host whose child result is `FAILED_RETAIN_AND_INSPECT`, its retained
+`request.json` matches the wrapper's request hash, the named batch is the last
+one and holds no `result.json`, every earlier file of that batch has both
+journals and the named ordinal has only its before-journal. The before-journal
+must name its selected path, carry an exact SHA-256 and the full uncompressed
+native preimage and equal its `selection.json` row; that row must appear in the
+hash-bound PASS `inventory-NNNN.json` and still satisfy the nightly cold-file
+contract. The verifier then opens the retained file without write access and
+requires unchanged identity fields (size, volume, file index, mtime, creation
+time), a compression state that is either untouched (format 0 with the original
+allocation and attributes) or LZNT1 (format 2 with exactly the compressed
+attribute added), and a streamed SHA-256 equal to the before-journal's. A hash
+mismatch, any other state or a missing file fails verification and writes no
+PASS. Then resolve with the verification bound by hash:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.cold_snapshot_nightly_resolution `
+  --production-repo-root $productionRepo --attempt nightly-YYYYMMDD-... `
+  --approved-by "<reviewer>" `
+  --verified-retained "$productionRepo\scratch\cold_snapshot_compression\verify-nightly-YYYYMMDD-a\wrapper-result.json" `
+  --verified-retained-sha256 $verificationWrapperSha256
+```
+
+The resolution accepts the unfinished file only when that verification wrapper
+is a torn-down read-only `PASS` (`apply=false`, `reclaimed_bytes=0`,
+`source_files_changed=0`), its `result.json` and `request.json` match their
+hashes, and its single `VERIFIED_RETAINED` row binds this attempt, batch,
+ordinal, current before-journal hash, path, preimage and equal SHA-256. Every
+other started file still needs its `VERIFIED` after-journal. The row is marked
+`verified_by: retained_verification`, its `verified_reclaimed_bytes` enters only
+the record's reconciliation figure, and the record lists the verification
+wrapper hash in `retained_verifications`. A verification that matches no
+unfinished file is refused. A file verified untouched (format 0) stays
+uncompressed and a later night may select it.
 
 Production registration, after creating and reviewing the policy and proving
 the exact source tip (all paths absolute):
@@ -268,7 +379,7 @@ owns token and book-summary files. Neither is modified. A close queue must
 prove event close, quiescent writer handles, replay/backfill coordination and
 durable enqueue before releasing a file to the same compressor. It must not
 compress synchronously inside a capture iteration, set inherited directory
-compression, or silently change the nightly fourteen-day protection. A
+compression, or silently change the nightly two-day protection. A
 separate reviewed close policy and production roll verdict precede that work.
 
 Reader/reference inventory for the proposed unchanged-path format is retained

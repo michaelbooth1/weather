@@ -1,4 +1,4 @@
-"""Decision-first roadmap view for the two-page Streamlit frontend."""
+"""Decision-first roadmap view for the Streamlit frontend."""
 
 from __future__ import annotations
 

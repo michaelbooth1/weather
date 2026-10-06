@@ -287,11 +287,10 @@ def render_markdown(constants):
         "| --- | ---: | --- | --- |",
     ]
     for row in constants:
-        location = f"`{row['module']}`"
-        if row["line"]:
-            location += f" line {row['line']}"
+        # Module only, never a line number: line numbers shift on unrelated edits to the
+        # owning module and would churn this committed file without any real change.
         lines.append(
-            f"| **`{row['attribute']}`**<br/>{location} | `{row['value']}` | "
+            f"| **`{row['attribute']}`**<br/>`{row['module']}` | `{row['value']}` | "
             f"{row['meaning']} | {row['matters_because']} |"
         )
 

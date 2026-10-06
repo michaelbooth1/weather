@@ -4,6 +4,8 @@ import tracemalloc
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from tests.market.test_taker_bot import order_row, write_labels, write_taker_run
 from weather.market.taker_bot import (
     DEFAULT_BAKEOFF_STRATEGIES,
@@ -242,6 +244,7 @@ def _watchdog_peak(root, *, run_count):
     return peak
 
 
+@pytest.mark.memory_flatness
 def test_watchdog_traced_memory_stays_flat_from_five_to_fifty_runs(tmp_path):
     few_peak = _watchdog_peak(tmp_path / "few", run_count=5)
     many_peak = _watchdog_peak(tmp_path / "many", run_count=50)

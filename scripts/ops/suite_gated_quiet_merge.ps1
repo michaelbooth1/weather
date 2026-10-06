@@ -11,7 +11,7 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedTip,
     [Parameter(Mandatory = $true)][string]$SuiteTaskName,
     [Parameter(Mandatory = $true)][string]$SuiteLogPath,
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$WorktreeRoot = "",
     [string]$ExpectedBaseline = "",
     [string]$QuietMergeScriptPath = "",
@@ -23,6 +23,12 @@ param(
     [ValidateRange(0, 120)][int]$SuiteRunningWaitMinutes = 0,
     [ValidateRange(60, 1800)][int]$SettleSeconds = 300
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"

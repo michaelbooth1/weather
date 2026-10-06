@@ -1,5 +1,10 @@
 # Run approved offline heavy Python work on a non-capture workstation while
 # holding the same host-global mutex as a portable International live stage.
+#
+# Without -Queue a busy lease is refused immediately (unchanged). With -Queue the
+# caller takes a FIFO ticket and waits up to -QueueTimeoutSeconds (default 4 h);
+# a timeout exits 75 without starting anything. The child tree is owned by a
+# kill-on-close Job either way.
 
 [CmdletBinding()]
 param(
@@ -8,7 +13,11 @@ param(
     [string]$Kind,
     [Parameter(Mandatory = $true)][string]$PythonPath,
     [Parameter(Mandatory = $true)][string]$ArgumentsBase64,
-    [Parameter(Mandatory = $true)][string]$RepoRoot
+    [Parameter(Mandatory = $true)][string]$RepoRoot,
+    [switch]$Queue,
+    [ValidateRange(1, 86400)][int]$QueueTimeoutSeconds = 14400,
+    [ValidateRange(100, 60000)][int]$QueuePollMilliseconds = 2000,
+    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,12 +140,32 @@ switch ($Kind) {
     }
 }
 
-$lease = Enter-WeatherHeavyWorkloadLease `
-    -RepoRoot $RepoRoot `
-    -Workload ("WorkstationOffline-{0}-{1}" -f $Kind, $PID) `
-    -ExecutionHostProfile "workstation_offline_v1"
-if ($null -eq $lease) {
-    throw "workstation-heavy execution is blocked by another heavy or portable live lease"
+$workloadName = "WorkstationOffline-{0}-{1}" -f $Kind, $PID
+$queueTimeoutExitCode = 75
+if ($Queue) {
+    $lease = Enter-WeatherHeavyWorkloadLeaseQueued `
+        -RepoRoot $RepoRoot `
+        -Workload $workloadName `
+        -ExecutionHostProfile "workstation_offline_v1" `
+        -TimeoutSeconds $QueueTimeoutSeconds `
+        -PollMilliseconds $QueuePollMilliseconds `
+        -ReportSeconds $QueueReportSeconds
+    if ($null -eq $lease) {
+        [Console]::Error.WriteLine((
+            "workstation-heavy queue wait timed out after {0} s; nothing was started" -f
+            $QueueTimeoutSeconds
+        ))
+        exit $queueTimeoutExitCode
+    }
+}
+else {
+    $lease = Enter-WeatherHeavyWorkloadLease `
+        -RepoRoot $RepoRoot `
+        -Workload $workloadName `
+        -ExecutionHostProfile "workstation_offline_v1"
+    if ($null -eq $lease) {
+        throw "workstation-heavy execution is blocked by another heavy or portable live lease"
+    }
 }
 
 $job = $null
@@ -197,5 +226,11 @@ finally {
     }
     if ($null -ne $teardownTransitionError) { throw $teardownTransitionError }
     if ($jobTeardownError) { throw $jobTeardownError }
+}
+if ($Queue) {
+    Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
+        -Ticket ([long]$lease.QueueTicket) -Position 1 `
+        -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
+        -Extra @{ exit_code = $exitCode }
 }
 exit $exitCode

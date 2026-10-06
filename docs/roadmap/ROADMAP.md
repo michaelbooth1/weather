@@ -110,7 +110,7 @@ infrastructure work remains.
 | 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE COMPLETE]](items/item-29-deepen-and-widen-the-historical-record.md) |
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
-| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
+| 32 | [Reanalysis And Synoptic Feature Layer [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 39 | [Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
@@ -130,15 +130,15 @@ infrastructure work remains.
 | 120 | [Settled-Day Finalization Freshness SLA [COMPLETE 2026-06-18 - NIGHTLY PREFLIGHT LIVE]](items/item-120-settled-day-finalization-freshness-sla.md) |
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
-| 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
-| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 156 | [CLOB Midpoint Continuity For Market-Informed Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-20, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
+| 157 | [Live-Forward Snapshot Cadence SLO Closure [DORMANT 2026-09-29 - CADENCE SLO PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
-| 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
+| 185 | [Daily-High Predictor Data-Source Expansion [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
-| 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
-| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
+| 188 | [Aerosol & Wildfire-Smoke Suppression Features [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-24, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
+| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-24, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | [NBM Native Probabilistic Tmax Consumption [COMPLETE 2026-06-25 - SETTLEMENT SCORING LIVE; PROMOTION BLOCKED BY SKILL GATE]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | [Lake/Sea Surface-Temperature Contrast Feature [COMPLETE 2026-06-25 - SIDECAR-BACKED SETTLEMENT REPLAY LIVE; PROMOTION BLOCKED BY DAILY-FIRST GATE]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
@@ -162,7 +162,7 @@ infrastructure work remains.
 | ---: | --- |
 | 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
-| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-22 - V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED]](items/item-35-unified-continuous-density-model.md) |
+| 35 | [Unified Continuous-Density Model [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
 | 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
 | 38 | [Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]](items/item-38-cross-market-and-market-microstructure-signal.md) |
@@ -216,19 +216,19 @@ infrastructure work remains.
 | 121 | [Market-Making Tape Encoding And CSV Read Robustness [COMPLETE 2026-06-18 - ROBUST CSV READER LIVE]](items/item-121-market-making-tape-encoding-and-csv-read-robustness.md) |
 | 123 | [Cross-Hub Readiness Transfer And Promotion Guardrails [COMPLETE 2026-06-18 - READINESS REPORT LIVE]](items/item-123-cross-hub-readiness-transfer-and-promotion-guardrails.md) |
 | 125 | [Weather Input Value Attribution And Promotion Queue [COMPLETE 2026-06-18 - SOURCE-FAMILY PREFLIGHT LIVE]](items/item-125-weather-input-value-attribution-and-promotion-queue.md) |
-| 134 | [Early-Day Forecast Profile Calibration [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]](items/item-134-early-day-forecast-profile-calibration.md) |
-| 135 | [Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
-| 136 | [Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]](items/item-136-forecast-source-state-reliability-calibrator.md) |
+| 134 | [Early-Day Forecast Profile Calibration [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]](items/item-134-early-day-forecast-profile-calibration.md) |
+| 135 | [Cutoff-Regime Forecast/Observation Weighting [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
+| 136 | [Forecast Source-State Reliability Calibrator [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]](items/item-136-forecast-source-state-reliability-calibrator.md) |
 | 137 | [Official Guidance Sparse-Coverage Evidence Growth [COMPLETE 2026-06-24 - SOURCE ROW GROWTH BACKFILLED]](items/item-137-official-guidance-sparse-coverage-evidence-growth.md) |
-| 138 | [Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
+| 138 | [Weak Input-Family Pruning And Regime Backfill [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
 | 139 | [Scheduled Active Variant Shadow Refresh [COMPLETE 2026-06-21 - INLINE REGISTRY EXECUTION LIVE]](items/item-139-scheduled-active-variant-shadow-refresh.md) |
 | 140 | [Live First-Class Variant Prediction Tape [COMPLETE 2026-06-22 - LIVE VARIANT RUNTIME RUNNERS WIRED]](items/item-140-live-first-class-variant-prediction-tape.md) |
 | 141 | [Variant Learning Operational Gates [COMPLETE 2026-06-18 - VARIANT LEARNING BLOCKING GATE LIVE]](items/item-141-variant-learning-operational-gates.md) |
 | 142 | [Active Variant Registry Export Contract [COMPLETE 2026-06-18 - ACTIVE EXPORT CONTRACTS AUDITED]](items/item-142-active-variant-registry-export-contract.md) |
 | 143 | [Variant Attribution Shadow Schema [COMPLETE 2026-06-18 - ATTRIBUTION SCHEMA AND SIDECAR LIVE]](items/item-143-variant-attribution-shadow-schema.md) |
-| 144 | [Early-Hour Market-Aware Risk Guardrail [PARTIAL 2026-06-18 - GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED]](items/item-144-early-hour-market-aware-risk-guardrail.md) |
+| 144 | [Early-Hour Market-Aware Risk Guardrail [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-18, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-18 - GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED]](items/item-144-early-hour-market-aware-risk-guardrail.md) |
 | 145 | [Hourly Performance Gate And Remediation Registry [COMPLETE 2026-06-18 - HOURLY GATE AND REGISTRY LIVE]](items/item-145-hourly-performance-gate-and-remediation-registry.md) |
-| 147 | [Early-Hour Winner-Centering Candidate [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY BASELINE]](items/item-147-early-hour-winner-centering-candidate.md) |
+| 147 | [Early-Hour Winner-Centering Candidate [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY BASELINE]](items/item-147-early-hour-winner-centering-candidate.md) |
 | 148 | [No-Market Extra-Location Shadow Lane [COMPLETE 2026-06-18 - SHADOW LANE QUARANTINED]](items/item-148-no-market-extra-location-shadow-lane.md) |
 | 149 | [Target-Vs-Extra Location Validation Harness [COMPLETE 2026-06-18 - PRICE-FREE TRANSFER HARNESS LIVE]](items/item-149-target-vs-extra-location-validation-harness.md) |
 | 150 | [Extra-Location Compatibility Registry [COMPLETE 2026-06-18 - COMPATIBILITY GATE LIVE]](items/item-150-extra-location-compatibility-registry.md) |
@@ -236,7 +236,7 @@ infrastructure work remains.
 | 152 | [Active-Day Bot Preflight And Disk Liveness [COMPLETE 2026-06-18 - DISK AND DISCOVERY DENY-BY-DEFAULT GATES]](items/item-152-active-day-bot-preflight-and-disk-liveness.md) |
 | 153 | [Live Observation Monotonicity And Settlement-Bin Normalization [COMPLETE 2026-06-18 - SETTLEMENT-NORMALIZED LIVE HIGH LEDGER]](items/item-153-live-observation-monotonicity-and-settlement-bin-normalization.md) |
 | 155 | [Inactive-Market Price-Free Learning And Current-Max Carryover Guard [COMPLETE 2026-06-19 - 2026-06-18 AUDIT GAP]](items/item-155-inactive-market-price-free-learning-and-current-max-carryover-guard.md) |
-| 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-07-12 - PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
+| 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-07-12, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-07-12 - PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
 | 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
 | 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
@@ -246,7 +246,7 @@ infrastructure work remains.
 | 168 | [Ten-Minute Performance Gate And Weak-Slot Watchlist [COMPLETE]](items/item-168-ten-minute-performance-gate-and-weak-slot-watchlist.md) |
 | 169 | [Predawn Winner-Centering And Forecast-Anchor Repair [COMPLETE 2026-06-20 - LOGISTIC WINNER-CENTERING PASS]](items/item-169-predawn-winner-centering-and-forecast-anchor-repair.md) |
 | 170 | [Late-Day Lock-In Probability Saturation [COMPLETE 2026-06-20 - GROUP-GATED LOGISTIC LOCK-IN PASS]](items/item-170-late-day-lock-in-probability-saturation.md) |
-| 178 | [Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
+| 178 | [Serving-Time Ordinal Smoothing Train/Serve Skew [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
 | 179 | [Honest Blocked Validation For Feature-Model Tuning [COMPLETE 2026-06-22 - HONEST RE-EXPORT AND PROMOTION GATE LIVE]](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
 | 180 | [Unit-Safe Missing-Feature Handling [COMPLETE 2026-06-21 - MISSINGNESS ROUTES THROUGH IMPUTER]](items/item-180-unit-safe-missing-feature-handling.md) |
 | 181 | [Forecast Signal Double-Counting And Dead Capture-Hour [COMPLETE 2026-06-22 - ML SCOPE REMOVED, EMPIRICAL FALLBACK GATED]](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
@@ -272,7 +272,7 @@ infrastructure work remains.
 | 216 | [Runtime-Identity Segmented Model Evidence [COMPLETE 2026-06-22 - SEGMENTED CLAIM GATES LIVE]](items/item-216-runtime-identity-segmented-model-evidence.md) |
 | 217 | [Pinned Frozen-Baseline Replay Trend For Code-vs-Weather Skill Separation [COMPLETE 2026-06-22 - DAILY REFRESH AND LEDGER WIRING LIVE]](items/item-217-pinned-frozen-baseline-replay-trend.md) |
 | 218 | [Location-Specific F-Family Promotion Allowlist [COMPLETE 2026-06-22 - PER-MARKET ALLOWLIST ENFORCED]](items/item-218-location-specific-f-family-promotion-allowlist.md) |
-| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
+| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-07-12, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 220 | [CLOB Overlay Quote-Risk Lane Separation [COMPLETE 2026-06-22 - CLOB QUOTE-RISK LANE SEPARATED]](items/item-220-clob-overlay-quote-risk-lane-separation.md) |
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
@@ -281,12 +281,12 @@ infrastructure work remains.
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
-| 228 | [Predawn Weak-Slot Repair Candidate Gate [PARTIAL 2026-06-22 - PARAMETER SWEEP BLOCKS BROAD HOURLY]](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
-| 229 | [Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]](items/item-229-early-hour-live-forward-clean-day-proof.md) |
-| 230 | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration [PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
+| 228 | [Predawn Weak-Slot Repair Candidate Gate [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - PARAMETER SWEEP BLOCKS BROAD HOURLY]](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
+| 229 | [Early-Hour Live-Forward Clean-Day Proof [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-25, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]](items/item-229-early-hour-live-forward-clean-day-proof.md) |
+| 230 | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 231 | [Market-Specific Early-Hour Residual Repair Program [COMPLETE 2026-06-22 - MARKET MANIFESTS AND REJECTED-FAMILY REGISTRY LIVE]](items/item-231-market-specific-early-hour-residual-repair-program.md) |
 | 232 | [Current-Max Trust Retrain And Warm-Tail Replay [COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS]](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
-| 233 | [Validate-What-You-Serve Early-Hour Calibration Head [PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
+| 233 | [Validate-What-You-Serve Early-Hour Calibration Head [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-22, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 234 | [Settlement-Only Taker Quality Gate [COMPLETE 2026-06-22 - MTM-ONLY QUALITY FAILS CLOSED]](items/item-234-settlement-only-taker-quality-gate.md) |
 | 235 | [Bad-Tail No-Go And Tail Calibration Repair [COMPLETE 2026-06-22 - BAD TAIL SLICES FAIL CLOSED]](items/item-235-bad-tail-no-go-and-tail-calibration-repair.md) |
 | 236 | [Universal Current-High And Warm-Tail Risk Gates [COMPLETE 2026-06-22 - STRATEGY-FAMILY LOOPHOLES CLOSED]](items/item-236-universal-current-high-and-warm-tail-risk-gates.md) |
@@ -352,13 +352,13 @@ infrastructure work remains.
 | 310 | [Toronto WU Current-Max Boundary Over-Lock Guard [COMPLETE 2026-06-24 - SUPPORT-ONLY CURRENT-MAX BOUNDARY GUARD LIVE]](items/item-310-toronto-wu-current-max-boundary-overlock-guard.md) |
 | 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
 | 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
-| 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
-| 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
+| 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [DORMANT 2026-09-29 - RELEASE 1 DEFERRED UNTIL A RETRAINED CANDIDATE; WAS OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
+| 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [DORMANT 2026-09-29 - TAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-22 - WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-13 - QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
+| 328 | [Paper-Only Market-Harvest Permission Lane [DORMANT 2026-09-29 - PAPER MAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
 
 ### Architecture And Maintainability
 
@@ -389,19 +389,19 @@ infrastructure work remains.
 | 131 | [Model Artifact Storage Growth Guard [COMPLETE 2026-06-18 - SIZE AUDIT AND STORAGE POLICY LIVE]](items/item-131-model-artifact-storage-growth-guard.md) |
 | 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
 | 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
-| 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
+| 161 | [Loop Restart Noise And Current-Code Cadence Proof [DORMANT 2026-09-29 - SOAK PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 171 | [Local Data Retention And CLOB Tape Storage Cleanup [COMPLETE 2026-06-20 - DATA RETENTION INVENTORY AND DAILY BUDGET LIVE]](items/item-171-local-data-retention-and-clob-tape-storage-cleanup.md) |
 | 172 | [Artifact Storage Externalization And Git Object Store Cleanup [COMPLETE 2026-06-20 - LFS ARTIFACT PREFLIGHT PASS]](items/item-172-artifact-storage-externalization-and-git-object-store-cleanup.md) |
 | 173 | [Post-Agent Large Module Decomposition And Ownership Split [COMPLETE 2026-06-20 - FACADES SPLIT AND SIZE AUDIT RATIFIED]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
 | 174 | [Configuration Registry Hygiene And Volatile Metadata Refresh [COMPLETE 2026-06-20 - DURABLE CONFIGS AND FRESH GENERATED EVENTS]](items/item-174-configuration-registry-hygiene-and-volatile-metadata-refresh.md) |
 | 175 | [Roadmap Backlog Normalization And Historical Noise Reduction [COMPLETE 2026-06-21 - ACTIVE BACKLOG PARSER AND LINT LIVE]](items/item-175-roadmap-backlog-normalization-and-historical-noise-reduction.md) |
-| 176 | [Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
-| 177 | [Core Model Validation And Serving Skew Repair [PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
+| 176 | [Local Generated State And Tooling Cleanup Sweep [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-07-12, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
+| 177 | [Core Model Validation And Serving Skew Repair [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-21, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 204 | [Roadmap Index Ownership Lint And Duplicate Membership [COMPLETE 2026-06-21 - INDEX LINT GATE LIVE]](items/item-204-roadmap-index-ownership-lint-and-duplicate-membership.md) |
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [COMPLETE 2026-07-20 - ALL 103 SHIMS REMOVED, ABSENCE RATCHETS LIVE]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [DORMANT 2026-09-29 - SOAK PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
 | 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [COMPLETE 2026-06-25 - FORWARD MIGRATION AND ROW RECOVERY LIVE]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
 | 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |

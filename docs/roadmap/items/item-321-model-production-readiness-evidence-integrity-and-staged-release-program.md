@@ -1,4 +1,4 @@
-# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]
+# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [DORMANT 2026-09-29 - RELEASE 1 DEFERRED UNTIL A RETRAINED CANDIDATE; WAS OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]
 
 Goal: converge the current research, collection, model, promotion, storage, and
 trading systems into one fail-closed production release program that can move a

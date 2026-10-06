@@ -1,4 +1,4 @@
-# 144. Early-Hour Market-Aware Risk Guardrail [PARTIAL 2026-06-18 - GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED]
+# 144. Early-Hour Market-Aware Risk Guardrail [DORMANT 2026-09-29 - NO ACTIVITY SINCE 2026-06-18, NO OPERATIONS INBOUND (REPO-HEALTH D5-5); WAS PARTIAL 2026-06-18 - GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED]
 
 Goal: protect trading and quote decisions during 00:00-08:00 local hours where
 the no-market weather model trails market prices, without treating a
