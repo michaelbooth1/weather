@@ -39,9 +39,16 @@ UNCHANGED_SECONDS = 2 * 86400
 CLUSTER_BYTES = 4096
 # The capture loops atomically replace their status files. An admission read
 # that lands inside a replace meets a delete-pending file (PermissionError) or,
-# through the tolerant loop reader, an unreadable row (BLOCK). One fresh complete
-# observation after a short pause decides; the admission criteria are unchanged.
-ADMISSION_RETRY_SECONDS = 0.25
+# through the tolerant loop reader, an unreadable row (BLOCK). 2026-10-03 and
+# 2026-10-06 failed on a second PermissionError 0.25 s after the first, and
+# 2026-10-04 on a transient capture_unhealthy read. So: quick retries with backoff,
+# then "admission unknown, wait" polling; the night fails closed only when the
+# capture status stays unreadable or BLOCKed for ADMISSION_SUSTAINED_SECONDS.
+# The admission criteria themselves are unchanged. The wait (at most 60 s) fits
+# inside the 120 s child stop reserve, so it cannot push past the wrapper deadline.
+ADMISSION_RETRY_DELAYS = (0.25, 0.5, 1.0, 2.0)
+ADMISSION_WAIT_POLL_SECONDS = 5.0
+ADMISSION_SUSTAINED_SECONDS = 60.0
 # Owner decision 2026-10-05: the nightly runs 06:50-09:00 America/Toronto, after
 # the 04:45-06:45 tiering jobs, so 01:00-04:00 stays free for roll-sensitive merges.
 WINDOW_START_MINUTE = 6 * 60 + 50
@@ -100,22 +107,39 @@ def closed_folders(data_root, as_of, guard):
     return [name for _, name in sorted(selected)]
 
 
-def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep):
-    """Capture admission, re-observed once after a transient status-read race."""
+def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep, monotonic=time.monotonic):
+    """Capture admission that rides out a status file's atomic replace.
+
+    Returns the first PASS. A PermissionError (sharing violation or delete-pending
+    read) or a BLOCK is re-observed: first after ADMISSION_RETRY_DELAYS, then every
+    ADMISSION_WAIT_POLL_SECONDS. Once the next wait would pass
+    ADMISSION_SUSTAINED_SECONDS, a BLOCK is returned for the guard to refuse and a
+    still-unreadable status raises PermissionError (fail closed). Other errors are
+    never retried.
+    """
     observe = observe or cold.observe_capture_admission
-    try:
-        admission = observe(root, resources)
-        if admission["status"] == "PASS":
+    started = monotonic()
+    attempt = 0
+    while True:
+        try:
+            admission = observe(root, resources)
+            if admission["status"] == "PASS":
+                return admission
+            last, error = "BLOCK: " + ",".join(admission["reasons"]), None
+        except PermissionError as exc:
+            admission, last, error = None, f"PermissionError: {exc}", exc
+        delay = ADMISSION_RETRY_DELAYS[attempt] if attempt < len(ADMISSION_RETRY_DELAYS) else ADMISSION_WAIT_POLL_SECONDS
+        if monotonic() - started + delay > ADMISSION_SUSTAINED_SECONDS:
+            if error is not None:
+                raise PermissionError(f"capture status unreadable for {ADMISSION_SUSTAINED_SECONDS:.0f} s "
+                                      f"after {attempt + 1} observations: {error}") from error
             return admission
-        first = "BLOCK: " + ",".join(admission["reasons"])
-    except PermissionError as exc:
-        first = f"PermissionError: {exc}"
-    notes["admission_retries"] += 1
-    if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
-        notes["admission_retry_notes"].append({
-            "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": first[:512]})
-    sleep(ADMISSION_RETRY_SECONDS)
-    return observe(root, resources)
+        notes["admission_retries"] += 1
+        if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
+            notes["admission_retry_notes"].append({
+                "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": last[:512]})
+        sleep(delay)
+        attempt += 1
 
 
 def eligible(row, *, now):

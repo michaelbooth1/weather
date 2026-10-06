@@ -264,11 +264,21 @@ writer locks and hot event folders are never stat'ed or opened, and an error on
 a selected closed-day folder refuses. The capture loops atomically replace their
 status files, so the per-second capture-admission read can land on a
 delete-pending file (the 2026-10-03 night failed after 87 batches with
-`PermissionError` on `clob_loop_status.json`). A `PermissionError` or `BLOCK`
-from one admission observation is followed, after 0.25 s, by one fresh complete
-observation that decides; criteria are unchanged and a second failure refuses.
-The receipt counts these as `admission_retries` and keeps the first 32 first
-observations in `admission_retry_notes`.
+`PermissionError` on `clob_loop_status.json`). The same thing happened on
+2026-10-06, and 2026-10-04 failed on a transient `capture_unhealthy` read.
+
+- **Quick retries.** A `PermissionError` or `BLOCK` from an admission
+  observation is re-observed after 0.25, 0.5, 1 and 2 s.
+- **Waiting.** After that, the night treats admission as unknown and waits,
+  re-observing every 5 s. No compression happens while it waits.
+- **Failing closed.** The night fails only when the capture status stays
+  unreadable (`PermissionError`) or `BLOCK`ed for 60 s.
+- **Unchanged.** The admission criteria are the same, and other read errors are
+  never retried.
+- **Deadline.** The wait (at most 60 s) fits inside the 120 s child stop
+  reserve, so it cannot push past the wrapper deadline.
+- **Receipt.** It counts the retries as `admission_retries` and keeps the first
+  32 observations in `admission_retry_notes`.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total

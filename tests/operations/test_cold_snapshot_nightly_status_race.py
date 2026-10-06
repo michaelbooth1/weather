@@ -2,6 +2,9 @@
 
 2026-10-03: the nightly failed after 87 batches with PermissionError on
 data/snapshots/clob_loop_status.json, read by the per-second capture admission.
+2026-10-06: the same, on a second PermissionError 0.25 s after the first; 2026-10-04 on a
+transient capture_unhealthy read. Guards: transient status reads back off and wait; only a
+sustained unreadable or BLOCKed capture status fails the night.
 """
 from contextlib import contextmanager
 from datetime import date
@@ -120,33 +123,101 @@ def test_admission_pass_needs_no_retry():
     assert (len(calls), slept, record) == (1, [], notes())
 
 
-@pytest.mark.parametrize("first", [PermissionError(13, "Permission denied", "clob_loop_status.json"), BLOCK])
-def test_transient_status_race_is_reobserved_once_and_noted(first):
+DENIED = PermissionError(13, "Permission denied", "clob_loop_status.json")
+
+
+class Clock:
+    """Fake monotonic clock that only ``sleep`` advances."""
+
+    def __init__(self):
+        self.now, self.slept = 0.0, []
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+    def monotonic(self):
+        return self.now
+
+
+def observe_with(clock, observe, record=None):
+    return night.observe_admission("root", None, record if record is not None else notes(), observe=observe,
+                                   sleep=clock.sleep, monotonic=clock.monotonic)
+
+
+def always(outcome):
+    calls = []
+
+    def observe(root, resources):
+        calls.append(root)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    return observe, calls
+
+
+@pytest.mark.parametrize("first", [DENIED, BLOCK])
+def test_transient_status_race_is_reobserved_and_noted(first):
     observe, calls = sequence(first, PASS)
-    record, slept = notes(), []
-    assert night.observe_admission("root", None, record, observe=observe, sleep=slept.append) is PASS
-    assert len(calls) == 2 and slept == [night.ADMISSION_RETRY_SECONDS]
+    record, clock = notes(), Clock()
+    assert observe_with(clock, observe, record) is PASS
+    assert len(calls) == 2 and clock.slept == [night.ADMISSION_RETRY_DELAYS[0]]
     assert record["admission_retries"] == 1
     observation = record["admission_retry_notes"][0]["first_observation"]
     assert observation.startswith("PermissionError" if isinstance(first, OSError) else "BLOCK: capture_unhealthy:clob")
 
 
-def test_persistent_permission_error_still_refuses():
-    error = PermissionError(13, "Permission denied", "clob_loop_status.json")
-    observe, _ = sequence(error, error)
-    with pytest.raises(PermissionError):
-        night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None)
+def test_a_permission_error_injected_once_never_fails_the_night():
+    """2026-10-06 (and 10-03): one replace in flight must not cost the night."""
+    observe, calls = sequence(DENIED, PASS)
+    assert observe_with(Clock(), observe) is PASS and len(calls) == 2
 
 
-def test_persistent_block_is_returned_for_the_guard_to_refuse():
-    observe, _ = sequence(BLOCK, BLOCK)
-    assert night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None) is BLOCK
+@pytest.mark.parametrize("failures", [2, 4, 6, 10])
+def test_repeated_transient_unreadability_backs_off_then_waits_instead_of_failing(failures):
+    """The old single 0.25 s retry failed on a second PermissionError; now the night waits."""
+    observe, calls = sequence(*([DENIED] * failures), PASS)
+    clock = Clock()
+    assert observe_with(clock, observe) is PASS
+    expected = list(night.ADMISSION_RETRY_DELAYS[:failures]) + [night.ADMISSION_WAIT_POLL_SECONDS] * max(
+        0, failures - len(night.ADMISSION_RETRY_DELAYS))
+    assert clock.slept == expected and sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+
+
+def test_a_transient_capture_unhealthy_read_is_waited_out():
+    """2026-10-04: a transient capture_unhealthy BLOCK."""
+    observe, _ = sequence(BLOCK, BLOCK, BLOCK, PASS)
+    assert observe_with(Clock(), observe) is PASS
+
+
+def test_a_persistent_permission_error_still_fails_closed():
+    observe, calls = always(DENIED)
+    clock = Clock()
+    with pytest.raises(PermissionError, match="unreadable for 60 s"):
+        observe_with(clock, observe)
+    # Bounded: it gave up before the sustained bound, after the backoff and wait polls.
+    assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+    assert sum(clock.slept) + night.ADMISSION_WAIT_POLL_SECONDS > night.ADMISSION_SUSTAINED_SECONDS
+    assert len(calls) == len(clock.slept) + 1
+
+
+def test_a_persistent_block_is_returned_for_the_guard_to_refuse():
+    observe, _ = always(BLOCK)
+    clock = Clock()
+    assert observe_with(clock, observe) is BLOCK
+    assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+
+
+def test_the_admission_wait_fits_inside_the_child_stop_reserve():
+    """A sustained wait that starts just before the child deadline still ends before the wrapper hard stop."""
+    worst = night.ADMISSION_SUSTAINED_SECONDS + night.ADMISSION_WAIT_POLL_SECONDS
+    assert worst < 120  # cold_snapshot_compression_run.ps1 $nightlyChildStopReserveSeconds
 
 
 def test_other_errors_are_not_retried():
     observe, calls = sequence(ValueError("capture status/lock exceeds its admission read bound"), PASS)
     with pytest.raises(ValueError):
-        night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None)
+        observe_with(Clock(), observe)
     assert len(calls) == 1
 
 
@@ -154,7 +225,7 @@ def test_retry_notes_are_bounded_but_counted():
     record = notes()
     for _ in range(night.MAX_ADMISSION_NOTES + 5):
         observe, _ = sequence(BLOCK, PASS)
-        night.observe_admission("root", None, record, observe=observe, sleep=lambda _: None)
+        observe_with(Clock(), observe, record)
     assert record["admission_retries"] == night.MAX_ADMISSION_NOTES + 5
     assert len(record["admission_retry_notes"]) == night.MAX_ADMISSION_NOTES
 
