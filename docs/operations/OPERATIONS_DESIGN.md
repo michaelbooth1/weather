@@ -361,10 +361,17 @@ scheduled PowerShell wrapper actions:
   local with a four-hour task limit. Its scheduled child suppresses the former
   immediate Stage-B trigger, so Stage A releases the shared heavy-work lease
   before any evidence work is eligible to start.
-- `WeatherEveningEvidenceRefresh` has one trigger at 00:35 local with an
-  eight-hour child SLA through 08:35, an 8h25m wrapper span through its 09:00
-  teardown, and an 8h40m scheduler limit through 09:15 for bounded cleanup
-  before Stage A. The strict composition is `28800 < 30300 < 31200` seconds.
+- `WeatherEveningEvidenceRefresh` has one trigger at 06:45 local with a
+  1h50m child SLA through 08:35, a 2h15m wrapper span through its 09:00
+  teardown, and a 2h30m scheduler limit through 09:15 for bounded cleanup
+  before Stage A. The strict composition is `6600 + 240 < 8100 < 9000`
+  seconds, where 240 is the bounded lease wait. The former 00:35 trigger sat
+  inside the 00:30 cold-snapshot nightly's lease (hard end 04:45), so every
+  scheduled run refused. 05:00 would have taken the slot of `WeatherClobTiering`
+  (05:00, `PT31M`) and `WeatherClobRawTapeTiering` (06:00, `PT41M`), which skip
+  without retrying when the lease is busy. 06:45 follows every recurring
+  overnight lease holder's hard end (raw-tape tiering by 06:41). All values live
+  in `Get-DailyRefreshEvidenceSchedule` (`scripts/ops/daily_refresh_contract.ps1`).
   Across midnight it
   requires an exact completed Stage-A
   manifest for the independently derived overnight operating date minus two
@@ -378,10 +385,25 @@ enabling Stage B. Its established monolithic-memory hold remains in force until
 the evidence workload is chunked and its representative resource receipts pass
 the host-load contract. The registrar therefore leaves Stage B disabled unless
 the operator explicitly supplies `-EnableEvidenceTask`, then reads the task
-state, exact 00:35 trigger, and `PT8H40M` limit back and fails if they disagree.
-No alternative `EvidenceAt` is supported. Stage B also omits `StartWhenAvailable`:
-a missed 00:35 trigger must not become a guaranteed refusal after its 09:00
-window.
+state, exact 06:45 trigger, and `PT2H30M` limit back and fails if they disagree.
+No alternative `EvidenceAt` is supported. Before registering anything it refuses
+while any enabled scheduled task that holds the shared lease has a scheduled
+window, start plus its own execution limit, that overlaps Stage B's
+06:45-09:15. Lease holders are derived from source, not a hand list:
+`Get-WeatherSharedLeaseEntryPoints` marks every `scripts/ops` script that calls
+`Enter-WeatherHeavyWorkloadLease`, then every script or `weather.*` module that
+launches one through a quoted path literal, a quoted `-m` module token, or a
+module import, transitively. A task holds the lease when any action names one of
+those entry points. A pending one-shot counts, a passed one does not, and a
+holder with no fixed clock window (boot, logon, repeating, unbounded) counts as
+overlapping. `tests/operations/test_daily_refresh_evidence_trigger.py`
+re-derives the set independently and fails when any daily lease-taking
+registrar's window overlaps Stage B. At run
+time the wrapper polls the non-blocking lease for at most 240 seconds, inside
+the 300-second scheduler correlation that producer provenance enforces, and
+otherwise refuses with exit 76; it never preempts a holder. Stage B also omits
+`StartWhenAvailable`: a missed 06:45 trigger must not become a guaranteed
+refusal after its 09:00 window.
 
 A stage manifest is a required publication, not optional reporting. Its
 single atomic write includes the Stage-A trigger disposition; any publication

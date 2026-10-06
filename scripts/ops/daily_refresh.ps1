@@ -107,9 +107,21 @@ if ($localMinute -ge $deadlineMinute -or $localMinute -lt 30) {
     Write-Output "REFUSED: daily refresh stage '$Stage' cannot run outside 00:30-$deadlineLabel"
     exit 75
 }
-$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
-    -Workload "daily_refresh_$Stage" `
-    -AllowStageAWindow:($Stage -eq "settlement")
+$acquireLease = {
+    Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
+        -Workload "daily_refresh_$Stage" `
+        -AllowStageAWindow:($Stage -eq "settlement")
+}
+if ($Stage -eq "evidence") {
+    # Absorb a prior holder's release jitter, but only inside the scheduler
+    # correlation budget: a later child start could not attest provenance.
+    $evidenceSchedule = Get-DailyRefreshEvidenceSchedule
+    $workloadLease = Enter-DailyRefreshLeaseWithin -Acquire $acquireLease `
+        -WaitSeconds $evidenceSchedule.LeaseWaitSeconds `
+        -RetrySeconds $evidenceSchedule.LeaseRetrySeconds
+} else {
+    $workloadLease = & $acquireLease
+}
 if ($null -eq $workloadLease) {
     Write-Output "REFUSED: another heavyweight host workload owns data/logs/heavy_workload.lock"
     exit 76
