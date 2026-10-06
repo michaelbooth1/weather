@@ -79,7 +79,6 @@ EXPECTED_SHARDS = {
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_quiet_window_merge_execution.py",
-            "tests/operations/test_international_live_session_runner_stdin.py",
         ],
     ),
     "windows-lane-a": (
@@ -116,6 +115,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_docs_light_path_script.py",
             "tests/operations/test_international_live_session_runner.py",
             "tests/operations/test_live_runner_console_guards.py",
+            "tests/operations/test_international_live_session_runner_stdin.py",
             "tests/operations/test_cold_archive_catalog.py",
             "tests/market/test_wallet_reader_logon_task.py",
             "tests/operations/test_reconcile_ordinary_quiet_merge.py",
