@@ -192,5 +192,16 @@ class TestOpenMeteoArchives(unittest.TestCase):
         self.assertEqual(missing[0][0].isoformat(), "2026-06-03")
 
 
+def test_split_ranges_sorts_dedupes_and_splits_on_one_day_gaps():
+    """Missing archive dates are sorted and de-duplicated; any gap starts a new range (review K, A08)."""
+    from datetime import date
+
+    from weather.sources.open_meteo_archives import split_ranges
+
+    day = lambda d: date(2026, 1, d)  # noqa: E731
+    assert split_ranges([day(3), day(1), day(2), day(2)], 10) == [(day(1), day(3))]
+    assert split_ranges([day(1), day(3)], 10) == [(day(1), day(1)), (day(3), day(3))]
+
+
 if __name__ == "__main__":
     unittest.main()

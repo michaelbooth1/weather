@@ -33,6 +33,24 @@ Run the narrow directory or file first, then the full suite:
 Host rules are owned by [the host load policy](../docs/operations/HOST_LOAD_POLICY.md)
 and [development.md](../docs/development.md).
 
+## Test hygiene (owner decision 2026-10-04)
+
+From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row of 2026-10-04; record:
+[test-policy-proposals.md](../docs/research/test-suite-review-2026-10-04/test-policy-proposals.md)).
+`tests/test_hygiene_ratchet.py` blocks new instances only (today's are in
+`tests/hygiene_ratchet_baseline.json`; `python -m tests.hygiene_ratchet --report` explains a failure):
+
+- each new test module's docstring has a `Guards:` line naming the contract, EF/RF/HWGTW id or incident;
+- no `.ps1` text assert in a module that never executes PowerShell: add an execution test instead;
+- no `_private` imports from `src/` or `app`;
+- tests that start git or PowerShell carry `@pytest.mark.spawns`.
+
+Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
+contract; mutation-informed assertions as in
+[development.md](../docs/development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)
+(both sides of each boundary, one case per guard clause where only it fires, statistics against an
+independent value).
+
 ## Update this file when
 
 Update when test layout, fixture policy, collection rules, or repository-wide
