@@ -81,6 +81,7 @@ infrastructure work remains.
 | 333 | [Signed Native Temperature Band Parser [PARTIAL]](items/item-333-signed-native-temperature-band-parser.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 | 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
+| 336 | [Landing Preflight [PARTIAL 2026-10-06 - WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN]](items/item-336-landing-preflight.md) |
 
 ### Market Expansion
 
