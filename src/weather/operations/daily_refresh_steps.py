@@ -62,6 +62,15 @@ from weather.operations.daily_refresh_trading_steps import (
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
 )
+from weather.operations.daily_refresh_gate_report_steps import (
+    run_early_hour_positive_daily_first_gate_step,
+    run_market_benchmark_residual_edge_step,
+    run_per_location_artifact_quarantine_step,
+    run_physical_feature_family_ratchet_step,
+    run_pooled_f_retrain_location_gate_step,
+    run_served_distribution_calibration_contract_step,
+    run_weather_only_model_proof_packet_step,
+)
 from weather.operations.daily_refresh_reporting_steps import (
     DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
     DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
@@ -124,13 +133,18 @@ DEFAULT_RUNNERS = (
     ("runtime_identity_reconciliation", run_runtime_identity_reconciliation_step),
     ("live_variant_settlement_scorecard", run_live_variant_settlement_scorecard_step),
     ("fleet_observability", run_fleet_observability_step),
+    ("per_location_artifact_quarantine", run_per_location_artifact_quarantine_step),
+    ("physical_feature_family_ratchet", run_physical_feature_family_ratchet_step),
     ("promotion_refresh", run_promotion_refresh_step),
+    ("pooled_f_retrain_location_gate", run_pooled_f_retrain_location_gate_step),
+    ("served_distribution_calibration_contract", run_served_distribution_calibration_contract_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("active_variant_shadow", run_active_variant_shadow_step),
     ("proper_scoring_reliability_scorecard", run_proper_scoring_reliability_scorecard_step),
     ("frozen_baseline_replay_trend", run_frozen_baseline_replay_trend_step),
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
+    ("early_hour_positive_daily_first_gate", run_early_hour_positive_daily_first_gate_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("daily_roll_log_hygiene", run_daily_roll_log_hygiene_step),
     ("nightly_health_checks", run_nightly_health_checks_step),
@@ -142,6 +156,8 @@ DEFAULT_RUNNERS = (
     ("june23_location_bias_repair", run_june23_location_bias_repair_step),
     ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
+    ("weather_only_model_proof_packet", run_weather_only_model_proof_packet_step),
+    ("market_benchmark_residual_edge", run_market_benchmark_residual_edge_step),
     ("market_beating_objective_scoreboard", run_market_beating_objective_scoreboard_step),
     ("daily_flow_analysis", run_daily_flow_analysis_step),
 )

@@ -48,6 +48,13 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_model_variant_evidence_growth_step,
     run_observed_floor_safety_monitor_step,
     run_promotion_refresh_step,
+    run_per_location_artifact_quarantine_step,
+    run_physical_feature_family_ratchet_step,
+    run_pooled_f_retrain_location_gate_step,
+    run_served_distribution_calibration_contract_step,
+    run_early_hour_positive_daily_first_gate_step,
+    run_weather_only_model_proof_packet_step,
+    run_market_benchmark_residual_edge_step,
     run_price_free_model_learning_step,
     run_public_wu_settlement_restore_step,
     run_proper_scoring_reliability_scorecard_step,
@@ -92,6 +99,9 @@ from weather.operations.daily_refresh_settled_day import (
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
+from weather.operations import daily_refresh_gate_report_steps as refresh_gate_report_steps
+from weather.operations import daily_refresh_reporting_steps as refresh_reporting_steps
+from weather.reporting.promotion.readers import serving_gauntlet_summary
 
 
 def _recent_active_variant_row(as_of=None):
@@ -1319,7 +1329,7 @@ class TestDailyRefresh(unittest.TestCase):
         settlement = step_names_for_stage("settlement")
         evidence = step_names_for_stage("evidence")
 
-        self.assertEqual(settlement[-1], "fleet_observability")
+        self.assertEqual(settlement[-1], "physical_feature_family_ratchet")
         self.assertEqual(evidence[0], "promotion_refresh")
         self.assertNotIn("promotion_refresh", settlement)
         self.assertNotIn("fleet_observability", evidence)
@@ -1373,6 +1383,78 @@ class TestDailyRefresh(unittest.TestCase):
             )
         )
         self.assertEqual(tuple(name for name, _runner in DEFAULT_RUNNERS), STEP_ORDER)
+
+    def test_d1_09_producers_are_scheduled_in_dependency_order(self):
+        positions = {name: index for index, name in enumerate(STEP_ORDER)}
+        self.assertLess(
+            positions["per_location_artifact_quarantine"],
+            positions["promotion_refresh"],
+        )
+        self.assertLess(
+            positions["physical_feature_family_ratchet"],
+            positions["promotion_refresh"],
+        )
+        self.assertLess(
+            positions["promotion_refresh"],
+            positions["pooled_f_retrain_location_gate"],
+        )
+        self.assertLess(
+            positions["pooled_f_retrain_location_gate"],
+            positions["served_distribution_calibration_contract"],
+        )
+        self.assertLess(
+            positions["progress_audit"],
+            positions["early_hour_positive_daily_first_gate"],
+        )
+        self.assertLess(
+            positions["daily_learning"],
+            positions["weather_only_model_proof_packet"],
+        )
+        self.assertLess(
+            positions["weather_only_model_proof_packet"],
+            positions["market_beating_objective_scoreboard"],
+        )
+        self.assertLess(
+            positions["market_benchmark_residual_edge"],
+            positions["market_beating_objective_scoreboard"],
+        )
+        self.assertNotIn("forecast_tracker", STEP_ORDER)
+        runner_map = dict(DEFAULT_RUNNERS)
+        self.assertIs(runner_map["per_location_artifact_quarantine"], run_per_location_artifact_quarantine_step)
+        self.assertIs(runner_map["physical_feature_family_ratchet"], run_physical_feature_family_ratchet_step)
+        self.assertIs(runner_map["pooled_f_retrain_location_gate"], run_pooled_f_retrain_location_gate_step)
+        self.assertIs(runner_map["served_distribution_calibration_contract"], run_served_distribution_calibration_contract_step)
+        self.assertIs(runner_map["early_hour_positive_daily_first_gate"], run_early_hour_positive_daily_first_gate_step)
+        self.assertIs(runner_map["weather_only_model_proof_packet"], run_weather_only_model_proof_packet_step)
+        self.assertIs(runner_map["market_benchmark_residual_edge"], run_market_benchmark_residual_edge_step)
+
+    def test_d1_09_report_step_isolated_child_uses_fixture_output_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            commands = []
+            with patch.object(
+                refresh_gate_report_steps,
+                "_run_heavy_step_child",
+                side_effect=lambda _args, _name, command: commands.append(command) or {"returncode": 0},
+            ), patch.object(
+                refresh_gate_report_steps,
+                "_load_child_json",
+                return_value={"status": "BLOCK", "blockers": [{"detail": "fixture input missing"}]},
+            ):
+                result = run_market_benchmark_residual_edge_step(args)
+            self.assertEqual(result["status"], "BLOCK")
+            self.assertIn("fixture input missing", result["first_blocker"]["detail"])
+            self.assertEqual(len(commands), 1)
+            self.assertIn("weather.reporting.market.market_benchmark_residual_edge", commands[0])
+            self.assertIn(str(Path(args.backtest_root) / "market_benchmark_residual_edge.json"), commands[0])
+
+    def test_forecast_tracker_is_not_copied_into_promotion_display_summary(self):
+        summary = serving_gauntlet_summary(
+            {"verdict": "BLOCK", "forecast_tracker": {"status": "PASS"}},
+            "fixture-report.json",
+            "fixture-replay.json",
+        )
+        self.assertNotIn("forecast_tracker", summary)
 
     def test_promotion_receipts_fail_closed_on_malformed_or_vacuous_evidence(self):
         target = "2026-07-07"
