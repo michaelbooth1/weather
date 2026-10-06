@@ -1,3 +1,8 @@
+"""The thin supervisor-ensure entry stays light and its registrars stay thin.
+
+Guards: thin ensure entry for the snapshot and CLOB supervisors (docs/roadmap/agent-report-2026-09-110v-part5.md; docs/operations/OPERATIONS_DESIGN.md).
+"""
+
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -92,10 +97,43 @@ def test_wiring_matches_canonical_owner_and_import_stays_light():
     assert result.returncode == 0, result.stderr
 
 
-def test_registrar_actions_are_thin_and_principal_preserved():
+_REGISTRAR_STUBS = r"""
+$ErrorActionPreference = 'Stop'
+function New-ScheduledTaskAction { param($Execute, $Argument, $WorkingDirectory)
+    [pscustomobject]@{ Execute = $Execute; Arguments = $Argument; WorkingDirectory = $WorkingDirectory } }
+function New-ScheduledTaskTrigger { [pscustomobject]@{} }
+function New-ScheduledTaskSettingsSet { [pscustomobject]@{} }
+function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel)
+    [pscustomobject]@{ LogonType = $LogonType; RunLevel = $RunLevel } }
+function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Settings, $Principal, $Description, [switch]$Force)
+    [pscustomobject]@{ TaskName = $TaskName; Execute = $Action.Execute; Arguments = $Action.Arguments;
+        LogonType = $Principal.LogonType; RunLevel = $Principal.RunLevel } |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $env:THIN_ENSURE_REGISTRATION -Encoding UTF8 }
+& $env:THIN_ENSURE_REGISTRAR -RepoRoot $env:THIN_ENSURE_REPO_ROOT | Out-Null
+"""
+
+
+@pytest.mark.skipif(os.name != "nt", reason="executes the Windows PowerShell registrar")
+@pytest.mark.spawns
+@pytest.mark.parametrize("loop", ["snapshot", "clob"])
+def test_registrar_actions_are_thin_and_principal_preserved(tmp_path, loop):
     root = Path(__file__).resolve().parents[2]
-    for loop in ("snapshot", "clob"):
-        text = (root / "scripts" / "ops" / f"register_{loop}_supervisor.ps1").read_text()
-        assert f"weather.operations.thin_ensure --ensure --loop {loop}" in text
-        assert "-LogonType S4U" in text
-        assert "-RunLevel Limited" in text
+    fake_repo = tmp_path / "repo"
+    (fake_repo / "venv" / "Scripts").mkdir(parents=True)
+    (fake_repo / "venv" / "Scripts" / "pythonw.exe").write_bytes(b"")
+    registration = tmp_path / "registration.json"
+    env = dict(os.environ,
+               THIN_ENSURE_REGISTRAR=str(root / "scripts" / "ops" / f"register_{loop}_supervisor.ps1"),
+               THIN_ENSURE_REPO_ROOT=str(fake_repo),
+               THIN_ENSURE_REGISTRATION=str(registration))
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-Command", _REGISTRAR_STUBS],
+        capture_output=True, text=True, timeout=120, env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    registered = json.loads(registration.read_text(encoding="utf-8-sig"))
+    assert registered["Execute"] == str(fake_repo / "venv" / "Scripts" / "pythonw.exe")
+    assert registered["Arguments"].startswith(
+        f"-m weather.operations.thin_ensure --ensure --loop {loop}")
+    assert registered["LogonType"] == "S4U"
+    assert registered["RunLevel"] == "Limited"
