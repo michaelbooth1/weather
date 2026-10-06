@@ -168,6 +168,26 @@ it against `git worktree list`. If it is not the production checkout, the code t
 
 ### Weather Snapshot Loop
 
+Snapshot and CLOB registrar actions use `weather.operations.thin_ensure
+--ensure --loop snapshot|clob`. Its proven-healthy path imports only
+supervisor/status/runtime-identity helpers, checks the live PID, writer lock,
+heartbeat and loaded-source fingerprint, and writes the normal supervisor
+status. CLOB also checks its process inventory and healthy discovery results.
+Any uncertainty, pause, errors, stale code, missing lock, orphan or target-mode
+mismatch delegates to the unchanged canonical ensure routine after releasing
+the same supervisor lock. Recovery budgets and stop authority stay there.
+
+After separately authorized host adoption, re-register from the production
+checkout (these commands replace tasks and are not validation commands):
+`./scripts/ops/register_snapshot_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherSnapshotLoopSupervisor -EnsureEveryMinutes 2` and
+`./scripts/ops/register_clob_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherClobBookLoopSupervisor -EnsureEveryMinutes 1 -Market all
+-IntervalSeconds 60 -FastIntervalSeconds 15`. Preserve any deliberately
+reviewed host overrides instead of silently replacing them with defaults.
+Verify both tasks' Actions, Principal, Triggers and Settings with
+`Get-ScheduledTask`; the principal stays current-user S4U/Limited.
+
 - `data/snapshots/loop_status.json`
 - `data/snapshots/loop_supervisor_status.json`
 - `data/snapshots/diagnostics.jsonl`
