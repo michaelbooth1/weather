@@ -1,3 +1,8 @@
+"""Stage-A per-step profiling is opt-in and leaves default runs unchanged.
+
+Guards: optional Stage-A profiling contract (docs/operations/OPERATIONS_DESIGN.md per-step profiling; docs/roadmap/agent-report-2026-09-110v-part6.md).
+"""
+
 import json
 from pathlib import Path
 import sys
