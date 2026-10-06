@@ -1,3 +1,8 @@
+"""Affected-test selection follows the static import graph and fails toward running more.
+
+Guards: affected-test selection contract (docs/development.md#affected-test-selection; test-suite review K proposal docs/research/test-suite-review-2026-10-04/affected-test-selection-proposal.md).
+"""
+
 import json
 import subprocess
 
@@ -214,6 +219,7 @@ def repo(tmp_path):
     return root
 
 
+@pytest.mark.spawns
 def test_git_revisions_drive_the_cli_with_renames_on_both_sides(repo, capsys):
     assert at.changed_files(repo, "master", "change") == ["src/weather/core/leaf.py", "src/weather/other.py", "src/weather/renamed.py"]
 
