@@ -11,6 +11,9 @@ from weather.schema_registry import (  # noqa: E402
     validate_schema_version,
 )
 from weather.schema_registry_data import INTENTIONAL_SCHEMA_VERSION_ALIASES  # noqa: E402
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 class TestSchemaRegistry(unittest.TestCase):

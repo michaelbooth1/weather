@@ -1,6 +1,9 @@
 from weather.operations import daily_refresh_steps
 from weather.operations import python_runtime_audit as audit
 from weather.paths import REPO_ROOT
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def _ruff_finding(path, code, message, row=1):

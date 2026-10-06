@@ -159,6 +159,19 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   Before attributing a gain to an input, score the same transformation with the input removed. §10e had warned the stages
   were no-ops, but nobody joined that trace to the evening loss.
 
+### "Re-anchor the late-day lock-in to max(history_max, guidance_floor)" — SUPERSEDED (2026-10-05)
+
+- **What it looked like:** the 2026-10-04 evening fix (D-DEFECT, T27, and the §10q evening bullet) re-anchored the
+  lock-in on `max(history_max, guidance_floor)`. The band-level emulation closed 85% of the 17-23 gap.
+- **What is true:** `guidance_physical_floor` can include the prior day's 23:5x METAR report, which AWC's nominal
+  `reportTime` keys to 00:00 of D (the M0 defect, #189). So it is not a safe same-day anchor. Production's replay of
+  that rule (v2) found 679 rows where the new vector put more mass below the anchor than the old one.
+- **The adopted anchor** is the observed same-day station high with observation-time keying (`lockin-anchor-v3`,
+  #191, owner decision 2026-10-05). No late-day stage may leave mass below the anchor bucket. The replay floor check
+  is the acceptance gate: v3 had 0 rows with increased below-anchor mass. `ESTABLISHED_FINDINGS.md` §10q.
+- **Why it fooled us:** the emulation scored the anchor on the captured floor without asking which observations built
+  that floor. Before anchoring a stage on a derived value, trace its inputs' time keying.
+
 ### "Capture NBH (or another free source) to fix the morning" — FALSE LEAD (2026-10-04)
 
 - **What it looked like:** T5 (NBH latest cycle, remaining-hours max) was PIT-clean, LEAD in 00-16 and held at +60/+120 min;

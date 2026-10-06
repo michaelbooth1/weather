@@ -5,6 +5,9 @@ from weather.operations.structure_inventory import (
     compatibility_shims,
     render_report,
 )
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def _write(path: Path, lines: int = 1):
