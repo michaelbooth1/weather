@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

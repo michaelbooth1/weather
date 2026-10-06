@@ -40,11 +40,14 @@ changing inventories, metrics, versions, or operational state.
 | Package edges and facade ownership | operations boundary/ownership docs |
 | Domain-neutral maker plugin contracts, pure inputs and evidence format | `operations/maker-core-contracts.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
+| Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
-| Read-only wallet LAN routes, startup, valuation and firewall | `docs/operations/wallet-reader.md` |
+| Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
-| Current work | generated roadmap active backlog |
+| Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
+| Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |
+| Current engineering work | generated roadmap active backlog |
 | Item status/scope/evidence | numbered roadmap item file |
 | Exact versions, counts, hashes, and active state | code, config, manifests, generated reports |
 
@@ -84,6 +87,9 @@ changing inventories, metrics, versions, or operational state.
 - Artifact or release lifecycle: update artifact/release runbooks and gates.
 - New work or changed status: update the numbered item and regenerate the
   active backlog; do not put project status in `AGENTS.md`.
+- Mission dispatch/handback/verification/landing: update its W record. Preserve
+  request/receipt ages; approvals reference an exact `DECISION_LOG` row.
+  Production runs `worktrack check` and regenerates the board in its docs step.
 
 ## Automated checks
 
@@ -110,6 +116,8 @@ The knowledge audit also enforces the controls added after the 2026-09-18 audit
 | `LINE_BUDGETS`, `NESTED_AGENT_FILE_LINE_BUDGET` | Always-loaded files growing by accretion; every agent pays for them on every task | Move detail to its owner file and link. Raise a budget only as a reviewed decision, with a comment saying why |
 | `unindexed_operations_docs` | A document nobody can find: every `docs/operations/*.md` must be linked from the operations index or `docs/README.md` | Add the index row, with its true status, in the same change that adds the file |
 | `RETIRED_CLAIMS` | A retracted claim surviving in another canonical file, where an agent reads it first and acts on it | **When you retract a claim, add its phrase to `RETIRED_CLAIMS` in the same change** |
+| `control_character_errors` | A literal control character (C0 except LF and CR, including TAB, plus DEL) in `docs/**/*.md` or any `AGENTS.md`/`README.md`, usually a `\t` or `\b` path escape that a shell or script expanded (2026-10-05) | Write the intended text; there is no allowlist, fenced code included |
+| `trailing_blank_line_errors`, `TRAILING_BLANK_LINE_EXEMPT` | A tracked text file (any type git treats as text, outside `data/`) ending in a blank line, which `git diff --check` reports as "new blank line at EOF" and which fails the documentation landing transaction (2026-10-05) | End the file with exactly one newline. The exemption list holds only roll-sensitive Python modules left for a quiet-window fix; it may only shrink, and a stale entry fails |
 | `CLAUDE.md` must import `@AGENTS.md` | Two harnesses starting from two different entry points | Do not fork the entry point; add harness notes only |
 | `--max-state-age-days N` (off by default, so CI stays deterministic) | `STATE_OF_PLAY.md` going stale while nothing merges | `status.ps1` raises the same flag every morning at 3 days; rewrite or re-attest the file |
 

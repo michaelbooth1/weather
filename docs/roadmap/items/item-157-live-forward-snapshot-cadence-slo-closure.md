@@ -1,4 +1,4 @@
-# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]
+# 157. Live-Forward Snapshot Cadence SLO Closure [DORMANT 2026-09-29 - CADENCE SLO PROOF; STREAK IS A DIAGNOSTIC; WAS PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]
 
 Goal: eliminate active-day snapshot cadence gaps so broad live-forward evidence
 can count for all selected markets.

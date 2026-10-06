@@ -3,12 +3,14 @@ import sys
 from pathlib import Path
 
 from tools.research import research_harness
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESEARCH_ROOT = REPO_ROOT / "tools" / "research"
 
 
+@pytest.mark.ratchet
 def test_research_inventory_covers_every_script():
     scripts = set(research_harness.research_scripts(RESEARCH_ROOT))
 
@@ -16,6 +18,7 @@ def test_research_inventory_covers_every_script():
     assert research_harness.validate_inventory(RESEARCH_ROOT) == []
 
 
+@pytest.mark.ratchet
 def test_research_scripts_do_not_use_pytest_discovery_names():
     offenders = sorted(path.name for path in RESEARCH_ROOT.glob("test_*.py"))
 

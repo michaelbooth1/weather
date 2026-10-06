@@ -8,6 +8,11 @@ import subprocess
 
 import pytest
 
+# The helpers that parse status.ps1, define a few of its functions and print JSON only
+# evaluate script logic, so they share one PowerShell host (fresh runspace per call; see
+# tests/powershell_host.py). The -File startup test keeps a real powershell.exe child.
+from tests.powershell_host import run_command as run_powershell_command
+
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
 REPO_ROOT = SCRIPT.parents[2]
@@ -200,8 +205,53 @@ def _replace_json_text_once(path: Path, needle: str, replacement: str) -> bytes:
     return mutated
 
 
-def _build_reconciliation_status_fixture(
-    tmp_path: Path, *, safety_base: str = REVIEWED_PARENT
+# Per-module cache of the git history every reconciliation fixture shares (clone, the S
+# safety commit, the C config commit and the merge M), keyed by safety base. Building
+# that history took ~5 s per test, almost all of it in checkouts and commits; each test
+# now copies the template's .git and materializes the same index (see
+# _build_reconciliation_status_fixture). The history is content-identical: same
+# commits, trees, branches, remote-tracking refs and worktree bytes.
+_GIT_TEMPLATE_ROOT: list[Path] = []
+_GIT_TEMPLATES: dict[str, dict[str, object]] = {}
+
+
+def _remove_tree(root: Path) -> None:
+    # Git writes loose objects read-only; clear the bit so Windows can delete them.
+    for directory, _, names in os.walk(root):
+        for name in names:
+            try:
+                os.chmod(os.path.join(directory, name), 0o666)
+            except OSError:
+                pass
+    shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reconciliation_git_template_root(tmp_path_factory: pytest.TempPathFactory):
+    root = tmp_path_factory.mktemp("status-git-templates")
+    _GIT_TEMPLATE_ROOT.append(root)
+    try:
+        yield root
+    finally:
+        _GIT_TEMPLATE_ROOT.clear()
+        _GIT_TEMPLATES.clear()
+        _remove_tree(root)
+
+
+def _reconciliation_git_template(safety_base: str) -> dict[str, object]:
+    cached = _GIT_TEMPLATES.get(safety_base)
+    if cached is not None:
+        return cached
+    assert _GIT_TEMPLATE_ROOT, "the module template-root fixture is not active"
+    template_root = _GIT_TEMPLATE_ROOT[0] / safety_base
+    template_root.mkdir()
+    built = _build_reconciliation_git_history(template_root, safety_base=safety_base)
+    _GIT_TEMPLATES[safety_base] = built
+    return built
+
+
+def _build_reconciliation_git_history(
+    tmp_path: Path, *, safety_base: str
 ) -> dict[str, object]:
     repo = tmp_path / "repo"
     assert GIT is not None
@@ -276,6 +326,68 @@ def _build_reconciliation_status_fixture(
     _git(repo, "merge", "--no-ff", "--no-edit", safety_tip)
     merge_commit = _git(repo, "rev-parse", "head")
     _git(repo, "checkout", "-B", "master", merge_commit)
+    _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
+    return {
+        "repo": repo,
+        "safety_tip": safety_tip,
+        "source_tree": source_tree,
+        "config_commit": config_commit,
+        "merge_commit": merge_commit,
+    }
+
+
+def _build_reconciliation_status_fixture(
+    tmp_path: Path, *, safety_base: str = REVIEWED_PARENT
+) -> dict[str, object]:
+    template = _reconciliation_git_template(safety_base)
+    template_repo = template["repo"]
+    assert isinstance(template_repo, Path)
+    repo = tmp_path / "repo"
+    assert GIT is not None
+    # A byte copy of the template repository: worktree bytes (including the config files
+    # the fixture wrote with CRLF), index, refs, branches, reflogs, the S/C/M objects and
+    # the --shared alternate. The git-lfs store under .git/lfs/objects is hard-linked, as
+    # the original per-test clone did, instead of copying ~363 MiB per test.
+    lfs_objects = str(template_repo / ".git" / "lfs" / "objects") + os.sep
+
+    def _copy_template_file(source: str, destination: str) -> str:
+        if source.startswith(lfs_objects):
+            os.link(source, destination)
+            return destination
+        return shutil.copy2(source, destination)
+
+    shutil.copytree(template_repo, repo, copy_function=_copy_template_file)
+    _git(repo, "update-index", "-q", "--refresh")
+    local_baseline = _git(repo, "rev-parse", f"{LOCAL_BASELINE}^{{commit}}")
+    published_target = _git(repo, "rev-parse", f"{PUBLISHED_TARGET}^{{commit}}")
+    reviewed_parent = _git(repo, "rev-parse", f"{REVIEWED_PARENT}^{{commit}}")
+    assert local_baseline == LOCAL_BASELINE
+    assert published_target == PUBLISHED_TARGET
+    assert reviewed_parent == REVIEWED_PARENT
+    safety_tip = str(template["safety_tip"])
+    source_tree = str(template["source_tree"])
+    config_commit = str(template["config_commit"])
+    merge_commit = str(template["merge_commit"])
+    assert _git(repo, "rev-parse", "head") == merge_commit
+
+    # Each test owns its bare origin exactly as before: objects borrowed through an
+    # alternate, the published ref seeded directly, and the clone's origin pointed at it.
+    bare_origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "--bare", str(bare_origin))
+    source_objects = Path(
+        subprocess.run(
+            [GIT, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    ) / "objects"
+    alternates = bare_origin / "objects" / "info" / "alternates"
+    alternates.parent.mkdir(parents=True, exist_ok=True)
+    alternates.write_bytes((source_objects.as_posix() + "\n").encode("utf-8"))
+    _git(repo, "remote", "set-url", "origin", str(bare_origin))
+    _git(bare_origin, "update-ref", "refs/heads/master", published_target)
     _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
 
     snapshot_root = (
@@ -585,11 +697,8 @@ $guidance = Get-WeatherUnpushedPublicationGuidance `
     flag = [string]$guidance.flag
 } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=False,
-        capture_output=True,
-        text=True,
+    result = run_powershell_command(
+        script,
         env=env,
     )
 
@@ -1398,11 +1507,8 @@ $cases = @(
     guarded_unpushed_detail = [string]$cases[-1].Detail
 } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=False,
-        capture_output=True,
-        text=True,
+    result = run_powershell_command(
+        script,
         env=env,
     )
 
@@ -1566,11 +1672,8 @@ $mergeClosed = Get-WeatherIntegrationMergeObservation `
     merge_closed_missing = [bool]$mergeClosed.ReceiptMissingAfterTrigger
 } | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=False,
-        capture_output=True,
-        text=True,
+    result = run_powershell_command(
+        script,
         env=env,
     )
 
@@ -1666,6 +1769,15 @@ def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
     assert "weather.operations.settlement_hole_check" in text
     assert "--window-days $windowDays --tail-lines 400 --json" in text
     assert "Get-Content -LiteralPath $ledger -Tail 400" not in text
+
+
+def test_merged_branch_retirement_is_a_warning_not_a_verdict() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    section = text.split("# ---- merged branch retirement", 1)[1].split("# ---- sweep findings", 1)[0]
+
+    assert "weather.operations.merged_branch_retirement --repo-root $repo --json" in section
+    assert "$warns.Add(" in section
+    assert "$flags.Add(" not in section
 
 
 def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
@@ -1883,11 +1995,8 @@ Get-WeatherDiskTroughHeadroom `
     -CurrentFreeGB ([double]$env:WEATHER_DISK_CURRENT) `
     -Now ([datetime]$env:WEATHER_DISK_NOW) | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=False,
-        capture_output=True,
-        text=True,
+    result = run_powershell_command(
+        script,
         env={
             **os.environ,
             "WEATHER_STATUS_SCRIPT": str(SCRIPT),
@@ -1993,11 +2102,8 @@ Invoke-Expression $functionAst.Extent.Text
 Get-WeatherStateOfPlayAge -Text $env:WEATHER_STATE_TEXT -Now ([datetime]$env:WEATHER_STATE_NOW) |
     ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=False,
-        capture_output=True,
-        text=True,
+    result = run_powershell_command(
+        script,
         env={
             **os.environ,
             "WEATHER_STATUS_SCRIPT": str(SCRIPT),

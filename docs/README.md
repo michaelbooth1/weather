@@ -23,6 +23,7 @@ research established) · **Generated** (edit the generator) · **History**
 
 | Read when you are… | Document | Class |
 | --- | --- | --- |
+| Coordinating mission ownership, dependencies, handbacks or landing slots | [Work registry](roadmap/work/README.md) | Canonical records; production-generated board |
 | Doing model, measurement, or research work; or about to claim a number | [Findings digest](operations/FINDINGS_DIGEST.md) — short, mandatory; it cites the depth below | Distillation |
 | …and need the full derivation behind a digest entry | [Established findings](operations/ESTABLISHED_FINDINGS.md) (read the cited section, not the file) | Distillation, reference depth |
 | …and need to know what was claimed and was wrong | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md); the recurring error *shapes* are in [How we get things wrong](operations/HOW_WE_GET_THINGS_WRONG.md) | Distillation, reference depth |
@@ -35,9 +36,11 @@ research established) · **Generated** (edit the generator) · **History**
 | A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [workstation session preamble](operations/WORKSTATION_SESSION_PREAMBLE.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
+| Freeing disk from old worktrees and agent scratch folders | [Workstation session preamble, scratch space](operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
+| Triaging the open pull-request queue | [PR hygiene report](operations/pr-hygiene.md) | Canonical runbook |
 | Working on the maker pilot, live trading, or maker economics | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md), [Item 330 master plan](roadmap/items/item-330-maker-economics-refocus-master-plan.md), [Maker incentive feasibility](operations/maker-incentive-feasibility.md), [Exchange economics snapshot runbook](operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Canonical runbook; numbered item |
 | Moving the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
 | Retraining, or building or sequencing a release | [Nightly retrain runbook](operations/NIGHTLY_RETRAIN_RUNBOOK.md), [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md), [Release #1 is deferred](operations/release-one-deferred-until-a-retrained-candidate.md), [Release #1 and the MM clock](operations/release-one-is-not-the-mm-critical-path.md) | Canonical runbook; decision record |
@@ -82,6 +85,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current

@@ -116,7 +116,11 @@ class ExecutionTapeCaptureTests(unittest.TestCase):
         raw = FIXTURE.read_bytes()
         rows = fixture_rows()
 
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), EXPECTED_FIXTURE_SHA256)
+        self.assertEqual(
+            hashlib.sha256(raw).hexdigest(),
+            EXPECTED_FIXTURE_SHA256,
+            f"pinned fixture changed: re-review {FIXTURE.relative_to(REPO_ROOT).as_posix()} before re-pinning",
+        )
         self.assertEqual(len(raw), 15967)
         self.assertEqual(len(rows), 40)
         self.assertEqual(len({row["market"] for row in rows}), 11)

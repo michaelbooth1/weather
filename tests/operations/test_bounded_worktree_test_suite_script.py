@@ -1,4 +1,5 @@
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -195,6 +196,7 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
 
 
 @WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
 def test_bounded_suite_powershell_parses_and_emits_invariant_timestamps(
     tmp_path: Path,
 ):
@@ -277,6 +279,7 @@ finally {
 
 @WINDOWS_POWERSHELL_REQUIRED
 @pytest.mark.parametrize("rows", [[], ["one"], ["one", "two"]])
+@pytest.mark.spawns
 def test_git_query_call_sites_preserve_empty_and_nonempty_rows(rows):
     """Execute the actual runner assignments with PowerShell 5.1 strict mode."""
     env = os.environ.copy()
@@ -338,6 +341,7 @@ foreach ($name in @('dirty', 'trackedTestFiles', 'finalWorktreeTipRows',
 
 @WINDOWS_POWERSHELL_REQUIRED
 @pytest.mark.parametrize("breach", ["disk", "commit", "capture"])
+@pytest.mark.spawns
 def test_running_chunk_rechecks_admission_and_disposes_child_tree(breach, tmp_path):
     """Exercise the real running-child try/finally before the child can finish."""
     env = os.environ.copy()
@@ -451,3 +455,164 @@ catch { $failure = $_.Exception.Message }
     if breach != "disk":
         assert "chunk-1-running admission:" in payload["log"]
         assert "ceiling=66%" in payload["log"]
+
+
+TIMING_TABLE = REPO_ROOT / "tests" / "bounded_suite_file_timings.json"
+NEW_FILE = "tests/operations/test_zz_file_absent_from_the_timing_table.py"
+PACKER_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if ($errors.Count) { throw 'runner parse failure' }
+foreach ($name in @('Read-SuiteFileTimingTable', 'Get-SuiteTimePackedChunks')) {
+    $definition = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq $name
+    }, $true))
+    if ($definition.Count -ne 1) { throw "missing unique function: $name" }
+    Invoke-Expression $definition[0].Extent.Text
+}
+# Windows PowerShell 5.1 emits a parsed JSON array as one pipeline object.
+$cases = Get-Content -LiteralPath $env:WEATHER_BOUNDED_SUITE_CASES -Raw | ConvertFrom-Json
+$results = @()
+foreach ($case in $cases) {
+    try {
+        $table = Read-SuiteFileTimingTable -Path ([string]$case.table)
+        $chunks = Get-SuiteTimePackedChunks -TestFiles @($case.files | ForEach-Object { [string]$_ }) `
+            -MaxFilesPerChunk ([int]$case.cap) -TimingTable $table
+        $results += ,[pscustomobject]@{
+            present = $table.Present
+            chunks = @($chunks | ForEach-Object { ,@($_) })
+            error = $null
+        }
+    }
+    catch {
+        $results += ,[pscustomobject]@{ present = $null; chunks = @(); error = $_.Exception.Message }
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
+"""
+
+
+def _tracked_test_files() -> list[str]:
+    rows = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "--", "tests"],
+        check=True, capture_output=True, text=True,
+    ).stdout.splitlines()
+    return sorted(
+        row for row in (r.replace("\\", "/") for r in rows)
+        if re.match(r"^tests/(?:.*/)?test_[^/]*\.py$", row)
+    )
+
+
+def _run_packer(cases: list[dict], tmp_path: Path) -> list[dict]:
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps(cases), encoding="utf-8")
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_CASES"] = str(cases_path)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", PACKER_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    return payload if isinstance(payload, list) else [payload]
+
+
+def _chunk_lists(result: dict) -> list[list[str]]:
+    return [[chunk] if isinstance(chunk, str) else list(chunk) for chunk in result["chunks"]]
+
+
+def test_bounded_suite_plans_time_packed_chunks_without_raising_the_cap():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    assert "[ValidateRange(1, 25)]\n    [int]$MaxFilesPerChunk = 25" in text
+    assert r'Join-Path $WorktreeRoot "tests\bounded_suite_file_timings.json"' in text
+    assert "-TestFiles $testFiles -MaxFilesPerChunk $MaxFilesPerChunk -TimingTable $timingTable" in text
+    assert (
+        'Write-SuiteLog "planned chunks=$($chunks.Count) files=$($testFiles.Count) '
+        'max_files=$MaxFilesPerChunk"'
+    ) in text
+    assert "suite chunk packing did not place every test file exactly once" in text
+    assert "[int64]$item.Length -gt 1048576" in text
+    table = json.loads(TIMING_TABLE.read_text(encoding="utf-8"))
+    assert table["format_version"] == 1
+    assert 0 < table["default_seconds"] <= 3600
+    assert all(re.match(r"^tests/(?:.*/)?test_[^/]*\.py$", name) for name in table["files"])
+    assert all(0 <= seconds <= 86400 for seconds in table["files"].values())
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_time_packing_places_every_tracked_test_file_in_exactly_one_chunk(tmp_path):
+    """Meta-test over the real inventory and the checked-in timing table."""
+    files = _tracked_test_files()
+    table = str(TIMING_TABLE)
+    results = _run_packer(
+        [
+            {"files": files, "cap": 20, "table": table},
+            {"files": list(reversed(files)), "cap": 20, "table": table},
+            {"files": files, "cap": 25, "table": table},
+            {"files": files, "cap": 20, "table": str(tmp_path / "absent.json")},
+            {"files": files + [NEW_FILE], "cap": 20, "table": table},
+            {"files": [NEW_FILE] + files, "cap": 20, "table": table},
+        ],
+        tmp_path,
+    )
+    for result, cap in zip(results[:4], (20, 20, 25, 20)):
+        assert result["error"] is None, result["error"]
+        chunks = _chunk_lists(result)
+        placed = [file for chunk in chunks for file in chunk]
+        assert sorted(placed) == files
+        assert len(placed) == len(set(placed))
+        assert len(chunks) == -(-len(files) // cap)
+        assert all(1 <= len(chunk) <= cap for chunk in chunks)
+        assert all(chunk == sorted(chunk) for chunk in chunks)
+    assert results[0]["present"] is True and results[3]["present"] is False
+    assert _chunk_lists(results[0]) == _chunk_lists(results[1])
+    # A file the table has never seen is placed exactly once, deterministically.
+    with_new = _chunk_lists(results[4])
+    assert with_new == _chunk_lists(results[5])
+    assert sorted(file for chunk in with_new for file in chunk) == sorted(files + [NEW_FILE])
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_time_packing_is_deterministic_lpt_and_fails_closed_on_bad_tables(tmp_path):
+    def table(path: Path, body) -> str:
+        path.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")
+        return str(path)
+
+    files = [f"tests/test_{name}.py" for name in "abcdef"]
+    good = table(tmp_path / "good.json", {
+        "format_version": 1, "default_seconds": 2.0,
+        "files": {"tests/test_a.py": 9.0, "tests/test_b.py": 7.0, "tests/test_c.py": 5.0,
+                  "tests/test_d.py": 1.0, "tests/test_stale.py": 50.0},
+    })
+    bad = {
+        "malformed": "{",
+        "version": {"format_version": 2, "default_seconds": 1, "files": {}},
+        "default": {"format_version": 1, "default_seconds": 0, "files": {}},
+        "name": {"format_version": 1, "default_seconds": 1, "files": {"tools/x.py": 1}},
+        "negative": {"format_version": 1, "default_seconds": 1, "files": {"tests/test_a.py": -1}},
+        "text": {"format_version": 1, "default_seconds": 1, "files": {"tests/test_a.py": "9"}},
+    }
+    cases = [{"files": files, "cap": 2, "table": good}]
+    cases += [{"files": files, "cap": 2, "table": table(tmp_path / f"{key}.json", body)}
+              for key, body in bad.items()]
+    cases += [{"files": files + ["tests/test_a.py"], "cap": 4, "table": good}]
+    results = _run_packer(cases, tmp_path)
+    # Weights a=9, b=7, c=5, e=f=2 (default), d=1; three chunks of at most two.
+    assert _chunk_lists(results[0]) == [
+        ["tests/test_a.py", "tests/test_d.py"],
+        ["tests/test_b.py", "tests/test_f.py"],
+        ["tests/test_c.py", "tests/test_e.py"],
+    ]
+    for result in results[1:1 + len(bad)]:
+        assert result["error"] and "suite file timing table" in result["error"]
+    assert "repeats a file" in results[-1]["error"]

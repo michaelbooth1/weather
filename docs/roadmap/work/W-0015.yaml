@@ -1,0 +1,35 @@
+{
+  "id": "W-0015",
+  "title": "110j C compress-on-close capture writers",
+  "workstream": "storage",
+  "status": "handback-received",
+  "owner": "workstation",
+  "handoff": "https://github.com/michaelbooth1/weather/blob/ed075014161e6e0b0f8d3e9d0fc8dd265356d2c2/docs/roadmap/workstation-handoff-2026-09-110j-storage-decisions-code.md",
+  "handbacks": [
+    {
+      "path": "https://github.com/michaelbooth1/weather/blob/377b40186dc4247c28ba130b24203856bcc2ad0b/docs/roadmap/agent-report-2026-09-110j-c.md",
+      "received": "2026-09-27T02:31:00+00:00",
+      "verified": false
+    }
+  ],
+  "branch": "codex/compress-on-close-20260926",
+  "tip": "377b40186dc4247c28ba130b24203856bcc2ad0b",
+  "pr": null,
+  "roll": "sensitive",
+  "depends_on": [
+    "W-0001",
+    "W-0002"
+  ],
+  "landing_slot": {
+    "date": "2026-09-28",
+    "window": "01:00-04:00 America/Toronto; ALONE"
+  },
+  "needs_owner": [],
+  "item": null,
+  "questions": [],
+  "updated": "2026-09-27T02:31:00+00:00",
+  "notes": [
+    "Backfill source: https://github.com/michaelbooth1/weather/blob/074c281d628dea2708fcbc8db888685742adac06/docs/roadmap/work-seed/night-plan-2026-09-26.md. Snapshot, not a new production verification.",
+    "Not 09-26/27. Conflicts with 91a cold_snapshot_compression_run.ps1; update from new master and run its own suite. Seed calls this rebase; published history follows Git SOP."
+  ]
+}

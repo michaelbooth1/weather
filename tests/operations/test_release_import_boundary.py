@@ -1,5 +1,8 @@
 import subprocess
 import sys
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_release_artifact_import_does_not_load_pyarrow():
