@@ -14,7 +14,7 @@
 # reader module that does not import from -RepoRoot\src, and an unwritable journal folder.
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium', DefaultParameterSetName = 'Register')]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$ExpectedCommit,
     [Parameter(ParameterSetName = 'Register')][string]$PythonPath = '',
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$Bind,
@@ -23,6 +23,12 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][ValidateSet(2, 3)][int]$SignatureType,
     [Parameter(Mandatory = $true, ParameterSetName = 'Unregister')][switch]$Unregister
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 $ErrorActionPreference = 'Stop'
 $taskName = 'WeatherWalletReader'
 $identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()

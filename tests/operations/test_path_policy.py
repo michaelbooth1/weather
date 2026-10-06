@@ -1,6 +1,9 @@
 import importlib
 
 from weather.paths import config_path, data_path, docs_path
+import pytest
+
+pytestmark = pytest.mark.ratchet
 
 
 def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp_path):
