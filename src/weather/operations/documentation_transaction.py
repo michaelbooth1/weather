@@ -4,6 +4,14 @@ Guarded merges call ``begin`` after capture recovery and before publication. Mul
 merges may accumulate in one overnight stack. A morning closeout publishes needed
 documentation changes, records any reviewed unchanged documents, and calls
 ``complete``; its receipt binds the pending-state hash and cannot clear later work.
+
+``precheck`` (M3a, advisory) runs before the night: from the plan-time
+``origin/master`` (never from the tip) to the night's final planned tip it runs
+``git diff --check`` and predicts each required document's blob and whether it
+changes, so the morning knows which documents need an update or a review bound
+to the final tip. A predicted blob is not the committed one: ``complete`` still
+re-verifies everything, and the pre-check is refused once ``origin/master`` has
+moved off its base.
 """
 
 from __future__ import annotations
@@ -493,6 +501,64 @@ def complete_transaction(
     }
 
 
+PRECHECK_SCHEMA = "documentation_transaction_precheck_v0.1"
+PRECHECK_STALE_EXIT = 3
+
+
+def precheck_transaction(repo_root: Path, *, base: str, final_tip: str) -> dict[str, Any]:
+    """Advisory pre-check of a night's documentation closeout (M3a).
+
+    ``base`` is ``origin/master`` at plan time and ``final_tip`` the night's final
+    planned tip (the synthetic chain of every planned head). Nothing here is taken
+    from the tip itself: the span is base..final_tip.
+    """
+    repo_root = repo_root.resolve()
+    base = _validate_full_commit(repo_root, base, field="base")
+    final_tip = _validate_full_commit(repo_root, final_tip, field="final_tip")
+    if subprocess.run(
+        ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", base, final_tip],
+        capture_output=True, check=False,
+    ).returncode != 0:
+        raise ValueError("base is not an ancestor of the final planned tip")
+    origin = _git(repo_root, "rev-parse", "origin/master").lower()
+    diff_check = subprocess.run(
+        ["git", "-C", str(repo_root), "diff", "--check", base, final_tip],
+        capture_output=True, text=True, check=False,
+    )
+    issues = [line for line in diff_check.stdout.splitlines() if line.strip()]
+    changed = {
+        line.replace("\\", "/")
+        for line in _git(repo_root, "diff", "--name-only", base, final_tip).splitlines() if line
+    }
+    documents = {}
+    for path in sorted(REQUIRED_REVIEWED_DOCUMENTS):
+        blob = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{final_tip}:{path}"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip().lower() or None
+        documents[path] = {
+            "changed_in_night": path in changed,
+            "predicted_blob_oid": blob,
+            "requires_disposition": path in REQUIRED_DISPOSITION_DOCUMENTS,
+        }
+    stale = origin != base
+    status = "STALE" if stale else ("FAIL" if issues else "PASS")
+    return {
+        "schema_version": PRECHECK_SCHEMA,
+        "status": status,
+        "base": base,
+        "final_tip": final_tip,
+        "origin_master": origin,
+        "valid_while": f"origin/master == {base}",
+        "diff_check_issues": issues[:200],
+        "documents": documents,
+        "advisory": (
+            "predicted blobs are not committed blobs; complete re-verifies every review "
+            "against the documentation tip"
+        ),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
@@ -507,6 +573,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     complete = subparsers.add_parser("complete")
     complete.add_argument("--manifest", type=Path, required=True)
+
+    precheck = subparsers.add_parser("precheck", help="advisory pre-check of a planned night (M3a)")
+    precheck.add_argument("--base", required=True, help="origin/master at plan time (full SHA)")
+    precheck.add_argument("--final-tip", required=True, help="the night's final planned tip (full SHA)")
     return parser
 
 
@@ -522,6 +592,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "complete":
             payload = complete_transaction(args.repo_root, manifest_path=args.manifest)
+        elif args.command == "precheck":
+            payload = precheck_transaction(args.repo_root, base=args.base, final_tip=args.final_tip)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return {"PASS": 0, "FAIL": 1}.get(payload["status"], PRECHECK_STALE_EXIT)
         else:
             payload = transaction_status(args.repo_root)
     except (OSError, ValueError, KeyError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:

@@ -228,6 +228,9 @@ valuable output by falsifying their own premise.
 5. **Exact reproduction commands**, with paths that exist on the host that will run them — not
    workstation-local scratch paths.
 6. **Commit hash and branch.**
+7. **The landing preflight receipt's SHA-256** for any head offered for landing
+   (`python -m weather.operations.landing_preflight`). The receipt is valid only while
+   `origin/master` equals its base; a stale receipt is refused, not warned.
 
 Accepting a handback updates the rows of every open question it served in the same commit (answered results also go
 to the findings digest and established findings).

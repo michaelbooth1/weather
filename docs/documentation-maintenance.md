@@ -182,6 +182,13 @@ The same form may record other reviewed unchanged documents. A changed document
 must not be claimed unchanged. The documentation tip may equal the final
 integration tip when no follow-up changes are needed.
 
+Before the night, `documentation_transaction precheck --base <origin/master at
+plan time> --final-tip <final planned tip>` runs `git diff --check` over the planned
+span and predicts each required document's blob at the final tip, and whether it
+changes. Exit 0 means PASS, 1 FAIL, 3 STALE (origin/master moved off the base, so
+refuse it). Unchanged reviews bind the night's final integration tip, so write them
+against those bytes; `complete` still re-verifies every one.
+
 Before completing, regenerate the correspondence index once for the night's
 landings (branches never commit it):
 `scripts\ops\correspondence_index_closeout.ps1 -Land` regenerates it on
