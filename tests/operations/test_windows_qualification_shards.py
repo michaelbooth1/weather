@@ -91,6 +91,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_bulk_cold_archive_crypt.py",
             "tests/operations/test_cold_snapshot_nightly.py",
             "tests/operations/test_workload_admission_script.py",
+            "tests/operations/test_workload_admission_lease_journal.py",
+            "tests/operations/test_quiet_window_merge_m4_m8_execution.py",
             "tests/operations/test_long_job_guard.py",
             "tests/operations/test_replay_cache_compression.py",
             "tests/operations/test_wait_pr_ci_script.py",

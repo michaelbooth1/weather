@@ -15,10 +15,13 @@
 # publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
-# Window rule: every branch is refused 12:00-00:30 (the 12:00-18:00 graded capture window,
-# where a roll can cost the day, and the 18:00-00:30 near-close window). A roll-sensitive
-# branch (roll_verdict.ps1 not a clean ROLL-FREE) is further confined to 01:00-04:00 unless
-# -Force; a ROLL-FREE branch may run 00:30-12:00. See docs/ops/streak-soak.md.
+# Window rule: every branch needs the shared heavy-work lease, which workload_admission.ps1
+# grants only 00:30-09:00; this script also refuses 12:00-00:30 itself (the 12:00-18:00 graded
+# capture window, where a roll can cost the day, and the 18:00-00:30 near-close window). A
+# roll-sensitive branch (roll_verdict.ps1 not a clean ROLL-FREE) is further confined to
+# 01:00-04:00 unless -Force; a ROLL-FREE branch may run 00:30-09:00. Docs-only branches use
+# docs_light_path.ps1 (no lease); its "before 12:00" rule is operator policy, not a clock
+# check in that script. See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -113,6 +116,24 @@ $executionTapeRolledButInactiveSkipped = $false
 $executionTapeRecoveryProved = $false
 $executionTapeSourceBefore = $null
 $publicationAcknowledged = $false
+# Ordinary publication proof that the WeatherOneShotPush run itself reached a
+# terminal success state (Ready, a LastRunTime newer than before the start, and
+# LastTaskResult 0). It is deliberately NOT push_terminal_proved: status.ps1
+# treats a populated push_terminal_proved on a marker as reconciliation-incident
+# evidence. These ordinary_* fields are report-only, stay $null in the
+# reconciliation mode, and are $true only on positive proof.
+$ordinaryPublicationProof = $null
+$ordinaryPushTaskTerminalOk = $null
+$ordinaryPushTaskTerminalDetail = $null
+$ordinaryPushTaskPreLastRunTime = $null
+$ordinaryPushTaskLastRunTime = $null
+$ordinaryPushTaskLastTaskResult = $null
+$ordinaryPushTaskState = $null
+# Non-binding shadow of an event-based settle (Swarm L M8 pilot). It only logs
+# what that rule would have decided; the real wait stays exactly SettleSeconds.
+$settleShadow = $null
+$settleShadowFloorSeconds = 150
+$settleShadowPollSeconds = 5
 $documentationTransactionRecorded = $false
 $documentationTransactionPendingSha256 = $null
 $documentationTransactionSnapshotPath = $null
@@ -261,6 +282,14 @@ function Save-Report($ok, $stage, $detail) {
         push_stop_rpc_deadline_utc = $pushStopRpcDeadlineUtc
         push_stop_rpc_timed_out = $pushStopRpcTimedOut
         publication_acknowledged = $publicationAcknowledged
+        ordinary_publication_proof = $ordinaryPublicationProof
+        ordinary_push_task_terminal_ok = $ordinaryPushTaskTerminalOk
+        ordinary_push_task_terminal_detail = $ordinaryPushTaskTerminalDetail
+        ordinary_push_task_pre_last_run_time = $ordinaryPushTaskPreLastRunTime
+        ordinary_push_task_last_run_time = $ordinaryPushTaskLastRunTime
+        ordinary_push_task_last_task_result = $ordinaryPushTaskLastTaskResult
+        ordinary_push_task_state = $ordinaryPushTaskState
+        settle_shadow = $settleShadow
         stage = $stage; detail = $detail; log = @($log)
     }
     $json = $record | ConvertTo-Json -Depth 8
@@ -3564,6 +3593,146 @@ function Get-CaptureState {
     }
 }
 
+# ---- M8 settle shadow: log only, never binding ----
+# Records, per capture worker, the first status observation after the merge is
+# staged whose pid or loaded source_fingerprint differs from the pre-merge proof,
+# and when that worker's heartbeat had also advanced. An event-based settle would
+# exit at max(floor, latest such readoption), floor = the longest supervisor tick
+# (PT2M) plus restart. Nothing here may throw into, shorten or decide the merge.
+function Read-SettleShadowWorkers {
+    $rows = @()
+    foreach ($spec in @(
+            @("snapshot_tracker", "loop_status.json"),
+            @("market_microstructure", "clob_loop_status.json"),
+            @("observation_trigger", "observation_trigger_status.json")
+        )) {
+        try {
+            $statusPath = Join-Path $repo ("data\snapshots\" + $spec[1])
+            $payload = [IO.File]::ReadAllText($statusPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            $fingerprint = ""
+            if ($null -ne $payload.runtime_identity) {
+                $fingerprint = [string]$payload.runtime_identity.source_fingerprint
+            }
+            $rows += [PSCustomObject]@{
+                name = $spec[0]; readable = $true; pid = [int]$payload.pid
+                fingerprint = $fingerprint; last_heartbeat = [string]$payload.last_heartbeat
+            }
+        }
+        catch {
+            $rows += [PSCustomObject]@{ name = $spec[0]; readable = $false }
+        }
+    }
+    return $rows
+}
+
+function New-SettleShadow {
+    param($Before)
+    try {
+        $workers = [ordered]@{}
+        foreach ($worker in @($Before.workers)) {
+            $workers[[string]$worker.name] = [ordered]@{
+                pid_before = [int]$worker.pid
+                fingerprint_before = [string]$worker.recorded_source_fingerprint
+                heartbeat_before = [string]$worker.last_heartbeat
+                first_change_seconds = $null
+                first_change_pid = $null
+                fingerprint_changed = $null
+                readopted_seconds = $null
+            }
+        }
+        $script:settleShadow = [ordered]@{
+            schema = "quiet_window_merge_settle_shadow_v0.1"
+            binding = $false
+            floor_seconds = $settleShadowFloorSeconds
+            poll_seconds = $settleShadowPollSeconds
+            real_wait_seconds = $SettleSeconds
+            roll_free = [bool]$rollFree
+            staged_at = (Get-Date).ToString("o")
+            polls = 0
+            probe_errors = 0
+            workers = $workers
+            would_exit_seconds = $null
+            would_save_seconds = $null
+            outcome = "not_evaluated"
+            after_ok = $null
+        }
+    }
+    catch { $script:settleShadow = $null }
+}
+
+function Update-SettleShadow {
+    param([int]$ElapsedSeconds)
+    if ($null -eq $settleShadow) { return }
+    try {
+        $settleShadow.polls = [int]$settleShadow.polls + 1
+        foreach ($row in @(Read-SettleShadowWorkers)) {
+            $worker = $settleShadow.workers[[string]$row.name]
+            if ($null -eq $worker) { continue }
+            if (-not $row.readable) {
+                $settleShadow.probe_errors = [int]$settleShadow.probe_errors + 1
+                continue
+            }
+            $fingerprintChanged = [string]$row.fingerprint -cne [string]$worker.fingerprint_before
+            $changed = ([int]$row.pid -ne [int]$worker.pid_before) -or $fingerprintChanged
+            if (-not $changed) { continue }
+            if ($null -eq $worker.first_change_seconds) {
+                $worker.first_change_seconds = $ElapsedSeconds
+                $worker.first_change_pid = [int]$row.pid
+                $worker.fingerprint_changed = [bool]$fingerprintChanged
+            }
+            if ($null -eq $worker.readopted_seconds) {
+                $advanced = $false
+                try {
+                    $advanced = [datetime]$row.last_heartbeat -gt [datetime]$worker.heartbeat_before
+                }
+                catch { $advanced = $false }
+                if ($advanced) { $worker.readopted_seconds = $ElapsedSeconds }
+            }
+        }
+    }
+    catch { $settleShadow.probe_errors = [int]$settleShadow.probe_errors + 1 }
+}
+
+function Complete-SettleShadow {
+    param($After)
+    if ($null -eq $settleShadow) { return }
+    try {
+        $settleShadow.after_ok = [bool]$After.ok
+        $changed = @($settleShadow.workers.Values | Where-Object { $null -ne $_.first_change_seconds })
+        $pending = @($changed | Where-Object { $null -eq $_.readopted_seconds })
+        if ($pending.Count -gt 0) {
+            $wouldExit = $SettleSeconds
+            $settleShadow.outcome = "readoption_not_observed_by_cap"
+        }
+        else {
+            $latest = 0
+            foreach ($worker in $changed) {
+                if ([int]$worker.readopted_seconds -gt $latest) { $latest = [int]$worker.readopted_seconds }
+            }
+            $wouldExit = [Math]::Min([int]$SettleSeconds, [Math]::Max([int]$settleShadowFloorSeconds, $latest))
+            $settleShadow.outcome = if ($wouldExit -lt $SettleSeconds) { "would_exit_early" } else { "would_wait_full_cap" }
+        }
+        $settleShadow.would_exit_seconds = [int]$wouldExit
+        $settleShadow.would_save_seconds = [int]$SettleSeconds - [int]$wouldExit
+        Note ("settle shadow (non-binding, real wait unchanged): event rule would exit at {0}s of {1}s; outcome={2}; readopted={3}" -f
+            $settleShadow.would_exit_seconds, $SettleSeconds, $settleShadow.outcome, $changed.Count)
+    }
+    catch { $settleShadow.outcome = "shadow_error" }
+}
+
+# ---- M4-b ordinary publication: WeatherOneShotPush terminal proof ----
+function Get-OrdinaryOneShotPushTaskInfo {
+    $rows = @(Get-ScheduledTaskInfo -TaskName "WeatherOneShotPush" -TaskPath "\" -ErrorAction Stop)
+    if ($rows.Count -ne 1) {
+        throw "WeatherOneShotPush task info must resolve to exactly one row; found $($rows.Count)"
+    }
+    if ($null -eq $rows[0].LastRunTime) { throw "WeatherOneShotPush LastRunTime is unavailable" }
+    return [PSCustomObject]@{
+        last_run_time = [datetime]$rows[0].LastRunTime
+        last_task_result = [long]$rows[0].LastTaskResult
+    }
+}
+
 function Get-ExecutionTapeState {
     $writerLockPath = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
     try {
@@ -3833,8 +4002,19 @@ try {
     Note "merge staged with MERGE_HEAD preserved (NOT committed or pushed)"
 
     # ---- wait for every affected producer to readopt, then prove recovery ----
+    if ($SettleSeconds -lt 0) { throw "SettleSeconds must not be negative" }
     Note "waiting ${SettleSeconds}s for supervisors to readopt the new code..."
-    Start-Sleep -Seconds $SettleSeconds
+    # The real wait is exactly SettleSeconds of sleep, taken in poll-sized steps
+    # so the non-binding M8 shadow can observe readoption. The shadow never ends
+    # the wait early; probe time only lengthens it.
+    New-SettleShadow -Before $before
+    $settleSlept = 0
+    do {
+        $settleStep = [Math]::Min($settleShadowPollSeconds, $SettleSeconds - $settleSlept)
+        Start-Sleep -Seconds $settleStep
+        $settleSlept += $settleStep
+        Update-SettleShadow -ElapsedSeconds $settleSlept
+    } while ($settleSlept -lt $SettleSeconds)
     $after = Get-CaptureState
     Note "capture after: ok=$($after.ok), workers=$(@($after.workers).Count)"
 
@@ -3897,6 +4077,7 @@ try {
         }
     }
 
+    Complete-SettleShadow -After $after
     if (-not $ok) {
         Invoke-RollbackAndProve -Reasons $why
     }
@@ -4089,9 +4270,25 @@ catch {
     exit 3
 }
 Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
+# The terminal proof below fails closed: ordinary_push_task_terminal_ok is $true
+# only when this run's own task readback proves it. Publication itself is still
+# acknowledged by the tracking ref, exactly as before.
+$ordinaryPublicationProof = "tracking_ref"
+$ordinaryPushTaskTerminalOk = $false
+$ordinaryPushTaskTerminalDetail = "terminal proof not reached"
+$ordinaryPushPreInfo = $null
+try {
+    $ordinaryPushPreInfo = Get-OrdinaryOneShotPushTaskInfo
+    $ordinaryPushTaskPreLastRunTime = $ordinaryPushPreInfo.last_run_time.ToString("o")
+}
+catch {
+    $ordinaryPushTaskTerminalDetail = "pre-start task info unreadable: $($_.Exception.Message)"
+}
+$ordinaryPushStartIssuedAt = Get-Date
 try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
 catch {
     Note "could not start WeatherOneShotPush: $($_.Exception.Message)"
+    $ordinaryPushTaskTerminalDetail = "push task start failed"
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task start failed; commit $mergeCommit is local"
     exit 3
 }
@@ -4104,6 +4301,43 @@ if (-not $pushed) {
     Note "WeatherOneShotPush did not publish within 3 min. Merge is committed locally and capture is healthy."
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task did not acknowledge commit $mergeCommit"
     exit 3
+}
+if ($null -ne $ordinaryPushPreInfo) {
+    for ($poll = 0; $poll -lt 12; $poll++) {
+        if ($poll -gt 0) { Start-Sleep -Seconds 5 }
+        try {
+            $ordinaryPushTask = @(Get-ScheduledTask -TaskName "WeatherOneShotPush" -ErrorAction Stop)
+            if ($ordinaryPushTask.Count -ne 1) {
+                throw "WeatherOneShotPush must resolve to exactly one task; found $($ordinaryPushTask.Count)"
+            }
+            $ordinaryPushInfo = Get-OrdinaryOneShotPushTaskInfo
+        }
+        catch {
+            $ordinaryPushTaskTerminalDetail = "task readback failed: $($_.Exception.Message)"
+            continue
+        }
+        $ordinaryPushTaskState = [string]$ordinaryPushTask[0].State
+        $ordinaryPushTaskLastRunTime = $ordinaryPushInfo.last_run_time.ToString("o")
+        $ordinaryPushTaskLastTaskResult = [long]$ordinaryPushInfo.last_task_result
+        $newRun = $ordinaryPushInfo.last_run_time -gt $ordinaryPushPreInfo.last_run_time -and
+            $ordinaryPushInfo.last_run_time -ge $ordinaryPushStartIssuedAt.AddSeconds(-2)
+        if ($ordinaryPushTaskState -cne "Ready" -or -not $newRun) {
+            $ordinaryPushTaskTerminalDetail = "task not yet terminal for this start (state $ordinaryPushTaskState)"
+            continue
+        }
+        if ($ordinaryPushTaskLastTaskResult -eq 0) {
+            $ordinaryPushTaskTerminalOk = $true
+            $ordinaryPublicationProof = "tracking_ref+task_terminal"
+            $ordinaryPushTaskTerminalDetail = "Ready with a new LastRunTime and LastTaskResult 0"
+        }
+        else {
+            $ordinaryPushTaskTerminalDetail = "terminal with LastTaskResult $ordinaryPushTaskLastTaskResult"
+        }
+        break
+    }
+}
+if (-not $ordinaryPushTaskTerminalOk) {
+    Note "WARNING: tracking ref acknowledged $mergeCommit but WeatherOneShotPush terminal success is unproved: $ordinaryPushTaskTerminalDetail"
 }
 $publicationAcknowledged = $true
 try {
