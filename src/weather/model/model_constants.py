@@ -123,7 +123,8 @@ SOURCE_CACHE_TTL_MINUTES = {
 # WU printed history is empty, the lock-in stages (S1-S6) and the calibration
 # taper read the observed same-day station high (METAR keyed by observation
 # time) instead of a missing WU high, and once a late-day stage acts no mass
-# stays below that observed floor (LATE_DAY_LOCKIN_ANCHOR_VERSION; constants
+# stays below that observed floor; from lockin-anchor-v4 no mass stays below the
+# same-day METAR high at any hour (LATE_DAY_LOCKIN_ANCHOR_VERSION; constants
 # unchanged).
 ML_MODEL_VERSION = "v0.5.11"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
