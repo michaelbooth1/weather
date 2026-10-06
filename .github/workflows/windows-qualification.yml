@@ -113,6 +113,7 @@ jobs:
               tests/operations/test_international_live_session_launcher_sealer.py
               tests/operations/test_storage_recovery_night_wrapper.py
               tests/operations/test_docs_light_path_script.py
+              tests/operations/test_correspondence_index_closeout_script.py
               tests/operations/test_international_live_session_runner.py
               tests/operations/test_cold_archive_catalog.py
               tests/market/test_wallet_reader_logon_task.py
