@@ -1282,6 +1282,11 @@ def _build_harness(
         str(source),
     )
     _configure_repo(source)
+    # The safety tip is read through Git (HEAD, tree, merge-base, tracked blobs) and only
+    # its scripts/ops dependencies are read from disk, so materialise scripts/ alone: a
+    # cone sparse checkout reports a clean status and identical HEAD/tree, and avoids a
+    # full ~47 MB, ~2,000-file checkout per test (temp-write reduction, 2026-10-06).
+    _git(source, "sparse-checkout", "set", "--cone", "scripts")
     _git(source, "checkout", "--force", "-B", SOURCE_BRANCH, source_base)
     _git(source, "remote", "set-url", "origin", str(origin.resolve()))
     source_script = source / "scripts" / "ops" / "quiet_window_merge.ps1"
