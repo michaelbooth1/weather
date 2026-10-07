@@ -231,7 +231,7 @@ def delta(base, post):
 
 # -- fictional fixtures ---------------------------------------------------------------------------------------
 def fixtures():
-    from tools.research.maker_replay_v2.dense import DenseDay
+    from tools.research.maker_replay_v2.dense import DenseDay, OnLevelReplacementDay
     from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, ScaledDay, materialize
     return {
         "dense-09-27": lambda: [materialize(DenseDay(date(2026, 9, 27), union=12, trades=20000, minutes=40))[0]],
@@ -239,6 +239,8 @@ def fixtures():
                                                          start_minute=225, minutes=40))[0]],
         "w0-09-27-roll": lambda: [materialize(ScaledDay(date(2026, 9, 27), union=12, trades=2000,
                                                         start_minute=225, minutes=30))[0]],
+        # W2(a) on its own: the cancelled legs rest on public levels at a same-instant replacement.
+        "w2-on-level": lambda: [materialize(OnLevelReplacementDay(date(2026, 11, 20)))[0]],
     }, FIXTURE_ZONES
 
 

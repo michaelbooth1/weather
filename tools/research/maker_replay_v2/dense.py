@@ -158,3 +158,65 @@ class DenseDay:
         for number, (_, value) in enumerate(out):
             value["sequence"] = number
             yield {"sequence": number, **value}
+
+
+def _levels(*rows):
+    return tuple((D(p), D(s)) for p, s in rows)
+
+
+class OnLevelReplacementDay(DenseDay):
+    """One fictional band whose resting legs sit ON public price levels when a replacement-reason CANCEL fires.
+
+    The W2(a) attribution fixture (registration C12): before W2 the same-instant replacement decided on the
+    frozen T2 book, which adds the cancelled size only at existing public levels, so on the dense days W2 alone
+    changed nothing. Here ``informed-v0`` quotes YES and NO at 0.47 on ``BOOK`` (a view at 0.50, stdev 0.025,
+    shadow grade; only the 0.47/0.53 levels qualify for the size-qualified mid). At minute ``MOVED`` the public
+    book becomes ``MOVED_BOOK``: the mid falls to 0.49, the NO leg leaves the requote window
+    (``OUTSIDE_REQUOTE_WINDOW``) and the replacement decides at the same instant, with the YES leg's 0.47 and the
+    NO leg's mirror 0.53 still public levels. No trade prints, so nothing fills. Every value is invented.
+    """
+
+    MARKET = "city06"  # Europe/London: no local midnight inside the window
+    MOVED = 3
+    BOOK = dict(yb=_levels((".49", 5), (".47", 80)), ya=_levels((".51", 5), (".53", 80)),
+                nb=_levels((".49", 5), (".47", 80)), na=_levels((".51", 5), (".53", 80)))
+    MOVED_BOOK = dict(yb=_levels((".48", 5), (".47", 5), (".46", 80)), ya=_levels((".50", 5), (".52", 80), (".53", 5)),
+                      nb=_levels((".50", 5), (".48", 80), (".47", 5)), na=_levels((".52", 5), (".53", 5), (".54", 80)))
+
+    def __init__(self, day, *, start_minute=600, minutes=6):
+        self.day, self.trades = day, 0
+        self.start = datetime.combine(day, time(), tzinfo=timezone.utc)
+        self.end = self.start + timedelta(days=1)
+        self.window = (self.start + timedelta(minutes=start_minute),
+                       self.start + timedelta(minutes=start_minute + minutes))
+        cid = "0x" + hashlib.sha256(b"w2-on-level").hexdigest()[:40]
+        self.bands = {cid: dict(index=1, market=self.MARKET, event=f"event-{self.MARKET}-w2", mid=D("0.50"))}
+        self.groups = {cid: "g000"}
+
+    def rows(self):
+        (cid,), (w0, w1) = tuple(self.bands), self.window
+        out = []
+
+        def add(at, kind, payload):
+            payload = plain(payload)
+            out.append(dict(captured_at=at.isoformat(), condition_id=cid, kind=kind, payload=payload,
+                            payload_sha256=hashlib.sha256(canonical_bytes(payload)).hexdigest(),
+                            source_hashes=FICTIONAL))
+
+        add(w0, "descriptor", self._descriptor(cid, 1, self.end + timedelta(days=1)))
+        add(w0, "terms", RewardTerms(w0, D(20), D("3.5"), D(100)))
+        add(w0, "info_event", {"events": []})
+        add(w0, "plugin_input", dict(source="fixture", original_captured_at=w0, record=dict(i=1)))
+        seen = w0 + timedelta(seconds=1)
+        add(seen, "outcome_view", dict(available=True, value=OutcomeView(
+            cid, .50, .025, None, seen, seen + timedelta(hours=1), hashlib.sha256(b"w2-view").hexdigest(),
+            "fixture", "shadow")))
+        minute = 0
+        while w0 + timedelta(minutes=minute) < w1:
+            at = w0 + timedelta(minutes=minute, seconds=2)
+            add(at - timedelta(seconds=1), "coverage", dict(trade_stream_ok=True, valid_until_utc=at + timedelta(minutes=1)))
+            sides = self.BOOK if minute < self.MOVED else self.MOVED_BOOK
+            add(at, "book", Book(at, sides["yb"], sides["ya"], sides["nb"], sides["na"]))
+            minute += 1
+        for number, row in enumerate(out):
+            yield {"sequence": number, **row}
