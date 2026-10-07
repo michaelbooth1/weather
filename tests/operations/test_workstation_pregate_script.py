@@ -180,6 +180,8 @@ def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
         f"OUT_PATH = {str(probe_out)!r}\n" + FIXTURE_CONSOLE_TEST, encoding="utf-8"
     )
     (repo / ".gitignore").write_text("venv/\ndata/\n", encoding="utf-8")
+    # As in the real repository: LF everywhere, so an autocrlf checkout stays clean.
+    (repo / ".gitattributes").write_text("* text=auto eol=lf\n", encoding="utf-8")
     venv = _run([sys.executable, "-m", "venv", "--without-pip", str(repo / "venv")], timeout=300)
     assert venv.returncode == 0, venv.stderr
     packages = [path for path in site.getsitepackages() if path.endswith("site-packages")]
