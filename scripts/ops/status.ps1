@@ -61,6 +61,137 @@ function Get-WeatherSweepFlags {
     catch { "STALENESS_SWEEP: cannot read latest findings ($($_.Exception.Message))" }
 }
 
+# Swarm P audit 2026-10-07 G1: unclean boots with the outage interval, so the watchdog can
+# decide whether the outage overlapped the 12:00-18:00 graded window. $Boots holds
+# [pscustomobject]@{ boot = <datetime>; last_alive = <datetime or $null> }, any order.
+function Get-WeatherUncleanBootState {
+    param([object[]]$Boots = @(), [datetime]$Now = (Get-Date))
+    $invariant = [cultureinfo]::InvariantCulture
+    $ordered = @(@($Boots) | Where-Object { $_ -and $_.boot } | Sort-Object { [datetime]$_.boot } -Descending)
+    $state = [ordered]@{
+        unclean_boots_7d  = @($ordered | Where-Object { ($Now - [datetime]$_.boot).TotalDays -le 7 }).Count
+        unclean_boots_90d = @($ordered | Where-Object { ($Now - [datetime]$_.boot).TotalDays -le 90 }).Count
+        last_unclean_boot = $null; outage_start = $null; outage_end = $null; flag = $null; warn = $null
+    }
+    if ($ordered.Count -eq 0) { return [pscustomobject]$state }
+    $boot = [datetime]$ordered[0].boot
+    $bootText = $boot.ToString('yyyy-MM-dd HH:mm', $invariant)
+    $state.last_unclean_boot = $boot.ToString('o')
+    $state.outage_end = $boot.ToString('o')
+    $startText = 'start unknown'
+    if ($ordered[0].last_alive) {
+        $lastAlive = [datetime]$ordered[0].last_alive
+        $state.outage_start = $lastAlive.ToString('o')
+        $startText = $lastAlive.ToString('yyyy-MM-dd HH:mm', $invariant)
+    }
+    if (($Now - $boot).TotalHours -lt 24) {
+        $state.flag = ("UNEXPECTED SHUTDOWN: host booted {0} after an unclean shutdown (outage {1} -> {0}); {2} unclean boot(s) in 7d - verify today's capture grade; an outage inside 12:00-18:00 ends the streak" -f
+            $bootText, $startText, $state.unclean_boots_7d)
+    }
+    elseif ($state.unclean_boots_90d -ge 3) {
+        $state.warn = ("{0} unexpected shutdowns in 90d, {1} in 7d (most recent {2}) - power loss is the top uncontrolled streak risk; a UPS would remove it" -f
+            $state.unclean_boots_90d, $state.unclean_boots_7d, $bootText)
+    }
+    return [pscustomobject]$state
+}
+
+# Swarm P audit 2026-10-07 G5: the alarm path runs pinned copies of health_watchdog.ps1 and
+# status.ps1 from a detached deployment worktree, so a merged fix is inert until a reviewed
+# pinned redeploy. Report that drift read-only: the registered action's paths and SHA256
+# pins, the deployed bytes, git blob identity against $Ref, and commits behind when git
+# is available. Never changes the scheduler, the deployment or either checkout.
+function Get-WeatherWatchdogDeploymentDrift {
+    param([string]$Arguments = "", [Parameter(Mandatory = $true)][string]$Repo, [string]$Ref = "master")
+    $state = [ordered]@{
+        status = "UNKNOWN"; detail = ""; ref = $Ref; deployed_root = $null; deployed_commit = $null
+        master_commit = $null; commits_behind = $null; commits_behind_touching = $null
+        git_available = $false; files = @()
+    }
+    if ([string]::IsNullOrWhiteSpace($Arguments)) {
+        $state.status = "NOT_REGISTERED"
+        $state.detail = "WeatherHostHealthWatchdog has no registered action to compare"
+        return [pscustomobject]$state
+    }
+    $git = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)[0]
+    $state.git_available = [bool]$git
+    $files = @()
+    foreach ($binding in @(
+            @{ name = "health_watchdog.ps1"; path = "-File"; hash = "-ExpectedSelfSha256" },
+            @{ name = "status.ps1"; path = "-StatusScriptPath"; hash = "-ExpectedStatusScriptSha256" })) {
+        $file = [ordered]@{ name = $binding.name; deployed_path = $null; pinned_sha256 = $null; deployed_sha256 = $null
+            pin_ok = $false; deployed_blob = $null; master_blob = $null; matches_master = $null }
+        $pathMatch = [regex]::Match($Arguments, '(?:^|\s)' + [regex]::Escape($binding.path) + '\s+"([^"]+)"')
+        $hashMatch = [regex]::Match($Arguments, '(?:^|\s)' + [regex]::Escape($binding.hash) + '\s+([0-9A-Fa-f]{64})(?:\s|$)')
+        if ($pathMatch.Success) { $file.deployed_path = $pathMatch.Groups[1].Value }
+        if ($hashMatch.Success) { $file.pinned_sha256 = $hashMatch.Groups[1].Value.ToLowerInvariant() }
+        if ($file.deployed_path -and (Test-Path -LiteralPath $file.deployed_path -PathType Leaf)) {
+            $file.deployed_sha256 = (Get-FileHash -LiteralPath $file.deployed_path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $file.pin_ok = ($null -ne $file.pinned_sha256 -and $file.deployed_sha256 -eq $file.pinned_sha256)
+            if (-not $state.deployed_root) {
+                $state.deployed_root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $file.deployed_path))
+            }
+            if ($git) {
+                $blob = & $git.Source -C $Repo hash-object "--path=scripts/ops/$($binding.name)" -- $file.deployed_path 2>$null
+                if ($LASTEXITCODE -eq 0 -and $blob) { $file.deployed_blob = ([string]$blob).Trim() }
+                $masterBlob = & $git.Source -C $Repo rev-parse --verify --quiet "$($Ref):scripts/ops/$($binding.name)" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $masterBlob) { $file.master_blob = ([string]$masterBlob).Trim() }
+                if ($file.deployed_blob -and $file.master_blob) { $file.matches_master = ($file.deployed_blob -eq $file.master_blob) }
+            }
+        }
+        $files += [pscustomobject]$file
+    }
+    $state.files = $files
+    if ($git -and $state.deployed_root -and (Test-Path -LiteralPath $state.deployed_root -PathType Container)) {
+        $top = & $git.Source -C $state.deployed_root rev-parse --show-toplevel 2>$null
+        if ($LASTEXITCODE -eq 0 -and $top -and
+            [IO.Path]::GetFullPath(([string]$top).Trim()).TrimEnd('\') -ieq [IO.Path]::GetFullPath($state.deployed_root).TrimEnd('\')) {
+            $head = & $git.Source -C $state.deployed_root rev-parse --verify --quiet HEAD 2>$null
+            if ($LASTEXITCODE -eq 0 -and $head) { $state.deployed_commit = ([string]$head).Trim() }
+        }
+    }
+    if (-not $state.deployed_commit -and $state.deployed_root -and
+        (Split-Path -Leaf $state.deployed_root) -match '-([0-9a-f]{7,40})$') {
+        $state.deployed_commit = $Matches[1]
+    }
+    if ($git) {
+        $masterCommit = & $git.Source -C $Repo rev-parse --verify --quiet "$Ref^{commit}" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $masterCommit) { $state.master_commit = ([string]$masterCommit).Trim() }
+        if ($state.deployed_commit -and $state.master_commit) {
+            $behind = & $git.Source -C $Repo rev-list --count "$($state.deployed_commit)..$($state.master_commit)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$behind" -match '^\s*(\d+)\s*$') { $state.commits_behind = [int]$Matches[1] }
+            $touching = & $git.Source -C $Repo rev-list --count "$($state.deployed_commit)..$($state.master_commit)" -- scripts/ops/health_watchdog.ps1 scripts/ops/status.ps1 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$touching" -match '^\s*(\d+)\s*$') { $state.commits_behind_touching = [int]$Matches[1] }
+        }
+    }
+    $short = if ($state.deployed_commit) { $state.deployed_commit.Substring(0, [Math]::Min(8, $state.deployed_commit.Length)) } else { "unknown" }
+    $behindText = if ($null -ne $state.commits_behind) {
+        "deployed $short is $($state.commits_behind) commit(s) behind $Ref ($($state.commits_behind_touching) touching watchdog/status)"
+    } else { "deployed $short (commits behind $Ref unknown)" }
+    $differs = @($files | Where-Object { $_.matches_master -eq $false } | ForEach-Object { $_.name })
+    $differsText = if ($differs.Count) { "; differs from $($Ref): $($differs -join ', ')" } else { "" }
+    if (@($files | Where-Object { -not $_.deployed_sha256 }).Count) {
+        $state.status = "UNKNOWN"
+        $state.detail = "a deployed watchdog/status script is missing or unreadable; $behindText"
+    }
+    elseif (@($files | Where-Object { -not $_.pin_ok }).Count) {
+        $state.status = "PIN_MISMATCH"
+        $state.detail = "$behindText$differsText; pinned: $(@($files | Where-Object { -not $_.pin_ok } | ForEach-Object { $_.name }) -join ', ')"
+    }
+    elseif (-not $git -or @($files | Where-Object { $null -eq $_.matches_master }).Count) {
+        $state.status = "UNVERIFIED"
+        $state.detail = "pins match the deployed bytes, but master identity could not be read; $behindText"
+    }
+    elseif ($differs.Count) {
+        $state.status = "DRIFT"
+        $state.detail = "$behindText$differsText"
+    }
+    else {
+        $state.status = "CURRENT"
+        $state.detail = "deployed bytes match $Ref; $behindText"
+    }
+    return [pscustomobject]$state
+}
+
 function Find-WeatherQuietMergeRetirement {
     param([string]$Directory, [object]$Report, [string]$ActiveMarkerPath,
           [datetimeoffset]$Now = [datetimeoffset]::Now)
@@ -1424,6 +1555,38 @@ if ($executionTapeState.armed) {
     }
 }
 
+# Byte-identical copy of scripts\ops\memory_guard_status_reader.ps1 (a test enforces it):
+# status.ps1 runs as one hash-pinned file, so it cannot dot-source an unpinned helper.
+function Read-WeatherMemoryGuardStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 20)][int]$Attempts = 6,
+        [ValidateRange(1, 1000)][int]$RetryMilliseconds = 25
+    )
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+            $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+            try {
+                $lastWrite = [IO.File]::GetLastWriteTime($Path)
+                $reader = New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding($false)), $false)
+                try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+            finally { $stream.Dispose() }
+            $text = $text.TrimStart([char]0xFEFF)
+            if ([string]::IsNullOrWhiteSpace($text)) { throw "memory guard status is empty" }
+            $row = $text | ConvertFrom-Json -ErrorAction Stop
+            return [pscustomobject]@{ row = $row; last_write_time = $lastWrite; attempts = $attempt }
+        }
+        catch {
+            $lastError = $_
+            if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds $RetryMilliseconds }
+        }
+    }
+    throw $lastError
+}
+
 function Get-StatusMemoryGuardEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -1436,7 +1599,7 @@ function Get-StatusMemoryGuardEvidence {
         detail = "memory guard status is missing or unreadable"
     }
     try {
-        $row = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $row = (Read-WeatherMemoryGuardStatus -Path $Path).row
         foreach ($name in @("checked_at", "commit_percent", "warn_percent", "act_percent")) {
             if ($null -eq $row.PSObject.Properties[$name] -or $null -eq $row.$name) {
                 throw "memory guard status is missing $name"
@@ -4519,18 +4682,31 @@ elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restor
 $uptimeH = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalHours, 1)
 $lastCrash = $null
 $crashes90 = 0
+$uncleanBoots = @()
 try {
     $ev = @(Get-WinEvent -FilterHashtable @{LogName = 'System'; Id = 41; StartTime = (Get-Date).AddDays(-90) } -MaxEvents 20 -EA SilentlyContinue)
     $crashes90 = $ev.Count
     if ($ev.Count -gt 0) { $lastCrash = $ev[0].TimeCreated }
+    for ($i = 0; $i -lt $ev.Count; $i++) {
+        $bootStart = $ev[$i].TimeCreated
+        $lastAlive = $null
+        if ($i -eq 0) {
+            # Outage interval for the newest unclean boot only (three cheap point queries):
+            # OS start (Kernel-General 12) just before the Kernel-Power 41 record, and the last
+            # System event written before that start as the approximate moment power was lost.
+            $osStart = @(Get-WinEvent -FilterHashtable @{LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-General'; Id = 12
+                    StartTime = $bootStart.AddMinutes(-30); EndTime = $bootStart.AddSeconds(1) } -MaxEvents 1 -EA SilentlyContinue)
+            if ($osStart.Count -gt 0) { $bootStart = $osStart[0].TimeCreated }
+            $prior = @(Get-WinEvent -FilterHashtable @{LogName = 'System'; StartTime = $bootStart.AddDays(-7); EndTime = $bootStart.AddSeconds(-5) } -MaxEvents 1 -EA SilentlyContinue)
+            if ($prior.Count -gt 0) { $lastAlive = $prior[0].TimeCreated }
+        }
+        $uncleanBoots += [pscustomobject]@{ boot = $bootStart; last_alive = $lastAlive }
+    }
 }
 catch {}
-if ($lastCrash -and ((Get-Date) - $lastCrash).TotalHours -lt 24) {
-    $flags.Add("UNEXPECTED SHUTDOWN $lastCrash - verify today's capture grade; an outage inside 12:00-18:00 ends the streak")
-}
-elseif ($crashes90 -ge 3) {
-    $warns.Add("$crashes90 unexpected shutdowns in 90d (most recent $lastCrash) - power loss is the top uncontrolled streak risk; a UPS would remove it")
-}
+$hostStability = Get-WeatherUncleanBootState -Boots $uncleanBoots
+if ($hostStability.flag) { $flags.Add([string]$hostStability.flag) }
+elseif ($hostStability.warn) { $warns.Add([string]$hostStability.warn) }
 
 # ---- the watchdog itself (who watches the watcher) ----
 # health_watchdog.ps1 is what alerts overnight while nobody is awake. If IT dies, every
@@ -4548,6 +4724,22 @@ if (Test-Path $wdf) {
 }
 if ($null -eq $wd) { $flags.Add("health watchdog has never reported - overnight alerting is NOT running") }
 elseif ($wdAgeMin -gt 45) { $flags.Add("health watchdog stale by ${wdAgeMin} min (runs every 15) - overnight alerting may be dead") }
+
+# ---- deployed watchdog/status vs master (read-only drift report; G5) ----
+$watchdogDeployment = $null
+try {
+    $wdTask = Get-ScheduledTask -TaskName "WeatherHostHealthWatchdog" -ErrorAction SilentlyContinue
+    $wdArguments = if ($wdTask -and @($wdTask.Actions).Count -gt 0) { [string]@($wdTask.Actions)[0].Arguments } else { "" }
+    $watchdogDeployment = Get-WeatherWatchdogDeploymentDrift -Arguments $wdArguments -Repo $repo
+    switch ([string]$watchdogDeployment.status) {
+        "PIN_MISMATCH" { $flags.Add("health watchdog deployment PIN MISMATCH: a deployed script no longer matches its registered SHA256 ($($watchdogDeployment.detail)) - the scheduled watchdog refuses to run or runs unreviewed bytes") }
+        "DRIFT" { $warns.Add("health watchdog deployment drift: $($watchdogDeployment.detail) - merged watchdog/status fixes are inert until a reviewed pinned redeploy (docs/operations/OPERATIONS_DESIGN.md)") }
+        "UNKNOWN" { $warns.Add("health watchdog deployment drift unknown: $($watchdogDeployment.detail)") }
+        "UNVERIFIED" { $warns.Add("health watchdog deployment drift unverified: $($watchdogDeployment.detail)") }
+        "NOT_REGISTERED" { $warns.Add("health watchdog deployment drift: $($watchdogDeployment.detail)") }
+    }
+}
+catch { $warns.Add("health watchdog deployment drift check failed to run") }
 
 # ---- post-integration documentation transaction ----
 $documentationTransaction = $null
@@ -4791,6 +4983,8 @@ if ($Json) {
             restore_identical = $(if ($restore) { $restore.verified_identical } else { $null })
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
+        watchdog_deployment = $watchdogDeployment
+        host_stability = $hostStability
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }); retirement = $qwRetirement }
         documentation = $documentationTransaction
         integration_attempts = @($integrationAttemptState | ForEach-Object {
@@ -4891,7 +5085,7 @@ elseif ($restore) {
 }
 else { $mirrorStr += " [never restore-verified]" }
 Write-Output ("  OFF-HOST  : mirror {0}    |  reboot pending: {1}   logon-dependent tasks: {2}" -f $mirrorStr, $rebootPending, $interactiveTasks)
-$crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d, last {1:MM-dd HH:mm}" -f $crashes90, $lastCrash } else { "no unexpected shutdowns in 90d" }
+$crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d ({1} in 7d), last {2:MM-dd HH:mm}" -f $crashes90, $hostStability.unclean_boots_7d, $lastCrash } else { "no unexpected shutdowns in 90d" }
 Write-Output ("  STABILITY : up {0}h   |  {1}" -f $uptimeH, $crashStr)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
@@ -4904,6 +5098,8 @@ if ($integrationAttemptState.Count -gt 0) {
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
 $qwStr = if ($null -eq $qw) { "none" } else { "{0} ({1:yyyy-MM-dd HH:mm})" -f $qw.stage, ([datetime]$qw.ts) }
 Write-Output ("  WATCHDOG  : {0}    |  last merge attempt: {1}" -f $wdStr, $qwStr)
+$deploymentStr = if ($null -eq $watchdogDeployment) { "UNREADABLE" } else { "{0} - {1}" -f $watchdogDeployment.status, $watchdogDeployment.detail }
+Write-Output ("  DEPLOYED  : {0}" -f $deploymentStr)
 $documentationStr = if ($null -eq $documentationTransaction) { "UNREADABLE" }
 else {
     "{0}{1}" -f $documentationTransaction.state,

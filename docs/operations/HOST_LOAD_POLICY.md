@@ -400,7 +400,13 @@ Stage-A, workstation or live authority is added.
 2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
    `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
-   ≥ 50 GiB disk free. The lease itself rejects acquisition outside that
+   ≥ 50 GiB disk free. Read that file only through
+   `scripts/ops/memory_guard_status_reader.ps1` (`Read-WeatherMemoryGuardStatus`;
+   `status.ps1` carries a test-enforced identical inline copy): the guard writes it
+   with a UTF-8 BOM and replaces it by rename every minute, so a reader must open it
+   with `FileShare` ReadWrite|Delete, `TrimStart([char]0xFEFF)` before
+   `ConvertFrom-Json`, and retry briefly. A plain `Get-Content`/`ReadAllText` gate
+   broke admission in four places (Swarm P audit 2026-10-07). The lease itself rejects acquisition outside that
    window but does **not** check disk; the disk floor is enforced per lane.
    Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
