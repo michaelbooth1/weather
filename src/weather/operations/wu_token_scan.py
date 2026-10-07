@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import bisect
 import bz2
 import codecs
 import gzip
@@ -366,9 +367,14 @@ def iter_files(
             stack.extend(reversed(subdirectories))
 
 
-def _match_into(buffer, patterns, hits, base, limit, eof):
-    """Count matches in ``buffer`` that start before ``limit`` (all of them at EOF)."""
-    lowered = buffer.lower()
+def _match_into(buffer, patterns, hits, base, limit, eof, lowered=None, seen=None, to_raw=None):
+    """Count matches in ``buffer`` that start before ``limit`` (all of them at EOF).
+
+    The raw pass records ``(pattern, offset)`` for each counted match in ``seen``.
+    The NUL-stripped pass passes ``to_raw`` (stripped index -> raw index) and skips
+    a match the raw pass already counted at the same offset (N3: no double count).
+    """
+    lowered = buffer.lower() if lowered is None else lowered
     key_named = b"apikey" in lowered or b"api_key" in lowered or b"api-key" in lowered
     for name, pattern in patterns.items():
         # Every built-in pattern is anchored on an apiKey/API_KEY name; a chunk
@@ -378,8 +384,89 @@ def _match_into(buffer, patterns, hits, base, limit, eof):
         for match in pattern.finditer(buffer):
             if not eof and match.start() >= limit:
                 continue  # counted with the next chunk, which carries this overlap
+            offset = match.start() if to_raw is None else to_raw(match.start())
+            if seen is not None:
+                if to_raw is None:
+                    seen.add((name, offset))
+                elif (name, offset) in seen:
+                    continue
             count, first = hits.get(name, (0, None))
-            hits[name] = (count + 1, base + match.start() if first is None else first)
+            hits[name] = (count + 1, base + offset if first is None else first)
+
+
+# N2: the NUL-stripped view of a chunk can match a built-in pattern only if it holds
+# a key name, i.e. only if the lowered raw chunk holds one with NULs between letters.
+_STRIPPED_KEY_GATE = re.compile(rb"a\x00*p\x00*i\x00*(?:[_-]\x00*)?k\x00*e\x00*y")
+_NON_NUL_RUN = re.compile(rb"[^\x00]+")
+_ALWAYS = object()
+_NUL_GATES = {}
+
+
+def _nul_gate(name, pattern):
+    """Regex that must match the raw chunk for ``pattern`` to match its NUL-stripped view."""
+    if name in PATTERNS:
+        return _STRIPPED_KEY_GATE
+    gate = _NUL_GATES.get(pattern)
+    if gate is None:
+        source = pattern.pattern
+        literal = re.sub(rb"\\(.)", rb"\1", source, flags=re.DOTALL) if isinstance(source, bytes) else b""
+        if literal and re.escape(literal) == source and not pattern.flags & re.IGNORECASE:
+            # The exact env token: its bytes with any NULs between them.
+            gate = re.compile(rb"\x00*".join(re.escape(bytes([byte])) for byte in literal))
+        else:
+            gate = _ALWAYS  # an unrecognised custom pattern: always scan the stripped view
+        _NUL_GATES[pattern] = gate
+    return gate
+
+
+def _stripped_view_needed(buffer, lowered, patterns):
+    if b"\x00" not in buffer:
+        return False
+    for name, pattern in patterns.items():
+        gate = _nul_gate(name, pattern)
+        if gate is _ALWAYS or gate.search(lowered if gate is _STRIPPED_KEY_GATE else buffer):
+            return True
+    return False
+
+
+def _stripped_to_raw(buffer):
+    """Return a lazy map from an index into ``buffer`` minus its NULs to an index into ``buffer``."""
+    table = []
+
+    def to_raw(index):
+        if not table:
+            raw_starts, stripped_starts, total = [], [], 0
+            for run in _NON_NUL_RUN.finditer(buffer):
+                raw_starts.append(run.start())
+                stripped_starts.append(total)
+                total += run.end() - run.start()
+            table.extend((raw_starts, stripped_starts))
+        raw_starts, stripped_starts = table
+        k = bisect.bisect_right(stripped_starts, index) - 1
+        return raw_starts[k] + index - stripped_starts[k]
+
+    return to_raw
+
+
+def _read_decoded(reader):
+    """Read about ``DECODED_READ_BYTES`` from a decoded layer; return ``(data, error)``.
+
+    N1: ``GzipFile.read(n)`` and ``LZMAFile.read(n)`` loop until they hold ``n``
+    bytes and drop them when the stream breaks, so read with ``read1`` and hand
+    back what was decoded before the error, for scanning.
+    """
+    read1 = getattr(reader, "read1", None) or reader.read
+    pieces, got = [], 0
+    try:
+        while got < DECODED_READ_BYTES:
+            piece = read1(DECODED_READ_BYTES - got)
+            if not piece:
+                break
+            pieces.append(piece)
+            got += len(piece)
+    except Exception as exc:  # noqa: BLE001 - the caller scans what it has, then re-raises.
+        return b"".join(pieces), exc
+    return b"".join(pieces), None
 
 
 def _scan_stream(reader, patterns, size=None, hits=None, stripped_hits=None):
@@ -396,6 +483,9 @@ def _scan_stream(reader, patterns, size=None, hits=None, stripped_hits=None):
     (``stripped_hits``). ASCII text in UTF-16LE/BE -- with or without a BOM, at any
     offset, e.g. a PowerShell 5.1 ``>>`` append to a UTF-8 log -- then matches.
     The overlap carry is shared, so a match straddling chunks is counted once.
+    N2: the stripped copy is made only when the chunk could match through it (a
+    key name, or the exact token, with NULs between its letters). N3: a match the
+    raw pass already counted at the same offset is not counted again.
     """
     hits = {} if hits is None else hits
     stripped_hits = {} if stripped_hits is None else stripped_hits
@@ -404,27 +494,33 @@ def _scan_stream(reader, patterns, size=None, hits=None, stripped_hits=None):
     carry = b""
     remaining = size
     while True:
+        error = None
         if remaining is None:
-            chunk = reader.read(DECODED_READ_BYTES)
+            chunk, error = _read_decoded(reader)
         else:
             # Size the read to the file: a full-chunk read() allocates CHUNK_BYTES per
             # call, which dominates the cost of scanning many small files on Windows.
             # A file that grows while it is read continues in 64 KiB reads.
             chunk = reader.read(min(CHUNK_BYTES, remaining) if remaining else 64 * 1024)
             remaining = max(0, remaining - len(chunk))
-        eof = not chunk
+        eof = not chunk or error is not None
         if len(head) < SNIFF_BYTES and chunk:
             head += chunk[: SNIFF_BYTES - len(head)]
         buffer = carry + chunk
-        if not buffer:
+        if not buffer and error is None:
             break
         limit = len(buffer) if eof else max(0, len(buffer) - OVERLAP_BYTES)
-        _match_into(buffer, patterns, hits, base, limit, eof)
-        if b"\x00" in buffer:
+        lowered = buffer.lower()
+        seen = set()
+        _match_into(buffer, patterns, hits, base, limit, eof, lowered=lowered, seen=seen)
+        if _stripped_view_needed(buffer, lowered, patterns):
             stripped = buffer.replace(b"\x00", b"")
             tail = buffer[limit:]
             stripped_limit = len(stripped) - (len(tail) - tail.count(0))
-            _match_into(stripped, patterns, stripped_hits, base, stripped_limit, eof)
+            to_raw = _stripped_to_raw(buffer)
+            _match_into(stripped, patterns, stripped_hits, base, stripped_limit, eof, seen=seen, to_raw=to_raw)
+        if error is not None:
+            raise error
         if eof:
             break
         carry = buffer[limit:]
@@ -528,7 +624,14 @@ class _CappedReader:
         self.budget = budget
 
     def read(self, size=-1):
-        data = self.inner.read(size)
+        return self._count(self.inner.read(size))
+
+    def read1(self, size=-1):
+        # N1: one decompression step at a time, so bytes decoded before a break surface.
+        read1 = getattr(self.inner, "read1", None) or self.inner.read
+        return self._count(read1(size))
+
+    def _count(self, data):
         self.budget.remaining -= len(data)
         if self.budget.remaining < 0:
             raise _DecodedTooLarge()

@@ -966,7 +966,8 @@ def test_n3_plain_token_in_a_file_with_nuls_is_counted_once(tmp_path):
 def test_n3_plain_and_utf16_tokens_are_each_counted_once(tmp_path):
     path = tmp_path / "both.log"
     first, second = secrets.token_hex(16), secrets.token_hex(16)
-    path.write_bytes(f"x apiKey={first}\n".encode("ascii") + f" apiKey={second}\n".encode("utf-16-le"))
+    head = b"plain text\n" * 500  # a UTF-8 head, so the whole file is not sniffed as UTF-16
+    path.write_bytes(head + f"x apiKey={first}\n".encode("ascii") + f" apiKey={second}\n".encode("utf-16-le"))
 
     row = scan([path]).findings[0]
 

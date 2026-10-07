@@ -99,9 +99,10 @@ data in place: unless `follow-within-root` reads it, it is listed in
 was read, apart from files behind a link `ignore` waived; the report's
 `unread_reasons` names every reason a scan is not CLEAN. An explicit file list
 (`scan(files=...)`, used by the ratchet) is treated like roots, so a directory in
-it is walked, never dropped. Each file is scanned raw (chunks holding NUL bytes
-also NUL-stripped, which catches UTF-16 text anywhere, such as a PowerShell 5.1
-`>>` append to a UTF-8 log) and then through every
+it is walked, never dropped. Each file is scanned raw (a chunk holding NUL bytes and a key name or the
+exact token with NULs between its letters is also scanned NUL-stripped, which
+catches UTF-16 text anywhere, such as a PowerShell 5.1 `>>` append to a UTF-8
+log; a match the raw pass already counted is not counted again) and then through every
 layer it can decode, streamed and recursively: gzip, bzip2, xz, zip members,
 UTF-16/UTF-32 (BOM, or BOM-less UTF-16 by its NUL pattern) and whole-file
 base64. A recognised layer that cannot be decoded (zstd, 7z, rar, lz4, Parquet,

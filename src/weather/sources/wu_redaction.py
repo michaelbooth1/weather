@@ -249,6 +249,31 @@ def _redact_text_attr(obj, name):
             return
 
 
+def _redact_headers_in_place(headers):
+    """Redact the values of an ``email.message.Message``-like headers object in place.
+
+    Returns True when ``headers`` is such an object and no longer renders a token;
+    False leaves it to the fixed placeholder (not a headers object, or a token
+    survives somewhere else, such as a payload).
+    """
+    if not all(callable(getattr(headers, name, None)) for name in ("items", "get_all", "__delitem__", "__setitem__")):
+        return False
+    try:
+        items = list(headers.items())
+        if any(redact_wu_secrets(str(value)) != str(value) for _name, value in items):
+            names = []
+            for name, _value in items:
+                if name.lower() not in (seen_name.lower() for seen_name in names):
+                    names.append(name)
+            for name in names:
+                del headers[name]
+            for name, value in items:
+                headers[name] = redact_wu_secrets(str(value))
+        return _redact_opaque(headers) is headers
+    except Exception:  # noqa: BLE001 - fall back to the placeholder.
+        return False
+
+
 def _redact_instance_attrs(exc, seen, depth):
     """Redact text an exception keeps in its own attributes (a custom ``__str__`` may render it)."""
     try:
@@ -266,6 +291,8 @@ def _redact_instance_attrs(exc, seen, depth):
         if isinstance(value, (str, bytes, dict, list, tuple)):
             redacted = _redact_arg(value, seen, depth + 1)
             changed = redacted != value
+        elif _redact_headers_in_place(value):
+            continue  # N5: ``HTTPError.hdrs`` stays a usable headers object
         else:
             # Any other object (a dataclass, a config) a custom ``__str__`` may render.
             redacted = _redact_opaque(value)
