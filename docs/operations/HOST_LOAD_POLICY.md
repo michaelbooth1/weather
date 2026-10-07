@@ -140,6 +140,15 @@ below applies: no exemption, no queue state, the same windows and the same bound
   **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
   only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
   first. Kill-on-close Job and child-tree teardown are unchanged.
+- *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
+  bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
+  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
+  lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
+  wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
+  ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
+  [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
