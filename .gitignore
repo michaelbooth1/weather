@@ -56,3 +56,16 @@ config/local/
 *.key
 *.pfx
 *.p12
+
+# Agent harness state identified by the repo-health audit (D8-F9).
+**/.claude/scheduled_tasks.lock
+**/.claude/scheduled_tasks.json
+**/.claude/routines/.state/
+**/.claude/worktrees/
+**/.claude/checkpoints/
+**/.claude/mailbox/
+**/.claude/agent-registry.json
+**/.claude/agent-memory-local
+**/.claude/first-run
+**/.claude/assistant-daemon-state.json
+.ruff_cache/

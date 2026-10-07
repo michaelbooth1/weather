@@ -1855,7 +1855,6 @@ class TestPromotionRefresh(unittest.TestCase):
             "baseline_ok": True,
             "market_rows": [{"market_id": "nyc"}],
             "decomposition": {"total": 1},
-            "forecast_tracker": {},
             "results": {"all_rows": ["should", "not", "persist"]},
         }
         corpus_identity = {

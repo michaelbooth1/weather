@@ -18,6 +18,7 @@ from weather.operations.daily_refresh_resources import (
 )
 from weather.operations.daily_refresh_steps import DEFAULT_RUNNERS
 from weather.schema_registry import schema_version
+from weather.operations.daily_refresh_profile import run_profiled
 
 
 SCHEMA_VERSION = schema_version("daily_refresh_step_child")
@@ -129,7 +130,7 @@ def run_child(step_name, args_json, result_json):
         # The parent owns process isolation. A child must never recursively
         # create another daily-refresh step container.
         args.heavy_step_subprocess = False
-        result = _runner_for_step(step_name)(args)
+        result = run_profiled(step_name, _runner_for_step(step_name), args, scope="isolated_step")
         output.update({"status": "ok", "result": json_safe(result)})
         return_code = 0
     except BaseException as exc:  # terminal evidence must survive Ctrl-C/native wrappers

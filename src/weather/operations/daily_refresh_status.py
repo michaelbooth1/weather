@@ -13,6 +13,7 @@ from weather.operations.daily_refresh_resources import (
 from weather.operations.daily_refresh_settled_day import SettledDayAnalysisBarrierError
 from weather.reporting.daily import daily_rollup_freshness
 from weather.schema_registry import schema_version
+from weather.operations.daily_refresh_profile import run_profiled
 
 
 def build_rollup_freshness_status(args, *, generated_at_overrides=None):
@@ -32,7 +33,7 @@ def run_step(name, runner, args):
         "started_at_utc": utc_iso(),
     }
     try:
-        row["result"] = runner(args)
+        row["result"] = run_profiled(name, runner, args)
         row["status"] = "ok"
     except DiskPreflightError as exc:
         row["status"] = "error"
