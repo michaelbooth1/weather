@@ -85,7 +85,9 @@ def test_pinned_registrar_with_mock_scheduler(tmp_path, mode):
     runner.write_bytes((OPS / runner.name).read_bytes())
     registrar = ops / "register_replay_bundle_export_nightly.ps1"
     registrar.write_bytes((OPS / registrar.name).read_bytes())
-    (ops / "workload_admission.ps1").write_text("""
+    production = tmp_path / "production"
+    (production / "scripts" / "ops").mkdir(parents=True)
+    (production / "scripts" / "ops" / "workload_admission.ps1").write_text("""
 function Get-WeatherExecutionHostAssignment {param($RepoRoot) return @{dedicated_capture_execution_host_id='fixture'}}
 function Get-WeatherExecutionHostId {return 'fixture'}
 """)
@@ -118,6 +120,8 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
             Settings=$Settings;Principal=$Principal}
         if($Action.Arguments -notlike ('*-ExpectedSelfSha256|*') -or
            $Action.Arguments -notlike ('*-ExpectedModuleSha256|' + ('c'*64) + '*') -or
+           $Action.Arguments -notlike ('*-DeployRoot|DEPLOY|-ProductionRoot|PRODUCTION|*') -or
+           $Action.Arguments -notlike '*-MinAvailableMiB|7168' -or $Action.Arguments -like '*-RepoRoot|*' -or
            $Action.Arguments -like '*ExpectedSourceTip*' -or
            $Action.Arguments -like '*05:00-08:00*' -or $Action.Arguments -like '*ExcludeUtc*'){throw 'missing pins'}
     }
@@ -134,7 +138,9 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
               f"-ReleaseRoot '{tmp_path / 'releases'}' -OutputRoot '{tmp_path / 'panel'}' "
               f"-ExpectedModuleSha256 '{'g'*64 if mode == 'bad_module_pin' else 'c'*64}' "
               f"-ExpectedRunnerSha256 '{'0'*64 if mode == 'wrong_hash' else expected}' "
+              f"-ProductionRoot '{production}' -MinAvailableMiB 7168 "
               + ("-WhatIf" if mode == "whatif" else ""))
+    source = source.replace("DEPLOY", str(tmp_path)).replace("PRODUCTION", str(production))
     source = source.replace("$script:", "$global:")
     source = source.replace("INVOKE", invoke).replace("EXPECT_FAILURE", "$true" if mode in
                            {"wrong_hash", "bad_module_pin", "bad_readback"} else "$false")

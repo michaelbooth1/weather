@@ -329,29 +329,61 @@ and the actual `pools` (API, library prefix, `num_threads`). In-process callers 
 ### Scheduled production export
 
 `scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It launches the **v0.2** exporter
-(`python -B -m weather.market.maker_replay_night_v02 <night|calibration>`, `-Kind`, default `night`). Its first check
-is the panel gate: a `-Day` (default yesterday, UTC) in 2026-09-30..2026-10-15 writes
+(`maker_replay_night_v02 <night|calibration>`, `-Kind`, default `night`).
+
+**Panel gate first.** A `-Day` (default yesterday, UTC) in 2026-09-30..2026-10-15 writes
 `REFUSED: PANEL_GATED <day> ...` to stderr and exits **3** before the time window, path checks, self-hash, lease,
 Python or any output. Exit 3 is an expected refusal, not a failure; the task refuses every night from 10-01 to 10-16
 until the wrapper is changed. There is no override; exporting a panel day after signature needs a reviewed wrapper
-change and a re-pinned `-ExpectedSelfSha256`. Just before launch the wrapper sets the four thread variables to `1`
-in its own process environment, which the job-owned child inherits. It admits only the assigned capture host, holds
-the shared heavy-work lease, checks fresh commit charge below 70% and 50 GiB free, and owns the child in a kill-on-close
-Job. Starts are limited to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child gets at most
-2,700 seconds of cooperative budget (`--max-seconds`) inside a 2,730-second outer deadline and stops by 04:54:45 at the
-latest, reserving 15 seconds for teardown/lease release before 04:55. A 2 GiB monitored child memory ceiling also
-refuses; the exporter itself launches no descendants. Unproved teardown poisons the lease. A busy lease fails without
-waiting or automatic catch-up. The default day is yesterday in UTC, not local time.
+change and a re-pinned `-ExpectedSelfSha256`.
+
+**Two trees that never mix** (exact-tip deploy, as `maker_replay_exam_step.ps1`):
+
+- `-DeployRoot` (default: the tree that holds the invoked wrapper, and it must be that tree) is the exact-tip code.
+  Its `src` is the child's only `PYTHONPATH`, and it is the child's working directory.
+- `-ProductionRoot` (mandatory) supplies `venv\Scripts\python.exe`, run as `python -P -B`, the memory guard status
+  `data\logs\memory_commit_guard_status.json`, `scripts\ops\workload_admission.ps1` (lease and host assignment) and
+  the host assignment config.
+- The two trees, and the output root and the deploy tree, must be disjoint. The deploy must contain
+  `src\maker_core\replay\export_gate.py`.
+- Before launch, a `__file__` probe (in its own limited Job) imports `weather.market.maker_replay_night_v02`,
+  `maker_core.replay.export_gate`, `maker_core.replay.v2.writer` and `maker_core.replay.v2.threads` with the same
+  interpreter, flags and `PYTHONPATH`, and refuses `module-path probe failed` unless every file resolves inside
+  `<DeployRoot>\src`.
+
+**Admission per export.** Immediately before the launch, after the probe, available physical memory
+(`GlobalMemoryStatusEx`) must be at least `-MinAvailableMiB` (mandatory, 512..65,536). Otherwise the wrapper throws
+`REFUSED: available physical memory ... not waiting` at once; it never waits for memory. Each wrapper run is one
+export, so every export is admitted on its own reading. The commit-charge (< 70%) and 50 GiB free checks still
+apply.
+
+**Job-level ceiling and priority.** The venv `python.exe` is a redirector that starts the real interpreter as its
+child, so limits on the started process alone would miss the exporter.
+`scripts/ops/replay_export_limited_job.ps1` (`Weather.Operations.ReplayExportLimitedJob`) creates a kill-on-close Job
+with `JOB_OBJECT_LIMIT_JOB_MEMORY` and `JOB_OBJECT_LIMIT_PROCESS_MEMORY` at 2 GiB of commit and
+`JOB_OBJECT_LIMIT_PRIORITY_CLASS` BelowNormal for every member. On a memory-limit notification its watcher terminates
+the whole Job (exit code `0xE0E0E0E0`) and records the kind and the process that hit it. The wrapper also polls the
+summed working set of every Job member at 250 ms against 2 GiB. On exit it prints one JSON line: available MiB at
+launch, the Job's peak commit, the peak summed working set, whether and where the limit was hit, and the exit code.
+
+The thread variables are set to `1` just before the probe, in the wrapper's own process environment, which both
+children inherit. It admits only the assigned capture host and holds the shared heavy-work lease. Starts are limited
+to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child gets at most 2,700 seconds of cooperative
+budget (`--max-seconds`) inside a 2,730-second outer deadline and stops by 04:54:45 at the latest, reserving 15 seconds
+for teardown/lease release before 04:55. Unproved teardown poisons the lease. A busy lease fails without waiting or
+automatic catch-up.
 
 `scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`,
-`-ExpectedModuleSha256` (from `python -B -m weather.market.maker_replay_night_v02 module-hash` in the same checkout) and `-ExpectedRunnerSha256`; `-RepoRoot` defaults to
-its own checkout. Use `-WhatIf` first: it checks pins without touching Scheduler. Registration binds 00:35 daily,
-S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It reads back the complete
-action, principal, trigger and safety settings. The runner is pinned by its own hash and the exporter's module-closure
-hash, not by a Git tip, so an unrelated master commit no longer stops the export; a change to any imported exporter
-module does, until the registrar is re-run with reviewed pins. Registration and production qualification belong to the
-production operator; fixture tests and a draft PR grant neither. The task can contend with other heavy jobs at 00:35
-and visibly refuses a busy lease; choosing a different schedule needs a reviewed registrar change.
+`-ExpectedModuleSha256` (from `python -P -B -m weather.market.maker_replay_night_v02 module-hash` with
+`PYTHONPATH=<deploy>\src`), `-ExpectedRunnerSha256`, `-ProductionRoot` and `-MinAvailableMiB`. Its `-RepoRoot`
+(default: its own checkout) is the deploy tree and is passed to the runner as `-DeployRoot`. It refuses equal or
+nested deploy and production trees. Use `-WhatIf` first: it checks pins without touching Scheduler. Registration
+binds 00:35 daily, S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It
+reads back the complete action, principal, trigger and safety settings. The runner is pinned by its own hash and the
+exporter's module-closure hash, not by a Git tip; a change to any imported exporter module stops the export until the
+registrar is re-run with reviewed pins. Registration and production qualification belong to the production operator;
+fixture tests and a draft PR grant neither. The task can contend with other heavy jobs at 00:35 and visibly refuses a
+busy lease; choosing a different schedule needs a reviewed registrar change.
 
 The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
 both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
