@@ -11,9 +11,18 @@
 > **Provenance.** The H1 and the text between this note and the appendix are a verbatim copy of the workstation file
 > `l-data/swarm-m/D-shadow-gate-spec-v3.3.md` (SHA-256 of the CRLF local file; this repo copy is stored with LF line endings, so hash it with CRLF restored —
 > `36120634030de0cdef91b5a7b4470390685d92be6d496c580c38dbf26e8940f9`, including its 2026-10-07 defect-2 amendment). The
-> appendix adds OD22's text across versions and the v3.2 §4.5 disclosure it cites. v3.3 is a text amendment: any v3.2 text not restated applies unchanged. The bases (`D-shadow-gate-spec-v3.2.md`,
-> v3.1, v3, v2) and the Defender files it cites are workstation-local under `l-data/swarm-m/` and are not in the
+> appendix adds OD22's text across versions and the v3.2 §4.5 disclosure it cites. v3.3 is a text amendment: any v3.2 text not restated applies unchanged. The bases v3.2 and v3.1 have
+> repository copies, [v3.2](maker-replay-v2-shadow-gate-spec-v3.2-2026-10-06.md) and
+> [v3.1](maker-replay-v2-shadow-gate-spec-v3.1-2026-10-06.md), redacted to the §6.2 handout form (no Kernel code, so not
+> verbatim). v3, v2 and the Defender files it cites are workstation-local under `l-data/swarm-m/` and are not in the
 > repository; local paths in the body are illustrative.
+>
+> **Oracle clean-room rule (coordinator, 2026-10-07).** This file, its v3.2/v3.1 copies and §6.2 name the denied Kernel
+> strings, so a plain checkout of this repository is **not handout-clean**. The oracle clean room never works from a
+> master checkout: its handout is a sparse or filtered tree that excludes `docs/roadmap/maker-replay-v2-shadow-gate-spec-*`
+> and every build-line kernel path. The §6.2 check is a **scripted step of cutting the handout** and runs on the actual
+> handout tree; the handout is not given out unless that check passes. Known residue the check will reject unless §6.2's
+> substitutions are extended: v3.2 `def compose_book` / `add_own(`; v3.1 `add_own`, `value.book`.
 >
 > **Update when** a later spec version, an owner decision on OD22, or the host-run incidence for the `[N]` placeholder
 > supersedes this text. Add a new dated file rather than editing this copy.
@@ -411,7 +420,7 @@ current text is the v3.3 row (§9 above) plus the §4.5 defect-2 sentence.
 
 | Version | # | Decision | Recommendation |
 | --- | --- | --- | --- |
-| v3.1 §11 | **OD22** `[NEW — M-CF, MA31-1]` | Record that CF-1 is off the gate's critical path and not a cohort dependency, with the tripwire test as the condition, and the v1-exam disclosure "lead-0 info events only". | **Confirm** (decided by master-agent; record it in the owner's log). |
+| v3.1 §11 (superseded by v3.2 and v3.3) | **OD22** `[NEW — M-CF, MA31-1]` | Record that CF-1 is off the gate's critical path and not a cohort dependency, with the tripwire test as the condition, and the v1-exam disclosure "lead-0 info events only". | **Confirm** (decided by master-agent; record it in the owner's log). |
 | v3.2 §11 | **OD22** `[CHANGED — MF-4]` | Record CF-1 off the critical path, conditional on the tripwire over the **captured descriptor's horizon** (§4.2) and on the **local-midnight descriptor refresh** on both sides (§4.3). Disclosure: "lead-0 conditions, including those still labelled horizon 1 by a pre-midnight descriptor". | **Confirm**, with the refresh as an S1 deliverable before the cohort. |
 | v3.3 §9 (current) | **OD22** `[CHANGED — F3]` | Record CF-1 off the critical path, conditional on the descriptor-horizon tripwire and on the local-midnight refresh. The refresh is a **disclosed engine-input change (C13)**, run identically in the shadow, the replay readers and the **live executor** (L8; TL binds the day-roll module). Disclosure as v3.2 §4.5 for defect 1, plus the defect-2 sentence of §4.5 `[v3.3: D-1, 2026-10-07]`: "Defect 2 (an unparseable trigger `observed_at` raised before the point-in-time filter) made the event's clock unavailable for the whole UTC bundle day, which can include lead-1 minutes before local midnight; its v1 incidence is [N event-days, from the disclosure counter's `events_old_clock_unavailable_observed_at` on the allowed days 09-27..29 / expected 0 because live producers write aware times]." | **Confirm.** |
 
