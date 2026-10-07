@@ -12,6 +12,10 @@ RECENT_REGISTERED_SCHEMAS = (
                "Recorded campaign contributions, ordered attribution rules and report-only limits."),
     SchemaSpec("portfolio_ledger", "portfolio_ledger_v0.1", "maker_core.portfolio.journal", "active",
                "Create-only hash-chained portfolio books with per-campaign FIFO accounting."),
+    SchemaSpec("maker_guard", "maker_guard_v0.1", "maker_core.runtime.guard", "active",
+               "Trading-guard policy: guarded bot campaign, wallet cash age and permit age bounds."),
+    SchemaSpec("maker_guard_latch", "maker_guard_latch_v0.1", "maker_core.runtime.guard_latch", "active",
+               "Create-only hash-chained PAUSE/HALT latch records; cleared only by the owner command."),
     SchemaSpec(
         "wallet_reader_request", "wallet_reader_request_v1",
         "weather.market.wallet_reader_transport", "active",

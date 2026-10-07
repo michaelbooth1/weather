@@ -25,7 +25,7 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 | Staged protocol → Stage 2: one-band maker quote | Never run. Read before proposing any economic order. |
 | Staged protocol → Stage 3: evidence and settlement | Working on fills, fees, rebates, rewards, positions or P&L reconciliation. |
 | SDK decision record | Touching the pinned client, heartbeat transport or wallet topology. |
-| Stop conditions | Any live-path change; these may be added to, never weakened. |
+| Stop conditions | Any live-path change; these may be added to, never weakened. A future `maker_core` runtime enforces pause and bleed limit through the [maker trading guard](maker-trading-guard.md). |
 | Decision after the pilot | Interpreting a pass or a fail. |
 
 ## Purpose and claim boundary
@@ -2081,6 +2081,10 @@ Cancel all and do not resume on any of the following:
   clock, reboot, capture-host exclusion, or exclusive lease stops passing;
 - official geoblock state is unavailable or blocked, physical eligibility is
   unconfirmed, or endpoint and attended physical-location attestations disagree.
+
+A future `maker_core` runtime must also pass the [maker trading guard](maker-trading-guard.md)
+before every order: it halts on the campaign bleed limit, an INCOMPLETE ledger or stale wallet
+cash, pauses on the owner pause file, latches until the owner clears it, and emits cancel-all.
 
 ## Decision after the pilot
 
