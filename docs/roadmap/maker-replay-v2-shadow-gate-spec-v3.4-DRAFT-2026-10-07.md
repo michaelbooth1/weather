@@ -8,7 +8,7 @@
 > [the state of play](../operations/STATE_OF_PLAY.md), never here.
 >
 > **Read when** writing, reviewing or Defending the oracle handout cut script (unit H1), or when ruling on the
-> owner-pending point in §8. Read v3.3 first.
+> owner-pending points in §8. Read v3.3 first.
 >
 > **Provenance.** The H1 and the text after this note began as a verbatim copy of the workstation file
 > `l-data/swarm-m/D-shadow-gate-spec-v3.4.md` (SHA-256 of the LF local file:
@@ -22,7 +22,7 @@
 >
 > **Update when** the owner accepts, amends or rejects this draft, or the H1 cut script finds residue the table
 > misses. Add a new dated file rather than editing this copy, except for applying owner decisions to this draft
-> before it is accepted (as done for §8 on 2026-10-07).
+> before it is accepted (as done for §8, and for §5's author, commit and clean-room text, on 2026-10-07).
 
 > **DRAFT — NOT IN FORCE until the owner accepts it. No authority.** This file proposes a replacement for v3.3 §6.2 (the
 > oracle handout's file list, substitutions and check). Until the owner accepts it, v3.3 §6.2 stays the text in force,
@@ -421,8 +421,28 @@ The oracle PR records the manifest SHA-256, as v3.2.
 
 ## 5. The oracle's filtered tree: build-line kernel paths `[v3.4: defines "every build-line kernel path"]`
 
-The oracle works in a fresh worktree (v3.1 §6.3 item 1). That worktree is a **filtered tree**, never a plain checkout.
-At the build-line commit it is cut from, it excludes these path globs (relative to the repository root):
+**Author `[v3.4: owner 2026-10-07, OD18 (b)]`.** A fresh clean-room agent session on the capture host writes the
+oracle, working only from the bound H1 handout (§2) in the filtered tree below. That session never sees
+`src/maker_core/replay/v2/**` (nor anything else this section excludes). The workstation never authors, edits or
+touches the oracle; it may build the H1 cut script only. OD21 is deferred, so the author must also never be the author
+of TL; v3.1 §6.3 item 3 (a different agent from S1's adapter author, and a different model or harness where
+available) still applies. This ruling was relayed by the master agent on 2026-10-07 and is pending a DECISION_LOG
+entry (§8 point 6).
+
+**Commit `[v3.4: §8 Q3; PENDING ruling R2]`.** The filtered tree is cut from the same build-line commit as the handout's
+code items (§1): U3's merged build-line head, re-checked at the cut. The manifest records that commit and the filtered
+tree's root tree id. **PENDING owner ruling R2:** either U3 merges into the build line by 10-10, or the cut is made at
+`501f47579` (the current byte-identical reference, §1) and a **recorded re-bind** to U3's merged head follows when U3
+merges. A re-bind changes only the recorded commit; any byte change in a handout file or the filtered tree is a new
+handout revision, not a re-bind.
+
+**Clean room `[v3.4: proposed, PENDING owner ruling R1]`.** A git worktree is not a clean room: it shares the
+repository's object store and refs, so the excluded files stay reachable through history. The proposal is that the
+filtered tree is a **standalone repository with one parentless commit** of the filtered snapshot and **no remotes**
+(and no alternates or other refs). Until R1 is ruled, v3.1 §6.3 item 1's "fresh worktree" wording stands.
+
+The oracle's tree is a **filtered tree**, never a plain checkout. At the build-line commit it is cut from, it excludes
+these path globs (relative to the repository root):
 
 ```text
 src/maker_core/replay/**
@@ -446,6 +466,26 @@ The first six globs are v3.1 §6.3 item 1's deletion set. The rest are build-lin
 - import, test, transcribe or quote the Kernel (the mrv2 agent reports quote Kernel functions);
 - name the denied strings (the registration draft quotes `state.` attributes, which rule 3 denies; its C11 row also
   names `compose_book`, which is public since §8 Q1 and is not itself a reason to exclude the file).
+
+**Proposed additional exclusions `[v3.4: proposed, pending owner ruling R4]`.** Found at the 10-07 heads, outside every
+glob above:
+
+```text
+tests/maker_core/fixtures/**
+docs/research/maker-replay-v2-*
+tests/operations/test_maker_replay_v2_*
+```
+
+- `tests/maker_core/fixtures/**` holds expected Kernel outputs on the fictional fixtures, a fixture that imports the v2
+  package, and a second implementation of the 89a fill predicate (a common-mode source; the oracle writes that
+  predicate from the 89a contract text alone).
+- `docs/research/maker-replay-v2-*` replaces the single registration-draft line above and also covers the v2
+  engineering plan.
+- `tests/operations/test_maker_replay_v2_*` names the v2 tool modules.
+- **Scripted refusal (proposed, pending R4):** after filtering, the cut refuses if any remaining file imports
+  `maker_core.replay`. Globs alone missed a U3 fixture on its first day.
+
+Until R4 is ruled, the glob list above is the proposed text and these additions are not part of it.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.
@@ -497,8 +537,10 @@ explain the difference, before the Defender tests it.
 
 ## 8. Owner decisions (2026-10-07)
 
-Relayed by the master agent on 2026-10-07. Points 1-5 are **decided** and applied in this draft. Point 6 is **open**.
-The draft as a whole stays DRAFT, NOT IN FORCE until the owner accepts it.
+Relayed by the master agent on 2026-10-07. Points 1-6 are **decided** and applied in this draft (point 6 is pending its
+DECISION_LOG entry). Point 7 lists the rulings still **pending**. The draft as a whole stays DRAFT, NOT IN FORCE until
+the owner accepts it. The owner rulings that bind the oracle's semantics are collected in
+[the oracle rulings sheet](maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
 
 1. **Decided: `compose_book` is not secret.** It is public through the registration draft's C11 row. It is dropped from
    the §4 denied-identifier list and moved to the excluded list. The ten substitutions that existed only to avoid it
@@ -512,5 +554,10 @@ The draft as a whole stays DRAFT, NOT IN FORCE until the owner accepts it.
 4. **Decided: v3.2's Summary is cut** from the handout with Annex K (S2), as v3.3 says. The repository copy keeps it.
 5. **Decided: v2's transcription depth.** v2's prose, with its `kernel.py` line pointers and Kernel structure, is
    accepted under the `ORACLE_SPEC_DERIVED_FROM_KERNEL` label (§6). No further amendment.
-6. **Open (owner-pending): OD18 and OD21** must still be ruled before the oracle author session
-   (`ORACLE-timing-answer.md` §3).
+6. **Decided: OD18 (b)** — a fresh clean-room agent on the host writes the oracle from the filtered handout; the
+   workstation never authors or touches it (§5). **OD21: DEFERRED** by the owner; the oracle's author must still never
+   be TL's author (v3.2 §11). Both relayed 2026-10-07, pending a DECISION_LOG entry; `STATE_OF_PLAY.md` still lists
+   OD21 as open.
+7. **Pending owner rulings (2026-10-07):** R1, the clean-room form (§5: a standalone repository, one parentless commit,
+   no remotes); R2, the cut commit (§5: merge U3 by 10-10, or cut at `501f47579` with a recorded re-bind); R4, the
+   proposed additional exclusions and the scripted import refusal (§5). Until they are ruled, §5 marks them proposed.
