@@ -1,6 +1,7 @@
 # Register only after production adoption/review. WhatIf validates pins without Scheduler IO.
 # Pins: the runner's SHA-256 and the exporter module-closure hash printed by
-# `python -B -m weather.market.maker_plugin.replay_export module-hash` in this checkout.
+# `python -B -m weather.market.maker_replay_night_v02 module-hash` in this checkout (the runner launches the
+# v0.2 exporter). The runner refuses panel days 2026-09-30..2026-10-15 with exit code 3 (PANEL_GATED).
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),

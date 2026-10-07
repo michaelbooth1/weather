@@ -18,6 +18,7 @@ from maker_core.contracts import SettlementFact
 from maker_core.replay.bundle import (FORMAT, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, MAX_BYTES,
                                       MAX_RECORDS, BundleError, Limits, load_bundle, sha256)
 from maker_core.replay.bundle import regular_path as neutral_path
+from maker_core.replay.export_gate import export_permitted
 from maker_core.replay.payloads import MAX_TRADE_CLOCK_SKEW, market_descriptor
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, sealed_segments
@@ -324,6 +325,7 @@ def _carry_metadata(args, projection, reader):
 
 
 def export(args, *, now=None, reader=None):
+    export_permitted(args.date, getattr(args, "owner_decision", None), now=now)  # first: before any input
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     if day >= now.date():
@@ -500,6 +502,7 @@ def main(argv=None):
     run.add_argument("--max-input-bytes", type=int, default=1024**3)
     run.add_argument("--max-output-bytes", type=int, default=MAX_BYTES)
     run.add_argument("--max-records", type=int, default=MAX_RECORDS)
+    run.add_argument("--owner-decision", type=Path, help="signed maker-replay-v2-v1 decision (panel dates only)")
     args = parser.parse_args(argv)
     try:
         result = export(args)

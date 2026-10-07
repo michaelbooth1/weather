@@ -1,6 +1,11 @@
-# Export yesterday's sealed UTC evidence as one all-city bundle without touching capture or Scheduler.
-# The registrar pins this wrapper's hash and the exporter's module-closure hash (not a Git tip),
+# Export yesterday's sealed UTC evidence as one all-city bundle v0.2 without touching capture or Scheduler.
+# The registrar pins this wrapper's hash and the v0.2 exporter's module-closure hash (not a Git tip),
 # so unrelated master commits do not stop the export. Active intervals are manifest-only.
+# Panel export gate (owner decision 3): every UTC day 2026-09-30..2026-10-15 is refused with exit code 3
+# (PANEL_GATED) before any lease, path check, Python launch or output. There is no override; exporting a
+# panel day after signature needs a reviewed change to this wrapper and its pinned hash.
+# Thread pins (owner decision 2): the child gets OPENBLAS/OMP/MKL/NUMEXPR_NUM_THREADS=1 in its environment;
+# the exporter only verifies them and refuses otherwise.
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -9,10 +14,28 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedModuleSha256,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedSelfSha256,
-    [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$Day = ''
+    [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$Day = '',
+    [ValidateSet('night', 'calibration')][string]$Kind = 'night'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
+$PanelGateExitCode = 3
+
+function Test-ReplayExportPanelGated {
+    # A UTC calendar day is gated when [day 00:00Z, day+1 00:00Z) lies inside [2026-09-30 00:00Z, 2026-10-16 00:00Z).
+    param([datetime]$UtcDay)
+    $first = [DateTime]::new(2026, 9, 30, 0, 0, 0, [DateTimeKind]::Utc)
+    $end = [DateTime]::new(2026, 10, 16, 0, 0, 0, [DateTimeKind]::Utc)
+    return ($UtcDay.Date -ge $first -and $UtcDay.Date.AddDays(1) -le $end)
+}
+
+function Set-ReplayExportChildThreadPins {
+    # Process scope of this wrapper only; Start-WeatherProcessInJob passes no environment block, so the child
+    # inherits exactly these values, which OpenBLAS reads once at load.
+    foreach ($name in @('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS')) {
+        [Environment]::SetEnvironmentVariable($name, '1', 'Process')
+    }
+}
 
 function Get-ReplayExportDeadline {
     param([datetime]$NowUtc)
@@ -54,6 +77,14 @@ function Assert-ReplayExportSource {
     if ($hash -cne $ExpectedSelfSha256) { throw 'nightly wrapper hash mismatch' }
 }
 
+if (-not $Day) { $Day = [DateTime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd') }
+$parsedDay = [DateTime]::ParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
+if (Test-ReplayExportPanelGated -UtcDay $parsedDay) {
+    # First refusal: before the window, paths, self-hash, lease, Python or any output.
+    [Console]::Error.WriteLine("REFUSED: PANEL_GATED $Day is in the maker-replay-v2-v1 panel window; no export before signature")
+    exit $PanelGateExitCode
+}
 $deadline = Get-ReplayExportDeadline -NowUtc ([DateTime]::UtcNow)
 foreach ($path in @($RepoRoot, $DataRoot, $ReleaseRoot, $OutputRoot)) { Assert-ReplayExportPath $path }
 $ownRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -66,8 +97,6 @@ if ($OutputRoot -ieq $sourceRoot -or
     throw 'output must be disjoint from the entire input data tree'
 }
 }
-if (-not $Day) { $Day = [DateTime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd') }
-$parsedDay = [DateTime]::ParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 if ($parsedDay -ge [DateTime]::UtcNow.Date) { throw 'closed UTC day required' }
 if (-not (Test-Path -LiteralPath $DataRoot -PathType Container) -or
     -not (Test-Path -LiteralPath (Split-Path -Parent $OutputRoot) -PathType Container)) {
@@ -107,9 +136,10 @@ try {
     $budget = [Math]::Floor(($deadline - [DateTime]::UtcNow).TotalSeconds) - 30
     if ($budget -lt 60) { throw 'deadline elapsed during admission' }
     if ($budget -gt 2700) { $budget = 2700 }
-    $tokens = @('-B', '-m', 'weather.market.maker_plugin.replay_export', 'night', '--day', $Day,
+    $tokens = @('-B', '-m', 'weather.market.maker_replay_night_v02', $Kind, '--day', $Day,
         '--data-root', $DataRoot, '--release-root', $ReleaseRoot, '--out', $OutputRoot,
         '--expected-module-sha256', $ExpectedModuleSha256, '--max-seconds', [string]$budget)
+    Set-ReplayExportChildThreadPins
     $job = New-WeatherKillOnCloseJob
     $child = Start-WeatherProcessInJob -Job $job -FilePath $python `
         -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $tokens) -WorkingDirectory $RepoRoot

@@ -23,6 +23,7 @@ from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, load_bundle, regular_path, sha256
 from maker_core.replay.calibration import CALIBRATION_DATES
 from maker_core.replay.ceilings import process_memory
+from maker_core.replay.export_gate import export_permitted
 from weather.market.maker_evidence_store import WriterLock
 from weather.market.maker_plugin.inputs import event_identity, timestamp
 from weather.market.maker_plugin_capture import Segment, StopRun, encoded, sealed_segments
@@ -188,6 +189,7 @@ def _finalize(folder, cap, kind):
 
 
 def export_day(args, kind, *, now=None, clock=time.monotonic):
+    export_permitted(args.day, getattr(args, "owner_decision", None), now=now)  # first: before any input
     started = clock()
     now = now or datetime.now(timezone.utc)
     day = date.fromisoformat(args.day)
@@ -324,6 +326,7 @@ def main(argv=None):
         run.add_argument("--max-input-bytes", type=int, default=DEFAULT_INPUT_BYTES)
         run.add_argument("--max-output-bytes", type=int, default=DEFAULT_OUTPUT_BYTES)
         run.add_argument("--max-seconds", type=float, default=DEFAULT_SECONDS)
+        run.add_argument("--owner-decision", type=Path, help="signed maker-replay-v2-v1 decision (panel dates only)")
     args = parser.parse_args(argv)
     if args.command == "universe":
         from maker_core.replay.pack_io import write_json
