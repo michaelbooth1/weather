@@ -115,6 +115,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_international_live_session_launcher_sealer.py",
             "tests/operations/test_storage_recovery_night_wrapper.py",
             "tests/operations/test_docs_light_path_script.py",
+            "tests/operations/test_correspondence_index_closeout_script.py",
             "tests/operations/test_international_live_session_runner.py",
             "tests/operations/test_live_runner_console_guards.py",
             "tests/operations/test_international_live_session_runner_stdin.py",
