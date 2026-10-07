@@ -240,7 +240,8 @@ def test_daily_registrar_inventory_is_exact_and_reads_back_without_a_zone():
 
 
 AST_PROBE = r"""
-$files = Get-Content -LiteralPath $env:AST_FILES_PATH -Encoding UTF8 | Where-Object { $_ }
+# [string] drops Get-Content's PSPath note properties, which ConvertTo-Json would serialize.
+$files = @(Get-Content -LiteralPath $env:AST_FILES_PATH -Encoding UTF8 | ForEach-Object { [string]$_ } | Where-Object { $_ })
 $rows = foreach ($file in $files) {
     $parsed = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
     if (@($errors).Count -ne 0) {
