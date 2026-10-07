@@ -342,3 +342,187 @@ def test_log_filter_redacts_a_dict_arg_exception(token):
     text = stream.getvalue()
     assert token not in text
     assert "Traceback" in text and "RuntimeError" in text
+
+
+# --- PR #259 Defender MF2: every container shape that names the key is redacted ----------
+
+
+def _container_shapes(token):
+    return {
+        "list_value": {"apiKey": [token]},
+        "dict_value": {"params": {"apiKey": {"value": token}}},
+        "bytes_key": {b"apiKey": token},
+        "bytes_key_bytes_value": {b"api_key": token.encode()},
+        "tuple_pair": ("apiKey", token),
+        "requests_params_list": [("units", "e"), ("apiKey", token)],
+        "header_pair": ("X-Api-Key", token),
+        "bytes_pair": (b"apiKey", token.encode()),
+        "env_name_pair": ["WU_API_KEY", token],
+        "object_value": {"apiKey": _Payload(token)},
+    }
+
+
+@pytest.mark.parametrize("shape", sorted(_container_shapes("t")))
+def test_mf2_container_shapes_are_redacted_in_exceptions(token, shape):
+    error = RuntimeError(_container_shapes(token)[shape])
+    assert token in _rendered(error)  # precondition
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+    assert token not in repr(error.args)
+
+
+def test_mf2_non_secret_structure_and_null_values_survive(token):
+    error = RuntimeError({"apiKey": None, "units": ["e"], "n": 3}, [("units", "e"), ("page", 2)])
+
+    sanitize_exception(error)
+
+    assert error.args == ({"apiKey": None, "units": ["e"], "n": 3}, [("units", "e"), ("page", 2)])
+
+
+def _scanner_flags(text):
+    from weather.operations.wu_token_scan import PATTERNS
+
+    data = text.encode("utf-8")
+    return sorted(name for name, pattern in PATTERNS.items() if pattern.search(data))
+
+
+def _flagged_text_forms(token):
+    return _encoded_forms(token) + [
+        f"[('apiKey', '{token}')]",
+        f"[(b'apiKey', b'{token}')]",
+        f"('X-Api-Key', '{token}')",
+        f"api_key = '{token}'",
+        f"WU_API_KEY={token}",
+        f"apiKey => {token}",
+        f"apiKey is {token}",
+        f"apiKey\t\n= {token}",
+        f"API_KEY = \"{token}\";",
+        f"apiKey: [{token}]",
+        f"{{'apiKey': ['{token}']}}",
+        f"apiKey" + " " * 50 + f"{token}",
+    ]
+
+
+@pytest.mark.parametrize("index", range(len(_flagged_text_forms("t"))))
+def test_mf2_redactor_cleans_every_text_form_the_scanner_flags(index):
+    """The module docstring's claim: every form ``wu_token_scan`` flags is redacted."""
+    hex_token = secrets.token_hex(16)
+    text = "prefix " + _flagged_text_forms(hex_token)[index] + " suffix"
+    assert _scanner_flags(text), text.replace(hex_token, "<fake>")  # precondition
+
+    redacted = redact_wu_secrets(text)
+
+    assert hex_token not in redacted.lower(), redacted
+    assert _scanner_flags(redacted) == [], redacted
+    assert redact_wu_secrets(redacted) == redacted
+
+
+@pytest.mark.parametrize("shape", sorted(_container_shapes("t")))
+def test_mf2_rendered_container_shapes_scan_clean_after_sanitize(shape):
+    hex_token = secrets.token_hex(16)
+    error = RuntimeError(_container_shapes(hex_token)[shape])
+    assert _scanner_flags(_rendered(error)) or hex_token in _rendered(error)
+
+    sanitize_exception(error)
+
+    assert _scanner_flags(_rendered(error)) == []
+    assert hex_token not in _rendered(error)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"apiKey": null, "n": 1}',
+        '{"apiKey": true}',
+        '{"apiKey": 12}',
+        '{"api_key": false, "x": [1, 2]}',
+    ],
+)
+def test_json_literal_values_stay_valid_json(text):
+    import json
+
+    assert json.loads(redact_wu_secrets(text)) == json.loads(text)
+
+
+# --- PR #259 Defender MF3: an opaque object never falls back to a repr with the token ------
+
+
+class _BareRepr:
+    def __init__(self, token):
+        self.token = token
+
+    def __str__(self):
+        return f"apiKey={self.token}"
+
+    def __repr__(self):
+        return f"_BareRepr({self.token!r})"
+
+
+def test_mf3_opaque_object_is_replaced_by_a_fixed_placeholder(token):
+    error = RuntimeError(_BareRepr(token))
+    several = RuntimeError(_BareRepr(token), 1)
+
+    sanitize_exception(error)
+    sanitize_exception(several)
+
+    for item in (error, several):
+        assert token not in _rendered(item) and token not in repr(item.args)
+    assert error.args[0] == "<redacted _BareRepr>"
+
+
+# --- PR #259 Defender MF4: notes, filenames and str reasons --------------------------------
+
+
+def test_mf4_notes_filenames_and_reasons_are_redacted(token):
+    import urllib.error
+
+    url = f"https://api.example.invalid/v1/x?apiKey={token}"
+    noted = RuntimeError("fetch failed")
+    noted.add_note(f"while fetching {url}")
+    os_error = OSError(2, "No such file", f"cache/{url}", f"other/{url}")
+    url_error = urllib.error.URLError(f"bad {url}")
+    nested = RuntimeError("outer")
+    nested.__cause__ = OSError(2, "missing", f"x?apiKey={token}")
+    group = ExceptionGroup("grp", [ValueError(url), KeyError({"apiKey": token})])
+    for error in (noted, os_error, url_error, nested, group):
+        assert token in _rendered(error)  # precondition
+
+        sanitize_exception(error)
+
+        assert token not in _rendered(error), type(error).__name__
+    assert os_error.errno == 2 and os_error.filename.startswith("cache/")
+    assert noted.__notes__[0].startswith("while fetching ")
+
+
+def test_mf4_custom_str_built_from_an_attribute_is_redacted(token):
+    class FetchError(Exception):
+        def __init__(self, url):
+            super().__init__("failed")
+            self.url_text = url
+
+        def __str__(self):
+            return f"failed for {self.url_text}"
+
+    error = FetchError(f"https://api.example.invalid/x?apiKey={token}")
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_mf4_log_filter_redacts_notes(token):
+    stream, handler = _capture_handler()
+    wu_redaction.install_wu_log_redaction(logger_names=(), handlers=[handler])
+    logger = logging.getLogger("weather.test.wu_redaction_notes_probe")
+    logger.addHandler(handler)
+    logger.propagate = False
+    error = RuntimeError("n")
+    error.add_note(f"https://api.example.invalid/x?apiKey={token}")
+    try:
+        logger.error("note", exc_info=error)
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+    assert token not in stream.getvalue()

@@ -571,3 +571,208 @@ def test_n3_new_forms_do_not_match_shas_or_uuids(tmp_path, capsys, template):
     code, out, _err = _run(capsys, [tmp_path])
 
     assert code == EXIT_CLEAN, (template, json.loads(out)["findings"])
+
+
+# --- PR #259 Defender MF1: encoded and compressed content is read or counted unread ------
+
+
+def _url_line(hex_token):
+    return json.dumps(
+        {"url": f"https://api.example.invalid/v1/x/historical.json?apiKey={hex_token}&units=e"}
+    ).encode("utf-8")
+
+
+def _zip_bytes(member_bytes, compression):
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression) as archive:
+        archive.writestr("benign.txt", b"nothing here")
+        archive.writestr("logs/run.jsonl", member_bytes)
+    return buffer.getvalue()
+
+
+def _encodings():
+    import base64
+    import bz2
+    import gzip
+    import lzma
+    import zipfile
+
+    return {
+        "gzip": gzip.compress,
+        "gzip_twice": lambda data: gzip.compress(gzip.compress(data)),
+        "bz2": bz2.compress,
+        "xz": lzma.compress,
+        "zip_deflate": lambda data: _zip_bytes(data, zipfile.ZIP_DEFLATED),
+        "zip_bzip2": lambda data: _zip_bytes(data, zipfile.ZIP_BZIP2),
+        "zip_of_gzip": lambda data: _zip_bytes(gzip.compress(data), zipfile.ZIP_DEFLATED),
+        "utf16_bom": lambda data: data.decode("utf-8").encode("utf-16"),
+        "utf16le_nobom": lambda data: data.decode("utf-8").encode("utf-16-le"),
+        "utf16be_nobom": lambda data: data.decode("utf-8").encode("utf-16-be"),
+        "utf32_bom": lambda data: data.decode("utf-8").encode("utf-32"),
+        "gzip_of_utf16": lambda data: gzip.compress(data.decode("utf-8").encode("utf-16-le")),
+        "base64": base64.b64encode,
+        "base64_wrapped": base64.encodebytes,
+        "base64_of_gzip": lambda data: base64.b64encode(gzip.compress(data)),
+    }
+
+
+@pytest.mark.parametrize("encoding", sorted(_encodings()))
+def test_mf1_token_inside_encoded_or_compressed_file_is_found(tmp_path, capsys, encoding):
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "blob.bin").write_bytes(_encodings()[encoding](_url_line(hex_token)))
+
+    code, out, err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, (encoding, json.loads(out))
+    assert hex_token not in out and hex_token not in err
+    row = json.loads(out)["findings"][0]
+    assert row["decoded_matches"], row  # names the decoded layer, never a member name
+    assert "run.jsonl" not in out
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "utf16le_nobom", "zip_deflate", "base64"])
+def test_mf1_exact_env_token_is_found_in_decoded_content(tmp_path, capsys, monkeypatch, encoding):
+    hex_token = secrets.token_hex(16)
+    monkeypatch.setenv("FAKE_WU_TOKEN_FOR_TEST", hex_token)
+    raw = f"blob {hex_token} tail ".encode("utf-8") * 4
+    (tmp_path / "blob.bin").write_bytes(_encodings()[encoding](raw))
+
+    code, out, _err = _run(capsys, [tmp_path, "--token-from-env", "FAKE_WU_TOKEN_FOR_TEST"])
+
+    assert code == EXIT_FOUND, (encoding, json.loads(out))
+    assert hex_token not in out
+
+
+@pytest.mark.parametrize(
+    "name, payload",
+    [
+        ("zstd", b"\x28\xb5\x2f\xfd" + os.urandom(64)),
+        ("7z", b"7z\xbc\xaf\x27\x1c" + os.urandom(64)),
+        ("rar", b"Rar!\x1a\x07\x01\x00" + os.urandom(64)),
+        ("parquet", b"PAR1" + os.urandom(64) + b"PAR1"),
+        ("truncated_gzip", None),
+        ("corrupt_zip", b"PK\x03\x04" + os.urandom(64)),
+        ("bad_base64", None),
+    ],
+)
+def test_mf1_undecodable_content_is_incomplete_never_clean(tmp_path, capsys, name, payload):
+    import base64
+    import gzip
+
+    if name == "truncated_gzip":
+        payload = gzip.compress(os.urandom(4096))[:200]
+    if name == "bad_base64":
+        payload = base64.encodebytes(os.urandom(6000)) + b"!!not base64!!"
+    (tmp_path / "opaque.bin").write_bytes(payload)
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_ERROR, (name, report)
+    assert report["status"] == "INCOMPLETE"
+    assert "undecoded_content" in report["unread_reasons"]
+    assert report["undecoded"] and report["undecoded"][0]["path"].endswith("opaque.bin")
+
+
+def test_mf1_encrypted_zip_member_is_incomplete(tmp_path):
+    import zipfile
+
+    data = bytearray(_zip_bytes(b"secret-ish payload " * 20, zipfile.ZIP_STORED))
+    # Set the "encrypted" general-purpose flag on every local and central header.
+    for signature, offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        start = 0
+        while (index := data.find(signature, start)) >= 0:
+            data[index + offset] |= 0x01
+            start = index + 4
+    path = tmp_path / "locked.zip"
+    path.write_bytes(bytes(data))
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_mf1_decoded_layers_are_bounded_by_the_decoded_byte_cap(tmp_path):
+    import gzip
+
+    path = tmp_path / "bomb.gz"
+    path.write_bytes(gzip.compress(b"\0" * (4 * 1024 * 1024)))
+
+    result = scan([path], max_decoded_bytes=1024 * 1024)
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert [row["reason"] for row in result.undecoded] == ["gzip:decoded_oversize"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"plain ascii log line apiKey=<redacted>\n" * 50,
+        "café °F résumé apiKey=<redacted>\n".encode("utf-8") * 50,
+        b"\xef\xbb\xbfutf-8 with bom\n" * 20,
+        ("\n".join(secrets.token_hex(20) for _ in range(40)) + "\n").encode("ascii"),  # sha list
+        b"",
+    ],
+)
+def test_mf1_ordinary_files_stay_clean(tmp_path, content):
+    path = tmp_path / "ordinary.txt"
+    path.write_bytes(content)
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_CLEAN, (result.undecoded, result.findings)
+
+
+def test_mf1_clean_compressed_file_is_clean(tmp_path):
+    import gzip
+
+    path = tmp_path / "clean.jsonl.gz"
+    path.write_bytes(gzip.compress(b'{"apiKey": "<redacted>"}\n' * 100))
+
+    assert exit_code_for(scan([path])) == EXIT_CLEAN
+
+
+# --- PR #259 Defender cheap notes: excluded dirs, empty root, --json-out failure -------------
+
+
+def test_excluded_directories_are_listed_without_making_the_scan_incomplete(tmp_path, capsys):
+    (tmp_path / "logs" / "venv").mkdir(parents=True)
+    (tmp_path / "logs" / "venv" / "run.log").write_text("benign", encoding="utf-8")
+    (tmp_path / "logs" / "ok.log").write_text("benign", encoding="utf-8")
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_CLEAN
+    assert report["skipped_excluded"] == [str(tmp_path / "logs" / "venv")]
+    assert report["skipped_excluded_count"] == 1
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_empty_root_is_refused_not_read_as_cwd(tmp_path, monkeypatch, empty):
+    (tmp_path / "ok.txt").write_text("benign", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = scan([empty])
+
+    assert result.files_scanned == 0
+    assert exit_code_for(result) == EXIT_ERROR
+    assert result.errors == [{"path": empty, "error": "EmptyPath"}]
+    assert exit_code_for(scan([], files=[empty])) == EXIT_ERROR
+
+
+@pytest.mark.parametrize("leak", [True, False])
+def test_unwritable_json_out_exits_distinctly_and_still_prints(tmp_path, capsys, leak):
+    (tmp_path / "a.txt").write_text(f"?apiKey={secrets.token_hex(16)}" if leak else "benign", encoding="utf-8")
+    target = tmp_path / "a.txt" / "sub" / "report.json"  # parent is a file
+
+    code, out, err = _run(capsys, [tmp_path, "--json-out", target])
+
+    assert code == wu_token_scan.EXIT_OUTPUT_ERROR
+    assert code not in (EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR)
+    assert json.loads(out)["status"] == ("FOUND" if leak else "CLEAN")
+    assert "json-out" in err
