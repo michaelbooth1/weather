@@ -1,4 +1,8 @@
-"""Shadow runner: tape schema, OrderGate refusal path, no order path, nightly diagnostics. Fixtures only."""
+"""Shadow runner: tape schema, OrderGate refusal path, no order path, nightly diagnostics. Fixtures only.
+
+Guards: maker shadow runner public-reads-only contract (docs/operations/maker-shadow-runner.md, What it is and Tape;
+  docs/operations/maker-core-contracts.md, Journal and deferred execution).
+"""
 import ast
 from datetime import timedelta
 from decimal import Decimal as D

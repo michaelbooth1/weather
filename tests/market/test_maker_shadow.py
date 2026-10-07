@@ -1,4 +1,8 @@
-"""Weather shadow CLI: no-network fixture run, 88a fixture panel scoring, embargo and import closure."""
+"""Weather shadow CLI: no-network fixture run, 88a fixture panel scoring, embargo and import closure.
+
+Guards: weather maker shadow CLI no-network run, 88a scoring embargo and import closure
+  (docs/operations/maker-shadow-runner.md, Commands and Nightly scoring against 88a).
+"""
 from datetime import datetime, timedelta, timezone
 import json
 import os

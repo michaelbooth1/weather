@@ -1,4 +1,8 @@
-"""Bleed-limit and pause enforcement. Fixture books only; no venue, credential or socket."""
+"""Bleed-limit and pause enforcement. Fixture books only; no venue, credential or socket.
+
+Guards: maker trading guard pause/bleed-limit/halt contract and owner-cleared latch
+  (docs/operations/maker-trading-guard.md, Decision, Latch and Runtime contract).
+"""
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
