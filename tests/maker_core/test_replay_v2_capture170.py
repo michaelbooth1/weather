@@ -1,6 +1,9 @@
 """Maker replay v2 X1 fix round 1: a reproducible capture170 fixture and a format-aware ``s2 books``.
 
 Fictional rows only (X1 Defender point 5 and M2).
+
+Guards: X1 Defender point 5 (non-reproducible uuid4 segment IDs in the capture170 fixture) and M2
+(s2 books broke on v0.3 gzip bundles).
 """
 from datetime import date
 import json
