@@ -1,5 +1,6 @@
 """Maker replay v2 W2: the bundle v0.2 streaming writer and its streaming validation, on fictional rows."""
 from datetime import date, datetime, timedelta, timezone
+import gzip
 import json
 import random
 
@@ -98,9 +99,9 @@ def test_group_disagreement_refuses_and_condition_without_group_refuses(tmp_path
 def test_streaming_validation_refuses_a_changed_stream_or_a_dropped_row(tmp_path):
     day = Day()
     _, written = _write(tmp_path, day)
-    path = tmp_path / "bundle" / "book.jsonl"
+    path = tmp_path / "bundle" / "book.jsonl.gz"
     raw = path.read_bytes()
-    path.write_bytes(raw.replace(b'"bid":', b'"bie":', 1))
+    path.write_bytes(gzip.compress(gzip.decompress(raw).replace(b'"bid":', b'"bie":', 1), mtime=0))
     with pytest.raises(BundleError):
         validate(tmp_path / "bundle", written["v01"])
     path.write_bytes(raw)
