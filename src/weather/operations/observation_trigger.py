@@ -86,7 +86,6 @@ from weather.sources.asos_one_minute import (
     compare_daily_summary_to_wu_print,
     load_daily_summary,
 )
-from weather.sources.wu_redaction import redact_wu_secrets
 from weather.time import parse_datetime, utc_now as shared_utc_now
 from weather.units import parse_temperature_band, round_half_up, to_float
 
@@ -825,8 +824,7 @@ def run_once(
             status["markets"][market_id] = market_state
             poll_results[market_id] = result
         except Exception as exc:  # noqa: BLE001 - one market cannot kill the watcher
-            # OD15: this text reaches the status file, diagnostics and trigger rows.
-            errors[market_id] = redact_wu_secrets(f"{type(exc).__name__}: {exc}")
+            errors[market_id] = f"{type(exc).__name__}: {exc}"
             poll_results[market_id] = {"market_id": market_id, "error": errors[market_id]}
 
     if errors:
