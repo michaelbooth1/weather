@@ -498,11 +498,13 @@ tests/operations/test_maker_replay_v2_*
   `maker_core.replay`. The refusal also catches string imports (`importlib`, `__import__`,
   `import_module("maker_core.replay...")`) and any string literal containing `maker_core.replay` or
   `maker_core/replay`. Globs alone missed a U3 fixture on its first day.
-- **Finding (cut-script dry-run, 2026-10-07; not ruled):** at `501f47579` the refusal fires on 28 files outside every
-  glob: eight Python files (seven import the v1 replay package, for example
+- **Finding (cut-script dry-run, 2026-10-07):** at `501f47579` the refusal fires on 28 files outside every glob:
+  eight Python files (seven import the v1 replay package, for example
   `src/weather/market/maker_fair_value_score.py` and `tools/exam_pull_cap_precheck.py`; one names it in a string
-  literal), nineteen Markdown files and one `.ps1` that name its path. As ruled, the cut therefore refuses at that commit. The script has no allowlist; how to
-  treat these files needs an owner ruling before a bindable cut.
+  literal), nineteen Markdown files and one `.ps1` that name its path.
+- **R4b (master agent's ruling, 2026-10-07):** those 28 files and the cut script are withheld by the recorded list
+  `R4B_WITHHELD` in the cut script, each with a reason class; the manifest lists path and class only, never content.
+  An unlisted hit still refuses, and so does a listed entry that is missing, no longer hits or changes class.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.

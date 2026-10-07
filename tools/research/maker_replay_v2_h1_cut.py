@@ -12,7 +12,8 @@ Modes:
             apply the 49 live substitutions; copy the code items, the 89a text, the
             rulings sheet and the cover prompt; run the §4 check, the MO1/MO2
             self-tests and the deny-list drift check; build the filtered tree (§5
-            globs plus the R4 fail-closed import refusal); create a standalone
+            globs, the R4b recorded exclusion list ``R4B_WITHHELD``, then the R4
+            fail-closed import refusal); create a standalone
             repository in a NEW directory holding one parentless commit; assert the
             R1 invariants; write ``H1-manifest.json`` and print its SHA-256, the
             binding value. Any refusal deletes the partial output directory.
@@ -184,6 +185,48 @@ _MC = "maker" + "_core"
 REPLAY_TEXT = re.compile(_MC + r"\s*[./\\]+\s*replay", re.IGNORECASE)
 DYNAMIC_IMPORT_CALLS = frozenset(
     {"import_module", "__import__", "find_spec", "spec_from_file_location", "run_module", "run_path", "load_module"}
+)
+
+# R4b (master agent's ruling, 2026-10-07): the recorded exclusion list. These are the
+# R4 refusal hits at 501f47579 outside every §5 glob, plus this cut script. Each was
+# checked not to be a handout item or required reading of one. The manifest records
+# each withheld path with its reason class (never content). Fail closed in both
+# directions: a refusal hit not on this list still refuses, and a listed path (other
+# than the cut script) that is missing, now glob-excluded, no longer hits, or hits in a
+# different class also refuses, because the list was reviewed against one tree and a
+# drifted entry would silently withhold an unreviewed file or hide a new import.
+REASON_CLASSES = ("v1-import", "string-literal", "path-mention", "cut-script")
+CUT_SCRIPT_PATH = "tools/research/maker_replay_v2_h1_cut.py"
+R4B_WITHHELD: tuple[tuple[str, str], ...] = (
+    ("README.md", "path-mention"),
+    ("docs/operations/informed-maker-design-2026-09-25.md", "path-mention"),
+    ("docs/operations/maker-replay-bundle.md", "path-mention"),
+    ("docs/operations/maker-shadow-runner-design.md", "path-mention"),
+    ("docs/operations/package-boundaries.md", "path-mention"),
+    ("docs/research/maker-replay-clarification-3-2026-10-01.md", "path-mention"),
+    ("docs/research/maker-replay-clarification-4-draft.md", "path-mention"),
+    ("docs/research/maker-replay-enrollment-template-2026-09-27.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-09-110l-maker-replay-harness.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-09-110r-replay-execution-pack.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-09-110s-nightly-bundle-export.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-09-111e-exam-executability-revision.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-09-111e-exam-executability.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-10-03-pull-cap-precheck.md", "path-mention"),
+    ("docs/roadmap/agent-report-2026-10-111e-followup.md", "path-mention"),
+    ("docs/roadmap/audits/exam-plan-b-2026-10-03.md", "path-mention"),
+    ("docs/roadmap/correspondence-index.md", "path-mention"),
+    ("docs/roadmap/workstation-handoff-2026-09-110l-maker-replay-harness-phase2.md", "path-mention"),
+    ("docs/roadmap/workstation-handoff-2026-09-110r-replay-execution-pack.md", "path-mention"),
+    ("scripts/ops/workstation_heavy.ps1", "path-mention"),
+    ("src/weather/market/maker_fair_value_score.py", "v1-import"),
+    ("tests/maker_core/test_exam_pull_cap_precheck.py", "v1-import"),
+    ("tests/maker_core/test_re1_runtime.py", "v1-import"),
+    ("tests/market/test_maker_fair_value_score.py", "v1-import"),
+    ("tests/operations/test_import_architecture.py", "string-literal"),
+    ("tools/exam_pull_cap_precheck.py", "v1-import"),
+    ("tools/research/pull_cap_precheck/fixture.py", "v1-import"),
+    ("tools/research/pull_cap_precheck/measure.py", "v1-import"),
+    (CUT_SCRIPT_PATH, "cut-script"),
 )
 
 
@@ -625,26 +668,75 @@ class BlobReader:
         self._proc.wait(timeout=60)
 
 
-def filtered_files(repo: Path, commit: str, extra_exclusions: Sequence[str] = ()) -> list[tuple[TreeEntry, bytes]]:
-    """Apply the §5 globs, then the R4 refusal over every remaining file's text."""
-    extra = set(extra_exclusions)
-    kept = [e for e in list_tree(repo, commit) if not excluded_by(e.path) and e.path not in extra]
+def reason_class(path: str, reasons: Sequence[str]) -> str:
+    """The R4b reason class of a refusal hit."""
+    if any(r.startswith(("imports", "dynamic import")) for r in reasons):
+        return "v1-import"
+    if path.endswith((".py", ".pyi", ".pyw")):
+        return "string-literal"
+    return "path-mention"
+
+
+def _withheld_map(withheld: Sequence[tuple[str, str]]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path, cls in withheld:
+        if cls not in REASON_CLASSES:
+            raise CutRefused(f"R4b list: {path} has unknown reason class {cls!r}")
+        if path in mapping:
+            raise CutRefused(f"R4b list: {path} is listed twice")
+        mapping[path] = cls
+    return mapping
+
+
+def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD
+                   ) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
+    """Apply the §5 globs, the R4b recorded list, then the R4 refusal over every remaining file.
+
+    Returns the kept files and the withheld records (path and reason class only).
+    """
+    listed = _withheld_map(withheld)
     files: list[tuple[TreeEntry, bytes]] = []
+    records: list[dict] = []
     refused: list[str] = []
+    stale: list[str] = []
+    seen: set[str] = set()
     reader = BlobReader(repo)
     try:
-        for entry in kept:
+        for entry in list_tree(repo, commit):
+            if excluded_by(entry.path):
+                continue
+            cls = listed.get(entry.path)
+            if cls == "cut-script":
+                seen.add(entry.path)
+                records.append({"path": entry.path, "reason_class": cls})
+                continue
             data = reader.read(entry.blob)
             reasons = refusal_reasons(entry.path, data)
+            if cls is not None:
+                seen.add(entry.path)
+                if not reasons:
+                    stale.append(f"{entry.path}: listed as {cls} but no longer hits")
+                elif reason_class(entry.path, reasons) != cls:
+                    stale.append(f"{entry.path}: listed as {cls} but now hits as {reason_class(entry.path, reasons)}")
+                else:
+                    records.append({"path": entry.path, "reason_class": cls})
+                continue
             if reasons:
                 refused.append(f"{entry.path}: {'; '.join(reasons)}")
             files.append((entry, data))
     finally:
         reader.close()
-    if refused:
-        listing = "\n  ".join(refused)
-        raise CutRefused(f"R4 import refusal: {len(refused)} file(s) after filtering:\n  {listing}")
-    return files
+    for path, cls in listed.items():
+        if path not in seen and cls != "cut-script":
+            stale.append(f"{path}: listed as {cls} but absent from the filtered tree at {commit[:12]}")
+    if refused or stale:
+        parts = []
+        if refused:
+            parts.append(f"R4 import refusal: {len(refused)} unlisted file(s) after filtering:\n  " + "\n  ".join(refused))
+        if stale:
+            parts.append(f"R4b list is stale: {len(stale)} entr(y/ies):\n  " + "\n  ".join(stale))
+        raise CutRefused("\n".join(parts))
+    return files, sorted(records, key=lambda r: r["path"])
 
 
 # --------------------------------------------------------------------------- R1 repo
@@ -786,12 +878,8 @@ def _mo2(sample: bytes, pin: str) -> dict:
 
 def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] = V34_TABLE,
             mo1_skip: str | None = "S6", run_drift: bool = True,
-            diagnostic_extra_exclusions: Sequence[str] = ()) -> tuple[dict, str]:
-    """Cut the handout and the filtered tree. Returns (manifest, binding sha256).
-
-    ``diagnostic_extra_exclusions`` exists for pipeline diagnostics only: it is not on
-    the command line, and a manifest cut with it is recorded as not bindable.
-    """
+            withheld: Sequence[tuple[str, str]] = R4B_WITHHELD) -> tuple[dict, str]:
+    """Cut the handout and the filtered tree. Returns (manifest, binding sha256)."""
     out_dir = out_dir.resolve()
     repo = repo.resolve()
     if out_dir.exists():
@@ -893,7 +981,7 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         checks["kernel_drift"] = drift_check(read_blob_at(repo, commit, KERNEL_PATH))
 
     # 5. Filtered tree, standalone repository, R1.
-    files = filtered_files(repo, commit, diagnostic_extra_exclusions)
+    files, withheld_records = filtered_files(repo, commit, withheld)
     checks["import_refusal_files"] = 0
     out_dir.mkdir(parents=True)
     try:
@@ -908,8 +996,7 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         manifest = {
             "schema": MANIFEST_SCHEMA,
             "rev": plan.get("rev", "r1"),
-            "bindable": cover is not None and not diagnostic_extra_exclusions,
-            "diagnostic_extra_exclusions": sorted(diagnostic_extra_exclusions),
+            "bindable": cover is not None,
             "build_line_commit": commit,
             "cut_script_sha256": sha256_hex(Path(__file__).read_bytes()),
             "plan_sha256": sha256_hex(plan_bytes),
@@ -926,6 +1013,7 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
                 "tar": TAR_NAME,
                 "tar_sha256": sha256_hex(tar_bytes),
                 "exclusion_globs": list(EXCLUSION_GLOBS),
+                "withheld_r4b": withheld_records,
                 "r1": r1,
             },
         }

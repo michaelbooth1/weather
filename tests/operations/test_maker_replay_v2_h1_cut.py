@@ -395,10 +395,11 @@ def cut_env(tmp_path):
     return {"repo": repo, "plan": plan, "plan_file": plan_file, "tmp": tmp_path}
 
 
-def _cut(env, out_name="out", plan=None):
+def _cut(env, out_name="out", plan=None, withheld=()):
     if plan is not None:
         env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
-    return h1.run_cut(env["plan_file"], env["repo"], env["tmp"] / out_name, table=SYN_TABLE, mo1_skip=None)
+    return h1.run_cut(env["plan_file"], env["repo"], env["tmp"] / out_name, table=SYN_TABLE, mo1_skip=None,
+                      withheld=withheld)
 
 
 @pytest.mark.spawns
@@ -473,3 +474,87 @@ def test_rebind_identical_and_differing(cut_env, capsys):
     assert h1.main(["rebind", "--manifest", str(manifest_file), "--repo", str(repo), "--commit", "HEAD"]) == 2
     err = capsys.readouterr().err
     assert "re-hand" in err and "H-9" in err and "H-6" not in err
+
+
+# --------------------------------------------------------------------------- R4b recorded exclusion list
+
+LEAK_IMPORT = f"from {PKG}.replay.bundle import X\n"
+LEAK_DOC = f"See src/{PKG}/replay/ for the v1 engine.\n"
+
+
+def _commit_files(repo: Path, files: dict[str, str], message: str) -> None:
+    _write_tree(repo, files)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def test_r4b_list_shape():
+    paths = [path for path, _ in h1.R4B_WITHHELD]
+    assert len(paths) == len(set(paths)) == 29
+    assert {cls for _, cls in h1.R4B_WITHHELD} == set(h1.REASON_CLASSES)
+    assert (h1.CUT_SCRIPT_PATH, "cut-script") in h1.R4B_WITHHELD
+    assert not any(h1.excluded_by(path) for path in paths)
+
+
+@pytest.mark.spawns
+def test_listed_paths_are_withheld_and_recorded_by_class(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT, "docs/notes.md": LEAK_DOC,
+                                    "tools/research/maker_replay_v2_h1_cut.py": "DENY = 'add_own'\n"}, "listed")
+    withheld = (("tools/old_tool.py", "v1-import"), ("docs/notes.md", "path-mention"),
+                ("tools/research/maker_replay_v2_h1_cut.py", "cut-script"))
+    manifest, _ = _cut(cut_env, withheld=withheld)
+    assert manifest["filtered_tree"]["withheld_r4b"] == [
+        {"path": "docs/notes.md", "reason_class": "path-mention"},
+        {"path": "tools/old_tool.py", "reason_class": "v1-import"},
+        {"path": "tools/research/maker_replay_v2_h1_cut.py", "reason_class": "cut-script"},
+    ]
+    tracked = set(_git(cut_env["tmp"] / "out" / h1.REPO_DIR, "ls-tree", "-r", "--name-only", "main").split())
+    assert not tracked & {path for path, _ in withheld}
+
+
+@pytest.mark.spawns
+def test_manifest_carries_no_withheld_content(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT + "SECRET_MARKER_TEXT = 1\n"}, "listed")
+    _cut(cut_env, withheld=(("tools/old_tool.py", "v1-import"),))
+    raw = (cut_env["tmp"] / "out" / h1.MANIFEST_NAME).read_text(encoding="utf-8")
+    assert "SECRET_MARKER_TEXT" not in raw and "bundle import" not in raw
+    rows = json.loads(raw)["filtered_tree"]["withheld_r4b"]
+    assert all(set(row) == {"path", "reason_class"} for row in rows)
+
+
+@pytest.mark.spawns
+def test_unlisted_new_hit_still_refuses(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT, "tools/new_tool.py": LEAK_IMPORT}, "two")
+    with pytest.raises(h1.CutRefused, match=r"1 unlisted file.*\n  tools/new_tool.py"):
+        _cut(cut_env, withheld=(("tools/old_tool.py", "v1-import"),))
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    ("files", "entry", "message"),
+    [
+        ({}, ("tools/gone.py", "v1-import"), "absent from the filtered tree"),
+        ({"tools/clean.py": "VALUE = 1\n"}, ("tools/clean.py", "v1-import"), "no longer hits"),
+        ({"tools/drifted.py": LEAK_IMPORT}, ("tools/drifted.py", "string-literal"), "now hits as v1-import"),
+        ({}, (f"tests/{PKG}/fixtures/expected.json", "path-mention"), "absent from the filtered tree"),
+    ],
+)
+def test_stale_list_entry_refuses(cut_env, files, entry, message):
+    if files:
+        _commit_files(cut_env["repo"], files, "stale")
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, withheld=(entry,))
+
+
+@pytest.mark.spawns
+def test_absent_cut_script_entry_is_not_stale(cut_env):
+    manifest, _ = _cut(cut_env, withheld=((h1.CUT_SCRIPT_PATH, "cut-script"),))
+    assert manifest["filtered_tree"]["withheld_r4b"] == []
+
+
+def test_r4b_list_rejects_unknown_class_and_duplicates():
+    with pytest.raises(h1.CutRefused, match="unknown reason class"):
+        h1._withheld_map((("a.md", "other"),))
+    with pytest.raises(h1.CutRefused, match="listed twice"):
+        h1._withheld_map((("a.md", "path-mention"), ("a.md", "path-mention")))
