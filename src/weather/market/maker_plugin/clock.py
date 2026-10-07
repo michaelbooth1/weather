@@ -15,6 +15,23 @@ STATION_ROUTINE_MINUTES = {
     "KLGA": (51,), "KSFO": (56,), "KSEA": (53,), "CYYZ": (0,),
 }
 
+# Observation-trigger rows by (reason, source), as emitted by
+# weather.operations.observation_trigger.detect_observation_triggers. Only the
+# captured WU printed high decides. Supporting observations (METAR, ECCC SWOB,
+# WU current) may cause a pull but never a hard settlement floor. A supporting
+# pair counts only with a rising value (the monotonic filter below); value-less
+# *_became_fresh rows, revisions down and unknown or mismatched pairs are ignored.
+DECIDING_TRIGGER = ("wu_history_high_increased", "wu_history")
+SUPPORTING_TRIGGERS = frozenset({
+    ("wu_current_temp_bucket_crossed", "wu_current"),
+    ("wu_current_max_since_7am_bucket_crossed", "wu_current"),
+    ("metar_temp_bucket_crossed", "metar"),
+    ("eccc_swob_latest_temp_bucket_crossed", "eccc_swob"),
+    ("metar_temp_above_wu_floor", "metar"),
+    ("eccc_swob_max_above_wu_floor", "eccc_swob"),
+    ("eccc_swob_latest_temp_above_wu_floor", "eccc_swob"),
+})
+
 
 class WeatherInformationClock:
     def __init__(self, universe, *, triggers=(), bulletins=()):
@@ -81,12 +98,15 @@ class WeatherInformationClock:
                     continue
                 if previous is not None and float(current) <= float(previous):
                     continue
-                # Supporting observations may cause a pull but never a hard
-                # settlement floor. Only the captured WU printed high decides.
-                if row.get("reason") != "wu_history_high_increased" or row.get("source") != "wu_history":
+                pair = (row.get("reason"), row.get("source"))
+                if pair != DECIDING_TRIGGER and pair not in SUPPORTING_TRIGGERS:
                     continue
                 events.append(InfoEvent("new_high", None, observed, detected,
                                         (market.condition_id,), 1., None, "pull"))
+                # Supporting observations may cause a pull but never a hard
+                # settlement floor. Only the captured WU printed high decides.
+                if pair != DECIDING_TRIGGER:
+                    continue
                 lo, hi = self.universe.bands(market.event_id, detected)[market.condition_id]
                 bucket = row.get("current_bucket")
                 if bucket is None or bucket != round_half_up(float(current)):

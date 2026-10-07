@@ -161,6 +161,12 @@ decided 0/1 marginals. Scheduled METAR and model-cycle events expire ten minutes
 after their scheduled instant; detected model-cycle events expire ten minutes
 after fetch. New-high pulls and determined-band vetoes retain their original
 no-expiry behavior. Core windows/freshness and other admission checks still apply.
+Observation triggers: only the captured WU printed high (`wu_history_high_increased` from
+`wu_history`) can produce a `decided` veto. A rising supporting METAR, ECCC SWOB or WU-current
+trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTING_TRIGGERS`) produces
+a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
+reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
+Because a trigger's local detection date must equal the target date, these events reach T+0 bands only.
 
 Served T+0 joins require the bounded export to project `release_calibration_method`
 from the verified release's calibration artifact (`market_bin.method`) onto each

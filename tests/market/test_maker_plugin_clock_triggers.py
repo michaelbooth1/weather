@@ -107,3 +107,75 @@ def test_unknown_or_mismatched_pairs_are_ignored(reason, source):
     markets = universe.discover(NOW, 2).markets
     row = trigger(rows, spec, target, reason=reason, source=source)
     assert WeatherInformationClock(universe, triggers=[row]).observe(markets, NOW) == ()
+
+
+def test_trigger_table_is_the_documented_rule():
+    from weather.market.maker_plugin.clock import DECIDING_TRIGGER, SUPPORTING_TRIGGERS
+    assert DECIDING_TRIGGER == ("wu_history_high_increased", "wu_history")
+    assert SUPPORTING_TRIGGERS == frozenset(SUPPORTING)
+    assert DECIDING_TRIGGER not in SUPPORTING_TRIGGERS
+
+
+def test_every_producer_increase_reason_is_classified():
+    """Ratchet against the producer: every (reason, source) it emits with a rising value is either the
+    deciding WU pair or a supporting pull pair. A new producer reason fails here until it is classified."""
+    from weather.market.maker_plugin.clock import DECIDING_TRIGGER, SUPPORTING_TRIGGERS
+    from weather.operations.observation_trigger import detect_observation_triggers
+
+    def state(values, fresh):
+        return {"market_id": "nyc", "event_slug": "fictional", "target_date": "2030-01-10", "unit": "F",
+                "captured_at_utc": NOW.isoformat(), "values": values,
+                "source_status": {s: {"ok": fresh, "stale": not fresh, "status": "ok" if fresh else "failed"}
+                                  for s in ("wu_history", "wu_current", "metar", "eccc_swob")}}
+
+    keys = ("wu_current_temp", "wu_current_max_since_7am", "metar_temp", "eccc_swob_latest_temp", "eccc_swob_max")
+    previous = state(dict({k: 70.2 for k in keys}, wu_history_high=70.), False)
+    rising = state(dict({k: 75.6 for k in keys}, wu_history_high=72.), True)
+    falling = state(dict({k: 60.2 for k in keys}, wu_history_high=72.), True)
+    seen = set()
+    for current in (rising, falling):
+        for row in detect_observation_triggers(previous, current):
+            pair = (row["reason"], row["source"])
+            value, before = row["current_value"], row["previous_value"]
+            increases = value is not None and (before is None or value > before)
+            classified = pair == DECIDING_TRIGGER or pair in SUPPORTING_TRIGGERS
+            assert classified or not increases, (pair, before, value)
+            seen.add((pair, classified))
+    assert {DECIDING_TRIGGER, *SUPPORTING_TRIGGERS} == {pair for pair, classified in seen if classified}
+    # Everything unclassified is value-less (became_fresh) or a revision down: never an increase.
+    assert {pair[0] for pair, classified in seen if not classified} == {
+        "wu_history_became_fresh", "wu_current_became_fresh", "metar_became_fresh", "eccc_swob_became_fresh",
+        "wu_current_max_since_7am_source_revision_down"}
+
+
+def test_mutant_restoring_the_old_continue_fails_the_supporting_test():
+    """Restore the pre-fix filter (WU pair only, before new_high) in a copy of clock.py: the supporting
+    pull test must then fail, so the new tests detect the original bug."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    import weather.market.maker_plugin.clock as fixed
+
+    source = Path(fixed.__file__).read_text(encoding="utf-8")
+    anchor = "if pair != DECIDING_TRIGGER and pair not in SUPPORTING_TRIGGERS:"
+    assert source.count(anchor) == 1
+    spec = importlib.util.spec_from_loader("clock_mutant", loader=None)
+    mutant = importlib.util.module_from_spec(spec)
+    exec(compile(source.replace(anchor, "if pair != DECIDING_TRIGGER:"), "clock_mutant", "exec"), mutant.__dict__)
+    universe, rows, spec_, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    row = trigger(rows, spec_, target, reason="metar_temp_bucket_crossed", source="metar")
+    assert mutant.WeatherInformationClock(universe, triggers=[row]).observe(markets, NOW) == ()  # old bug
+    with pytest.raises(AssertionError):
+        _supporting_assertions(mutant.WeatherInformationClock, universe, markets, row)
+    _supporting_assertions(fixed.WeatherInformationClock, universe, markets, row)
+    # The WU path is identical under both.
+    wu = trigger(rows, spec_, target)
+    assert (mutant.WeatherInformationClock(universe, triggers=[wu]).observe(markets, NOW)
+            == fixed.WeatherInformationClock(universe, triggers=[wu]).observe(markets, NOW))
+    assert "clock_mutant" not in sys.modules
+
+
+def _supporting_assertions(clock_type, universe, markets, row):
+    events = clock_type(universe, triggers=[row]).observe(markets, NOW)
+    assert kinds(events) == ["new_high"] * 3

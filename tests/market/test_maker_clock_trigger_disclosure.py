@@ -19,7 +19,8 @@ def row(reason, source, *, slug=NYC, market="nyc", unit="F", at=AT, previous=70.
         observed=None, target="2026-09-27"):
     observed = (at - timedelta(minutes=2)).isoformat() if observed is None else observed
     return {"reason": reason, "source": source, "previous_value": previous, "current_value": current,
-            "previous_bucket": None if previous is None else round(previous), "current_bucket": round(current),
+            "previous_bucket": None if previous is None else round(previous),
+            "current_bucket": None if current is None else round(current),
             "observed_at": observed, "detail": "Fictional.", "market_id": market, "event_slug": slug,
             "target_date": target, "unit": unit, "current_captured_at_utc": at.isoformat(),
             "previous_captured_at_utc": (at - timedelta(minutes=1)).isoformat()}
