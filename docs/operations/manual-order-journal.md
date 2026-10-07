@@ -28,11 +28,16 @@ token file. The [portfolio ledger](portfolio-ledger.md) owns campaign books.
 
 ## Commands
 
-```powershell
-& $python -m weather.market.order_journal record --out data\manual_order_journal
-& $python -m weather.market.order_journal verify --out data\manual_order_journal
-& $python -m weather.market.order_journal report --out data\manual_order_journal --json <path> --markdown <path>
-```
+The journal CLI module (`src/weather/market/order_journal.py`, with its `_io`, `_sources` and
+`_report` siblings) arrives with #127 (`codex/manual-order-journal-20260928`), which owns it. Until
+#127 lands, the module does not exist on master, so the commands below cannot run and the
+`WeatherManualOrderJournal` runner and registrar stay inert. When #127 lands, its own runbook
+restores the literal invocations. The CLI has three subcommands, each taking
+`--out data\manual_order_journal`:
+
+- `record`: append one hash-chained record.
+- `verify`: walk the whole chain.
+- `report`: verify, then write `--json <path>` and `--markdown <path>`.
 
 `record` accepts `--reader-config <path>` in place of the default client file. It prints one JSON
 line and exits 0 when it appended a record, even one with read errors. It exits 2 with a fixed
