@@ -55,9 +55,10 @@ _QUOTE = rb"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;)"
 PATTERNS = {
     # apiKey=<value> in a URL, a log line or an error row (also URL-encoded ``=``).
     "apikey_query_param": re.compile(rb"(?i)\bapi_?key(?:=|%3D)" + _VALUE),
-    # "apiKey":"<value>" in JSON, including a JSON string nested in JSON.
-    "apikey_json_field": re.compile(
-        rb"(?i)" + _QUOTE + rb"api_?key" + _QUOTE + rb"\s*:\s*" + _QUOTE + _VALUE
+    # apiKey:<value> in key style: JSON "apiKey":"<value>" (also a JSON string nested
+    # in JSON), a Python dict repr 'apiKey': '<value>', or a JS/log apiKey: <value>.
+    "apikey_colon_field": re.compile(
+        rb"(?i)\bapi_?key" + _QUOTE + rb"?\s*:\s*" + _QUOTE + rb"?" + _VALUE
     ),
     # The WU page runtime global: "API_KEY":"<value>" (raw, HTML-escaped or Angular
     # &q; transfer state) or a JS ``API_KEY = '<value>'`` assignment.
