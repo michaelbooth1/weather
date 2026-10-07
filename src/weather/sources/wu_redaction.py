@@ -49,11 +49,14 @@ REDACTED = "<redacted>"
 # backslash-escaped, HTML/Angular entities, ``%22``/``%27`` once or twice
 # URL-encoded, JSON ``"``), a separator in the same encodings, an optional
 # opening quote, then the value. The value stops before quotes, separators and
-# ``<`` so an already redacted value is never matched again (idempotent).
+# ``<`` so an already redacted value is never matched again (idempotent). The
+# opening quote is possessive (``?+``, Python 3.11+): when an encoded quote such as
+# ``%22`` is present it must be consumed, so a second pass cannot backtrack and
+# take the quote itself as a "value".
 _QUOTE = r"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;|%(?:25)?2[27]|\\u002[27])"
 _SEPARATOR = r"(?:=|:|%(?:25)?3[ad]|&#61;|&#58;|&#x3[ad];|\\u003[ad])"
 _SECRET_RE = re.compile(
-    r"(api[_-]?key" + _QUOTE + r"?\s*" + _SEPARATOR + r"\s*(?:%20)*" + _QUOTE + r"?)"
+    r"(api[_-]?key" + _QUOTE + r"?\s*" + _SEPARATOR + r"(?:\s|%20)*+" + _QUOTE + r"?+)"
     r"([^&\s\"'<>\\),;}\]]+)",
     re.IGNORECASE,
 )
@@ -75,6 +78,10 @@ HTTP_LOG_REDACTION_LOGGERS = (
     "urllib3.contrib.emscripten.response",
     "requests",
 )
+
+# A mapping key that names the token (``{"apiKey": "<value>"}``): its value is
+# replaced whole, since the value alone carries no key for the text regex to find.
+_KEY_NAME_RE = re.compile(r"api[_-]?key", re.IGNORECASE)
 
 _URL_ATTRS = ("url",)
 _MAX_EXCEPTION_DEPTH = 16
@@ -105,7 +112,11 @@ def _redact_arg(arg, seen, depth):
         # F2: ``RuntimeError({"params": {"apiKey": token}})`` renders the dict repr.
         try:
             return {
-                _redact_arg(key, seen, depth + 1): _redact_arg(value, seen, depth + 1)
+                _redact_arg(key, seen, depth + 1): (
+                    REDACTED
+                    if isinstance(key, str) and isinstance(value, (str, bytes)) and _KEY_NAME_RE.search(key)
+                    else _redact_arg(value, seen, depth + 1)
+                )
                 for key, value in arg.items()
             }
         except Exception:  # noqa: BLE001 - an unhashable redacted key falls back to text.

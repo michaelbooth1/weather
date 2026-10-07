@@ -397,7 +397,6 @@ def _scandir_with_special_entries(real_scandir):
     return _Scandir
 
 
-@pytest.mark.ratchet
 @pytest.mark.parametrize("policy", wu_token_scan.LINK_POLICIES)
 @pytest.mark.parametrize(
     "scenario",
@@ -405,7 +404,11 @@ def _scandir_with_special_entries(real_scandir):
      "special_entry", "oversize", "max_files"],
 )
 def test_ratchet_nothing_unread_is_ever_clean(tmp_path, monkeypatch, policy, scenario):
-    """N3 ratchet: a CLEAN report means every regular file under the request was read."""
+    """N3 invariant: a CLEAN report means every regular file under the request was read.
+
+    Not marked ``ratchet``: it runs in the ordinary suite shards; the repository
+    ratchet (test_wu_token_repository_scan) asserts the same on every tracked file.
+    """
     _simulate_placeholders(monkeypatch)
     root = _scenario_tree(tmp_path / "root")
     kwargs = {"link_policy": policy}
