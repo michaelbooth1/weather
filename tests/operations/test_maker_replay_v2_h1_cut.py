@@ -122,11 +122,31 @@ def test_verify_sha256_refuses_mismatch_and_abbreviated_pins():
 
 @pytest.mark.parametrize(
     ("expected", "ok"),
-    [("abcdef12" + "0" * 52 + "a3b1", True), ("abcdef12…a3b1", True), ("abcdef12…a3b2", False),
-     ("abcdef1", True), ("abcdef0", False), ("abc", False)],
+    [("abcdef12" + "0" * 52 + "a3b1", True), ("abcdef12…a3b1", False), ("abcdef12...a3b1", False),
+     ("abcdef1", False), ("ABCDEF12" + "0" * 52 + "A3B1", False), ("", False)],
 )
-def test_hash_matches_abbreviations(expected, ok):
+def test_hash_matches_refuses_abbreviations(expected, ok):
     assert h1.hash_matches("abcdef12" + "0" * 52 + "a3b1", expected) is ok
+
+
+@pytest.mark.parametrize(
+    ("expected", "ok"),
+    [("abcdef12…a3b1", True), ("abcdef12…a3b2", False), ("abcdef1", True), ("abcdef0", False), ("abc", False)],
+)
+def test_spec_abbreviation_matches_reads_section7_forms(expected, ok):
+    assert h1.spec_abbreviation_matches("abcdef12" + "0" * 52 + "a3b1", expected) is ok
+
+
+def test_expected_output_constant_agrees_with_spec_section7():
+    pinned = h1.EXPECTED_OUTPUT_SHA256
+    assert sorted(pinned) == [f"H-{n}" for n in range(1, 10)]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in pinned.values())
+    section7 = SPEC_V34.read_text(encoding="utf-8").split("\n## 7.", 1)[1].split("\n## 8.", 1)[0]
+    for item_id in ("H-1", "H-2", "H-3", "H-4", "H-5"):
+        assert f"`{pinned[item_id]}`" in section7, item_id
+    abbreviations = re.findall(r"`([0-9a-f]{8}…[0-9a-f]{4})`", section7.split("The code files are identical", 1)[1])
+    for item_id, abbreviated in zip(h1.CODE_IDS, abbreviations[:4]):
+        assert h1.spec_abbreviation_matches(pinned[item_id], abbreviated), item_id
 
 
 # --------------------------------------------------------------------------- §3 application
@@ -340,6 +360,13 @@ SYN_TABLE = (h1.Sub("S1", "spec-a.md", "span", 2, 2, old="`add_own`", new=("own-
              h1.Sub("S2", "spec-b.md", "delete", 3, 3, first="state.legs residue"))
 
 
+SYN_EXPECTED = {
+    "H-1": _sha(b"# A\nuses own-leg composition here\n"),
+    "H-2": _sha(b"# B\nok\n"),
+    **{item: _sha(f"# synthetic {item}\nVALUE = 1\n".encode()) for item in CODE_PATHS},
+}
+
+
 def _write_tree(root: Path, files: dict[str, str]) -> None:
     for path, text in files.items():
         target = root / path
@@ -378,13 +405,14 @@ def cut_env(tmp_path):
         "build_line_commit": "HEAD",
         "spec_cuts": [
             {"id": "H-1", "source": "spec-a.md", "sha256": _sha((specs / "spec-a.md").read_bytes()),
-             "handout_path": "spec/a.md"},
+             "handout_path": "spec/a.md", "expected_output_sha256": SYN_EXPECTED["H-1"]},
             {"id": "H-2", "source": "spec-b.md", "sha256": _sha((specs / "spec-b.md").read_bytes()),
              "handout_path": "spec/b.md",
-             "expected_output_sha256": _sha(b"# B\nok\n")},
+             "expected_output_sha256": SYN_EXPECTED["H-2"]},
         ],
         "code_items": [{"id": item, "path": path,
-                        "blob": h1.git_blob_id(f"# synthetic {item}\nVALUE = 1\n".encode())}
+                        "blob": h1.git_blob_id(f"# synthetic {item}\nVALUE = 1\n".encode()),
+                        "expected_output_sha256": SYN_EXPECTED[item]}
                        for item, path in CODE_PATHS.items()],
         "text_89a": {"id": "H-10", "path": TEXT_89A, "sha256": _sha(b"# 89a contract (synthetic)\n")},
         "rulings_sheet": {"id": "H-11", "file": "rulings.md", "sha256": _sha(rulings.read_bytes())},
@@ -399,7 +427,7 @@ def _cut(env, out_name="out", plan=None, withheld=()):
     if plan is not None:
         env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
     return h1.run_cut(env["plan_file"], env["repo"], env["tmp"] / out_name, table=SYN_TABLE, mo1_skip=None,
-                      withheld=withheld)
+                      withheld=withheld, expected_outputs=SYN_EXPECTED)
 
 
 @pytest.mark.spawns
@@ -728,3 +756,54 @@ def test_engine_output_with_neutral_name_refuses_and_cannot_be_withheld(cut_env)
         _cut(cut_env)
     with pytest.raises(h1.CutRefused, match="now hits as engine-output"):
         _cut(cut_env, withheld=(("results/batch/outcome_07.json", "path-mention"),))
+
+
+# --------------------------------------------------------------------------- mandatory full expected outputs
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    ("item", "value", "message"),
+    [
+        ("H-7", None, "H-7: expected_output_sha256 is missing"),
+        ("H-7", "abbreviated", "H-7: expected_output_sha256 must be a full 64-hex"),
+        ("H-2", "upper", "H-2: expected_output_sha256 must be a full 64-hex"),
+        ("H-9", "0" * 64, "H-9: expected_output_sha256 0{64} != the pinned"),
+    ],
+)
+def test_expected_output_must_be_full_and_pinned(cut_env, item, value, message):
+    plan = cut_env["plan"]
+    row = next(r for r in [*plan["spec_cuts"], *plan["code_items"]] if r["id"] == item)
+    if value is None:
+        del row["expected_output_sha256"]
+    elif value == "abbreviated":
+        row["expected_output_sha256"] = f"{SYN_EXPECTED[item][:8]}…{SYN_EXPECTED[item][-4:]}"
+    elif value == "upper":
+        row["expected_output_sha256"] = SYN_EXPECTED[item].upper()
+    else:
+        row["expected_output_sha256"] = value
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, plan=plan)
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+def test_expected_output_full_value_passes_and_produced_output_is_checked(cut_env):
+    manifest, _ = _cut(cut_env)
+    produced = {row["id"]: row["sha256"] for row in manifest["handout"]}
+    assert all(produced[item] == value for item, value in SYN_EXPECTED.items())
+    wrong = {**SYN_EXPECTED, "H-6": "1" * 64}
+    plan = cut_env["plan"]
+    plan["code_items"][0]["expected_output_sha256"] = "1" * 64
+    cut_env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
+    with pytest.raises(h1.CutRefused, match="H-6: output SHA-256"):
+        h1.run_cut(cut_env["plan_file"], cut_env["repo"], cut_env["tmp"] / "out2", table=SYN_TABLE, mo1_skip=None,
+                   withheld=(), expected_outputs=wrong)
+
+
+@pytest.mark.spawns
+def test_plan_items_must_match_the_pinned_set(cut_env):
+    plan = cut_env["plan"]
+    plan["code_items"] = plan["code_items"][:3]
+    with pytest.raises(h1.CutRefused, match="pinned expected-output items"):
+        _cut(cut_env, plan=plan)

@@ -26,6 +26,11 @@ Modes:
             byte-identical there (R2). Identical: print a re-bind record. Different:
             exit non-zero with a diff summary (a re-hand).
 
+Expected outputs (master, 2026-10-07): the full SHA-256 of H-1..H-9 is pinned in
+``EXPECTED_OUTPUT_SHA256``; the plan must carry each value in full and equal to it. Cut and
+rebind accept only full 64-hex hashes; the ``prefix…suffix`` form is read only by
+``spec_abbreviation_matches``, which the tests use to check the constant against v3.4 §7.
+
 Plan layout (Defender D3): plan paths are relative to the plan file, so the plan must sit at
 the same depth relative to the frozen spec copies as when its hashes were recorded; the
 2026-10-07 dry-run plan lives in ``C:/b/h1plan/`` with ``spec_source_dir`` =
@@ -66,6 +71,21 @@ SNAPSHOT_IDENT = b"H1 cut <h1-cut@example.invalid> 946684800 +0000"
 SNAPSHOT_MESSAGE = b"H1 filtered snapshot\n"
 KERNEL_PATH = "src/maker_core/" + "replay/v2/kernel.py"
 CODE_IDS = ("H-6", "H-7", "H-8", "H-9")
+
+# Master's ruling (2026-10-07): the full expected output SHA-256 of H-1..H-9 is authoritative and
+# mandatory. Produced by the 501f47579 dry-run; agrees with v3.4 §7 (full values for H-1..H-5,
+# prefix and suffix for H-6..H-9). A plan must carry each value and it must equal this exactly.
+EXPECTED_OUTPUT_SHA256: dict[str, str] = {
+    "H-1": "70437cb34b8a77aa9141daaaed4997d9828853f3ba35c0fa4569d71db5485ef0",
+    "H-2": "abd9337c6cf332a694a246f88bbc940a448195e5fcda2b59053244495643d987",
+    "H-3": "08f6d87c15995017fb1514511bde61812669b3968c75a0df57d07c9eb2c524d9",
+    "H-4": "2c24c9f01c62836edffbd49a2496f76f6751955d16680f4b1b4831b3c3eb9a38",
+    "H-5": "66668f9c6d8e7ccb138f1a5d6fdede9cd7463f3604146b13efa6159b22c1cacb",
+    "H-6": "92f9f721c276797500d03f8cfad5ac92a06bbd8f9f134335245fab7aaecba3b1",
+    "H-7": "414acf14605e0eda88df7c94e674d5779bc44309ce5e1a434a636178bbe6e7bb",
+    "H-8": "23b4d6966e8a86fc2fcb97561de18877522ea4e8adb4506ab5f4d649c4b38b49",
+    "H-9": "60171f9d6d8e564fec3c3b4866fa5e0b224ff8f18cea37283e807dde206062a8",
+}
 
 
 class CutRefused(Exception):
@@ -259,7 +279,15 @@ def git_blob_id(data: bytes) -> str:
 
 
 def hash_matches(actual: str, expected: str) -> bool:
-    """Full hex, or the ``prefix…suffix`` abbreviation used in the spec tables."""
+    """Cut mode: exact equality of two full 64-hex SHA-256 values. Abbreviations never match."""
+    full = re.compile(r"[0-9a-f]{64}")
+    return bool(full.fullmatch(actual or "")) and bool(full.fullmatch(expected or "")) and actual == expected
+
+
+def spec_abbreviation_matches(actual: str, expected: str) -> bool:
+    """Historical spec text only: the ``prefix…suffix`` form in the v3.4 §7 table (for example
+    ``92f9f721…a3b1``). Used solely to cross-check ``EXPECTED_OUTPUT_SHA256`` against that text
+    in the tests; nothing in cut or rebind mode calls it."""
     expected = expected.strip().lower()
     for sep in ("…", "..."):
         if sep in expected:
@@ -1010,8 +1038,12 @@ def _mo2(sample: bytes, pin: str) -> dict:
 
 def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] = V34_TABLE,
             mo1_skip: str | None = "S6", run_drift: bool = True,
-            withheld: Sequence[tuple[str, str]] = R4B_WITHHELD) -> tuple[dict, str]:
-    """Cut the handout and the filtered tree. Returns (manifest, binding sha256)."""
+            withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
+            expected_outputs: dict[str, str] | None = None) -> tuple[dict, str]:
+    """Cut the handout and the filtered tree. Returns (manifest, binding sha256).
+
+    ``expected_outputs`` defaults to ``EXPECTED_OUTPUT_SHA256``; tests pass a synthetic map."""
+    expected_outputs = EXPECTED_OUTPUT_SHA256 if expected_outputs is None else expected_outputs
     out_dir = out_dir.resolve()
     repo = repo.resolve()
     if out_dir.exists():
@@ -1027,7 +1059,19 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
 
     script_identity = cut_script_identity()
 
-    # 1. Every pin is verified before any line is read.
+    # 1. Every pin is verified before any line is read. Expected outputs first: the plan must carry
+    #    the full value for every pinned item, equal to the constant (abbreviations refuse).
+    rows = {row["id"]: row for row in [*plan["spec_cuts"], *plan["code_items"]]}
+    if set(rows) != set(expected_outputs):
+        raise CutRefused(f"plan items {sorted(rows)} != pinned expected-output items {sorted(expected_outputs)}")
+    for item_id, pinned in sorted(expected_outputs.items()):
+        value = rows[item_id].get("expected_output_sha256")
+        if not value:
+            raise CutRefused(f"{item_id}: expected_output_sha256 is missing (mandatory)")
+        if not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise CutRefused(f"{item_id}: expected_output_sha256 must be a full 64-hex SHA-256, got {value!r}")
+        if value != pinned:
+            raise CutRefused(f"{item_id}: expected_output_sha256 {value} != the pinned {pinned}")
     spec_dir = _plan_path(plan_dir, plan["spec_source_dir"])
     raw_specs: dict[str, bytes] = {}
     for cut in plan["spec_cuts"]:
@@ -1098,13 +1142,11 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     if len(set(ids)) != len(ids):
         raise CutRefused("handout ids are not unique")
 
-    # 3. Expected output hashes (when the plan carries them).
-    for row in [*plan["spec_cuts"], *plan["code_items"]]:
-        expected = row.get("expected_output_sha256")
-        if expected:
-            produced = next(h for h in handout if h.id == row["id"])
-            if not hash_matches(sha256_hex(produced.data), expected):
-                raise CutRefused(f"{row['id']}: output SHA-256 {sha256_hex(produced.data)} != expected {expected}")
+    # 3. Expected output hashes: mandatory, full, and equal to the script constant.
+    for item_id, expected in sorted(expected_outputs.items()):
+        produced = sha256_hex(next(h for h in handout if h.id == item_id).data)
+        if not hash_matches(produced, expected):
+            raise CutRefused(f"{item_id}: output SHA-256 {produced} != expected {expected}")
 
     # 4. §4 check on the actual handout tree, MO1/MO2, deny-list drift.
     hits = [hit for h in handout for hit in section4_hits(h.handout_path, _decode(h.data))]
