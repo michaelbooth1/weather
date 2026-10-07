@@ -214,7 +214,9 @@ class OnLevelReplacementDay(DenseDay):
         minute = 0
         while w0 + timedelta(minutes=minute) < w1:
             at = w0 + timedelta(minutes=minute, seconds=2)
-            add(at - timedelta(seconds=1), "coverage", dict(trade_stream_ok=True, valid_until_utc=at + timedelta(minutes=1)))
+            # Coverage may run at most 60 s past its capture (payloads.decode); the next minute's row renews it.
+            add(at - timedelta(seconds=1), "coverage", dict(trade_stream_ok=True,
+                                                            valid_until_utc=at + timedelta(seconds=59)))
             sides = self.BOOK if minute < self.MOVED else self.MOVED_BOOK
             add(at, "book", Book(at, sides["yb"], sides["ya"], sides["nb"], sides["na"]))
             minute += 1

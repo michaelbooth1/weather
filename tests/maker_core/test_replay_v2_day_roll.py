@@ -224,10 +224,12 @@ def test_mutant_mcf2_skipped_refresh_is_caught(monkeypatch):
 
 # -- Defender f0d97f11f note 5: engine-level fixtures across the DST change and east of UTC --------------------
 def busy(d, first_minute, last_minute):
-    """A view, fresh terms and a changed book every minute from ``first_minute`` to ``last_minute``."""
-    d.scenario.view(d.market, first_minute * 60, p=.5)
-    d.scenario.terms(d.market, first_minute * 60)
+    """A changed book every minute from ``first_minute`` to ``last_minute``, with a view and terms renewed every
+    30 minutes (terms older than an hour are a capture gap, which would mask the horizon refusal)."""
     for minute in range(first_minute, last_minute):
+        if (minute - first_minute) % 30 == 0:
+            d.scenario.view(d.market, minute * 60, p=.5)
+            d.scenario.terms(d.market, minute * 60)
         d.scenario.book(d.market, minute * 60, mid=D(".5") + (D(".01") if minute % 2 else 0))
 
 
@@ -235,12 +237,14 @@ def horizon_refusals(e, start, end):
     return [d.decision.reasons[0] == "HORIZON_NOT_ELIGIBLE" for d in e.decisions if start <= d.at < end]
 
 
-def dst_engine():
-    first, second = Day(date(2026, 11, 1)), Day(date(2026, 11, 2))
-    first.descriptor(600, 2)  # 00:10Z 11-01 = 20:10 EDT 10-31: target 11-02, never re-captured
+def dst_engine(first_day, second_day):
+    """A New York descriptor captured once at 00:10Z on ``first_day`` (horizon 2), then a busy 03:50Z-05:12Z on
+    ``second_day``; the only refreshes are the engine's local midnights, the second one across a DST change."""
+    first, second = Day(first_day), Day(second_day)
+    first.descriptor(600, 2)  # 00:10Z = 19:10 or 20:10 local the evening before: target second_day, never re-captured
     first.add(600, "info_event", {"events": []})
     second.add(0, "info_event", {"events": []})
-    busy(second, 230, 312)  # 03:50Z-05:12Z on 11-02, across EST midnight (05:00Z), after the fall-back
+    busy(second, 230, 312)  # 03:50Z-05:12Z on second_day: EDT midnight is 04:00Z, EST midnight 05:00Z
     sources = [first.source(), second.source()]
     e = EngineV2(CONFIG, run_plan(sources))
     drive(sources, [e], time_zones={"nyc": NY})
@@ -248,14 +252,25 @@ def dst_engine():
 
 
 def test_engine_refresh_after_the_fall_back_uses_the_new_offset():
-    e = dst_engine()
+    e = dst_engine(date(2026, 11, 1), date(2026, 11, 2))  # EDT -> EST at 06:00Z on 11-01
     before = horizon_refusals(e, utc(2026, 11, 2, 3, 50), utc(2026, 11, 2, 5))
     after = horizon_refusals(e, utc(2026, 11, 2, 5), utc(2026, 11, 2, 5, 12))
-    assert before and not any(before)  # 23:50-23:59 EST on 11-01: lead 1, eligible
+    assert before and not any(before)  # 22:50-23:59 EST on 11-01: lead 1, eligible
     assert after and all(after)  # from 00:00 EST on 11-02: lead 0
 
 
+def test_engine_refresh_after_the_spring_forward_uses_the_new_offset():
+    e = dst_engine(date(2027, 3, 14), date(2027, 3, 15))  # EST -> EDT at 07:00Z on 03-14
+    before = horizon_refusals(e, utc(2027, 3, 15, 3, 50), utc(2027, 3, 15, 4))
+    after = horizon_refusals(e, utc(2027, 3, 15, 4), utc(2027, 3, 15, 5, 12))
+    assert before and not any(before)  # 23:50-23:59 EDT on 03-14: lead 1, eligible
+    assert after and all(after)  # from 00:00 EDT on 03-15 (04:00Z, not 05:00Z): lead 0
+
+
 def test_mutant_fixed_offset_midnight_is_caught_by_the_engine_fixture(monkeypatch):
+    """The previous midnight's UTC offset carried forward. After the fall-back it only adds a no-op refresh an
+    hour early (lead still 1) and then refreshes on time, so the spring-forward fixture is the one that bites:
+    the mutant refreshes an hour late."""
     from maker_core.replay.v2 import day_roll
 
     def fixed_offset(zone, instant):
@@ -263,8 +278,9 @@ def test_mutant_fixed_offset_midnight_is_caught_by_the_engine_fixture(monkeypatc
         midnight = datetime.combine(local.date() + timedelta(days=1), datetime.min.time())
         return (midnight - local.utcoffset()).replace(tzinfo=UTC)
     monkeypatch.setattr(day_roll, "next_local_midnight", fixed_offset)
+    test_engine_refresh_after_the_fall_back_uses_the_new_offset()  # survives here, by construction
     with pytest.raises(AssertionError):
-        test_engine_refresh_after_the_fall_back_uses_the_new_offset()
+        test_engine_refresh_after_the_spring_forward_uses_the_new_offset()
 
 
 TOKYO = "Asia/Tokyo"
