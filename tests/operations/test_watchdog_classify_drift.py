@@ -238,6 +238,22 @@ def test_low_disk_dedup_key_keeps_depth_bucket(tmp_path):
     assert len({k23, k5, k4}) == 3
 
 
+def test_low_disk_depth_never_parses_a_comma_decimal_tail(tmp_path):
+    # PR #255 fold Defender N6: "23,5 GB" must never bucket as 5 GiB. Without a clean
+    # "<n> GB" figure the row keeps the plain '#' key, as before the bucket existed.
+    result = ps(WATCHDOG, ["Get-WeatherDiskDepthBucket", "Get-WeatherFlagDedupKey"], r"""
+@(
+ (Get-WeatherFlagDedupKey 'LOW DISK: 23,5 GB free'),
+ (Get-WeatherFlagDedupKey 'LOW DISK: 1.234,5 GB free'),
+ (Get-WeatherFlagDedupKey 'LOW DISK: 23.5 GB free')
+) | ConvertTo-Json -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    comma, grouped, dot = json.loads(result.stdout)
+    assert comma == grouped == "LOW DISK: # GB free"
+    assert dot == "LOW DISK: <25GiB free"
+
+
 def test_settlement_hole_dedup_key_tracks_the_missing_date_set(tmp_path):
     # PR #255 Defender G4: a HIGH one-date hole moving to a new date used to keep its key.
     # A new missing date re-alerts; the same set in a different order still dedupes.

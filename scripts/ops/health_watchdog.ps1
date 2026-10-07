@@ -233,7 +233,9 @@ function Get-WeatherFlagDedupKey([string]$Text) {
     $k = [string]$Text
     $depthBucket = $null
     if ($k -match '^LOW DISK') {
-        $depth = [regex]::Match($k, '(\d+(?:\.\d+)?) GB')
+        # The lookbehind keeps a comma-decimal "23,5 GB" from parsing as 5 (PR #255 fold Defender N6);
+        # such a row falls back to the plain '#' key instead of a wrong, deeper bucket.
+        $depth = [regex]::Match($k, '(?<![\d.,])(\d+(?:\.\d+)?) GB')
         if ($depth.Success) {
             $depthBucket = Get-WeatherDiskDepthBucket ([double]::Parse($depth.Groups[1].Value, [cultureinfo]::InvariantCulture))
         }
