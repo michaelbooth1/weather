@@ -17,7 +17,8 @@ precedence order (A-defender M5/N5): ``OWNER_EXCLUDED_PRIOR_READ`` > ``SETTLEMEN
 active minutes, clipped to the envelope.
 
 The panel is a fixed name, never an object (A-defender M6): ``"registered"`` resolves to the quote,
-settlement-only and last-target constants and requires every owner exclusion to match; ``"calibration"``
+settlement-only and last-target constants and requires every owner exclusion to match whenever the
+evaluated dates meet its exported span (for Austin 2026-10-03, UTC 10-01..10-04); ``"calibration"``
 resolves to the three calibration dates with no target cap (reg §11 f_cal applies the §4 rule to them),
 where an owner exclusion that matches nothing is expected. No function here takes a parameter that can
 replace ``OWNER_EXCLUSIONS``.
@@ -131,9 +132,16 @@ def _excluded(days, by_id, rows, spec):
             close = datetime.combine(row[1] + timedelta(days=1), time(), tzinfo=ZoneInfo(item["local_timezone"]))
             if close.astimezone(timezone.utc) != row[2]:
                 raise BundleError("owner_exclusion_key_disagreement")
-        if spec.require_match and not inventory_set:
+        if spec.require_match and not inventory_set and any(_may_hold(day.day, row) for day, _ in days):
             raise BundleError("owner_exclusion_unmatched")
     return by_inventory
+
+
+def _may_hold(day, row):
+    """Whether UTC ``day`` meets the excluded market-date's exported span: horizon 2..0, i.e. from local
+    midnight two days before the target (at most three days before the close) to the close."""
+    start = datetime.combine(day, time(), tzinfo=timezone.utc)
+    return start < row[2] and start + timedelta(days=1) > row[2] - timedelta(days=3)
 
 
 def _day_list(days, spec):

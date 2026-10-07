@@ -58,12 +58,14 @@ def close_of(market, target):
 
 class Panel:
     def __init__(self, markets=("austin", "toronto"), *, bands=2, step=10, offset=3, full=False,
-                 capture_minutes=None, second_austin_event=False, omit=frozenset(), close_override=None):
+                 capture_minutes=None, second_austin_event=False, omit=frozenset(), close_override=None,
+                 invalid_at=None):
         self.markets, self.bands, self.step, self.offset, self.full = markets, bands, step, offset, full
         self.capture_minutes = capture_minutes  # None: the whole day
         self.second_austin_event = second_austin_event
         self.omit = frozenset(omit)  # condition IDs left out of every bundle (the "records deleted" twin)
         self.close_override = dict(close_override or {})  # condition ID -> descriptor close_at_utc
+        self.invalid_at = dict(invalid_at or {})  # condition ID -> first capture time of an undecodable descriptor
 
     # -- universe -------------------------------------------------------------------------------------
     def events(self, market, target):
@@ -123,6 +125,9 @@ class Panel:
                 if last.get(cid) != horizon:
                     last[cid] = horizon
                     add(at, "descriptor", self.descriptor(market, target, event_id, cid, horizon), cid=cid)
+                if cid in self.invalid_at and at >= self.invalid_at[cid] and (cid, "invalid") not in last:
+                    last[(cid, "invalid")] = True  # horizon 999 fails decode: the minutes become MISSING_DESCRIPTOR
+                    add(at, "descriptor", self.descriptor(market, target, event_id, cid, 999), cid=cid)
                 if not self.full:
                     continue
                 if i % 30 == 0 or (cid, "terms") not in last:
@@ -141,7 +146,7 @@ class Panel:
                     group="g-" + cid)
                 if i % 37 == 5:
                     print_at = at + timedelta(seconds=2)
-                    add(print_at, "trade", dict(trade_id=f"t-{cid[:10]}-{i}", outcome="YES", price=".40",
+                    add(print_at, "trade", dict(trade_id=f"t-{day}-{cid[:10]}-{i}", outcome="YES", price=".40",
                                                 size="10", traded_at_utc=print_at.isoformat(),
                                                 aggressor_side="SELL"), cid=cid)
         if self.full:
