@@ -1318,4 +1318,18 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "landing_preflight",
+        "landing_preflight_v0.1",
+        "weather.operations.landing_preflight",
+        "active",
+        "Workstation landing preflight verdict for one head on the night's cumulative merge; non-binding pre-evidence.",
+    ),
+    SchemaSpec(
+        "landing_night_plan",
+        "landing_night_plan_v0.1",
+        "weather.operations.landing_preflight",
+        "active",
+        "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
+    ),
 )
