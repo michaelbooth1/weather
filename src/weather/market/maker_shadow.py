@@ -25,6 +25,7 @@ from maker_core.runtime.guard import OrderGate
 from maker_core.runtime.portfolio_io import read_json
 from maker_core.shadow.paper import FILL_RULES, PAPER_CAMPAIGN, PaperLedger
 from maker_core.shadow.runner import ShadowCancelPort, ShadowMarket, ShadowRunner
+from maker_core.shadow import secrets as shadow_secrets
 from maker_core.shadow.score import score_day
 from maker_core.shadow.tape import PROFILES, TapeWriter, sealed_tapes
 from maker_core.venue.public_feed import FixtureTransport, PublicFeed, UrllibTransport
@@ -40,6 +41,25 @@ DEFAULT_ROOT = data_path("maker_shadow")
 CAP_KEYS = ("cash", "band_cap", "order_cap", "wallet_cap", "event_cap")
 GUARD_KEYS = ("policy", "latch_dir", "pause_file")
 PAPER_KEYS = ("starting_cash_pusd", "bleed_limit_pusd", "fill_rule")
+# Enumerated refusal codes (D-shadow-gate-spec-v3.1 §4.8 rule 2, G9; v3.2 §5.1): the only exception text the CLI
+# and the universe record may carry. Anything else is reported by class name, never by ``str(error)``.
+REFUSAL_CODES = frozenset({
+    "invalid_shadow_config", "shadow_mode_refuses_real_wallet_book", "shadow_config_fields", "unknown_profile",
+    "invalid_fill_bound", "caps_required", "invalid_caps", "unknown_markets", "invalid_horizons",
+    "invalid_max_conditions", "invalid_rediscover_minutes", "guard_section_required",
+    "guard_policy_must_name_paper_campaign", "paper_section_required", "no_exact_yes_no_mapping", "not_open",
+    "no_current_reward", "stop_file_present_at_start", "invalid_fixture", "offline_mode_requires_minutes",
+    "portfolio_file_refused", "redirected_portfolio_path", "duplicate_json_field", "nonfinite_json",
+    "tape_day_regressed", "tape_minute_outside_day", "tape_seal_mismatch", "unsupported_tape_schema",
+    "unregistered_profile", "unknown_fill_rule", "invalid_paper_book",
+})
+
+
+def refusal_code(error):
+    """An enumerated code for ``error``: a known refusal code, else ``unclassified:<ClassName>``."""
+    if isinstance(error, ValueError) and error.args and error.args[0] in REFUSAL_CODES:
+        return error.args[0]
+    return "unclassified:" + type(error).__name__
 
 
 def _refuse(condition, reason):
@@ -148,7 +168,8 @@ def discover(feed, specs, now_utc, *, horizons, max_conditions):
                     group_relation="partition" if event.get("negRisk") else None)
                 candidates.append((_distance(market), descriptor.condition_id, ShadowMarket(descriptor, horizon)))
             except (KeyError, TypeError, ValueError, InvalidOperation) as error:
-                reason = str(error) if isinstance(error, ValueError) and str(error).islower() else type(error).__name__
+                code = refusal_code(error)
+                reason = code if code in REFUSAL_CODES else type(error).__name__
                 refused[reason] = refused.get(reason, 0) + 1
     candidates.sort(key=lambda row: row[:2])
     chosen = [row[2] for row in candidates[:max_conditions]]
@@ -187,6 +208,7 @@ def build_runner(config, feed, clock):
 
 
 def run(args):
+    shadow_secrets.enforce_http_logger_pins()  # v3.1 §4.8 rule 5: refuse to start unless the HTTP loggers hold
     config = load_config(args.config)
     if args.stop_file and Path(args.stop_file).exists():
         raise ValueError("stop_file_present_at_start")
@@ -289,9 +311,10 @@ def main(argv=None):
     try:
         return run(args) if args.command == "run" else score(args)
     except ValueError as error:
-        print(json.dumps({"refused": str(error)}), file=sys.stderr)
+        print(json.dumps({"refused": refusal_code(error)}), file=sys.stderr)
         return 2
 
 
 if __name__ == "__main__":
+    shadow_secrets.install_exception_hooks()  # v3.1 §4.8 rule 5: class, code and file:line only
     raise SystemExit(main())
