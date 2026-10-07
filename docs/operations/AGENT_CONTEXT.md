@@ -45,8 +45,11 @@ generated reports for dynamic state.
     `DDHHMMZ` group), never by AWC's nominal `reportTime`. So the D-1 23:5x
     report carried into D as a "00:00" row (the M0 defect) is excluded.
   - Once any late-day stage acts, no mass is left below the anchor bucket: it
-    moves onto that bucket. The calibration floor is
-    `max(hard floor, anchor bucket)`.
+    moves onto that bucket. Before lock-in (`lockin-anchor-v4`) the same move
+    applies at the same-day METAR high bucket, because the pre-lock-in hard
+    floor reads only the current reading and the max since 07:00. SWOB rows
+    keep their warm-bias hedge until lock-in; implausible readings never
+    anchor. The calibration floor is `max(hard floor, observed floor bucket)`.
   - The owner accepted both trades: an exact zero below a METAR-derived anchor
     (a non-resolution source), and the pre-07:00 widening of the observed
     floor for these stages.
