@@ -766,8 +766,9 @@ def test_empty_root_is_refused_not_read_as_cwd(tmp_path, monkeypatch, empty):
     assert exit_code_for(scan([], files=[empty])) == EXIT_ERROR
 
 
-@pytest.mark.parametrize("leak", [True, False])
+@pytest.mark.parametrize("leak", [False])
 def test_unwritable_json_out_exits_distinctly_and_still_prints(tmp_path, capsys, leak):
+    """Exit 3 only when nothing was found; FOUND always wins (see test_json_out_failure_never_masks_found)."""
     (tmp_path / "a.txt").write_text(f"?apiKey={secrets.token_hex(16)}" if leak else "benign", encoding="utf-8")
     target = tmp_path / "a.txt" / "sub" / "report.json"  # parent is a file
 
@@ -776,4 +777,118 @@ def test_unwritable_json_out_exits_distinctly_and_still_prints(tmp_path, capsys,
     assert code == wu_token_scan.EXIT_OUTPUT_ERROR
     assert code not in (EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR)
     assert json.loads(out)["status"] == ("FOUND" if leak else "CLEAN")
+    assert "json-out" in err
+
+
+# --- PR #259 delta Defender: MF1-R mixed encodings, S1, S3, PARE, exit precedence ---------
+
+
+_UTF8_HEAD = ("2026-10-07 ok run\n" * 400).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16-le"), id="utf8_head_utf16le_tail"),
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16"), id="utf8_head_utf16bom_tail"),
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16-be"), id="utf8_head_utf16be_tail"),
+        pytest.param(
+            lambda line: _UTF8_HEAD * 400 + ("\r\n" + line).encode("utf-16-le"), id="utf16le_tail_after_1mib"
+        ),
+        pytest.param(
+            lambda line: ("2026-10-07 ok run\n" * 400).encode("utf-16-le") + ("\n" + line).encode("utf-8"),
+            id="utf16le_head_utf8_tail",
+        ),
+        pytest.param(lambda line: ("\u4e2d" * 5000 + line).encode("utf-16-le"), id="utf16le_after_cjk_head"),
+    ],
+)
+def test_mf1r_utf16_anywhere_in_a_file_is_found(tmp_path, capsys, build):
+    """PowerShell 5.1 ``>>`` appends BOM-less UTF-16LE to an existing UTF-8 log."""
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "mixed.log").write_bytes(build(_url_line(hex_token).decode("utf-8")))
+
+    code, out, _err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, json.loads(out)
+    assert hex_token not in out
+
+
+def test_mf1r_utf16_token_straddling_a_chunk_boundary_is_counted_once(tmp_path):
+    hex_token = secrets.token_hex(16)
+    encoded = f"apiKey={hex_token}".encode("utf-16-le")
+    for shift in (-6, -13, -20, -37):
+        prefix = b"x" * (wu_token_scan.CHUNK_BYTES + shift)
+        path = tmp_path / f"edge{-shift}.log"
+        path.write_bytes(prefix + encoded + b"tail")
+        result = scan([path])
+        assert exit_code_for(result) == EXIT_FOUND, shift
+        assert result.findings[0]["decoded_matches"]["nul-stripped"]["apikey_query_param"] == 1
+
+
+def test_s1_zip_inside_base64_is_per_file_incomplete_and_keeps_other_found(tmp_path, capsys):
+    import base64
+    import zipfile
+
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "leak.log").write_text(f"?apiKey={hex_token}", encoding="utf-8")
+    (tmp_path / "packed.b64").write_bytes(base64.encodebytes(_zip_bytes(b"benign " * 50, zipfile.ZIP_DEFLATED)))
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_FOUND, report
+    assert any(row["path"].endswith("packed.b64") and "zip" in row["reason"] for row in report["undecoded"])
+
+
+def test_s1_unexpected_decoder_error_is_per_file_never_whole_scan(tmp_path, monkeypatch):
+    import gzip
+
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "a.gz").write_bytes(gzip.compress(b"benign"))
+    (tmp_path / "b.log").write_text(f"?apiKey={hex_token}", encoding="utf-8")
+
+    def broken(head):
+        raise KeyError("decoder bug")
+
+    monkeypatch.setattr(wu_token_scan, "_sniff", broken)
+    result = scan([tmp_path])
+
+    assert exit_code_for(result) == EXIT_FOUND
+    assert {row["path"].rsplit(os.sep, 1)[-1] for row in result.undecoded} == {"a.gz", "b.log"}
+
+
+def test_s3_truncated_stream_keeps_the_finding_and_is_incomplete(tmp_path):
+    import gzip
+
+    hex_token = secrets.token_hex(16)
+    whole = gzip.compress(_url_line(hex_token) + b"\n" + os.urandom(1024 * 1024))
+    path = tmp_path / "cut.log.gz"
+    path.write_bytes(whole[: len(whole) * 6 // 10])
+
+    result = scan([path])
+
+    assert result.findings and result.findings[0]["decoded_matches"]["gzip"], result.undecoded
+    assert exit_code_for(result) == EXIT_FOUND
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_parquet_encrypted_footer_magic_is_incomplete(tmp_path):
+    path = tmp_path / "enc.parquet"
+    path.write_bytes(b"PARE" + os.urandom(2000) + b"PARE")
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert [row["reason"] for row in result.undecoded] == ["parquet:undecodable_format"]
+
+
+def test_json_out_failure_never_masks_found(tmp_path, capsys):
+    (tmp_path / "a.txt").write_text(f"?apiKey={secrets.token_hex(16)}", encoding="utf-8")
+    (tmp_path / "missing_root_sibling").mkdir()
+    target = tmp_path / "a.txt" / "sub" / "report.json"
+
+    code, out, err = _run(capsys, [tmp_path, tmp_path / "gone", "--json-out", target])
+
+    assert code == EXIT_FOUND
+    assert json.loads(out)["status"] == "FOUND"
     assert "json-out" in err

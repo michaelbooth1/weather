@@ -527,3 +527,68 @@ def test_mf4_log_filter_redacts_notes(token):
         logger.removeHandler(handler)
         logger.propagate = True
     assert token not in stream.getvalue()
+
+
+# --- PR #259 delta Defender S2: no depth cap on the exception chain walk -----------------
+
+
+def _cause_chain(url, length):
+    error = ValueError(url)
+    for index in range(length):
+        outer = RuntimeError(f"level {index}")
+        outer.__cause__ = error
+        error = outer
+    return error
+
+
+def _context_chain(url, length):
+    error = ValueError(url)
+    for index in range(length):
+        outer = RuntimeError(f"retry {index}")
+        outer.__context__ = error
+        error = outer
+    return error
+
+
+@pytest.mark.parametrize("length", [16, 17, 40, 200])
+@pytest.mark.parametrize("build", [_cause_chain, _context_chain])
+def test_s2_long_exception_chains_are_redacted_to_the_bottom(token, build, length):
+    error = build(f"https://api.example.invalid/x?apiKey={token}", length)
+    assert token in _rendered(error)  # precondition
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_s2_deeply_nested_groups_are_redacted(token):
+    error = ExceptionGroup("leaf", [ValueError(f"x?apiKey={token}")])
+    for index in range(30):
+        error = ExceptionGroup(f"g{index}", [error])
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_attribute_object_rendered_by_custom_str_is_redacted(token):
+    import dataclasses
+
+    @dataclasses.dataclass
+    class Cfg:
+        apiKey: str
+
+    class AttrError(Exception):
+        def __init__(self, cfg):
+            super().__init__("failed")
+            self.cfg = cfg
+
+        def __str__(self):
+            return f"failed with {self.cfg}"
+
+    error = AttrError(Cfg(apiKey=token))
+    assert token in _rendered(error)
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
