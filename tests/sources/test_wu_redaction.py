@@ -592,3 +592,24 @@ def test_attribute_object_rendered_by_custom_str_is_redacted(token):
     sanitize_exception(error)
 
     assert token not in _rendered(error)
+
+
+def test_n5_http_error_headers_stay_usable_and_are_redacted():
+    import http.client
+    import email.parser
+    import urllib.error
+
+    token = secrets.token_hex(16)
+    url = f"https://api.example.invalid/v1/x/historical.json?apiKey={token}&units=e"
+    headers = email.parser.Parser(_class=http.client.HTTPMessage).parsestr(
+        f"Location: {url}\r\nRetry-After: 5\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n"
+    )
+    error = urllib.error.HTTPError(url, 503, "busy", headers, None)
+
+    sanitize_exception(error)
+
+    assert error.headers.get("Retry-After") == "5"
+    assert error.headers.get_all("Set-Cookie") == ["a=1", "b=2"]
+    assert token not in str(error.headers) and token not in error.headers["Location"]
+    assert "apiKey" in error.headers["Location"]
+    assert token not in _rendered(error)

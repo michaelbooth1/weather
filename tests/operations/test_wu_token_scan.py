@@ -892,3 +892,83 @@ def test_json_out_failure_never_masks_found(tmp_path, capsys):
     assert code == EXIT_FOUND
     assert json.loads(out)["status"] == "FOUND"
     assert "json-out" in err
+
+
+@pytest.mark.parametrize("kind", ["gzip", "xz"])
+def test_n1_stream_broken_inside_its_first_read_keeps_the_finding(tmp_path, kind):
+    import gzip
+    import lzma
+
+    hex_token = secrets.token_hex(16)
+    # About 400 KB of hex compresses to about half, so a cut at half breaks the
+    # stream before the first DECODED_READ_BYTES of output have been produced.
+    payload = _url_line(hex_token) + b"\n" + secrets.token_hex(200_000).encode("ascii")
+    whole = gzip.compress(payload) if kind == "gzip" else lzma.compress(payload)
+    path = tmp_path / f"cut.{'gz' if kind == 'gzip' else 'xz'}"
+    path.write_bytes(whole[: len(whole) // 2])
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_FOUND, result.undecoded
+    assert result.findings[0]["decoded_matches"][kind]
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_n2_binary_without_a_key_name_skips_the_nul_stripped_pass(tmp_path, monkeypatch):
+    calls = []
+    real = wu_token_scan._match_into
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(wu_token_scan, "_match_into", counting)
+    data = bytearray(os.urandom(3 * wu_token_scan.CHUNK_BYTES))
+    with_nuls = tmp_path / "with_nuls.bin"
+    with_nuls.write_bytes(bytes(data[: len(data) // 2]) + b"\x00" * (len(data) - len(data) // 2))
+    without_nuls = tmp_path / "without_nuls.bin"
+    without_nuls.write_bytes(bytes(data).replace(b"\x00", b"\x01"))
+
+    assert exit_code_for(scan([without_nuls])) == EXIT_CLEAN
+    baseline = len(calls)
+    calls.clear()
+    assert exit_code_for(scan([with_nuls])) == EXIT_CLEAN
+    assert len(calls) == baseline
+
+
+def test_n2_gate_keeps_utf16_exact_token_and_padded_key(tmp_path):
+    exact = secrets.token_hex(16)
+    (tmp_path / "exact.bin").write_bytes(os.urandom(5000).replace(b"a", b"b") + exact.encode("utf-16-le"))
+    padded = secrets.token_hex(16)
+    (tmp_path / "padded.dat").write_bytes(b"apiKey" + b"\x00" * 122 + padded.encode("ascii"))
+
+    result = scan([tmp_path], exact_token=exact.encode("ascii"))
+
+    found = {os.path.basename(row["path"]): row for row in result.findings}
+    assert set(found) == {"exact.bin", "padded.dat"}
+    assert found["exact.bin"]["decoded_matches"]["nul-stripped"] == {"exact_env_token": 1}
+
+
+def test_n3_plain_token_in_a_file_with_nuls_is_counted_once(tmp_path):
+    hex_token = secrets.token_hex(16)
+    plain = tmp_path / "plain.log"
+    plain.write_bytes(_url_line(hex_token) + b"\n")
+    mixed = tmp_path / "mixed.log"
+    mixed.write_bytes(_url_line(hex_token) + b"\n" + b"\x00" * 100 + b"binary tail")
+
+    baseline = scan([plain]).findings[0]
+    row = scan([mixed]).findings[0]
+
+    assert row["matches"] == baseline["matches"]
+    assert "decoded_matches" not in row
+
+
+def test_n3_plain_and_utf16_tokens_are_each_counted_once(tmp_path):
+    path = tmp_path / "both.log"
+    first, second = secrets.token_hex(16), secrets.token_hex(16)
+    path.write_bytes(f"x apiKey={first}\n".encode("ascii") + f" apiKey={second}\n".encode("utf-16-le"))
+
+    row = scan([path]).findings[0]
+
+    assert row["matches"]["apikey_query_param"] == 2
+    assert row["decoded_matches"]["nul-stripped"]["apikey_query_param"] == 1
