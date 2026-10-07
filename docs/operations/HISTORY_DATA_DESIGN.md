@@ -42,6 +42,36 @@ and derives daily summaries in the existing schema. Other page resources may
 carry unrelated `apiKey` query parameters; they are not history credentials and
 the collector ignores them.
 
+## Page Access Token
+
+Owner decision OD15 (2026-10-06) accepts the free page-backed access, but the
+`API_KEY` value scraped from the page must never be persisted: not in logs,
+tapes, snapshots, `backfill_errors.jsonl`, status JSON, tracebacks, commits or
+anything pushed. The contract in code:
+
+- `weather.sources.wu_redaction` is the single redaction helper.
+  `redact_wu_secrets` rewrites every `apiKey=`, `"apiKey":"..."` and page
+  `API_KEY` form; `sanitize_exception` rewrites an escaping exception, its
+  `__cause__`/`__context__` chain and its request/response URLs in place, so a
+  downstream `str(exc)` or `traceback.format_exc()` is already clean;
+  `pin_http_debug_loggers` holds the `urllib3`/`requests` loggers at WARNING
+  (urllib3 DEBUG prints the query string).
+- The client never stores the page HTML; raw day files keep only the API
+  `observations`, and provenance keeps the page URL, which carries no token.
+- Fetch behaviour and values are unchanged; only diagnostic text is rewritten.
+
+`python -m weather.operations.wu_token_scan <roots...>` is the read-only leak
+scan. It reports file paths, per-pattern match counts and the first-match byte
+offset, never the matched text; `--token-from-env NAME` adds an exact-value
+search without echoing it. Exit 0 = clean, 1 = found, 2 = error or incomplete
+(a cap was hit, a root or file was unreadable). It never follows symlinks or
+junctions and is capped by `--max-files`, `--max-file-bytes` and
+`--max-total-bytes`. Compressed files are scanned as raw bytes only. On the
+capture host it is a bulk scan: run it 00:30–09:00 under the shared lease from
+`scripts/ops/workload_admission.ps1` ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)).
+A repository ratchet (`tests/operations/test_wu_token_repository_scan.py`) runs
+the same patterns over every tracked file.
+
 ## Failure Classes And Recovery
 
 The old paid-provider backfill path is disabled before network access. A missing

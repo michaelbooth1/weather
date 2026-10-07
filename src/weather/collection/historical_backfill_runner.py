@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 from weather.paths import data_path
+from weather.sources.wu_redaction import redact_wu_secrets
 
 SCHEMA_VERSION = "historical_backfill_run_v1"
 STATUS_SCHEMA_VERSION = "historical_backfill_status_v1"
@@ -50,7 +51,8 @@ def redact_text(value):
     text = value or ""
     for pattern, replacement in SECRET_PATTERNS:
         text = pattern.sub(replacement, text)
-    return text
+    # OD15: also the case-insensitive and JSON/page forms of the WU access token.
+    return redact_wu_secrets(text)
 
 
 def item_key(item):

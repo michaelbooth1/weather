@@ -93,6 +93,7 @@ from weather.sources.wu_history import (
     WundergroundHistoryStore,
     failure_class_for_exception,
 )
+from weather.sources.wu_redaction import pin_http_debug_loggers, sanitize_exception
 
 
 def _truthy(value):
@@ -165,6 +166,8 @@ def _store_for_wu_restore(spec):
 def run_public_wu_settlement_restore_step(args):
     if getattr(args, "skip_public_wu_settlement_restore", False):
         return {"status": "SKIPPED", "reason": "skip_public_wu_settlement_restore"}
+    # OD15: the page access token must never reach a log; urllib3 DEBUG prints the query.
+    pin_http_debug_loggers()
 
     target = settled_analysis_target_date(args)
     market_specs = _restore_specs(getattr(args, "wu_settlement_restore_markets", "all"))
@@ -211,6 +214,8 @@ def run_public_wu_settlement_restore_step(args):
                     try:
                         payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
                     except Exception as exc:  # noqa: BLE001 - record source failures and continue by default.
+                        # OD15: the re-raise below reaches step status JSON and tracebacks.
+                        sanitize_exception(exc)
                         transient = failure_class_for_exception(exc) == TRANSIENT_FAILURE
                         if transient and attempt < retries:
                             market_retries += 1
