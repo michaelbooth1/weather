@@ -85,6 +85,11 @@ def windows_of(conditions, active_intervals):
 
 
 def stream_source(bundle: StreamBundle, active_intervals=None) -> DaySource:
+    """A v0.2 day source. A captured bundle needs declared intervals (A-defender M3): without them every
+    condition would be active over its whole envelope, owner-excluded market-dates included. Only a
+    synthetic fixture may fall back to the envelope."""
+    if active_intervals is None and bundle.provenance != "synthetic":
+        raise BundleError("captured_bundle_requires_declared_intervals")
     groups = MappingProxyType({g.group_id: g.condition_ids for g in bundle.coverage_groups})
     plan = DayPlan(bundle.day, bundle.conditions, windows_of(bundle.conditions, active_intervals), groups,
                    bundle.provenance, bundle.input_hashes, active_intervals is not None)
@@ -93,6 +98,8 @@ def stream_source(bundle: StreamBundle, active_intervals=None) -> DaySource:
 
 def bundle_source(bundle: Bundle) -> DaySource:
     """A frozen v0.1 in-memory bundle (its ``active_intervals`` declare the windows when present)."""
+    if bundle.active_intervals is None and bundle.provenance != "synthetic":
+        raise BundleError("captured_bundle_requires_declared_intervals")
     plan = DayPlan(bundle.day, bundle.conditions, windows_of(bundle.conditions, bundle.active_intervals),
                    MappingProxyType({}), bundle.provenance, bundle.input_hashes, bundle.active_intervals is not None)
     return DaySource(plan, lambda: iter(bundle.records))
