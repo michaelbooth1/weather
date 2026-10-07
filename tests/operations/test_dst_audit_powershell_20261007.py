@@ -1,8 +1,8 @@
 """Failing-first DST execution tests for the Windows ops scripts (DST audit 2026-10-07).
 
-Guards: docs/roadmap/audits/dst-audit-2026-10-07.md findings DST-C1 (daily Scheduler triggers are
-UTC-synchronized), DST-H3 (quiet-window merge heartbeat advancement compared on the wall clock)
-and DST-H4 (bounded suite capture-worker heartbeat age computed on the wall clock).
+Guards: docs/roadmap/audits/dst-audit-2026-10-07.md findings DST-C1 (daily Scheduler triggers store
+a fixed UTC offset, i.e. a fixed UTC instant), DST-H3 (quiet-window merge heartbeat advancement
+compared on the wall clock) and DST-H4 (bounded suite capture-worker heartbeat age computed on the wall clock).
 
 Every test executes the repository's own PowerShell (a statement or function
 extracted from the script by the PowerShell parser) in a real Windows
@@ -126,9 +126,9 @@ def test_daily_scheduler_trigger_follows_local_wall_clock_across_dst(registrar):
     if not isinstance(triggers, list) or not triggers:
         raise RuntimeError(f"no triggers evaluated: {payload}")
 
-    # A StartBoundary with a zone designator ("Z" or "+hh:mm") is a
-    # "synchronize across time zones" trigger: Task Scheduler keeps it on a
-    # fixed UTC instant, so a task registered in daylight time fires one hour
+    # A StartBoundary with a zone designator ("Z", or a fixed offset such as
+    # the "-04:00" observed on the capture host 2026-10-07) pins a fixed UTC
+    # instant, so a task registered in daylight time fires one hour
     # earlier on the local clock from 2026-11-01 (00:30 -> 23:30, refused by
     # the 00:30-04:45 / 00:30-09:00 window checks). A local trigger has none.
     zoned = [
@@ -136,7 +136,7 @@ def test_daily_scheduler_trigger_follows_local_wall_clock_across_dst(registrar):
         for row in triggers
         if re.search(r"(Z|[+-]\d\d:\d\d)$", row["start_boundary"])
     ]
-    assert zoned == [], "UTC-synchronized daily triggers: " + "; ".join(zoned)
+    assert zoned == [], "daily triggers pinned to a fixed UTC offset: " + "; ".join(zoned)
 
 
 MERGE_HEARTBEAT_PROBE = r"""
