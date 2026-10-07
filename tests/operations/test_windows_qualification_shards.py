@@ -137,6 +137,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_thin_ensure.py",
             "tests/operations/test_scheduled_task_local_daily_triggers.py",
             "tests/operations/test_exchange_economics_refresh_script.py",
+            "tests/operations/test_reset_daily_trigger_local.py",
         ],
     ),
     "reconciler-1": (

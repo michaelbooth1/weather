@@ -894,42 +894,95 @@ dot-sources `scripts/ops/scheduled_task_local_trigger.ps1`, builds its trigger w
 `Test-WeatherLocalDailyStartBoundary`, which refuses any zone suffix. A `[datetime]` cast is not a read-back: it
 converts `00:30:00-04:00` to local time and hides the offset. Repeating `-Once -RepetitionInterval` triggers and
 run-specific one-shot triggers are interval- or instant-based and stay as they are.
-`tests/operations/test_scheduled_task_local_daily_triggers.py` fails on any daily trigger built outside the helper
-and on any registrar that emits a zoned daily boundary.
+`tests/operations/test_scheduled_task_local_daily_triggers.py` fails on any daily trigger built outside the helper,
+anywhere in the repository. It checks:
+- `New-ScheduledTaskTrigger -Daily/-Weekly/-Monthly`, including commands split with backticks; it uses the
+  PowerShell AST on Windows and joined lines elsewhere;
+- `-Once` triggers whose repetition is a day or longer;
+- COM `Triggers.Create(2..5)`;
+- `schtasks /sc daily|weekly|monthly`;
+- zoned `<StartBoundary>` task XML;
+- any registrar that emits a zoned daily boundary;
+- any PowerShell script that does not parse.
+
+For an existing task with no registrar, `scripts/ops/reset_daily_trigger_local.ps1` removes the zone from its
+calendar triggers in place (see the runbook below).
 
 ### DST re-registration (OD28)
 
 Fixing the registrars changes nothing on the host until each daily task is re-registered from a checkout that
-contains the fix. The master-agent (production operator) does this; no other agent registers anything.
+contains the fix. A task with no registrar has its trigger re-set instead. The master-agent (production operator)
+does this; no other agent registers anything.
 
-**When.** Around 2026-10-30, after the fix has landed and production is on it, inside an allowed window (not
-12:00-00:30, and not over a running Stage-A chain or bounded suite), and in any case before the evening of
-2026-11-01 (the first night that fires an hour early).
+**Scope.** Master's read-only host sweep (2026-10-07 09:46) found 21 enabled `Weather*` tasks, all with `-04:00`
+StartBoundaries. Only the calendar (daily) triggers below move on 2026-11-01. The "If left unfixed" column gives
+the local time each would fire from then on.
 
-**Which tasks, in this order.** Re-run each registrar with exactly the parameters the live task was registered
-with (read them from the live action before starting); none of these changes the task's command:
+| Pri | Task | Local time | If left unfixed | How |
+| --- | --- | --- | --- | --- |
+| **1** | `WeatherTrainingWindowRestore` | 04:15 | **03:15** | `register_training_window.ps1` |
+| 2 | `WeatherColdSnapshotNightly` | 06:50 (the host still has 00:30) | 05:50 (23:30) | `register_cold_snapshot_nightly.ps1` |
+| 3 | `WeatherDailySettlementPromotionRefresh` + `WeatherEveningEvidenceRefresh` | 09:30 / 00:35 | 08:30 / 23:35 | `register_daily_refresh.ps1` |
+| 4 | `WeatherClobTiering` | 05:00 | 04:00 | `register_clob_tiering.ps1` |
+| 5 | `WeatherClobRawTapeTiering` | 06:00 | 05:00 | `register_clob_raw_tape_tiering.ps1` |
+| 6 | `WeatherExchangeEconomicsSnapshotRefresh` | 06:50 | 05:50 | `register_exchange_economics_refresh.ps1` |
+| 7 | `WeatherLocationConfigRefresh` | 00:00, 06:00, 12:00, 18:00 | 23:00, 05:00, 11:00, 17:00 | `register_location_config_refresh.ps1` |
+| 8 | `WeatherStalenessSweep` | 08:10 | 07:10 | no registrar: `reset_daily_trigger_local.ps1 -ExpectedAt 08:10` |
+| 9 | `WeatherStreakCaptureMonitor` | 12:00, then every 30 minutes | 11:00, so the 12:00-18:00 watch starts an hour early | no registrar: `reset_daily_trigger_local.ps1 -ExpectedAt 12:00` |
 
-1. `WeatherColdSnapshotNightly` - `register_cold_snapshot_nightly.ps1` with the current approved policy path,
-   hash, `-ExpectedSourceTip` and `-Apply` (see [cold-snapshot-compression](cold-snapshot-compression.md)). This
-   also moves the host's legacy 00:30 trigger to the 06:50 slot approved on 2026-10-05.
-2. `WeatherDailySettlementPromotionRefresh` and `WeatherEveningEvidenceRefresh` - one run of
-   `register_daily_refresh.ps1` with the same Full or `-ProvenanceOnly` parameters as now. Stage B stays disabled
-   unless `-EnableEvidenceTask` is passed, which this step must not add.
-3. `WeatherClobTiering` - `register_clob_tiering.ps1`.
-4. `WeatherClobRawTapeTiering` - `register_clob_raw_tape_tiering.ps1`.
-5. `WeatherExchangeEconomicsSnapshotRefresh` - `register_exchange_economics_refresh.ps1` (also converts the live
-   task from RunLevel Highest and `-Command` to Limited and `-File` with a status file, Swarm P audit F1; see the
-   [economics runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
-6. `WeatherLocationConfigRefresh` - `register_location_config_refresh.ps1`.
-7. `WeatherTrainingWindowRestore` - `register_training_window.ps1` with its current parameters; the training
-   window stays disabled.
+**`WeatherTrainingWindowRestore` is the highest priority.** At 03:15 its `RestoreOnly` run can start capture
+workers inside the 01:00-04:00 quiet merge window. A roll-sensitive merge in that window expects the workers to be
+stopped, or is proving their recovery. Do this task first. If the pass cannot finish, do this one alone.
 
-Do not re-register `WeatherMakerEvidenceCapture` in this pass: its registrar still writes PT1M while the intended
-and live interval is PT5M ([passive maker evidence capture](passive-maker-evidence-capture.md)).
+**Not affected; no action.**
+- Repeating `-Once` TimeTriggers fire after each elapsed interval through both DST transitions:
+  - the supervisors (PT1M/PT2M);
+  - the guards and watchdogs (PT1M/PT5M/PT15M);
+  - `WeatherMakerEvidenceCapture` (PT5M);
+  - `WeatherManualOrderJournal` (PT5M).
+- None of the repository's repeating triggers has a duration window anchored to its StartBoundary:
+  - the supervisors use a 3650-day duration;
+  - `WeatherMemoryCommitGuard` blanks its one-day duration to infinite after registration;
+  - the rest have no duration.
+- The streak monitor's 30-minute repetition hangs off its daily trigger and moves with it, which is why it is row 9.
+- `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are not enabled on the host, so they do not apply.
 
-**Verify, read-only, afterwards.** For every task above, `(Get-ScheduledTask -TaskName <name>).Triggers.StartBoundary`
-must show no `Z` or `+/-hh:mm` suffix. Then list the next run times across the change with the read-only
-`GetRunTimes` probe (Add-Type and COM only; registers and changes nothing):
+**When.** On 2026-10-29 or 2026-10-30, after the fix has landed and production is running it.
+- Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
+- Just before each row, confirm that the task's `State` is not `Running`.
+- Finish before 01:00 on 2026-11-01. Row 1 at least must be done by then.
+
+**Steps.** For a registrar row, re-run the registrar with exactly the parameters the live task was registered
+with; read them from the live action first. None of these changes the task's command except row 6. Row 6 converts
+the live task from RunLevel Highest and `-Command` to Limited and `-File`, with a status file (Swarm P audit F1;
+see the [economics runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
+
+- Row 1: run with its current parameters. The training window stays disabled.
+- Row 2: pass the current approved policy path, its hash, `-ExpectedSourceTip` and `-Apply`
+  ([cold-snapshot-compression](cold-snapshot-compression.md)). This also moves the host's legacy 00:30 trigger to
+  the 06:50 slot approved on 2026-10-05.
+- Row 3: one run with the same Full or `-ProvenanceOnly` parameters as now. Stage B stays disabled; do not add
+  `-EnableEvidenceTask`.
+- Rows 8 and 9: neither has a repository registrar or task XML in the repository, so do not recreate them. Use
+  `scripts/ops/reset_daily_trigger_local.ps1`, which re-sets only the calendar trigger.
+  - It removes the zone suffix and keeps the registered wall time.
+  - It leaves the action, principal, settings, other triggers and the trigger's repetition unchanged.
+  - It refuses a `Z` boundary, a trigger count or time that differs from `-ExpectedAt`, and monthly triggers.
+  - Run it once without `-Apply`: it prints the plan and changes nothing. Then run it with `-Apply`, which calls
+    `Set-ScheduledTask -Trigger` and reads the result back.
+  - If `Set-ScheduledTask` is refused for the S4U principal, stop. Export the task XML for owner review rather
+    than recreating the task.
+
+> **DO NOT RUN `register_maker_evidence_capture.ps1` — not in this pass, and not at any time until the owner
+> answers the PT5M question.** Its registrar still writes **PT1M**, but the intended and live interval is **PT5M**.
+> Re-running it silently reverts the interval and brings back about 1,440 refused starts a day. The task needs no
+> DST action anyway ([passive maker evidence capture](passive-maker-evidence-capture.md)).
+
+**Verify afterwards (read-only).**
+1. For every task in the table, `(Get-ScheduledTask -TaskName <name>).Triggers.StartBoundary` must show no `Z` or
+   `+/-hh:mm` suffix on a daily trigger.
+2. List each task's next run times across the change with the `GetRunTimes` probe below. It uses Add-Type and COM
+   only, and registers and changes nothing.
 
 ```powershell
 Add-Type -TypeDefinition @"
@@ -942,21 +995,25 @@ using System;using System.Runtime.InteropServices;
 [PreserveSig]int n(out IntPtr p);[PreserveSig]int o(int a,out IntPtr b);[PreserveSig]int q(IntPtr a,int b);[PreserveSig]int r(int a);
 [PreserveSig]int GetRunTimes(ref ST s,ref ST e,ref uint n,out IntPtr t);}
 public static class RTx{static ST S(DateTime d){var s=new ST();s.Y=(ushort)d.Year;s.Mo=(ushort)d.Month;s.D=(ushort)d.Day;return s;}
-public static string[] Get(object t,DateTime f,DateTime to){var a=S(f);var b=S(to);uint n=20;IntPtr p;int hr=((IRT)t).GetRunTimes(ref a,ref b,ref n,out p);if(hr<0)throw new Exception(hr.ToString("X"));
+public static string[] Get(object t,DateTime f,DateTime to){var a=S(f);var b=S(to);uint n=200;IntPtr p;int hr=((IRT)t).GetRunTimes(ref a,ref b,ref n,out p);if(hr<0)throw new Exception(hr.ToString("X"));
 var r=new string[n];int z=Marshal.SizeOf(typeof(ST));for(int i=0;i<n;i++)r[i]=Marshal.PtrToStructure(new IntPtr(p.ToInt64()+i*z),typeof(ST)).ToString();Marshal.FreeCoTaskMem(p);return r;}}
 "@
 $svc = New-Object -ComObject Schedule.Service; $svc.Connect()
-foreach ($n in 'WeatherColdSnapshotNightly','WeatherDailySettlementPromotionRefresh','WeatherEveningEvidenceRefresh',
-    'WeatherClobTiering','WeatherClobRawTapeTiering','WeatherExchangeEconomicsSnapshotRefresh',
-    'WeatherLocationConfigRefresh','WeatherTrainingWindowRestore') {
+foreach ($n in 'WeatherTrainingWindowRestore','WeatherColdSnapshotNightly','WeatherDailySettlementPromotionRefresh',
+    'WeatherEveningEvidenceRefresh','WeatherClobTiering','WeatherClobRawTapeTiering',
+    'WeatherExchangeEconomicsSnapshotRefresh','WeatherLocationConfigRefresh','WeatherStalenessSweep',
+    'WeatherStreakCaptureMonitor') {
   "$n : " + ([RTx]::Get($svc.GetFolder('\').GetTask($n), [datetime]'2026-10-30', [datetime]'2026-11-04') -join ' | ') }
 ```
 
-Pass: every task keeps the same local time on each day, including 2026-11-02 onward (for example
-`2026-10-31 06:50 | 2026-11-01 06:50 | 2026-11-02 06:50`). Fail: a run one hour earlier from 2026-11-01 or
-2026-11-02 (for example `... | 2026-11-01 23:30 | ...` for a 00:30 task), which means the task still has a zoned
-boundary. A task that is disabled may return no run times; check its StartBoundary instead. Change `GetFolder('\')`
-if a task lives in a subfolder.
+**Pass:** every task keeps the same local times each day, including from 2026-11-02 onward. For example:
+`2026-10-31 04:15 | 2026-11-01 04:15 | 2026-11-02 04:15`. The streak monitor's first run each day stays at 12:00.
+
+**Fail:** a run one hour earlier from 2026-11-01 or 2026-11-02, for example `... | 2026-11-02 03:15 | ...`. That
+means the task still has a zoned boundary.
+
+- A disabled task (Stage B, unless enabled) may return no run times; check its StartBoundary instead.
+- If a task lives in a subfolder, change `GetFolder('\')`.
 
 **Around the change itself (owner decisions 2026-10-07).**
 
