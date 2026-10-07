@@ -28,7 +28,7 @@ from weather.calibration.pooled_candidate_scoring import (
 )
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
-from weather.mg1_reserved_window import MG1Reserved, refuse_nbm_band_scoring
+from weather.mg1_reserved_window import MG1Reserved, drop_reserved_targets, refuse_nbm_band_scoring, window as mg1_window
 from weather.model.continuous_density import bucket_interval_native
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
@@ -281,6 +281,9 @@ def score_folder(
         }
 
     settlement = _read_json(folder / "settlement.json")
+    if settlement and settlement.get("target_date") is not None:
+        # MG-1: a settlement naming a reserved target date (slug mismatch) is refused before the join.
+        refuse_nbm_band_scoring([settlement.get("target_date")], entry="item190.settlement_target_date")
     if not settlement:
         return {
             "folder": str(folder),
@@ -456,19 +459,37 @@ def build_payload(
     market_tol: float = 0.003,
     min_days: int = 2,
 ) -> dict[str, Any]:
-    folder_paths = _folder_inputs(snapshots_root, as_of=as_of, folders=folders)
-    # MG-1: listing folder names is outcome-blind; refuse before any folder is scored.
-    refuse_nbm_band_scoring([date_from_event_slug(Path(f).name) for f in folder_paths], entry="item190.build_payload")
-    folder_results = [
-        score_folder(
-            folder,
-            quality_grades=quality_grades,
-            exclude_impossible=exclude_impossible,
-            normalize_partitions=normalize_partitions,
-        )
-        for folder in folder_paths
-    ]
-    rows = [row for result in folder_results for row in result.get("rows") or []]
+    listed_paths = _folder_inputs(snapshots_root, as_of=as_of, folders=folders)
+    # MG-1 (OD31): listing folder names is outcome-blind; drop reserved or unreadable target dates
+    # before any folder is scored or joined to an outcome. Only the counts are disclosed.
+    folder_paths, mg1_folders = drop_reserved_targets(
+        listed_paths, target_of=lambda f: date_from_event_slug(Path(f).name))
+    folder_results, mg1_refused = [], 0
+    for folder in folder_paths:
+        try:
+            folder_results.append(score_folder(
+                folder,
+                quality_grades=quality_grades,
+                exclude_impossible=exclude_impossible,
+                normalize_partitions=normalize_partitions,
+            ))
+        except MG1Reserved:
+            # The settlement itself names a reserved or unreadable target date: drop it, count only.
+            mg1_refused += 1
+    # MG-1 second line: a settlement whose own target date is reserved never reaches a metric.
+    scored_rows = [row for result in folder_results for row in result.get("rows") or []]
+    rows, mg1_rows = drop_reserved_targets(
+        scored_rows, target_of=lambda row: row.get("target_date") or "unreadable")
+    mg1_disclosure = {
+        "window_start": mg1_window()[0].isoformat(),
+        "window_end": mg1_window()[1].isoformat() if mg1_window()[1] else None,
+        "listed_folder_count": len(listed_paths),
+        "reserved_folders_dropped": mg1_folders["reserved_dropped"],
+        "unreadable_folders_dropped": mg1_folders["unreadable_dropped"],
+        "settlement_target_refused": mg1_refused,
+        "reserved_rows_dropped": mg1_rows["reserved_dropped"],
+        "unreadable_rows_dropped": mg1_rows["unreadable_dropped"],
+    }
     feature_schema_versions: Counter[str] = Counter()
     for result in folder_results:
         for schema, count in ((result.get("feature_summary") or {}).get("feature_schema_versions") or {}).items():
@@ -528,6 +549,7 @@ def build_payload(
             "target_dates": sorted({row.get("target_date") for row in rows if row.get("target_date")}),
             "quality_grade_counts": dict(sorted(quality_grade_counts.items())),
         },
+        "mg1_reserved_window": mg1_disclosure,
         "folder_results": [
             {key: value for key, value in result.items() if key != "rows"}
             for result in folder_results
@@ -564,6 +586,7 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
 def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path = Path(path)
     coverage = payload.get("coverage") or {}
+    mg1 = payload.get("mg1_reserved_window") or {}
     aggregate = payload.get("aggregate") or {}
     blocked = payload.get("blocked_validation") or {}
     lines = [
@@ -580,6 +603,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Metric", "Value"],
             [
                 ["Discovered folders", coverage.get("discovered_folder_count")],
+                ["MG-1 reserved folders dropped", mg1.get("reserved_folders_dropped")],
+                ["MG-1 unreadable-date folders dropped", mg1.get("unreadable_folders_dropped")],
+                ["MG-1 settlements naming a reserved date dropped", mg1.get("settlement_target_refused")],
+                ["MG-1 reserved rows dropped", mg1.get("reserved_rows_dropped")],
+                ["MG-1 unreadable-date rows dropped", mg1.get("unreadable_rows_dropped")],
                 ["Scored folders", coverage.get("scored_folder_count")],
                 ["NBM payload folders", coverage.get("nbm_payload_folder_count")],
                 ["Rows", coverage.get("row_count")],

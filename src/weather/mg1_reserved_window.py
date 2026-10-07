@@ -6,17 +6,24 @@ holds out the first 45 promotion-countable local target dates on or after D0
 station guidance into band probabilities: such a candidate may not be scored,
 have its outcomes enumerated, or be joined to an outcome on those dates. The
 item-190 settlement scorer (``nbm_probabilistic_tmax_settlement_scoring``)
-reads the NBM percentile curve into band probabilities, so it calls
-``refuse_nbm_band_scoring`` before it opens any settlement.
+reads the NBM percentile curve into band probabilities. Its whole-history
+run (``build_payload``) drops reserved target dates with
+``drop_reserved_targets`` before any folder is scored or joined to an outcome,
+and discloses only the counts dropped (owner decision OD31, 2026-10-07). A
+direct single-folder call (``score_folder``) on a reserved date is refused
+with ``refuse_nbm_band_scoring``.
 
 Window semantics (identical to ``maker_core.mg1_window`` on the maker-replay
 build line, unit U7):
 - every target date on or after ``MG1_FLOOR`` is reserved while ``MG1_D0`` and
   ``MG1_LAST`` are None;
 - the window narrows only by a reviewed edit recording both constants; an
-  inconsistent recording (D0 before the floor, last before D0, only one set)
-  fails wide, back to ``[MG1_FLOOR, open)``;
-- an unreadable target date is refused.
+  inconsistent recording (D0 before the floor, last earlier than D0 + 44 days,
+  only one set, a datetime) fails wide, back to ``[MG1_FLOOR, open)``;
+- the constants are recorded in the same commit that dates the status line of
+  ``reserved-confirmation-window.md`` (``MG-1 D0 = YYYY-MM-DD``,
+  ``MG-1 last = YYYY-MM-DD``); a test binds the two (owner decision OD32);
+- an unreadable target date is refused, or dropped by the filter.
 
 There is no override argument and no environment variable. The single
 exception is the registered MG-1 confirmation look itself:
@@ -35,7 +42,7 @@ together.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import hashlib
 import sys
 
@@ -65,7 +72,9 @@ def window(d0=None, last=None):
     last = MG1_LAST if last is None else last
     if d0 is None or last is None:
         return MG1_FLOOR, None
-    if not (isinstance(d0, date) and isinstance(last, date)) or d0 < MG1_FLOOR or last < d0:
+    if (not (isinstance(d0, date) and isinstance(last, date))
+            or isinstance(d0, datetime) or isinstance(last, datetime)
+            or d0 < MG1_FLOOR or last < d0 + timedelta(days=MG1_RESERVED_COUNT - 1)):
         return MG1_FLOOR, None
     return d0, last
 
@@ -124,3 +133,25 @@ def refuse_nbm_band_scoring(targets, *, entry: str) -> None:
     for day in days:
         if is_reserved(day):
             raise MG1Reserved(f"mg1_reserved_target_date:{entry}:{day.isoformat()}")
+
+
+def drop_reserved_targets(items, *, target_of):
+    """Split ``items`` before any outcome join: return ``(kept, counts)``.
+
+    ``target_of(item)`` gives the item's local target date. Reserved items are
+    dropped unless the registered MG-1 look is running; items whose date cannot
+    be read are always dropped. ``counts`` holds counts only, never dates.
+    """
+    registered = registered_confirmation_entry() is not None
+    kept, reserved, unreadable = [], 0, 0
+    for item in items:
+        try:
+            day = as_date(target_of(item))
+        except MG1Reserved:
+            unreadable += 1
+            continue
+        if is_reserved(day) and not registered:
+            reserved += 1
+            continue
+        kept.append(item)
+    return kept, {"reserved_dropped": reserved, "unreadable_dropped": unreadable}
