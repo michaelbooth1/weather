@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from weather.io import http_retry_after_response_seconds
-from weather.sources.wu_redaction import redact_wu_secrets, sanitize_exception
 
 
 FETCH_META_KEY = "_source_fetch_meta"
@@ -168,12 +167,9 @@ def fetch_source(
         }
     except Exception as exc:  # noqa: BLE001 - source failures are surfaced as data
         response_received_at = _attempt_timestamp(now_fn, fetched_at)
-        # OD15: a WU fetch error quotes its request URL, page token included; this
-        # payload reaches snapshots, status files and captured-input tapes.
-        sanitize_exception(exc)
         payload = {
             "ok": False,
-            "error": redact_wu_secrets(str(exc)),
+            "error": str(exc),
             "latency_ms": round((clock() - started) * 1000.0, 1),
             "fetched_at": response_received_at,
         }

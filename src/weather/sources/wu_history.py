@@ -20,7 +20,6 @@ import requests
 
 from weather.market.market_registry import spec_for_id
 from weather.sources.daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c
-from weather.sources.wu_redaction import pin_http_debug_loggers, redact_wu_secrets, sanitize_exception
 from weather.units import round_half_up
 
 
@@ -122,8 +121,21 @@ TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
 
 
 def redact_api_key(value):
-    # OD15: one redaction helper for every WU path (weather.sources.wu_redaction).
-    return redact_wu_secrets(value)
+    if value is None:
+        return None
+    text = re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value), flags=re.IGNORECASE)
+    text = re.sub(
+        r'("API_KEY"\s*:\s*")[^"]*',
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"('API_KEY'\s*:\s*')[^']*",
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def normalize_wu_source_label(value):
@@ -245,8 +257,6 @@ class PublicWundergroundHistoryClient:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
         )
-        # OD15: urllib3 DEBUG logs the request query, which carries the page token.
-        pin_http_debug_loggers()
 
     def history_page_url(self, target_date):
         return (
@@ -289,15 +299,6 @@ class PublicWundergroundHistoryClient:
             raise
 
     def fetch_range(self, start_date, end_date, units=None):
-        try:
-            return self._fetch_range(start_date, end_date, units=units)
-        except Exception as exc:
-            # OD15: requests/urllib3 quote the request URL, token included, in the
-            # message and the chained causes; callers persist str(exc) and tracebacks.
-            sanitize_exception(exc)
-            raise
-
-    def _fetch_range(self, start_date, end_date, units=None):
         page_url = self.history_page_url(start_date)
         page_response = self.session.get(
             page_url,
@@ -1292,7 +1293,6 @@ def build_parser():
 
 
 def main():
-    pin_http_debug_loggers()
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)
