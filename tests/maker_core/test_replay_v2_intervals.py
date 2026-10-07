@@ -149,8 +149,9 @@ def test_excluded_market_date_is_never_scored(tmp_path, monkeypatch):
     fixture = Panel(**options)
     austin = fixture.austin_excluded(days)
     names = []
-    real_stream = universe_v02._stream
-    monkeypatch.setattr(universe_v02, "_stream", lambda b, ref, *a: names.append(ref.name) or real_stream(b, ref, *a))
+    real_stream = universe_v02.stream_records
+    monkeypatch.setattr(universe_v02, "stream_records",
+                        lambda b, stem: names.append(b.stream(stem).name) or real_stream(b, stem))
     bundles = write(tmp_path, fixture, days, provenance="captured")
     windows, _ = intervals.active_intervals(universe_v02.day_inputs(bundles), fixture.inventory(days),
                                             panel="registered")
@@ -420,6 +421,7 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
     name the raw plan constructors, in code or in a string (getattr/vars), or import lockstep dynamically."""
     root = V2.parents[3]
     allowed = {"src/maker_core/replay/v2/lockstep.py", "src/maker_core/replay/v2/intervals.py",
+               "src/maker_core/replay/v2/manifest.py",  # U4's build/apply_manifest (U1 Defender r2 section 4)
                "tools/research/maker_replay_v2/sources.py"}
     raw = re.compile(r"\b(stream_source|bundle_source|DayPlan|windows_of)\b")
     offenders = []
@@ -452,7 +454,37 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
 def test_descriptor_helper_reads_only_the_descriptor_stream(registered, monkeypatch):
     _, bundles, _, _ = registered
     names = []
-    real = universe_v02._stream
-    monkeypatch.setattr(universe_v02, "_stream", lambda b, ref, *a: names.append(ref.name) or real(b, ref, *a))
+    real = universe_v02.stream_records
+    monkeypatch.setattr(universe_v02, "stream_records", lambda b, stem: names.append(b.stream(stem).name) or real(b, stem))
     records = universe_v02.descriptors(bundles[3])
     assert names == ["descriptor.jsonl"] and records and {r.kind for r in records} == {"descriptor"}
+
+
+U1_MODULES = ("src/maker_core/replay/v2/universe_v02.py", "src/maker_core/replay/v2/intervals.py",
+              "src/maker_core/replay/v2/transfer.py", "src/maker_core/replay/v2/panel.py",
+              "src/weather/market/maker_replay_universe_v02.py")
+X1_READER_MODULES = ("maker_core.replay.bundle_v02", "maker_core.replay.v2.limits", "maker_core.replay.v2.gzip_stream")
+
+
+def test_u1_modules_use_only_the_public_x1_reader_api():
+    """U1 Defender r2 C1: U1 reads streams through ``bundle_v02.stream_records`` / ``StreamBundle.stream``,
+    never a private symbol of X1's reader (``_stream`` and friends), so a rename there cannot silently break
+    universe derivation."""
+    root = V2.parents[3]
+    offenders = []
+    for relative in U1_MODULES:
+        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+        aliases = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in X1_READER_MODULES:
+                offenders += [f"{relative}:{a.name}" for a in node.names if a.name.startswith("_")]
+            elif isinstance(node, ast.ImportFrom) and node.module in ("maker_core.replay", "maker_core.replay.v2"):
+                aliases |= {a.asname or a.name for a in node.names if a.name in ("bundle_v02", "limits", "gzip_stream")}
+            elif isinstance(node, ast.Import):
+                aliases |= {a.asname or a.name for a in node.names if a.name in X1_READER_MODULES}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute) and node.attr.startswith("_") and not node.attr.startswith("__")
+                    and ast.unparse(node.value) in aliases):
+                offenders.append(f"{relative}:{ast.unparse(node)}")
+    assert offenders == []
+    assert universe_v02.stream_records is __import__("maker_core.replay.bundle_v02", fromlist=["x"]).stream_records

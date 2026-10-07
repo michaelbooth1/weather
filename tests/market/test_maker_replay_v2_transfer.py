@@ -18,6 +18,7 @@ from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay import bundle_v02
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.v2 import panel, transfer
+from maker_core.replay.v2.limits import RunBudget, V2Limits
 from weather.market import maker_replay_night as night_v01
 from weather.market import maker_replay_night_v02 as night_v02
 from tests.market.test_maker_replay_night import LATER, setup
@@ -286,3 +287,142 @@ def test_verified_real_export_feeds_the_universe_producer_and_the_rule(exports):
     assert {e["condition_id"] for e in result.exclusions} | {w["condition_id"] for w in result.windows} == {
         r["condition_id"] for r in rows}
     assert result.owner_exclusions[0]["matched_conditions"] == []
+
+
+# ----------------------------------------------------------------------------- round 2: LOW-1, C2, NOTE-2
+NESTED = b"[" * 200_000 + b"]" * 200_000  # under the 16 MiB export cap; json.loads raises RecursionError
+
+
+@pytest.mark.parametrize("name, field", [("bundle/export.json", "export_json_sha256"),
+                                         ("receipt.json", "receipt_sha256")])
+def test_export_and_receipt_hashes_are_compared_before_any_parse(exports, monkeypatch, name, field):
+    """U1 Defender r2 LOW-1: verify compares the raw export.json/receipt.json hash before parsing. A hostile
+    deeply nested file is refused as a hash mismatch (a BundleError), never parsed and never a RecursionError."""
+    pairs = [("calibration_hazard", exports["calibration_hazard"])]
+    doc = build(pairs)
+    (exports["calibration_hazard"] / name).write_bytes(NESTED)
+    real = transfer._parse
+
+    def parse(raw):
+        assert raw != NESTED, "parsed before its hash was compared"
+        return real(raw)
+    monkeypatch.setattr(transfer, "_parse", parse)
+    with pytest.raises(BundleError, match=f"^transfer_manifest_mismatch:{DAY}:{field}$"):
+        transfer.verify(doc, pairs)
+
+
+def test_verify_parses_exactly_the_bytes_it_hashed(exports, monkeypatch):
+    """LOW-1: each of receipt.json, export.json and bundle.json is read from disk ONCE by verify, hashed, and
+    only those same bytes are parsed (no second read between the hash compare and the parse)."""
+    pairs = list(exports.items())
+    doc = build(pairs)
+    events, real_raw, real_parse = [], transfer._raw, transfer._parse
+
+    def raw(path, cap):
+        value, digest = real_raw(path, cap)
+        events.append(("read", path.relative_to(path.parents[1] if path.parent.name == "bundle" else path.parent)
+                       .as_posix(), str(path.parent), digest))
+        return value, digest
+
+    def parse(value):
+        events.append(("parse", hashlib.sha256(value).hexdigest()))
+        return real_parse(value)
+    monkeypatch.setattr(transfer, "_raw", raw)
+    monkeypatch.setattr(transfer, "_parse", parse)
+    assert len(transfer.verify(doc, pairs, bounds_check=False)) == 4
+    reads = [e for e in events if e[0] == "read"]
+    assert len(reads) == len({(e[1], e[2]) for e in reads}) == 3 * len(pairs)
+    hashed = set()
+    for event in events:
+        if event[0] == "read":
+            hashed.add(event[3])
+        else:
+            assert event[1] in hashed, "parsed bytes that were never hashed"
+
+
+def test_deeply_nested_json_refuses_as_a_bundle_error_in_build(exports):
+    """``_parse`` maps RecursionError to the BundleError contract (build has no hash to compare against)."""
+    root = exports["calibration_hazard"]
+    (root / "bundle" / "export.json").write_bytes(NESTED)
+    with pytest.raises(BundleError, match="^transfer_root_invalid$"):
+        build([("calibration_hazard", root)])
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def _recording_opens(monkeypatch, after=None):
+    calls, real = [], transfer.open_stream_bundle
+
+    def opener(path, **kwargs):
+        calls.append(kwargs)
+        bundle = real(path, **kwargs)
+        if after is not None:
+            after(len(calls))
+        return bundle
+    monkeypatch.setattr(transfer, "open_stream_bundle", opener)
+    return calls
+
+
+def test_verify_opens_every_bundle_on_one_shared_run_budget(exports, monkeypatch):
+    """U1 Defender r2 C2: one ``RunBudget`` for the whole verify, shared by every bundle; ``V2Limits``."""
+    pairs = list(exports.items())
+    doc = build(pairs)
+    calls = _recording_opens(monkeypatch)
+    verified = transfer.verify(doc, pairs)
+    assert len(calls) == 4 and len({id(c["run"]) for c in calls}) == 1
+    assert isinstance(calls[0]["run"], RunBudget) and all(type(c["limits"]) is V2Limits for c in calls)
+    assert calls[0]["run"].stored_bytes == sum(v.bundle.input_bytes for v in verified)
+    mine = RunBudget()
+    calls.clear()
+    transfer.verify(doc, pairs, run=mine)
+    assert {id(c["run"]) for c in calls} == {id(mine)}
+
+
+def test_verify_is_bounded_by_the_shared_stored_total(exports):
+    pairs = list(exports.items())
+    doc = build(pairs)
+    sizes = [v.bundle.input_bytes for v in transfer.verify(doc, pairs, bounds_check=False)]
+    with pytest.raises(BundleError, match="^run_input_byte_cap$"):
+        transfer.verify(doc, pairs, run=RunBudget(max_run_stored_bytes=sizes[0] + 1))
+
+
+def test_the_bounds_scan_is_bounded_by_the_run_deadline(exports, monkeypatch):
+    """Past the run deadline after the last open, the PB2(b) scan (transfer's own stream read) refuses
+    ``run_time_cap``; before round 2 it ran unbounded by any run."""
+    pairs = list(exports.items())
+    doc = build(pairs)
+    clock = FakeClock()
+
+    def late(count):
+        if count == len(pairs):
+            clock.now += 40_000.0
+    _recording_opens(monkeypatch, after=late)
+    assert transfer.verify(doc, pairs, bounds_check=False, clock=clock, run=RunBudget(clock=clock))
+    clock.now = 0.0
+    with pytest.raises(BundleError, match="^run_time_cap$"):
+        transfer.verify(doc, pairs, clock=clock, run=RunBudget(clock=clock))
+    clock.now = 0.0
+    with pytest.raises(BundleError, match="^run_time_cap$"):  # the default run uses verify's clock
+        transfer.verify(doc, pairs, clock=clock)
+
+
+@pytest.mark.parametrize("key", [
+    f"maker_evidence/{DAY}/../{DAY + timedelta(days=1)}/x.jsonl",
+    f"./maker_evidence/{DAY + timedelta(days=1)}/x.jsonl",
+    "maker_evidence\\" + str(DAY + timedelta(days=1)) + "\\x.jsonl",
+    f"MAKER_EVIDENCE/{DAY + timedelta(days=1)}/x.jsonl",
+    f"/maker_evidence/{DAY + timedelta(days=1)}/x.jsonl",
+    f"maker_evidence//{DAY}/x.jsonl",
+], ids=["dotdot", "dot-slash", "backslash", "case", "absolute", "empty-segment"])
+def test_pb2a_non_normalised_input_keys_are_refused(exports, key):
+    """U1 Defender r2 NOTE-2: PB2(a) is no longer a literal prefix test."""
+    root = exports["calibration_hazard"]
+    _reseal(root, export_edit=lambda e: e["input_hashes"].update({key: "0" * 64}))
+    with pytest.raises(BundleError, match=f"^transfer_inputs_outside_day:{DAY}$"):
+        build([("calibration_hazard", root)])

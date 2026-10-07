@@ -5,7 +5,9 @@ from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
+from maker_core.replay.bundle import BundleError
 from maker_core.replay.bundle_v02 import open_stream_bundle
+from maker_core.replay.v2.limits import DEFAULT_BUNDLE_LIFETIME_SECONDS, RunBudget, V2Limits
 from maker_core.replay.v2 import intervals, panel, universe_v02
 from tests.maker_core.fixtures.panel_v02 import AUSTIN_TARGET, CALIBRATION_DATES, PANEL_DAYS, SLUGS, ZONES, Panel
 from weather.market import maker_replay_universe_v02 as producer
@@ -44,8 +46,8 @@ def test_producer_rows_equal_the_fixture_inventory_and_drive_the_rule(tmp_path, 
     fixture = Panel(full=True, step=60)
     paths = [fixture.write(tmp_path / d.isoformat(), d) for d in DAYS]
     names = []
-    real = universe_v02._stream
-    monkeypatch.setattr(universe_v02, "_stream", lambda b, ref, *a: names.append(ref.name) or real(b, ref, *a))
+    real = universe_v02.stream_records
+    monkeypatch.setattr(universe_v02, "stream_records", lambda b, stem: names.append(b.stream(stem).name) or real(b, stem))
     rows = producer.universe(paths)
     assert set(names) == {"descriptor.jsonl"}
     assert rows == fixture.inventory(DAYS)
@@ -74,3 +76,81 @@ def test_bundle_caps_are_sixteen_panel_and_three_calibration(tmp_path):
     hazard = Panel(markets=("toronto",), bands=1, step=240).write(tmp_path / "h" / "2026-09-27", CALIBRATION_DATES[0])
     with pytest.raises(ValueError, match="calibration_kind_bundle_not_a_universe_input"):
         producer.universe((), [hazard])
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture(scope="module")
+def nineteen(tmp_path_factory):
+    """The full M10 cap: 16 panel and 3 calibration night-format bundles (fictional, tiny)."""
+    root = tmp_path_factory.mktemp("nineteen")
+    fixture = Panel(markets=("toronto",), bands=1, step=240, full=True)
+    panel_paths = [fixture.write(root / "p" / d.isoformat(), d) for d in PANEL_DAYS]
+    calibration_paths = [fixture.write(root / "c" / d.isoformat(), d) for d in CALIBRATION_DATES]
+    return panel_paths, calibration_paths
+
+
+def _recording_opens(monkeypatch, *, advance=0.0, clock=None):
+    calls, real = [], producer.open_stream_bundle
+
+    def opener(path, **kwargs):
+        calls.append(kwargs)
+        if clock is not None:
+            clock.now += advance
+        return real(path, **kwargs)
+    monkeypatch.setattr(producer, "open_stream_bundle", opener)
+    return calls
+
+
+def test_universe_opens_every_bundle_on_one_shared_run_budget_and_v2_limits(nineteen, monkeypatch):
+    """U1 Defender r2 C2: ONE ``RunBudget`` per run, shared by all 19 opens, and X1's ``V2Limits``."""
+    calls = _recording_opens(monkeypatch)
+    assert producer.universe(*nineteen)
+    assert len(calls) == producer.MAX_BUNDLES == 19
+    runs = {id(c["run"]) for c in calls}
+    assert len(runs) == 1 and isinstance(calls[0]["run"], RunBudget)
+    assert all(type(c["limits"]) is V2Limits for c in calls)
+    run = calls[0]["run"]
+    assert run.stored_bytes == sum(open_stream_bundle(p).input_bytes for p in (*nineteen[0], *nineteen[1]))
+    # a caller's own run is used as given, never replaced by a fresh one
+    mine = RunBudget()
+    calls.clear()
+    producer.universe(*nineteen, run=mine)
+    assert {id(c["run"]) for c in calls} == {id(mine)} and mine.stored_bytes == run.stored_bytes
+
+
+def test_a_run_over_many_bundles_is_bounded_by_the_shared_deadline_not_each_bundle_lifetime(nineteen, monkeypatch):
+    """Each open takes 10,000 s on a fake clock. Every bundle alone is far inside its own 32,768 s lifetime
+    (each lifetime starts at that bundle's open), but the run's shared deadline refuses at the 4th open."""
+    clock = FakeClock()
+    calls = _recording_opens(monkeypatch, advance=10_000.0, clock=clock)
+    with pytest.raises(BundleError, match="^run_time_cap$"):
+        producer.universe(*nineteen, clock=clock)
+    assert len(calls) == 4  # opens at 10,000..30,000 s pass; the 4th, at 40,000 s, is past the 32,768 s run deadline
+    assert 10_000.0 < DEFAULT_BUNDLE_LIFETIME_SECONDS  # one open never exhausts a per-bundle lifetime
+    # the same timeline with per-bundle budgets only would have admitted every open
+    clock.now = 0.0
+    for path in nineteen[0][:4]:
+        clock.now += 10_000.0
+        open_stream_bundle(path, clock=clock)
+    # a tighter caller deadline binds sooner
+    clock.now, calls[:] = 0.0, []
+    with pytest.raises(BundleError, match="^run_time_cap$"):
+        producer.universe(*nineteen, run=RunBudget(max_run_seconds=25_000.0, clock=clock), clock=clock)
+    assert len(calls) == 3
+
+
+def test_a_run_over_many_bundles_is_bounded_by_the_shared_stored_total(nineteen, monkeypatch):
+    """Stored bytes are charged to the one run across bundles, so the run total binds even though every
+    bundle is far below its own stored cap."""
+    sizes = [open_stream_bundle(p).input_bytes for p in nineteen[0]]
+    calls = _recording_opens(monkeypatch)
+    with pytest.raises(BundleError, match="^run_input_byte_cap$"):
+        producer.universe(*nineteen, run=RunBudget(max_run_stored_bytes=sizes[0] + sizes[1] + 1))
+    assert len(calls) == 3 and max(sizes) < V2Limits().max_bundle_stored_bytes
