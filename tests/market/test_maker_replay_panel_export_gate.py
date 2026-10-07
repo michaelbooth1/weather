@@ -367,3 +367,18 @@ def test_v02_receipt_records_threads(tmp_path):
     # In-process callers without an environ are recorded, not refused.
     other = SimpleNamespace(**{**vars(args), "out": tmp_path / "other"})
     assert set(night_v02.export_day(other, "panel", now=LATER)["threads"]) == set(recorded)
+
+
+def test_exporter_closure_has_no_blas_reductions():
+    """B-defender D13: thread pins are for memory and CPU; nothing on the export hash path may route through BLAS."""
+    files = [ROOT / "src/weather/market" / name for name in ("maker_replay_bundle.py", "maker_replay_bundle_v02.py",
+                                                             "maker_replay_night.py", "maker_replay_night_v02.py")]
+    files += sorted((ROOT / "src/weather/market/maker_plugin").glob("*.py"))
+    for path in files:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names = ([a.name for a in node.names] if isinstance(node, ast.Import) else
+                     [f"{node.module}.{a.name}" for a in node.names] if isinstance(node, ast.ImportFrom) else [])
+            assert not any(n.split(".")[0] in ("numpy", "scipy") and "linalg" in n for n in names), path
+            assert not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.MatMult)), path
+            assert not (isinstance(node, ast.Attribute) and node.attr in ("dot", "matmul", "einsum")
+                        and isinstance(node.value, ast.Name) and node.value.id in ("np", "numpy")), path
