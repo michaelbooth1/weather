@@ -403,8 +403,8 @@ def test_the_bounds_scan_is_bounded_by_the_run_deadline(exports, monkeypatch):
     doc = build(pairs)
     clock = FakeClock()
 
-    def late(count):
-        if count == len(pairs):
+    def late(count):  # ``count`` accumulates over the verify calls below: the last open of each call
+        if count % len(pairs) == 0:
             clock.now += 40_000.0
     _recording_opens(monkeypatch, after=late)
     assert transfer.verify(doc, pairs, bounds_check=False, clock=clock, run=RunBudget(clock=clock))
