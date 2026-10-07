@@ -26,6 +26,11 @@ Modes:
             byte-identical there (R2). Identical: print a re-bind record. Different:
             exit non-zero with a diff summary (a re-hand).
 
+Plan layout (Defender D3): plan paths are relative to the plan file, so the plan must sit at
+the same depth relative to the frozen spec copies as when its hashes were recorded; the
+2026-10-07 dry-run plan lives in ``C:/b/h1plan/`` with ``spec_source_dir`` =
+``../../wt/workstation-chat/l-data/swarm-m/h1-frozen-20261007``.
+
 Exit codes: 0 success, 2 refused (fail closed), 1 usage error.
 """
 
@@ -33,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import hashlib
 import io
 import json
@@ -650,7 +656,50 @@ def refusal_reasons(path: str, data: bytes) -> list[str]:
         reasons.append("text names the replay package")
     if path.endswith((".py", ".pyi", ".pyw")):
         reasons.extend(_python_reasons(path, text))
+    if path.lower().endswith(TABULAR_SUFFIXES) and engine_output_shaped(path, text):
+        reasons.append(ENGINE_OUTPUT_REASON)
     return sorted(set(reasons))
+
+
+# Defender D1 (2026-10-07): a JSON/JSONL/CSV file shaped like replay engine output is refused
+# whatever its path or name. The key must be exactly ``decision_sha256`` (the release field is
+# ``promotion_decision_sha256`` and does not count) and must co-occur with a companion key.
+TABULAR_SUFFIXES = (".json", ".jsonl", ".ndjson", ".csv")
+ENGINE_OUTPUT_KEY = "decision_sha256"
+ENGINE_OUTPUT_COMPANIONS = frozenset({"final_cash", "fills", "exclusions_sha256"})
+ENGINE_OUTPUT_REASON = "engine-output shaped data (decision_sha256 with final_cash/fills/exclusions_sha256)"
+_JSON_KEY = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:')
+
+
+def _json_keys(value: object, keys: set[str]) -> None:
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            keys.add(str(key).strip().casefold())
+            _json_keys(inner, keys)
+    elif isinstance(value, list):
+        for inner in value:
+            _json_keys(inner, keys)
+
+
+def engine_output_shaped(path: str, text: str) -> bool:
+    """Keys at any depth (JSON, every JSONL line) or header columns (CSV); fail closed on parse errors
+    by falling back to every quoted ``"key":`` in the raw text."""
+    keys: set[str] = set()
+    lower = path.lower()
+    if lower.endswith(".csv"):
+        rows = csv.reader(io.StringIO(text.lstrip("\ufeff")))
+        header = next(rows, [])
+        keys.update(column.strip().casefold() for column in header)
+    else:
+        documents = text.splitlines() if lower.endswith((".jsonl", ".ndjson")) else [text]
+        for document in documents:
+            if not document.strip():
+                continue
+            try:
+                _json_keys(json.loads(document.lstrip("\ufeff")), keys)
+            except ValueError:
+                keys.update(match.group(1).strip().casefold() for match in _JSON_KEY.finditer(document))
+    return ENGINE_OUTPUT_KEY in keys and bool(keys & ENGINE_OUTPUT_COMPANIONS)
 
 
 @dataclass(frozen=True)
@@ -716,6 +765,8 @@ class BlobReader:
 
 def reason_class(path: str, reasons: Sequence[str]) -> str:
     """The R4b reason class of a refusal hit."""
+    if ENGINE_OUTPUT_REASON in reasons:
+        return "engine-output"  # not a withholdable class: always refuses
     if any(r.startswith(("imports", "dynamic import")) for r in reasons):
         return "v1-import"
     if path.endswith((".py", ".pyi", ".pyw")):

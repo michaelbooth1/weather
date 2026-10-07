@@ -696,3 +696,35 @@ def test_rebind_refuses_non_descendant_and_89a_change(cut_env):
     _commit_files(repo, {TEXT_89A: "# 89a contract (changed)\n"}, "89a change")
     with pytest.raises(h1.CutRefused, match="H-10"):
         h1.run_rebind(manifest_file, repo, "HEAD")
+
+
+# --------------------------------------------------------------------------- Defender D1: engine-output shape
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "refused"),
+    [
+        ("data/run_a.json", '{"engine": {"decision_sha256": "ab", "final_cash": 1}}', True),
+        ("data/run_b.json", '[{"meta": {"x": {"decision_sha256": "ab"}}}, {"fills": []}]', True),
+        ("data/run_c.jsonl", '{"a": 1}\n{"decision_sha256": "ab", "exclusions_sha256": "cd"}\n', True),
+        ("data/run_d.csv", "id,Decision_SHA256,fills\n1,ab,0\n", True),
+        ("data/run_e.json", '{"decision_sha256": "ab", "fills": [', True),  # unparseable: raw-key fallback
+        ("data/release.json", '{"promotion_decision_sha256": "ab", "final_cash": 1, "fills": 2}', False),
+        ("data/session.json", '{"decision_sha256": "ab", "release_id": "r1", "decisions": 3}', False),
+        ("data/run_f.csv", "id,value\n1,decision_sha256 final_cash\n", False),
+        ("notes/run.md", '{"decision_sha256": "ab", "final_cash": 1}', False),
+    ],
+)
+def test_engine_output_shape(path, body, refused):
+    hit = h1.ENGINE_OUTPUT_REASON in h1.refusal_reasons(path, body.encode())
+    assert hit is refused
+
+
+@pytest.mark.spawns
+def test_engine_output_with_neutral_name_refuses_and_cannot_be_withheld(cut_env):
+    _commit_files(cut_env["repo"], {"results/batch/outcome_07.json":
+                                    '{"summary": {"decision_sha256": "ab", "fills": 4}}\n'}, "neutral")
+    with pytest.raises(h1.CutRefused, match="outcome_07.json: engine-output shaped"):
+        _cut(cut_env)
+    with pytest.raises(h1.CutRefused, match="now hits as engine-output"):
+        _cut(cut_env, withheld=(("results/batch/outcome_07.json", "path-mention"),))

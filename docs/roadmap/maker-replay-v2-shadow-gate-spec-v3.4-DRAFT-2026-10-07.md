@@ -510,6 +510,10 @@ tests/operations/test_maker_replay_v2_*
   `docs/research/maker-replay-v2-rule4b-results/` engine-output directory. As a second control, any included path
   whose name matches `replay[-_]?v2` or `mrv2` (any case) refuses unless it is a handout item's source. Tree paths
   with a backslash or a colon, and paths that collide when case-folded, refuse.
+- **Engine-output shape (Defender D1, 2026-10-07):** any included JSON, JSONL or CSV file whose keys (at any depth;
+  CSV header columns) include exactly `decision_sha256` together with `final_cash`, `fills` or
+  `exclusions_sha256` refuses, whatever its path or name, and cannot be withheld by the R4b list. The release field
+  `promotion_decision_sha256` does not count, and `decision_sha256` alone does not refuse.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.
