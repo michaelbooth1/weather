@@ -219,6 +219,54 @@ $pairs=@(
     assert json.loads(result.stdout) == [True, True, True, True, False, False]
 
 
+def test_low_disk_dedup_key_keeps_depth_bucket(tmp_path):
+    # PR #255 Defender G4: 23 GB and 5 GB free used to share a key, so a worsening disk
+    # never re-alerted. Each step down a bucket is a new condition; ticks within one dedupe.
+    result = ps(WATCHDOG, ["Get-WeatherDiskDepthBucket", "Get-WeatherFlagDedupKey"], r"""
+@(
+ (Get-WeatherFlagDedupKey 'LOW DISK: 23 GB free'),
+ (Get-WeatherFlagDedupKey 'LOW DISK: 5 GB free'),
+ (Get-WeatherFlagDedupKey 'LOW DISK: 22 GB free'),
+ (Get-WeatherFlagDedupKey 'LOW DISK: 4.2 GB free')
+) | ConvertTo-Json -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    k23, k5, k22, k4 = json.loads(result.stdout)
+    assert k23 == k22 == "LOW DISK: <25GiB free"
+    assert k5 == "LOW DISK: <10GiB free"
+    assert k4 == "LOW DISK: <5GiB free"
+    assert len({k23, k5, k4}) == 3
+
+
+def test_settlement_hole_dedup_key_tracks_the_missing_date_set(tmp_path):
+    # PR #255 Defender G4: a HIGH one-date hole moving to a new date used to keep its key.
+    # A new missing date re-alerts; the same set in a different order still dedupes.
+    hole = (
+        "SETTLEMENT HOLE: {n} date(s) unsettled in the last 14 days [{dates}] - worst {worst}, "
+        "up to 3 of 40 market(s) - each needs an EXPLICIT per-date backfill; the next chain run will not retry it"
+    )
+    flags = [
+        hole.format(n=1, dates="2026-09-01", worst="2026-09-01"),
+        hole.format(n=1, dates="2026-09-02", worst="2026-09-02"),
+        hole.format(n=2, dates="2026-09-01, 2026-09-02", worst="2026-09-01"),
+        hole.format(n=2, dates="2026-09-02, 2026-09-01", worst="2026-09-02"),
+    ]
+    literals = ",\n".join("'" + flag + "'" for flag in flags)
+    result = ps(WATCHDOG, ["Get-WeatherFlagDedupKey"], f"""
+$flags=@(
+{literals}
+)
+@($flags | ForEach-Object {{ Get-WeatherFlagDedupKey $_ }}) | ConvertTo-Json -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    one, moved, pair, pair_reordered = json.loads(result.stdout)
+    assert one.endswith("|dates=2026-09-01")
+    assert moved.endswith("|dates=2026-09-02")
+    assert one != moved
+    assert pair.endswith("|dates=2026-09-01,2026-09-02")
+    assert pair == pair_reordered
+
+
 # ---------------------------------------------------------------- G5
 def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(

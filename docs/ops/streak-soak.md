@@ -251,7 +251,10 @@ Classification and severity (`Get-FlagClass` plus a state-aware second pass):
 - The dedup fingerprint is severity plus class plus the flag with volatile numbers removed
   (ages, counts, byte sizes, percentages, timestamps; result codes like `0x1` and
   identifiers stay), so ticking numbers do not create `state_change` rows. A different
-  unclean boot is still a new condition. Per-condition tracking lives in
+  unclean boot is still a new condition. Two worsening conditions keep identity so they
+  re-alert: a `LOW DISK` row's free-space figure becomes a depth bucket (`<50`, `<25`,
+  `<10`, `<5` GiB, or `>=50`), and a `SETTLEMENT HOLE` row carries its sorted missing-date
+  set (a new or moved date re-alerts; the same set in any order dedupes). Per-condition tracking lives in
   `host_health_watchdog_state.json` (`tracking`).
 - `-AsOf <local time>` exists only for fixture evaluation; the registered task never passes it.
 

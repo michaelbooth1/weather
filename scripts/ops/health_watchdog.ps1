@@ -216,13 +216,41 @@ $rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
 # state_change row every pass. "Consecutive failures" counts how often the timestamps inside
 # an otherwise unchanged condition moved (a new failed run of the same job); the condition
 # age is how long the watchdog has seen it continuously.
+#
+# Two over-merges would be false silences (PR #255 Defender G4), so these keep identity:
+# - LOW DISK depth: the first "<n> GB" figure becomes a depth bucket (<50, <25, <10, <5 GiB,
+#   or >=50), so each step down is a new condition while ticks within a bucket still dedupe.
+# - SETTLEMENT HOLE dates: the sorted, de-duplicated missing-date set is appended, so a hole
+#   moving to (or adding) a date re-alerts while the same set in any order still dedupes.
+function Get-WeatherDiskDepthBucket([double]$FreeGiB) {
+    if ($FreeGiB -lt 5) { return "<5GiB" }
+    if ($FreeGiB -lt 10) { return "<10GiB" }
+    if ($FreeGiB -lt 25) { return "<25GiB" }
+    if ($FreeGiB -lt 50) { return "<50GiB" }
+    return ">=50GiB"
+}
 function Get-WeatherFlagDedupKey([string]$Text) {
     $k = [string]$Text
+    $depthBucket = $null
+    if ($k -match '^LOW DISK') {
+        $depth = [regex]::Match($k, '(\d+(?:\.\d+)?) GB')
+        if ($depth.Success) {
+            $depthBucket = Get-WeatherDiskDepthBucket ([double]::Parse($depth.Groups[1].Value, [cultureinfo]::InvariantCulture))
+        }
+    }
+    $holeDates = $null
+    if ($k -match '^SETTLEMENT HOLE: .*?\[([^\]]*)\]') {
+        $holeDates = (@($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) |
+            Sort-Object -Unique) -join ","
+    }
     $k = [regex]::Replace($k, '\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?', '<ts>')
     $k = [regex]::Replace($k, '\d{1,2}/\d{1,2}/\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)?', '<ts>')
     $k = [regex]::Replace($k, '(?<![0-9A-Za-z_])\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?', '<ts>')
     # Plain numbers become '#', but identifiers (Weather110nTask) and result codes (0x1) stay.
     $k = [regex]::Replace($k, '(?<![0-9A-Za-z_])(?!0x[0-9A-Fa-f])\d+(?:[.,]\d+)*', '#')
+    # Bucket labels are applied after the '#' pass so their own digits survive.
+    if ($depthBucket) { $k = ([regex]'# GB').Replace($k, $depthBucket, 1) }
+    if ($null -ne $holeDates) { $k = "$k|dates=$holeDates" }
     return $k
 }
 function Get-WeatherFlagTimestampTokens([string]$Text) {
