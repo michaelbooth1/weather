@@ -450,7 +450,8 @@ store and refs, so the excluded files stay reachable through history. **Ruled (R
 **standalone repository holding one parentless commit** of the filtered snapshot, with **no remotes, no alternates, no
 shared objects** and no other tree reachable. The cut script asserts that `git rev-list --all` counts exactly 1, that
 `packed-refs` is absent or holds no other ref, and that `objects/info/alternates` is absent. This replaces v3.1 §6.3
-item 1's "fresh worktree" wording.
+item 1's "fresh worktree" wording. The cut script is `tools/research/maker_replay_v2_h1_cut.py` (`cut`, and `rebind`
+for R2); its module docstring owns its inputs and outputs.
 
 The oracle's tree is a **filtered tree**, never a plain checkout. At the build-line commit it is cut from, it excludes
 these path globs (relative to the repository root):
@@ -497,6 +498,11 @@ tests/operations/test_maker_replay_v2_*
   `maker_core.replay`. The refusal also catches string imports (`importlib`, `__import__`,
   `import_module("maker_core.replay...")`) and any string literal containing `maker_core.replay` or
   `maker_core/replay`. Globs alone missed a U3 fixture on its first day.
+- **Finding (cut-script dry-run, 2026-10-07; not ruled):** at `501f47579` the refusal fires on 28 files outside every
+  glob: eight Python files (seven import the v1 replay package, for example
+  `src/weather/market/maker_fair_value_score.py` and `tools/exam_pull_cap_precheck.py`; one names it in a string
+  literal), nineteen Markdown files and one `.ps1` that name its path. As ruled, the cut therefore refuses at that commit. The script has no allowlist; how to
+  treat these files needs an owner ruling before a bindable cut.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.
