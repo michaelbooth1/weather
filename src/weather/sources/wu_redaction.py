@@ -26,8 +26,11 @@ Two redaction helpers exist on purpose (finding F7, 2026-10-07):
   capture loops, so its behaviour is frozen outside the quiet window.
 * This module is WU-specific. It covers the forms the WU page token takes
   beyond a query parameter (JSON ``"apiKey":"..."``, dict reprs, the page
-  ``API_KEY`` global, HTML/Angular escapes, ``apikey%3D``) and also sanitizes
-  exceptions and log records.
+  ``API_KEY`` global, HTML/Angular escapes, once- and twice-URL-encoded and
+  JSON ``\u0022`` quotes and separators, ``X-Api-Key`` header spellings) and
+  also sanitizes exceptions (including dict and object arguments) and log
+  records. Every form ``weather.operations.wu_token_scan`` flags is redacted
+  here (a test holds the two in step).
 
 Neither delegates to the other: ``weather.sources`` may not import
 ``weather.collection``, and changing the collection helper would roll the
@@ -41,13 +44,16 @@ import re
 
 REDACTED = "<redacted>"
 
-# A key name (apiKey, API_KEY, api_key, apikey), an optional closing quote in any
-# of the encodings a page, JSON string or URL can carry, a separator, an optional
+# A key name (apiKey, API_KEY, api_key, apikey, X-Api-Key), an optional closing
+# quote in any of the encodings a page, JSON string or URL can carry (raw,
+# backslash-escaped, HTML/Angular entities, ``%22``/``%27`` once or twice
+# URL-encoded, JSON ``"``), a separator in the same encodings, an optional
 # opening quote, then the value. The value stops before quotes, separators and
 # ``<`` so an already redacted value is never matched again (idempotent).
-_QUOTE = r"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;)"
+_QUOTE = r"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;|%(?:25)?2[27]|\\u002[27])"
+_SEPARATOR = r"(?:=|:|%(?:25)?3[ad]|&#61;|&#58;|&#x3[ad];|\\u003[ad])"
 _SECRET_RE = re.compile(
-    r"(api_?key" + _QUOTE + r"?\s*(?:=|:|%3D)\s*" + _QUOTE + r"?)"
+    r"(api[_-]?key" + _QUOTE + r"?\s*" + _SEPARATOR + r"\s*(?:%20)*" + _QUOTE + r"?)"
     r"([^&\s\"'<>\\),;}\]]+)",
     re.IGNORECASE,
 )
@@ -82,6 +88,8 @@ def redact_wu_secrets(value):
 
 
 def _redact_arg(arg, seen, depth):
+    if depth > _MAX_EXCEPTION_DEPTH:
+        return _redact_opaque(arg)
     if isinstance(arg, str):
         return redact_wu_secrets(arg)
     if isinstance(arg, bytes):
@@ -90,9 +98,41 @@ def _redact_arg(arg, seen, depth):
         _sanitize(arg, seen, depth + 1)
         return arg
     if isinstance(arg, tuple):
-        return tuple(_redact_arg(item, seen, depth) for item in arg)
+        return tuple(_redact_arg(item, seen, depth + 1) for item in arg)
     if isinstance(arg, list):
-        return [_redact_arg(item, seen, depth) for item in arg]
+        return [_redact_arg(item, seen, depth + 1) for item in arg]
+    if isinstance(arg, dict):
+        # F2: ``RuntimeError({"params": {"apiKey": token}})`` renders the dict repr.
+        try:
+            return {
+                _redact_arg(key, seen, depth + 1): _redact_arg(value, seen, depth + 1)
+                for key, value in arg.items()
+            }
+        except Exception:  # noqa: BLE001 - an unhashable redacted key falls back to text.
+            return _redact_opaque(arg)
+    if isinstance(arg, (set, frozenset)):
+        try:
+            return type(arg)(_redact_arg(item, seen, depth + 1) for item in arg)
+        except Exception:  # noqa: BLE001
+            return _redact_opaque(arg)
+    if arg is None or isinstance(arg, (bool, int, float)):
+        return arg
+    return _redact_opaque(arg)
+
+
+def _redact_opaque(arg):
+    """Keep ``arg`` unless its ``str``/``repr`` carries a token; then replace it by redacted text.
+
+    An exception renders an argument through ``str`` (one argument) or ``repr``
+    (several), so an arbitrary object holding the token would leak through either.
+    """
+    try:
+        texts = {str(arg), repr(arg)}
+    except Exception:  # noqa: BLE001 - an unrenderable object cannot leak through rendering.
+        return arg
+    for text in texts:
+        if redact_wu_secrets(text) != text:
+            return redact_wu_secrets(repr(arg))
     return arg
 
 
@@ -173,7 +213,13 @@ class WuSecretRedactingFilter(logging.Filter):
             record.args = None
         if record.exc_info and isinstance(record.exc_info[1], BaseException):
             sanitize_exception(record.exc_info[1])
-            record.exc_text = None
+            # Belt and braces for argument types sanitize_exception cannot rewrite:
+            # render the traceback now and store the redacted text, which handlers
+            # reuse instead of formatting the exception again.
+            try:
+                record.exc_text = redact_wu_secrets(logging.Formatter().formatException(record.exc_info))
+            except Exception:  # noqa: BLE001 - fall back to the handler's own rendering.
+                record.exc_text = None
         if record.exc_text:
             record.exc_text = redact_wu_secrets(record.exc_text)
         if record.stack_info:

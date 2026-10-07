@@ -225,7 +225,8 @@ Run commands from the repository root with the venv interpreter.
 # Read-only leak scan for the WU page access token (OD15): paths, counts and
 # offsets only, never the value. A bulk scan: on the capture host it runs only
 # 00:30-09:00 under the shared lease (docs/operations/HISTORY_DATA_DESIGN.md).
-# A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links.
+# A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links. An unread
+# placeholder/reparse file is INCOMPLETE under every --links policy.
 .\venv\Scripts\python.exe -m weather.operations.wu_token_scan data\logs data\wunderground
 
 # METAR/ASOS redundant observation history.

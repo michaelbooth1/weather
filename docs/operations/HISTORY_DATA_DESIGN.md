@@ -50,9 +50,14 @@ tapes, snapshots, `backfill_errors.jsonl`, status JSON, tracebacks, commits or
 anything pushed. The contract in code:
 
 - `weather.sources.wu_redaction` is the single redaction helper.
-  `redact_wu_secrets` rewrites every `apiKey=`, `"apiKey":"..."` and page
-  `API_KEY` form; `sanitize_exception` rewrites an escaping exception, its
-  `__cause__`/`__context__` chain and its request/response URLs in place, so a
+  `redact_wu_secrets` rewrites every `apiKey=`, `"apiKey":"..."`, `X-Api-Key:`
+  and page `API_KEY` form, including once- and twice-URL-encoded (`%22`,
+  `%2522`, `%3A`, `%253D`), HTML-entity and JSON `\u0022` quotes and
+  separators; a test holds it in step with every form the scanner flags.
+  `sanitize_exception` rewrites an escaping exception (string, bytes, list,
+  tuple, dict and set arguments, and any other argument whose text carries the
+  token), its `__cause__`/`__context__` chain and its request/response URLs in
+  place, so a
   downstream `str(exc)` or `traceback.format_exc()` is already clean;
   `pin_http_debug_loggers` holds the `urllib3`/`requests` loggers at WARNING
   (urllib3 DEBUG prints the query string). urllib3 2.x also prints the full
@@ -78,13 +83,21 @@ anything pushed. The contract in code:
 scan. It reports file paths, per-pattern match counts and the first-match byte
 offset, never the matched text; `--token-from-env NAME` adds an exact-value
 search without echoing it. Exit 0 = clean, 1 = found, 2 = error or incomplete
-(a cap was hit, a root or file was unreadable, or a link was skipped). A
-symlink, junction or other reparse point inside a root is not followed by
-default: its path is listed in `skipped_link_paths` and the scan is
+(a cap was hit, a root or file was unreadable, a link was skipped, or a
+placeholder was left unread). A symlink or junction inside a root is not
+followed by default: its path is listed in `skipped_link_paths` and the scan is
 INCOMPLETE, never CLEAN. `--links follow-within-root` follows a link only when
 its target resolves inside the requested root (cycle-safe); `--links ignore`
 lists skipped links without failing the scan. No mode follows a link out of
-the requested root; scan the target as its own root instead. It is capped by
+the requested root; scan the target as its own root instead. Any other reparse
+point (a OneDrive placeholder, a deduplicated file, an app execution alias) holds
+data in place: unless `follow-within-root` reads it, it is listed in
+`skipped_reparse_paths` and the scan is INCOMPLETE under every policy,
+`ignore` included. CLEAN therefore means every regular file under the request
+was read, apart from files behind a link `ignore` waived; the report's
+`unread_reasons` names every reason a scan is not CLEAN. An explicit file list
+(`scan(files=...)`, used by the ratchet) is treated like roots, so a directory in
+it is walked, never dropped. It is capped by
 `--max-files`, `--max-file-bytes` and `--max-total-bytes`. Compressed files are scanned as raw bytes only. On the
 capture host it is a bulk scan: run it 00:30–09:00 under the shared lease from
 `scripts/ops/workload_admission.ps1` ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)).

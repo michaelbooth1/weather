@@ -9,9 +9,13 @@ byte offset of the first match.
 
 Exit codes: 0 clean (every eligible file scanned), 1 at least one finding,
 2 error or incomplete scan (a cap was hit, a root is missing, a file could not be
-read, a symlink, junction or other reparse point was skipped, or
-``--token-from-env`` names an unusable variable). A capped scan is never
-reported clean.
+read, a symlink or junction was skipped, a non-link reparse point such as a
+OneDrive placeholder was left unread, an entry was neither a file nor a
+directory, or ``--token-from-env`` names an unusable variable). A capped scan is
+never reported clean. Invariant (N3): CLEAN means every regular file under the
+request was read, except files reachable only through a link that ``--links
+ignore`` explicitly waived; ``unread_reasons`` in the report names every reason
+a scan is not CLEAN.
 
 Links (``--links``): by default (``incomplete``) a symlink, junction or reparse
 point met inside a root is not followed, its path is listed in
@@ -21,6 +25,17 @@ target lies inside the resolved requested root (cycle-safe; a link out of the
 root stays skipped and incomplete). ``ignore`` still lists skipped links but
 lets the scan be CLEAN without them. No mode ever follows a link out of the
 requested root.
+
+A link here is a name-surrogate reparse point (symlink or junction). Any other
+reparse point -- a OneDrive cloud placeholder, a deduplicated file, an app
+execution alias, or one whose tag cannot be read -- holds content in place, so
+outside ``follow-within-root`` (which reads it in place when it resolves inside
+the root) it is listed in ``skipped_reparse_paths`` and makes the scan
+INCOMPLETE under every policy, ``ignore`` included.
+
+An explicit ``files=`` list (used by the repository ratchet) is handled exactly
+like ``roots``: a directory or junction named in it is walked as named, never
+silently dropped.
 
 The walk is bounded by ``--max-files``,
 ``--max-file-bytes`` and ``--max-total-bytes``. Files are streamed in chunks, so
@@ -62,25 +77,38 @@ CHUNK_BYTES = 1024 * 1024
 OVERLAP_BYTES = 4096
 MIN_ENV_TOKEN_CHARS = 8
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+# Reparse tags with this bit (IO_REPARSE_TAG_SYMLINK, IO_REPARSE_TAG_MOUNT_POINT for
+# junctions) redirect to another path; every other tag (cloud placeholders, dedup,
+# app execution aliases) holds data in place.
+_IO_REPARSE_TAG_NAME_SURROGATE = 0x20000000
+_KIND_LINK = "link"
+_KIND_REPARSE = "reparse"
 
 # A token value: WU page keys are 32 hex characters; anything alphanumeric of 16+
 # characters is treated as token-shaped so ``api_key=None`` or ``<redacted>`` never match.
 _VALUE = rb"[A-Za-z0-9]{16,128}"
-_QUOTE = rb"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;|%22|%27)"
-# Start of a key name: a word boundary, or straight after a percent-escape such as
-# ``%22`` whose last hex digit would otherwise defeat ``\b``.
-_KEY_START = rb"(?:\b|(?<=%[0-9A-Fa-f]{2}))"
-# A token may follow a percent-escape (``%22<token>``, ``%3A<token>``) whose last
-# character is a hex digit, so "not preceded by hex" alone would miss it.
-_HEX_START = rb"(?:(?<![0-9a-f])|(?<=%[0-9a-f]{2}))"
+# A quote, raw or escaped: backslash-escaped, HTML/Angular entities, URL-encoded once
+# (``%22``) or twice (``%2522``), or JSON-escaped (``"``).
+_QUOTE = rb"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;|%(?:25)?2[27]|\\u002[27])"
+# Key/value separators in the same encodings.
+_EQUALS = rb"(?:=|%(?:25)?3[Dd]|&#61;|&#x3[Dd];|\\u003[Dd])"
+_COLON = rb"(?::|%(?:25)?3[Aa]|&#58;|&#x3[Aa];|\\u003[Aa])"
+# The key name: apiKey, api_key, API_KEY and header spellings such as X-Api-Key.
+_KEY = rb"api[_-]?key"
+# Start of a key name: a word boundary, or straight after an escape (``%22``,
+# ``%2522``, ``"``) whose last character would otherwise defeat ``\b``.
+_KEY_START = rb"(?:\b|(?<=%[0-9A-Fa-f]{2})|(?<=%25[0-9A-Fa-f]{2})|(?<=\\u00[0-9A-Fa-f]{2}))"
+# A token may follow an escape (``%22<token>``, ``%253A<token>``, ``"<token>``)
+# whose last character is a hex digit, so "not preceded by hex" alone would miss it.
+_HEX_START = rb"(?:(?<![0-9a-f])|(?<=%[0-9a-f]{2})|(?<=%25[0-9a-f]{2})|(?<=\\u00[0-9a-f]{2}))"
 
 PATTERNS = {
     # apiKey=<value> in a URL, a log line or an error row (also URL-encoded ``=``).
-    "apikey_query_param": re.compile(rb"(?i)" + _KEY_START + rb"api_?key(?:=|%3D)" + _VALUE),
+    "apikey_query_param": re.compile(rb"(?i)" + _KEY_START + _KEY + _EQUALS + _VALUE),
     # apiKey:<value> in key style: JSON "apiKey":"<value>" (also a JSON string nested
     # in JSON), a Python dict repr 'apiKey': '<value>', or a JS/log apiKey: <value>.
     "apikey_colon_field": re.compile(
-        rb"(?i)" + _KEY_START + rb"api_?key" + _QUOTE + rb"?\s*(?::|%3A)\s*" + _QUOTE + rb"?" + _VALUE
+        rb"(?i)" + _KEY_START + _KEY + _QUOTE + rb"?\s*" + _COLON + rb"\s*" + _QUOTE + rb"?" + _VALUE
     ),
     # The WU page runtime global: "API_KEY":"<value>" (raw, HTML-escaped or Angular
     # &q; transfer state) or a JS ``API_KEY = '<value>'`` assignment.
@@ -89,7 +117,7 @@ PATTERNS = {
     ),
     # A bare 32-hex string within 64 bytes after an apiKey/API_KEY name.
     "hex32_near_apikey": re.compile(
-        rb"(?is)api_?key.{0,64}?" + _HEX_START + rb"[0-9a-f]{32}(?![0-9a-f])"
+        rb"(?is)" + _KEY + rb".{0,64}?" + _HEX_START + rb"[0-9a-f]{32}(?![0-9a-f])"
     ),
 }
 EXACT_TOKEN_PATTERN = "exact_env_token"
@@ -103,24 +131,41 @@ class ScanResult:
     skipped_links: int = 0
     skipped_link_paths: list = field(default_factory=list)
     followed_links: int = 0
+    skipped_reparse_points: int = 0
+    skipped_reparse_paths: list = field(default_factory=list)
     link_policy: str = LINKS_INCOMPLETE
     files_scanned: int = 0
     bytes_scanned: int = 0
     truncated_reason: str | None = None
 
 
-def _is_link_or_junction(entry: os.DirEntry) -> bool:
+def _reparse_info(info, path):
+    """Return ``(file_attributes, reparse_tag)`` for a non-followed stat of ``path``."""
+    attributes = getattr(info, "st_file_attributes", 0) or 0
+    tag = getattr(info, "st_reparse_tag", 0) or 0
+    if attributes & _FILE_ATTRIBUTE_REPARSE_POINT and not tag:
+        tag = getattr(os.lstat(path), "st_reparse_tag", 0) or 0
+    return attributes, tag
+
+
+def _entry_kind(entry: os.DirEntry):
+    """``"link"`` for a symlink or junction, ``"reparse"`` for any other reparse point, else None.
+
+    An entry whose attributes cannot be read is ``"reparse"``: it was not read, and
+    unlike a link no policy may waive it.
+    """
     try:
         if entry.is_symlink():
-            return True
+            return _KIND_LINK
         is_junction = getattr(entry, "is_junction", None)
         if is_junction is not None and is_junction():
-            return True
-        info = entry.stat(follow_symlinks=False)
+            return _KIND_LINK
+        attributes, tag = _reparse_info(entry.stat(follow_symlinks=False), entry.path)
     except OSError:
-        return True
-    attributes = getattr(info, "st_file_attributes", 0) or 0
-    return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+        return _KIND_REPARSE
+    if not attributes & _FILE_ATTRIBUTE_REPARSE_POINT:
+        return None
+    return _KIND_LINK if tag & _IO_REPARSE_TAG_NAME_SURROGATE else _KIND_REPARSE
 
 
 def _record_skipped_link(result, path):
@@ -129,6 +174,19 @@ def _record_skipped_link(result, path):
     result.skipped_links += 1
     if len(result.skipped_link_paths) < MAX_REPORTED_LINK_PATHS:
         result.skipped_link_paths.append(str(path))
+
+
+def _record_skipped_reparse(result, path):
+    if result is None:
+        return
+    result.skipped_reparse_points += 1
+    if len(result.skipped_reparse_paths) < MAX_REPORTED_LINK_PATHS:
+        result.skipped_reparse_paths.append(str(path))
+
+
+def _record_unread(result, path, reason):
+    if result is not None:
+        result.errors.append({"path": str(path), "error": reason})
 
 
 def _real_key(path) -> str:
@@ -154,7 +212,10 @@ def iter_files(
     Links met inside a root are skipped and recorded on ``result``; with
     ``link_policy="follow-within-root"`` a link whose resolved target lies inside
     the resolved root is followed instead (each real directory is walked once).
-    A link is never followed out of its requested root.
+    A link is never followed out of its requested root. Non-link reparse points
+    are recorded as unread (``skipped_reparse_paths``) unless followed in place,
+    and an entry that is neither a file nor a directory is recorded as an error:
+    nothing below a root is ever dropped without a trace on ``result``.
     """
     if link_policy not in LINK_POLICIES:
         raise ValueError(f"unknown link policy: {link_policy!r}")
@@ -190,9 +251,13 @@ def iter_files(
                 continue
             subdirectories = []
             for entry in children:
-                if _is_link_or_junction(entry):
+                kind = _entry_kind(entry)
+                if kind is not None:
                     if not follow:
-                        _record_skipped_link(result, entry.path)
+                        if kind == _KIND_LINK:
+                            _record_skipped_link(result, entry.path)
+                        else:
+                            _record_skipped_reparse(result, entry.path)
                         continue
                     try:
                         target_key = _real_key(entry.path)
@@ -209,6 +274,7 @@ def iter_files(
                             continue
                         visited.add(target_key)
                     elif not stat.S_ISREG(target_info.st_mode):
+                        _record_skipped_link(result, entry.path)
                         continue
                     if result is not None:
                         result.followed_links += 1
@@ -228,6 +294,7 @@ def iter_files(
                             subdirectories.append(Path(entry.path))
                         continue
                     if not entry.is_file(follow_symlinks=False):
+                        _record_unread(result, entry.path, "NotARegularFile")
                         continue
                     size = entry.stat(follow_symlinks=False).st_size
                 except OSError as exc:
@@ -258,7 +325,7 @@ def scan_file(path, patterns):
                 break
             limit = len(buffer) if eof else max(0, len(buffer) - OVERLAP_BYTES)
             lowered = buffer.lower()
-            key_named = b"apikey" in lowered or b"api_key" in lowered
+            key_named = b"apikey" in lowered or b"api_key" in lowered or b"api-key" in lowered
             for name, pattern in patterns.items():
                 # Every built-in pattern is anchored on an apiKey/API_KEY name; a chunk
                 # without one cannot match, so skip the (slow, case-insensitive) regex.
@@ -289,27 +356,20 @@ def scan(
     files=None,
     link_policy=LINKS_INCOMPLETE,
 ):
-    """Scan ``roots`` (or an explicit ``files`` list of paths) and return a :class:`ScanResult`."""
+    """Scan ``roots`` (or an explicit ``files`` list of paths) and return a :class:`ScanResult`.
+
+    ``files`` entries are treated exactly like ``roots``: a regular file is read,
+    a directory (or a junction named directly) is walked, a symlink is a skipped
+    link, and a missing path is an error. Nothing in the list is dropped silently.
+    """
     patterns = dict(PATTERNS)
     if exact_token:
         patterns[EXACT_TOKEN_PATTERN] = re.compile(re.escape(exact_token))
     if link_policy not in LINK_POLICIES:
         raise ValueError(f"unknown link policy: {link_policy!r}")
     result = ScanResult(link_policy=link_policy)
-    if files is not None:
-        candidates = []
-        for path in files:
-            try:
-                info = os.lstat(path)
-            except OSError as exc:
-                result.errors.append({"path": str(path), "error": type(exc).__name__})
-                continue
-            if stat.S_ISLNK(info.st_mode):
-                _record_skipped_link(result, path)
-            elif stat.S_ISREG(info.st_mode):
-                candidates.append((Path(path), info.st_size))
-    else:
-        candidates = iter_files(roots, excluded_dir_names, result, link_policy=link_policy)
+    requested = roots if files is None else files
+    candidates = iter_files(requested, excluded_dir_names, result, link_policy=link_policy)
     for path, size in candidates:
         if result.files_scanned >= max_files:
             result.truncated_reason = "max_files"
@@ -342,10 +402,34 @@ def links_incomplete(result: ScanResult) -> bool:
     return result.skipped_links > 0 and result.link_policy != LINKS_IGNORE
 
 
+def reparse_incomplete(result: ScanResult) -> bool:
+    """True when a non-link reparse point (placeholder, dedup file) was left unread.
+
+    No link policy waives this: ``ignore`` may skip links, never data held in place.
+    """
+    return result.skipped_reparse_points > 0
+
+
+def unread_reasons(result: ScanResult) -> list:
+    """Every reason the scan did not read all it was asked to; empty only for a complete scan."""
+    reasons = []
+    if result.errors:
+        reasons.append("errors")
+    if result.skipped_oversize:
+        reasons.append("oversize_files_skipped")
+    if result.truncated_reason:
+        reasons.append("truncated:" + result.truncated_reason)
+    if links_incomplete(result):
+        reasons.append("links_skipped")
+    if reparse_incomplete(result):
+        reasons.append("reparse_points_unread")
+    return reasons
+
+
 def exit_code_for(result: ScanResult) -> int:
     if result.findings:
         return EXIT_FOUND
-    if result.errors or result.skipped_oversize or result.truncated_reason or links_incomplete(result):
+    if unread_reasons(result):
         return EXIT_ERROR
     return EXIT_CLEAN
 
@@ -372,6 +456,10 @@ def report(result: ScanResult, roots, *, exact_token_env=None, caps=None) -> dic
         "links_incomplete": links_incomplete(result),
         "link_policy": result.link_policy,
         "followed_links": result.followed_links,
+        "skipped_reparse_points": result.skipped_reparse_points,
+        "skipped_reparse_paths": result.skipped_reparse_paths,
+        "reparse_incomplete": reparse_incomplete(result),
+        "unread_reasons": unread_reasons(result),
         "skipped_oversize": result.skipped_oversize,
         "truncated_reason": result.truncated_reason,
         "errors": result.errors,
@@ -411,7 +499,8 @@ def build_parser():
             "What to do with a symlink, junction or reparse point inside a root. "
             "incomplete (default): skip it, list it and exit 2 unless something is found; "
             "follow-within-root: follow it only if its target resolves inside the requested root; "
-            "ignore: skip and list it without making the scan incomplete."
+            "ignore: skip and list it without making the scan incomplete. A non-link reparse "
+            "point (OneDrive placeholder, dedup file) left unread is incomplete under every policy."
         ),
     )
     parser.add_argument("--json-out", help="Also write the JSON report to this path.")
