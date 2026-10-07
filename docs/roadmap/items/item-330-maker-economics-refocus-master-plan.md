@@ -9,7 +9,7 @@ signed registration; maker replay v2 status lives in [the state of play](../../o
 Its superseded bases, in redacted repository copies:
 [v3.2](../maker-replay-v2-shadow-gate-spec-v3.2-2026-10-06.md) and
 [v3.1](../maker-replay-v2-shadow-gate-spec-v3.1-2026-10-06.md).
-A proposed amendment of v3.3's oracle-handout section, **DRAFT and not in force** until the owner accepts it:
+The amendment of v3.3's oracle-handout section, **accepted by the owner 2026-10-07** (it replaces v3.3 §6.2):
 [v3.4 DRAFT](../maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md), with its
 [oracle rulings sheet](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
 

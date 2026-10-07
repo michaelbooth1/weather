@@ -1,14 +1,16 @@
-# D — "Shadow agrees with replay" live gate: specification v3.4 DRAFT (text amendment of v3.3 §6.2 only)
+# D — "Shadow agrees with replay" live gate: specification v3.4, accepted 2026-10-07 (text amendment of v3.3 §6.2 only)
 
-> **Repository copy (2026-10-07). DRAFT — NOT IN FORCE until the owner accepts it. No authority.** Status: a proposed
-> text amendment of the maker replay v2 shadow-gate specification's oracle-handout section only (v3.3 §6.2). Until the
-> owner accepts it, [v3.3](maker-replay-v2-shadow-gate-spec-v3.3-2026-10-07.md) §6.2 stays the text in force. This draft
-> grants no run, live, merge, transfer or handout authority, and it does not cut the handout. Owner item:
+> **Repository copy (2026-10-07). ACCEPTED by the owner (2026-10-07, about 18:20, relayed by the master agent).**
+> Status: the text amendment of the maker replay v2 shadow-gate specification's oracle-handout section only (v3.3
+> §6.2); it replaces [v3.3](maker-replay-v2-shadow-gate-spec-v3.3-2026-10-07.md) §6.2. The filename keeps its `DRAFT`
+> label so links stay valid. **Frozen handout basis:** the #257 → #256 → #253 chain at `edd06750c`; this file's §1-§4
+> are unchanged since that commit, and the later edits record the 2026-10-07 rulings in §2 item 6, §5 and §8 only.
+> This file grants no run, live, merge, transfer or handout authority, and it does not cut the handout. Owner item:
 > [item 330](items/item-330-maker-economics-refocus-master-plan.md). The current status of maker replay v2 lives in
 > [the state of play](../operations/STATE_OF_PLAY.md), never here.
 >
-> **Read when** writing, reviewing or Defending the oracle handout cut script (unit H1), or when ruling on the
-> owner-pending points in §8. Read v3.3 first.
+> **Read when** writing, reviewing or Defending the oracle handout cut script (unit H1), or when checking the
+> 2026-10-07 owner decisions and rulings in §8. Read v3.3 first.
 >
 > **Provenance.** The H1 and the text after this note began as a verbatim copy of the workstation file
 > `l-data/swarm-m/D-shadow-gate-spec-v3.4.md` (SHA-256 of the LF local file:
@@ -20,14 +22,15 @@
 > **Not handout-clean.** This file names every denied Kernel string. Its filename matches the excluded pattern
 > `docs/roadmap/maker-replay-v2-shadow-gate-spec-*` (§5), so it is never in the oracle's tree or handout.
 >
-> **Update when** the owner accepts, amends or rejects this draft, or the H1 cut script finds residue the table
-> misses. Add a new dated file rather than editing this copy, except for applying owner decisions to this draft
-> before it is accepted (as done for §8, and for §5's author, commit and clean-room text, on 2026-10-07).
+> **Update when** the owner amends this text, or the H1 cut script finds residue the table misses. Add a new dated
+> file rather than editing this copy. The 2026-10-07 owner decisions and the acceptance-day rulings (§2 item 6, §5, §8)
+> were applied in place on 2026-10-07 because they arrived with the acceptance; §1-§4 were not touched.
 
-> **DRAFT — NOT IN FORCE until the owner accepts it. No authority.** This file proposes a replacement for v3.3 §6.2 (the
-> oracle handout's file list, substitutions and check). Until the owner accepts it, v3.3 §6.2 stays the text in force,
-> even though, as written, it fails its own check (§0). Nothing here grants run, live, merge, transfer or handout
-> authority. It does not cut the handout. Nothing in v3.3 outside §6.2 changes.
+> **Accepted 2026-10-07 (owner, relayed). No run authority.** This file replaces v3.3 §6.2 (the oracle handout's file
+> list, substitutions and check), which, as written, failed its own check (§0). Nothing here grants run, live, merge,
+> transfer or handout authority. It does not cut the handout. Nothing in v3.3 outside §6.2 changes. The DECISION_LOG
+> entries for the acceptance and for R1, R2 and R4 (§8 point 7) are due at the master agent's 2026-10-08 morning
+> closeout.
 
 Swarm M, coordinator unit H0, 2026-10-07. **Spec text only.** No gate, kernel or oracle code. The spot-check in §7 was
 done with a throwaway script that was not committed.
@@ -137,6 +140,12 @@ they are themselves excluded from the oracle's tree (§5).
    (`decide()`, declared common-mode), at the build-line commit pinned by §1 (§8 Q3). Also **the 89a contract text**,
    as v3.1 says: `docs/roadmap/workstation-handoff-2026-09-89a-fill-toxicity-desk-study-tool.md`, unchanged, at the
    §1 hash pin (§8 Q2).
+6. **The owner-rulings sheet**,
+   [`maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md`](maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md)
+   (handout item H-11 of the H1 manifest), handed out byte-identical and pinned by the SHA-256 of its raw bytes at the
+   cut. It is listed here explicitly because its filename matches the §5 exclusion
+   `docs/roadmap/maker-replay-v2-shadow-gate-spec-*`: that glob keeps it out of the **filtered tree**, and it reaches
+   the author only as this hashed handout item. It is §4-checked like every other handout file.
 
 Not handed out: v3.4 itself, v3.3 §6.2, Annex K, the Defender files, and any `kernel.py` excerpt (as v3.2 §6).
 
@@ -426,20 +435,22 @@ oracle, working only from the bound H1 handout (§2) in the filtered tree below.
 `src/maker_core/replay/v2/**` (nor anything else this section excludes). The workstation never authors, edits or
 touches the oracle; it may build the H1 cut script only. OD21 is deferred, so the author must also never be the author
 of TL; v3.1 §6.3 item 3 (a different agent from S1's adapter author, and a different model or harness where
-available) still applies. This ruling was relayed by the master agent on 2026-10-07 and is pending a DECISION_LOG
-entry (§8 point 6).
+available) still applies. This ruling was relayed by the master agent on 2026-10-07; its DECISION_LOG entry is due at
+the master agent's 2026-10-08 morning closeout (§8 point 6).
 
-**Commit `[v3.4: §8 Q3; PENDING ruling R2]`.** The filtered tree is cut from the same build-line commit as the handout's
-code items (§1): U3's merged build-line head, re-checked at the cut. The manifest records that commit and the filtered
-tree's root tree id. **PENDING owner ruling R2:** either U3 merges into the build line by 10-10, or the cut is made at
-`501f47579` (the current byte-identical reference, §1) and a **recorded re-bind** to U3's merged head follows when U3
-merges. A re-bind changes only the recorded commit; any byte change in a handout file or the filtered tree is a new
-handout revision, not a re-bind.
+**Commit `[v3.4: §8 Q3; ruling R2, 2026-10-07]`.** The filtered tree is cut from the same build-line commit as the
+handout's code items (§1). **Ruled (R2):** the cut is made at `501f47579`, the current byte-identical reference (§1).
+When U3 merges into the build line, a **byte-identical re-bind** of the four code items (`contracts/__init__.py`,
+`conformance.py`, `portfolio.py`, `quoting/policy.py`) to the merged head is recorded. Any byte difference in those
+files is a **re-hand** (a new handout revision), and it is recorded. The manifest records the cut commit and the
+filtered tree's root tree id.
 
-**Clean room `[v3.4: proposed, PENDING owner ruling R1]`.** A git worktree is not a clean room: it shares the
-repository's object store and refs, so the excluded files stay reachable through history. The proposal is that the
-filtered tree is a **standalone repository with one parentless commit** of the filtered snapshot and **no remotes**
-(and no alternates or other refs). Until R1 is ruled, v3.1 §6.3 item 1's "fresh worktree" wording stands.
+**Clean room `[v3.4: ruling R1, 2026-10-07]`.** A git worktree is not a clean room: it shares the repository's object
+store and refs, so the excluded files stay reachable through history. **Ruled (R1):** the filtered tree is a
+**standalone repository holding one parentless commit** of the filtered snapshot, with **no remotes, no alternates, no
+shared objects** and no other tree reachable. The cut script asserts that `git rev-list --all` counts exactly 1, that
+`packed-refs` is absent or holds no other ref, and that `objects/info/alternates` is absent. This replaces v3.1 §6.3
+item 1's "fresh worktree" wording.
 
 The oracle's tree is a **filtered tree**, never a plain checkout. At the build-line commit it is cut from, it excludes
 these path globs (relative to the repository root):
@@ -467,8 +478,8 @@ The first six globs are v3.1 §6.3 item 1's deletion set. The rest are build-lin
 - name the denied strings (the registration draft quotes `state.` attributes, which rule 3 denies; its C11 row also
   names `compose_book`, which is public since §8 Q1 and is not itself a reason to exclude the file).
 
-**Proposed additional exclusions `[v3.4: proposed, pending owner ruling R4]`.** Found at the 10-07 heads, outside every
-glob above:
+**Additional exclusions `[v3.4: ruling R4, 2026-10-07]`.** Found at the 10-07 heads, outside every glob above, and
+**ruled in (R4)**; they are part of the glob list:
 
 ```text
 tests/maker_core/fixtures/**
@@ -482,10 +493,10 @@ tests/operations/test_maker_replay_v2_*
 - `docs/research/maker-replay-v2-*` replaces the single registration-draft line above and also covers the v2
   engineering plan.
 - `tests/operations/test_maker_replay_v2_*` names the v2 tool modules.
-- **Scripted refusal (proposed, pending R4):** after filtering, the cut refuses if any remaining file imports
-  `maker_core.replay`. Globs alone missed a U3 fixture on its first day.
-
-Until R4 is ruled, the glob list above is the proposed text and these additions are not part of it.
+- **Scripted refusal (ruled, R4):** after filtering, the cut fails closed if any remaining file imports
+  `maker_core.replay`. The refusal also catches string imports (`importlib`, `__import__`,
+  `import_module("maker_core.replay...")`) and any string literal containing `maker_core.replay` or
+  `maker_core/replay`. Globs alone missed a U3 fixture on its first day.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.
@@ -537,9 +548,9 @@ explain the difference, before the Defender tests it.
 
 ## 8. Owner decisions (2026-10-07)
 
-Relayed by the master agent on 2026-10-07. Points 1-6 are **decided** and applied in this draft (point 6 is pending its
-DECISION_LOG entry). Point 7 lists the rulings still **pending**. The draft as a whole stays DRAFT, NOT IN FORCE until
-the owner accepts it. The owner rulings that bind the oracle's semantics are collected in
+Relayed by the master agent on 2026-10-07. Points 1-7 are **decided** and applied in this file. The owner accepted v3.4
+on 2026-10-07 (about 18:20); the #257 → #256 → #253 chain at `edd06750c` is the frozen handout basis. The DECISION_LOG
+entries for point 6, point 7 and the acceptance are due at the master agent's 2026-10-08 morning closeout. The owner rulings that bind the oracle's semantics are collected in
 [the oracle rulings sheet](maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
 
 1. **Decided: `compose_book` is not secret.** It is public through the registration draft's C11 row. It is dropped from
@@ -556,8 +567,12 @@ the owner accepts it. The owner rulings that bind the oracle's semantics are col
    accepted under the `ORACLE_SPEC_DERIVED_FROM_KERNEL` label (§6). No further amendment.
 6. **Decided: OD18 (b)** — a fresh clean-room agent on the host writes the oracle from the filtered handout; the
    workstation never authors or touches it (§5). **OD21: DEFERRED** by the owner; the oracle's author must still never
-   be TL's author (v3.2 §11). Both relayed 2026-10-07, pending a DECISION_LOG entry; `STATE_OF_PLAY.md` still lists
-   OD21 as open.
-7. **Pending owner rulings (2026-10-07):** R1, the clean-room form (§5: a standalone repository, one parentless commit,
-   no remotes); R2, the cut commit (§5: merge U3 by 10-10, or cut at `501f47579` with a recorded re-bind); R4, the
-   proposed additional exclusions and the scripted import refusal (§5). Until they are ruled, §5 marks them proposed.
+   be TL's author (v3.2 §11). Both relayed 2026-10-07; their DECISION_LOG entries are due at the master agent's
+   2026-10-08 morning closeout, and `STATE_OF_PLAY.md` still lists OD21 as open until then.
+7. **Decided: R1, R2 and R4** (master agent's rulings, 2026-10-07, about 18:20). R1: a standalone repository holding
+   one parentless commit of the filtered snapshot; no remotes, no alternates, no shared objects, no other tree
+   reachable; the cut script asserts the invariants (§5). R2: the cut is at `501f47579`; when U3 merges, a
+   byte-identical re-bind of the four code items is recorded, and any byte difference is a recorded re-hand (§5).
+   R4: all four additions (`tests/maker_core/fixtures/**`, `docs/research/maker-replay-v2-*`,
+   `tests/operations/test_maker_replay_v2_*`, and the scripted fail-closed import refusal, string imports included)
+   are part of §5.
