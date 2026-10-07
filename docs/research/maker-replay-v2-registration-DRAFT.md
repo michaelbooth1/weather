@@ -87,6 +87,18 @@ motivated by an outcome: no panel data has been read, and no economic result exi
 | C8 | **Two gates before signature** (executability, reachability) | governance | The exam was signed before it was measured, and Clarification 3 showed that a screen-suppressed run cannot reach MET. | None; a failed gate stops signature, not a scored run. |
 | C9 | **Settlement-only 10-15** in addition to 10-14 | operational | `informed-v0` quotes only T+1/T+2, so its 10-13 positions settle on target 10-14. That settlement fact may be captured on the 10-15 UTC day. Without it, those fills stay unresolved and their cells drop out. The signed exam had the same latent gap. | Fewer unresolved-fill exclusions; no quote minutes added. |
 | C10 | **Small-cluster sensitivity** reported beside each economic cell (§12) | reporting | With 14 date clusters the percentile bootstrap probably under-covers (plan B audit §C). | None: the decision rule is unchanged. |
+| C11 | **Own legs in the decision book:** the decision book holds each resting leg on its token's bid array at its price and mirrored on the other token's ask array at `1 − price`, creating levels and summing sizes (`compose_book`) | engine correction (defect) | Defect found in code by the shadow-gate review (2026-10-06): the frozen loop added own size only at existing public levels and only to the YES arrays, so the policy decided on a book that is neither the public book nor the venue's book. Live parity: the venue book shows own orders on both token books (RE-1, YES/NO mirror). Not motivated by any outcome: no panel date had been read or run. | Policy behaviour differs from the frozen loop wherever a leg rests at a price without public liquidity, including the qualified mid and the HOLD/requote path. An own leg touched or crossed by the public book without a print now pulls `CROSSED_BOOK` (no same-instant replacement) where the frozen loop pulled `TOUCH_BUFFER` and replaced; on the venue that state is an at-price fill, which paper does not credit. The values of the registered estimands change in every quoting arm (informed-v0, blind_re1 and clock_only); their definitions do not. Not comparable with the frozen engine on those decisions. |
+| C12 | **Replacement book:** the same-instant replacement after a replacement-reason CANCEL decides on the public book, without the just-cancelled own legs | engine correction (defect) | Defect found in code by the shadow-gate review (2026-10-06): the frozen loop re-used the pre-cancel book, so the cancelled own size counted as competing liquidity and displayed depth for the replacement. Live parity: live decides again only after the cancel is acknowledged, on a book without those orders. Not motivated by any outcome. | Replacement QUOTEs differ from the frozen loop where cancelled legs sat on public levels; the replacement still happens at the cancel instant (live: after acknowledgement), and that timing is not changed. |
+| C13 | **Local-midnight descriptor refresh:** at each market's local midnight the engine's inputs carry a derived descriptor whose `horizon_days` follows the new local date; a later captured descriptor supersedes it | input-construction correction | Found by the shadow-gate review (2026-10-06): captured descriptors kept the previous day's horizon for 15-120 min after local midnight (rediscovery cadence), so horizon-gated decisions and the lead-0 boundary lagged the market's local date. Live parity: the live executor applies the same function. Not motivated by any outcome: no panel date had been read or run. | Horizon-gated decisions in `[local midnight, next captured descriptor)` differ from the frozen loop. If the exam's per-day reader applies the day-open re-emission, decisions in `[00:00, first fresh record)` of each UTC day differ too (class A7). |
+
+C11-C13 are engine rulings W1(a), W2(a) and F3 (owner decision 2026-10-07). They land before signature; if the
+engine fix misses the signature date, the signature slips (no "known deviation" fallback). Each was re-run against
+the frozen engine on fictional fixtures only, and every changed decision was attributed to its allowed class
+(A1-A3 for C11, A5 for C12, A6 for C13), directly or as a cascade from a direct difference; an unattributed
+difference fails the re-run (`tools/research/maker_replay_v2/attribution.py`, pinned by
+`tests/maker_core/test_replay_v2_attribution.py`). C11 also adds the diagnostic `OWN_LEG_CROSSED`: a recorded
+`CANCEL CROSSED_BOOK` at which the public book alone is not crossed. It is the paper analogue of a live at-price
+fill, is reported per day, and is never counted as a fill. The fixture re-runs bind no panel value.
 
 Explicitly **not** changed: the 10 s submit freshness gate (still applied at every decision), the 60 s replacement
 cooldown (still not scheduled as an event), every profile parameter, the strict net screen, the hazard recipe and
@@ -99,7 +111,9 @@ convention. Also unchanged: the shared portfolio carried across all dates, never
   stays complete. The universe rule acts only through active intervals in the execution manifest.
 - A condition is **active** at UTC minute t when all of these hold:
   - t is on a quote-panel date;
-  - the latest captured descriptor for the condition at or before t has `horizon_days` 1 or 2;
+  - the latest captured or derived descriptor for the condition at or before t has `horizon_days` 1 or 2. A derived
+    descriptor recomputes `horizon_days` at each market's local midnight (time zone database rule) and is otherwise
+    identical to the descriptor before it (C13);
   - t is outside 05:00–08:00 UTC;
   - the condition's local target date is on or before 2026-10-14;
   - the condition is not in an owner-excluded market-date (Austin, target 2026-10-03; §2).
@@ -346,7 +360,7 @@ On FAIL, this draft is not signed as written. Exactly one variant is pre-declare
   `max_m U_m`. The Bonferroni `q = 1 − 0.01/M` is unchanged, so it is still a 99% family bound. Motivation: the
   global maximum imposes the riskiest city's trade rate on every city, which the design never required.
 
-Recompute f_cal under R1. If it passes, R1 becomes change C11 in the signed text. If R1 also fails, the
+Recompute f_cal under R1. If it passes, R1 becomes change C14 in the signed text. If R1 also fails, the
 recommendation is not to spend the panel, and the owner chooses between pausing and signing anyway, with the text
 stating that MET is unreachable in expectation. No other screen, hazard or size change may be tried against the
 calibration rehearsal.

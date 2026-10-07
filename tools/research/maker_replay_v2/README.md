@@ -48,3 +48,11 @@ Rule 4 = option B (owner, 2026-10-05) adds `rule4.py`: real view cadence on any 
 `restamped`: every view re-stamped at each book record, with NBP-like `stdev` drift), and the lazy-delivery
 harness behind `tests/maker_core/test_replay_v2_rule4.py`. `s3` and `s5` take `--view-cadence real` to measure
 under it.
+
+Engine rulings W1(a), W2(a) and F3 (owner, 2026-10-07; registration C11-C13) add `attribution.py`: it re-runs
+the fictional fixtures under the frozen engine and under each ruling alone and together, and attributes every
+changed decision to its class (A1-A3, A5, A6) or fails (spec v3.2 §1.4, v3.3 §4.2). `frozen` is pinned to the
+pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Since F3, `lockstep.drive` and
+`pipeline.run_passes` require `time_zones` (market id to IANA zone; fictional markets use
+`sources.FIXTURE_ZONES`); `day_roll.NO_REFRESH` turns the refresh off and exists only for that re-run.
+Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.
