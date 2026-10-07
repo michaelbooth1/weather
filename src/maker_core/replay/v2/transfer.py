@@ -31,17 +31,25 @@ Every bundle must declare ``provenance == "captured"`` (U1 Defender MF3; ``trans
 a relabelled synthetic bundle could otherwise run without declared intervals.
 
 - ``build(roots, *, host_id, created_at)`` runs on the capture host and reads only ``bundle.json``,
-  ``export.json`` and ``receipt.json``. It applies integrity rule PB2(a): every ``maker_evidence/`` key
-  of ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, lies under
-  ``maker_evidence/<day>/`` (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
-- ``verify(doc, roots, *, bounds_check=True)`` runs on the workstation. It hashes the raw ``bundle.json``
-  bytes first and parses nothing that does not match a listed entry of the caller's ``export_kind`` (U1
-  Defender N1); then it compares the raw ``export.json`` and ``receipt.json`` hashes, re-applies every ``build`` check,
-  and runs the reader's pass one (every stream hashed, sized, counted and, for v0.3, decoded). With
-  ``bounds`` (PB2(b), the default) it then scans each stream once and refuses
-  ``transfer_bounds_outside_day:<day>:<stream>`` unless every record's ``captured_at`` lies in
+  ``export.json`` and ``receipt.json``. It applies integrity rule PB2(a): every input key of
+  ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, is a normalised
+  relative ``/`` path (no backslash, no leading ``/``, no empty, ``.`` or ``..`` segment; U1 Defender r2
+  NOTE-2), and every key that is case-insensitively under ``maker_evidence/`` lies under
+  ``maker_evidence/<day>/`` exactly (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
+- ``verify(doc, roots, *, bounds_check=True, limits=None, clock=..., run=None)`` runs on the workstation.
+  Each of ``bundle.json``, ``export.json`` and ``receipt.json`` is read from disk once; its raw bytes are
+  hashed and compared with the listed entry BEFORE they are parsed, and only those same bytes are parsed
+  (U1 Defender N1 and r2 LOW-1). Nothing that does not match a listed entry of the caller's
+  ``export_kind`` is parsed, except ``bundle.json`` to name an unlisted refusal. Then every ``build``
+  check is re-applied to those bytes and the reader's pass one runs (every stream hashed, sized, counted
+  and, for v0.3, decoded). With ``bounds`` (PB2(b), the default) it then scans each stream once and
+  refuses ``transfer_bounds_outside_day:<day>:<stream>`` unless every record's ``captured_at`` lies in
   ``[day 00:00Z, day+1 00:00Z)``. The scan reports only counts and the min/max ``captured_at`` per
   stream; no row leaves it.
+- Limits (U1 Defender r2 C2): bundles open under X1's ``V2Limits`` (``limits``, default ``V2Limits()``),
+  and every open, pass and bounds scan of one ``verify`` call shares ONE ``RunBudget`` (``run``, default
+  one built on ``clock``). Up to ``MAX_BUNDLES`` bundles are bounded by the run's deadline and stored
+  total, not by one 32,768 s lifetime per bundle.
 
 Refusals name ``transfer_manifest_mismatch:<day>:<field>``, ``transfer_manifest_unlisted:<day>:<kind>``,
 ``transfer_inputs_outside_day:<day>`` and the codes in ``REFUSAL_CODES``.
@@ -61,6 +69,7 @@ from maker_core.replay.bundle import (MAX_LINE_BYTES, MAX_MANIFEST_BYTES, Bundle
                                       regular_path, sha256, timestamp)
 from maker_core.replay.bundle_v02 import open_stream_bundle
 from maker_core.replay.v2 import panel as constants
+from maker_core.replay.v2.limits import RunBudget, coerce
 
 FORMAT = "maker_core.replay.v2.transfer.v0.2"
 TRANSFER_MANIFEST_PATH = "config/maker_replay_v2/transfer_manifest.json"
@@ -121,15 +130,16 @@ def _raw(path, cap):
 def _parse(raw):
     try:
         value = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:  # nesting depth: still a BundleError
         raise BundleError("transfer_root_invalid") from exc
     if not isinstance(value, dict):
         raise BundleError("transfer_root_invalid")
     return value
 
 
-def _read(path, cap):
-    raw, digest = _raw(path, cap)
+def _read(path, cap, given=None):
+    """``(parsed, sha256)`` of exactly one read; ``given`` is ``(raw, sha256)`` already read and compared."""
+    raw, digest = _raw(path, cap) if given is None else given
     return _parse(raw), digest
 
 
@@ -164,20 +174,32 @@ def _inputs_rule(day, export, receipt):
     if not isinstance(later, dict):
         raise BundleError("transfer_export_mismatch")
     own = f"{EVIDENCE_PREFIX}{day}/"
-    if any(not isinstance(k, str) or (k.startswith(EVIDENCE_PREFIX) and not k.startswith(own))
-           for k in (*inputs, *later)):
-        raise BundleError(f"transfer_inputs_outside_day:{day}")
+    for key in (*inputs, *later):
+        if not isinstance(key, str) or not _normalised(key) or (
+                key.casefold().startswith(EVIDENCE_PREFIX) and not key.startswith(own)):
+            raise BundleError(f"transfer_inputs_outside_day:{day}")
 
 
-def _entry(export_kind, root):
-    """One root's entry from ``bundle.json``, ``export.json`` and ``receipt.json`` only."""
+def _normalised(key):
+    """A relative ``/`` path as the exporter's reader writes it (``Path.relative_to(root)``, ``/``)."""
+    return "\\" not in key and not key.startswith("/") and all(
+        part not in ("", ".", "..") for part in key.split("/"))
+
+
+def _entry(export_kind, root, raws=None):
+    """One root's entry from ``bundle.json``, ``export.json`` and ``receipt.json`` only.
+
+    ``raws`` (from ``verify``): ``{"receipt", "bundle", "export"} -> (raw, sha256)`` already read and
+    compared; those exact bytes are parsed and nothing is re-read from disk.
+    """
+    raws = raws or {}
     if export_kind not in EXPORT_KINDS:
         raise BundleError("transfer_export_kind_unknown")
     root = regular_path(root)
     folder, names = _bundle_folder(root)
-    receipt, receipt_hash = _read(root / "receipt.json", MAX_RECEIPT_BYTES)
-    manifest, manifest_hash = _read(folder / "bundle.json", MAX_MANIFEST_BYTES)
-    export, export_hash = _read(folder / "export.json", MAX_EXPORT_BYTES)
+    receipt, receipt_hash = _read(root / "receipt.json", MAX_RECEIPT_BYTES, raws.get("receipt"))
+    manifest, manifest_hash = _read(folder / "bundle.json", MAX_MANIFEST_BYTES, raws.get("bundle"))
+    export, export_hash = _read(folder / "export.json", MAX_EXPORT_BYTES, raws.get("export"))
     day = _day(manifest.get("day"))
     if day not in days_of(export_kind):
         raise BundleError("transfer_day_not_in_export_kind")
@@ -349,8 +371,14 @@ def bounds(bundle, *, check=lambda: None):
     """PB2(b): per stream, the record count and min/max ``captured_at``; refuses any outside the day.
 
     Order-free, so it also covers the v0.1 reference's sequence-ordered ``events.jsonl``. Only these
-    three values per stream leave the scan.
+    three values per stream leave the scan. The scan is one pass of the bundle: its own pass clock and the
+    bundle's run budget (the run ``verify`` opened it with) bind every chunk and record.
     """
+    reader, caller = bundle.pass_reader(), check
+
+    def check():
+        reader.check()
+        caller()
     start = datetime.combine(bundle.day, clock_time(), tzinfo=timezone.utc)
     end = start + timedelta(days=1)
     result = {}
@@ -358,6 +386,7 @@ def bounds(bundle, *, check=lambda: None):
         encoding = getattr(ref, "encoding", "identity")
         count, low, high = 0, None, None
         for line in _lines(regular_path(bundle.root / ref.name), ref, encoding, check):
+            check()
             try:
                 value = json.loads(line)
                 at = timestamp(value["captured_at"])
@@ -375,15 +404,23 @@ def bounds(bundle, *, check=lambda: None):
     return result
 
 
-def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic):
+def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic, run=None):
     """``roots``: ``[(export_kind, day folder)]``. Workstation; returns ``[Verified]``.
 
-    Every comparison happens before a record is parsed: raw manifest, export and receipt hashes, then
-    every ``build`` check, then pass one of the stream reader. The PB2(b) bounds scan runs last.
+    Every comparison happens before a record is parsed: raw manifest, export and receipt hashes (each
+    file read once, hashed and compared, and only then parsed), then every ``build`` check on those same
+    bytes, then pass one of the stream reader. The PB2(b) bounds scan runs last. ``run`` is the ONE
+    ``RunBudget`` of this verify (built on ``clock`` when omitted), shared by every bundle.
     """
     listed = check_doc(doc)
+    limits = coerce(limits)
+    if run is None:
+        run = RunBudget(clock=clock)
+    elif not isinstance(run, RunBudget):
+        raise BundleError("invalid_limits")
     opened, seen = [], set()
     for export_kind, root in roots:
+        run.check()
         if export_kind not in EXPORT_KINDS:
             raise BundleError("transfer_export_kind_unknown")
         root = regular_path(root)
@@ -403,17 +440,18 @@ def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic):
         day = _day(_parse(raw).get("day"))
         if day.isoformat() != key[0]:
             raise _mismatch(key[0], "day")
-        _, export_hash = _read(root / "bundle" / "export.json", MAX_EXPORT_BYTES)
-        if export_hash != entry["export_json_sha256"]:
+        export_raw = _raw(root / "bundle" / "export.json", MAX_EXPORT_BYTES)
+        if export_raw[1] != entry["export_json_sha256"]:  # compared before any parse (LOW-1)
             raise _mismatch(key[0], "export_json_sha256")
-        _, receipt_hash = _read(root / "receipt.json", MAX_RECEIPT_BYTES)
-        if receipt_hash != entry["receipt_sha256"]:
+        receipt_raw = _raw(root / "receipt.json", MAX_RECEIPT_BYTES)
+        if receipt_raw[1] != entry["receipt_sha256"]:
             raise _mismatch(key[0], "receipt_sha256")
-        current = _entry(export_kind, root)
+        current = _entry(export_kind, root, dict(receipt=receipt_raw, bundle=(raw, manifest_hash),
+                                                 export=export_raw))
         for field in sorted(ENTRY_FIELDS):
             if current[field] != entry[field]:
                 raise _mismatch(key[0], field)
-        bundle = open_stream_bundle(root / "bundle", limits=limits, clock=clock)
+        bundle = open_stream_bundle(root / "bundle", limits=limits, clock=clock, run=run)
         if bundle.format != entry["bundle_format"] or bundle.day != day:
             raise _mismatch(key[0], "bundle_format")
         if bundle.provenance != "captured":

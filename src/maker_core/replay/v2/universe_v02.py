@@ -9,10 +9,12 @@ as v1's ``_inventory`` does (master-agent steer, U1 Defender MF1): nothing is sk
 neutral core never parses slugs: target and timezone come from the weather
 producer (``weather.market.maker_replay_universe_v02``) and are checked here against descriptors.
 
-``descriptors`` reads one bundle's ``descriptor.jsonl`` stream alone (pass one must already have hashed
-it: the bundle comes from ``open_stream_bundle``). No other stream of the bundle is opened. Both grouped
-formats are read: v0.2 (``descriptor.jsonl``) and X1's gzip v0.3 (``descriptor.jsonl.gz``, decoded by the
-reader's own ``_stream``).
+``descriptors`` reads one bundle's descriptor stream alone (pass one must already have hashed it: the
+bundle comes from ``open_stream_bundle``). No other stream of the bundle is opened. Both grouped formats
+are read: v0.2 (``descriptor.jsonl``) and X1's gzip v0.3 (``descriptor.jsonl.gz``), through X1's public,
+format-blind accessor ``bundle_v02.stream_records(bundle, "descriptor")`` (U1 Defender r2 C1); no private
+reader symbol is used. The read is one pass under the bundle's run budget: the ONE ``RunBudget`` the caller
+opened every bundle of the run with (U1 Defender r2 C2), or else the bundle's own lifetime fallback.
 """
 from __future__ import annotations
 
@@ -20,11 +22,10 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from maker_core.replay.bundle import BundleError
-from maker_core.replay.bundle_v02 import FORMAT_V02, _stream
+from maker_core.replay.bundle_v02 import FORMAT_V02, stream_records
 from maker_core.replay.payloads import decode
 
-DESCRIPTOR_STREAM = "descriptor.jsonl"
-DESCRIPTOR_STREAMS = (DESCRIPTOR_STREAM, DESCRIPTOR_STREAM + ".gz")  # v0.2 plain, v0.3 gzip (X1)
+DESCRIPTOR_STEM = "descriptor"  # descriptor.jsonl (v0.2) or descriptor.jsonl.gz (v0.3, X1)
 STREAM_FORMATS = (FORMAT_V02, "maker_core.replay.bundle.v0.3")
 MAX_ROWS = 30000
 FIELDS = frozenset({"condition_id", "market_id", "domain_id", "target_date", "local_timezone"})
@@ -34,13 +35,10 @@ def descriptors(bundle):
     """The bundle's descriptor records in ``(captured_at, sequence)`` order; only that stream is read."""
     if bundle.format not in STREAM_FORMATS:
         raise BundleError("v02_bundle_required")
-    refs = [ref for ref in bundle.streams if ref.name in DESCRIPTOR_STREAMS]
-    if not refs:
+    if bundle.stream(DESCRIPTOR_STEM) is None:
         raise BundleError("universe_descriptor_stream_missing")
-    conditions = {c.condition_id for c in bundle.conditions}
-    groups = {g.group_id for g in bundle.coverage_groups}
     records = []
-    for record in _stream(bundle, refs[0], conditions, groups, bytearray()):
+    for record in stream_records(bundle, DESCRIPTOR_STEM):
         if record.kind != "descriptor":
             raise BundleError("descriptor_stream_holds_other_kind")
         records.append(record)

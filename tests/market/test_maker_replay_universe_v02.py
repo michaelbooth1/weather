@@ -1,4 +1,9 @@
-"""Weather-side v0.2 universe producer for maker replay v2 (U1, W7). Fictional bundles only."""
+"""Weather-side v0.2 universe producer for maker replay v2 (U1, W7). Fictional bundles only.
+
+Guards: the v0.2 universe inventory (registration draft §4, A-defender M10 caps of 16 panel and 3
+calibration bundles, U1 Defender MF1/MF6) and U1 Defender r2 C2: one shared RunBudget bounds a run over
+every bundle, not one 32,768 s lifetime per bundle.
+"""
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone

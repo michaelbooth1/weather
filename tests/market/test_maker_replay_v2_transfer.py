@@ -4,6 +4,10 @@ The capture inputs are the market tests' fictional sealed 88a day (2030-01-10); 
 and receipts are produced by ``maker_replay_night_v02.export_day`` and the frozen v0.1
 ``maker_replay_night.export_day``, never hand-built. The panel day sets are monkeypatched to hold the
 fictional day. Owner decision 19, A-defender M9, P-v2-defender NB4 and PB2(a)/(b).
+
+Guards: the bundle transfer manifest contract (owner decision 19, registration draft §8): per-bundle
+identity bound by hash before any parse (U1 Defender N1, r2 LOW-1), captured provenance (MF3), inputs
+and records inside the day (PB2(a)/(b), r2 NOTE-2), and one shared RunBudget per verify (r2 C2).
 """
 from __future__ import annotations
 

@@ -1,6 +1,10 @@
 """Maker replay v2 universe rule as declared intervals (U1, W7): panel constants, Austin 2026-10-03.
 
 Fictional bundles only (``fixtures/panel_v02.py``): real panel dates, invented data.
+
+Guards: registration draft §4 universe rule and owner decisions 14/15 (minute-granular declared intervals;
+the Austin 2026-10-03 owner exclusion can never be active or scored), A-defender M3-M6, U1 Defender MF2/MF4/
+MF5 and r2 C1 (only sanctioned modules build raw sources; U1 reads streams through X1's public accessor).
 """
 from __future__ import annotations
 
