@@ -33,10 +33,11 @@ a relabelled synthetic bundle could otherwise run without declared intervals.
 - ``build(roots, *, host_id, created_at)`` runs on the capture host and reads only ``bundle.json``,
   ``export.json`` and ``receipt.json``. It applies integrity rule PB2(a): every input key of
   ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, is
-  ``carry:YYYY-MM-DD`` or an optional ``release:`` prefix plus a normalised relative ``/`` path (see
-  ``_normalised``: ASCII printable, at most ``MAX_INPUT_KEY_CHARS``, no backslash, ``:`` or other
-  Windows-invalid character, no leading ``/``, no empty, ``.`` or ``..`` segment, no segment ending in a
-  dot or space, no device name; U1 Defender r2 NOTE-2 and U1r2 Defender NOTE-2), and every path whose
+  ``carry:YYYY-MM-DD`` (a real calendar date) or an optional ``release:`` prefix plus a normalised
+  relative ``/`` path (see ``_normalised``: ASCII printable, at most ``MAX_INPUT_KEY_CHARS``, no
+  backslash, ``:``, ``~`` (8.3 short names) or other Windows-invalid character, no leading ``/``, no
+  empty, ``.`` or ``..`` segment, no segment ending in a dot or space, no device name; U1 Defender r2
+  NOTE-2, U1r2 Defender NOTE-2 and D-1), and every path whose
   first segment is case-insensitively ``maker_evidence`` lies under ``maker_evidence/<day>/`` exactly
   (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
 - ``verify(doc, roots, *, bounds_check=True, limits=None, clock=..., run=None)`` runs on the workstation.
@@ -107,9 +108,9 @@ EVIDENCE_PREFIX = "maker_evidence/"
 MAX_INPUT_KEY_CHARS = 512
 _CARRY_KEY = re.compile(r"carry:\d{4}-\d{2}-\d{2}")
 _RELEASE_PREFIX = "release:"
-_WINDOWS_INVALID = set('<>:"|?*')
+_WINDOWS_INVALID = set('<>:"|?*~')  # ``~``: 8.3 short names (``MAKER_~1``) alias long ones
 _DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
-                           *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))})
+                           *(f"{d}{i}" for d in ("COM", "LPT") for i in range(10))})
 REFUSAL_CODES = ("transfer_root_invalid", "transfer_export_kind_unknown", "transfer_day_not_in_export_kind",
                  "transfer_receipt_not_sealed", "transfer_receipt_kind_mismatch", "transfer_receipt_day_mismatch",
                  "transfer_bundle_day_mismatch", "transfer_bundle_format_not_allowed",
@@ -199,7 +200,8 @@ def _normalised(key):
 
     Keys are ``carry:YYYY-MM-DD`` (no path), ``release:<path>`` or ``<path>``. A key is ASCII printable and
     at most ``MAX_INPUT_KEY_CHARS`` long; a path is relative ``/`` (``Path.relative_to(root)``): no
-    backslash, ``:`` (drive letters, ADS) or other Windows-invalid character, no leading ``/``, no empty,
+    backslash, ``:`` (drive letters, ADS), ``~`` (8.3 short names such as ``MAKER_~1``, U1r2 Defender D-1)
+    or other Windows-invalid character, no leading ``/``, no empty,
     ``.`` or ``..`` segment, no segment ending in a dot or space (Win32 strips those, so
     ``maker_evidence./<other day>`` would alias another day's folder) and no device name segment.
     """
@@ -207,6 +209,10 @@ def _normalised(key):
             or not key.isprintable()):
         return None
     if _CARRY_KEY.fullmatch(key):
+        try:
+            date.fromisoformat(key.removeprefix("carry:"))
+        except ValueError:
+            return None
         return ""
     path = key.removeprefix(_RELEASE_PREFIX)
     if not path or _WINDOWS_INVALID & set(path) or "\\" in path or path.startswith("/"):
