@@ -166,7 +166,16 @@ Observation triggers: only the captured WU printed high (`wu_history_high_increa
 trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTING_TRIGGERS`) produces
 a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
 reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
-Because a trigger's local detection date must equal the target date, these events reach T+0 bands only.
+"Rising" is relative to the previous poll, not the day's running high, and a new-high pull never
+expires. Because a trigger's local detection date must equal the target date, these events reach
+lead-0 (T+0) conditions only: `informed-v0` decisions, legs, P&L, reward and cell sums are unchanged,
+but informed T+0 refusal reasons and decision digests change, and `blind_re1`'s T+0 band-day
+`fills_in_events`/`fills_outside_events` split changes because every policy's fill event window reads
+the info events. **SWOB caveat:** real SWOB rows carry `observed_at` as a bare local `HH:MM`, which
+the clock cannot parse; that parse runs before every other filter, so one such row makes the event's
+clock raise (and the runner mark it unavailable) at every minute of the bundle day. SWOB pulls
+therefore do not happen until the SWOB time-parse follow-up
+(`claude/mrv2-fix-swob-time-parse-20261007`) lands.
 
 Served T+0 joins require the bounded export to project `release_calibration_method`
 from the verified release's calibration artifact (`market_bin.method`) onto each

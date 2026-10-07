@@ -1,19 +1,37 @@
 """Read-only disclosure count for the maker clock supporting-trigger fix (branch
 claude/mrv2-fix-clock-supporting-triggers-20261007).
 
-Question: on allowed UTC days, how many condition-minutes carry a ``new_high`` pull under the fixed
-clock (supporting METAR/SWOB/WU-current triggers pull) that the old clock (WU-history triggers only)
-dropped?
+Question: for each allowed UTC bundle day and event, how much extra ``new_high`` pull does the fixed
+clock (supporting METAR/SWOB/WU-current triggers pull) carry that the old clock (WU-history triggers
+only) did not?
 
-Input is the captured observation-trigger log (``snapshots/observation_triggers.jsonl``, optionally
-``.gz``), read line by line exactly as ``maker_plugin_sources.Sources.triggers`` flattens it. Nothing
-is written except the JSON result on stdout (or ``--out``). Every day in the reserved panel window
-UTC 2026-09-30..2026-10-15 is refused before any file is opened, and any trigger row detected on, or
-targeting, a reserved day is dropped unread beyond its two date fields.
+Input: exactly the file the exporter reads, ``snapshots/observation_triggers.jsonl`` (or its ``.gz``
+variant; rotated siblings are refused because ``maker_plugin_sources.Sources.triggers`` never reads
+them). Rows are flattened from ``trigger_context.triggers`` as the exporter does.
 
-Unit of count: one ``new_high`` event per (event, detection minute) affects every open band of that
-event identically, so the base count is event-minutes. ``--conditions`` (JSON ``{event_slug: n}``,
-the number of open bands of that event) turns it into condition-minutes; without it they are null.
+Reserved window UTC 2026-09-30..2026-10-15:
+- every reserved ``--date`` is refused before any file is opened;
+- a row is dated (detection UTC day and target date) before anything about it is counted; a row whose
+  detection day or target is reserved, or which cannot be dated, contributes to NO output field;
+- an over-long line is skipped without aborting and without being counted anywhere.
+Nothing is written except the JSON result on stdout or a new ``--out`` file.
+
+Per (bundle UTC day d, event), the clock sees every trigger row of that event detected at or before
+the end of d (as ``Sources.keep`` does), so rows from d-1 are read for that purpose only.
+
+Fields per cell:
+- ``new_only_detection_minutes``: distinct detection minutes on day d with a ``new_high`` under NEW
+  and none under OLD. This counts pull onsets, not pulled time.
+- ``first_new_high_utc_new`` / ``first_new_high_utc_old``: the first pull instant each clock sees.
+- ``added_pulled_event_minutes``: a ``new_high`` never expires, so the event is pulled under NEW from
+  its first pull onward. The added pulled time inside day d is from max(first NEW pull, start of d)
+  to min(first OLD pull, clock failure, end of d). It is an UPPER bound because band close is not
+  known here. ``--conditions {slug: open band count}`` turns it into ``added_pulled_condition_minutes``.
+- ``clock_unavailable``: the runner discards the whole clock of an event-minute when ``observe``
+  raises. A row whose detection or ``observed_at`` time cannot be parsed (for example SWOB's local
+  ``"HH:MM"``) raises at every minute of d, including minutes before that row was detected, so the
+  cell is ``"all_day"`` and counts no added pull. A row that fails later in ``observe`` makes the
+  clock unavailable from its detection time; added pull stops there.
 
 The OLD clock is the fixed clock restricted to ``wu_history_high_increased``/``wu_history`` rows: the
 old code dropped every other row before any event, and kept every other filter. A test pins that
@@ -27,8 +45,8 @@ Usage (repository root, project interpreter)::
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta, timezone
+from collections import defaultdict
+from datetime import date, datetime, time, timedelta, timezone
 import gzip
 import json
 import math
@@ -37,11 +55,13 @@ import sys
 from types import SimpleNamespace
 
 from weather.market.maker_plugin.clock import DECIDING_TRIGGER, WeatherInformationClock
-from weather.market.maker_plugin.inputs import event_identity, timestamp
+from weather.market.maker_plugin.inputs import event_identity, records, timestamp
 
 RESERVED_FIRST = date(2026, 9, 30)
 RESERVED_LAST = date(2026, 10, 15)
 MAX_LINE_BYTES = 4 * 1024 * 1024
+LIVE_NAMES = ("observation_triggers.jsonl", "observation_triggers.jsonl.gz")
+CLOCK_ERRORS = (ValueError, KeyError, TypeError, ArithmeticError)
 
 
 class Refused(ValueError):
@@ -58,7 +78,7 @@ def allowed_day(text):
         raise Refused("noncanonical_day") from None
     if day.isoformat() != text:
         raise Refused("noncanonical_day")
-    if RESERVED_FIRST <= day <= RESERVED_LAST:
+    if _reserved(day):
         raise Refused("reserved_window_day_refused")
     return day
 
@@ -68,55 +88,53 @@ def _reserved(day):
 
 
 def _row_day(row):
-    """(detected UTC day, target day) or None. Read before anything else in the row."""
+    """(detection UTC day, target day), or None when the row cannot be dated."""
     try:
         detected = timestamp(row["current_captured_at_utc"]).date()
         target = date.fromisoformat(row["target_date"])
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
         return None
     return detected, target
 
 
 def _lines(path):
+    """Lines of at most MAX_LINE_BYTES; a longer line is consumed and dropped, never returned."""
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rb") as handle:
-        for line in handle:
+        while True:
+            line = handle.readline(MAX_LINE_BYTES + 1)
+            if not line:
+                return
             if len(line) > MAX_LINE_BYTES:
-                raise ValueError("line_too_long")
+                while line and not line.endswith(b"\n"):
+                    line = handle.readline(MAX_LINE_BYTES + 1)
+                continue
             yield line
 
 
-def trigger_rows(paths, days, skipped):
-    """Flattened trigger rows detected on an allowed day in ``days``; reserved rows never yielded."""
-    wanted = set(days)
-    for path in paths:
-        for line in _lines(path):
-            if not line.strip():
+def trigger_rows(path, days):
+    """(detection day, row) for dated, non-reserved rows detected on a day in ``days`` or the day
+    before each (the clock of bundle day d sees rows detected up to the end of d). Nothing about any
+    other line is retained or counted."""
+    wanted = set(days) | {d - timedelta(days=1) for d in days}
+    for line in _lines(path):
+        try:
+            outer = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(outer, dict):
+            continue
+        context = outer.get("trigger_context")
+        items = context.get("triggers", [outer]) if isinstance(context, dict) else [outer]
+        if not isinstance(items, list):
+            continue
+        for row in items:
+            if not isinstance(row, dict):
                 continue
-            try:
-                outer = json.loads(line)
-            except ValueError:
-                skipped["bad_json"] += 1
+            when = _row_day(row)
+            if when is None or _reserved(when[0]) or _reserved(when[1]) or when[0] not in wanted:
                 continue
-            if not isinstance(outer, dict):
-                skipped["not_object"] += 1
-                continue
-            context = outer.get("trigger_context")
-            items = context.get("triggers", [outer]) if isinstance(context, dict) else [outer]
-            for row in items:
-                if not isinstance(row, dict):
-                    skipped["not_object"] += 1
-                    continue
-                when = _row_day(row)
-                if when is None:
-                    skipped["no_day"] += 1
-                    continue
-                detected, target = when
-                if _reserved(detected) or _reserved(target):
-                    continue
-                if detected not in wanted:
-                    continue
-                yield detected, row
+            yield when[0], row
 
 
 class _NoBands:
@@ -126,95 +144,142 @@ class _NoBands:
         return defaultdict(lambda: (math.inf, math.inf))
 
 
-def _new_high_minutes(row, *, old):
-    """Detection minutes of ``new_high`` events for one row, or raise the clock's own error."""
+def _market(slug):
+    return SimpleNamespace(event_id=slug, condition_id=str(slug),
+                           close_at_utc=datetime.max.replace(tzinfo=timezone.utc))
+
+
+def _new_high_times(row, *, old):
+    """Detection instants of ``new_high`` events for one row, or raise the clock's own error."""
     if old and (row.get("reason"), row.get("source")) != DECIDING_TRIGGER:
         return set()
-    market = SimpleNamespace(event_id=row.get("event_slug"), condition_id=str(row.get("event_slug")),
-                             close_at_utc=datetime.max.replace(tzinfo=timezone.utc))
     as_of = timestamp(row["current_captured_at_utc"])
-    events = WeatherInformationClock(_NoBands(), triggers=[row]).observe((market,), as_of)
-    return {e.detected_at_utc.replace(second=0, microsecond=0) for e in events if e.kind == "new_high"}
+    events = WeatherInformationClock(_NoBands(), triggers=[row]).observe((_market(row.get("event_slug")),), as_of)
+    return {e.detected_at_utc for e in events if e.kind == "new_high"}
 
 
-def count(rows, conditions=None):
-    conditions = conditions or {}
-    cells = {}
-    for day, row in rows:
-        slug = row.get("event_slug")
+def _fails_every_minute(row):
+    """True when ``observe`` raises for this row whatever ``as_of`` is: the records copy, or the
+    detection/observed parse that precedes every other filter."""
+    try:
+        records([row])
+        timestamp(row["current_captured_at_utc"])
+        if row.get("observed_at"):
+            timestamp(row["observed_at"])
+    except CLOCK_ERRORS:
+        return True
+    return False
+
+
+def _minutes(start, end):
+    return max(0., (end - start).total_seconds() / 60.)
+
+
+def cell(day, slug, kept, bands=None):
+    start = datetime.combine(day, time(), timezone.utc)
+    end = start + timedelta(days=1)
+    try:
+        market_id = event_identity(slug)[0].id
+    except (ValueError, TypeError, AttributeError):
+        market_id = "unregistered"
+    out = {"day": day.isoformat(), "market_id": market_id, "event_slug": slug,
+           "trigger_rows_detected_on_day": sum(1 for d, _ in kept if d == day),
+           "clock_unavailable": None, "new_only_detection_minutes": 0,
+           "first_new_high_utc_new": None, "first_new_high_utc_old": None,
+           "added_pulled_event_minutes": 0., "conditions": bands, "added_pulled_condition_minutes": None}
+    if any(_fails_every_minute(row) for _, row in kept):
+        out["clock_unavailable"] = "all_day"
+        return out
+    new, old, failure = set(), set(), None
+    for _, row in kept:
         try:
-            spec, _ = event_identity(slug)
-            market_id = spec.id
-        except (ValueError, TypeError, AttributeError):
-            market_id = "unregistered"
-        cell = cells.setdefault((day.isoformat(), market_id, str(slug)), {
-            "rows": 0, "old": set(), "new": set(), "row_errors": Counter(), "reasons": Counter()})
-        cell["rows"] += 1
-        cell["reasons"][f"{row.get('source')}:{row.get('reason')}"] += 1
-        try:
-            new = _new_high_minutes(row, old=False)
-            old = _new_high_minutes(row, old=True)
-        except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
-            # The plugin runner marks the whole event-minute's clock unavailable on this error.
-            cell["row_errors"][f"{row.get('source')}:{type(exc).__name__}:{str(exc)[:60]}"] += 1
+            row_new, row_old = _new_high_times(row, old=False), _new_high_times(row, old=True)
+        except CLOCK_ERRORS:
+            at = timestamp(row["current_captured_at_utc"])
+            failure = at if failure is None else min(failure, at)
             continue
-        cell["old"] |= old
-        cell["new"] |= new
-    out = []
-    for (day, market_id, slug), cell in sorted(cells.items()):
-        new_only = len(cell["new"] - cell["old"])
-        bands = conditions.get(slug)
-        out.append({
-            "day": day, "market_id": market_id, "event_slug": slug, "trigger_rows": cell["rows"],
-            "trigger_rows_by_source_reason": dict(sorted(cell["reasons"].items())),
-            "old_new_high_event_minutes": len(cell["old"]),
-            "new_new_high_event_minutes": len(cell["new"]),
-            "new_only_event_minutes": new_only,
-            "conditions": bands,
-            "new_only_condition_minutes": None if bands is None else new_only * int(bands),
-            "row_errors": dict(sorted(cell["row_errors"].items())),
-        })
+        new |= row_new
+        old |= row_old
+    if failure is not None:
+        out["clock_unavailable"] = "from " + failure.isoformat()
+        new = {t for t in new if t < failure}
+        old = {t for t in old if t < failure}
+    minute = lambda t: t.replace(second=0, microsecond=0)
+    on_day = lambda times: {minute(t) for t in times if start <= t < end}
+    out["new_only_detection_minutes"] = len(on_day(new) - on_day(old))
+    first_new, first_old = min(new, default=None), min(old, default=None)
+    out["first_new_high_utc_new"] = first_new and first_new.isoformat()
+    out["first_new_high_utc_old"] = first_old and first_old.isoformat()
+    if first_new is not None and (first_old is None or first_new < first_old):
+        stop = min(t for t in (first_old, failure, end) if t is not None)
+        out["added_pulled_event_minutes"] = round(_minutes(max(first_new, start), min(stop, end)), 6)
+    if bands is not None:
+        out["added_pulled_condition_minutes"] = round(out["added_pulled_event_minutes"] * int(bands), 6)
     return out
 
 
+def count(rows, days, conditions=None):
+    conditions = conditions or {}
+    by_slug = defaultdict(list)
+    for detected, row in rows:
+        by_slug[str(row.get("event_slug"))].append((detected, row))
+    cells = []
+    for day in sorted(days):
+        for slug in sorted(by_slug):
+            kept = [(d, r) for d, r in by_slug[slug] if d <= day]
+            if any(d == day for d, _ in kept):
+                cells.append(cell(day, slug, kept, conditions.get(slug)))
+    return cells
+
+
 def summarize(cells):
-    by_day = defaultdict(lambda: Counter())
-    for cell in cells:
-        total = by_day[cell["day"]]
-        total["new_only_event_minutes"] += cell["new_only_event_minutes"]
-        total["old_new_high_event_minutes"] += cell["old_new_high_event_minutes"]
-        total["row_errors"] += sum(cell["row_errors"].values())
-        if cell["new_only_condition_minutes"] is None:
+    by_day = {}
+    for item in cells:
+        total = by_day.setdefault(item["day"], {
+            "events": 0, "events_clock_unavailable_all_day": 0, "events_clock_unavailable_partly": 0,
+            "events_with_added_pull": 0, "new_only_detection_minutes": 0, "added_pulled_event_minutes": 0.,
+            "added_pulled_condition_minutes": 0., "events_without_condition_count": 0})
+        total["events"] += 1
+        if item["clock_unavailable"] == "all_day":
+            total["events_clock_unavailable_all_day"] += 1
+        elif item["clock_unavailable"]:
+            total["events_clock_unavailable_partly"] += 1
+        total["events_with_added_pull"] += item["added_pulled_event_minutes"] > 0
+        total["new_only_detection_minutes"] += item["new_only_detection_minutes"]
+        total["added_pulled_event_minutes"] += item["added_pulled_event_minutes"]
+        if item["added_pulled_condition_minutes"] is None:
             total["events_without_condition_count"] += 1
         else:
-            total["new_only_condition_minutes"] += cell["new_only_condition_minutes"]
-    return {day: dict(values) for day, values in sorted(by_day.items())}
+            total["added_pulled_condition_minutes"] += item["added_pulled_condition_minutes"]
+    return dict(sorted(by_day.items()))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--date", action="append", required=True, help="allowed UTC day YYYY-MM-DD (repeat)")
-    parser.add_argument("--triggers", action="append", required=True, type=Path,
-                        help="observation_triggers.jsonl[.gz] (repeat for rotations)")
+    parser.add_argument("--triggers", required=True, type=Path,
+                        help="the live snapshots/observation_triggers.jsonl[.gz] the exporter reads")
     parser.add_argument("--conditions", type=Path, help="JSON {event_slug: open band count}")
-    parser.add_argument("--out", type=Path, help="write the JSON result here instead of stdout")
+    parser.add_argument("--out", type=Path, help="write the JSON result here (a new file) instead of stdout")
     args = parser.parse_args(argv)
     try:
         days = sorted({allowed_day(text) for text in args.date})  # First: before any file is opened.
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 3
+    if args.triggers.name not in LIVE_NAMES:
+        print("REFUSED: not_the_live_trigger_file", file=sys.stderr)
+        return 2
+    if args.out and args.out.exists():
+        print("REFUSED: out_exists", file=sys.stderr)
+        return 2
     conditions = json.loads(args.conditions.read_text(encoding="utf-8")) if args.conditions else None
-    skipped = Counter()
-    cells = count(trigger_rows(args.triggers, days, skipped), conditions)
-    result = {"schema": "maker_clock_trigger_disclosure_v1", "days": [d.isoformat() for d in days],
+    cells = count(trigger_rows(args.triggers, days), days, conditions)
+    result = {"schema": "maker_clock_trigger_disclosure_v2", "days": [d.isoformat() for d in days],
               "reserved_window": [RESERVED_FIRST.isoformat(), RESERVED_LAST.isoformat()],
-              "skipped_rows": dict(sorted(skipped.items())), "by_day": summarize(cells), "cells": cells}
+              "by_day": summarize(cells), "cells": cells}
     text = json.dumps(result, indent=1, sort_keys=True)
     if args.out:
-        if args.out.exists():
-            print("REFUSED: out_exists", file=sys.stderr)
-            return 2
         args.out.write_text(text + "\n", encoding="utf-8")
     else:
         print(text)
