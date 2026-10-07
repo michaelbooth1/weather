@@ -36,12 +36,24 @@ def kinds(events):
     return sorted(e.kind for e in events)
 
 
-@pytest.mark.parametrize("reason,source", SUPPORTING)
+SWOB_FOLLOW_UP = ("real SWOB rows carry observed_at as local 'HH:MM' (eccc_swob_history local_time), which "
+                  "the clock cannot parse; fixed by branch claude/mrv2-fix-swob-time-parse-20261007")
+
+
+def real_observed_at(source, spec, when):
+    """The producer's observed_at format per source: SWOB is a bare local 'HH:MM'; the others are ISO."""
+    return when.astimezone(spec.tz).strftime("%H:%M") if source == "eccc_swob" else when.isoformat()
+
+
+@pytest.mark.parametrize("reason,source", [
+    pytest.param(reason, source, marks=pytest.mark.xfail(strict=True, raises=ValueError, reason=SWOB_FOLLOW_UP))
+    if source == "eccc_swob" else (reason, source) for reason, source in SUPPORTING])
 def test_supporting_increase_pulls_but_never_decides(reason, source):
     universe, rows, spec, target, _, _ = fixture(lead=0)
     markets = universe.discover(NOW, 2).markets
     # 80 lands in the top (gte 80) band: a WU print with this value decides every band.
     row = trigger(rows, spec, target, reason=reason, source=source)
+    row["observed_at"] = real_observed_at(source, spec, NOW-timedelta(minutes=1))
     clock = WeatherInformationClock(universe, triggers=[row])
     assert clock.observe(markets, NOW-timedelta(seconds=1)) == ()
     events = clock.observe(markets, NOW)
@@ -49,6 +61,21 @@ def test_supporting_increase_pulls_but_never_decides(reason, source):
     assert {e.affects for e in events} == {(m.condition_id,) for m in markets}
     assert all(e.action_hint == "pull" and e.decided is None for e in events)
     assert all(e.detected_at_utc == NOW and e.observed_at_utc == NOW-timedelta(minutes=1) for e in events)
+
+
+def test_real_format_swob_row_makes_the_clock_raise_at_every_minute():
+    """Current behaviour, pinned until the SWOB follow-up lands: the observed_at parse runs before the
+    as_of filter, so one real-format SWOB row makes observe raise even before that row was detected.
+    The runner then marks the event's clock unavailable for every minute of the bundle day."""
+    universe, rows, spec, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    swob = trigger(rows, spec, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
+    swob["observed_at"] = real_observed_at("eccc_swob", spec, NOW-timedelta(minutes=1))
+    metar = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+    clock = WeatherInformationClock(universe, triggers=[metar, swob])
+    for as_of in (NOW-timedelta(hours=3), NOW):
+        with pytest.raises(ValueError):
+            clock.observe(markets, as_of)
 
 
 def test_supporting_increase_with_no_previous_value_pulls():
