@@ -178,7 +178,11 @@ class LockedNtfsFile:
         start = time.monotonic()
         with self.path.open("rb", buffering=0) as stream:
             while True:
+                paused = time.monotonic()
                 guard()
+                # Time spent inside the guard (e.g. a capture-admission wait) is not read
+                # time: without this the throttle would owe it back as an unthrottled burst.
+                start += time.monotonic() - paused
                 block = stream.read(MIB)
                 if not block:
                     break

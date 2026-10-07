@@ -90,6 +90,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_monitoring_fixes.py",
             "tests/operations/test_bulk_cold_archive_crypt.py",
             "tests/operations/test_cold_snapshot_nightly.py",
+            "tests/operations/test_cold_snapshot_nightly_schedule.py",
             "tests/operations/test_workload_admission_script.py",
             "tests/operations/test_long_job_guard.py",
             "tests/operations/test_replay_cache_compression.py",
@@ -130,6 +131,7 @@ EXPECTED_SHARDS = {
             "tests/market/test_mm_credential_import_cli.py",
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
+            "tests/operations/test_thin_ensure.py",
         ],
     ),
     "reconciler-1": (
