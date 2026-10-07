@@ -17,6 +17,13 @@
 > verbatim). v3, v2 and the Defender files it cites are workstation-local under `l-data/swarm-m/` and are not in the
 > repository; local paths in the body are illustrative.
 >
+> **Oracle clean-room rule (coordinator, 2026-10-07).** This file, its v3.2/v3.1 copies and §6.2 name the denied Kernel
+> strings, so a plain checkout of this repository is **not handout-clean**. The oracle clean room never works from a
+> master checkout: its handout is a sparse or filtered tree that excludes `docs/roadmap/maker-replay-v2-shadow-gate-spec-*`
+> and every build-line kernel path. The §6.2 check is a **scripted step of cutting the handout** and runs on the actual
+> handout tree; the handout is not given out unless that check passes. Known residue the check will reject unless §6.2's
+> substitutions are extended: v3.2 `def compose_book` / `add_own(`; v3.1 `add_own`, `value.book`.
+>
 > **Update when** a later spec version, an owner decision on OD22, or the host-run incidence for the `[N]` placeholder
 > supersedes this text. Add a new dated file rather than editing this copy.
 
