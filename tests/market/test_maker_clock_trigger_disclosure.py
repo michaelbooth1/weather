@@ -189,7 +189,7 @@ def test_reserved_undateable_and_overlong_lines_leave_no_trace(tmp_path, monkeyp
 
 def test_later_failure_stops_the_added_pull_at_its_detection_time(tmp_path):
     rows = [row("metar_temp_bucket_crossed", "metar"),
-            row("metar_temp_bucket_crossed", "metar", at=AT + timedelta(minutes=10), current="abc")]
+            dict(row("metar_temp_bucket_crossed", "metar", at=AT + timedelta(minutes=10)), current_value="abc")]
     [cell] = tool.count(tool.trigger_rows(live(tmp_path, rows), [date(2026, 9, 27)]), [date(2026, 9, 27)])
     assert cell["clock_unavailable"] == "from " + (AT + timedelta(minutes=10)).isoformat()
     assert cell["added_pulled_event_minutes"] == 10.
@@ -199,8 +199,8 @@ def test_later_failure_stops_the_added_pull_at_its_detection_time(tmp_path):
 def test_failure_on_a_previous_day_row_loses_the_whole_day(tmp_path):
     # The runner's as_of on 09-27 is always after a 09-26 failure, so observe raises all day.
     slug = "highest-temperature-in-nyc-on-september-26-2026"
-    rows = [row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-09-26", current="abc",
-                at=datetime(2026, 9, 26, 22, tzinfo=timezone.utc)),
+    rows = [dict(row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-09-26",
+                     at=datetime(2026, 9, 26, 22, tzinfo=timezone.utc)), current_value="abc"),
             row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-09-26",
                 at=datetime(2026, 9, 27, 1, tzinfo=timezone.utc))]
     cells = tool.count(tool.trigger_rows(live(tmp_path, rows), [date(2026, 9, 27)]), [date(2026, 9, 27)])
@@ -216,8 +216,7 @@ def test_deeply_nested_reserved_line_is_skipped_not_raised(tmp_path):
     base.mkdir()
     reference = live(base, clean)
     deep = (b'{"current_captured_at_utc": "2026-10-03T12:00:00+00:00", "x": '
-            + b"[" * 200000 + b"]" * 200000 + b"}
-")
+            + b"[" * 200000 + b"]" * 200000 + b"}\n")
     noisy_dir = tmp_path / "b"
     noisy_dir.mkdir()
     noisy = live(noisy_dir, clean, raw_lines=[deep])
