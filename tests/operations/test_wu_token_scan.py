@@ -373,14 +373,26 @@ class _SpecialEntry:
 
 def _scandir_with_special_entries(real_scandir):
     class _Scandir:
-        def __init__(self, path):
+        """``os.scandir`` stand-in (context manager and iterator, like the real one)."""
+
+        def __init__(self, path="."):
             self._inner = real_scandir(path)
 
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            entry = next(self._inner)
+            return _SpecialEntry(entry) if entry.name.endswith(".special") else entry
+
+        def close(self):
+            self._inner.close()
+
         def __enter__(self):
-            return [(_SpecialEntry(e) if e.name.endswith(".special") else e) for e in self._inner]
+            return self
 
         def __exit__(self, *exc):
-            self._inner.close()
+            self.close()
 
     return _Scandir
 
