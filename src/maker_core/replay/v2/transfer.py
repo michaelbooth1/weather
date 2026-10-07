@@ -32,17 +32,24 @@ a relabelled synthetic bundle could otherwise run without declared intervals.
 
 - ``build(roots, *, host_id, created_at)`` runs on the capture host and reads only ``bundle.json``,
   ``export.json`` and ``receipt.json``. It applies integrity rule PB2(a): every input key of
-  ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, is a normalised
-  relative ``/`` path (no backslash, no leading ``/``, no empty, ``.`` or ``..`` segment; U1 Defender r2
-  NOTE-2), and every key that is case-insensitively under ``maker_evidence/`` lies under
-  ``maker_evidence/<day>/`` exactly (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
+  ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, is
+  ``carry:YYYY-MM-DD`` or an optional ``release:`` prefix plus a normalised relative ``/`` path (see
+  ``_normalised``: ASCII printable, at most ``MAX_INPUT_KEY_CHARS``, no backslash, ``:`` or other
+  Windows-invalid character, no leading ``/``, no empty, ``.`` or ``..`` segment, no segment ending in a
+  dot or space, no device name; U1 Defender r2 NOTE-2 and U1r2 Defender NOTE-2), and every path whose
+  first segment is case-insensitively ``maker_evidence`` lies under ``maker_evidence/<day>/`` exactly
+  (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
 - ``verify(doc, roots, *, bounds_check=True, limits=None, clock=..., run=None)`` runs on the workstation.
-  Each of ``bundle.json``, ``export.json`` and ``receipt.json`` is read from disk once; its raw bytes are
-  hashed and compared with the listed entry BEFORE they are parsed, and only those same bytes are parsed
-  (U1 Defender N1 and r2 LOW-1). Nothing that does not match a listed entry of the caller's
-  ``export_kind`` is parsed, except ``bundle.json`` to name an unlisted refusal. Then every ``build``
-  check is re-applied to those bytes and the reader's pass one runs (every stream hashed, sized, counted
-  and, for v0.3, decoded). With ``bounds`` (PB2(b), the default) it then scans each stream once and
+  Each of ``bundle.json``, ``export.json`` and ``receipt.json`` is read by this module once; its raw
+  bytes are hashed and compared with the listed entry BEFORE this module parses them, and this module
+  parses only those same bytes (U1 Defender N1 and r2 LOW-1). Nothing that does not match a listed entry
+  of the caller's ``export_kind`` is parsed here, except ``bundle.json`` to name an unlisted refusal. Then
+  every ``build`` check is re-applied to those bytes and the reader's pass one runs (every stream hashed,
+  sized, counted and, for v0.3, decoded). **Known gap (U1r2 Defender LOW-A, open X1 follow-up before
+  sha2):** ``open_stream_bundle`` re-reads ``bundle.json`` from disk and parses it to drive pass one;
+  that second copy's hash is compared with the entry only afterwards (``bundle.input_hashes``). A swap
+  between the two reads fails closed, but its bytes are parsed first. The fix is X1's: an
+  ``open_stream_bundle`` that takes the expected manifest hash (or the verified bytes). With ``bounds`` (PB2(b), the default) it then scans each stream once and
   refuses ``transfer_bounds_outside_day:<day>:<stream>`` unless every record's ``captured_at`` lies in
   ``[day 00:00Z, day+1 00:00Z)``. The scan reports only counts and the min/max ``captured_at`` per
   stream; no row leaves it.
@@ -97,6 +104,12 @@ ENTRY_FIELDS = frozenset({"day", "export_kind", "format", "bundle_format", "bund
                           "streams"})
 DOC_FIELDS = frozenset({"format", "bundles", "host_id", "created_at"})
 EVIDENCE_PREFIX = "maker_evidence/"
+MAX_INPUT_KEY_CHARS = 512
+_CARRY_KEY = re.compile(r"carry:\d{4}-\d{2}-\d{2}")
+_RELEASE_PREFIX = "release:"
+_WINDOWS_INVALID = set('<>:"|?*')
+_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+                           *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))})
 REFUSAL_CODES = ("transfer_root_invalid", "transfer_export_kind_unknown", "transfer_day_not_in_export_kind",
                  "transfer_receipt_not_sealed", "transfer_receipt_kind_mismatch", "transfer_receipt_day_mismatch",
                  "transfer_bundle_day_mismatch", "transfer_bundle_format_not_allowed",
@@ -175,15 +188,34 @@ def _inputs_rule(day, export, receipt):
         raise BundleError("transfer_export_mismatch")
     own = f"{EVIDENCE_PREFIX}{day}/"
     for key in (*inputs, *later):
-        if not isinstance(key, str) or not _normalised(key) or (
-                key.casefold().startswith(EVIDENCE_PREFIX) and not key.startswith(own)):
+        path = _normalised(key)
+        if path is None or (path.split("/")[0].casefold() == EVIDENCE_PREFIX[:-1]
+                            and not path.startswith(own)):
             raise BundleError(f"transfer_inputs_outside_day:{day}")
 
 
 def _normalised(key):
-    """A relative ``/`` path as the exporter's reader writes it (``Path.relative_to(root)``, ``/``)."""
-    return "\\" not in key and not key.startswith("/") and all(
-        part not in ("", ".", "..") for part in key.split("/"))
+    """The path part of an input key as the exporter's reader writes it, or ``None`` (U1r2 Defender NOTE-2).
+
+    Keys are ``carry:YYYY-MM-DD`` (no path), ``release:<path>`` or ``<path>``. A key is ASCII printable and
+    at most ``MAX_INPUT_KEY_CHARS`` long; a path is relative ``/`` (``Path.relative_to(root)``): no
+    backslash, ``:`` (drive letters, ADS) or other Windows-invalid character, no leading ``/``, no empty,
+    ``.`` or ``..`` segment, no segment ending in a dot or space (Win32 strips those, so
+    ``maker_evidence./<other day>`` would alias another day's folder) and no device name segment.
+    """
+    if (not isinstance(key, str) or len(key) > MAX_INPUT_KEY_CHARS or not key.isascii()
+            or not key.isprintable()):
+        return None
+    if _CARRY_KEY.fullmatch(key):
+        return ""
+    path = key.removeprefix(_RELEASE_PREFIX)
+    if not path or _WINDOWS_INVALID & set(path) or "\\" in path or path.startswith("/"):
+        return None
+    for part in path.split("/"):
+        if part in ("", ".", "..") or part[-1] in ". " or (
+                part.split(".")[0].rstrip(" ").upper() in _DEVICE_NAMES):
+            return None
+    return path
 
 
 def _entry(export_kind, root, raws=None):
@@ -390,7 +422,7 @@ def bounds(bundle, *, check=lambda: None):
             try:
                 value = json.loads(line)
                 at = timestamp(value["captured_at"])
-            except (ValueError, TypeError, KeyError) as exc:
+            except (ValueError, TypeError, KeyError, RecursionError) as exc:  # nesting depth (LOW-B)
                 raise BundleError(f"transfer_bounds_outside_day:{bundle.day}:{ref.name}") from exc
             if not start <= at < end:
                 raise BundleError(f"transfer_bounds_outside_day:{bundle.day}:{ref.name}")
@@ -408,8 +440,9 @@ def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic, 
     """``roots``: ``[(export_kind, day folder)]``. Workstation; returns ``[Verified]``.
 
     Every comparison happens before a record is parsed: raw manifest, export and receipt hashes (each
-    file read once, hashed and compared, and only then parsed), then every ``build`` check on those same
-    bytes, then pass one of the stream reader. The PB2(b) bounds scan runs last. ``run`` is the ONE
+    file read here once, hashed and compared, and only then parsed here), then every ``build`` check on
+    those same bytes, then pass one of the stream reader. The reader re-reads and parses ``bundle.json``
+    before its own copy's hash is compared (LOW-A, see the module docstring; X1 follow-up). The PB2(b) bounds scan runs last. ``run`` is the ONE
     ``RunBudget`` of this verify (built on ``clock`` when omitted), shared by every bundle.
     """
     listed = check_doc(doc)
