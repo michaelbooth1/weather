@@ -100,7 +100,7 @@ sequence numbers, not calendar dates.
 | 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
 | 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
 | 10l | `-09-83a`: the versioned parser repair is built (PARTIAL); production downloads the same national NBM bulletin ~49 times an hour |
-| 10m | RE-1 live reward sessions 1-9: the reward model holds; empty bands fill |
+| 10m | RE-1 live reward sessions 1-11: the reward model holds; empty bands fill |
 | 10n | Open orders are limited to cash per market, not across markets |
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
@@ -3450,7 +3450,7 @@ for lack of live closure evidence, so production must run its own). Handback **P
   and the branches conflict with each other and with the unlanded research stack. Mission `2026-09-83c` grants that
   ownership and asks for three stacked, individually green integration branches.
 
-### 10m. RE-1 live reward sessions 1-9 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
+### 10m. RE-1 live reward sessions 1-11 (2026-09-23/25): the reward model holds; empty bands fill — mission 92a
 
 Owner-attended sessions on the testing wallet (sized treatment, 75 shares at ±1.5 c from session 4 on). Journal folders are
 numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check refused), 3, 4, 5, 6, 7, 8.
@@ -3463,7 +3463,8 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
 - **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
   session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
   empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
-- **Fills came on the thinnest bands.** Four fills in six sampled sessions, at 1.8, 12.3, 42.0 and 87.2 minutes: 5.57 NO
+- **Fills in sessions 1-8 came on the thinnest bands.** Four fills in sessions 1-8 (six minute-bearing attempts), at
+  1.8, 12.3, 42.0 and 87.2 minutes, all at the quote price (three partial; Miami full but not through): 5.57 NO
   @0.48 (NYC), **75 YES @0.35 (Miami 90-91°F Sep 25; marked -8.5 c/share at +5 and +30 minutes, ~-6.4; the 00Z GFS
   published 36 minutes before)**, 18.41 NO @0.59, 10 NO @0.40; four distinct takers. Only Miami looks informed at short
   horizons; all four are held to settlement (~43.8 cost). On an empty band share is 100% at any size or distance, so 75
@@ -3478,7 +3479,9 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   UTC 09-24 rewards reached ~1.99 before its last minutes.
 - **Session 11 (attempt 12, depth rule, 2026-09-25 01:12-02:23Z):** contested Chicago 68-69°F Sep 25 band (selected share 0.56,
   ~14% at 20 min), 72 minutes, `P_many` 0.383, no requote; a burst of five taker trades then filled the YES leg in full (75 @0.43,
-  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app).
+  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app). Four of the five trades printed
+  at 0.43 and the fifth at 0.42, strictly through our price: RE-1's fifth fill and its only strictly-through one
+  (campaign-root attempt 12 `terminal_trades`).
 - **Settlements (owner portfolio, 2026-09-25 ~00:30Z):** Atlanta 72-73°F Sep 24 NO (18.41 @0.59) won, +7.54; NYC 66-67°F Sep 24
   NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
   **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks
