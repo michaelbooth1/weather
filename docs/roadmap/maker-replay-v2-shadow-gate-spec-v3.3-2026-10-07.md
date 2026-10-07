@@ -23,6 +23,9 @@
 > and every build-line kernel path. The §6.2 check is a **scripted step of cutting the handout** and runs on the actual
 > handout tree; the handout is not given out unless that check passes. Known residue the check will reject unless §6.2's
 > substitutions are extended: v3.2 `def compose_book` / `add_own(`; v3.1 `add_own`, `value.book`.
+> A proposed extension, **DRAFT and not in force** until the owner accepts it, is
+> [v3.4 DRAFT](maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md) (full substitution table, curated deny list,
+> filtered-tree path globs, updated source pins).
 >
 > **Update when** a later spec version, an owner decision on OD22, or the host-run incidence for the `[N]` placeholder
 > supersedes this text. Add a new dated file rather than editing this copy.
