@@ -230,3 +230,22 @@ def test_naive_metar_report_time_skips_that_row_only():
     clock = WeatherInformationClock(universe, triggers=[naive, wu])
     assert kinds(clock.observe(markets, NOW)) == ["decided"] * 3 + ["new_high"] * 3
     assert clock.last_skipped == {UNPARSEABLE: 1}
+
+
+def test_a_bad_row_affects_only_minutes_at_or_after_its_detection():
+    """Point in time: the exporter keeps rows detected up to the end of the UTC day. A row with a bad
+    observed_at, detected later, must not change (or be counted in) any earlier minute."""
+    from tests.market.test_maker_plugin import NOW
+    universe, rows, spec, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    early = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+    early.update(current_captured_at_utc=(NOW - timedelta(hours=2)).isoformat(),
+                 observed_at=(NOW - timedelta(hours=2, minutes=3)).isoformat())
+    late = trigger(rows, spec, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
+    late["observed_at"] = "not a time"  # detected at NOW
+    clock = WeatherInformationClock(universe, triggers=[early, late])
+    before = clock.observe(markets, NOW - timedelta(minutes=1))
+    assert kinds(before) == ["new_high"] * 3 and not clock.last_skipped
+    assert WeatherInformationClock(universe, triggers=[early]).observe(markets, NOW - timedelta(minutes=1)) == before
+    assert clock.observe(markets, NOW) == before
+    assert clock.last_skipped == {UNPARSEABLE: 1}
