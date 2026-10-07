@@ -436,7 +436,6 @@ TRAILING_BLANK_LINE_EXEMPT = frozenset(
         "src/weather/reporting/formatting.py",
         "src/weather/reporting/promotion/__init__.py",
         "src/weather/reporting/promotion/decisions.py",
-        "src/weather/reporting/promotion/report.py",
         "src/weather/scoring/__init__.py",
         "src/weather/scoring/trading.py",
         "weather/__init__.py",

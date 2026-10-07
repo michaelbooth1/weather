@@ -33,6 +33,9 @@ jobs:
           # The agent-docs audit below checks correspondence history.
           fetch-depth: 0
           lfs: false
+          # The agent-docs audit below checks the correspondence index against
+          # git history and refuses a shallow clone.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
