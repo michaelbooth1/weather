@@ -1,6 +1,9 @@
 """Maker replay v2 X1: bundle v0.3 gzip streams and the v2 byte AND time limits (fictional rows only).
 
 Owner decisions 8 and 9; B-def D1 (time across re-reads), D2 (gzip reader), D3 (determinism).
+
+Guards: owner decisions 8 (deterministic gzip, decoded-hash identity) and 9 (v2 byte and time limits),
+B-def D1-D3, X1 Defender M1 (fail-closed bundle lifetime) and U1-def r2 C1 (public stream_records).
 """
 from datetime import date
 import gzip
