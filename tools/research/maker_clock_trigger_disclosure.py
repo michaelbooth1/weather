@@ -35,6 +35,12 @@ Fields per cell:
   and makes nothing unavailable. A row that fails later in ``observe`` makes the clock unavailable
   from its detection time; added pull stops there. If that detection time is at or before the start
   of d (a row from d-1), the runner loses the whole of d, so the cell is ``"all_day"`` too.
+- ``old_clock_unavailable_observed_at``: the v1-exam (pre-fix, ``501f4757``) clock's own loss. That clock
+  parsed every truthy ``observed_at`` of the event's rows BEFORE the point-in-time filter, so one row
+  whose ``observed_at`` is not an aware instant made ``observe`` raise at every minute of d, including
+  minutes before that row was detected and lead-1 minutes before local midnight (scored ``informed-v0``
+  T+1 inputs). The value is ``"all_day"`` for such a cell, else None. It measures the incidence of v1
+  defect 2 for the registration; it does not change any other field (the fixed clock refuses the row).
 
 Fidelity limit: the numbers hold only for a well-formed trigger file. The exporter treats one
 malformed or non-object line anywhere in the file as a corrupt ``triggers`` source, which makes every
@@ -177,6 +183,18 @@ def _fails_every_minute(row):
     return False
 
 
+def _old_observed_at_raises(row):
+    """True when the v1-exam clock raised on this row's observed_at (literal pre-fix expression:
+    ``timestamp(row["observed_at"]) if row.get("observed_at") else None``), whatever ``as_of`` is."""
+    if not row.get("observed_at"):
+        return False
+    try:
+        timestamp(row["observed_at"])
+    except CLOCK_ERRORS:
+        return True
+    return False
+
+
 def _minutes(start, end):
     return max(0., (end - start).total_seconds() / 60.)
 
@@ -192,7 +210,9 @@ def cell(day, slug, kept, bands=None):
            "trigger_rows_detected_on_day": sum(1 for d, _ in kept if d == day),
            "clock_unavailable": None, "new_only_detection_minutes": 0,
            "first_new_high_utc_new": None, "first_new_high_utc_old": None,
-           "added_pulled_event_minutes": 0., "conditions": bands, "added_pulled_condition_minutes": None}
+           "added_pulled_event_minutes": 0., "conditions": bands, "added_pulled_condition_minutes": None,
+           "old_clock_unavailable_observed_at":
+               "all_day" if any(_old_observed_at_raises(row) for _, row in kept) else None}
     if any(_fails_every_minute(row) for _, row in kept):
         out["clock_unavailable"] = "all_day"
         return out
@@ -245,13 +265,15 @@ def summarize(cells):
         total = by_day.setdefault(item["day"], {
             "events": 0, "events_clock_unavailable_all_day": 0, "events_clock_unavailable_partly": 0,
             "events_with_added_pull": 0, "new_only_detection_minutes": 0, "added_pulled_event_minutes": 0.,
-            "added_pulled_condition_minutes": 0., "events_without_condition_count": 0})
+            "added_pulled_condition_minutes": 0., "events_without_condition_count": 0,
+            "events_old_clock_unavailable_observed_at": 0})
         total["events"] += 1
         if item["clock_unavailable"] == "all_day":
             total["events_clock_unavailable_all_day"] += 1
         elif item["clock_unavailable"]:
             total["events_clock_unavailable_partly"] += 1
         total["events_with_added_pull"] += item["added_pulled_event_minutes"] > 0
+        total["events_old_clock_unavailable_observed_at"] += item["old_clock_unavailable_observed_at"] is not None
         total["new_only_detection_minutes"] += item["new_only_detection_minutes"]
         total["added_pulled_event_minutes"] += item["added_pulled_event_minutes"]
         if item["added_pulled_condition_minutes"] is None:
@@ -282,7 +304,7 @@ def main(argv=None):
         return 2
     conditions = json.loads(args.conditions.read_text(encoding="utf-8")) if args.conditions else None
     cells = count(trigger_rows(args.triggers, days), days, conditions)
-    result = {"schema": "maker_clock_trigger_disclosure_v2", "days": [d.isoformat() for d in days],
+    result = {"schema": "maker_clock_trigger_disclosure_v3", "days": [d.isoformat() for d in days],
               "reserved_window": [RESERVED_FIRST.isoformat(), RESERVED_LAST.isoformat()],
               "by_day": summarize(cells), "cells": cells}
     text = json.dumps(result, indent=1, sort_keys=True)

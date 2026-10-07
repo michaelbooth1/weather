@@ -13,6 +13,9 @@ no trigger producer writes it), a naive ISO string, garbage. A refused row is sk
 counted as ``observed_at_unparseable``; it never makes the clock unavailable.
 
 Fictional fixtures only (dates in 2030).
+
+Guards: OD37 observed_at refusal and point-in-time trigger use in the maker plugin clock
+(docs/operations/maker-core-contracts.md, plugin clock observed_at contract).
 """
 from datetime import datetime, timedelta, timezone
 
@@ -129,7 +132,8 @@ def test_bare_local_hhmm_is_refused_never_interpreted(now, wall):
     assert clock.last_skipped == {UNPARSEABLE: len(markets)}
 
 
-@pytest.mark.parametrize("bad", ["14:59", "24:00", "9:59", "2030-01-10T14:59:00", "not a time", 1894287540])
+@pytest.mark.parametrize("bad", ["14:59", "24:00", "9:59", "2030-01-10T14:59:00", "not a time", 1894287540,
+                                 0, 0.0, False, [], {}])  # A present falsy value is refused, never "absent".
 def test_unparseable_observed_at_skips_only_that_row_and_counts_it(bad):
     from tests.market.test_maker_plugin import NOW
     universe, rows, spec, target, _, _ = fixture(lead=0)
@@ -148,6 +152,21 @@ def test_unparseable_observed_at_skips_only_that_row_and_counts_it(bad):
     # The count is per observe call, not cumulative, and the clock keeps working afterwards.
     assert clock.observe(markets, NOW) == events
     assert clock.last_skipped == {UNPARSEABLE: 2 * len(markets)}
+
+
+@pytest.mark.parametrize("absent", ["missing", None, ""])
+def test_only_a_missing_none_or_empty_observed_at_counts_as_absent(absent):
+    """Absent means no observed time: the row is used on its detection time and nothing is counted."""
+    from tests.market.test_maker_plugin import NOW
+    universe, rows, spec, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    row = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+    row.pop("observed_at", None)
+    if absent != "missing":
+        row["observed_at"] = absent
+    clock = WeatherInformationClock(universe, triggers=[row])
+    assert kinds(clock.observe(markets, NOW)) == ["new_high"] * 3
+    assert not clock.last_skipped
 
 
 def test_runner_counts_the_skip_and_keeps_the_clock_available(tmp_path):

@@ -1,6 +1,9 @@
 """Observation triggers in the maker plugin clock: supporting sources pull, only WU history decides.
 
 Fictional fixtures only (target dates in 2030).
+
+Guards: supporting-trigger pulls and WU-history-only decisions in the maker plugin clock
+(docs/operations/maker-core-contracts.md, plugin clock trigger contract).
 """
 from datetime import timedelta
 

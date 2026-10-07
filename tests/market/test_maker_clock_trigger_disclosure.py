@@ -1,4 +1,8 @@
-"""Disclosure counter for the clock supporting-trigger fix. Fictional trigger rows only."""
+"""Disclosure counter for the clock supporting-trigger fix. Fictional trigger rows only.
+
+Guards: the registration disclosure for the clock+SWOB unit and reserved-window custody of the
+counter (docs/operations/maker-core-contracts.md; docs/operations/reserved-confirmation-window.md).
+"""
 from datetime import date, datetime, timedelta, timezone
 import gzip
 import json
@@ -160,6 +164,10 @@ def test_bare_hhmm_swob_row_no_longer_makes_the_event_day_unavailable(tmp_path):
     assert cells["nyc"]["clock_unavailable"] is None and cells["nyc"]["new_only_detection_minutes"] == 1
     day = result["by_day"][DAY]
     assert (day["events"], day["events_clock_unavailable_all_day"], day["events_with_added_pull"]) == (2, 0, 2)
+    # The v1-exam clock lost the whole Toronto day to that row (defect 2); NYC was unaffected.
+    assert tor["old_clock_unavailable_observed_at"] == "all_day"
+    assert cells["nyc"]["old_clock_unavailable_observed_at"] is None
+    assert day["events_old_clock_unavailable_observed_at"] == 1
 
 
 def test_unparseable_observed_at_adds_no_pull_and_no_unavailability(tmp_path):
@@ -169,6 +177,32 @@ def test_unparseable_observed_at_adds_no_pull_and_no_unavailability(tmp_path):
     assert tool.main(["--date", DAY, "--triggers", str(live(tmp_path, rows)), "--out", str(out)]) == 0
     [tor] = json.loads(out.read_text())["cells"]
     assert tor["clock_unavailable"] is None and tor["new_only_detection_minutes"] == 0
+
+
+@pytest.mark.parametrize("observed,lost", [
+    ("10:00", True), ("2026-09-27T10:00:00", True), ("not a time", True), (1894287540, True), ({"a": 1}, True),
+    (None, False), ("", False), (0, False), ([], False),  # The v1 clock treated falsy values as absent.
+    ("2026-09-27T14:00:00-04:00", False), ("2026-09-27T18:00:00Z", False)])
+def test_old_clock_whole_day_loss_matches_the_literal_pre_fix_parse(observed, lost, tmp_path):
+    """v1 defect 2: the pre-fix clock parsed observed_at before the as_of filter, so a row detected at
+    18:00 UTC made it raise at 03:00 UTC too: a lead-1 minute for NYC (23:00 local the evening before)."""
+    late = row("metar_temp_bucket_crossed", "metar", observed=observed)
+    late["observed_at"] = observed
+    early = AT.replace(hour=3, minute=0, second=0)
+    raised = False
+    try:
+        old_new_high(late, early)
+    except (ValueError, TypeError):
+        raised = True
+    assert raised is lost
+    out = tmp_path / "r.json"
+    assert tool.main(["--date", DAY, "--triggers", str(live(tmp_path, [late])), "--out", str(out)]) == 0
+    result = json.loads(out.read_text())
+    [cell] = result["cells"]
+    assert cell["old_clock_unavailable_observed_at"] == ("all_day" if lost else None)
+    assert result["by_day"][DAY]["events_old_clock_unavailable_observed_at"] == int(lost)
+    assert cell["clock_unavailable"] is None  # The fixed clock refuses the row instead.
+    assert result["schema"] == "maker_clock_trigger_disclosure_v3"
 
 
 def test_reserved_undateable_and_overlong_lines_leave_no_trace(tmp_path, monkeypatch):

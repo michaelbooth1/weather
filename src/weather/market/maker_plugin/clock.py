@@ -44,10 +44,12 @@ def observed_time(row):
     Producers write ISO-8601 with a UTC offset (SWOB: the station's local time with its offset,
     from ``model_sources.parse_swob_xml``), which is unambiguous across DST. Anything that is not an
     aware instant is refused and never interpreted (owner decision OD37, 2026-10-07): a bare local
-    ``"HH:MM"`` (the eccc_swob_history CSV shape), a naive ISO string, garbage.
+    ``"HH:MM"`` (the eccc_swob_history CSV shape), a naive ISO string, garbage. Only a missing key,
+    ``None`` or ``""`` means "no observed time"; any other falsy value (``0``, ``False``, ``[]``,
+    ``{}``) is present and therefore refused, never treated as absent.
     """
     value = row.get("observed_at")
-    if not value:
+    if value is None or value == "":
         return None, None
     try:
         return timestamp(value), None

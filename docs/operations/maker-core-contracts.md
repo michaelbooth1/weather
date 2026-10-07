@@ -183,6 +183,18 @@ backfill CSVs, a naive ISO string, garbage) is refused, never interpreted (owner
 2026-10-07): that row is skipped and counted in the runner coverage as
 `clock.trigger_rows_skipped.observed_at_unparseable` (once per row per evaluated band-minute); it
 never makes the clock unavailable. A row detected after `as_of` is neither used nor counted.
+**Scope of the observed_at change (not T+0 only).** The v1-exam clock parsed every truthy
+`observed_at` of an event's rows before the point-in-time filter, and the exporter keeps every row
+detected up to the end of the UTC bundle day, so one unparseable value made that event's clock
+unavailable for the whole UTC bundle day. That day can include lead-1 minutes before local midnight
+(for New York, 00:00-05:00 UTC), which are scored `informed-v0` T+1 inputs. The refusal therefore can
+change T+1 inputs wherever such a row exists; only the supporting-pull change is lead-0 only. Measure
+the incidence with `tools/research/maker_clock_trigger_disclosure.py`
+(`old_clock_unavailable_observed_at` per cell, `events_old_clock_unavailable_observed_at` per day)
+and check `clock.trigger_rows_skipped.observed_at_unparseable` on post-fix exports. **Re-pin** after
+this change: `execution_manifest.source_hashes` and the exporter hashes over `maker_plugin/*.py` and
+`maker_plugin_runner.py`, and `maker_fair_value_score`'s `implementation_hashes` over
+`maker_plugin/*.py` (fair-value score report bytes change on a rerun).
 
 Served T+0 joins require the bounded export to project `release_calibration_method`
 from the verified release's calibration artifact (`market_bin.method`) onto each
