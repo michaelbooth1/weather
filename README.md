@@ -226,7 +226,8 @@ Run commands from the repository root with the venv interpreter.
 # offsets only, never the value. A bulk scan: on the capture host it runs only
 # 00:30-09:00 under the shared lease (docs/operations/HISTORY_DATA_DESIGN.md).
 # A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links. An unread
-# placeholder/reparse file is INCOMPLETE under every --links policy.
+# placeholder/reparse file is INCOMPLETE under every --links policy. gzip/zip/
+# UTF-16/base64 content is decoded; undecodable content (zstd, Parquet) is INCOMPLETE.
 .\venv\Scripts\python.exe -m weather.operations.wu_token_scan data\logs data\wunderground
 
 # METAR/ASOS redundant observation history.

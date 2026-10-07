@@ -8,11 +8,12 @@ it is: the output carries only file paths, per-pattern match counts and the
 byte offset of the first match.
 
 Exit codes: 0 clean (every eligible file scanned), 1 at least one finding,
-2 error or incomplete scan (a cap was hit, a root is missing, a file could not be
-read, a symlink or junction was skipped, a non-link reparse point such as a
-OneDrive placeholder was left unread, an entry was neither a file nor a
-directory, or ``--token-from-env`` names an unusable variable). A capped scan is
-never reported clean. Invariant (N3): CLEAN means every regular file under the
+2 error or incomplete scan (a cap was hit, a root is missing or empty, a file
+could not be read, a symlink or junction was skipped, a non-link reparse point
+such as a OneDrive placeholder was left unread, an entry was neither a file nor a
+directory, content could not be decoded, or ``--token-from-env`` names an
+unusable variable), 3 the scan ran but ``--json-out`` could not be written (the
+report is still printed). A capped scan is never reported clean. Invariant (N3): CLEAN means every regular file under the
 request was read, except files reachable only through a link that ``--links
 ignore`` explicitly waived; ``unread_reasons`` in the report names every reason
 a scan is not CLEAN.
@@ -37,20 +38,44 @@ An explicit ``files=`` list (used by the repository ratchet) is handled exactly
 like ``roots``: a directory or junction named in it is walked as named, never
 silently dropped.
 
-The walk is bounded by ``--max-files``,
-``--max-file-bytes`` and ``--max-total-bytes``. Files are streamed in chunks, so
-memory stays flat however large a tape is. Compressed files are scanned as raw
-bytes and are not decompressed.
+Encoded content (Defender MF1): every file is scanned as raw bytes, then its
+first bytes are sniffed and any recognised layer is decoded as a stream and
+scanned too, recursively up to ``MAX_DECODE_DEPTH`` layers: gzip, bzip2, xz/lzma,
+zip members, UTF-16/UTF-32 (BOM, or UTF-16 without a BOM by its NUL pattern) and
+whole-file base64. Content that is recognised but cannot be decoded -- zstd, 7z,
+rar, lz4, Parquet (its pages may be compressed), an encrypted or unsupported zip
+member, a corrupt or truncated stream, base64 that stops being base64, or a layer
+past ``--max-decoded-bytes`` -- is listed in ``undecoded`` and makes the scan
+INCOMPLETE. Findings name the layer (``gzip>utf-16-le``, ``zip[2]``), never a zip
+member name. Not covered (follow-ups): base64 or compressed runs embedded inside
+an otherwise plain file, raw zlib streams, and a zip with data before its header.
+
+Directories skipped by name (``--exclude-dir``) are listed in
+``skipped_excluded``; skipping them does not make the scan incomplete.
+
+The walk is bounded by ``--max-files``, ``--max-file-bytes``,
+``--max-total-bytes`` and, per file across its decoded layers,
+``--max-decoded-bytes``. Files and decoded layers are streamed in chunks, so
+memory stays flat however large a tape is.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import bz2
+import codecs
+import gzip
 import json
+import lzma
 import os
 import re
 import stat
 import sys
+import zipfile
+import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,10 +85,17 @@ SCHEMA_VERSION = "wu_token_scan_v1"
 EXIT_CLEAN = 0
 EXIT_FOUND = 1
 EXIT_ERROR = 2
+# The scan ran (its status is printed) but the --json-out report could not be written.
+EXIT_OUTPUT_ERROR = 3
 
 DEFAULT_MAX_FILES = 500_000
 DEFAULT_MAX_FILE_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 64 * 1024 * 1024 * 1024
+# Decoded bytes read from one file across all its layers (decompression-bomb bound).
+DEFAULT_MAX_DECODED_BYTES = 2 * 1024 * 1024 * 1024
+MAX_DECODE_DEPTH = 4
+# Bytes of a file or layer inspected to recognise an encoding or container.
+SNIFF_BYTES = 4096
 DEFAULT_EXCLUDED_DIR_NAMES = (".git", "__pycache__", "venv", ".venv", "node_modules")
 LINKS_INCOMPLETE = "incomplete"
 LINKS_IGNORE = "ignore"
@@ -136,6 +168,10 @@ class ScanResult:
     link_policy: str = LINKS_INCOMPLETE
     files_scanned: int = 0
     bytes_scanned: int = 0
+    decoded_bytes_scanned: int = 0
+    undecoded: list = field(default_factory=list)
+    skipped_excluded: list = field(default_factory=list)
+    skipped_excluded_count: int = 0
     truncated_reason: str | None = None
 
 
@@ -189,6 +225,14 @@ def _record_unread(result, path, reason):
         result.errors.append({"path": str(path), "error": reason})
 
 
+def _record_excluded(result, path):
+    if result is None:
+        return
+    result.skipped_excluded_count += 1
+    if len(result.skipped_excluded) < MAX_REPORTED_LINK_PATHS:
+        result.skipped_excluded.append(str(path))
+
+
 def _real_key(path) -> str:
     return os.path.normcase(os.path.realpath(path))
 
@@ -222,6 +266,10 @@ def iter_files(
     follow = link_policy == LINKS_FOLLOW_WITHIN_ROOT
     excluded = {name.casefold() for name in excluded_dir_names}
     for root in roots:
+        if isinstance(root, str) and not root.strip():
+            # Path("") is ".", so an empty argument would silently scan the cwd.
+            _record_unread(result, root, "EmptyPath")
+            continue
         root = Path(root)
         try:
             root_info = os.lstat(root)
@@ -270,7 +318,10 @@ def iter_files(
                         continue
                     is_dir = stat.S_ISDIR(target_info.st_mode)
                     if is_dir:
-                        if target_key in visited or entry.name.casefold() in excluded:
+                        if entry.name.casefold() in excluded:
+                            _record_excluded(result, entry.path)
+                            continue
+                        if target_key in visited:
                             continue
                         visited.add(target_key)
                     elif not stat.S_ISREG(target_info.st_mode):
@@ -285,7 +336,9 @@ def iter_files(
                     continue
                 try:
                     if entry.is_dir(follow_symlinks=False):
-                        if entry.name.casefold() not in excluded:
+                        if entry.name.casefold() in excluded:
+                            _record_excluded(result, entry.path)
+                        else:
                             if follow:
                                 key = _real_key(entry.path)
                                 if key in visited:
@@ -305,44 +358,332 @@ def iter_files(
             stack.extend(reversed(subdirectories))
 
 
-def scan_file(path, patterns):
-    """Return ``{pattern: (count, first_offset)}`` for one file, streaming in chunks."""
+def _scan_stream(reader, patterns, size=None):
+    """Return ``({pattern: (count, first_offset)}, head)`` for a binary stream, in chunks.
+
+    ``head`` is the first ``SNIFF_BYTES`` bytes, used to recognise an inner layer.
+    ``size`` (a regular file's length) sizes the reads; a decoded stream is read
+    in full chunks.
+    """
     hits = {}
+    head = b""
     base = 0
     counted_until = 0
     carry = b""
-    with open(path, "rb") as handle:
-        remaining = os.fstat(handle.fileno()).st_size
-        while True:
+    remaining = size
+    while True:
+        if remaining is None:
+            chunk = reader.read(CHUNK_BYTES)
+        else:
             # Size the read to the file: a full-chunk read() allocates CHUNK_BYTES per
             # call, which dominates the cost of scanning many small files on Windows.
             # A file that grows while it is read continues in 64 KiB reads.
-            chunk = handle.read(min(CHUNK_BYTES, remaining) if remaining else 64 * 1024)
+            chunk = reader.read(min(CHUNK_BYTES, remaining) if remaining else 64 * 1024)
             remaining = max(0, remaining - len(chunk))
-            eof = not chunk
-            buffer = carry + chunk
-            if not buffer:
-                break
-            limit = len(buffer) if eof else max(0, len(buffer) - OVERLAP_BYTES)
-            lowered = buffer.lower()
-            key_named = b"apikey" in lowered or b"api_key" in lowered or b"api-key" in lowered
-            for name, pattern in patterns.items():
-                # Every built-in pattern is anchored on an apiKey/API_KEY name; a chunk
-                # without one cannot match, so skip the (slow, case-insensitive) regex.
-                if name in PATTERNS and not key_named:
+        eof = not chunk
+        if len(head) < SNIFF_BYTES and chunk:
+            head += chunk[: SNIFF_BYTES - len(head)]
+        buffer = carry + chunk
+        if not buffer:
+            break
+        limit = len(buffer) if eof else max(0, len(buffer) - OVERLAP_BYTES)
+        lowered = buffer.lower()
+        key_named = b"apikey" in lowered or b"api_key" in lowered or b"api-key" in lowered
+        for name, pattern in patterns.items():
+            # Every built-in pattern is anchored on an apiKey/API_KEY name; a chunk
+            # without one cannot match, so skip the (slow, case-insensitive) regex.
+            if name in PATTERNS and not key_named:
+                continue
+            for match in pattern.finditer(buffer):
+                start = base + match.start()
+                if start < counted_until or (not eof and match.start() >= limit):
                     continue
-                for match in pattern.finditer(buffer):
-                    start = base + match.start()
-                    if start < counted_until or (not eof and match.start() >= limit):
+                count, first = hits.get(name, (0, None))
+                hits[name] = (count + 1, start if first is None else first)
+        if eof:
+            break
+        counted_until = base + limit
+        carry = buffer[limit:]
+        base += limit
+    return hits, head
+
+
+def _scan_raw(path, patterns):
+    with open(path, "rb") as handle:
+        return _scan_stream(handle, patterns, size=os.fstat(handle.fileno()).st_size)
+
+
+def scan_file(path, patterns):
+    """Return ``{pattern: (count, first_offset)}`` for one file's raw bytes, streaming in chunks."""
+    return _scan_raw(path, patterns)[0]
+
+
+# --- decoded layers (Defender MF1) -------------------------------------------------------
+
+_UNDECODABLE_MAGIC = (
+    (b"\x28\xb5\x2f\xfd", "zstd"),
+    (b"7z\xbc\xaf\x27\x1c", "7z"),
+    (b"Rar!\x1a\x07", "rar"),
+    (b"\x04\x22\x4d\x18", "lz4"),
+    (b"PAR1", "parquet"),
+)
+_BASE64_STD = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n")
+_BASE64_URL = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=\r\n")
+_MIN_BASE64_CHARS = 64
+
+
+class _DecodedTooLarge(Exception):
+    pass
+
+
+class _UndecodableLayer(Exception):
+    pass
+
+
+_DECODE_ERRORS = (
+    OSError,
+    EOFError,
+    zlib.error,
+    lzma.LZMAError,
+    zipfile.BadZipFile,
+    zipfile.LargeZipFile,
+    NotImplementedError,
+    RuntimeError,
+    binascii.Error,
+    ValueError,
+    UnicodeError,
+    _UndecodableLayer,
+)
+
+
+def _utf16_by_nuls(head):
+    """``"utf-16-le"``/``"utf-16-be"`` when ``head`` looks like BOM-less UTF-16 text, else None."""
+    usable = len(head) // 2 * 2
+    if usable < 16:
+        return None
+    pairs = usable // 2
+    even_nul = head[0:usable:2].count(0)
+    odd_nul = head[1:usable:2].count(0)
+    if odd_nul >= 0.6 * pairs and even_nul <= 0.1 * pairs:
+        return "utf-16-le"
+    if even_nul >= 0.6 * pairs and odd_nul <= 0.1 * pairs:
+        return "utf-16-be"
+    return None
+
+
+def _looks_base64(head):
+    body = head.replace(b"\r", b"").replace(b"\n", b"")
+    if len(body) < _MIN_BASE64_CHARS:
+        return None
+    letters = set(body)
+    # Mixed case is required: a hex digest list is valid base64 alphabet but is text.
+    if not (letters & set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ") and letters & set(b"abcdefghijklmnopqrstuvwxyz")):
+        return None
+    if set(head) <= _BASE64_STD:
+        return "base64"
+    if set(head) <= _BASE64_URL:
+        return "base64url"
+    return None
+
+
+def _sniff(head):
+    """Name the layer ``head`` starts, ``"!<name>"`` for one that cannot be decoded, or None."""
+    if head.startswith(b"\x1f\x8b"):
+        return "gzip"
+    if head.startswith(b"BZh") and head[4:10] in (b"1AY&SY", b"\x17rE8P\x90"):
+        return "bzip2"
+    if head.startswith(b"\xfd7zXZ\x00"):
+        return "xz"
+    if head.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+        return "zip"
+    for magic, name in _UNDECODABLE_MAGIC:
+        if head.startswith(magic):
+            return "!" + name
+    if head.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return "utf-32"
+    if head.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    return _utf16_by_nuls(head) or _looks_base64(head)
+
+
+class _Budget:
+    def __init__(self, remaining):
+        self.remaining = remaining
+
+
+class _CappedReader:
+    """Count decoded bytes against the per-file budget; raise once it is spent."""
+
+    def __init__(self, inner, budget):
+        self.inner = inner
+        self.budget = budget
+
+    def read(self, size=-1):
+        data = self.inner.read(size)
+        self.budget.remaining -= len(data)
+        if self.budget.remaining < 0:
+            raise _DecodedTooLarge()
+        return data
+
+
+class _ChunkReader:
+    """A read(size)-honouring stream over ``_next_chunk()`` (gzip and zip need exact reads)."""
+
+    done = False
+
+    def __init__(self):
+        self._buffer = b""
+        self._offset = 0
+
+    def _next_chunk(self):  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def read(self, size=-1):
+        if size is None or size < 0:
+            size = CHUNK_BYTES
+        # Refill only when the buffer is spent, so small reads (gzip asks for 8 KiB)
+        # slice a single chunk instead of re-copying it.
+        while self._offset >= len(self._buffer) and not self.done:
+            self._buffer, self._offset = self._next_chunk(), 0
+        data = self._buffer[self._offset : self._offset + size]
+        self._offset += len(data)
+        return data
+
+
+class _TranscodeReader(_ChunkReader):
+    """Present a UTF-16/UTF-32 stream as UTF-8 bytes (undecodable units become U+FFFD)."""
+
+    def __init__(self, raw, encoding):
+        super().__init__()
+        self.raw = raw
+        self.decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+
+    def _next_chunk(self):
+        chunk = self.raw.read(CHUNK_BYTES)
+        self.done = not chunk
+        return self.decoder.decode(chunk, final=self.done).encode("utf-8")
+
+
+class _Base64Reader(_ChunkReader):
+    """Decode a whole-file base64 stream (line breaks allowed) chunk by chunk."""
+
+    def __init__(self, raw, urlsafe):
+        super().__init__()
+        self.raw = raw
+        self.urlsafe = urlsafe
+        self.pending = b""
+
+    def _decode(self, data):
+        if self.urlsafe:
+            data = data.translate(bytes.maketrans(b"-_", b"+/"))
+        return base64.b64decode(data, validate=True)
+
+    def _next_chunk(self):
+        while not self.done:
+            chunk = self.raw.read(CHUNK_BYTES)
+            self.done = not chunk
+            self.pending += chunk.replace(b"\r", b"").replace(b"\n", b"")
+            if self.done:
+                tail, self.pending = self.pending, b""
+                if len(tail) % 4 == 1:
+                    raise _UndecodableLayer("truncated base64")
+                return self._decode(tail + b"=" * (-len(tail) % 4)) if tail else b""
+            whole = len(self.pending) // 4 * 4
+            if whole:
+                data, self.pending = self.pending[:whole], self.pending[whole:]
+                decoded = self._decode(data)
+                if decoded:
+                    return decoded
+        return b""
+
+
+@contextmanager
+def _open_inner(open_parent, kind):
+    with open_parent() as raw:
+        if kind == "gzip":
+            with gzip.GzipFile(fileobj=raw, mode="rb") as inner:
+                yield inner
+        elif kind == "bzip2":
+            with bz2.BZ2File(raw, mode="rb") as inner:
+                yield inner
+        elif kind == "xz":
+            with lzma.LZMAFile(raw, mode="rb") as inner:
+                yield inner
+        elif kind in ("base64", "base64url"):
+            yield _Base64Reader(raw, urlsafe=kind == "base64url")
+        else:
+            yield _TranscodeReader(raw, kind)
+
+
+class _LayerScan:
+    """Per-file state while decoded layers are scanned."""
+
+    def __init__(self, path, patterns, budget):
+        self.path = path
+        self.patterns = patterns
+        self.budget = budget
+        self.layers = {}
+        self.undecoded = []
+        self.decoded_bytes = 0
+
+    def unread(self, label, cause):
+        self.undecoded.append({"path": str(self.path), "reason": f"{label}:{cause}"})
+
+    def scan_layer(self, open_layer, label, depth):
+        """Scan one decoded layer, then any layer inside it."""
+        start = self.budget.remaining
+        try:
+            with open_layer() as reader:
+                hits, head = _scan_stream(_CappedReader(reader, self.budget), self.patterns)
+        except _DecodedTooLarge:
+            self.unread(label, "decoded_oversize")
+            return
+        except _DECODE_ERRORS as exc:
+            self.unread(label, type(exc).__name__)
+            return
+        finally:
+            self.decoded_bytes += max(0, start - max(self.budget.remaining, 0))
+        if hits:
+            self.layers[label] = hits
+        self.descend(open_layer, head, label, depth)
+
+    def descend(self, open_layer, head, label, depth):
+        kind = _sniff(head)
+        if kind is None:
+            return
+        child = f"{label}>{kind.lstrip('!')}" if label else kind.lstrip("!")
+        if kind.startswith("!"):
+            self.unread(child, "undecodable_format")
+            return
+        if depth >= MAX_DECODE_DEPTH:
+            self.unread(child, "max_decode_depth")
+            return
+        if kind == "zip":
+            self.scan_zip(open_layer, label, depth)
+            return
+        self.scan_layer(lambda: _open_inner(open_layer, kind), child, depth + 1)
+
+    def scan_zip(self, open_layer, label, depth):
+        prefix = f"{label}>" if label else ""
+        try:
+            with open_layer() as raw, zipfile.ZipFile(raw) as archive:
+                for index, info in enumerate(archive.infolist()):
+                    if info.is_dir():
                         continue
-                    count, first = hits.get(name, (0, None))
-                    hits[name] = (count + 1, start if first is None else first)
-            if eof:
-                break
-            counted_until = base + limit
-            carry = buffer[limit:]
-            base += limit
-    return hits
+                    child = f"{prefix}zip[{index}]"
+                    if info.flag_bits & 0x1:
+                        self.unread(child, "encrypted")
+                        continue
+                    self.scan_layer(lambda info=info: archive.open(info), child, depth + 1)
+        except _DECODE_ERRORS as exc:
+            self.unread(prefix + "zip", type(exc).__name__)
+
+
+def _scan_decoded(path, head, patterns, max_decoded_bytes):
+    """Scan the decoded layers inside ``path`` (whose raw bytes start with ``head``)."""
+    layer_scan = _LayerScan(path, patterns, _Budget(max_decoded_bytes))
+    layer_scan.descend(lambda: open(path, "rb"), head, "", 0)
+    return layer_scan
 
 
 def scan(
@@ -355,6 +696,7 @@ def scan(
     excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES,
     files=None,
     link_policy=LINKS_INCOMPLETE,
+    max_decoded_bytes=DEFAULT_MAX_DECODED_BYTES,
 ):
     """Scan ``roots`` (or an explicit ``files`` list of paths) and return a :class:`ScanResult`.
 
@@ -381,19 +723,33 @@ def scan(
             result.truncated_reason = "max_total_bytes"
             break
         try:
-            hits = scan_file(path, patterns)
+            hits, head = _scan_raw(path, patterns)
         except OSError as exc:
             result.errors.append({"path": str(path), "error": type(exc).__name__})
             continue
         result.files_scanned += 1
         result.bytes_scanned += size
-        if hits:
-            result.findings.append({
+        layers = _scan_decoded(path, head, patterns, max_decoded_bytes)
+        result.decoded_bytes_scanned += layers.decoded_bytes
+        result.undecoded.extend(layers.undecoded)
+        if hits or layers.layers:
+            matches = {name: count for name, (count, _first) in hits.items()}
+            for layer_hits in layers.layers.values():
+                for name, (count, _first) in layer_hits.items():
+                    matches[name] = matches.get(name, 0) + count
+            row = {
                 "path": str(path),
                 "size_bytes": size,
-                "matches": {name: count for name, (count, _first) in sorted(hits.items())},
+                "matches": dict(sorted(matches.items())),
+                # Offsets are into the raw file; a decoded-only match has none here.
                 "first_match_offset": {name: first for name, (_count, first) in sorted(hits.items())},
-            })
+            }
+            if layers.layers:
+                row["decoded_matches"] = {
+                    label: {name: count for name, (count, _first) in sorted(layer_hits.items())}
+                    for label, layer_hits in sorted(layers.layers.items())
+                }
+            result.findings.append(row)
     return result
 
 
@@ -423,6 +779,8 @@ def unread_reasons(result: ScanResult) -> list:
         reasons.append("links_skipped")
     if reparse_incomplete(result):
         reasons.append("reparse_points_unread")
+    if result.undecoded:
+        reasons.append("undecoded_content")
     return reasons
 
 
@@ -448,6 +806,10 @@ def report(result: ScanResult, roots, *, exact_token_env=None, caps=None) -> dic
         "caps": caps or {},
         "files_scanned": result.files_scanned,
         "bytes_scanned": result.bytes_scanned,
+        "decoded_bytes_scanned": result.decoded_bytes_scanned,
+        "undecoded": result.undecoded,
+        "skipped_excluded": result.skipped_excluded,
+        "skipped_excluded_count": result.skipped_excluded_count,
         "finding_file_count": len(result.findings),
         "findings": result.findings,
         "skipped_links": result.skipped_links,
@@ -484,6 +846,13 @@ def build_parser():
     parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     parser.add_argument("--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES)
     parser.add_argument("--max-total-bytes", type=int, default=DEFAULT_MAX_TOTAL_BYTES)
+    parser.add_argument(
+        "--max-decoded-bytes",
+        type=int,
+        default=DEFAULT_MAX_DECODED_BYTES,
+        help="Decoded bytes read from one file across its gzip/zip/UTF-16/base64 layers; beyond it the "
+        "file is listed in undecoded and the scan is incomplete.",
+    )
     parser.add_argument(
         "--exclude-dir",
         action="append",
@@ -537,6 +906,7 @@ def main(argv=None) -> int:
         "max_files": args.max_files,
         "max_file_bytes": args.max_file_bytes,
         "max_total_bytes": args.max_total_bytes,
+        "max_decoded_bytes": args.max_decoded_bytes,
         "excluded_dir_names": list(args.exclude_dir or DEFAULT_EXCLUDED_DIR_NAMES),
         "links": args.links,
     }
@@ -549,6 +919,7 @@ def main(argv=None) -> int:
             max_total_bytes=args.max_total_bytes,
             excluded_dir_names=args.exclude_dir or DEFAULT_EXCLUDED_DIR_NAMES,
             link_policy=args.links,
+            max_decoded_bytes=args.max_decoded_bytes,
         )
     except Exception as exc:  # noqa: BLE001 - report the class only; a message could quote file text.
         payload = _error_report(f"scan failed: {type(exc).__name__}", args.roots)
@@ -558,11 +929,15 @@ def main(argv=None) -> int:
         exact_token = None
     payload = report(result, args.roots, exact_token_env=args.token_from_env, caps=caps)
     text = json.dumps(payload, indent=2, sort_keys=True)
-    if args.json_out:
-        out = Path(args.json_out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text + "\n", encoding="utf-8")
     print(text)
+    if args.json_out:
+        try:
+            out = Path(args.json_out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"wu_token_scan: --json-out could not be written ({type(exc).__name__})", file=sys.stderr)
+            return EXIT_OUTPUT_ERROR
     return payload["exit_code"]
 
 

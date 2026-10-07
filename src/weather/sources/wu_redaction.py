@@ -28,9 +28,11 @@ Two redaction helpers exist on purpose (finding F7, 2026-10-07):
   beyond a query parameter (JSON ``"apiKey":"..."``, dict reprs, the page
   ``API_KEY`` global, HTML/Angular escapes, once- and twice-URL-encoded and
   JSON ``\u0022`` quotes and separators, ``X-Api-Key`` header spellings) and
-  also sanitizes exceptions (including dict and object arguments) and log
-  records. Every form ``weather.operations.wu_token_scan`` flags is redacted
-  here (a test holds the two in step).
+  also sanitizes exceptions (dict, list and tuple arguments that pair a key
+  name with a value of any type, other objects, ``__notes__``, filename and
+  reason attributes) and log records. Every text form
+  ``weather.operations.wu_token_scan`` flags is redacted here, including its
+  32-hex safety net (``_HEX32_NEAR_KEY_RE``); a parity test holds the two in step.
 
 Neither delegates to the other: ``weather.sources`` may not import
 ``weather.collection``, and changing the collection helper would roll the
@@ -61,6 +63,24 @@ _SECRET_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A ``'apiKey', '<value>'`` pair as a tuple or list repr renders it (requests'
+# list-of-tuples ``params``): the key, a closing quote, a comma, an opening quote.
+_PAIR_RE = re.compile(
+    r"(api[_-]?key" + _QUOTE + r"\s*,\s*b?" + _QUOTE + r")([^&\s\"'<>\\),;}\]]+)",
+    re.IGNORECASE,
+)
+# Mirror of the scanner's ``hex32_near_apikey`` safety net: a bare 32-hex run within
+# 64 characters after a key name (``apiKey is <hex>``, ``apiKey => <hex>``,
+# ``'apiKey': ['<hex>']``). Only the hex run is replaced.
+_HEX_START = r"(?:(?<![0-9a-f])|(?<=%[0-9a-f]{2})|(?<=%25[0-9a-f]{2})|(?<=\\u00[0-9a-f]{2}))"
+_HEX32_NEAR_KEY_RE = re.compile(
+    r"(api[_-]?key.{0,64}?)" + _HEX_START + r"[0-9a-f]{32}(?![0-9a-f])",
+    re.IGNORECASE | re.DOTALL,
+)
+# Unquoted JSON/Python literals and short numbers are kept so ``{"apiKey": null}``
+# stays valid JSON; a token is never one of these.
+_KEPT_VALUE_RE = re.compile(r"(?:null|none|true|false|\d{1,15})", re.IGNORECASE)
+
 HTTP_DEBUG_LOGGERS = ("urllib3", "urllib3.connectionpool", "requests")
 # Every logger urllib3 2.x and requests create with ``getLogger(__name__)``. A
 # logger-level filter only sees records logged on that exact logger (not records
@@ -79,11 +99,16 @@ HTTP_LOG_REDACTION_LOGGERS = (
     "requests",
 )
 
-# A mapping key that names the token (``{"apiKey": "<value>"}``): its value is
-# replaced whole, since the value alone carries no key for the text regex to find.
+# A mapping key or sequence element that names the token (``{"apiKey": v}``,
+# ``("apiKey", v)``, ``[b"X-Api-Key", v]``): the value is replaced whole, whatever
+# its type, since the value alone carries no key for the text regex to find.
 _KEY_NAME_RE = re.compile(r"api[_-]?key", re.IGNORECASE)
+_KEY_ELEMENT_RE = re.compile(r"[\w-]{0,32}api[_-]?key", re.IGNORECASE)
 
-_URL_ATTRS = ("url",)
+# Text attributes an exception renders or a traceback prints: requests/urllib3 URLs,
+# ``OSError.filename``/``filename2``/``strerror``, ``URLError.reason`` (a str),
+# ``SyntaxError.msg``/``text``.
+_TEXT_ATTRS = ("url", "filename", "filename2", "strerror", "winerror", "reason", "msg", "text")
 _MAX_EXCEPTION_DEPTH = 16
 
 
@@ -91,7 +116,48 @@ def redact_wu_secrets(value):
     """Return ``value`` as text with every WU access-token value replaced."""
     if value is None:
         return None
-    return _SECRET_RE.sub(lambda match: match.group(1) + REDACTED, str(value))
+    text = _SECRET_RE.sub(_replace_value, str(value))
+    text = _PAIR_RE.sub(_replace_value, text)
+    return _HEX32_NEAR_KEY_RE.sub(lambda match: match.group(1) + REDACTED, text)
+
+
+def _replace_value(match):
+    if _KEPT_VALUE_RE.fullmatch(match.group(2)):
+        return match.group(0)
+    return match.group(1) + REDACTED
+
+
+def _is_key_name(value):
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", "replace")
+    return isinstance(value, str) and bool(_KEY_ELEMENT_RE.fullmatch(value.strip()))
+
+
+def _names_key(value):
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", "replace")
+    return isinstance(value, str) and bool(_KEY_NAME_RE.search(value))
+
+
+def _redacted_value(value):
+    """The placeholder for a value stored under a key name; keeps ``None``/bools/short ints."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int) and abs(value) < 10**15:
+        return value
+    if isinstance(value, bytes):
+        return REDACTED.encode("ascii")
+    return REDACTED
+
+
+def _redact_sequence(items, seen, depth):
+    """Redact each item; an item right after a key-name element is replaced whole."""
+    out = []
+    after_key = False
+    for item in items:
+        out.append(_redacted_value(item) if after_key else _redact_arg(item, seen, depth + 1))
+        after_key = _is_key_name(item)
+    return out
 
 
 def _redact_arg(arg, seen, depth):
@@ -105,17 +171,16 @@ def _redact_arg(arg, seen, depth):
         _sanitize(arg, seen, depth + 1)
         return arg
     if isinstance(arg, tuple):
-        return tuple(_redact_arg(item, seen, depth + 1) for item in arg)
+        return tuple(_redact_sequence(arg, seen, depth))
     if isinstance(arg, list):
-        return [_redact_arg(item, seen, depth + 1) for item in arg]
+        return _redact_sequence(arg, seen, depth)
     if isinstance(arg, dict):
-        # F2: ``RuntimeError({"params": {"apiKey": token}})`` renders the dict repr.
+        # F2/MF2: ``RuntimeError({"params": {"apiKey": token}})`` renders the dict repr;
+        # a str or bytes key naming the token hides its value of any type.
         try:
             return {
                 _redact_arg(key, seen, depth + 1): (
-                    REDACTED
-                    if isinstance(key, str) and isinstance(value, (str, bytes)) and _KEY_NAME_RE.search(key)
-                    else _redact_arg(value, seen, depth + 1)
+                    _redacted_value(value) if _names_key(key) else _redact_arg(value, seen, depth + 1)
                 )
                 for key, value in arg.items()
             }
@@ -132,31 +197,56 @@ def _redact_arg(arg, seen, depth):
 
 
 def _redact_opaque(arg):
-    """Keep ``arg`` unless its ``str``/``repr`` carries a token; then replace it by redacted text.
+    """Keep ``arg`` unless its ``str``/``repr`` carries a token; then replace it by a fixed placeholder.
 
     An exception renders an argument through ``str`` (one argument) or ``repr``
     (several), so an arbitrary object holding the token would leak through either.
+    MF3: the replacement never derives from the object's text, because a repr can
+    carry the bare token where no key name is left for the text regex to anchor on.
     """
     try:
-        texts = {str(arg), repr(arg)}
+        texts = (str(arg), repr(arg))
     except Exception:  # noqa: BLE001 - an unrenderable object cannot leak through rendering.
         return arg
-    for text in texts:
-        if redact_wu_secrets(text) != text:
-            return redact_wu_secrets(repr(arg))
+    if any(redact_wu_secrets(text) != text for text in texts):
+        return f"<redacted {type(arg).__name__}>"
     return arg
 
 
-def _redact_url_attr(obj, name):
+def _redact_text_attr(obj, name):
     try:
         value = getattr(obj, name, None)
     except Exception:  # noqa: BLE001 - a diagnostic property must not mask the original failure.
         return
     if isinstance(value, str):
+        redacted = redact_wu_secrets(value)
+    elif isinstance(value, bytes):
+        redacted = _redact_arg(value, set(), 0)
+    else:
+        return
+    if redacted != value:
         try:
-            setattr(obj, name, redact_wu_secrets(value))
+            setattr(obj, name, redacted)
         except Exception:  # noqa: BLE001 - read-only attributes stay as they are.
             return
+
+
+def _redact_instance_attrs(exc, seen, depth):
+    """Redact text an exception keeps in its own attributes (a custom ``__str__`` may render it)."""
+    try:
+        items = list(vars(exc).items())
+    except TypeError:
+        return
+    for name, value in items:
+        if name.startswith("__") or name in ("request", "response"):
+            continue
+        if isinstance(value, (str, bytes, dict, list, tuple)):
+            redacted = _redact_arg(value, seen, depth + 1)
+            if redacted != value:
+                try:
+                    setattr(exc, name, redacted)
+                except Exception:  # noqa: BLE001
+                    continue
 
 
 def _sanitize(exc, seen, depth):
@@ -167,12 +257,22 @@ def _sanitize(exc, seen, depth):
         exc.args = tuple(_redact_arg(arg, seen, depth) for arg in exc.args)
     except Exception:  # noqa: BLE001 - never replace the caller's failure with ours.
         pass
-    for name in _URL_ATTRS:
-        _redact_url_attr(exc, name)
+    for name in _TEXT_ATTRS:
+        _redact_text_attr(exc, name)
+    _redact_instance_attrs(exc, seen, depth)
+    notes = getattr(exc, "__notes__", None)
+    if isinstance(notes, list):
+        try:
+            exc.__notes__ = [redact_wu_secrets(note) if isinstance(note, str) else note for note in notes]
+        except Exception:  # noqa: BLE001
+            pass
     for holder_name in ("request", "response"):
         holder = getattr(exc, holder_name, None)
         if holder is not None:
-            _redact_url_attr(holder, "url")
+            _redact_text_attr(holder, "url")
+    for inner in getattr(exc, "exceptions", None) or ():
+        if isinstance(inner, BaseException):
+            _sanitize(inner, seen, depth + 1)
     # urllib3 keeps the wrapped failure on ``reason``; requests keeps it in args.
     reason = getattr(exc, "reason", None)
     if isinstance(reason, BaseException):
@@ -182,7 +282,7 @@ def _sanitize(exc, seen, depth):
 
 
 def sanitize_exception(exc):
-    """Redact the token from ``exc``, its chain and its request/response URLs, in place.
+    """Redact the token from ``exc``, its chain, notes, text attributes and request/response URLs, in place.
 
     Returns ``exc`` so callers can write ``raise sanitize_exception(exc)``. The
     exception type, status code and attributes the failure classifier reads are

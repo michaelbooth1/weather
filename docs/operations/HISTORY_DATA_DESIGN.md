@@ -83,8 +83,10 @@ anything pushed. The contract in code:
 scan. It reports file paths, per-pattern match counts and the first-match byte
 offset, never the matched text; `--token-from-env NAME` adds an exact-value
 search without echoing it. Exit 0 = clean, 1 = found, 2 = error or incomplete
-(a cap was hit, a root or file was unreadable, a link was skipped, or a
-placeholder was left unread). A symlink or junction inside a root is not
+(a cap was hit, a root or file was unreadable or an empty string, a link was
+skipped, a placeholder was left unread, or content could not be decoded),
+3 = the scan ran but `--json-out` could not be written (the report is still
+printed). A symlink or junction inside a root is not
 followed by default: its path is listed in `skipped_link_paths` and the scan is
 INCOMPLETE, never CLEAN. `--links follow-within-root` follows a link only when
 its target resolves inside the requested root (cycle-safe); `--links ignore`
@@ -97,8 +99,17 @@ data in place: unless `follow-within-root` reads it, it is listed in
 was read, apart from files behind a link `ignore` waived; the report's
 `unread_reasons` names every reason a scan is not CLEAN. An explicit file list
 (`scan(files=...)`, used by the ratchet) is treated like roots, so a directory in
-it is walked, never dropped. It is capped by
-`--max-files`, `--max-file-bytes` and `--max-total-bytes`. Compressed files are scanned as raw bytes only. On the
+it is walked, never dropped. Each file is scanned raw and then through every
+layer it can decode, streamed and recursively: gzip, bzip2, xz, zip members,
+UTF-16/UTF-32 (BOM, or BOM-less UTF-16 by its NUL pattern) and whole-file
+base64. A recognised layer that cannot be decoded (zstd, 7z, rar, lz4, Parquet,
+an encrypted or corrupt archive, a stream past `--max-decoded-bytes`) is listed
+in `undecoded` and makes the scan INCOMPLETE; findings name the layer
+(`decoded_matches`), never a zip member name. Base64 or compressed runs embedded
+inside a plain file are not decoded. Directories skipped by `--exclude-dir` are
+listed in `skipped_excluded` without making the scan incomplete. It is capped by
+`--max-files`, `--max-file-bytes`, `--max-total-bytes` and
+`--max-decoded-bytes`. On the
 capture host it is a bulk scan: run it 00:30–09:00 under the shared lease from
 `scripts/ops/workload_admission.ps1` ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)).
 A repository ratchet (`tests/operations/test_wu_token_repository_scan.py`) runs

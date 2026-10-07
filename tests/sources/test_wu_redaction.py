@@ -143,8 +143,9 @@ def test_pin_http_debug_loggers_raises_permissive_levels_only():
 
 
 def test_mutant_without_redaction_is_detected(token, monkeypatch):
-    """With the redaction regex disabled the same checks must fail."""
-    monkeypatch.setattr(wu_redaction, "_SECRET_RE", re.compile(r"(?!x)x"))
+    """With the redaction regexes disabled the same checks must fail."""
+    for name in ("_SECRET_RE", "_PAIR_RE", "_HEX32_NEAR_KEY_RE"):
+        monkeypatch.setattr(wu_redaction, name, re.compile(r"(?!x)x"))
     assert any(token in redact_wu_secrets(text) for text in _forms(token))
     error = _connection_error(token)
     sanitize_exception(error)
@@ -481,7 +482,7 @@ def test_mf4_notes_filenames_and_reasons_are_redacted(token):
     url = f"https://api.example.invalid/v1/x?apiKey={token}"
     noted = RuntimeError("fetch failed")
     noted.add_note(f"while fetching {url}")
-    os_error = OSError(2, "No such file", f"cache/{url}", f"other/{url}")
+    os_error = OSError(2, "No such file", f"cache/{url}", None, f"other/{url}")  # 4th is winerror
     url_error = urllib.error.URLError(f"bad {url}")
     nested = RuntimeError("outer")
     nested.__cause__ = OSError(2, "missing", f"x?apiKey={token}")

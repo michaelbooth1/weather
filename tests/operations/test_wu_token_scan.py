@@ -313,15 +313,16 @@ def _simulate_placeholders(monkeypatch):
 
 
 def _recording_scan_file(monkeypatch):
+    """Record every file whose raw bytes ``scan`` actually read (``_scan_raw`` is the read seam)."""
     read = []
-    original = wu_token_scan.scan_file
+    original = wu_token_scan._scan_raw
 
     def recording(path, patterns):
-        hits = original(path, patterns)
+        outcome = original(path, patterns)
         read.append(os.path.normcase(os.path.abspath(path)))
-        return hits
+        return outcome
 
-    monkeypatch.setattr(wu_token_scan, "scan_file", recording)
+    monkeypatch.setattr(wu_token_scan, "_scan_raw", recording)
     return read
 
 
@@ -430,14 +431,14 @@ def test_ratchet_nothing_unread_is_ever_clean(tmp_path, monkeypatch, policy, sce
         roots, files = [], [root / "logs" / "a.log", root / "gone.log"]
     elif scenario == "unreadable":
         (root / "logs" / "locked.log").write_text("x\n", encoding="utf-8")
-        original = wu_token_scan.scan_file
+        original = wu_token_scan._scan_raw
 
         def locked(path, patterns):
             if str(path).endswith("locked.log"):
                 raise PermissionError(13, "locked")
             return original(path, patterns)
 
-        monkeypatch.setattr(wu_token_scan, "scan_file", locked)
+        monkeypatch.setattr(wu_token_scan, "_scan_raw", locked)
     elif scenario == "special_entry":
         (root / "logs" / "pipe.special").write_text("", encoding="utf-8")
         monkeypatch.setattr(wu_token_scan.os, "scandir", _scandir_with_special_entries(os.scandir))
