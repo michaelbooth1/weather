@@ -167,17 +167,22 @@ trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTIN
 a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
 reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
 "Rising" is relative to the previous poll, not the day's running high, and a new-high pull never
-expires. Because a trigger's local detection date must equal the target date, these events reach
-lead-0 (T+0) conditions only: `informed-v0` decisions, legs, P&L, reward and cell sums are unchanged,
-but informed T+0 refusal reasons and decision digests change, and `blind_re1`'s T+0 band-day
-`fills_in_events`/`fills_outside_events` split changes because every policy's fill event window reads
-the info events. **Trigger `observed_at`:** producers write ISO-8601 with a UTC offset (SWOB: the
-station's local time with its offset, from `model_sources.parse_swob_xml`), which is unambiguous across
-DST. Anything that is not an aware instant (a bare local `HH:MM` as in `eccc_swob_history` CSVs, a
-naive ISO string, garbage) is refused, never interpreted (owner decision OD37, 2026-10-07): that row
-is skipped and counted in the runner coverage as `clock.trigger_rows_skipped.observed_at_unparseable`
-(once per row per evaluated band-minute); it never makes the clock
-unavailable. A row detected after `as_of` is neither used nor counted.
+expires. Owner decision (2026-10-07): keep this previous-poll rule for now, and switch supporting pulls
+to a rise above the day's running maximum before any policy quotes T+0. Because a trigger's local detection date must equal the target date, these events reach
+lead-0 (T+0) conditions only. Actions, legs, fills, P&L, pulled seconds and cell sums are
+unchanged for every policy. What changes on a day with T+0 supporting pulls: `blind_re1`'s band-day
+`fills_in_events`/`fills_outside_events` split (every policy's fill event window reads the info
+events) and its `FIRST_FILL_ENDS` decision digest (the decision hashes the fill, which carries
+`in_event_window`); `informed-v0`'s refusal reasons, wake/decision/interval counts and decision
+digests (each new info event is a wake); and therefore the report traces, sidecar rows, sidecar
+binding hash and report hash. Measure any v2 output limits on post-fix exports. **Trigger
+`observed_at`:** the live producers write ISO-8601 with a UTC offset (SWOB: station local time with
+its offset, from `model_sources.parse_swob_xml`), which the clock parses, so SWOB pulls work and DST is
+unambiguous. Anything that is not an aware instant (a bare local `HH:MM` as in `eccc_swob_history`
+backfill CSVs, a naive ISO string, garbage) is refused, never interpreted (owner decision OD37,
+2026-10-07): that row is skipped and counted in the runner coverage as
+`clock.trigger_rows_skipped.observed_at_unparseable` (once per row per evaluated band-minute); it
+never makes the clock unavailable. A row detected after `as_of` is neither used nor counted.
 
 Served T+0 joins require the bounded export to project `release_calibration_method`
 from the verified release's calibration artifact (`market_bin.method`) onto each

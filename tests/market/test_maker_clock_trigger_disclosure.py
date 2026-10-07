@@ -197,6 +197,57 @@ def test_reserved_undateable_and_overlong_lines_leave_no_trace(tmp_path, monkeyp
     assert out_a.read_bytes() == out_b.read_bytes()
 
 
+def test_later_failure_stops_the_added_pull_at_its_detection_time(tmp_path):
+    rows = [row("metar_temp_bucket_crossed", "metar"),
+            dict(row("metar_temp_bucket_crossed", "metar", at=AT + timedelta(minutes=10)), current_value="abc")]
+    [cell] = tool.count(tool.trigger_rows(live(tmp_path, rows), [date(2026, 9, 27)]), [date(2026, 9, 27)])
+    assert cell["clock_unavailable"] == "from " + (AT + timedelta(minutes=10)).isoformat()
+    assert cell["added_pulled_event_minutes"] == 10.
+    assert cell["new_only_detection_minutes"] == 1
+
+
+def test_failure_on_a_previous_day_row_loses_the_whole_day(tmp_path):
+    # The runner's as_of on 09-27 is always after a 09-26 failure, so observe raises all day.
+    slug = "highest-temperature-in-nyc-on-september-26-2026"
+    rows = [dict(row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-09-26",
+                     at=datetime(2026, 9, 26, 22, tzinfo=timezone.utc)), current_value="abc"),
+            row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-09-26",
+                at=datetime(2026, 9, 27, 1, tzinfo=timezone.utc))]
+    cells = tool.count(tool.trigger_rows(live(tmp_path, rows), [date(2026, 9, 27)]), [date(2026, 9, 27)])
+    [cell] = cells
+    assert cell["clock_unavailable"] == "all_day" and cell["added_pulled_event_minutes"] == 0.
+    day = tool.summarize(cells)[DAY]
+    assert (day["events_clock_unavailable_all_day"], day["events_clock_unavailable_partly"]) == (1, 0)
+
+
+def test_deeply_nested_reserved_line_is_skipped_not_raised(tmp_path):
+    clean = [row("metar_temp_bucket_crossed", "metar")]
+    base = tmp_path / "a"
+    base.mkdir()
+    reference = live(base, clean)
+    deep = (b'{"current_captured_at_utc": "2026-10-03T12:00:00+00:00", "x": '
+            + b"[" * 200000 + b"]" * 200000 + b"}\n")
+    noisy_dir = tmp_path / "b"
+    noisy_dir.mkdir()
+    noisy = live(noisy_dir, clean, raw_lines=[deep])
+    out_a, out_b = tmp_path / "a.json", tmp_path / "b.json"
+    assert tool.main(["--date", DAY, "--triggers", str(reference), "--out", str(out_a)]) == 0
+    assert tool.main(["--date", DAY, "--triggers", str(noisy), "--out", str(out_b)]) == 0
+    assert out_a.read_bytes() == out_b.read_bytes()
+
+
+def test_reserved_detection_day_row_is_dropped_for_the_first_allowed_day(tmp_path):
+    # For --date 2026-10-16 the previous day is reserved: its rows must not be read as context.
+    slug = "highest-temperature-in-nyc-on-october-16-2026"
+    reserved = row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-10-16",
+                   at=datetime(2026, 10, 15, 23, tzinfo=timezone.utc))
+    allowed = row("metar_temp_bucket_crossed", "metar", slug=slug, target="2026-10-16",
+                  at=datetime(2026, 10, 16, 18, tzinfo=timezone.utc))
+    path = live(tmp_path, [reserved, allowed])
+    assert [r["current_captured_at_utc"] for _, r in tool.trigger_rows(path, [date(2026, 10, 16)])] == [
+        allowed["current_captured_at_utc"]]
+
+
 def test_gzip_live_variant_and_other_days_are_read_only_for_wanted_days(tmp_path):
     other = row("metar_temp_bucket_crossed", "metar", at=AT - timedelta(days=2),
                 slug="highest-temperature-in-nyc-on-september-25-2026", target="2026-09-25")
