@@ -173,11 +173,10 @@ but informed T+0 refusal reasons and decision digests change, and `blind_re1`'s 
 `fills_in_events`/`fills_outside_events` split changes because every policy's fill event window reads
 the info events. **Trigger `observed_at`:** producers write ISO-8601 with a UTC offset (SWOB: the
 station's local time with its offset, from `model_sources.parse_swob_xml`), which is unambiguous across
-DST. A bare local `HH:MM` (the `eccc_swob_history` CSV shape; no trigger producer writes it) is read
-as wall time on the row's `target_date` in the market zone, and is refused in the repeated fall-back
-or skipped spring-forward hour. A refused or unparseable `observed_at` skips that row only, counted in
-the runner coverage as `clock.trigger_rows_skipped.<code>`
-(`observed_at_unparseable`, `observed_at_local_dst_ambiguous`); it never makes the clock
+DST. Anything that is not an aware instant (a bare local `HH:MM` as in `eccc_swob_history` CSVs, a
+naive ISO string, garbage) is refused, never interpreted (owner decision OD37, 2026-10-07): that row
+is skipped and counted in the runner coverage as `clock.trigger_rows_skipped.observed_at_unparseable`
+(once per row per evaluated band-minute); it never makes the clock
 unavailable. A row detected after `as_of` is neither used nor counted.
 
 Served T+0 joins require the bounded export to project `release_calibration_method`

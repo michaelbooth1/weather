@@ -7,13 +7,10 @@ observation time into ``observed_at``. For ECCC SWOB that is
 (``2030-07-03T14:00:00-04:00``), never a bare ``"HH:MM"``. The offset makes the
 DST fall-back hour unambiguous, so the clock never has to guess it.
 
-A bare local ``"HH:MM"`` (the ``weather.sources.eccc_swob_history`` CSV shape; no
-trigger producer writes it today) is read as wall time on the row's target date in the
-market's zone. In the repeated fall-back hour, or the skipped spring-forward hour, it has
-no single instant: that row is refused (``observed_at_local_dst_ambiguous``), never
-guessed. Anything else unparseable (a naive ISO string, garbage) is refused as
-``observed_at_unparseable``. A refused row is skipped and counted; it never makes the
-clock unavailable for the rest of the event-day.
+Anything that is not an aware instant is refused, never interpreted (owner decision OD37,
+2026-10-07): a bare local ``"HH:MM"`` (the ``weather.sources.eccc_swob_history`` CSV shape;
+no trigger producer writes it), a naive ISO string, garbage. A refused row is skipped and
+counted as ``observed_at_unparseable``; it never makes the clock unavailable.
 
 Fictional fixtures only (dates in 2030).
 """
@@ -31,7 +28,6 @@ from tests.market.test_maker_plugin_clock_triggers import kinds, trigger
 from tests.market.test_maker_plugin_dry_run import NOW as RUN_NOW, jsonl, layout, report
 
 UNPARSEABLE = "observed_at_unparseable"  # Counted once per refused row per market observed.
-AMBIGUOUS = "observed_at_local_dst_ambiguous"
 
 
 class SwobParser(SourceFetchMixin, ModelUtilsMixin):
@@ -121,36 +117,19 @@ def swob_hhmm_row(rows, spec, target, observed, captured):
     return row
 
 
-def test_bare_local_hhmm_is_read_on_the_target_date_in_the_market_zone():
-    now = datetime(2030, 7, 3, 18, 10, tzinfo=timezone.utc)
-    universe, rows, spec, target, markets = toronto(now)
-    clock = WeatherInformationClock(universe, triggers=[swob_hhmm_row(rows, spec, target, "14:00", now)])
-    events = clock.observe(markets, now)
-    assert kinds(events) == ["new_high"] * 3
-    assert {e.observed_at_utc for e in events} == {datetime(2030, 7, 3, 18, tzinfo=timezone.utc)}  # EDT
-    assert not clock.last_skipped
-
-
-@pytest.mark.parametrize("now,wall,expected", [
-    (datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc), "01:30", None),        # repeated hour: refused
-    (datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc), "00:59", datetime(2030, 11, 3, 4, 59, tzinfo=timezone.utc)),
-    (datetime(2030, 11, 3, 7, 45, tzinfo=timezone.utc), "02:00", datetime(2030, 11, 3, 7, 0, tzinfo=timezone.utc)),
-    (datetime(2030, 3, 10, 8, 45, tzinfo=timezone.utc), "02:30", None),        # skipped hour: refused
-    (datetime(2030, 3, 10, 8, 45, tzinfo=timezone.utc), "03:00", datetime(2030, 3, 10, 7, 0, tzinfo=timezone.utc)),
+@pytest.mark.parametrize("now,wall", [
+    (datetime(2030, 7, 3, 18, 10, tzinfo=timezone.utc), "14:00"),   # ordinary hour
+    (datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc), "01:30"),   # repeated fall-back hour
+    (datetime(2030, 3, 10, 8, 45, tzinfo=timezone.utc), "02:30"),   # skipped spring-forward hour
 ])
-def test_bare_local_hhmm_in_a_dst_transition_hour_is_refused_not_guessed(now, wall, expected):
+def test_bare_local_hhmm_is_refused_never_interpreted(now, wall):
     universe, rows, spec, target, markets = toronto(now)
     clock = WeatherInformationClock(universe, triggers=[swob_hhmm_row(rows, spec, target, wall, now)])
-    events = clock.observe(markets, now)
-    if expected is None:
-        assert events == ()
-        assert clock.last_skipped == {AMBIGUOUS: len(markets)}
-    else:
-        assert {e.observed_at_utc for e in events} == {expected}
-        assert not clock.last_skipped
+    assert clock.observe(markets, now) == ()
+    assert clock.last_skipped == {UNPARSEABLE: len(markets)}
 
 
-@pytest.mark.parametrize("bad", ["24:00", "9:59", "2030-01-10T14:59:00", "not a time", 1894287540])
+@pytest.mark.parametrize("bad", ["14:59", "24:00", "9:59", "2030-01-10T14:59:00", "not a time", 1894287540])
 def test_unparseable_observed_at_skips_only_that_row_and_counts_it(bad):
     from tests.market.test_maker_plugin import NOW
     universe, rows, spec, target, _, _ = fixture(lead=0)
@@ -197,7 +176,7 @@ def test_mutant_restoring_the_unguarded_parse_fails():
     from tests.market.test_maker_plugin import NOW
 
     source = Path(fixed.__file__).read_text(encoding="utf-8")
-    anchor = "observed, refused = observed_time(row, spec.tz)"
+    anchor = "observed, refused = observed_time(row)"
     assert source.count(anchor) == 1
     mutated = source.replace(anchor, 'observed, refused = (timestamp(row["observed_at"]) if row.get("observed_at") else None), None')
     spec = importlib.util.spec_from_loader("clock_observed_mutant", loader=None)
@@ -206,7 +185,7 @@ def test_mutant_restoring_the_unguarded_parse_fails():
     universe, rows, spec_, target, _, _ = fixture(lead=0)
     markets = universe.discover(NOW, 2).markets
     broken = trigger(rows, spec_, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
-    broken["observed_at"] = "not a time"
+    broken["observed_at"] = "14:00"  # A bare HH:MM: the old clock raised on it; the fixed one skips it.
     good = trigger(rows, spec_, target, reason="metar_temp_bucket_crossed", source="metar")
     with pytest.raises(ValueError):  # The old behaviour: one row kills the whole clock.
         mutant.WeatherInformationClock(universe, triggers=[broken, good]).observe(markets, NOW)
@@ -216,6 +195,38 @@ def test_mutant_restoring_the_unguarded_parse_fails():
     assert (mutant.WeatherInformationClock(universe, triggers=[good]).observe(markets, NOW)
             == fixed.WeatherInformationClock(universe, triggers=[good]).observe(markets, NOW))
     assert "clock_observed_mutant" not in sys.modules
+
+
+def test_mutant_interpreting_bare_hhmm_is_caught():
+    """OD37: a bare HH:MM row is never used. A copy of clock.py that reads it as local wall time on the
+    target date (the dropped fallback) must emit a pull from it, which the fixed clock never does."""
+    from datetime import date, time
+    import weather.market.maker_plugin.clock as fixed
+    from tests.market.test_maker_plugin import NOW
+
+    def interpreting(row, _real=fixed.observed_time):
+        value = row.get("observed_at")
+        if isinstance(value, str) and len(value) == 5 and value[2] == ":":
+            day = date.fromisoformat(row["target_date"])
+            from weather.market.maker_plugin.inputs import event_identity
+            spec, _ = event_identity(row["event_slug"])
+            local = datetime.combine(day, time(int(value[:2]), int(value[3:])), spec.tz)
+            return local.astimezone(timezone.utc), None
+        return _real(row)
+
+    universe, rows, spec, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    hhmm = trigger(rows, spec, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
+    hhmm["observed_at"] = (NOW - timedelta(minutes=1)).astimezone(spec.tz).strftime("%H:%M")
+    assert fixed.WeatherInformationClock(universe, triggers=[hhmm]).observe(markets, NOW) == ()
+    original = fixed.observed_time
+    try:
+        fixed.observed_time = interpreting
+        assert kinds(fixed.WeatherInformationClock(universe, triggers=[hhmm]).observe(markets, NOW)) == [
+            "new_high"] * 3
+    finally:
+        fixed.observed_time = original
+    assert fixed.WeatherInformationClock(universe, triggers=[hhmm]).observe(markets, NOW) == ()
 
 
 def test_naive_metar_report_time_skips_that_row_only():

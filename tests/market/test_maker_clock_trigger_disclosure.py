@@ -140,7 +140,7 @@ def test_no_old_pull_carries_to_end_of_day_and_from_previous_day(tmp_path):
 
 def test_bare_hhmm_swob_row_no_longer_makes_the_event_day_unavailable(tmp_path):
     """Before the SWOB time-parse fix, a bare local "HH:MM" observed_at made the Toronto clock raise at
-    every minute of the day ("all_day"). It is now read on the target date in the market zone."""
+    every minute of the day ("all_day"). It is now refused (OD37): no pull, no unavailability."""
     rows = [
         row("metar_temp_bucket_crossed", "metar", slug=TOR, market="toronto", unit="C",
             previous=20.4, current=21.6, at=AT - timedelta(hours=2)),
@@ -155,7 +155,7 @@ def test_bare_hhmm_swob_row_no_longer_makes_the_event_day_unavailable(tmp_path):
     cells = {c["market_id"]: c for c in result["cells"]}
     tor = cells["toronto"]
     assert tor["clock_unavailable"] is None
-    assert tor["new_only_detection_minutes"] == 2
+    assert tor["new_only_detection_minutes"] == 1  # The METAR pull only; the SWOB row is refused.
     assert tor["added_pulled_event_minutes"] == 479.5  # 16:00:30 UTC (the METAR pull) to end of day.
     assert cells["nyc"]["clock_unavailable"] is None and cells["nyc"]["new_only_detection_minutes"] == 1
     day = result["by_day"][DAY]

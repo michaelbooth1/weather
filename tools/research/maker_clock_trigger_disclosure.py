@@ -30,7 +30,7 @@ Fields per cell:
 - ``clock_unavailable``: the runner discards the whole clock of an event-minute when ``observe``
   raises. A row whose detection time cannot be parsed raises at every minute of d, including
   minutes before that row was detected, so the cell is ``"all_day"`` and counts no added pull. An
-  unparseable or DST-ambiguous ``observed_at`` no longer raises: the clock skips that row only
+  unparseable ``observed_at`` (a bare ``HH:MM`` included) no longer raises: the clock skips that row only
   (``clock.observed_time``), so it adds no pull and makes nothing unavailable. A row that fails later in ``observe`` makes the
   clock unavailable from its detection time; added pull stops there.
 

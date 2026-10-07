@@ -58,20 +58,21 @@ def test_supporting_increase_pulls_but_never_decides(reason, source):
     assert all(e.detected_at_utc == NOW and e.observed_at_utc == NOW-timedelta(minutes=1) for e in events)
 
 
-def test_bare_hhmm_swob_row_no_longer_makes_the_clock_raise():
+def test_bare_hhmm_swob_row_is_skipped_and_never_makes_the_clock_raise():
     """A bare local "HH:MM" (eccc_swob_history CSV shape) used to make observe raise at every minute.
-    It is now read on the target date in the market zone, and the other rows keep working."""
+    It is now refused (OD37: never interpreted), counted, and the other rows keep working."""
     universe, rows, spec, target, _, _ = fixture(lead=0)
     markets = universe.discover(NOW, 2).markets
     swob = trigger(rows, spec, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
     swob["observed_at"] = (NOW-timedelta(minutes=1)).astimezone(spec.tz).strftime("%H:%M")
     metar = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+    metar["observed_at"] = (NOW-timedelta(minutes=2)).isoformat()
     clock = WeatherInformationClock(universe, triggers=[metar, swob])
     assert clock.observe(markets, NOW-timedelta(hours=3)) == ()
     events = clock.observe(markets, NOW)
     assert kinds(events) == ["new_high"] * 3
-    assert {e.observed_at_utc for e in events} == {NOW-timedelta(minutes=1)}
-    assert not clock.last_skipped
+    assert {e.observed_at_utc for e in events} == {NOW-timedelta(minutes=2)}  # The METAR row only.
+    assert clock.last_skipped == {"observed_at_unparseable": len(markets)}
 
 
 def test_supporting_increase_with_no_previous_value_pulls():
