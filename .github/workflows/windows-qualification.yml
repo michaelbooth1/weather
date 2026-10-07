@@ -115,6 +115,8 @@ jobs:
               tests/operations/test_storage_recovery_night_wrapper.py
               tests/operations/test_docs_light_path_script.py
               tests/operations/test_international_live_session_runner.py
+              tests/operations/test_live_runner_console_guards.py
+              tests/operations/test_international_live_session_runner_stdin.py
               tests/operations/test_cold_archive_catalog.py
               tests/market/test_wallet_reader_logon_task.py
               tests/operations/test_reconcile_ordinary_quiet_merge.py

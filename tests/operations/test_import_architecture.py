@@ -969,16 +969,53 @@ def test_tests_do_not_depend_on_repo_root_data_tree():
     assert offenders == {}
 
 
+def _is_sys_path(node):
+    """``sys.path`` or ``os.sys.path``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "path"
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "sys")
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "sys")
+        )
+    )
+
+
+def _sys_path_mutations(source):
+    """``sys.path.insert``/``append`` calls (also through ``os.sys``) in a module.
+
+    AST-based so a child-process bootstrap that is only a string (the live
+    launcher's ``python -I -S -c`` recipe, mirrored by the Ctrl+Break harness)
+    is not a mutation, while every call the former text check caught still is.
+    """
+    return [
+        node.lineno for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"insert", "append"} and _is_sys_path(node.func.value)
+    ]
+
+
 def test_app_and_tests_do_not_mutate_sys_path():
-    offenders = []
-    for path in APP_AND_TEST_MODULES:
-        text = path.read_text(encoding="utf-8")
-        if "sys.path.insert" in text or "sys.path.append" in text:
-            offenders.append(str(path))
-        if "os.sys.path.insert" in text or "os.sys.path.append" in text:
-            offenders.append(str(path))
+    offenders = [str(path) for path in APP_AND_TEST_MODULES
+                 if _sys_path_mutations(path.read_text(encoding="utf-8"))]
 
     assert offenders == []
+
+
+@pytest.mark.parametrize("source", [
+    "import sys\nsys.path.insert(0, 'x')\n",
+    "import sys\nsys.path.append('x')\n",
+    "import os\nos.sys.path.insert(0, 'x')\n",
+    "import os\nos.sys.path.append('x')\n",
+    "def f():\n    import sys\n    sys.path.insert(0, 'x')\n",
+])
+def test_sys_path_guard_flags_every_call_the_text_check_caught(source):
+    assert _sys_path_mutations(source)
+
+
+def test_sys_path_guard_ignores_a_child_bootstrap_string():
+    source = "BOOTSTRAP = \"import sys,os;sys.path.insert(0,os.environ['SRC'])\"\n"
+    assert _sys_path_mutations(source) == []
 
 
 def test_migrated_modules_use_package_imports_for_internal_modules():
