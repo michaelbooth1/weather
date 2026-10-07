@@ -177,6 +177,21 @@ def _reseal(root, *, export_edit=None, stream_edit=None):
     (root / "receipt.json").write_bytes(canonical_bytes(receipt))
 
 
+def test_a_bundle_relabelled_synthetic_is_refused(exports):
+    """U1 Defender MF3: a captured bundle relabelled synthetic would run without declared intervals."""
+    root = exports["calibration_hazard"]
+    pairs = [("calibration_hazard", root)]
+    doc = build(pairs)
+    manifest = json.loads((root / "bundle" / "bundle.json").read_bytes())
+    manifest["provenance"] = "synthetic"
+    (root / "bundle" / "bundle.json").write_bytes(canonical_bytes(manifest))
+    with pytest.raises(BundleError, match=f"transfer_manifest_mismatch:{DAY}:bundle_json_sha256"):
+        transfer.verify(doc, pairs)
+    _reseal(root)
+    with pytest.raises(BundleError, match="transfer_bundle_not_captured"):
+        build(pairs)
+
+
 def test_pb2a_capture_input_outside_the_day_folder_is_refused(exports):
     root = exports["calibration_hazard"]
     other = f"maker_evidence/{DAY + timedelta(days=1)}/15-x/books.jsonl"
@@ -220,8 +235,11 @@ def test_v03_decoded_digests_are_bound_when_the_exporter_writes_gzip(exports):
         pytest.skip("this tree's exporter writes v0.2; runs once X1's v0.3 writer is merged")
     doc = build([("panel_night", root)])
     entry = doc["bundles"][0]
-    assert all(set(v) == {"sha256", "bytes", "records", "decoded_sha256", "decoded_bytes"}
+    # the decoded hash and size are the identity; the stored (zlib-build-specific) ones are only recorded
+    assert all(set(v) == {"decoded_sha256", "decoded_bytes", "records", "stored_sha256", "stored_bytes"}
                for v in entry["streams"].values())
+    verified = transfer.verify(doc, [("panel_night", root)])
+    assert verified[0].bounds and all(v["records"] for v in verified[0].bounds.values())
     receipt = json.loads((root / "receipt.json").read_bytes())
     kind = next(iter(receipt["bundle"]["kinds"]))
     receipt["bundle"]["kinds"][kind]["decoded_sha256"] = "0" * 64
@@ -253,3 +271,18 @@ def test_transfer_constants():
     assert transfer.EXPORT_KINDS[-1] == "calibration_v01_reference"
     assert transfer.days_of("calibration_v01_reference") == tuple(panel.CALIBRATION_DATES)
     assert date(2026, 9, 27) in transfer.days_of("calibration_hazard")
+
+
+def test_verified_real_export_feeds_the_universe_producer_and_the_rule(exports):
+    """Integration: real export_day -> build -> verify -> v0.2 universe rows -> §4 intervals (any v0.2/v0.3)."""
+    from maker_core.replay.v2 import intervals, universe_v02
+    from weather.market.maker_replay_universe_v02 import rows_of
+    pairs = [("panel_night", exports["panel_night"])]
+    verified = transfer.verify(build(pairs), pairs)
+    bundle = verified[0].bundle
+    rows = rows_of([bundle])
+    assert {r["market_id"] for r in rows} == {"chicago", "nyc"}
+    result = intervals.evaluate(universe_v02.day_inputs([bundle]), rows, panel="registered")
+    assert {e["condition_id"] for e in result.exclusions} | {w["condition_id"] for w in result.windows} == {
+        r["condition_id"] for r in rows}
+    assert result.owner_exclusions[0]["matched_conditions"] == []

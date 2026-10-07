@@ -4,12 +4,15 @@
 inventory lists exactly the discovered conditions, each with its cluster identity (market and domain),
 local target date and IANA timezone; every condition is described; and every captured descriptor agrees
 with its row (domain, local close at midnight after the target date, horizon equal to the local-date
-distance at capture). A descriptor that does not decode refuses (``undecodable_descriptor``), as v1's
-``_inventory`` does (master-agent steer on A-defender N2): nothing is skipped silently. The neutral core never parses slugs: target and timezone come from the weather
+distance at capture). A descriptor that does not decode refuses (``universe_descriptor_undecodable``),
+as v1's ``_inventory`` does (master-agent steer, U1 Defender MF1): nothing is skipped silently. The
+neutral core never parses slugs: target and timezone come from the weather
 producer (``weather.market.maker_replay_universe_v02``) and are checked here against descriptors.
 
 ``descriptors`` reads one bundle's ``descriptor.jsonl`` stream alone (pass one must already have hashed
-it: the bundle comes from ``open_stream_bundle``). No other stream of the bundle is opened.
+it: the bundle comes from ``open_stream_bundle``). No other stream of the bundle is opened. Both grouped
+formats are read: v0.2 (``descriptor.jsonl``) and X1's gzip v0.3 (``descriptor.jsonl.gz``, decoded by the
+reader's own ``_stream``).
 """
 from __future__ import annotations
 
@@ -21,17 +24,19 @@ from maker_core.replay.bundle_v02 import FORMAT_V02, _stream
 from maker_core.replay.payloads import decode
 
 DESCRIPTOR_STREAM = "descriptor.jsonl"
+DESCRIPTOR_STREAMS = (DESCRIPTOR_STREAM, DESCRIPTOR_STREAM + ".gz")  # v0.2 plain, v0.3 gzip (X1)
+STREAM_FORMATS = (FORMAT_V02, "maker_core.replay.bundle.v0.3")
 MAX_ROWS = 30000
 FIELDS = frozenset({"condition_id", "market_id", "domain_id", "target_date", "local_timezone"})
 
 
 def descriptors(bundle):
     """The bundle's descriptor records in ``(captured_at, sequence)`` order; only that stream is read."""
-    if bundle.format != FORMAT_V02:
+    if bundle.format not in STREAM_FORMATS:
         raise BundleError("v02_bundle_required")
-    refs = [ref for ref in bundle.streams if ref.name == DESCRIPTOR_STREAM]
+    refs = [ref for ref in bundle.streams if ref.name in DESCRIPTOR_STREAMS]
     if not refs:
-        return []
+        raise BundleError("universe_descriptor_stream_missing")
     conditions = {c.condition_id for c in bundle.conditions}
     groups = {g.group_id for g in bundle.coverage_groups}
     records = []
@@ -52,7 +57,7 @@ def decoded(record):
     try:
         return decode(record)
     except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
-        raise BundleError("undecodable_descriptor") from exc
+        raise BundleError("universe_descriptor_undecodable") from exc
 
 
 def _zone(name):

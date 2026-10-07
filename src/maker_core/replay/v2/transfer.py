@@ -19,17 +19,24 @@ A root is one exported day folder as the night exporters write it: ``<root>/rece
 streams; the receipt's ``bundle.files`` must digest exactly those files. ``export.json`` is bound by hash.
 
 Formats (``FORMATS``): v0.1 and v0.2 streams are plain JSON lines (stream fields ``path sha256 bytes
-records``); v0.3 (X1, deterministic gzip) streams also carry ``decoded_sha256`` and ``decoded_bytes``,
-which the entry binds, which must equal the receipt's per-kind decoded digests, and which pass one of the
-reader re-derives under the decompressor. The decoder is X1's ``maker_core.replay.v2.gzip_stream``,
+records``), and a stream's identity is its ``sha256``/``bytes``/``records``. v0.3 (X1, deterministic gzip,
+``<kind>.jsonl.gz``) streams also carry ``decoded_sha256`` and ``decoded_bytes``: the stream identity is
+then ``decoded_sha256``/``decoded_bytes``/``records`` (equal to the receipt's per-kind decoded digests,
+re-derived by pass one under the decompressor), while the stored ``sha256``/``bytes`` are recorded in the
+entry as ``stored_sha256``/``stored_bytes`` only, because stored gzip bytes are not portable across zlib
+builds (owner decision 8). ``bundle.json`` itself, which lists the stored hashes, is still bound by hash. The decoder is X1's ``maker_core.replay.v2.gzip_stream``,
 imported only when a v0.3 stream is checked, so this module works on trees with or without X1.
+
+Every bundle must declare ``provenance == "captured"`` (U1 Defender MF3; ``transfer_bundle_not_captured``):
+a relabelled synthetic bundle could otherwise run without declared intervals.
 
 - ``build(roots, *, host_id, created_at)`` runs on the capture host and reads only ``bundle.json``,
   ``export.json`` and ``receipt.json``. It applies integrity rule PB2(a): every ``maker_evidence/`` key
   of ``export.json``'s ``input_hashes``, and of the receipt's ``input_hashes`` when present, lies under
   ``maker_evidence/<day>/`` (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
-- ``verify(doc, roots, *, bounds=True)`` runs on the workstation. Before any record is parsed it compares
-  the raw ``bundle.json``, ``export.json`` and ``receipt.json`` hashes, re-applies every ``build`` check,
+- ``verify(doc, roots, *, bounds_check=True)`` runs on the workstation. It hashes the raw ``bundle.json``
+  bytes first and parses nothing that does not match a listed entry of the caller's ``export_kind`` (U1
+  Defender N1); then it compares the raw ``export.json`` and ``receipt.json`` hashes, re-applies every ``build`` check,
   and runs the reader's pass one (every stream hashed, sized, counted and, for v0.3, decoded). With
   ``bounds`` (PB2(b), the default) it then scans each stream once and refuses
   ``transfer_bounds_outside_day:<day>:<stream>`` unless every record's ``captured_at`` lies in
@@ -86,7 +93,8 @@ REFUSAL_CODES = ("transfer_root_invalid", "transfer_export_kind_unknown", "trans
                  "transfer_bundle_day_mismatch", "transfer_bundle_format_not_allowed",
                  "transfer_receipt_bundle_mismatch", "transfer_export_mismatch", "transfer_inputs_outside_day",
                  "transfer_duplicate_bundle", "transfer_manifest_invalid", "transfer_manifest_unlisted",
-                 "transfer_manifest_mismatch", "transfer_bounds_outside_day", "transfer_decoder_unavailable")
+                 "transfer_manifest_mismatch", "transfer_bounds_outside_day", "transfer_decoder_unavailable",
+                 "transfer_bundle_not_captured")
 
 
 class Verified(NamedTuple):
@@ -105,15 +113,24 @@ def days_of(export_kind):
     raise BundleError("transfer_export_kind_unknown")
 
 
-def _read(path, cap):
+def _raw(path, cap):
     raw = _Reader(Limits(cap, 1, 30), time.monotonic).read(regular_path(path), cap)
+    return raw, sha256(raw)
+
+
+def _parse(raw):
     try:
         value = json.loads(raw)
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleError("transfer_root_invalid") from exc
     if not isinstance(value, dict):
         raise BundleError("transfer_root_invalid")
-    return value, sha256(raw)
+    return value
+
+
+def _read(path, cap):
+    raw, digest = _raw(path, cap)
+    return _parse(raw), digest
 
 
 def _day(value):
@@ -167,7 +184,9 @@ def _entry(export_kind, root):
     bundle_format = manifest.get("format")
     if bundle_format not in KIND_FORMATS[export_kind]:
         raise BundleError("transfer_bundle_format_not_allowed")
-    label, fields, pattern, _ = FORMATS[bundle_format]
+    label, fields, pattern, encoding = FORMATS[bundle_format]
+    if manifest.get("provenance") != "captured":
+        raise BundleError("transfer_bundle_not_captured")
     if receipt.get("status") != "SEALED" or receipt.get("format", "v0.1") != label:
         raise BundleError("transfer_receipt_not_sealed")
     if receipt.get("kind") != RECEIPT_KIND[export_kind]:
@@ -188,8 +207,8 @@ def _entry(export_kind, root):
                 or name in ("bundle.json", "export.json")
                 or files.get(name) != dict(bytes=stream["bytes"], sha256=stream["sha256"])):
             raise BundleError("transfer_receipt_bundle_mismatch")
-        out[name] = {k: stream[k] for k in sorted(fields - {"path"})}
-        if "decoded_sha256" in fields:
+        out[name] = _identity(stream, encoding)
+        if encoding == "gzip":
             kinds = bundle.get("kinds") if isinstance(bundle.get("kinds"), dict) else {}
             declared = kinds.get(name[:-len(".jsonl.gz")], {})
             if (declared.get("decoded_sha256"), declared.get("decoded_bytes")) != (
@@ -206,12 +225,27 @@ def _entry(export_kind, root):
         v01_sha = v01.get("sha256") if isinstance(v01, dict) else None
     else:  # the v0.1 reference's events stream is itself the v0.1 bytes E3 compares
         v01_sha = out["events.jsonl"]["sha256"] if "events.jsonl" in out else None
+    if not isinstance(v01_sha, str):
+        v01_sha = None
     if not _hex(v01_sha) or not _hex(module):
         raise BundleError("transfer_receipt_bundle_mismatch")
     _inputs_rule(day.isoformat(), export, receipt)
     return dict(day=day.isoformat(), export_kind=export_kind, format=label, bundle_format=bundle_format,
                 bundle_json_sha256=manifest_hash, export_json_sha256=export_hash, receipt_sha256=receipt_hash,
                 module_sha256=module, v01_equivalent_sha256=v01_sha, streams=dict(sorted(out.items())))
+
+
+def _identity(stream, encoding):
+    """A stream's entry: plain streams by stored bytes; gzip streams by decoded bytes, stored ones recorded."""
+    if encoding == "gzip":
+        return dict(decoded_sha256=stream["decoded_sha256"], decoded_bytes=stream["decoded_bytes"],
+                    records=stream["records"], stored_sha256=stream["sha256"], stored_bytes=stream["bytes"])
+    return dict(sha256=stream["sha256"], bytes=stream["bytes"], records=stream["records"])
+
+
+STREAM_ENTRY = {"identity": frozenset({"sha256", "bytes", "records"}),
+                "gzip": frozenset({"decoded_sha256", "decoded_bytes", "records", "stored_sha256", "stored_bytes"})}
+IDENTITY = {"identity": ("sha256", "bytes", "records"), "gzip": ("decoded_sha256", "decoded_bytes", "records")}
 
 
 def _key(entry):
@@ -231,7 +265,8 @@ def build(roots, *, host_id, created_at):
 
 def check_doc(doc):
     """The committed document's shape: format, unique sorted keys, every field present and typed."""
-    if not isinstance(doc, dict) or set(doc) != DOC_FIELDS or doc["format"] != FORMAT:
+    if (not isinstance(doc, dict) or set(doc) != DOC_FIELDS or doc["format"] != FORMAT
+            or not isinstance(doc["host_id"], str) or not doc["host_id"] or not isinstance(doc["created_at"], str)):
         raise BundleError("transfer_manifest_invalid")
     bundles = doc["bundles"]
     if not isinstance(bundles, list) or not 1 <= len(bundles) <= MAX_BUNDLES:
@@ -243,7 +278,7 @@ def check_doc(doc):
                 or not all(_hex(entry[k]) for k in ("bundle_json_sha256", "export_json_sha256", "receipt_sha256",
                                                     "module_sha256", "v01_equivalent_sha256"))
                 or not isinstance(entry["streams"], dict) or not entry["streams"]
-                or any(not isinstance(v, dict) or set(v) != FORMATS[entry["bundle_format"]][1] - {"path"}
+                or any(not isinstance(v, dict) or set(v) != STREAM_ENTRY[FORMATS[entry["bundle_format"]][3]]
                        for v in entry["streams"].values())):
             raise BundleError("transfer_manifest_invalid")
         if _day(entry["day"]) not in days_of(entry["export_kind"]):
@@ -259,11 +294,10 @@ def _mismatch(day, field):
 
 
 def _opened_stream(ref):
-    """What pass one measured for one stream, in the entry's shape (decoded fields only for gzip)."""
-    value = dict(sha256=ref.sha256, bytes=ref.bytes, records=ref.records)
+    """What pass one measured for one stream: its identity fields only (decoded ones for gzip)."""
     if getattr(ref, "encoding", "identity") == "gzip":
-        value.update(decoded_sha256=ref.decoded_sha256, decoded_bytes=ref.decoded_bytes)
-    return value
+        return dict(decoded_sha256=ref.decoded_sha256, decoded_bytes=ref.decoded_bytes, records=ref.records)
+    return dict(sha256=ref.sha256, bytes=ref.bytes, records=ref.records)
 
 
 def _decoder():
@@ -353,17 +387,22 @@ def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic):
         if export_kind not in EXPORT_KINDS:
             raise BundleError("transfer_export_kind_unknown")
         root = regular_path(root)
-        manifest, manifest_hash = _read(root / "bundle" / "bundle.json", MAX_MANIFEST_BYTES)
-        day = _day(manifest.get("day"))
-        key = (day.isoformat(), export_kind)
-        if key not in listed:
-            raise BundleError(f"transfer_manifest_unlisted:{key[0]}:{export_kind}")
+        raw, manifest_hash = _raw(root / "bundle" / "bundle.json", MAX_MANIFEST_BYTES)
+        matches = [k for k, e in listed.items() if e["export_kind"] == export_kind
+                   and e["bundle_json_sha256"] == manifest_hash]
+        if not matches:  # nothing verified: parse only to name the refusal
+            day = _day(_parse(raw).get("day")).isoformat()
+            if (day, export_kind) not in listed:
+                raise BundleError(f"transfer_manifest_unlisted:{day}:{export_kind}")
+            raise _mismatch(day, "bundle_json_sha256")
+        key = matches[0]
         if key in seen:
             raise BundleError("transfer_duplicate_bundle")
         seen.add(key)
         entry = listed[key]
-        if manifest_hash != entry["bundle_json_sha256"]:
-            raise _mismatch(key[0], "bundle_json_sha256")
+        day = _day(_parse(raw).get("day"))
+        if day.isoformat() != key[0]:
+            raise _mismatch(key[0], "day")
         _, export_hash = _read(root / "bundle" / "export.json", MAX_EXPORT_BYTES)
         if export_hash != entry["export_json_sha256"]:
             raise _mismatch(key[0], "export_json_sha256")
@@ -377,9 +416,13 @@ def verify(doc, roots, *, bounds_check=True, limits=None, clock=time.monotonic):
         bundle = open_stream_bundle(root / "bundle", limits=limits, clock=clock)
         if bundle.format != entry["bundle_format"] or bundle.day != day:
             raise _mismatch(key[0], "bundle_format")
+        if bundle.provenance != "captured":
+            raise BundleError("transfer_bundle_not_captured")
+        identity = IDENTITY[FORMATS[entry["bundle_format"]][3]]
         refs = {ref.name: _opened_stream(ref) for ref in bundle.streams}
         for name in sorted(set(refs) | set(entry["streams"])):
-            if refs.get(name) != entry["streams"].get(name):
+            listed_stream = entry["streams"].get(name)
+            if listed_stream is None or refs.get(name) != {k: listed_stream[k] for k in identity}:
                 raise _mismatch(key[0], f"streams.{name}")
         if bundle.input_hashes.get("bundle.json") != entry["bundle_json_sha256"]:
             raise _mismatch(key[0], "bundle_json_sha256")

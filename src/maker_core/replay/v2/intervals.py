@@ -10,7 +10,7 @@ granularity, the latest descriptor at the minute start, the hazard denominator's
 - ``t`` is outside ``panel.MAINTENANCE_UTC``;
 - the latest descriptor captured at or before ``t`` has ``horizon_days`` 1 or 2 (``MISSING_DESCRIPTOR``
   before the condition's first descriptor of the day; an undecodable descriptor refuses the whole build,
-  ``undecodable_descriptor``, as in v1).
+  ``universe_descriptor_undecodable``, as in v1).
 
 Every other minute of the condition's envelope is an exclusion with exactly one reason, taken in this
 precedence order (A-defender M5/N5): ``OWNER_EXCLUDED_PRIOR_READ`` > ``SETTLEMENT_ONLY`` >
@@ -21,14 +21,14 @@ active minutes, clipped to the envelope.
 The panel is a fixed name, never an object (A-defender M6): ``"registered"`` resolves to the quote,
 settlement-only and last-target constants and requires every owner exclusion to match whenever the
 evaluated dates meet its exported span (for Austin 2026-10-03, UTC 10-01..10-04); ``"calibration"``
-resolves to the three calibration dates with no target cap (reg §11 f_cal applies the §4 rule to them),
-where an owner exclusion that matches nothing is expected. No function here takes a parameter that can
+resolves to the three calibration dates with the same target cap (reg §11 f_cal applies the §4 rule to
+them), where every owner exclusion must match **nothing** (``owner_exclusion_matched_outside_span``). No function here takes a parameter that can
 replace ``OWNER_EXCLUSIONS``.
 
-The owner exclusion has two independent keys (owner decision 14, A-defender M4): the inventory key
-``(market_id, target_date)`` from the weather producer, and the descriptor key (bundle
-``Condition.market_id`` plus captured descriptor ``market.close_at_utc``), derived here without slug
-parsing. The two condition sets must be equal (``owner_exclusion_key_disagreement``); on the registered
+The owner exclusion has three keys (owner decision 14, A-defender M4, U1 Defender MF5): the inventory key
+``(market_id, target_date)`` from the weather producer; the descriptor key (bundle ``Condition.market_id``
+plus captured descriptor ``market.close_at_utc``); and the literal event slug (descriptor
+``market.event_id`` by string equality; no slug parsing). The three condition sets must be equal (``owner_exclusion_key_disagreement``); on the registered
 panel they must be non-empty (``owner_exclusion_unmatched``); and no output window may belong to an
 excluded condition (``owner_excluded_market_date_active``).
 
@@ -62,8 +62,9 @@ STALE = "HORIZON_DESCRIPTOR_STALE_SECONDS"
 ACTIVE_HORIZONS = (1, 2)
 MINUTE = timedelta(minutes=1)
 REFUSAL_CODES = ("unknown_panel", "owner_exclusion_constant_invalid", "owner_exclusion_key_disagreement",
-                 "owner_exclusion_unmatched", "owner_excluded_market_date_active", "day_outside_panel",
-                 "duplicate_panel_day", "window_outside_bundle", "intervals_require_bundles")
+                 "owner_exclusion_unmatched", "owner_exclusion_matched_outside_span",
+                 "owner_excluded_market_date_active", "day_outside_panel", "duplicate_panel_day",
+                 "intervals_require_bundles")
 
 
 class Evaluation(NamedTuple):
@@ -88,7 +89,7 @@ def resolve(panel) -> _Panel:
     if panel == "registered":
         return _Panel(panel, tuple(constants.QUOTE_DATES), tuple(constants.SETTLEMENT_ONLY_DATES),
                       constants.LAST_TARGET_DATE, True)
-    return _Panel(panel, tuple(constants.CALIBRATION_DATES), (), None, False)
+    return _Panel(panel, tuple(constants.CALIBRATION_DATES), (), constants.LAST_TARGET_DATE, False)
 
 
 def owner_exclusions():
@@ -97,36 +98,44 @@ def owner_exclusions():
     if not isinstance(rows, tuple):
         raise BundleError("owner_exclusion_constant_invalid")
     for row in rows:
-        if (not isinstance(row, tuple) or len(row) != 5 or not isinstance(row[0], str) or not row[0]
+        if (not isinstance(row, tuple) or len(row) != 6 or not isinstance(row[0], str) or not row[0]
                 or type(row[1]) is not date or type(row[2]) is not datetime or row[2].tzinfo is None
                 or row[2].utcoffset() != timedelta(0) or row[2].second or row[2].microsecond
-                or row[3] != OWNER or not isinstance(row[4], str) or not row[4]):
+                or row[3] != OWNER or not isinstance(row[4], str) or not row[4]
+                or not isinstance(row[5], str) or not row[5]):
             raise BundleError("owner_exclusion_constant_invalid")
     return rows
 
 
 def excluded_by_descriptor(conditions, records, rows):
-    """Per owner-exclusion row, the conditions whose market and any decoded descriptor close match it."""
+    """Per owner-exclusion row, two condition sets from the bundle alone: market plus any descriptor close
+    (``by_close``), and any descriptor whose ``event_id`` is the literal slug (``by_slug``)."""
     markets = {c.condition_id: c.market_id for c in conditions}
-    found = [set() for _ in rows]
+    by_close, by_slug = [set() for _ in rows], [set() for _ in rows]
     for record in records:
         value = universe_v02.decoded(record)
         for i, row in enumerate(rows):
             if markets.get(record.condition_id) == row[0] and value.market.close_at_utc == row[2]:
-                found[i].add(record.condition_id)
-    return found
+                by_close[i].add(record.condition_id)
+            if value.market.event_id == row[5]:
+                by_slug[i].add(record.condition_id)
+    return by_close, by_slug
 
 
 def _excluded(days, by_id, rows, spec):
     by_inventory = [{cid for cid, item in by_id.items()
                      if item["market_id"] == row[0] and item["target_date"] == row[1].isoformat()} for row in rows]
-    by_descriptor = [set() for _ in rows]
+    by_close, by_slug = [set() for _ in rows], [set() for _ in rows]
     for day, records in days:
-        for i, found in enumerate(excluded_by_descriptor(day.conditions, records, rows)):
-            by_descriptor[i] |= found
-    for row, inventory_set, descriptor_set in zip(rows, by_inventory, by_descriptor):
-        if inventory_set != descriptor_set:
+        close_sets, slug_sets = excluded_by_descriptor(day.conditions, records, rows)
+        for i in range(len(rows)):
+            by_close[i] |= close_sets[i]
+            by_slug[i] |= slug_sets[i]
+    for row, inventory_set, close_set, slug_set in zip(rows, by_inventory, by_close, by_slug):
+        if not inventory_set == close_set == slug_set:
             raise BundleError("owner_exclusion_key_disagreement")
+        if not spec.require_match and inventory_set:
+            raise BundleError("owner_exclusion_matched_outside_span")
         for cid in inventory_set:
             item = by_id[cid]
             close = datetime.combine(row[1] + timedelta(days=1), time(), tzinfo=ZoneInfo(item["local_timezone"]))
@@ -227,7 +236,8 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
     if any(w["condition_id"] in excluded for w in windows):
         raise BundleError("owner_excluded_market_date_active")
     matched = [dict(market_id=row[0], target_date=row[1].isoformat(), close_at_utc=_iso(row[2]), reason=row[3],
-                    source=row[4], matched_conditions=sorted(found)) for row, found in zip(rows, excluded_sets)]
+                    source=row[4], event_slug=row[5], matched_conditions=sorted(found))
+               for row, found in zip(rows, excluded_sets)]
     windows.sort(key=lambda w: (w["date"], w["condition_id"], w["start"]))
     return Evaluation(windows, exclusions, matched, diagnostics)
 
@@ -252,27 +262,13 @@ def windows_for(windows, day):
                  for w in windows if w["date"] == day.isoformat())
 
 
-def sources(bundles, windows, *, check=lambda: None):
-    """Day sources with declared windows, the sanctioned path to ``stream_source`` for rehearsal.
+def sources(bundles, inventory, *, panel, check=lambda: None):
+    """Day sources whose windows this function derives itself: the sanctioned path to ``stream_source``.
 
-    Re-derives each bundle's owner-excluded conditions from its own descriptors (no inventory) and
-    refuses any window that names one, names a condition the bundle lacks, or leaves the bundle's day.
+    U1 Defender MF4: no caller-supplied windows. The bundles' descriptor streams are read (a bundle without
+    one refuses, ``universe_descriptor_stream_missing``), ``evaluate`` applies the §4 rule and every owner
+    exclusion, and only its windows reach ``stream_source``. Returns ``(sources, evaluation)``.
     """
-    rows = owner_exclusions()
     bundles = sorted(bundles, key=lambda b: b.day)
-    days = {b.day.isoformat() for b in bundles}
-    if any(w["date"] not in days for w in windows):
-        raise BundleError("window_outside_bundle")
-    result = []
-    for bundle in bundles:
-        check()
-        declared = windows_for(windows, bundle.day)
-        excluded = set().union(*excluded_by_descriptor(bundle.conditions, universe_v02.descriptors(bundle), rows))
-        envelopes = {c.condition_id: (c.active_from, c.active_until) for c in bundle.conditions}
-        for cid, start, end in declared:
-            if cid in excluded:
-                raise BundleError("owner_excluded_market_date_active")
-            if cid not in envelopes or not envelopes[cid][0] <= start < end <= envelopes[cid][1]:
-                raise BundleError("window_outside_bundle")
-        result.append(stream_source(bundle, declared))
-    return result
+    result = evaluate(universe_v02.day_inputs(bundles), inventory, panel=panel, check=check)
+    return [stream_source(b, windows_for(result.windows, b.day)) for b in bundles], result

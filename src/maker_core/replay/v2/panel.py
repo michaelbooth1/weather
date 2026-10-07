@@ -18,7 +18,11 @@ other value, so a caller cannot redefine the dates, the maintenance hours or the
 - ``OWNER_EXCLUSIONS``: owner-excluded market-dates. Each row carries two independent keys: the
   inventory key ``(market_id, target_date)`` and the descriptor key ``close_at_utc`` (the local midnight
   that ends the target date: Austin is America/Chicago, CDT = UTC-5, so target 2026-10-03 closes at
-  2026-10-04T05:00Z). Both must select the same conditions (A-defender M4).
+  2026-10-04T05:00Z). A third, literal key is the exact event slug, compared by string equality only
+  (U1 Defender MF5: the first two share the slug-to-registry derivation upstream). All three must select
+  the same conditions (A-defender M4).
+- ``GATED_DAYS`` equals U6's ``export_gate`` range ``[GATE_FIRST_UTC 2026-09-30, GATE_END_UTC 2026-10-16)``
+  (pinned by test against the literal dates; neither module imports the other).
 """
 from __future__ import annotations
 
@@ -40,11 +44,13 @@ class OwnerExclusion(NamedTuple):
     close_at_utc: datetime
     reason: str
     source: str
+    event_slug: str
 
 
 OWNER_EXCLUSIONS = (
     OwnerExclusion("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, 0, tzinfo=timezone.utc),
-                   "OWNER_EXCLUDED_PRIOR_READ", "DECISION_LOG 2026-10-05"),
+                   "OWNER_EXCLUDED_PRIOR_READ", "DECISION_LOG 2026-10-05",
+                   "highest-temperature-in-austin-on-october-3-2026"),
 )
 
 # Panel names accepted by the universe rule; each resolves to the constants above.

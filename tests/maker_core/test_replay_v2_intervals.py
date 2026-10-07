@@ -8,6 +8,8 @@ import ast
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 import inspect
+import json
+import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -90,18 +92,22 @@ def test_austin_2026_10_03_has_no_active_interval_on_any_panel_date(registered):
     assert windows_of(result, toronto_same, date(2026, 10, 2))
     assert result.owner_exclusions == [dict(
         market_id="austin", target_date="2026-10-03", close_at_utc="2026-10-04T05:00:00+00:00",
-        reason="OWNER_EXCLUDED_PRIOR_READ", source="DECISION_LOG 2026-10-05", matched_conditions=austin)]
+        reason="OWNER_EXCLUDED_PRIOR_READ", source="DECISION_LOG 2026-10-05",
+        event_slug="highest-temperature-in-austin-on-october-3-2026", matched_conditions=austin)]
 
 
 def test_owner_exclusion_cannot_be_overridden_silently(registered, tmp_path, monkeypatch):
     fixture, bundles, inventory, result = registered
     austin = fixture.austin_excluded(PANEL_DAYS)
     day = date(2026, 10, 2)
-    # (a) a window list edited to add one Austin 10-03 window is refused at the source path on its own
-    smuggled = result.windows + [dict(date=day.isoformat(), condition_id=austin[0], start=iso(at(day, 10)),
-                                      end=iso(at(day, 11)))]
-    with pytest.raises(BundleError, match="owner_excluded_market_date_active"):
-        intervals.sources(bundles, smuggled)
+    # (a) the sanctioned source path takes no windows at all (MF4): it derives them, and they equal evaluate's;
+    # a hand-built captured plan without declared windows refuses on its own (MF2)
+    derived, evaluation = intervals.sources(bundles, inventory, panel="registered")
+    assert evaluation.windows == result.windows
+    assert not [cid for s in derived for cid in s.plan.windows if cid in austin]
+    b = bundles[PANEL_DAYS.index(day)]
+    with pytest.raises(BundleError, match="captured_bundle_requires_declared_intervals"):
+        lockstep.DayPlan(b.day, b.conditions, lockstep.windows_of(b.conditions, None), {}, "captured", {})
     # (b) the constant is load-bearing: remove it and the same bundles give Austin 10-03 windows
     monkeypatch.setattr(panel, "OWNER_EXCLUSIONS", ())
     open_rule = evaluate(bundles, inventory)
@@ -111,7 +117,7 @@ def test_owner_exclusion_cannot_be_overridden_silently(registered, tmp_path, mon
     # (c) no public function takes a parameter that could replace the exclusions or the panel constants
     for function, expected in ((intervals.active_intervals, ["days", "inventory", "panel", "check"]),
                                (intervals.evaluate, ["days", "inventory", "panel", "check"]),
-                               (intervals.sources, ["bundles", "windows", "check"]),
+                               (intervals.sources, ["bundles", "inventory", "panel", "check"]),
                                (universe_v02.check_inventory, ["days", "inventory", "check"])):
         names = list(inspect.signature(function).parameters)
         assert names == expected
@@ -155,7 +161,9 @@ def test_excluded_market_date_is_never_scored(tmp_path, monkeypatch):
                                                    panel="registered")
         assert {w["date"] for w in unexcluded if w["condition_id"] in austin} == {"2026-10-02", "2026-10-03"}
     config = V2Config(hazard_per_minute=.001, keep=True)
-    run = run_passes(intervals.sources(bundles, windows), config)
+    derived, evaluation = intervals.sources(bundles, fixture.inventory(days), panel="registered")
+    assert evaluation.windows == windows
+    run = run_passes(derived, config)
     assert set(names) == {"descriptor.jsonl"}  # scoring reads through records(), not the descriptor helper
     scored_somewhere = False
     for bound, passes in run.passes.items():
@@ -176,8 +184,9 @@ def test_excluded_market_date_is_never_scored(tmp_path, monkeypatch):
     report, _ = build_report(run, config, replicates=100)
     twin = Panel(omit=austin, **options)
     twin_bundles = write(tmp_path, twin, days, provenance="captured", name="deleted")
-    twin_report, _ = build_report(run_passes(intervals.sources(twin_bundles, windows), config), config,
-                                  replicates=100)
+    # the twin has no Austin 10-03 rows, so it cannot pass the registered rule; it gets the same windows directly
+    twin_sources = [lockstep.stream_source(b, intervals.windows_for(windows, b.day)) for b in twin_bundles]
+    twin_report, _ = build_report(run_passes(twin_sources, config), config, replicates=100)
     for bound in report["bounds"]:
         mine, theirs = report["bounds"][bound], twin_report["bounds"][bound]
         for key in ("band_days", "scores", "intervals", "quote_presence"):
@@ -213,10 +222,9 @@ def test_settlement_only_dates_have_no_windows_and_settlements_are_consumed(regi
     days = (date(2026, 10, 13), *panel.SETTLEMENT_ONLY_DATES)
     fixture = Panel(markets=("toronto",), bands=1, step=5, full=True, capture_minutes=range(0, 300))
     full = write(tmp_path, fixture, days, provenance="captured")
-    windows, _ = intervals.active_intervals(universe_v02.day_inputs(full), fixture.inventory(days),
-                                            panel="registered")
-    assert {w["date"] for w in windows} == {"2026-10-13"}
-    run = run_passes(intervals.sources(full, windows), V2Config(hazard_per_minute=.001))
+    derived, evaluation = intervals.sources(full, fixture.inventory(days), panel="registered")
+    assert {w["date"] for w in evaluation.windows} == {"2026-10-13"}
+    run = run_passes(derived, V2Config(hazard_per_minute=.001))
     settled = run.passes["strictly_through"]["no_quote"].engine.settlements
     assert {cid for cid in settled} >= {cid_of("toronto", date(2026, 10, 13), 0),
                                         cid_of("toronto", date(2026, 10, 14), 0)}
@@ -265,10 +273,10 @@ def test_undecodable_descriptor_refuses_as_in_v1(tmp_path):
     target = cid_of("toronto", date(2026, 10, 8), 0)
     fixture = Panel(markets=("toronto",), bands=1, invalid_at={target: at(day, 12)})
     bundles = write(tmp_path, fixture, (day,))
-    with pytest.raises(BundleError, match="undecodable_descriptor"):
+    with pytest.raises(BundleError, match="universe_descriptor_undecodable"):
         evaluate(bundles, fixture.inventory((day,)))
-    with pytest.raises(BundleError, match="undecodable_descriptor"):
-        intervals.sources(bundles, [])
+    with pytest.raises(BundleError, match="universe_descriptor_undecodable"):
+        intervals.sources(bundles, fixture.inventory((day,)), panel="registered")
 
 
 def test_calibration_panel_has_no_target_cap_and_no_settlement_only(tmp_path):
@@ -280,6 +288,15 @@ def test_calibration_panel_has_no_target_cap_and_no_settlement_only(tmp_path):
     assert {w["date"] for w in result.windows} == {d.isoformat() for d in panel.CALIBRATION_DATES}
     with pytest.raises(BundleError, match="day_outside_panel"):
         evaluate(bundles, fixture.inventory(panel.CALIBRATION_DATES), "registered")
+
+
+def test_calibration_panel_refuses_any_owner_excluded_match(tmp_path, monkeypatch):
+    """Owner Q1 tightening: on "calibration" an owner exclusion must match nothing."""
+    fixture = Panel(bands=1)
+    bundles = write(tmp_path, fixture, AUSTIN_DATES)
+    monkeypatch.setattr(panel, "CALIBRATION_DATES", AUSTIN_DATES)
+    with pytest.raises(BundleError, match="owner_exclusion_matched_outside_span"):
+        evaluate(bundles, fixture.inventory(AUSTIN_DATES), "calibration")
 
 
 def test_panel_days_refused_outside_the_named_panel_and_duplicated(registered, tmp_path):
@@ -318,14 +335,14 @@ def test_descriptor_close_disagreeing_with_inventory_is_refused(tmp_path, monkey
         evaluate(bundles, fixture.inventory(AUSTIN_DATES))
 
 
-def test_second_austin_event_with_the_same_key_is_fully_excluded(tmp_path):
+def test_second_austin_event_with_another_slug_refuses_the_whole_build(tmp_path):
+    """MF5 supersedes A-defender M4's "fully excluded": the literal slug key no longer selects the second
+    event's conditions, so the three keys disagree and nothing is built (fail-closed; no window at all)."""
     fixture = Panel(second_austin_event=True)
     bundles = write(tmp_path, fixture, AUSTIN_DATES)
-    result = evaluate(bundles, fixture.inventory(AUSTIN_DATES))
-    austin = fixture.austin_excluded(AUSTIN_DATES)
-    assert len(austin) == 4
-    assert result.owner_exclusions[0]["matched_conditions"] == austin
-    assert not [w for w in result.windows if w["condition_id"] in austin]
+    assert len(fixture.austin_excluded(AUSTIN_DATES)) == 4
+    with pytest.raises(BundleError, match="owner_exclusion_key_disagreement"):
+        evaluate(bundles, fixture.inventory(AUSTIN_DATES))
 
 
 def test_same_close_time_in_another_market_is_not_excluded(tmp_path):
@@ -337,13 +354,17 @@ def test_same_close_time_in_another_market_is_not_excluded(tmp_path):
     assert dallas not in result.owner_exclusions[0]["matched_conditions"]
 
 
+SLUG = "highest-temperature-in-austin-on-october-3-2026"
+
+
 @pytest.mark.parametrize("row", [
-    ("austin", "2026-10-03", datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x"),
-    ("austin", datetime(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x"),
-    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5), "OWNER_EXCLUDED_PRIOR_READ", "x"),
-    ("austin", date(2026, 10, 3), "2026-10-04T05:00:00Z", "OWNER_EXCLUDED_PRIOR_READ", "x"),
-    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "MAINTENANCE_UTC", "x"),
-    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC)),
+    ("austin", "2026-10-03", datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x", SLUG),
+    ("austin", datetime(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x", SLUG),
+    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5), "OWNER_EXCLUDED_PRIOR_READ", "x", SLUG),
+    ("austin", date(2026, 10, 3), "2026-10-04T05:00:00Z", "OWNER_EXCLUDED_PRIOR_READ", "x", SLUG),
+    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "MAINTENANCE_UTC", "x", SLUG),
+    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x", None),
+    ("austin", date(2026, 10, 3), datetime(2026, 10, 4, 5, tzinfo=UTC), "OWNER_EXCLUDED_PRIOR_READ", "x"),
 ])
 def test_type_mismatched_exclusion_constant_is_refused(registered, monkeypatch, row):
     _, bundles, inventory, _ = registered
@@ -357,6 +378,10 @@ def test_panel_constants():
     assert len(panel.QUOTE_DATES) == 14 and panel.QUOTE_DATES[0] == date(2026, 9, 30)
     assert panel.QUOTE_DATES[-1] == date(2026, 10, 13)
     assert panel.GATED_DAYS == tuple(date(2026, 9, 30) + timedelta(days=i) for i in range(16))
+    # U6 export_gate: GATE_FIRST_UTC 2026-09-30, GATE_END_UTC 2026-10-16 exclusive (dates pinned, no import)
+    gate_first, gate_end = datetime(2026, 9, 30, tzinfo=UTC), datetime(2026, 10, 16, tzinfo=UTC)
+    assert set(panel.GATED_DAYS) == {gate_first.date() + timedelta(days=n) for n in range((gate_end - gate_first).days)}
+    assert panel.OWNER_EXCLUSIONS[0].event_slug == "highest-temperature-in-austin-on-" + "october-3-2026"
     assert (panel.GATED_FIRST, panel.GATED_LAST) == (date(2026, 9, 30), date(2026, 10, 15))
     assert panel.LAST_TARGET_DATE == date(2026, 10, 14)
     row = panel.OWNER_EXCLUSIONS[0]
@@ -377,42 +402,47 @@ def test_captured_bundle_requires_declared_intervals(tmp_path):
     assert not lockstep.stream_source(synthetic).plan.declared
 
 
-def test_sources_refuse_windows_outside_their_bundles(registered):
-    _, bundles, _, result = registered
+def test_sources_refuse_a_bundle_without_a_descriptor_stream(tmp_path):
     day = date(2026, 10, 7)
-    some = bundles[PANEL_DAYS.index(day)]
-    cid = some.conditions[0].condition_id
-    for window, code in ((dict(date="2026-10-20", condition_id=cid, start=iso(at(date(2026, 10, 20), 9)),
-                               end=iso(at(date(2026, 10, 20), 10))), "window_outside_bundle"),
-                         (dict(date=day.isoformat(), condition_id="0xunknown", start=iso(at(day, 9)),
-                               end=iso(at(day, 10))), "window_outside_bundle"),
-                         (dict(date=day.isoformat(), condition_id=cid, start=iso(at(day, 23)),
-                               end=iso(at(day, 23) + timedelta(hours=2))), "window_outside_bundle")):
-        with pytest.raises(BundleError, match=code):
-            intervals.sources([some], [window])
-    declared = intervals.sources([some], [w for w in result.windows if w["date"] == day.isoformat()])
-    assert declared[0].plan.declared and dict(declared[0].plan.windows) == {
-        c: tuple(v) for c, v in _group(intervals.windows_for(result.windows, day)).items()}
-
-
-def _group(rows):
-    out = defaultdict(list)
-    for cid, start, end in rows:
-        out[cid].append((start, end))
-    return out
+    fixture = Panel(markets=("toronto",), bands=1, step=60, full=True, capture_minutes=range(0, 120))
+    folder = fixture.write(tmp_path / "x", day, provenance="captured")
+    manifest = json.loads((folder / "bundle.json").read_bytes())
+    manifest["streams"] = [s for s in manifest["streams"] if s["path"] != "descriptor.jsonl"]
+    (folder / "descriptor.jsonl").unlink()
+    (folder / "bundle.json").write_bytes(canonical_bytes(manifest))
+    bundle = open_stream_bundle(folder)
+    with pytest.raises(BundleError, match="universe_descriptor_stream_missing"):
+        intervals.sources([bundle], fixture.inventory((day,)), panel="registered")
 
 
 def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
-    """Look, CLI and rehearsal must reach ``stream_source`` through ``intervals.sources`` or the manifest."""
-    allowed = {"lockstep.py", "intervals.py", "manifest.py"}
+    """A lint (the invariant itself is ``DayPlan.__post_init__``): under src/ and tools/, only the listed files
+    name the raw plan constructors, in code or in a string (getattr/vars), or import lockstep dynamically."""
+    root = V2.parents[3]
+    allowed = {"src/maker_core/replay/v2/lockstep.py", "src/maker_core/replay/v2/intervals.py",
+               "tools/research/maker_replay_v2/sources.py"}
+    raw = re.compile(r"\b(stream_source|bundle_source|DayPlan|windows_of)\b")
     offenders = []
-    for path in sorted(V2.glob("*.py")):
+    for path in sorted([*(root / "src").rglob("*.py"), *(root / "tools").rglob("*.py")]):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
-            n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
-            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
-        if names & {"stream_source", "bundle_source"} and path.name not in allowed:
-            offenders.append(path.name)
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                found |= bool(raw.fullmatch(node.id))
+            elif isinstance(node, ast.Attribute):
+                found |= bool(raw.fullmatch(node.attr))
+            elif isinstance(node, ast.ImportFrom):
+                found |= any(raw.fullmatch(a.name) for a in node.names)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                found |= bool(raw.search(node.value))
+            elif isinstance(node, ast.Call):
+                name = ast.unparse(node.func)
+                if name in ("importlib.import_module", "import_module", "__import__"):
+                    arg = node.args[0] if node.args else None
+                    found |= not isinstance(arg, ast.Constant) or "lockstep" in str(arg.value)
+        relative = path.relative_to(root).as_posix()
+        if found and relative not in allowed:
+            offenders.append(relative)
     assert offenders == []
 
 

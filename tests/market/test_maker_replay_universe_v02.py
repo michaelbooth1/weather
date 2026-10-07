@@ -31,8 +31,17 @@ def test_owner_exclusion_market_is_a_builtin_registry_id_and_its_close_matches_t
     assert close.astimezone(timezone.utc) == row.close_at_utc
 
 
+def test_registry_slug_prefixes_are_unambiguous_and_the_exclusion_slug_is_literal():
+    """U1 Defender MF5: no slug prefix (with its separator) is a prefix of another; Austin's zone and slug."""
+    prefixes = [spec.slug_prefix + "-" for spec in BUILTIN_SPECS]
+    assert not [(a, b) for a in prefixes for b in prefixes if a != b and b.startswith(a)]
+    row = panel.OWNER_EXCLUSIONS[0]
+    assert spec_for_id("austin").timezone == "America/Chicago"
+    assert row.event_slug == spec_for_id("austin").slug_prefix + "-october-3-2026"
+
+
 def test_producer_rows_equal_the_fixture_inventory_and_drive_the_rule(tmp_path, monkeypatch):
-    fixture = Panel()
+    fixture = Panel(full=True, step=60)
     paths = [fixture.write(tmp_path / d.isoformat(), d) for d in DAYS]
     names = []
     real = universe_v02._stream
@@ -48,7 +57,7 @@ def test_producer_rows_equal_the_fixture_inventory_and_drive_the_rule(tmp_path, 
 
 
 def test_bundle_caps_are_sixteen_panel_and_three_calibration(tmp_path):
-    fixture = Panel(markets=("toronto",), bands=1, step=240)
+    fixture = Panel(markets=("toronto",), bands=1, step=240, full=True)
     panel_paths = [fixture.write(tmp_path / "p" / d.isoformat(), d) for d in PANEL_DAYS]
     calibration_paths = [fixture.write(tmp_path / "c" / d.isoformat(), d) for d in CALIBRATION_DATES]
     assert len(producer.universe(panel_paths, calibration_paths)) > 0
@@ -57,3 +66,11 @@ def test_bundle_caps_are_sixteen_panel_and_three_calibration(tmp_path):
         with pytest.raises(ValueError, match="invalid_bundle_inventory"):
             producer.universe(*bad)
     assert producer.MAX_BUNDLES == 19
+    # MF6: duplicate days, days from the wrong set, and a calibration-kind (hazard) bundle are refused
+    for bad in (([panel_paths[0]] * 2, ()), (calibration_paths[:1], ()), ((), panel_paths[:1]),
+                ((), [calibration_paths[0]] * 2)):
+        with pytest.raises(ValueError, match="invalid_bundle_inventory"):
+            producer.universe(*bad)
+    hazard = Panel(markets=("toronto",), bands=1, step=240).write(tmp_path / "h" / "2026-09-27", CALIBRATION_DATES[0])
+    with pytest.raises(ValueError, match="calibration_kind_bundle_not_a_universe_input"):
+        producer.universe((), [hazard])

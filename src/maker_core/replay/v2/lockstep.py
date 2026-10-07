@@ -43,6 +43,12 @@ class DayPlan:
     input_hashes: Mapping
     declared: bool = False  # the windows come from declared active intervals, not the envelope
 
+    def __post_init__(self):
+        # A-defender M3 / U1 Defender MF2: the invariant lives on the plan itself, so no constructor, alias
+        # or hand-built plan can make every envelope of a captured day active.
+        if self.provenance != "synthetic" and not self.declared:
+            raise BundleError("captured_bundle_requires_declared_intervals")
+
     @property
     def start(self):
         return datetime.combine(self.day, datetime.min.time(), tzinfo=timezone.utc)

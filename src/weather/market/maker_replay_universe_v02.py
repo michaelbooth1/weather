@@ -7,12 +7,16 @@ hashes every stream) and ``descriptor.jsonl`` are parsed. Every condition is lis
 included; the owner exclusion and the universe rule act later, in ``maker_core.replay.v2.intervals``.
 
 Caps (A-defender M10): at most 16 panel bundles (14 quote and 2 settlement-only dates) and at most 3
-calibration bundles, 19 in all.
+calibration bundles, 19 in all. Panel days must be unique gated days and calibration days unique
+calibration dates; a calibration-kind (hazard) export is not a universe input: the calibration universe
+comes from the night-format export of each calibration date (U1 Defender MF6). The two sets are opened
+separately; ``intervals.evaluate`` needs one panel's inventory at a time.
 """
 from __future__ import annotations
 
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, Limits
 from maker_core.replay.bundle_v02 import open_stream_bundle
+from maker_core.replay.v2.panel import CALIBRATION_DATES, GATED_DAYS
 from maker_core.replay.v2.universe_v02 import decoded, descriptors
 from weather.market.maker_plugin.inputs import event_identity
 
@@ -20,6 +24,7 @@ MAX_PANEL_BUNDLES = 16
 MAX_CALIBRATION_BUNDLES = 3
 MAX_BUNDLES = MAX_PANEL_BUNDLES + MAX_CALIBRATION_BUNDLES
 MAX_ROWS = 30000
+HAZARD_KINDS = frozenset({"descriptor", "coverage", "trade"})  # a calibration-kind (P2) export's streams
 
 
 def rows_of(bundles, *, check=lambda: None):
@@ -53,5 +58,12 @@ def universe(panel_paths, calibration_paths=(), *, check=lambda: None):
             or len(panel_paths) > MAX_PANEL_BUNDLES or len(calibration_paths) > MAX_CALIBRATION_BUNDLES):
         raise ValueError("invalid_bundle_inventory")
     limits = Limits(HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS)
-    bundles = [open_stream_bundle(path, limits=limits) for path in (*panel_paths, *calibration_paths)]
-    return rows_of(bundles, check=check)
+    panel_bundles = [open_stream_bundle(path, limits=limits) for path in panel_paths]
+    calibration_bundles = [open_stream_bundle(path, limits=limits) for path in calibration_paths]
+    for bundles, allowed in ((panel_bundles, GATED_DAYS), (calibration_bundles, CALIBRATION_DATES)):
+        days = [b.day for b in bundles]
+        if len(set(days)) != len(days) or any(day not in allowed for day in days):
+            raise ValueError("invalid_bundle_inventory")
+        if any({ref.name.split(".")[0] for ref in b.streams} <= HAZARD_KINDS for b in bundles):
+            raise ValueError("calibration_kind_bundle_not_a_universe_input")
+    return rows_of((*panel_bundles, *calibration_bundles), check=check)
