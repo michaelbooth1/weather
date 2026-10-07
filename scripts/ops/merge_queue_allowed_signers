@@ -1,0 +1,7 @@
+# Trust anchor for owner-signed merge queues (scripts/ops/merge_queue_driver.ps1).
+# Format: OpenSSH allowed_signers. Only the repository owner adds a line here, in a change the
+# owner authors and instructs to merge; an agent never adds, edits or "fixes" a key. While this
+# file has no key line every queue is refused as unsigned, in dry and live mode alike.
+# Owner line shape (one line, the owner's own public key):
+# owner namespaces="weather-merge-queue" ssh-ed25519 AAAA...
+# Procedure: docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md, "Merge-train dry pilot".
