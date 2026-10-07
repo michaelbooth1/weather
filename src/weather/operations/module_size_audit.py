@@ -28,21 +28,6 @@ OWNERSHIP_NOTES = {
         "boundary": "Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting.",
         "next_split": "Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior.",
     },
-    "src/weather/market/taker_bot.py": {
-        "owner": "market",
-        "boundary": "Compatibility facade for taker strategy, risk, tape, scoring, bakeoff, and CLI modules.",
-        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
-    },
-    "src/weather/market/taker_bot_cli.py": {
-        "owner": "market",
-        "boundary": "Taker input discovery, run configuration, incremental benchmark persistence, run/recovery orchestration, loop control, and CLI dispatch.",
-        "next_split": "Move incremental run construction and artifact recovery into a taker runner module; retain argument parsing and command dispatch in the CLI owner.",
-    },
-    "src/weather/market/taker_bot_finalization.py": {
-        "owner": "market",
-        "boundary": "Taker settlement reconciliation, next-run policy, retention planning, finalization watchdog, counterfactual reporting, and run finalization.",
-        "next_split": "Extract finalization report rendering and watchdog inventory into dedicated modules while preserving settlement reconciliation and policy-gate payloads.",
-    },
     "src/weather/reporting/promotion/promotion_refresh.py": {
         "owner": "reporting",
         "boundary": "Compatibility facade for promotion readers, decisions, gap analysis, reports, orchestration, and CLI modules.",
@@ -85,7 +70,7 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/operations/daily_refresh_trading_steps.py": {
         "owner": "operations",
-        "boundary": "Exchange economics, taker/maker evidence, CLOB tiering, replay status, and closed-day archive step adapters.",
+        "boundary": "Exchange economics, trading evidence, CLOB tiering, replay status, and closed-day archive step adapters.",
         "next_split": "Owner module for item 318; must not import the daily_refresh facade.",
     },
     "src/weather/operations/daily_refresh_reporting_steps.py": {
@@ -143,21 +128,6 @@ OWNERSHIP_NOTES = {
         "boundary": "Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly.",
         "next_split": "Owner module for item 318; must not import the daily_learning facade.",
     },
-    "src/weather/market/mm_paper.py": {
-        "owner": "market",
-        "boundary": "Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers.",
-        "next_split": "WARN in the 2026-07-03 audit; tape ingestion, conservative fill accounting, queue simulation, and P&L scoring already live in mm_paper_scoring, so the next slice should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade.",
-    },
-    "src/weather/market/market_making_run.py": {
-        "owner": "market",
-        "boundary": "Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch.",
-        "next_split": "Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI.",
-    },
-    "src/weather/market/mm_paper_scoring.py": {
-        "owner": "market",
-        "boundary": "Genuine-execution admission and provenance-preserving trade normalization/deduplication, active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries.",
-        "next_split": "WARN after the 2026-07-27 execution-evidence growth. Extract execution-evidence parsing, normalization, identity, and cross-source deduplication into a dedicated owner module that does not import the mm_paper facade; keep side-aware fill and P&L scoring in mm_paper_scoring.",
-    },
     "src/weather/schema_registry.py": {
         "owner": "shared",
         "boundary": "Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports.",
@@ -170,7 +140,7 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/schema_registry_recent_data.py": {
         "owner": "shared",
-        "boundary": "Recent runtime, snapshot-sidecar, source-status, and taker schema records split from the main registry data shard.",
+        "boundary": "Recent runtime, snapshot-sidecar, source-status, and retained taker-evidence schema records split from the main registry data shard.",
         "next_split": "Owner module for item 318; static data shard that imports only schema registry record types.",
     },
     "src/weather/schema_registry_types.py": {
@@ -207,16 +177,6 @@ OWNERSHIP_NOTES = {
         "owner": "collection",
         "boundary": "Snapshot sidecar/cadence backfill helpers and snapshot-store utility CLI wiring.",
         "next_split": "Owner module for item 318; imports SnapshotStore lazily to avoid cycles.",
-    },
-    "src/weather/market/taker_bot_bakeoff.py": {
-        "owner": "market",
-        "boundary": "Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers.",
-        "next_split": "Item 318 slice complete; replay input, profitability verification, and model-variant scoring helpers live in taker_bot_bakeoff_scoring.",
-    },
-    "src/weather/market/taker_bot_bakeoff_scoring.py": {
-        "owner": "market",
-        "boundary": "Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion.",
-        "next_split": "Owner module for item 318; must not import the taker_bot_bakeoff facade.",
     },
     "src/weather/reporting/source_gates/source_family_inventory.py": {
         "owner": "reporting",
@@ -257,6 +217,11 @@ OWNERSHIP_NOTES = {
         "owner": "operations",
         "boundary": "Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI.",
         "next_split": "Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged.",
+    },
+    "src/weather/market/market_making_run.py": {
+        "owner": "market",
+        "boundary": "Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch. Retained after the 2026-09-29 paper-maker retirement only to produce the International live-pilot Stage 0/1 paper run.",
+        "next_split": "Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Retained for Stage 0/1 until the informed maker's own live procedure replaces it; do not grow it. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI.",
     },
     "src/weather/market/market_microstructure.py": {
         "owner": "market",

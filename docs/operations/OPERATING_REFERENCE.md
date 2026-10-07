@@ -77,8 +77,8 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherMarketMakingDailyRoll | retired | True | scripts/ops/register_market_making_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherMarketMakingDailyRollSupervisor | retired | True | scripts/ops/register_market_making_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMarketMakingDailyRoll | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMarketMakingDailyRollSupervisor | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMemoryCommitGuard | active | False | scripts/ops/register_memory_commit_guard.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMergeQueueDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMergeSensitiveDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
@@ -93,8 +93,8 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherStorageRecovery-* | one-shot | False | scripts/ops/register_storage_recovery_night.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherStreakCaptureMonitor | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherSuite0969a | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherTakerBotDailyRoll | retired | True | scripts/ops/register_taker_bot_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherTakerBotDailyRollSupervisor | retired | True | scripts/ops/register_taker_bot_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRoll | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRollSupervisor | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindow | active | True | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowReenable* | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowRestore | active | False | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |

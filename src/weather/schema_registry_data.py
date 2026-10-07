@@ -1304,8 +1304,6 @@ REGISTERED_SCHEMAS = (
         "Fleet capture-liveness alarm: markets stale inside an open capture window "
         "vs. pending pre-window (timezone-aware; the signal a live monitor alarms on).",
     ),
-    SchemaSpec("mm_known_edge_map", "mm_known_edge_map_v0.2", "weather.market.mm_paper", "active"),
-    SchemaSpec("mm_known_edge_map_legacy", "mm_known_edge_map_v0.1", "weather.market.mm_paper", "legacy"),
     SchemaSpec(
         "mm_exchange_adapter",
         "mm_exchange_adapter_v0.2",
@@ -1321,41 +1319,12 @@ REGISTERED_SCHEMAS = (
         "legacy",
     ),
     SchemaSpec("mm_negative_risk_simulation", "mm_negative_risk_simulation_v0.1", "weather.market.mm_risk", "active"),
-    SchemaSpec("mm_paper", "mm_paper_v0.1", "weather.market.mm_paper", "active"),
-    SchemaSpec(
-        "mm_paper_run_folder_selection",
-        "mm_paper_run_folder_selection_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Bounded paper-scoring run-folder selection evidence and diagnostics.",
-    ),
-    SchemaSpec(
-        "mm_quote_blocker_diagnostics",
-        "mm_quote_blocker_diagnostics_v0.2",
-        "weather.market.mm_paper",
-        "active",
-        "Quote-starvation and blocker diagnostics by market, reason, known-edge state, and event gate.",
-    ),
-    SchemaSpec(
-        "mm_reward_score_diagnostics",
-        "mm_reward_score_diagnostics_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Reward-score diagnostics for platform-specific maker-liquidity reward estimation.",
-    ),
     SchemaSpec(
         "early_hour_market_guardrail",
         "early_hour_market_guardrail_v0.1",
         "weather.market.mm_policy",
         "active",
         "Market-local early-hour trust bands and risk-only market-aware quote guardrail metadata.",
-    ),
-    SchemaSpec(
-        "early_hour_market_guardrail_shadow",
-        "early_hour_market_guardrail_shadow_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Paper-trading comparison of base, early-hour capped, and market-aware guardrail policies.",
     ),
     SchemaSpec(
         "mm_live_lifecycle_probe",
@@ -1911,35 +1880,6 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("mm_quote_intent", "mm_quote_intent_v0.2", "weather.market.mm_policy", "active", supersedes=("mm_quote_intent_v0.1",)),
     SchemaSpec("mm_quote_intent_legacy", "mm_quote_intent_v0.1", "weather.market.mm_policy", "legacy"),
     SchemaSpec("mm_run", "mm_run_v0.2", "weather.market.market_making_run", "active"),
-    SchemaSpec("mm_run_legacy", "mm_run_v0.1", "weather.market.market_making_run", "legacy", supersedes=()),
-    SchemaSpec(
-        "taker_bot_run",
-        "taker_bot_run_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Daily keyless paper taker-bot run, pretend fills, spend ledger, and P&L artifact.",
-    ),
-    SchemaSpec(
-        "taker_settlement_finalization",
-        "taker_settlement_finalization_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Post-settlement taker fill reconciliation against finalized market-day labels.",
-    ),
-    SchemaSpec(
-        "taker_settlement_finalization_watchdog",
-        "taker_settlement_finalization_watchdog_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Finalization liveness scanner for labelable taker runs, bakeoff refresh, and storage SLA state.",
-    ),
-    SchemaSpec(
-        "taker_tail_casebook",
-        "taker_tail_casebook_v0.1",
-        "weather.reporting.casebooks.taker_tail_casebook",
-        "active",
-        "Taker bot tail-risk casebook for bad post-settlement slices, no-go candidates, and realized P&L outliers.",
-    ),
     SchemaSpec(
         "trading_evidence_summary",
         "trading_evidence_summary_v0.1",
@@ -2295,90 +2235,18 @@ REGISTERED_SCHEMAS = (
         "Repair-command artifact for settled-day replay status backfills.",
     ),
     SchemaSpec(
-        "market_making_daily_roll",
-        "market_making_daily_roll_v0.2",
-        "weather.operations.market_making_daily_roll",
-        "active",
-        "Daily launcher status for paper-live-forward market-making runs with evidence-mode classification.",
-        supersedes=("market_making_daily_roll_v0.1",),
-    ),
-    SchemaSpec(
-        "market_making_daily_roll_legacy",
-        "market_making_daily_roll_v0.1",
-        "weather.operations.market_making_daily_roll",
-        "legacy",
-        "Legacy daily launcher status before evidence-mode classification.",
-    ),
-    SchemaSpec(
-        "taker_bot_daily_roll",
-        "taker_bot_daily_roll_v0.1",
-        "weather.operations.taker_bot_daily_roll",
-        "active",
-        "Daily launcher status for paper taker-bot runs.",
-    ),
-    SchemaSpec(
-        "taker_strategy_registry",
-        "taker_strategy_registry_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Named taker strategy arms, config overrides, attribution, and control/candidate metadata.",
-    ),
-    SchemaSpec(
         "taker_strategy_report",
         "taker_strategy_report_v0.1",
-        "weather.market.taker_bot",
+        "weather.reporting.market.retired_trading_evidence",
         "active",
         "Per-run taker strategy comparison summary with arm-level P&L and countability.",
     ),
     SchemaSpec(
-        "taker_strategy_bakeoff",
-        "taker_strategy_bakeoff_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Settlement-scored replay bakeoff for taker strategy arms and promotion gates.",
-    ),
-    SchemaSpec(
         "taker_profitability_artifact_verification",
         "taker_profitability_artifact_verification_v0.1",
-        "weather.market.taker_profitability_artifact_verification",
+        "weather.reporting.market.retired_trading_evidence",
         "active",
         "Current-run verifier for taker fee, slippage, executable-depth, benchmark, and no-trade evidence fields.",
-    ),
-    SchemaSpec(
-        "taker_current_replay_profitability_verification",
-        "taker_current_replay_profitability_verification_v0.1",
-        "weather.market.taker_bot_bakeoff",
-        "active",
-        "Bakeoff replay verifier proving current fee and executable-depth economics independent of legacy source-run artifacts.",
-    ),
-    SchemaSpec(
-        "taker_profitability_artifact_verification_composite",
-        "taker_profitability_artifact_verification_v0.2",
-        "weather.market.taker_bot_bakeoff",
-        "active",
-        "Composite taker profitability verifier combining source artifact checks with current replay evidence.",
-        supersedes=("taker_profitability_artifact_verification_v0.1",),
-    ),
-    SchemaSpec(
-        "taker_champion_challenger_ledger",
-        "taker_champion_challenger_ledger_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Multi-day settlement-scored champion/challenger ledger for taker strategy promotion.",
-    ),
-    SchemaSpec(
-        "taker_market_benchmark_scoreboard",
-        "taker_market_benchmark_scoreboard_v0.1",
-        "weather.market.taker_bot",
-        "active",
-        "Settlement-scored taker model-vs-market-vs-no-trade benchmark scoreboard.",
-    ),
-    SchemaSpec(
-        "market_making_tape_encoding",
-        "market_making_tape_encoding_v0.1",
-        "weather.operations.market_making_tape_encoding",
-        "active",
-        "Audit and repair artifact for legacy non-UTF-8 market-making and CLOB CSV tapes.",
     ),
     SchemaSpec(
         "module_size_audit",
@@ -2601,39 +2469,11 @@ REGISTERED_SCHEMAS = (
         "Market-making evidence starvation summary.",
     ),
     SchemaSpec(
-        "mm_fill_evidence_completeness",
-        "mm_fill_evidence_completeness_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Market-making fill-evidence completeness report.",
-    ),
-    SchemaSpec(
         "mm_model_variant_bakeoff",
         "mm_model_variant_bakeoff_v0.1",
         "weather.market.market_making_model_variants",
         "active",
         "Market-making model-variant bakeoff report.",
-    ),
-    SchemaSpec(
-        "mm_model_variant_clustered_promotion_gate",
-        "mm_model_variant_clustered_promotion_gate_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Clustered promotion gate for market-making model variants.",
-    ),
-    SchemaSpec(
-        "mm_model_variant_paper_bakeoff",
-        "mm_model_variant_paper_bakeoff_v0.1",
-        "weather.market.mm_paper",
-        "active",
-        "Paper-trading bakeoff for market-making model variants.",
-    ),
-    SchemaSpec(
-        "mm_preflight_recovery_closeout",
-        "mm_preflight_recovery_closeout_v0.1",
-        "weather.market.market_making_preflight",
-        "active",
-        "Market-making preflight recovery closeout artifact.",
     ),
     SchemaSpec(
         "mm_useful_work_liveness",
@@ -2691,23 +2531,13 @@ REGISTERED_SCHEMAS = (
         "active",
         "Predawn candidate ten-minute performance sidecar.",
     ),
-    SchemaSpec(
-        "mm_countability_postmortem",
-        "mm_countability_postmortem_v1",
-        "weather.reporting.market.mm_countability_postmortem",
-        "active",
-        "Maker countable-day yield post-mortem, refreshed daily into data/alerts.",
-    ),
 ) + RECENT_REGISTERED_SCHEMAS
 
-# A version normally identifies one registry name. This compatibility alias is
-# retained deliberately because both public lookup names have shipped.
-INTENTIONAL_SCHEMA_VERSION_ALIASES = {
-    "taker_profitability_artifact_verification_v0.2": {
-        "canonical": "taker_profitability_artifact_verification_composite",
-        "deprecated_aliases": ("taker_profitability_artifact_verification_v0_2",),
-    },
-}
+# A version normally identifies one registry name. Deliberate compatibility
+# aliases are listed here; the only one (the retired taker's
+# taker_profitability_artifact_verification_v0.2) was removed with the taker
+# runtime on 2026-09-29.
+INTENTIONAL_SCHEMA_VERSION_ALIASES = {}
 
 SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
@@ -2759,12 +2589,6 @@ EXCLUDED_SCHEMA_LITERALS = (
         "ResidualDistributionV1 prediction-mode identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
-        "flat_notional_v1",
-        "weather.market.taker_bot_sizing",
-        "sizing_policy_id",
-        "Taker notional sizing policy identifier, not a durable artifact schema.",
-    ),
-    SchemaLiteralExclusion(
         "maker_default_v0",
         "weather.market.market_making_model_variants",
         "model_variant_basket_id",
@@ -2777,34 +2601,10 @@ EXCLUDED_SCHEMA_LITERALS = (
         "Paper-only market-harvest model variant identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
-        "polymarket_symmetric_price_v1",
-        "weather.market.taker_bot_sizing",
-        "fee_model_id",
-        "Taker fee/pricing model identifier, not a durable artifact schema.",
-    ),
-    SchemaLiteralExclusion(
         "polymarket_global_per_condition_fee_schedule_v1",
         "weather.market.exchange_economics",
         "fee_model_id",
         "International per-condition fee-model identifier, not a durable artifact schema.",
-    ),
-    SchemaLiteralExclusion(
-        "top_of_book_only_v1",
-        "weather.market.taker_bot_sizing",
-        "execution_depth_model_id",
-        "Execution-depth model identifier, not a durable artifact schema.",
-    ),
-    SchemaLiteralExclusion(
-        "top_of_book_plus_1pct_depth_v1",
-        "weather.market.taker_bot_strategy_registry",
-        "execution_depth_model_id",
-        "Strategy registry execution-depth model identifier, not a durable artifact schema.",
-    ),
-    SchemaLiteralExclusion(
-        "mm_execution_v2",
-        "weather.market.mm_paper_scoring",
-        "execution_identity_algorithm_id",
-        "Canonical execution-identity hash domain separator, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
         "capture_colocated_v1",

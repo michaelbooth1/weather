@@ -2,9 +2,13 @@
 
 2026-10-03: the nightly failed after 87 batches with PermissionError on
 data/snapshots/clob_loop_status.json, read by the per-second capture admission.
+2026-10-06: the same, on a second PermissionError 0.25 s after the first; 2026-10-04 on a
+transient capture_unhealthy read. Guards: transient status reads back off and wait; only a
+sustained unreadable or BLOCKed capture status fails the night.
 """
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+import json
 import os
 
 import pytest
@@ -94,7 +98,7 @@ def test_selection_refuses_an_error_inside_a_selected_closed_folder(tmp_path, mo
 
 
 def notes():
-    return {"admission_retries": 0, "admission_retry_notes": []}
+    return {"admission_retries": 0, "admission_retry_notes": [], "admission_wait_seconds": 0.0, "admission_episodes": 0}
 
 
 PASS = {"status": "PASS", "reasons": []}
@@ -120,33 +124,188 @@ def test_admission_pass_needs_no_retry():
     assert (len(calls), slept, record) == (1, [], notes())
 
 
-@pytest.mark.parametrize("first", [PermissionError(13, "Permission denied", "clob_loop_status.json"), BLOCK])
-def test_transient_status_race_is_reobserved_once_and_noted(first):
+DENIED = PermissionError(13, "Permission denied", "clob_loop_status.json")
+
+
+class Clock:
+    """Fake monotonic clock that only ``sleep`` advances."""
+
+    def __init__(self):
+        self.now, self.slept = 0.0, []
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+    def monotonic(self):
+        return self.now
+
+
+def observe_with(clock, observe, record=None):
+    return night.observe_admission("root", None, record if record is not None else notes(), observe=observe,
+                                   sleep=clock.sleep, monotonic=clock.monotonic)
+
+
+def always(outcome):
+    calls = []
+
+    def observe(root, resources):
+        calls.append(root)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    return observe, calls
+
+
+@pytest.mark.parametrize("first", [DENIED, BLOCK])
+def test_transient_status_race_is_reobserved_and_noted(first):
     observe, calls = sequence(first, PASS)
-    record, slept = notes(), []
-    assert night.observe_admission("root", None, record, observe=observe, sleep=slept.append) is PASS
-    assert len(calls) == 2 and slept == [night.ADMISSION_RETRY_SECONDS]
+    record, clock = notes(), Clock()
+    assert observe_with(clock, observe, record) is PASS
+    assert len(calls) == 2 and clock.slept == [night.ADMISSION_RETRY_DELAYS[0]]
     assert record["admission_retries"] == 1
     observation = record["admission_retry_notes"][0]["first_observation"]
     assert observation.startswith("PermissionError" if isinstance(first, OSError) else "BLOCK: capture_unhealthy:clob")
 
 
-def test_persistent_permission_error_still_refuses():
-    error = PermissionError(13, "Permission denied", "clob_loop_status.json")
-    observe, _ = sequence(error, error)
-    with pytest.raises(PermissionError):
-        night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None)
+def test_a_permission_error_injected_once_never_fails_the_night():
+    """2026-10-06 (and 10-03): one replace in flight must not cost the night."""
+    observe, calls = sequence(DENIED, PASS)
+    assert observe_with(Clock(), observe) is PASS and len(calls) == 2
 
 
-def test_persistent_block_is_returned_for_the_guard_to_refuse():
-    observe, _ = sequence(BLOCK, BLOCK)
-    assert night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None) is BLOCK
+@pytest.mark.parametrize("failures", [2, 4, 6, 10])
+def test_repeated_transient_unreadability_backs_off_then_waits_instead_of_failing(failures):
+    """The old single 0.25 s retry failed on a second PermissionError; now the night waits."""
+    observe, calls = sequence(*([DENIED] * failures), PASS)
+    clock = Clock()
+    assert observe_with(clock, observe) is PASS
+    expected = list(night.ADMISSION_RETRY_DELAYS[:failures]) + [night.ADMISSION_WAIT_POLL_SECONDS] * max(
+        0, failures - len(night.ADMISSION_RETRY_DELAYS))
+    assert clock.slept == expected and sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+
+
+def test_a_transient_capture_unhealthy_read_is_waited_out():
+    """2026-10-04: a transient capture_unhealthy BLOCK."""
+    observe, _ = sequence(BLOCK, BLOCK, BLOCK, PASS)
+    assert observe_with(Clock(), observe) is PASS
+
+
+def test_a_persistent_permission_error_still_fails_closed():
+    observe, calls = always(DENIED)
+    clock = Clock()
+    with pytest.raises(night.AdmissionUnknown, match=r"\(sustained\) after 58\.8 s") as caught:
+        observe_with(clock, observe)
+    assert isinstance(caught.value.__cause__, PermissionError)
+    # Bounded: it gave up before the sustained bound, after the backoff and wait polls.
+    assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+    assert sum(clock.slept) + night.ADMISSION_WAIT_POLL_SECONDS > night.ADMISSION_SUSTAINED_SECONDS
+    assert len(calls) == len(clock.slept) + 1
+
+
+def test_a_persistent_block_is_returned_for_the_guard_to_refuse():
+    observe, _ = always(BLOCK)
+    clock = Clock()
+    assert observe_with(clock, observe) is BLOCK
+    assert sum(clock.slept) <= night.ADMISSION_SUSTAINED_SECONDS
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(2, "No such file", ".clob_loop_status.json.writer.lock"),
+                                   json.JSONDecodeError("Expecting value", "", 0)])
+def test_a_writer_lock_caught_mid_restart_is_transient_too(error):
+    """Defender #238: the writer lock is unlinked on release and written after an O_EXCL create."""
+    observe, calls = sequence(error, error, PASS)
+    assert observe_with(Clock(), observe) is PASS and len(calls) == 3
+
+
+def test_a_mixed_unreadable_and_blocked_episode_fails_closed_on_its_last_observation():
+    observe, _ = always(DENIED)
+    outcomes = iter([BLOCK, DENIED] * 20)
+
+    def mixed(root, resources):
+        outcome = next(outcomes)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    with pytest.raises(night.AdmissionUnknown, match="sustained"):
+        observe_with(Clock(), mixed)
+
+
+class Wall:
+    """Wall clock tied to the fake monotonic clock."""
+
+    def __init__(self, clock, start):
+        self.clock, self.start = clock, start
+
+    def __call__(self):
+        return self.start + timedelta(seconds=self.clock.now)
+
+
+def test_a_wait_never_crosses_the_child_deadline():
+    """Defender #238: a wait starting just before the deadline stops instead of carrying work past it."""
+    clock = Clock()
+    start = datetime(2026, 10, 7, 12, 57, 0, tzinfo=timezone.utc)
+    deadline = start + timedelta(seconds=10)
+    observe, _ = always(DENIED)
+    with pytest.raises(night.AdmissionUnknown, match="deadline"):
+        night.observe_admission("root", None, notes(), observe=observe, sleep=clock.sleep, monotonic=clock.monotonic,
+                                deadline=deadline, now=Wall(clock, start))
+    assert start + timedelta(seconds=sum(clock.slept)) < deadline
+    observe, _ = always(BLOCK)
+    clock = Clock()
+    assert night.observe_admission("root", None, notes(), observe=observe, sleep=clock.sleep,
+                                   monotonic=clock.monotonic, deadline=deadline, now=Wall(clock, start)) is BLOCK
+    assert start + timedelta(seconds=sum(clock.slept)) < deadline
+
+
+def test_a_flapping_capture_spends_the_night_budget_then_fails_closed():
+    """Defender #238: 'sustained' is also counted across the night, not only per episode."""
+    record = notes()
+    episodes = 0
+    with pytest.raises(night.AdmissionUnknown, match="night_budget"):
+        while True:  # each episode: unreadable for ~49 s, then a brief PASS
+            observe, _ = sequence(*([DENIED] * 13), PASS)
+            observe_with(Clock(), observe, record)
+            episodes += 1
+            assert episodes < 20
+    assert record["admission_wait_seconds"] <= night.ADMISSION_NIGHT_WAIT_BUDGET_SECONDS
+    assert record["admission_episodes"] == episodes + 1
+
+
+def test_throttle_does_not_burst_after_a_long_guard_pause(monkeypatch, tmp_path):
+    """Defender #238: time spent waiting inside guard() is not owed back as unthrottled reads."""
+    from weather.operations import ntfs_file_compression as ntfs
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"x" * (4 * ntfs.MIB))
+
+    class FakeTime:
+        def __init__(self):
+            self.now, self.sleeps = 0.0, []
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    fake = FakeTime()
+    monkeypatch.setattr(ntfs, "time", fake)
+    pauses = iter([0, 60, 0, 0, 0, 0])
+
+    def guard():
+        fake.now += next(pauses)  # a 60 s admission wait before the second block
+
+    stub = type("Stub", (), {"path": path, "metadata": lambda self: {"size_bytes": 4 * ntfs.MIB}})()
+    ntfs.LockedNtfsFile.digest(stub, guard=guard, bytes_per_second=8 * ntfs.MIB)
+    # Every MiB after the pause is still paced at 1/8 s; none is read in a burst.
+    assert fake.sleeps == pytest.approx([0.125] * 4)
 
 
 def test_other_errors_are_not_retried():
     observe, calls = sequence(ValueError("capture status/lock exceeds its admission read bound"), PASS)
     with pytest.raises(ValueError):
-        night.observe_admission("root", None, notes(), observe=observe, sleep=lambda _: None)
+        observe_with(Clock(), observe)
     assert len(calls) == 1
 
 
@@ -154,7 +313,7 @@ def test_retry_notes_are_bounded_but_counted():
     record = notes()
     for _ in range(night.MAX_ADMISSION_NOTES + 5):
         observe, _ = sequence(BLOCK, PASS)
-        night.observe_admission("root", None, record, observe=observe, sleep=lambda _: None)
+        observe_with(Clock(), observe, record)
     assert record["admission_retries"] == night.MAX_ADMISSION_NOTES + 5
     assert len(record["admission_retry_notes"]) == night.MAX_ADMISSION_NOTES
 

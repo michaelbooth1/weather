@@ -33,8 +33,6 @@ _DEPENDENCY_NAMES = {
     "DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB",
     "DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB",
     "DEFAULT_STAGE_A_MAX_COMMIT_PERCENT",
-    "DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS",
-    "DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES",
     "DEFAULT_LABELS_CSV",
     "DEFAULT_LEDGER_ROOT",
     "STEP_ORDER",
@@ -48,8 +46,6 @@ _DEPENDENCY_NAMES = {
     "settled_day_root_cause",
     "winner_rank_parity",
     "june23_location_bias_repair",
-    "taker_bot",
-    "taker_tail_casebook",
     "trading_evidence",
     "exchange_economics",
     "promotion_refresh",
@@ -462,76 +458,6 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--taker-root", default=str(settled_day_root_cause.DEFAULT_TAKER_ROOT))
     parser.add_argument("--mm-root", default=str(settled_day_root_cause.DEFAULT_MM_ROOT))
-    parser.add_argument("--skip-taker-finalization-watchdog", action="store_true")
-    parser.add_argument(
-        "--taker-finalization-date",
-        default="",
-        help="Optional taker target date to finalize; default scans all taker runs for newly labelable tapes.",
-    )
-    parser.add_argument(
-        "--taker-finalization-sla-hours",
-        type=float,
-        default=taker_bot.DEFAULT_FINALIZATION_SLA_HOURS,
-    )
-    parser.add_argument(
-        "--taker-finalization-min-free-bytes",
-        type=int,
-        default=taker_bot.DEFAULT_MIN_FREE_BYTES,
-    )
-    parser.add_argument(
-        "--taker-finalization-no-finalize",
-        action="store_true",
-        help="Report taker finalization state without writing missing settled artifacts.",
-    )
-    parser.add_argument("--skip-taker-bakeoff", action="store_true")
-    parser.add_argument("--taker-bakeoff-strategies", default=taker_bot.DEFAULT_BAKEOFF_STRATEGIES)
-    parser.add_argument("--taker-champion-strategy-id", default=taker_bot.ACTIVE_DEFAULT_STRATEGY_ID)
-    parser.add_argument(
-        "--taker-champion-min-complete-label-days",
-        type=int,
-        default=taker_bot.DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS,
-    )
-    parser.add_argument(
-        "--taker-champion-min-settled-orders",
-        type=int,
-        default=taker_bot.DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
-    )
-    parser.add_argument("--skip-taker-tail-casebook", action="store_true")
-    parser.add_argument("--skip-taker-edge-permission-map", action="store_true")
-    parser.add_argument(
-        "--taker-edge-permission-map-out",
-        default="",
-        help="Output path for the regenerated taker edge-permission map; defaults to <backtest-root>/taker_edge_permission_map.json.",
-    )
-    parser.add_argument("--taker-edge-permission-min-settled-orders", type=int, default=5)
-    parser.add_argument("--taker-edge-permission-min-independent-days", type=int, default=3)
-    parser.add_argument("--taker-edge-permission-min-after-fee-skill", type=float, default=0.0)
-    parser.add_argument(
-        "--taker-tail-casebook-date",
-        default="",
-        help="Optional target date under --taker-root for the tail-loss casebook; default scans all runs.",
-    )
-    parser.add_argument(
-        "--taker-tail-casebook-max-runs",
-        type=int,
-        default=0,
-        help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
-    )
-    parser.add_argument("--skip-maker-paper-score", action="store_true")
-    parser.add_argument("--paper-maker-paused", action="store_true",
-                        help="Explicit owner-paused paper maker: scoring is not applicable; grants no trading readiness")
-    parser.add_argument(
-        "--maker-paper-latest-active-runs",
-        type=int,
-        default=DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
-        help="Score only the latest N active-day maker runs in the scheduled refresh.",
-    )
-    parser.add_argument(
-        "--maker-paper-max-input-bytes",
-        type=int,
-        default=DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
-        help="Fail closed before maker scoring when selected quote inputs exceed this byte budget.",
-    )
     parser.add_argument("--skip-exchange-economics-rule-drift", action="store_true")
     parser.add_argument(
         "--exchange-economics-snapshot",
@@ -701,17 +627,7 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument(
         "--nightly-health-date",
         default="",
-        help="Expected local bot target date for health checks; defaults to today's date in --nightly-health-timezone.",
-    )
-    parser.add_argument(
-        "--nightly-health-max-bot-activity-age-seconds",
-        type=float,
-        default=nightly_health_checks.DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
-    )
-    parser.add_argument(
-        "--nightly-health-startup-grace-seconds",
-        type=float,
-        default=nightly_health_checks.DEFAULT_STARTUP_GRACE_SECONDS,
+        help="Alert date for health checks; defaults to today's date in --nightly-health-timezone.",
     )
     parser.add_argument("--skip-ingest-quality-gate", action="store_true")
     parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")

@@ -14,34 +14,44 @@
 
 Status of machinery described here (owner decisions; [STATE_OF_PLAY](STATE_OF_PLAY.md) is
 the current authority): nightly training is disabled, Stage B evidence refresh is registered disabled by default,
-the taker track is paused, the workstation data mirror is paused
+the taker and paper maker are retired (runtime deleted 2026-09-29), the workstation data mirror is paused
 ([mirror-paused-2026-08-12](mirror-paused-2026-08-12.md)), and streak contiguity is not an objective
 ([ESTABLISHED_FINDINGS](ESTABLISHED_FINDINGS.md) section 0d). "Streak-critical" below names the three loops whose
 gaps are graded; it does not rank the streak above settlement evidence.
 
 ## Target Shape
 
-The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) is
-retired; retain code and evidence for historical replay. The Stage 2 hold build
-at `88aa7e43a` is frozen as fixtures only, not a runtime migration source.
-The replacement foundation is [maker core](maker-core-contracts.md). Production
-operations owns unregistering disabled paper tasks with backups in a separate
-operation; this retirement changes no scheduled task or capture worker.
+The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) and the
+paper taker (`taker_bot*`) are retired, and their scoring, daily-refresh steps,
+daily rolls and registrars were deleted on 2026-09-29 (110o part 3, owner decision 3
+of the 2026-09-26 repo-health audit). By owner decision the paper-run tool
+(`market_making_run` and the modules it imports) is retained only to produce the
+International live-pilot Stage 0/1 paper run until the informed maker's own live
+procedure replaces it; it has no scheduled task. Their run folders under `data/` are retained
+evidence; `trading_evidence` reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module, and git history holds
+the deleted code. The Stage 2 hold build at `88aa7e43a` is frozen as fixtures only,
+not a runtime migration source. The replacement foundation is
+[maker core](maker-core-contracts.md). Production operations owns unregistering
+the disabled paper tasks with backups in a separate operation; this retirement
+changes no scheduled task or capture worker.
 
 `config/scheduled_tasks.json` owns reviewed task lifecycle intent and registrar
 provenance. Its generated table is in [OPERATING_REFERENCE](OPERATING_REFERENCE.md);
 it is not a Scheduler snapshot. Missing host-local XML stays explicitly unverified.
-Nightly health reads the maker/taker lifecycle from this registry and emits
-`RETIRED` rows without reading old run folders or suggesting a forced restart.
-Resumption requires a reviewed lifecycle change as well as owner-started adoption.
-The six retired maker/taker, enrichment and disagreement registrars refuse the
-register path without `-AcknowledgeRetired`; the enrichment unregister path remains
-available. Acknowledgement alone does not grant live-trading authority.
+Nightly health reports the maker and taker bots as fixed `RETIRED` rows without
+reading old run folders or suggesting a restart, and fleet observability supervises
+only the three capture loops. The four retired bot tasks stay in the registry as
+`retired`/expected-Disabled with no registrar (their registrars were deleted), so
+`status.ps1` keeps classifying them. The retired enrichment and disagreement
+registrars refuse the register path without `-AcknowledgeRetired`; the enrichment
+unregister path remains available. Acknowledgement alone does not grant
+live-trading authority.
 
-Stage A passes `--skip-taker-finalization-watchdog`,
-`--skip-taker-edge-permission-map`, and `--skip-taker-tail-casebook` alongside
-`--paper-maker-paused`. Their explicit SKIPPED receipts are non-critical at the
-settled-day barrier; missing or failed settlement evidence remains blocking.
+Stage A no longer has taker or maker-paper-score steps, and the
+`--paper-maker-paused` and `--skip-taker-*` flags were removed with them; the
+contract script and the Python CLI must be adopted together. Missing or failed
+settlement evidence remains blocking at the settled-day barrier.
 
 The operating setup has three layers:
 
@@ -167,6 +177,26 @@ it against `git worktree list`. If it is not the production checkout, the code t
 ## Loop Outputs
 
 ### Weather Snapshot Loop
+
+Snapshot and CLOB registrar actions use `weather.operations.thin_ensure
+--ensure --loop snapshot|clob`. Its proven-healthy path imports only
+supervisor/status/runtime-identity helpers, checks the live PID, writer lock,
+heartbeat and loaded-source fingerprint, and writes the normal supervisor
+status. CLOB also checks its process inventory and healthy discovery results.
+Any uncertainty, pause, errors, stale code, missing lock, orphan or target-mode
+mismatch delegates to the unchanged canonical ensure routine after releasing
+the same supervisor lock. Recovery budgets and stop authority stay there.
+
+After separately authorized host adoption, re-register from the production
+checkout (these commands replace tasks and are not validation commands):
+`./scripts/ops/register_snapshot_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherSnapshotLoopSupervisor -EnsureEveryMinutes 2` and
+`./scripts/ops/register_clob_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherClobBookLoopSupervisor -EnsureEveryMinutes 1 -Market all
+-IntervalSeconds 60 -FastIntervalSeconds 15`. Preserve any deliberately
+reviewed host overrides instead of silently replacing them with defaults.
+Verify both tasks' Actions, Principal, Triggers and Settings with
+`Get-ScheduledTask`; the principal stays current-user S4U/Limited.
 
 - `data/snapshots/loop_status.json`
 - `data/snapshots/loop_supervisor_status.json`
@@ -344,13 +374,10 @@ controls host processes. Status CLIs, their JSON files, and owning runbooks
 remain the fail-closed diagnostic and control surfaces when Streamlit is
 unavailable.
 
-Bot daily-roll workers and reporting jobs have their own launchers,
-supervisors, status artifacts, and evidence gates. They consume capture output
-but are not a fourth capture loop. The maker supervisor may launch or recover a
-worker only inside its configured local evidence window. A healthy worker is
-not killed at the end boundary, but a dead, idle, or stale-code worker remains
-stopped after that boundary so non-countable recovery cannot consume restart
-budget or create another run folder. The taker supervisor has no end boundary.
+Reporting jobs have their own launchers, status artifacts, and evidence gates.
+They consume capture output but are not a fourth capture loop. The former bot
+daily-roll workers and supervisors were deleted with the retired taker and paper
+maker on 2026-09-29.
 
 ## Daily Refresh Delegated-Child Tasks
 
@@ -719,18 +746,14 @@ gap-aware learning mode while carrying the exact promotion blocker forward.
 `market_beating_objective_scoreboard` admit work only with a current, target-bound
 settlement verdict. The barrier's `learning_status` depends on WU restoration,
 label finalization, settlement-source audit, the existing observed-floor policy,
-replay-status repair and settled-day freshness/countability. Maker/economics,
-taker and model-report readiness remain in its aggregate `status` for promotion;
+replay-status repair and settled-day freshness/countability. Economics, trading
+evidence and model-report readiness remain in its aggregate `status` for promotion;
 their blocks do not suppress these three settlement-valid learning producers.
 Missing, stale, generic-error and legacy blocked barrier receipts remain closed
 until the barrier reruns. Each producer still applies its own input-quality
 checks; admission does not claim successful learning or available maker evidence.
 
-Pass `--paper-maker-paused` only for an explicit owner-paused paper maker. Its
-score step then reports `NOT_APPLICABLE` with `counts_toward_maker_readiness=false`
-without reading old runs or launching a scoring child. The setting is carried
-in resume commands. Absence of run files does not imply a pause, and neither
-this flag nor learning admission changes live-readiness or exchange gates.
+Learning admission does not change live-readiness or exchange gates.
 Every learning result declares whether target coverage comes from its own
 corpus, named dependencies, or is not applicable, and records the requested
 target, observed corpus dates, inclusion, staleness, and gap reason without

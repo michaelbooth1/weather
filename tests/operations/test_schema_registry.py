@@ -137,10 +137,6 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("maker_scoring_input_binding"),
             "maker_scoring_input_binding_v0.1",
         )
-        self.assertEqual(
-            schema_version("mm_execution_evidence"),
-            "mm_execution_evidence_v0.1",
-        )
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.2")
         self.assertEqual(schema_version("replay_inputs"), "toronto_replay_inputs_v0.2")
@@ -447,45 +443,20 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(schema_version("market_hour_kind_bias"), "market_hour_kind_bias_v1")
         self.assertEqual(schema_version("live_forward_gate"), "live_forward_gate_v0.2")
-        self.assertEqual(schema_version("mm_live_readiness"), "mm_live_readiness_v0.3")
         self.assertEqual(
             schema_version("mm_stage0_client_identity"),
             "mm_stage0_client_identity_v0.3",
         )
-        self.assertEqual(schema_version("market_making_daily_roll"), "market_making_daily_roll_v0.2")
         self.assertEqual(schema_version("early_hour_market_guardrail"), "early_hour_market_guardrail_v0.1")
-        self.assertEqual(schema_version("early_hour_market_guardrail_shadow"), "early_hour_market_guardrail_shadow_v0.1")
-        self.assertEqual(schema_version("taker_bot_run"), "taker_bot_run_v0.1")
-        self.assertEqual(schema_version("taker_settlement_finalization"), "taker_settlement_finalization_v0.1")
         self.assertEqual(
             schema_version("taker_settled_finalization_projection"),
             "taker_settled_finalization_projection_v0.1",
         )
-        self.assertEqual(
-            schema_version("taker_settlement_finalization_watchdog"),
-            "taker_settlement_finalization_watchdog_v0.1",
-        )
-        self.assertEqual(schema_version("taker_tail_casebook"), "taker_tail_casebook_v0.1")
         self.assertEqual(schema_version("trading_evidence_summary"), "trading_evidence_summary_v0.1")
-        self.assertEqual(schema_version("taker_bot_daily_roll"), "taker_bot_daily_roll_v0.1")
-        self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
         self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
-        self.assertEqual(schema_version("taker_strategy_bakeoff"), "taker_strategy_bakeoff_v0.1")
-        self.assertEqual(
-            schema_version("taker_strategy_bakeoff_ledger_projection"),
-            "taker_strategy_bakeoff_ledger_projection_v0.1",
-        )
         self.assertEqual(
             schema_version("taker_profitability_artifact_verification"),
             "taker_profitability_artifact_verification_v0.1",
-        )
-        self.assertEqual(
-            schema_version("taker_current_replay_profitability_verification"),
-            "taker_current_replay_profitability_verification_v0.1",
-        )
-        self.assertEqual(
-            schema_version("taker_profitability_artifact_verification_composite"),
-            "taker_profitability_artifact_verification_v0.2",
         )
         self.assertEqual(schema_version("exchange_economics_snapshot"), "exchange_economics_snapshot_v0.3")
         self.assertEqual(schema_version("exchange_economics_drift"), "exchange_economics_drift_v0.1")
@@ -512,22 +483,12 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("snapshot_core_sidecar_backfill"), "snapshot_core_sidecar_backfill_v0.1")
         self.assertEqual(schema_version("snapshot_explanation_backfill"), "snapshot_explanation_backfill_v0.1")
         self.assertEqual(schema_version("snapshot_explanations"), "snapshot_explanations_v0.1")
-        self.assertEqual(schema_version("taker_edge_permission_map"), "taker_edge_permission_map_v0.1")
-        self.assertEqual(
-            schema_version("taker_champion_challenger_ledger"),
-            "taker_champion_challenger_ledger_v0.1",
-        )
-        self.assertEqual(
-            schema_version("taker_market_benchmark_scoreboard"),
-            "taker_market_benchmark_scoreboard_v0.1",
-        )
         self.assertEqual(schema_version("settled_day_root_cause"), "settled_day_root_cause_v0.1")
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")
         self.assertTrue(validate_schema_version("feature_store_legacy_v1_14", "toronto_feature_store_v1.14"))
         self.assertTrue(validate_schema_version("feature_store_legacy_v1_11", "toronto_feature_store_v1.11"))
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))
-        self.assertTrue(validate_schema_version("market_making_daily_roll_legacy", "market_making_daily_roll_v0.1"))
         self.assertTrue(
             validate_schema_version(
                 "mm_live_credential_import_receipt_legacy",
@@ -543,7 +504,40 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertIn("feature_store", names)
         self.assertIn("observation_trigger_replay", names)
         self.assertIn("daily_learning", names)
-        self.assertIn("taker_edge_permission_map", names)
+        self.assertIn("trading_evidence_summary", names)
+
+    def test_retired_taker_and_paper_maker_schemas_are_unregistered(self):
+        # Removed with the retired runtime on 2026-09-29 (not additive-only).
+        names = {spec.name for spec in REGISTERED_SCHEMAS}
+        for retired in (
+            "taker_bot_run",
+            "taker_edge_permission_map",
+            "taker_tail_casebook",
+            "mm_paper",
+            "mm_known_edge_map",
+            "market_making_daily_roll",
+            "taker_bot_daily_roll",
+        ):
+            self.assertNotIn(retired, names)
+            with self.assertRaises(KeyError):
+                schema_version(retired)
+        # Readers of retained evidence and the retained Stage 0/1 paper-run tool resolve theirs.
+        for retained in (
+            "taker_profitability_artifact_verification",
+            "taker_settled_finalization_projection",
+            "taker_strategy_report",
+            "trading_evidence_summary",
+            "mm_run",
+            "mm_quote_intent",
+            "mm_policy",
+            "mm_platform_verification",
+            "mm_scoring_projection",
+            "maker_scoring_input_binding",
+            "early_hour_market_guardrail",
+            "mm_model_variant_bakeoff",
+            "mm_useful_work_liveness",
+        ):
+            self.assertIn(retained, names)
 
     def test_registry_name_version_registrations_are_unique(self):
         registrations = [(spec.name, spec.version) for spec in REGISTERED_SCHEMAS]

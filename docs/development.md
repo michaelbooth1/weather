@@ -250,6 +250,29 @@ Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
 
+### Affected-test selection
+
+`python -m weather.operations.affected_tests` lists the test files a change can reach through the static
+graph, with one reason per file (the shortest chain from the test to a changed file):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master            # HEAD vs its merge base
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master --worktree # include uncommitted and untracked files
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master --format paths   # file list for pytest
+```
+
+`--format json` gives the same result for tooling. The graph is read from the git tree of `--head` (no
+checkout needed), so it is cheap enough to run anywhere; running the selected tests is still a pytest run under
+the host rules above. What it follows and where it stops is in the module docstring; in short:
+
+- Python imports (and, in tests and scripts, strings naming a module), PowerShell lines that run
+  `-m weather.*` or launch another script, and file or directory paths that a test or module names.
+- Any `conftest.py`, `pytest.ini`, `pyproject.toml`, `requirements*.txt` or the import bootstrap selects the
+  full suite. The repository ratchets are always selected, and the output lists the always-run audit commands.
+- It is advisory. Dynamic imports, computed paths and behavior that crosses branches (a master change that
+  breaks a test that exists only on a feature branch) are invisible to it; a pull request's full CI run stays
+  the evidence. Changes it cannot connect to any test are listed under "changes no test reaches statically".
+
 ## Staged test cuts: the quarantine marker
 
 A test is never deleted in one step. Removing a test that is believed redundant, trivial or brittle is staged:

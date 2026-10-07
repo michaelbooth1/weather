@@ -73,11 +73,6 @@ TARGET_MODULES = [
     Path("src/weather/market/market_microstructure_features.py"),
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
-    Path("src/weather/market/mm_paper.py"),
-    Path("src/weather/market/mm_paper_aggregation.py"),
-    Path("src/weather/market/mm_paper_evidence.py"),
-    Path("src/weather/market/mm_paper_reports.py"),
-    Path("src/weather/market/mm_paper_scoring.py"),
     Path("src/weather/market/mm_policy.py"),
     Path("src/weather/market/mm_scoring_projection.py"),
     Path("src/weather/market/polymarket_client.py"),
@@ -94,7 +89,6 @@ TARGET_MODULES = [
     Path("src/weather/model/toronto_model.py"),
     Path("src/weather/operations/daily_refresh.py"),
     Path("src/weather/operations/long_job_guard.py"),
-    Path("src/weather/operations/market_making_daily_roll.py"),
     Path("src/weather/operations/nightly_retrain.py"),
     Path("src/weather/operations/observation_trigger.py"),
     Path("src/weather/operations/ops_monitor.py"),
@@ -242,7 +236,6 @@ POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_reporting.py"),
     Path("src/weather/calibration/pooled_feature_cli.py"),
 ]
-TAKER_BOT_SPLIT_MODULES = sorted(_repo_glob("src/weather/market", "taker_bot_*.py"))
 PROMOTION_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/reporting", "promotion_refresh_*.py"))
 PROMOTION_REFRESH_IMPL_MODULES = sorted(
     path for path in _repo_glob("src/weather/reporting/promotion", "*.py")
@@ -272,13 +265,13 @@ REPORTING_SCORECARD_MODULES = [
 ]
 REPORTING_CASEBOOK_MODULES = [
     Path("src/weather/reporting/casebooks/disagreement_casebook.py"),
-    Path("src/weather/reporting/casebooks/taker_tail_casebook.py"),
     Path("src/weather/reporting/casebooks/winner_underpricing_casebook.py"),
 ]
 REPORTING_MARKET_MODULES = [
     Path("src/weather/reporting/market/market_beating_objective_scoreboard.py"),
     Path("src/weather/reporting/market/market_benchmark_residual_edge.py"),
     Path("src/weather/reporting/market/operator_control_room.py"),
+    Path("src/weather/reporting/market/retired_trading_evidence.py"),
     Path("src/weather/reporting/market/market_residual_repair_program.py"),
     Path("src/weather/reporting/market/trading_evidence.py"),
 ]
@@ -431,7 +424,6 @@ REPORTING_ROOT_SHARED_MODULES = {
 DAILY_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/operations", "daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
-    + TAKER_BOT_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
     + REPORTING_SAFE_SLICE_MODULES
     + DAILY_REFRESH_SPLIT_MODULES
@@ -552,21 +544,6 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.market\.mm_exchange\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/market/mm_paper_evidence.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_scoring.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_aggregation.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
     Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.reporting\.data_quality\.data_layer_audit|\.data_layer_audit)\s+import\b|"
         r"import\s+weather\.reporting\.data_quality\.data_layer_audit\b)",
@@ -595,14 +572,6 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
         re.MULTILINE,
     )
     for path in POOLED_FEATURE_SPLIT_MODULES
-})
-EXTRACTED_MODULE_IMPORT_RULES.update({
-    path: re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.taker_bot|\.taker_bot)\s+import\b|"
-        r"import\s+weather\.market\.taker_bot\b)",
-        re.MULTILINE,
-    )
-    for path in TAKER_BOT_SPLIT_MODULES
 })
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(
@@ -1000,16 +969,53 @@ def test_tests_do_not_depend_on_repo_root_data_tree():
     assert offenders == {}
 
 
+def _is_sys_path(node):
+    """``sys.path`` or ``os.sys.path``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "path"
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "sys")
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "sys")
+        )
+    )
+
+
+def _sys_path_mutations(source):
+    """``sys.path.insert``/``append`` calls (also through ``os.sys``) in a module.
+
+    AST-based so a child-process bootstrap that is only a string (the live
+    launcher's ``python -I -S -c`` recipe, mirrored by the Ctrl+Break harness)
+    is not a mutation, while every call the former text check caught still is.
+    """
+    return [
+        node.lineno for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"insert", "append"} and _is_sys_path(node.func.value)
+    ]
+
+
 def test_app_and_tests_do_not_mutate_sys_path():
-    offenders = []
-    for path in APP_AND_TEST_MODULES:
-        text = path.read_text(encoding="utf-8")
-        if "sys.path.insert" in text or "sys.path.append" in text:
-            offenders.append(str(path))
-        if "os.sys.path.insert" in text or "os.sys.path.append" in text:
-            offenders.append(str(path))
+    offenders = [str(path) for path in APP_AND_TEST_MODULES
+                 if _sys_path_mutations(path.read_text(encoding="utf-8"))]
 
     assert offenders == []
+
+
+@pytest.mark.parametrize("source", [
+    "import sys\nsys.path.insert(0, 'x')\n",
+    "import sys\nsys.path.append('x')\n",
+    "import os\nos.sys.path.insert(0, 'x')\n",
+    "import os\nos.sys.path.append('x')\n",
+    "def f():\n    import sys\n    sys.path.insert(0, 'x')\n",
+])
+def test_sys_path_guard_flags_every_call_the_text_check_caught(source):
+    assert _sys_path_mutations(source)
+
+
+def test_sys_path_guard_ignores_a_child_bootstrap_string():
+    source = "BOOTSTRAP = \"import sys,os;sys.path.insert(0,os.environ['SRC'])\"\n"
+    assert _sys_path_mutations(source) == []
 
 
 def test_migrated_modules_use_package_imports_for_internal_modules():
@@ -1281,7 +1287,6 @@ def test_ratchet_scans_are_anchored_on_the_repository_and_non_empty():
     assert (REPO_ROOT / "src" / "weather" / "__init__.py").is_file()
     assert Path.cwd().resolve() == REPO_ROOT
     import_time_scans = {
-        "TAKER_BOT_SPLIT_MODULES": TAKER_BOT_SPLIT_MODULES,
         "PROMOTION_REFRESH_IMPL_MODULES": PROMOTION_REFRESH_IMPL_MODULES,
         "FLEET_OBSERVABILITY_SPLIT_MODULES": FLEET_OBSERVABILITY_SPLIT_MODULES,
         "HOURLY_MODEL_SPLIT_MODULES": HOURLY_MODEL_SPLIT_MODULES,

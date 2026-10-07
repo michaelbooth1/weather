@@ -129,10 +129,30 @@ def test_task_inventory_covers_registrars_status_and_generated_docs():
 
 
 RETIRED_REGISTRARS = [
-    "register_taker_bot_daily_roll.ps1", "register_taker_bot_daily_roll_supervisor.ps1",
-    "register_market_making_daily_roll.ps1", "register_market_making_daily_roll_supervisor.ps1",
     "register_clob_enrichment.ps1", "register_model_market_disagreement_analysis.ps1",
 ]
+# Retired 2026-09-29 (110o part 3): runtime code and registrars deleted. The host
+# tasks stay known as retired/expected-Disabled so status keeps classifying them.
+DELETED_RETIRED_TASKS = {
+    "WeatherTakerBotDailyRoll": "register_taker_bot_daily_roll.ps1",
+    "WeatherTakerBotDailyRollSupervisor": "register_taker_bot_daily_roll_supervisor.ps1",
+    "WeatherMarketMakingDailyRoll": "register_market_making_daily_roll.ps1",
+    "WeatherMarketMakingDailyRollSupervisor": "register_market_making_daily_roll_supervisor.ps1",
+}
+
+
+def test_deleted_bot_tasks_stay_classified_without_a_registrar():
+    rows = {row["name"]: row for row in inventory()}
+    status = (OPS / "status.ps1").read_text(encoding="utf-8-sig")
+    disabled = status.split("$expDisabled = @(", 1)[1].split("\n)", 1)[0]
+    for name, registrar in DELETED_RETIRED_TASKS.items():
+        row = rows[name]
+        assert row["state"] == "retired"
+        assert row["expected_disabled"] is True
+        assert row["registrar"] is None
+        assert f'"{name}"' in disabled
+        assert not (OPS / registrar).exists()
+    assert not (OPS / "market_making_daily_roll_task.ps1").exists()
 
 
 @pytest.mark.windows_native
@@ -144,7 +164,6 @@ def test_retired_registrars_refuse_before_any_scheduler_action(tmp_path, name, a
     (tmp_path / "venv/Scripts").mkdir(parents=True)
     (tmp_path / "venv/Scripts/pythonw.exe").touch()
     (tmp_path / "scripts/ops").mkdir(parents=True)
-    (tmp_path / "scripts/ops/market_making_daily_roll_task.ps1").touch()
     result = run_ps(r"""
 $ErrorActionPreference = 'Stop'
 function New-ScheduledTaskAction { throw 'ACKNOWLEDGED_NO_SCHEDULER_CALL' }

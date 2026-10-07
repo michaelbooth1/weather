@@ -1742,8 +1742,44 @@ overlay, interpreter, and status-attestation helper closure. They rehash after
 acquiring those handles and retain them through child exit. The parent sends
 cooperative cleanup at the sealed execution stop, allows only the same
 sealer-owned 20-second grace already reserved by every window check, and then
-uses kill-on-close containment if required. For the colocated profile the
+uses kill-on-close containment if required. The parent starts the launcher
+with stdin on the null device: Windows PowerShell answers Ctrl+Break by entering
+its debugger and reading stdin, and an inherited open stdin would park it there
+until the forced teardown. Ctrl+Break also reaches only processes on the runner's
+own console, so the runner must keep running isolated (`python -I -S` in the
+fixed session launcher). The repository `sitecustomize.py` and
+`weather.operations.windows_silent` add `CREATE_NO_WINDOW` to every child, which
+puts the launcher on its own console and silently drops the break; the runner
+still reports a cooperative exit (2026-10-06 root cause; guarded by
+`tests/operations/test_live_runner_console_guards.py`). A receipt's
+`cooperative` means only that the launcher tree exited within the grace period:
+it cannot tell a handled break from a launcher that finished on its own. Only the
+tests' `BREAK` marker and the C3 rehearsal step below prove delivery. For the colocated profile the
 reserved end may equal 09:00; it must never exceed it.
+
+**Reseal after the stdin change (PR #229).** `live_path_security` and the
+session sealer's bootstrap hash both cover
+`src/weather/operations/international_live_session_runner.py`. Every session or
+scope launcher sealed before that change landed is stale and must be
+**resealed**; a pre-change seal refuses at its locked-file hash check and does
+not run.
+
+**Gate before the first live attempt after PR #229.** The change also moves the
+Python wrapper grandchild's inherited stdin off the console. Its confirmation
+prompt (`_prompt_until` in the Stage 0 / Stage 1 cancel templates) reads keys
+through `msvcrt` on `CONIN$`, not stdin, and fails closed. A harness probe
+showed it still works, but that was not a real operator console. Before the
+first live attempt after the change, run a **supervised keyless rehearsal at a
+real operator console**: no credentials, no orders. It must reach that
+confirmation prompt and prove typed input is accepted. It must also drive the
+interrupt path with a keyless stub launcher that registers a `DebuggerStop`
+handler and writes a `BREAK` marker, as in
+`tests/operations/live_launcher_break_harness.py`. The marker must appear, and
+the outcome must be cooperative (not forced) with the stub's own exit code. That
+proves Ctrl+Break reaches the launcher on that console. Record the result (date,
+host, outcome) in this section or in
+[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+Until that record exists, no live attempt is launched.
 
 The fixed launcher additionally proves the active shared lease is still held
 with write sharing denied and binds the lease record to the canonical
