@@ -123,10 +123,12 @@ C:\Users\micha\Desktop\github\weather\venv\Scripts\python.exe -m weather.backtes
 ### 1.4 The host procedure (one detached PowerShell process holds the lease for its whole life)
 The lease is an open file handle plus a named mutex owned by the PowerShell process that called
 `Enter-WeatherHeavyWorkloadLease` (`workload_admission.ps1:1-16, 1957-1961`). So the whole procedure must run in one
-long-lived process. A tool call that times out would abandon it. Save three files in `C:\tmp\b-replay-20261008\`:
+long-lived process. A tool call that times out would abandon it. Save four files in `C:\tmp\b-replay-20261008\`:
 - the following script as `run-b-replay.ps1`;
 - the §4 evaluator as `eval_b.py`;
-- the §1.2 proof body as `proof_b.py`.
+- the §1.2 proof body as `proof_b.py`;
+- the §7 audit wrapper as `b_audit_run.py` (byte-identical to `l-data\b_audit_run.py`, LF endings; sha256 in §7.4).
+The replay is launched through `b_audit_run.py` (§7 amendment, already applied below).
 
 Launch it with
 `Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\tmp\b-replay-20261008\run-b-replay.ps1' -WindowStyle Hidden -PassThru`,
@@ -173,7 +175,10 @@ try {
   $proof = & $Py -c "exec(open(r'C:\tmp\b-replay-20261008\proof_b.py').read())"
   $res.import_proof = ($proof -join ' | ')
   if ($LASTEXITCODE -ne 0 -or ($proof -join ' ') -notmatch 'IMPORT-OK') { throw 'import proof failed' }
-  $rargs = @('-m','weather.backtesting.metar_v4_lockin_replay','--snapshots-root',"$Prod\data\snapshots",
+  # §7 amendment: run under the audit-hook wrapper (abort on the first non-temp write outside $Out -> exit 4)
+  if ((Get-FileHash "$Out\b_audit_run.py" -Algorithm SHA256).Hash -ne '0BB589284DBE8BC103D874F1599A385BAAD11589C15FC4B7AD609E7D9A04F09B') { throw 'b_audit_run.py hash mismatch' }
+  $rargs = @("$Out\b_audit_run.py",'--audit-dir',$Out,'--abort-on-write','--',
+            '--snapshots-root',"$Prod\data\snapshots",
             '--from-date','2026-08-25','--through-date','2026-09-29','--compare-pre-lockin-floor',
             '--out',"$Out\b-replay.jsonl")
   $p = Start-Process -FilePath $Py -ArgumentList $rargs -WorkingDirectory $Wt -NoNewWindow -PassThru `
@@ -190,6 +195,9 @@ try {
   }
   $p.WaitForExit()
   $res.replay_exit = $p.ExitCode; $res.replay_finished = (Get-Date).ToString('s')
+  $aw = @(if (Test-Path "$Out\audit-writes.jsonl") { Get-Content "$Out\audit-writes.jsonl" | Where-Object { $_ } })
+  $res.audit_events = $aw.Count; $res.audit_nontemp = @($aw | Where-Object { $_ -notmatch '"temp": true' }).Count
+  if ($res.replay_exit -eq 4 -or $res.audit_nontemp -gt 0) { $res.audit_abort = $true; throw 'AUDIT: write outside C:\tmp\b-replay-20261008 - see audit-writes.jsonl; B result void' }
   $res.peak_private_gib = [math]::Round($peakPriv / 1GB, 2); $res.peak_ws_gib = [math]::Round($peakWs / 1GB, 2)
   if (Test-Path "$Out\b-replay.jsonl") { $res.out_gib = [math]::Round((Get-Item "$Out\b-replay.jsonl").Length / 1GB, 3) }
   if (-not $res.killed -and $res.replay_exit -in 0, 3) {
@@ -368,3 +376,149 @@ For the cross-check, `summary.json` `floor_check` must be `PASS` and `pre_lockin
    junction? Use the same setup, or note the difference, so the two runs are comparable.
 3. Scheduling: B (up to about 2 h 10 m) then RS2 by about 03:45 only fits if B starts by about 01:15, or runs first at
    00:30 before RS1.
+
+## 7. Write-sink audit under DATA_ROOT (gate for B; answered 2026-10-07 for master)
+
+**Verdict: no reachable write sink under DATA_ROOT. The gate is clear for B.** The replay writes exactly two things:
+the parent `mkdir` of `--out` and the `--out` file itself (`metar_v4_lockin_replay.py:378-379`, `open("x")`). Both
+sit behind `check_out_path`, which refuses any path inside the resolved data tree (`lockin_anchor_replay.py:74-81`).
+The dynamic run saw zero write events outside the output dir, not even in `%TEMP%`. The static sweep found no other
+write sink on the replay's call path.
+
+### 7.1 Dynamic (workstation, under the §7.3 wrapper)
+- Setup:
+  - throwaway worktree `C:\lpf-s\wt-b-audit` @7771474, cwd = the worktree;
+  - `PYTHONPATH=<wt>\src;<wt>`, `PYTHONNOUSERSITE=1`, `PYTHONDONTWRITEBYTECODE=1`;
+  - junction `<wt>\data` -> the **workstation** `data\` (never production);
+  - output in the session scratchpad.
+- Snapshots: the workstation has none in 08-25..09-29 (its latest market-days are about 08-12). I used two in-range
+  folders, both ≤ 09-29: `highest-temperature-in-toronto-on-august-12-2026` (CA path, 36 snapshots) and
+  `highest-temperature-in-seattle-on-august-9-2026` (US path, 149 snapshots). Run with `--compare-pre-lockin-floor`.
+- Run 1, abort OFF, all events collected:
+  - exit 0, 185 rows, `status: {ok: 185}`, `floor_check: PASS`;
+  - **0 write events** in `audit-writes.jsonl`, including 0 temp-file events.
+- Run 2, abort ON (the host configuration): exit 0, again 0 events. Its summary is byte-identical to run 1 apart from
+  the `out` path, so the wrapper does not change results.
+- Wrapper self-test with a probe module:
+  - all of these were logged with path, mode and stack: mkdir, `open("w")`, `os.open(O_WRONLY|O_CREAT)`,
+    `os.replace` (it fires `os.rename`), `shutil.copyfile`, `os.remove`/`os.unlink`;
+  - `tempfile` writes were logged with `temp: true` and did not abort;
+  - `sqlite3.connect(":memory:")` was ignored;
+  - read-only opens were not logged;
+  - the module's own exit 7 passed through, and abort-ON exited 4 at the first mkdir.
+- Scoped mtime check: a marker was touched before each run, then `find <dir> -newer marker` (no recursive walk of
+  `data\`). Zero newer entries in every place checked:
+  - `wunderground\CYYZ` and `wunderground\KSEA`;
+  - `forecast_history\cyyz` and `forecast_history\ksea`;
+  - both snapshot folders;
+  - `snapshots\observation_source_cache`;
+  - `data\` maxdepth 1 and `data\snapshots\` maxdepth 1.
+- Speed, for information only: 185 snapshots with four model runs each took about 20 s wall time, including startup,
+  on the workstation. The §3 runtime estimate is probably pessimistic.
+
+### 7.2 Static (every `weather` module actually loaded, from `sys.modules` at the end of the run)
+- Module set: 59 files. All resolve inside the worktree, including `sitecustomize.py` and `src\weather\__init__.py`;
+  none come from production `src`.
+- Reachability was measured, not guessed:
+  - a `sys.setprofile` trace of the same two-folder run recorded 588 executed worktree functions;
+  - a grep over the 59 files for write sinks gave 140 hits, and each was mapped to its enclosing function by AST;
+  - the grep pattern covered: `open(` w/a/x/+, `mode=`, `write_text`/`write_bytes`, `to_csv`/`parquet`/`json`/
+    `feather`/`pickle`, `json.dump`, `pickle`/`joblib.dump`, `np.save`, `mkdir`/`makedirs`, `shutil.`, `os.replace`/
+    `rename`/`remove`/`unlink`/`rmtree`, `os.open`, `sqlite3`, `FileHandler`, `requests_cache`, `diskcache`, `shelve`,
+    `tempfile`, `Memory(`, `atomic_write`/`write_json*`/`append_json*`, `link`/`symlink`.
+- Result: 3 hits executed, 3 module-level imports, 134 never executed.
+- **Executed:**
+  - `metar_v4_lockin_replay.py:378` (`out.parent.mkdir`) and `:379` (`out.open("x")`): the `--out` file only.
+  - `release_serving.py:113`: `is_symlink()`, a read and a grep false positive.
+- **Module level:** import lines only, at `model_sources.py:26`, `reanalysis_history.py:19` and `wu_history.py:15`.
+- **Not executed, and not reachable from the replay's call path:**
+  - **`model/model_sources.py`, the live-fetch and last-good caches** (`data_root`, i.e. under DATA_ROOT, so these
+    were the dangerous ones):
+    - sinks: `quarantine_last_good_sources_cache:590`; `save_last_good_sources:600,615`;
+      `record_source_family_rate_limit:701`; `cached_nws_points:2061-2062`; `cached_nws_grid_metadata:2092-2093`;
+    - all of them are reachable only from `fetch_sources:180-184` -> `fetch_live_sources` (`:243`
+      `blend_with_last_good(fetch_live_source_groups(...))`, and `source_fetcher_with_budget` at `:439`/`:471`);
+    - the only callers of `fetch_sources` and `fetch_live_sources` are `toronto_model.py:289-292` (`build()`, only when
+      both source args are None) and `collection/snapshot_tracker.py:221`;
+    - the replay never calls `build`. It calls `estimate_distribution_result(record["sources"], now=built_at)`
+      (`lockin_anchor_replay.py:130-132`);
+    - it skips any record with no captured sources (`metar_v4_lockin_replay.py:388-389`);
+    - `model_distribution.py` has no `fetch` or `last_good` reference at all;
+    - the trace confirms `fetch_sources`, `fetch_live_source_groups`, `blend_with_last_good`, `load_last_good_sources`
+      and `build` were never called, while `estimate_distribution_result`, `compare_snapshot` and `load_blob` were.
+  - **`sources/wu_history.py`, the WU fetch/ingest writers:**
+    - sinks: `write_payload`, `write_fetch_error`, `write_daily_summary`, `write_hourly_partitions`, `write_manifest`,
+      `recover_unavailable_errors`, `unlink_with_retry` (:719 and others);
+    - they are called only inside `wu_history.py` (its own CLI), never from `model/` or the replay modules;
+    - the replay reads WU climatology only (`model_climatology.py`, which has no sink hits).
+  - **`sources/forecast_history.py`:** `backfill`, `write_csv`, `write_forecast_history_coverage_outputs`. These are
+    its own CLI only; the model reads forecast history only (`forecast_history.py:155-172`).
+  - **`sources/grib_probe.py`, `nbm_probabilistic_tmax.py`, `reanalysis_history.py`, `reanalysis_synoptic.py`,
+    `historical_schema.py`:** fetch, build and CLI writers, called only within their own modules.
+  - **`artifacts.py`** writers (`writable_artifact_path:412` and the `write_artifact_*` family) are called only from
+    `calibration/*`, which is not loaded. The `release_artifacts.py`, `point_in_time_contract.py:663` and
+    `cold_archive_locations.py:154` hits are `is_symlink()` reads, i.e. false positives.
+  - **`io.py`:** the generic writer helpers (`write_json_atomic`, `write_text_atomic`, `append_jsonl`,
+    `write_csv_rows*`, `acquire_writer_lock`, and others) all show 0 executions.
+  - **`backtesting/replay.py`:** `write_replay_input_status`, `reconstruct_corpus_for_folder:525`. Also
+    `lockin_anchor_replay.run:215-216` and `metar_keying_replay.run:237-238` (the sibling CLIs). None of these are
+    called by this CLI.
+- Third-party caches and logs:
+  - `sqlite3`, `requests_cache`, `diskcache` and `shelve` are not in `sys.modules`;
+  - `joblib` is loaded (by sklearn), but no `Memory(`/`joblib.dump` exists in any loaded `weather` module;
+  - there is no `FileHandler` in the loaded modules;
+  - `requests` is imported but unused (network fetch paths not reached, as above).
+- Residual risk:
+  - the audit hook cannot see writes made natively by C extensions (for example pyarrow file sinks);
+  - the static sweep found no `to_parquet`/`to_feather`/`np.save`/`pickle.dump` in any loaded module, which covers
+    that gap at source level;
+  - code running before the hook (`sitecustomize.py`, the root shim) is path setup only, with no sink hits;
+  - the host run touches more markets and dates, but through the same class (`TorontoHighTempModel` for every market,
+    `metar_v4_lockin_replay.py:369-373`) and the same call path. The abort-ON wrapper is the backstop.
+
+### 7.3 The wrapper `b_audit_run.py`
+- Location: `C:\wt\workstation-chat\l-data\b_audit_run.py`. Copy it byte-for-byte (LF endings) to
+  `C:\tmp\b-replay-20261008\b_audit_run.py`.
+- Usage: `python b_audit_run.py [--audit-dir DIR] [--abort-on-write|--no-abort-on-write] [--dump-modules FILE] -- <replay args>`.
+  `--audit-dir` defaults to `C:\tmp\b-replay-20261008`, and abort is ON by default.
+- Order of operations: it installs `sys.addaudithook` before any `weather` import, sets `sys.argv`, then runs
+  `runpy.run_module('weather.backtesting.metar_v4_lockin_replay', run_name='__main__', alter_sys=True)`. `SystemExit`
+  codes pass through.
+- What it logs, to `<audit-dir>\audit-writes.jsonl`, one JSON line per event with `event`, `path`, `mode`/`flags` or
+  `args`, `temp`, and `stack` (3 frames):
+  - `open` with mode w/a/x/+ or flags `O_WRONLY|O_RDWR|O_CREAT|O_APPEND|O_TRUNC`;
+  - `os.rename` (which also covers `os.replace`), `os.remove` (also `os.unlink`), `os.rmdir`, `os.mkdir`,
+    `os.truncate`, `os.symlink`, `os.link`, `os.chmod`, `os.utime`, `shutil.*`, and `sqlite3.connect` (except
+    `:memory:`).
+- Exclusions: anything under `--audit-dir` (which includes `audit-writes.jsonl`, opened before the hook) is not
+  logged. A thread-local busy flag prevents recursion. Writes through already-open integer fds are skipped, because
+  their `os.open` was already audited.
+- Abort: `%TEMP%`/`%TMP%` paths (both `abspath` and `realpath` spellings) are logged with `temp: true` and never abort.
+  Any other event is written, flushed, and then `os._exit(4)`.
+- Temp files seen: none from the replay. The workstation replay runs logged zero temp events; the only temp events
+  seen were from the self-test's own `tempfile` probe.
+- `sys.path` note: launched as a script, `sys.path[0]` is `C:\tmp\b-replay-20261008`. That directory must contain no
+  `weather\` package and no `sitecustomize.py`; it holds only the four files and outputs. With that,
+  `PYTHONPATH=<wt>\src;<wt>` resolves `weather` to the worktree. This was verified on the workstation: all 59 loaded
+  `weather` files came from the worktree.
+
+### 7.4 Launch-line replacement in run-b-replay.ps1 (already applied in §1.4)
+Replace the `$rargs = @('-m', ...)` assignment with:
+```powershell
+  if ((Get-FileHash "$Out\b_audit_run.py" -Algorithm SHA256).Hash -ne '0BB589284DBE8BC103D874F1599A385BAAD11589C15FC4B7AD609E7D9A04F09B') { throw 'b_audit_run.py hash mismatch' }
+  $rargs = @("$Out\b_audit_run.py",'--audit-dir',$Out,'--abort-on-write','--',
+            '--snapshots-root',"$Prod\data\snapshots",
+            '--from-date','2026-08-25','--through-date','2026-09-29','--compare-pre-lockin-floor',
+            '--out',"$Out\b-replay.jsonl")
+```
+The `Start-Process -FilePath $Py -ArgumentList $rargs ...` line itself is unchanged. Directly after
+`$res.replay_exit = $p.ExitCode; ...`, add:
+```powershell
+  $aw = @(if (Test-Path "$Out\audit-writes.jsonl") { Get-Content "$Out\audit-writes.jsonl" | Where-Object { $_ } })
+  $res.audit_events = $aw.Count; $res.audit_nontemp = @($aw | Where-Object { $_ -notmatch '"temp": true' }).Count
+  if ($res.replay_exit -eq 4 -or $res.audit_nontemp -gt 0) { $res.audit_abort = $true; throw 'AUDIT: write outside C:\tmp\b-replay-20261008 - see audit-writes.jsonl; B result void' }
+```
+- Exit 4, or any non-temp line, voids B; the `finally` block still tears down. Temp lines are recorded in
+  `result.json` (`audit_events`) for master to list.
+- sha256 of `b_audit_run.py` (LF): `0bb589284dbe8bc103d874f1599a385baad11589c15fc4b7ad609e7d9a04f09b`. A CRLF
+  conversion changes the hash and makes the script refuse to run; copy it as binary.
