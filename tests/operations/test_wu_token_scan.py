@@ -49,6 +49,9 @@ def _fixture_tree(root, token):
         f'<script>const data = {{"API_URL":"https://api.example.invalid","API_KEY":"{token}"}};</script>',
         encoding="utf-8",
     )
+    (root / "logs" / "dict_repr.log").write_text(
+        f"params={{'apiKey': '{token}', 'units': 'e'}}\nconfig apiKey: {token}\n", encoding="utf-8"
+    )
     (root / "snapshots" / "2026-06-19" / "angular.html").write_text(
         f"&q;API_KEY&q;:&q;{token}&q;", encoding="utf-8"
     )
@@ -69,11 +72,12 @@ def test_scanner_finds_fake_tokens_and_never_prints_them(tmp_path, token, capsys
     assert payload["status"] == "FOUND"
     assert payload["matched_text_reported"] is False
     by_name = {os.path.basename(row["path"]): row for row in payload["findings"]}
-    assert set(by_name) == {"leak.log", "backfill_errors.jsonl", "page.html", "angular.html"}
+    assert set(by_name) == {"leak.log", "backfill_errors.jsonl", "page.html", "angular.html", "dict_repr.log"}
     leak = by_name["leak.log"]
     assert leak["matches"]["apikey_query_param"] == 2
     assert leak["first_match_offset"]["apikey_query_param"] == 100 + len("GET /v1/x?")
-    assert by_name["backfill_errors.jsonl"]["matches"]["apikey_json_field"] == 1
+    assert by_name["backfill_errors.jsonl"]["matches"]["apikey_colon_field"] == 1
+    assert by_name["dict_repr.log"]["matches"]["apikey_colon_field"] == 2
     assert by_name["page.html"]["matches"]["wu_page_api_key_block"] == 1
     assert by_name["angular.html"]["matches"]["wu_page_api_key_block"] == 1
     assert by_name["page.html"]["matches"]["hex32_near_apikey"] == 1
