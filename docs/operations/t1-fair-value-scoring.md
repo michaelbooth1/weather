@@ -18,6 +18,20 @@ owner-approved handoff 110u schedules the single real scored read for **2026-10-
 from the replay's same sealed exports and disclosed in its execution manifest.
 Passing the calendar check alone is not permission for an earlier or repeated look.
 
+**MG-1 refusal.** The [reserved confirmation window](reserved-confirmation-window.md)
+holds plugin fair-value views out of every view-vs-outcome metric on MG-1 reserved
+local target dates (every date from 2026-10-15 until D0 and its last date are recorded
+in `maker_core.mg1_window`). `weather.market.mg1_metric_guard` is called first in
+`score`, `main`, `Panel.settle` and the statistics tables. Before argument parsing,
+`main` checks the registered panel's target dates; a refusal prints one stderr line
+(`fair-value score refused: MG1Reserved: ...`) and exits 2 with no traceback. The
+registered panel (09-25..10-08) lies wholly before the window, so the guard changes no
+scored value and needs no pre-registration amendment. Bundle capture days are not
+checked: a later settlement-only carry bundle captured on a reserved day is still
+admitted for pre-window targets. `report.json` binds the guard's bytes through
+`implementation_hashes`. MM paper scoring of fills is governed separately, by the
+OD3 switch in `maker_core.mg1_window`.
+
 From the qualified checkout, with caller-supplied paths (example names only):
 
 ```powershell

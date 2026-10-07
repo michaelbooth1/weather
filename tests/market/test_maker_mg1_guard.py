@@ -130,6 +130,36 @@ def test_window_can_only_narrow_and_inconsistent_recordings_fail_wide():
     assert guard.window(date(2026, 10, 20), date(2026, 10, 19)) == (date(2026, 10, 15), None)
     assert guard.window(date(2026, 10, 20), None) == (date(2026, 10, 15), None)
     assert guard.window("2026-10-20", "2026-12-31") == (date(2026, 10, 15), None)
+    # 45 promotion-countable dates need at least 45 calendar days: anything shorter fails wide.
+    d0 = date(2026, 10, 20)
+    assert guard.window(d0, date(2026, 12, 2)) == (date(2026, 10, 15), None)  # D0 + 43 days
+    assert guard.window(d0, d0) == (date(2026, 10, 15), None)
+    assert guard.window(d0, date(2026, 12, 3)) == (d0, date(2026, 12, 3))  # D0 + 44 days
+    assert guard.window(datetime(2026, 10, 20), datetime(2027, 1, 1)) == (date(2026, 10, 15), None)
+
+
+RESERVATION_DOC = SRC.parent / "docs/operations/reserved-confirmation-window.md"
+
+
+def _status_paragraph():
+    text = RESERVATION_DOC.read_text(encoding="utf-8")
+    start = text.index("**Status:")
+    return text[start:text.index("\n\n", start)]
+
+
+def test_recorded_window_is_bound_to_the_reservation_doc_status_line():
+    """The doc is the single source of truth: MG1_D0/MG1_LAST are recorded in the same commit as its
+    dated status line (``MG-1 D0 = YYYY-MM-DD``, ``MG-1 last = YYYY-MM-DD``), and never otherwise."""
+    status = _status_paragraph()
+
+    def recorded(label):
+        found = re.findall(r"MG-1 " + label + r" = (\d{4}-\d{2}-\d{2})", status)
+        assert len(found) <= 1, f"ambiguous MG-1 {label} in the status line"
+        return date.fromisoformat(found[0]) if found else None
+
+    assert (mg1_window.MG1_D0, mg1_window.MG1_LAST) == (recorded("D0"), recorded("last"))
+    if mg1_window.MG1_D0 is not None:
+        assert guard.window() == (mg1_window.MG1_D0, mg1_window.MG1_LAST), "recording must narrow, not fail wide"
 
 
 @pytest.mark.parametrize("bad", [None, "", "d1", "2026-10-15T00:00", 20261015,
@@ -217,17 +247,28 @@ def test_refused_main_in_a_real_process_prints_one_line(tmp_path):
     assert done.stderr.splitlines() == [REFUSAL_LINE]
 
 
-def test_bundle_captured_on_a_reserved_day_is_refused_before_indexing(monkeypatch):
-    for day, refused in ((date(2026, 10, 15), True), (date(2026, 10, 14), False)):
+def test_carry_bundles_captured_on_reserved_days_are_not_refused(monkeypatch):
+    """bundle.day is the UTC capture day, not a target date: a later settlement-only carry bundle for
+    pre-window targets must still be admitted (t1-fair-value-scoring.md). MG-1 binds target dates."""
+    for day in (date(2026, 10, 15), date(2026, 10, 14)):
         fake = types.SimpleNamespace(day=day, sealed_at=datetime(2026, 10, 16, tzinfo=timezone.utc))
         monkeypatch.setattr(scorer, "load_bundle", lambda *a, _f=fake, **k: _f)
         monkeypatch.setattr(scorer, "Panel", _stop)
-        if refused:
-            with pytest.raises(MG1Reserved, match="bundle_day:2026-10-15"):
-                scorer.score(["fixture"], code_tip=TIP, now=datetime(2026, 10, 20, tzinfo=timezone.utc))
-        else:
-            with pytest.raises((AttributeError, Sentinel)):  # Past the guard: the fake has no hashes.
-                scorer.score(["fixture"], code_tip=TIP, now=datetime(2026, 10, 20, tzinfo=timezone.utc))
+        with pytest.raises((AttributeError, Sentinel)):  # Past every guard: the fake has no hashes.
+            scorer.score(["fixture"], code_tip=TIP, now=datetime(2026, 10, 20, tzinfo=timezone.utc))
+
+
+@pytest.mark.parametrize("qualname", ["summarize", "tables"])
+def test_statistics_refuse_one_shot_iterators_instead_of_scoring_nothing(qualname):
+    func = getattr(statistics, qualname)
+    for rows in (iter([stat_row(date(2026, 9, 1))]), (r for r in [stat_row(date(2026, 9, 1))])):
+        with pytest.raises(MG1Reserved, match="mg1_rows_not_materialised"):
+            func(rows)
+
+
+def test_scorer_report_binds_the_guard_bytes():
+    source = inspect.getsource(scorer.main)
+    assert '"src/weather/market/mg1_metric_guard.py"' in source and '"src/maker_core/mg1_window.py"' in source
 
 
 def test_frozen_panel_itself_is_outside_the_window():
@@ -276,6 +317,8 @@ def _guard_entry(func):
 def test_ast_every_scorer_calls_the_guard_first(module, qualname, entry):
     func = _function(ast.parse((SRC / module).read_text(encoding="utf-8")), qualname)
     assert _first_is_guard(func), f"{module}:{qualname} must call refuse_reserved_targets first"
+    # A decorator would run before the body, so before the guard.
+    assert func.decorator_list == [], f"{module}:{qualname} must not be decorated"
     assert _guard_entry(func) == entry
 
 
@@ -295,6 +338,38 @@ def test_ast_inventory_of_view_vs_outcome_code_is_closed():
     # maker_plugin_runner serves views to the policy and records a pending settlement join; it computes
     # no view-vs-outcome metric (outcome-blind dry-run coverage), so it is exempt.
     assert consumers == {"weather/market/maker_fair_value_score.py", "weather/market/maker_plugin_runner.py"}
+
+
+# Every file in src/ or tools/ that handles both a fair-value outcome view and a settlement fact.
+# Each is either a guarded scorer (SCORERS) or exempt for the stated reason; a new file fails here.
+VIEW_AND_SETTLEMENT_EXEMPT = {
+    "src/maker_core/contracts/__init__.py": "type definitions only",
+    "src/maker_core/contracts/conformance.py": "outcome-blind plugin conformance checks on fixtures",
+    "src/maker_core/replay/bundle.py": "bundle reader; no metric",
+    "src/maker_core/replay/payloads.py": "bundle payload codec; no metric",
+    "src/maker_core/replay/engine.py": "MM paper replay: settles fills, views only quote (OD3 guard in score)",
+    "src/maker_core/replay/v2/kernel.py": "MM paper replay v2 kernel: settles fills (OD3 guard in band_days)",
+    "src/weather/market/maker_plugin_runner.py": "outcome-blind dry run; settlement pending, no metric",
+    "src/weather/market/maker_replay_bundle.py": "bundle writer; no metric",
+    "src/weather/market/maker_replay_bundle_v02.py": "bundle writer; no metric",
+    "tools/research/maker_replay_v2/dense.py": "fictional fixture generator",
+    "tools/research/maker_replay_v2/fixture170.py": "fictional fixture generator",
+}
+
+
+def test_inventory_of_files_joining_views_and_settlements_is_closed():
+    repo = SRC.parent
+    found = set()
+    for base in ("src", "tools"):
+        for path in (repo / base).rglob("*.py"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if (re.search(r"\bOutcomeView\b|[\"']outcome_view[\"']", text)
+                    and re.search(r"\bSettlementFact\b|[\"']settlement[\"']", text)):
+                found.add(path.relative_to(repo).as_posix())
+    guarded = {"src/" + module for module, _, _ in SCORERS}
+    assert found - guarded - set(VIEW_AND_SETTLEMENT_EXEMPT) == set(), "guard it (SCORERS) or exempt it with a reason"
+    assert set(VIEW_AND_SETTLEMENT_EXEMPT) <= found, "stale exemption"
+    assert all(VIEW_AND_SETTLEMENT_EXEMPT.values())
 
 
 # --- mutants: removing the guard from any one entry point is detected --------------------------

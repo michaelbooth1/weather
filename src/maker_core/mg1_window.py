@@ -7,8 +7,12 @@ view-vs-outcome metrics on these dates; this module owns the window itself and
 the paper-scoring side, because ``maker_core`` may not import ``weather``.
 
 The window narrows only by a reviewed edit of ``MG1_D0`` and ``MG1_LAST``
-(both must be recorded; an inconsistent recording fails wide). There is no
-override argument and no environment variable.
+(both must be recorded; an inconsistent recording fails wide, including one
+shorter than ``MG1_RESERVED_COUNT`` calendar days, since 45 promotion-countable
+dates need at least 45 calendar days). There is no override argument and no
+environment variable. The recording must be made in the same commit as the dated
+status line of ``reserved-confirmation-window.md``, written as
+``MG-1 D0 = YYYY-MM-DD`` and ``MG-1 last = YYYY-MM-DD``; a test binds the two.
 
 OD3 (owner decision pending): ``MG1_OD3_QUOTING_AND_PAPER_SCORING_EXEMPT`` is
 the one switch for the requested exemption of quoting and MM paper scoring.
@@ -18,7 +22,7 @@ window. A "no" from the owner is a one-line change here.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 
 MG1_FLOOR = date(2026, 10, 15)
@@ -39,14 +43,16 @@ def window(d0=None, last=None):
     """Return the inclusive reserved range ``(start, end)``; ``end`` None is open-ended.
 
     Arguments exist only so the narrowing invariant can be tested; callers use
-    the recorded constants. An inconsistent recording fails closed to the
-    widest window rather than narrowing it.
+    the recorded constants. An inconsistent or under-length recording fails
+    closed to the widest window rather than narrowing it.
     """
     d0 = MG1_D0 if d0 is None else d0
     last = MG1_LAST if last is None else last
     if d0 is None or last is None:
         return MG1_FLOOR, None
-    if not (isinstance(d0, date) and isinstance(last, date)) or d0 < MG1_FLOOR or last < d0:
+    if (not (isinstance(d0, date) and isinstance(last, date))
+            or isinstance(d0, datetime) or isinstance(last, datetime)
+            or d0 < MG1_FLOOR or last < d0 + timedelta(days=MG1_RESERVED_COUNT - 1)):
         return MG1_FLOOR, None
     return d0, last
 

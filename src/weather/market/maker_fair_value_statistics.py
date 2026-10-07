@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from weather.market.mg1_metric_guard import refuse_reserved_targets
+from weather.market.mg1_metric_guard import refuse_reserved_targets, row_targets
 
 
 REPLICATES = 10_000
@@ -53,7 +53,7 @@ def _empty_bins():
 
 def summarize(rows):
     """Rows are selected event-hours with paired band probabilities and labels."""
-    refuse_reserved_targets([row.get("target_date") for row in rows], entry="maker_fair_value_statistics.summarize")
+    refuse_reserved_targets(row_targets(rows), entry="maker_fair_value_statistics.summarize")
     grouped = defaultdict(list)
     for row in rows:
         grouped[(row["target_date"], row["market_id"])].append(row)
@@ -114,7 +114,7 @@ TIED_SOURCES = ("nbp_atoms", "nbp_resolution_tails")
 
 
 def tables(rows):
-    refuse_reserved_targets([row.get("target_date") for row in rows], entry="maker_fair_value_statistics.tables")
+    refuse_reserved_targets(row_targets(rows), entry="maker_fair_value_statistics.tables")
     result = {f"{source}_lead_{lead}": summarize([r for r in rows if r["source"] == source and r["lead"] == lead])
               for source in PRIMARY_SOURCES + TIED_SOURCES for lead in (1, 2)}
     result["pooled_descriptive"] = summarize([r for r in rows if r["source"] in PRIMARY_SOURCES])

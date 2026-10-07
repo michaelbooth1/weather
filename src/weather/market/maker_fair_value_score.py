@@ -266,8 +266,9 @@ def score(bundle_paths, *, code_tip, now=None):
         if remaining <= 0:
             raise ValueError("panel_byte_cap")
         bundle = load_bundle(Path(path), limits=Limits(max_bytes=min(64 * 1024**2, remaining)))
-        # MG-1 second line: a bundle captured on a reserved day is never indexed or joined.
-        refuse_reserved_targets([bundle.day], entry="maker_fair_value_score.bundle_day")
+        # No MG-1 check on bundle.day: it is the UTC capture day, and later carry bundles may hold
+        # settlement-only facts for pre-window targets. MG-1 binds local target dates, which the
+        # frozen panel filter and the Panel.settle guard enforce before any decode or settle.
         if bundle.day >= now.date() or bundle.sealed_at > now:
             raise ValueError("bundle_not_closed_at_scoring")
         manifest = bundle.input_hashes["bundle.json"]
@@ -361,7 +362,9 @@ def main(argv=None):
         implementation = [*(REPO_ROOT / "src/weather/market").glob("maker_fair_value_*.py"),
                           *(REPO_ROOT / "src/weather/market/maker_plugin").glob("*.py"),
                           REPO_ROOT / "src/maker_core/replay/bundle.py",
-                          REPO_ROOT / "src/maker_core/replay/payloads.py"]
+                          REPO_ROOT / "src/maker_core/replay/payloads.py",
+                          REPO_ROOT / "src/weather/market/mg1_metric_guard.py",
+                          REPO_ROOT / "src/maker_core/mg1_window.py"]
         report["implementation_hashes"] = {str(p.relative_to(REPO_ROOT)).replace("\\", "/"): sha256(p.read_bytes())
             for p in sorted(implementation)}
         json_bytes, md_bytes = canonical_bytes(report), markdown(report).encode("utf-8")

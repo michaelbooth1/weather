@@ -24,13 +24,14 @@ guard: view-vs-outcome metrics are refused whatever the owner decides on OD3.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date
 
 # The window and its constants have one recorded copy in core (the OD3 switch lives there too).
 from maker_core.mg1_window import (MG1_D0, MG1_FLOOR, MG1_LAST, MG1_RESERVED_COUNT, MG1Reserved, as_date as _as_date, is_reserved, window)
 
 __all__ = ["MG1_D0", "MG1_FLOOR", "MG1_LAST", "MG1_RESERVED_COUNT",
-           "MG1Reserved", "date_range", "is_reserved", "refuse_reserved_targets", "window"]
+           "MG1Reserved", "date_range", "is_reserved", "refuse_reserved_targets", "row_targets", "window"]
 
 
 def refuse_reserved_targets(targets, *, entry: str) -> None:
@@ -47,3 +48,11 @@ def refuse_reserved_targets(targets, *, entry: str) -> None:
 def date_range(start: date, end: date):
     """Inclusive calendar range, for callers that declare a frozen target panel."""
     return [date.fromordinal(n) for n in range(start.toordinal(), end.toordinal() + 1)]
+
+
+def row_targets(rows):
+    """Target dates of materialised rows. A one-shot iterator is refused: the guard would consume it
+    and the caller would then silently score an empty table."""
+    if isinstance(rows, Iterator):
+        raise MG1Reserved("mg1_rows_not_materialised:" + type(rows).__name__)
+    return [row.get("target_date") for row in rows]
