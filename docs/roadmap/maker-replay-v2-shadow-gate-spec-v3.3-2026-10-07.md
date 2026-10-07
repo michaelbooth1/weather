@@ -9,7 +9,7 @@
 > **Read when** reviewing the shadow-vs-replay gate, the v1-exam disclosure wording, or OD22 before the v2 signature.
 >
 > **Provenance.** The H1 and the text between this note and the appendix are a verbatim copy of the workstation file
-> `l-data/swarm-m/D-shadow-gate-spec-v3.3.md` (raw-byte SHA-256
+> `l-data/swarm-m/D-shadow-gate-spec-v3.3.md` (SHA-256 of the CRLF local file; this repo copy is stored with LF line endings, so hash it with CRLF restored —
 > `36120634030de0cdef91b5a7b4470390685d92be6d496c580c38dbf26e8940f9`, including its 2026-10-07 defect-2 amendment). The
 > appendix adds OD22's text across versions and the v3.2 §4.5 disclosure it cites. v3.3 is a text amendment: any v3.2 text not restated applies unchanged. The bases (`D-shadow-gate-spec-v3.2.md`,
 > v3.1, v3, v2) and the Defender files it cites are workstation-local under `l-data/swarm-m/` and are not in the
