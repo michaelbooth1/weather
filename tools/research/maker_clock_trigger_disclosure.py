@@ -39,8 +39,11 @@ Fields per cell:
   parsed every truthy ``observed_at`` of the event's rows BEFORE the point-in-time filter, so one row
   whose ``observed_at`` is not an aware instant made ``observe`` raise at every minute of d, including
   minutes before that row was detected and lead-1 minutes before local midnight (scored ``informed-v0``
-  T+1 inputs). The value is ``"all_day"`` for such a cell, else None. It measures the incidence of v1
-  defect 2 for the registration; it does not change any other field (the fixed clock refuses the row).
+  T+1 band-minutes, so their decisions, legs, fills and P&L, not only inputs). The value is
+  ``"all_day"`` for such a cell, else None. It measures the incidence of v1 defect 2 for the
+  registration; it does not change any other field (the fixed clock refuses the row). It is a LOWER
+  BOUND: a cell exists only for an event with a row detected on d, so an event whose bad row was
+  detected on d-1 and that has no row detected on d emits no cell for d.
 
 Fidelity limit: the numbers hold only for a well-formed trigger file. The exporter treats one
 malformed or non-object line anywhere in the file as a corrupt ``triggers`` source, which makes every
