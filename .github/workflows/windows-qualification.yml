@@ -104,6 +104,7 @@ jobs:
               tests/operations/test_memory_commit_guard_script.py
               tests/operations/test_storage_inventory_scope.py
               tests/operations/test_cold_snapshot_nightly_status_race.py
+              tests/operations/test_wu_token_scan_junction.py
             # Ratchets run once in CI: portable ones in ci.yml's audit job, the
             # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
             mark: not ratchet or windows_native

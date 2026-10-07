@@ -9,6 +9,29 @@ Every WU fetch path routes text through :func:`redact_wu_secrets` and every
 exception it lets escape through :func:`sanitize_exception`, so ``str(exc)`` and
 ``traceback.format_exc()`` downstream are already clean. The helpers only rewrite
 diagnostic text; they never change what is fetched or parsed.
+
+Logging: :func:`pin_http_debug_loggers` keeps urllib3's DEBUG request line out,
+but urllib3 2.x also logs the full URL at WARNING ("Failed to parse headers
+(url=...)", "Retrying (...) after connection broken ... : <url>").
+:func:`install_wu_log_redaction` attaches :class:`WuSecretRedactingFilter` to
+every urllib3/requests logger that emits records, so those lines are rewritten
+before any handler sees them. Callers opt in; installing is idempotent.
+
+Two redaction helpers exist on purpose (finding F7, 2026-10-07):
+
+* ``weather.collection.redaction.redact_sensitive_url_parts`` is the generic
+  status-text redactor used by ``snapshot_store``, ``collection_health`` and the
+  market-making preflight. It rewrites any secret-like *query parameter*
+  (``?key=``, ``&token=``, ``api_key=``, ``password=`` ...) and is imported by
+  capture loops, so its behaviour is frozen outside the quiet window.
+* This module is WU-specific. It covers the forms the WU page token takes
+  beyond a query parameter (JSON ``"apiKey":"..."``, dict reprs, the page
+  ``API_KEY`` global, HTML/Angular escapes, ``apikey%3D``) and also sanitizes
+  exceptions and log records.
+
+Neither delegates to the other: ``weather.sources`` may not import
+``weather.collection``, and changing the collection helper would roll the
+capture loops. Converging them is a quiet-window follow-up.
 """
 
 from __future__ import annotations
@@ -30,6 +53,22 @@ _SECRET_RE = re.compile(
 )
 
 HTTP_DEBUG_LOGGERS = ("urllib3", "urllib3.connectionpool", "requests")
+# Every logger urllib3 2.x and requests create with ``getLogger(__name__)``. A
+# logger-level filter only sees records logged on that exact logger (not records
+# propagated from children), so each emitting module is listed. A test compares
+# this tuple with the installed urllib3.
+HTTP_LOG_REDACTION_LOGGERS = (
+    "urllib3",
+    "urllib3.connection",
+    "urllib3.connectionpool",
+    "urllib3.poolmanager",
+    "urllib3.response",
+    "urllib3.util.retry",
+    "urllib3.http2.connection",
+    "urllib3.contrib.pyopenssl",
+    "urllib3.contrib.emscripten.response",
+    "requests",
+)
 
 _URL_ATTRS = ("url",)
 _MAX_EXCEPTION_DEPTH = 16
@@ -113,3 +152,48 @@ def pin_http_debug_loggers(level=logging.WARNING):
         logger = logging.getLogger(name)
         if logger.level < level:
             logger.setLevel(level)
+
+
+class WuSecretRedactingFilter(logging.Filter):
+    """Rewrite a log record so no WU access-token value reaches a handler.
+
+    The fully formatted message is redacted and stored back with its args
+    cleared, and an attached exception is sanitized in place. The record is
+    never dropped: the filter only changes text.
+    """
+
+    def filter(self, record):  # noqa: A003 - logging.Filter API
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 - a malformed record is redacted as raw text.
+            message = str(record.msg)
+        redacted = redact_wu_secrets(message)
+        if redacted != message or record.args:
+            record.msg = redacted
+            record.args = None
+        if record.exc_info and isinstance(record.exc_info[1], BaseException):
+            sanitize_exception(record.exc_info[1])
+            record.exc_text = None
+        if record.exc_text:
+            record.exc_text = redact_wu_secrets(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact_wu_secrets(record.stack_info)
+        return True
+
+
+def install_wu_log_redaction(logger_names=HTTP_LOG_REDACTION_LOGGERS, handlers=()):
+    """Attach :class:`WuSecretRedactingFilter` to ``logger_names`` and ``handlers``.
+
+    Idempotent: a logger or handler that already carries the filter is left
+    alone. ``handlers`` lets an entry point that configures its own handlers
+    (for example a root ``StreamHandler``) redact records from any logger.
+    Returns the number of filters added.
+    """
+    added = 0
+    targets = [logging.getLogger(name) for name in logger_names] + list(handlers)
+    for target in targets:
+        if any(isinstance(existing, WuSecretRedactingFilter) for existing in target.filters):
+            continue
+        target.addFilter(WuSecretRedactingFilter())
+        added += 1
+    return added
