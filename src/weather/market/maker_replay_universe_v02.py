@@ -31,8 +31,6 @@ def rows_of(bundles, *, check=lambda: None):
         for record in descriptors(bundle):
             check()
             value = decoded(record)
-            if value is None:
-                continue
             spec, target = event_identity(value.market.event_id)
             if spec.id != markets[record.condition_id]:
                 raise ValueError("descriptor_city_mismatch")

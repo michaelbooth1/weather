@@ -24,7 +24,6 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal as D
 import hashlib
-import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -186,19 +185,3 @@ class Panel:
                                     for cid in sorted(conditions)])
         (folder / "bundle.json").write_bytes(canonical_bytes(manifest))
         return folder
-
-    def write_export(self, parent: Path, day: date, *, kind="panel", provenance="captured") -> Path:
-        """``maker_replay_night_v02``'s day-folder layout: ``<day>/bundle/`` and ``<day>/receipt.json``."""
-        root = parent / day.isoformat()
-        bundle = self.write(root / "bundle", day, provenance=provenance)
-        files = {}
-        for path in sorted(bundle.iterdir()):
-            raw = path.read_bytes()
-            files[path.name] = dict(bytes=len(raw), sha256=sha256(raw))
-        receipt = dict(day=day.isoformat(), kind=kind, format="v0.2", status="SEALED",
-                       module_sha256=sha256(b"fictional-exporter-closure"),
-                       bundle=dict(format="v0.2", files=files,
-                                   v01_equivalent=dict(sha256=sha256(f"v01-{day}-{kind}".encode()),
-                                                       bytes=1, records=1)))
-        (root / "receipt.json").write_bytes(json.dumps(receipt, sort_keys=True).encode())
-        return root

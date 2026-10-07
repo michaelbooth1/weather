@@ -4,8 +4,8 @@
 inventory lists exactly the discovered conditions, each with its cluster identity (market and domain),
 local target date and IANA timezone; every condition is described; and every captured descriptor agrees
 with its row (domain, local close at midnight after the target date, horizon equal to the local-date
-distance at capture). A descriptor that does not decode is skipped, as calibration's minute rule treats
-it (A-defender N2): it describes nothing, and its minutes are ``MISSING_DESCRIPTOR``. The neutral core never parses slugs: target and timezone come from the weather
+distance at capture). A descriptor that does not decode refuses (``undecodable_descriptor``), as v1's
+``_inventory`` does (master-agent steer on A-defender N2): nothing is skipped silently. The neutral core never parses slugs: target and timezone come from the weather
 producer (``weather.market.maker_replay_universe_v02``) and are checked here against descriptors.
 
 ``descriptors`` reads one bundle's ``descriptor.jsonl`` stream alone (pass one must already have hashed
@@ -48,11 +48,11 @@ def day_inputs(bundles):
 
 
 def decoded(record):
-    """A descriptor record's typed value, or None when it does not decode (calibration's minute rule)."""
+    """A descriptor record's typed value; one that does not decode refuses, never skipped."""
     try:
         return decode(record)
-    except (ValueError, KeyError, TypeError, ArithmeticError):
-        return None
+    except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
+        raise BundleError("undecodable_descriptor") from exc
 
 
 def _zone(name):
@@ -94,8 +94,6 @@ def check_inventory(days, inventory, *, check=lambda: None):
             if record.kind != "descriptor":
                 raise BundleError("descriptor_stream_holds_other_kind")
             desc, item = decoded(record), by_id[record.condition_id]
-            if desc is None:
-                continue  # an invalid descriptor describes nothing; its minutes are MISSING_DESCRIPTOR
             target = date.fromisoformat(item["target_date"])
             zone = _zone(item["local_timezone"])
             close = desc.market.close_at_utc.astimezone(zone)

@@ -259,15 +259,16 @@ def test_austin_windows_at_the_05_00_boundary(registered):
                                            (iso(at(day, 8)), iso(at(day + timedelta(days=1), 0)))]
 
 
-def test_invalid_latest_descriptor_is_missing_descriptor(tmp_path):
+def test_undecodable_descriptor_refuses_as_in_v1(tmp_path):
+    """Master-agent steer on A-defender N2: an undecodable descriptor is never skipped silently."""
     day = date(2026, 10, 7)
     target = cid_of("toronto", date(2026, 10, 8), 0)
     fixture = Panel(markets=("toronto",), bands=1, invalid_at={target: at(day, 12)})
     bundles = write(tmp_path, fixture, (day,))
-    result = evaluate(bundles, fixture.inventory((day,)))
-    assert windows_of(result, target, day) == [(iso(at(day, 0, 4)), iso(at(day, 5))),
-                                               (iso(at(day, 8)), iso(at(day, 12, 4)))]
-    assert reasons_of(result, target, day)["MISSING_DESCRIPTOR"] == 240 + (24 * 60 - 12 * 60 - 4) * 60
+    with pytest.raises(BundleError, match="undecodable_descriptor"):
+        evaluate(bundles, fixture.inventory((day,)))
+    with pytest.raises(BundleError, match="undecodable_descriptor"):
+        intervals.sources(bundles, [])
 
 
 def test_calibration_panel_has_no_target_cap_and_no_settlement_only(tmp_path):

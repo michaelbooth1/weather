@@ -8,7 +8,9 @@ granularity, the latest descriptor at the minute start, the hazard denominator's
 - the condition is not in an owner-excluded market-date (``panel.OWNER_EXCLUSIONS``);
 - its local target date is on or before the panel's last target date;
 - ``t`` is outside ``panel.MAINTENANCE_UTC``;
-- the latest descriptor captured at or before ``t`` decodes and has ``horizon_days`` 1 or 2.
+- the latest descriptor captured at or before ``t`` has ``horizon_days`` 1 or 2 (``MISSING_DESCRIPTOR``
+  before the condition's first descriptor of the day; an undecodable descriptor refuses the whole build,
+  ``undecodable_descriptor``, as in v1).
 
 Every other minute of the condition's envelope is an exclusion with exactly one reason, taken in this
 precedence order (A-defender M5/N5): ``OWNER_EXCLUDED_PRIOR_READ`` > ``SETTLEMENT_ONLY`` >
@@ -109,8 +111,6 @@ def excluded_by_descriptor(conditions, records, rows):
     found = [set() for _ in rows]
     for record in records:
         value = universe_v02.decoded(record)
-        if value is None:
-            continue
         for i, row in enumerate(rows):
             if markets.get(record.condition_id) == row[0] and value.market.close_at_utc == row[2]:
                 found[i].add(record.condition_id)
