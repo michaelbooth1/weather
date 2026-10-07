@@ -178,11 +178,32 @@ digests (each new info event is a wake); and therefore the report traces, sideca
 binding hash and report hash. Measure any v2 output limits on post-fix exports. **Trigger
 `observed_at`:** the live producers write ISO-8601 with a UTC offset (SWOB: station local time with
 its offset, from `model_sources.parse_swob_xml`), which the clock parses, so SWOB pulls work and DST is
-unambiguous. Anything that is not an aware instant (a bare local `HH:MM` as in `eccc_swob_history`
-backfill CSVs, a naive ISO string, garbage) is refused, never interpreted (owner decision OD37,
+unambiguous. Anything that is not an aware instant (a bare local `HH:MM`, a naive ISO string, garbage)
+is refused, never interpreted (owner decision OD37,
 2026-10-07): that row is skipped and counted in the runner coverage as
 `clock.trigger_rows_skipped.observed_at_unparseable` (once per row per evaluated band-minute); it
 never makes the clock unavailable. A row detected after `as_of` is neither used nor counted.
+**Backfill CSV format (owner decision SWOB-a, 2026-10-07).** The ECCC SWOB backfill
+(`weather.sources.eccc_swob_history`) writes every observation time in its CSVs (`daily_summary.csv`
+`first_time`, `last_time`, `max_temp_times`, `swob_air_temp_max_times`, `swob_max_1h_times`;
+`comparison_rows.csv` `swob_times`, `swob_first_reach_time`) as ISO 8601 local time with its UTC offset
+(the hourly row's `valid_time_local`), so its rows are never refused if they ever feed the trigger file.
+Files written before then carry bare `HH:MM`; they are not rewritten and still parse. Its readers
+(`eccc_swob_history.time_to_minutes` and `source_redundancy.earliest_minute`) try the old `HH:MM`
+parse first, unchanged, and read only an aware ISO value they could not parse before, taking the
+string's own wall-clock minute, so every minute, peak minute and lead is unchanged. The hourly JSONL
+`local_time` stays `HH:MM` (WU-shaped; that file already carries `valid_time_local` and `valid_time_utc`).
+**Receipt summary (owner decision SWOB-b, 2026-10-07).** The night/calibration receipts (v0.1 and
+v0.2) carry `bundle.clock_trigger_rows_skipped`, built by
+`maker_plugin_runner.clock_trigger_rows_skipped` from these coverage keys, with
+`observed_at_unparseable` always present (an explicit 0). It survives the receipt byte-cap trim that
+drops `reader_coverage`, and it carries the same lower-bound caveat as the coverage key below. It is
+receipt-only: `export.json` and bundle bytes are unchanged. Hash-pin impact: SWOB-b changes
+`maker_plugin_runner.py`, `maker_replay_night.py` and `maker_replay_night_v02.py`, which are in the
+night exporters' module closure, so `replay_export module-hash` (the nightly export's registered
+`-ExpectedModuleSha256`), the v0.2 `module-hash` and `execution_manifest.source_hashes` change and must
+be re-pinned from the landed checkout; `maker_fair_value_score`'s `implementation_hashes`
+(`maker_plugin/*.py` only) does not. SWOB-a's modules are outside that closure and change no pin.
 **Scope of the observed_at change (not T+0 only).** The v1-exam clock parsed every truthy
 `observed_at` of an event's rows before the point-in-time filter, and the exporter keeps every row
 detected up to the end of the UTC bundle day, so one unparseable value made that event's clock
