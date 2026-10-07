@@ -224,6 +224,11 @@ Run commands from the repository root with the venv interpreter.
 # public WU page-backed collection, then audit/rebuild/recover as needed.
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto public-backfill --start 2026-06-29 --end 2026-06-29 --skip-existing
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto audit
+# Read-only leak scan for the WU page access token (OD15): paths, counts and
+# offsets only, never the value. A bulk scan: on the capture host it runs only
+# 00:30-09:00 under the shared lease (docs/operations/HISTORY_DATA_DESIGN.md).
+# A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links.
+.\venv\Scripts\python.exe -m weather.operations.wu_token_scan data\logs data\wunderground
 
 # METAR/ASOS redundant observation history.
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-22 --skip-existing
