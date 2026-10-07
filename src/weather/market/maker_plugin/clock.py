@@ -75,7 +75,7 @@ class WeatherInformationClock:
         self.universe = universe
         self.triggers = records(triggers)
         self.bulletins = records(bulletins)
-        self.last_skipped = Counter()  # Rows refused by the latest observe call, by refusal code.
+        self.last_skipped = Counter()  # Refusals in the latest observe call: one per (row, market), by code.
 
     def upcoming(self, markets, from_utc, to_utc):
         utc_time(from_utc)

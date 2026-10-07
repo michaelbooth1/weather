@@ -30,7 +30,7 @@ from tests.market.test_maker_plugin import fixture
 from tests.market.test_maker_plugin_clock_triggers import kinds, trigger
 from tests.market.test_maker_plugin_dry_run import NOW as RUN_NOW, jsonl, layout, report
 
-UNPARSEABLE = "observed_at_unparseable"
+UNPARSEABLE = "observed_at_unparseable"  # Counted once per refused row per market observed.
 AMBIGUOUS = "observed_at_local_dst_ambiguous"
 
 
@@ -144,7 +144,7 @@ def test_bare_local_hhmm_in_a_dst_transition_hour_is_refused_not_guessed(now, wa
     events = clock.observe(markets, now)
     if expected is None:
         assert events == ()
-        assert clock.last_skipped == {AMBIGUOUS: 1}
+        assert clock.last_skipped == {AMBIGUOUS: len(markets)}
     else:
         assert {e.observed_at_utc for e in events} == {expected}
         assert not clock.last_skipped
@@ -165,10 +165,10 @@ def test_unparseable_observed_at_skips_only_that_row_and_counts_it(bad):
     events = clock.observe(markets, NOW)
     assert kinds(events) == ["new_high"] * 3  # The later, valid row still works.
     assert {e.observed_at_utc for e in events} == {NOW - timedelta(minutes=3)}
-    assert clock.last_skipped == {UNPARSEABLE: 2}
+    assert clock.last_skipped == {UNPARSEABLE: 2 * len(markets)}
     # The count is per observe call, not cumulative, and the clock keeps working afterwards.
     assert clock.observe(markets, NOW) == events
-    assert clock.last_skipped == {UNPARSEABLE: 2}
+    assert clock.last_skipped == {UNPARSEABLE: 2 * len(markets)}
 
 
 def test_runner_counts_the_skip_and_keeps_the_clock_available(tmp_path):
@@ -229,7 +229,7 @@ def test_naive_metar_report_time_skips_that_row_only():
     wu = trigger(rows, spec, target)
     clock = WeatherInformationClock(universe, triggers=[naive, wu])
     assert kinds(clock.observe(markets, NOW)) == ["decided"] * 3 + ["new_high"] * 3
-    assert clock.last_skipped == {UNPARSEABLE: 1}
+    assert clock.last_skipped == {UNPARSEABLE: len(markets)}
 
 
 def test_a_bad_row_affects_only_minutes_at_or_after_its_detection():
@@ -248,4 +248,4 @@ def test_a_bad_row_affects_only_minutes_at_or_after_its_detection():
     assert kinds(before) == ["new_high"] * 3 and not clock.last_skipped
     assert WeatherInformationClock(universe, triggers=[early]).observe(markets, NOW - timedelta(minutes=1)) == before
     assert clock.observe(markets, NOW) == before
-    assert clock.last_skipped == {UNPARSEABLE: 1}
+    assert clock.last_skipped == {UNPARSEABLE: len(markets)}
