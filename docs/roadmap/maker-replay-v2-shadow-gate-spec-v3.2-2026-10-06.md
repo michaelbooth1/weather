@@ -14,13 +14,13 @@
 > `l-data/swarm-m/D-shadow-gate-spec-v3.2.md` (SHA-256 of the local file, the hash v3.3 cites as its base —
 > `e7359abef77cd3b583e772203688edc42142f972c872a93a0257b1ad5d7ce2ab`; that local file already has LF line endings, so no
 > CRLF restoration is needed), **except the redactions listed below, so the body is not verbatim.** The redacted text
-> (the H1 plus everything after this note, LF) has SHA-256 `0847af8a3a14e67c9d603e2c09826ae112408a932649978632e4281f32e84299`.
+> (the H1 plus everything after this note, LF) has SHA-256 `17bbea63b0dbc4577faf07fc3da540ec985adc359570803a256d4da045c1b641`.
 > Local paths and sibling files named in the body are workstation-local; the v3.1 base has a
 > [repository copy](maker-replay-v2-shadow-gate-spec-v3.1-2026-10-06.md).
 >
 > **Redactions (oracle clean room).** The oracle author's worktree is a checkout of this repository, so this copy follows
 > the handout form of v3.3 §6.2 item 2 and carries no Kernel code:
-> - Annex K (source lines 614-664, from the line `## Annex K` through the rule before the Summary; U3 only) is cut and
+> - Annex K (source lines 614-662, from the line `## Annex K` up to the blank line and rule before the Summary, which are kept; U3 only) is cut and
 >   replaced by an explicit `[REDACTED …]` line. v3.3 §6.2 cuts everything from that line, but the 10-line Summary after
 >   it (source lines 666-677) carries no Kernel code and is kept here;
 > - source line 149: "the Kernel's `value.book`" → "the Kernel's composed decision book" (v3.3 names only the
@@ -645,7 +645,7 @@ OD3, OD4, OD15 and OD23 are unchanged from v3.1.
 
 ---
 
-[REDACTED in the repository copy: Annex K, source lines 614-664 (from the line `## Annex K` through the rule before the Summary), is cut, per v3.3 §6.2 item 2. Annex K is U3 only.]
+[REDACTED in the repository copy: Annex K, source lines 614-662 (from the line `## Annex K` up to the blank line and rule before the Summary, which are kept), is cut, per v3.3 §6.2 item 2. Annex K is U3 only.]
 
 ---
 
