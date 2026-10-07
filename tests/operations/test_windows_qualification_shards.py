@@ -79,6 +79,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_dst_audit_powershell_20261007.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_workstation_pregate_script.py",
+            "tests/operations/test_reconciler_surface.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_merge_queue_driver_dry.py",
             "tests/operations/test_quiet_window_merge_execution.py",

@@ -481,13 +481,13 @@ Stage-A, workstation or live authority is added.
    - This changes scheduling only; the windows, the lease and serial heavy work are
      unchanged. Head composition (caps, RS batching) is in
      [the git workflow](../git-workflow.md#integration-heads-for-a-night).
-9. **Reconciler tests run where they can fail** (option L5, owner 2026-10-06). The
-   reconciler test file runs in a host bounded suite only when the landing touches
-   the merge/reconciler surface (`scripts/ops/quiet_window_merge.ps1`, the
-   reconciler modules, `workload_admission`, integration-attempt runbook code);
-   otherwise once a night on the final tip. No test is weakened and no other host
-   rule changes. Until `bounded_worktree_test_suite.ps1` implements the selection,
-   the file still runs in every suite.
+9. **The reconciler execution file runs once a night, or when touched** (L5, owner
+   2026-10-06). The bounded suite skips
+   `tests/operations/test_production_baseline_reconciler_execution.py` (~19 min) when
+   it is given `-ReconcilerSurfaceBase` and the tip changes nothing on the file's
+   derived surface; the skip is logged. The night's final-tip run passes
+   `-IncludeReconciler`. With no base, or a surface that cannot be derived, the file
+   runs. Details are in [development](../development.md).
 10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
     implements it).**
     - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
