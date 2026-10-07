@@ -124,6 +124,36 @@ floor the suite cannot be admitted at all; that is a blocker to report, not a li
 Test runs write large temporary trees. Give focused pytest an explicit `--basetemp` outside the repository and
 delete it afterwards; judge disk with the volume's free space, not a directory size.
 
+#### Workstation pre-gate (before a host landing slot)
+
+A head bound for a host landing night first passes `scripts/ops/workstation_pregate.ps1 -Head <40-hex>
+[-Base <40-hex>]` on the non-capture workstation, after its landing preflight. A FAIL keeps the head off the
+host. The run:
+
+- **Same mode as the host.** The pre-gate starts `workstation_pregate_driver.ps1` the way
+  `integration_attempt_suite.ps1` starts the host suite: `Start-WeatherProcessInJob` with captured output.
+  The driver then replays the host suite's own top-level statements from its AST. So the chunk plan
+  (25 files, time-packed), the `CREATE_SUSPENDED|CREATE_NO_WINDOW` chunk launch, Job containment,
+  environment scrubbing, per-chunk `C:\pt` basetemp and JUnit handling are the host's code.
+- **Only host-only checks are replaced, and the log records each one.** These are the 00:30-09:00 window,
+  the 09:00 hard stop, the capture-host lease, and `Assert-HostAdmission` (capture workers and the host
+  commit ceiling). If any of them no longer matches exactly once, the driver refuses.
+- **Admission and cleanup.** It takes the workstation FIFO queue lease (`workstation_offline_v1`). It runs
+  in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
+- **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
+  receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.
+
+**Console mode.** Each chunk owns a fresh, windowless console. Neither host hop shares its parent's console,
+so this comes from the creation flags, not from the S4U session. No Scheduled Task is needed or registered.
+A `DETACHED_PROCESS` Windows PowerShell driver is not a substitute: measured on 2026-10-06, it exits 0
+without running its script. The pre-gate cannot reproduce two host properties:
+
+- the S4U logon itself: session 0, a non-interactive window station, no network credentials;
+- the host's machine-level environment.
+
+The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
+lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`.
+
 ### Separate non-capture workstation
 
 On a separate non-capture workstation, including the 32 GB PC when it also
