@@ -9,10 +9,20 @@ byte offset of the first match.
 
 Exit codes: 0 clean (every eligible file scanned), 1 at least one finding,
 2 error or incomplete scan (a cap was hit, a root is missing, a file could not be
-read, or ``--token-from-env`` names an unusable variable). A capped scan is
-never reported clean.
+read, a symlink, junction or other reparse point was skipped, or
+``--token-from-env`` names an unusable variable). A capped scan is never
+reported clean.
 
-The walk never follows symlinks or junctions and is bounded by ``--max-files``,
+Links (``--links``): by default (``incomplete``) a symlink, junction or reparse
+point met inside a root is not followed, its path is listed in
+``skipped_link_paths`` and the scan is INCOMPLETE, because the tree behind it
+was not read. ``follow-within-root`` follows a link only when its resolved
+target lies inside the resolved requested root (cycle-safe; a link out of the
+root stays skipped and incomplete). ``ignore`` still lists skipped links but
+lets the scan be CLEAN without them. No mode ever follows a link out of the
+requested root.
+
+The walk is bounded by ``--max-files``,
 ``--max-file-bytes`` and ``--max-total-bytes``. Files are streamed in chunks, so
 memory stays flat however large a tape is. Compressed files are scanned as raw
 bytes and are not decompressed.
@@ -40,6 +50,12 @@ DEFAULT_MAX_FILES = 500_000
 DEFAULT_MAX_FILE_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 64 * 1024 * 1024 * 1024
 DEFAULT_EXCLUDED_DIR_NAMES = (".git", "__pycache__", "venv", ".venv", "node_modules")
+LINKS_INCOMPLETE = "incomplete"
+LINKS_IGNORE = "ignore"
+LINKS_FOLLOW_WITHIN_ROOT = "follow-within-root"
+LINK_POLICIES = (LINKS_INCOMPLETE, LINKS_IGNORE, LINKS_FOLLOW_WITHIN_ROOT)
+# The report lists at most this many skipped link paths; the count is always exact.
+MAX_REPORTED_LINK_PATHS = 10_000
 CHUNK_BYTES = 1024 * 1024
 # Longest match any pattern can produce; a match straddling two chunks is always
 # whole inside the overlap.
@@ -50,15 +66,21 @@ _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 # A token value: WU page keys are 32 hex characters; anything alphanumeric of 16+
 # characters is treated as token-shaped so ``api_key=None`` or ``<redacted>`` never match.
 _VALUE = rb"[A-Za-z0-9]{16,128}"
-_QUOTE = rb"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;)"
+_QUOTE = rb"(?:\\?[\"']|&quot;|&q;|&#34;|&#x22;|%22|%27)"
+# Start of a key name: a word boundary, or straight after a percent-escape such as
+# ``%22`` whose last hex digit would otherwise defeat ``\b``.
+_KEY_START = rb"(?:\b|(?<=%[0-9A-Fa-f]{2}))"
+# A token may follow a percent-escape (``%22<token>``, ``%3A<token>``) whose last
+# character is a hex digit, so "not preceded by hex" alone would miss it.
+_HEX_START = rb"(?:(?<![0-9a-f])|(?<=%[0-9a-f]{2}))"
 
 PATTERNS = {
     # apiKey=<value> in a URL, a log line or an error row (also URL-encoded ``=``).
-    "apikey_query_param": re.compile(rb"(?i)\bapi_?key(?:=|%3D)" + _VALUE),
+    "apikey_query_param": re.compile(rb"(?i)" + _KEY_START + rb"api_?key(?:=|%3D)" + _VALUE),
     # apiKey:<value> in key style: JSON "apiKey":"<value>" (also a JSON string nested
     # in JSON), a Python dict repr 'apiKey': '<value>', or a JS/log apiKey: <value>.
     "apikey_colon_field": re.compile(
-        rb"(?i)\bapi_?key" + _QUOTE + rb"?\s*:\s*" + _QUOTE + rb"?" + _VALUE
+        rb"(?i)" + _KEY_START + rb"api_?key" + _QUOTE + rb"?\s*(?::|%3A)\s*" + _QUOTE + rb"?" + _VALUE
     ),
     # The WU page runtime global: "API_KEY":"<value>" (raw, HTML-escaped or Angular
     # &q; transfer state) or a JS ``API_KEY = '<value>'`` assignment.
@@ -67,7 +89,7 @@ PATTERNS = {
     ),
     # A bare 32-hex string within 64 bytes after an apiKey/API_KEY name.
     "hex32_near_apikey": re.compile(
-        rb"(?is)api_?key.{0,64}?(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])"
+        rb"(?is)api_?key.{0,64}?" + _HEX_START + rb"[0-9a-f]{32}(?![0-9a-f])"
     ),
 }
 EXACT_TOKEN_PATTERN = "exact_env_token"
@@ -79,6 +101,9 @@ class ScanResult:
     errors: list = field(default_factory=list)
     skipped_oversize: list = field(default_factory=list)
     skipped_links: int = 0
+    skipped_link_paths: list = field(default_factory=list)
+    followed_links: int = 0
+    link_policy: str = LINKS_INCOMPLETE
     files_scanned: int = 0
     bytes_scanned: int = 0
     truncated_reason: str | None = None
@@ -98,8 +123,42 @@ def _is_link_or_junction(entry: os.DirEntry) -> bool:
     return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
 
 
-def iter_files(roots, excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES, result=None):
-    """Yield ``(path, size)`` for regular files under ``roots``; links are never followed."""
+def _record_skipped_link(result, path):
+    if result is None:
+        return
+    result.skipped_links += 1
+    if len(result.skipped_link_paths) < MAX_REPORTED_LINK_PATHS:
+        result.skipped_link_paths.append(str(path))
+
+
+def _real_key(path) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _inside(root_key: str, target_key: str) -> bool:
+    try:
+        return os.path.commonpath([root_key, target_key]) == root_key
+    except ValueError:  # different drives
+        return False
+
+
+def iter_files(
+    roots,
+    excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES,
+    result=None,
+    *,
+    link_policy=LINKS_INCOMPLETE,
+):
+    """Yield ``(path, size)`` for regular files under ``roots``.
+
+    Links met inside a root are skipped and recorded on ``result``; with
+    ``link_policy="follow-within-root"`` a link whose resolved target lies inside
+    the resolved root is followed instead (each real directory is walked once).
+    A link is never followed out of its requested root.
+    """
+    if link_policy not in LINK_POLICIES:
+        raise ValueError(f"unknown link policy: {link_policy!r}")
+    follow = link_policy == LINKS_FOLLOW_WITHIN_ROOT
     excluded = {name.casefold() for name in excluded_dir_names}
     for root in roots:
         root = Path(root)
@@ -110,12 +169,15 @@ def iter_files(roots, excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES, result=None
                 result.errors.append({"path": str(root), "error": type(exc).__name__})
             continue
         if stat.S_ISLNK(root_info.st_mode):
-            if result is not None:
-                result.skipped_links += 1
+            _record_skipped_link(result, root)
             continue
         if stat.S_ISREG(root_info.st_mode):
             yield root, root_info.st_size
             continue
+        # A requested root is read as named, even if it is itself a junction; its
+        # resolved path is the boundary no followed link may leave.
+        root_key = _real_key(root) if follow else ""
+        visited = {root_key} if follow else set()
         stack = [root]
         while stack:
             directory = stack.pop()
@@ -129,12 +191,40 @@ def iter_files(roots, excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES, result=None
             subdirectories = []
             for entry in children:
                 if _is_link_or_junction(entry):
+                    if not follow:
+                        _record_skipped_link(result, entry.path)
+                        continue
+                    try:
+                        target_key = _real_key(entry.path)
+                        target_info = os.stat(entry.path)
+                    except (OSError, ValueError):
+                        _record_skipped_link(result, entry.path)
+                        continue
+                    if not _inside(root_key, target_key):
+                        _record_skipped_link(result, entry.path)
+                        continue
+                    is_dir = stat.S_ISDIR(target_info.st_mode)
+                    if is_dir:
+                        if target_key in visited or entry.name.casefold() in excluded:
+                            continue
+                        visited.add(target_key)
+                    elif not stat.S_ISREG(target_info.st_mode):
+                        continue
                     if result is not None:
-                        result.skipped_links += 1
+                        result.followed_links += 1
+                    if is_dir:
+                        subdirectories.append(Path(entry.path))
+                    else:
+                        yield Path(entry.path), target_info.st_size
                     continue
                 try:
                     if entry.is_dir(follow_symlinks=False):
                         if entry.name.casefold() not in excluded:
+                            if follow:
+                                key = _real_key(entry.path)
+                                if key in visited:
+                                    continue
+                                visited.add(key)
                             subdirectories.append(Path(entry.path))
                         continue
                     if not entry.is_file(follow_symlinks=False):
@@ -197,12 +287,15 @@ def scan(
     max_total_bytes=DEFAULT_MAX_TOTAL_BYTES,
     excluded_dir_names=DEFAULT_EXCLUDED_DIR_NAMES,
     files=None,
+    link_policy=LINKS_INCOMPLETE,
 ):
     """Scan ``roots`` (or an explicit ``files`` list of paths) and return a :class:`ScanResult`."""
     patterns = dict(PATTERNS)
     if exact_token:
         patterns[EXACT_TOKEN_PATTERN] = re.compile(re.escape(exact_token))
-    result = ScanResult()
+    if link_policy not in LINK_POLICIES:
+        raise ValueError(f"unknown link policy: {link_policy!r}")
+    result = ScanResult(link_policy=link_policy)
     if files is not None:
         candidates = []
         for path in files:
@@ -212,11 +305,11 @@ def scan(
                 result.errors.append({"path": str(path), "error": type(exc).__name__})
                 continue
             if stat.S_ISLNK(info.st_mode):
-                result.skipped_links += 1
+                _record_skipped_link(result, path)
             elif stat.S_ISREG(info.st_mode):
                 candidates.append((Path(path), info.st_size))
     else:
-        candidates = iter_files(roots, excluded_dir_names, result)
+        candidates = iter_files(roots, excluded_dir_names, result, link_policy=link_policy)
     for path, size in candidates:
         if result.files_scanned >= max_files:
             result.truncated_reason = "max_files"
@@ -244,10 +337,15 @@ def scan(
     return result
 
 
+def links_incomplete(result: ScanResult) -> bool:
+    """True when a skipped link leaves part of a tree unread and no flag waived it."""
+    return result.skipped_links > 0 and result.link_policy != LINKS_IGNORE
+
+
 def exit_code_for(result: ScanResult) -> int:
     if result.findings:
         return EXIT_FOUND
-    if result.errors or result.skipped_oversize or result.truncated_reason:
+    if result.errors or result.skipped_oversize or result.truncated_reason or links_incomplete(result):
         return EXIT_ERROR
     return EXIT_CLEAN
 
@@ -269,6 +367,11 @@ def report(result: ScanResult, roots, *, exact_token_env=None, caps=None) -> dic
         "finding_file_count": len(result.findings),
         "findings": result.findings,
         "skipped_links": result.skipped_links,
+        "skipped_link_paths": result.skipped_link_paths,
+        "skipped_link_paths_truncated": result.skipped_links > len(result.skipped_link_paths),
+        "links_incomplete": links_incomplete(result),
+        "link_policy": result.link_policy,
+        "followed_links": result.followed_links,
         "skipped_oversize": result.skipped_oversize,
         "truncated_reason": result.truncated_reason,
         "errors": result.errors,
@@ -299,6 +402,17 @@ def build_parser():
         default=None,
         metavar="NAME",
         help="Directory name to skip (repeatable). Defaults: " + ", ".join(DEFAULT_EXCLUDED_DIR_NAMES),
+    )
+    parser.add_argument(
+        "--links",
+        choices=LINK_POLICIES,
+        default=LINKS_INCOMPLETE,
+        help=(
+            "What to do with a symlink, junction or reparse point inside a root. "
+            "incomplete (default): skip it, list it and exit 2 unless something is found; "
+            "follow-within-root: follow it only if its target resolves inside the requested root; "
+            "ignore: skip and list it without making the scan incomplete."
+        ),
     )
     parser.add_argument("--json-out", help="Also write the JSON report to this path.")
     return parser
@@ -335,6 +449,7 @@ def main(argv=None) -> int:
         "max_file_bytes": args.max_file_bytes,
         "max_total_bytes": args.max_total_bytes,
         "excluded_dir_names": list(args.exclude_dir or DEFAULT_EXCLUDED_DIR_NAMES),
+        "links": args.links,
     }
     try:
         result = scan(
@@ -344,6 +459,7 @@ def main(argv=None) -> int:
             max_file_bytes=args.max_file_bytes,
             max_total_bytes=args.max_total_bytes,
             excluded_dir_names=args.exclude_dir or DEFAULT_EXCLUDED_DIR_NAMES,
+            link_policy=args.links,
         )
     except Exception as exc:  # noqa: BLE001 - report the class only; a message could quote file text.
         payload = _error_report(f"scan failed: {type(exc).__name__}", args.roots)

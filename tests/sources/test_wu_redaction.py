@@ -149,3 +149,111 @@ def test_mutant_without_redaction_is_detected(token, monkeypatch):
     error = _connection_error(token)
     sanitize_exception(error)
     assert token in _rendered(error)
+
+
+def _capture_handler():
+    import io
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
+    return stream, handler
+
+
+def _emit_urllib3_url_warnings(token):
+    """Log the two urllib3 2.x WARNING lines that carry the full request URL, in urllib3's format."""
+    url = f"https://api.example.invalid/v1/location/KXXX:9:US/observations/historical.json?apiKey={token}&units=e"
+    logging.getLogger("urllib3.connection").warning(
+        "Failed to parse headers (url=%s): %s", url, "HeaderParsingError", exc_info=False
+    )
+    logging.getLogger("urllib3.connectionpool").warning(
+        "Retrying (%r) after connection broken by '%r': %s", "Retry(total=2)", "ProtocolError()", url
+    )
+    logging.getLogger("urllib3.util.retry").warning("Retry on %s", url)
+
+
+@pytest.fixture
+def clean_http_log_filters():
+    names = wu_redaction.HTTP_LOG_REDACTION_LOGGERS
+    root = logging.getLogger()
+    saved = {name: list(logging.getLogger(name).filters) for name in names}
+    saved_root_level = root.level
+    yield
+    root.setLevel(saved_root_level)
+    for name, filters in saved.items():
+        logging.getLogger(name).filters[:] = filters
+
+
+def test_install_wu_log_redaction_redacts_urllib3_warning_urls(token, clean_http_log_filters):
+    """Defender F1: urllib3 logs the full URL at WARNING; the WARNING pin cannot stop it."""
+    stream, handler = _capture_handler()
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        pin_http_debug_loggers()
+        assert wu_redaction.install_wu_log_redaction() == len(wu_redaction.HTTP_LOG_REDACTION_LOGGERS)
+        assert wu_redaction.install_wu_log_redaction() == 0  # idempotent
+        _emit_urllib3_url_warnings(token)
+    finally:
+        root.removeHandler(handler)
+    text = stream.getvalue()
+    assert token not in text and token[7:] not in text
+    assert text.count("apiKey=" + REDACTED) == 3
+    assert "Failed to parse headers" in text and "Retrying" in text
+
+
+def test_mutant_without_log_filter_leaks_the_url(token, clean_http_log_filters):
+    stream, handler = _capture_handler()
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        pin_http_debug_loggers()
+        _emit_urllib3_url_warnings(token)
+    finally:
+        root.removeHandler(handler)
+    assert token in stream.getvalue()
+
+
+def test_log_filter_on_a_handler_covers_any_logger_and_exceptions(token):
+    stream, handler = _capture_handler()
+    assert wu_redaction.install_wu_log_redaction(logger_names=(), handlers=[handler]) == 1
+    logger = logging.getLogger("weather.test.wu_redaction_handler_probe")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        try:
+            raise _connection_error(token)
+        except requests.ConnectionError:
+            logger.warning("fetch failed for %s", {"apiKey": token}, exc_info=True)
+        logger.warning("plain apiKey=%s", token, stack_info=True)
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+    text = stream.getvalue()
+    assert token not in text
+    assert "Traceback" in text and "ConnectionError" in text
+
+
+def test_log_redaction_logger_list_covers_installed_urllib3():
+    """Every urllib3 module logger exists in the list (a logger filter misses child records)."""
+    import importlib
+    import pkgutil
+    import warnings
+
+    import urllib3
+
+    emitting = {"urllib3"}
+    for module_info in pkgutil.walk_packages(urllib3.__path__, "urllib3."):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # optional backends warn about missing extras
+                module = importlib.import_module(module_info.name)
+        except Exception:  # noqa: BLE001 - optional backends (socks, pyodide) may not import.
+            continue
+        for value in vars(module).values():
+            if isinstance(value, logging.Logger) and value.name.startswith("urllib3"):
+                emitting.add(value.name)
+    assert emitting <= set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS), sorted(
+        emitting - set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS)
+    )

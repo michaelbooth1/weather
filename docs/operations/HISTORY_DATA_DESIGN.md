@@ -55,7 +55,21 @@ anything pushed. The contract in code:
   `__cause__`/`__context__` chain and its request/response URLs in place, so a
   downstream `str(exc)` or `traceback.format_exc()` is already clean;
   `pin_http_debug_loggers` holds the `urllib3`/`requests` loggers at WARNING
-  (urllib3 DEBUG prints the query string).
+  (urllib3 DEBUG prints the query string). urllib3 2.x also prints the full
+  URL at WARNING ("Failed to parse headers", "Retrying"), so
+  `install_wu_log_redaction()` attaches `WuSecretRedactingFilter` to every
+  emitting urllib3/requests logger (and optionally to handlers). It is opt-in
+  and not yet wired into any entry point; wiring it into the WU fetch entry
+  points that already call `pin_http_debug_loggers` (`wu_history`
+  `PublicWundergroundHistoryClient.__init__` and `main`, and the
+  daily-refresh WU restore step) is the follow-up.
+- `weather.collection.redaction.redact_sensitive_url_parts` is a separate,
+  generic redactor for secret-like *query parameters* in collection status
+  text (`snapshot_store`, `collection_health`, maker preflight). It is
+  loop-imported and is not WU-specific; the WU helper covers the extra token
+  forms and exceptions. Neither delegates to the other (`weather.sources` may
+  not import `weather.collection`, and changing the collection helper rolls
+  the capture loops); converging them is a quiet-window follow-up.
 - The client never stores the page HTML; raw day files keep only the API
   `observations`, and provenance keeps the page URL, which carries no token.
 - Fetch behaviour and values are unchanged; only diagnostic text is rewritten.
@@ -64,9 +78,14 @@ anything pushed. The contract in code:
 scan. It reports file paths, per-pattern match counts and the first-match byte
 offset, never the matched text; `--token-from-env NAME` adds an exact-value
 search without echoing it. Exit 0 = clean, 1 = found, 2 = error or incomplete
-(a cap was hit, a root or file was unreadable). It never follows symlinks or
-junctions and is capped by `--max-files`, `--max-file-bytes` and
-`--max-total-bytes`. Compressed files are scanned as raw bytes only. On the
+(a cap was hit, a root or file was unreadable, or a link was skipped). A
+symlink, junction or other reparse point inside a root is not followed by
+default: its path is listed in `skipped_link_paths` and the scan is
+INCOMPLETE, never CLEAN. `--links follow-within-root` follows a link only when
+its target resolves inside the requested root (cycle-safe); `--links ignore`
+lists skipped links without failing the scan. No mode follows a link out of
+the requested root; scan the target as its own root instead. It is capped by
+`--max-files`, `--max-file-bytes` and `--max-total-bytes`. Compressed files are scanned as raw bytes only. On the
 capture host it is a bulk scan: run it 00:30–09:00 under the shared lease from
 `scripts/ops/workload_admission.ps1` ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)).
 A repository ratchet (`tests/operations/test_wu_token_repository_scan.py`) runs

@@ -17,6 +17,7 @@ from weather.operations.wu_token_scan import (
     EXIT_CLEAN,
     EXIT_ERROR,
     EXIT_FOUND,
+    exit_code_for,
     main,
     scan,
     scan_file,
@@ -178,6 +179,80 @@ def test_symlinks_are_not_followed(tmp_path, token):
 
     assert result.findings == []
     assert result.skipped_links == 2
+    assert sorted(os.path.basename(path) for path in result.skipped_link_paths) == ["file_link.log", "link"]
+    # S1: a skipped link leaves a subtree unread, so the scan is never CLEAN by default.
+    assert exit_code_for(result) == EXIT_ERROR
+    assert exit_code_for(scan([inside], link_policy="ignore")) == EXIT_CLEAN
+    # The target is outside the requested root, so following stays off.
+    followed = scan([inside], link_policy="follow-within-root")
+    assert followed.findings == [] and followed.skipped_links == 2
+    assert exit_code_for(followed) == EXIT_ERROR
+
+
+def test_unknown_link_policy_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        scan([tmp_path], link_policy="follow")
+
+
+def test_links_flag_is_reported_in_caps_and_payload(tmp_path, capsys):
+    (tmp_path / "a.log").write_text("clean\n", encoding="utf-8")
+
+    code, out, _err = _run(capsys, [tmp_path, "--links", "ignore"])
+
+    payload = json.loads(out)
+    assert code == EXIT_CLEAN
+    assert payload["caps"]["links"] == "ignore"
+    assert payload["link_policy"] == "ignore"
+    assert payload["skipped_link_paths"] == [] and payload["links_incomplete"] is False
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "%22apiKey%22%3A%22{t}%22",  # URL-encoded JSON (Defender S2 f3)
+        "apiKey%3A{t}",  # URL-encoded colon
+        "q=%22apikey%22%3A%22{t}%22&x=1",
+        "%27apiKey%27%3A%20%27{t}%27",
+    ],
+)
+def test_token_after_percent_escape_is_found(tmp_path, capsys, template):
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "enc.log").write_text("prefix " + template.format(t=hex_token) + "\n", encoding="utf-8")
+
+    code, out, err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND
+    assert hex_token not in out and hex_token not in err
+    assert json.loads(out)["findings"][0]["matches"].get("hex32_near_apikey", 0) >= 1
+
+
+def test_hex32_safety_net_alone_catches_percent_escaped_token(tmp_path):
+    hex_token = secrets.token_hex(16)
+    path = tmp_path / "enc.log"
+    path.write_text(f"%22apiKey%22%3A%22{hex_token}%22", encoding="utf-8")
+
+    hits = scan_file(path, {"hex32_near_apikey": wu_token_scan.PATTERNS["hex32_near_apikey"]})
+
+    assert hits == {"hex32_near_apikey": (1, len("%22"))}
+
+
+def test_percent_escape_does_not_make_longer_hex_runs_match(tmp_path):
+    # A 40-hex run (for example a git SHA) after an apiKey name is not a 32-hex token.
+    path = tmp_path / "sha.log"
+    path.write_text(f"apiKey docs %22{secrets.token_hex(20)}%22", encoding="utf-8")
+
+    assert scan_file(path, {"hex32_near_apikey": wu_token_scan.PATTERNS["hex32_near_apikey"]}) == {}
+
+
+def test_mutant_old_hex_lookbehind_misses_percent_escaped_token(tmp_path):
+    """The pre-fix hex32 pattern must fail the S2 form, so the new test is meaningful."""
+    import re
+
+    old = re.compile(rb"(?is)api_?key.{0,64}?(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
+    path = tmp_path / "enc.log"
+    path.write_text(f"%22apiKey%22%3A%22{secrets.token_hex(16)}%22", encoding="utf-8")
+
+    assert scan_file(path, {"hex32_near_apikey": old}) == {}
 
 
 def test_excluded_directory_names_are_skipped(tmp_path, token):
