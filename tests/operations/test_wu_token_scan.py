@@ -288,3 +288,271 @@ def test_mutant_scanner_echoing_matches_is_detected(tmp_path, token, capsys, mon
     monkeypatch.setattr(wu_token_scan, "report", leaky_report)
     _code, out, _err = _run(capsys, [tmp_path])
     assert token in out
+
+
+# --- N3: nothing unread may be reported CLEAN ------------------------------------------
+
+_PLACEHOLDER_SUFFIX = ".placeholder"
+
+
+def _simulate_placeholders(monkeypatch):
+    """Report any entry named ``*.placeholder`` as a non-link reparse point.
+
+    That is how a OneDrive cloud placeholder or a deduplicated file looks: the
+    reparse attribute is set but the tag is not a name surrogate (symlink or
+    junction). Real ones cannot be made without OneDrive or the dedup role.
+    """
+    original = wu_token_scan._reparse_info
+
+    def fake(info, path):
+        if str(path).endswith(_PLACEHOLDER_SUFFIX):
+            return wu_token_scan._FILE_ATTRIBUTE_REPARSE_POINT, 0x9000701A  # IO_REPARSE_TAG_CLOUD_7
+        return original(info, path)
+
+    monkeypatch.setattr(wu_token_scan, "_reparse_info", fake)
+
+
+def _recording_scan_file(monkeypatch):
+    read = []
+    original = wu_token_scan.scan_file
+
+    def recording(path, patterns):
+        hits = original(path, patterns)
+        read.append(os.path.normcase(os.path.abspath(path)))
+        return hits
+
+    monkeypatch.setattr(wu_token_scan, "scan_file", recording)
+    return read
+
+
+def _every_regular_file(paths):
+    """Every regular file a complete scan must read (no links followed, default exclusions)."""
+    excluded = {name.casefold() for name in wu_token_scan.DEFAULT_EXCLUDED_DIR_NAMES}
+    expected = set()
+    for path in paths:
+        path = str(path)
+        if os.path.isfile(path):
+            expected.add(os.path.normcase(os.path.abspath(path)))
+            continue
+        for directory, dirnames, filenames in os.walk(path, followlinks=False):
+            dirnames[:] = [name for name in dirnames if name.casefold() not in excluded]
+            for name in filenames:
+                expected.add(os.path.normcase(os.path.abspath(os.path.join(directory, name))))
+    return expected
+
+
+def _assert_clean_means_all_read(payload, read, expected):
+    if payload["status"] == "CLEAN":
+        unread = sorted(expected - set(read))
+        assert unread == [], f"CLEAN with unread files: {unread}"
+
+
+def _scenario_tree(root):
+    (root / "logs").mkdir(parents=True)
+    (root / "logs" / "a.log").write_text("clean apiKey=<redacted>\n", encoding="utf-8")
+    (root / "logs" / "b.log").write_text("clean\n", encoding="utf-8")
+    return root
+
+
+class _SpecialEntry:
+    """A directory entry that is neither a regular file nor a directory (a FIFO or socket)."""
+
+    def __init__(self, entry):
+        self._entry = entry
+        self.name, self.path = entry.name, entry.path
+
+    def __getattr__(self, name):
+        return getattr(self._entry, name)
+
+    def is_dir(self, *, follow_symlinks=True):
+        return False
+
+    def is_file(self, *, follow_symlinks=True):
+        return False
+
+
+def _scandir_with_special_entries(real_scandir):
+    class _Scandir:
+        def __init__(self, path):
+            self._inner = real_scandir(path)
+
+        def __enter__(self):
+            return [(_SpecialEntry(e) if e.name.endswith(".special") else e) for e in self._inner]
+
+        def __exit__(self, *exc):
+            self._inner.close()
+
+    return _Scandir
+
+
+@pytest.mark.ratchet
+@pytest.mark.parametrize("policy", wu_token_scan.LINK_POLICIES)
+@pytest.mark.parametrize(
+    "scenario",
+    ["plain", "placeholder_file", "placeholder_dir", "files_dir", "files_missing", "unreadable",
+     "special_entry", "oversize", "max_files"],
+)
+def test_ratchet_nothing_unread_is_ever_clean(tmp_path, monkeypatch, policy, scenario):
+    """N3 ratchet: a CLEAN report means every regular file under the request was read."""
+    _simulate_placeholders(monkeypatch)
+    root = _scenario_tree(tmp_path / "root")
+    kwargs = {"link_policy": policy}
+    roots, files = [root], None
+    must_be_clean = scenario in {"plain", "files_dir"}
+    extra_expected = []
+    if scenario == "placeholder_file":
+        (root / "logs" / ("cloud" + _PLACEHOLDER_SUFFIX)).write_text("hydrated text\n", encoding="utf-8")
+        # Following within the root reads it in place; the other policies leave it unread.
+        must_be_clean = policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT
+    elif scenario == "placeholder_dir":
+        hidden = root / ("synced" + _PLACEHOLDER_SUFFIX)
+        hidden.mkdir()
+        (hidden / "inner.log").write_text("clean\n", encoding="utf-8")
+        must_be_clean = policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT
+    elif scenario == "files_dir":
+        roots, files = [], [root / "logs"]
+    elif scenario == "files_missing":
+        roots, files = [], [root / "logs" / "a.log", root / "gone.log"]
+    elif scenario == "unreadable":
+        (root / "logs" / "locked.log").write_text("x\n", encoding="utf-8")
+        original = wu_token_scan.scan_file
+
+        def locked(path, patterns):
+            if str(path).endswith("locked.log"):
+                raise PermissionError(13, "locked")
+            return original(path, patterns)
+
+        monkeypatch.setattr(wu_token_scan, "scan_file", locked)
+    elif scenario == "special_entry":
+        (root / "logs" / "pipe.special").write_text("", encoding="utf-8")
+        monkeypatch.setattr(wu_token_scan.os, "scandir", _scandir_with_special_entries(os.scandir))
+    elif scenario == "oversize":
+        (root / "logs" / "big.log").write_text("y" * 4096, encoding="utf-8")
+        kwargs["max_file_bytes"] = 1024
+    elif scenario == "max_files":
+        kwargs["max_files"] = 1
+
+    read = _recording_scan_file(monkeypatch)
+    result = scan(roots, files=files, **kwargs)
+    payload = wu_token_scan.report(result, roots or files)
+
+    expected = _every_regular_file(roots if files is None else [p for p in files if os.path.exists(p)])
+    expected.update(extra_expected)
+    _assert_clean_means_all_read(payload, read, expected)
+    assert (payload["status"] == "CLEAN") is must_be_clean, (payload["status"], payload["unread_reasons"])
+    assert (payload["unread_reasons"] == []) is must_be_clean
+
+
+def test_mutant_unrecorded_placeholder_is_caught_by_the_ratchet(tmp_path, monkeypatch):
+    """If a skipped placeholder were not recorded, the ratchet check would fail."""
+    _simulate_placeholders(monkeypatch)
+    root = _scenario_tree(tmp_path / "root")
+    (root / "logs" / ("cloud" + _PLACEHOLDER_SUFFIX)).write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(wu_token_scan, "_record_skipped_reparse", lambda result, path: None)
+    read = _recording_scan_file(monkeypatch)
+
+    payload = wu_token_scan.report(scan([root], link_policy="ignore"), [root])
+
+    assert payload["status"] == "CLEAN"
+    with pytest.raises(AssertionError):
+        _assert_clean_means_all_read(payload, read, _every_regular_file([root]))
+
+
+def test_files_list_directory_is_walked_not_dropped(tmp_path, token):
+    """N3 (a): a directory in ``files=`` is walked; it never vanishes from a CLEAN scan."""
+    (tmp_path / "d" / "sub").mkdir(parents=True)
+    (tmp_path / "d" / "sub" / "leak.log").write_text(f"apiKey={token}\n", encoding="utf-8")
+
+    result = scan([], files=[tmp_path / "d"])
+
+    assert exit_code_for(result) == EXIT_FOUND
+    assert [os.path.basename(row["path"]) for row in result.findings] == ["leak.log"]
+
+
+@pytest.mark.parametrize("policy", wu_token_scan.LINK_POLICIES)
+def test_placeholder_file_is_never_clean_unread(tmp_path, token, monkeypatch, capsys, policy):
+    """N3 (b): ``--links ignore`` may skip links, but an unread placeholder makes the scan INCOMPLETE."""
+    _simulate_placeholders(monkeypatch)
+    (tmp_path / "plain.log").write_text("clean\n", encoding="utf-8")
+    placeholder = tmp_path / ("cloud" + _PLACEHOLDER_SUFFIX)
+    placeholder.write_text(f"apiKey={token}\n", encoding="utf-8")
+
+    code, out, err = _run(capsys, [tmp_path, "--links", policy])
+
+    payload = json.loads(out)
+    assert token not in out and token not in err
+    if policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT:
+        assert code == EXIT_FOUND  # read in place: its resolved path is itself, inside the root
+        return
+    assert code == EXIT_ERROR and payload["status"] == "INCOMPLETE"
+    assert payload["skipped_reparse_points"] == 1
+    assert payload["skipped_reparse_paths"] == [str(placeholder)]
+    assert payload["reparse_incomplete"] is True
+    assert "reparse_points_unread" in payload["unread_reasons"]
+    # A placeholder is not a link: the link counters stay untouched.
+    assert payload["skipped_links"] == 0
+
+
+def test_unclassifiable_entry_is_not_waived_by_ignore(tmp_path, monkeypatch):
+    """An entry whose type cannot be read is unread content, not a waivable link."""
+    (tmp_path / "a.log").write_text("clean\n", encoding="utf-8")
+
+    def broken(info, path):
+        raise OSError("cannot read attributes")
+
+    monkeypatch.setattr(wu_token_scan, "_reparse_info", broken)
+
+    result = scan([tmp_path], link_policy="ignore")
+
+    assert exit_code_for(result) == EXIT_ERROR
+
+
+# --- N3 P2: encoded key forms ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "%2522apiKey%2522%253A%2522{t}%2522",  # double URL-encoded JSON
+        "apiKey%253D{t}",  # double URL-encoded '='
+        "apikey%253a{t}",
+        "\\u0022apiKey\\u0022:\\u0022{t}\\u0022",  # JSON-escaped quotes
+        "\\u0022apiKey\\u0022\\u003a\\u0022{t}\\u0022",
+        "X-Api-Key: {t}",  # header names
+        "x-api-key={t}",
+        "{{'X-Api-Key': '{t}'}}",
+        "apiKey&#61;{t}",
+    ],
+)
+def test_n3_encoded_and_header_forms_are_found(tmp_path, capsys, template):
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "enc.log").write_text("prefix " + template.format(t=hex_token) + "\n", encoding="utf-8")
+
+    code, out, err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, template
+    assert hex_token not in out and hex_token not in err
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "commit%253D{sha40}",
+        "%2522commit%2522%253A%2522{sha40}%2522",
+        "\\u0022sha256\\u0022:\\u0022{sha256}\\u0022",
+        "X-Request-Id: {uuid}",
+        "X-Api-Key: {uuid}",  # a dashed uuid is not token-shaped
+        "X-Api-Key-Version: 2" + " " * 70 + "{sha40}",
+        "x-api-key=<redacted> ref%2522{sha40}%2522",
+        "apiKey%253D%2522{sha40}",
+    ],
+)
+def test_n3_new_forms_do_not_match_shas_or_uuids(tmp_path, capsys, template):
+    import uuid
+
+    text = template.format(sha40=secrets.token_hex(20), sha256=secrets.token_hex(32), uuid=uuid.uuid4())
+    (tmp_path / "fp.log").write_text("prefix " + text + "\n", encoding="utf-8")
+
+    code, out, _err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_CLEAN, (template, json.loads(out)["findings"])

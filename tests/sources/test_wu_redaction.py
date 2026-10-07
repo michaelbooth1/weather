@@ -257,3 +257,88 @@ def test_log_redaction_logger_list_covers_installed_urllib3():
     assert emitting <= set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS), sorted(
         emitting - set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS)
     )
+
+
+# --- N3: the redactor cleans every form the scanner flags (prior F4) -------------------
+
+
+def _encoded_forms(token):
+    return [
+        f"%22apiKey%22%3A%22{token}%22",
+        f"q=%22apikey%22%3a%22{token}%22&x=1",
+        f"%27apiKey%27%3A%20%27{token}%27",
+        f"apiKey%3A{token}",
+        f"apikey%3a{token}",
+        f"apiKey&#61;{token}",
+        f"%2522apiKey%2522%253A%2522{token}%2522",
+        f"apiKey%253D{token}",
+        f"\\u0022apiKey\\u0022:\\u0022{token}\\u0022",
+        f"\\u0022apiKey\\u0022\\u003a\\u0022{token}\\u0022",
+        f"X-Api-Key: {token}",
+        f"{{'X-Api-Key': '{token}'}}",
+    ]
+
+
+@pytest.mark.parametrize("index", range(len(_encoded_forms("t"))))
+def test_encoded_forms_the_scanner_flags_are_redacted(index, tmp_path):
+    from weather.operations.wu_token_scan import EXIT_CLEAN, EXIT_FOUND, exit_code_for, scan
+
+    hex_token = secrets.token_hex(16)
+    text = _encoded_forms(hex_token)[index]
+    flagged = tmp_path / "before.log"
+    flagged.write_text(text, encoding="utf-8")
+    assert exit_code_for(scan([flagged])) == EXIT_FOUND  # precondition: the scanner flags it
+
+    redacted = redact_wu_secrets(text)
+
+    assert hex_token not in redacted.lower(), text.replace(hex_token, "<fake>")
+    assert REDACTED in redacted
+    assert redact_wu_secrets(redacted) == redacted  # idempotent
+    cleaned = tmp_path / "after.log"
+    cleaned.write_text(redacted, encoding="utf-8")
+    assert exit_code_for(scan([cleaned])) == EXIT_CLEAN
+
+
+# --- N3: exceptions whose args hold a dict or another object (prior F2) ----------------
+
+
+class _Payload:
+    def __init__(self, token):
+        self.token = token
+
+    def __repr__(self):
+        return f"_Payload(apiKey={self.token!r})"
+
+
+def test_sanitize_exception_redacts_dict_and_object_args(token):
+    nested = RuntimeError({"params": {"apiKey": token, "units": "e"}, "tries": [f"apiKey={token}"]})
+    obj = ValueError(_Payload(token), 7)
+    keyed = KeyError({f"apiKey={token}": 1})
+    for error in (nested, obj, keyed):
+        assert token in _rendered(error)  # precondition: the token is in the rendered text
+        sanitize_exception(error)
+        assert token not in _rendered(error)
+        assert token not in str(error) and token not in repr(error)
+    # Non-secret structure survives: dicts stay dicts, plain values are untouched.
+    assert nested.args[0]["params"]["units"] == "e"
+    assert obj.args[1] == 7
+
+
+def test_log_filter_redacts_a_dict_arg_exception(token):
+    """Defender N3 (prior F2 through the filter): a dict-arg exception in exc_info."""
+    stream, handler = _capture_handler()
+    wu_redaction.install_wu_log_redaction(logger_names=(), handlers=[handler])
+    logger = logging.getLogger("weather.test.wu_redaction_dict_arg_probe")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        try:
+            raise RuntimeError({"params": {"apiKey": token}})
+        except RuntimeError:
+            logger.warning("boom", exc_info=True)
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+    text = stream.getvalue()
+    assert token not in text
+    assert "Traceback" in text and "RuntimeError" in text
