@@ -134,6 +134,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
             "tests/operations/test_thin_ensure.py",
+            "tests/operations/test_scheduled_task_local_daily_triggers.py",
+            "tests/operations/test_exchange_economics_refresh_script.py",
         ],
     ),
     "reconciler-1": (

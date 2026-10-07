@@ -486,7 +486,9 @@ Stage-A, workstation or live authority is added.
       proof is still required. Roll-sensitive heads are unchanged.
     - DST night 2026-11-01: no merge and no suite 01:45-02:15 local (OD30); the
       daily tasks are re-registered around 10-30 because their triggers carry a
-      fixed -04:00 offset (OD28, #249).
+      fixed -04:00 offset (OD28, #249), and the integration sequencer does not
+      run the night of 10-31 to 11-01 (05-F3). Task order and the read-only
+      check: [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md) "DST re-registration (OD28)".
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,

@@ -56,3 +56,5 @@ config/local/
 *.key
 *.pfx
 *.p12
+# Credential blobs (Swarm P S09-2); the credential vault, not the tree, holds them.
+*.cred

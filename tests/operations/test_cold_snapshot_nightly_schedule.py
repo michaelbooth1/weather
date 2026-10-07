@@ -240,9 +240,10 @@ SCHEDULER_STUBS = r"""
 $global:Registered = $null
 function New-ScheduledTaskAction { param($Execute, $Argument, $WorkingDirectory)
     [pscustomobject]@{ Execute = $Execute; Arguments = $Argument; WorkingDirectory = $WorkingDirectory } }
+# Like the real cmdlet, the stub returns a zoned (UTC) boundary; the registrar's local-trigger
+# helper must replace it with an unzoned local one (DST-C1).
 function New-ScheduledTaskTrigger { param([switch]$Daily, $At)
-    $at = if ($env:REG_FIXTURE_READBACK_AT) { $env:REG_FIXTURE_READBACK_AT } else { $At }
-    [pscustomobject]@{ RequestedAt = $At; StartBoundary = ('2026-10-07T' + $at + ':00'); DaysInterval = 1 } }
+    [pscustomobject]@{ RequestedAt = $At; StartBoundary = ('2026-10-07T' + $At + ':00Z'); DaysInterval = 1 } }
 function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel)
     [pscustomobject]@{ LogonType = $LogonType; RunLevel = $RunLevel } }
 function New-ScheduledTaskSettingsSet { param($ExecutionTimeLimit, $MultipleInstances)
@@ -253,7 +254,10 @@ function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal
         Principal = $Principal; Settings = $Settings }
     Set-Content -LiteralPath $env:REG_FIXTURE_OUT -Value ([pscustomobject]@{ task = $TaskName;
         at = $Trigger.RequestedAt; limit = $Settings.ExecutionTimeLimit } | ConvertTo-Json -Compress) }
-function Get-ScheduledTask { param($TaskName) $global:Registered }
+function Get-ScheduledTask { param($TaskName)
+    if ($env:REG_FIXTURE_READBACK_BOUNDARY) {
+        $global:Registered.Triggers[0].StartBoundary = $env:REG_FIXTURE_READBACK_BOUNDARY }
+    $global:Registered }
 """
 
 
@@ -263,6 +267,7 @@ def registration(tmp_path):
     scripts = root / "scripts/ops"
     scripts.mkdir(parents=True)
     shutil.copy2(repo_path("scripts/ops/training_window_contract.ps1"), scripts / "training_window_contract.ps1")
+    shutil.copy2(repo_path("scripts/ops/scheduled_task_local_trigger.ps1"), scripts / "scheduled_task_local_trigger.ps1")
     (scripts / "workload_admission.ps1").write_text(
         "function Get-WeatherExecutionHostAssignment { param($RepoRoot) "
         "[pscustomobject]@{ dedicated_capture_execution_host_id = 'fixture-host' } }\n"
@@ -280,13 +285,13 @@ def registration(tmp_path):
     return root, head, request, tmp_path
 
 
-def run_registration(registration, readback_at=None):
+def run_registration(registration, readback_boundary=None):
     root, head, request, tmp = registration
     out = tmp / "registered.json"
     env = {**os.environ, "REG_FIXTURE_OUT": str(out)}
-    env.pop("REG_FIXTURE_READBACK_AT", None)
-    if readback_at:
-        env["REG_FIXTURE_READBACK_AT"] = readback_at
+    env.pop("REG_FIXTURE_READBACK_BOUNDARY", None)
+    if readback_boundary:
+        env["REG_FIXTURE_READBACK_BOUNDARY"] = readback_boundary
     command = (f". '{tmp / 'stubs.ps1'}'; & '{root / 'scripts/ops/register_cold_snapshot_nightly.ps1'}' "
                f"-ProductionRepoRoot '{tmp / 'production'}' -RequestPath '{request}' "
                f"-RequestSha256 {hashlib.sha256(request.read_bytes()).hexdigest()} -ExpectedSourceTip {head}")
@@ -308,5 +313,13 @@ def test_registration_registers_and_reads_back_a_0650_trigger(registration):
 @windows_only
 def test_registration_readback_rejects_the_old_0030_trigger(registration):
     """Mutant: a Scheduler readback still at 00:30 must fail the registration check."""
-    code, text, _registered = run_registration(registration, readback_at="00:30")
+    code, text, _registered = run_registration(registration, readback_boundary="2026-10-07T00:30:00")
+    assert code != 0 and "readback mismatch" in text
+
+
+@pytest.mark.spawns
+@windows_only
+def test_registration_readback_rejects_a_fixed_offset_0650_trigger(registration):
+    """Mutant (DST-C1): a zoned 06:50-04:00 boundary is a fixed UTC instant and must fail."""
+    code, text, _registered = run_registration(registration, readback_boundary="2026-10-07T06:50:00-04:00")
     assert code != 0 and "readback mismatch" in text
