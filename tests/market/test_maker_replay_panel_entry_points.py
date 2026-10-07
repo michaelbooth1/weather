@@ -201,9 +201,8 @@ class Analysis:
                         self._refs(module, deco, owner)
                     visit(stmt.body, fn, name + ".", in_reader_class)
                 elif isinstance(stmt, ast.ClassDef):
+                    # Bases are type references, not reads: a subclass of a reader is itself a reader class.
                     reader = (module, stmt.name) in self.reader_classes
-                    for base in stmt.bases:
-                        self._refs(module, base, owner)
                     visit(stmt.body, owner, prefix + stmt.name + ".", in_reader_class or reader)
                 else:
                     self._refs(module, stmt, owner)
