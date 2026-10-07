@@ -103,22 +103,25 @@ def classify():
             launcher = parent
             break
         pid = parent
-    def kind(code):
-        handle = k.GetStdHandle(code)
-        if not handle or handle == wintypes.HANDLE(-1).value:
-            return "none"
-        return {1: "disk", 2: "char", 3: "pipe"}.get(k.GetFileType(handle), "unknown")
+    # pytest's fd capture rebinds the standard handles, so judge the console
+    # itself: its process list, its window, and whether its input buffer opens.
+    k.CreateFileW.restype = wintypes.HANDLE
+    conin = k.CreateFileW("CONIN$", 0x80000000 | 0x40000000, 3, None, 3, 0, None)
+    conin_ok = bool(conin) and conin != wintypes.HANDLE(-1).value
+    if conin_ok:
+        k.CloseHandle(wintypes.HANDLE(conin))
     return {
         "has_console": count > 0,
         "console_window": bool(k.GetConsoleWindow()),
         "launcher_found": launcher is not None,
         "shares_launcher_console": launcher in console,
-        "stdin": kind(0xFFFFFFF6),
-        "stdout": kind(0xFFFFFFF5),
+        "console_input": conin_ok,
+        "console_only_holds_own_ancestry": all(p in seen or p == os.getpid() for p in console),
     }
 
 PRIVATE_WINDOWLESS = {"has_console": True, "console_window": False, "launcher_found": True,
-                      "shares_launcher_console": False, "stdin": "char", "stdout": "char"}
+                      "shares_launcher_console": False, "console_input": True,
+                      "console_only_holds_own_ancestry": True}
 '''
 
 FIXTURE_CONSOLE_TEST = CONSOLE_PROBE + r'''
@@ -374,7 +377,9 @@ def test_host_chunk_launch_gives_a_private_console_and_the_attached_mutant_is_de
 # ------------------------------------------------------------------ end to end
 def test_pregate_passes_a_good_head_in_host_console_mode_and_cleans_up(fixture_repo, tmp_path):
     result, receipt = _pregate(fixture_repo, fixture_repo["good"], "good")
-    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], result.stdout, result.stderr)
+    probe = Path(fixture_repo["probe"])
+    seen = probe.read_text(encoding="utf-8") if probe.is_file() else None
+    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], receipt["failed_tests"], seen)
     assert result.returncode == 0
     assert receipt["schema"] == "weather.workstation_pregate_receipt.v1"
     assert receipt["head"] == fixture_repo["good"]
