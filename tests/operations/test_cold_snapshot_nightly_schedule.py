@@ -173,6 +173,13 @@ def run_entry(entry, local_clock: str):
     before = "$now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)"
     assert script.count(before) == 1
     script = script.replace(before, f"$now = [DateTime]::SpecifyKind([DateTime]'{local_clock}', [DateTimeKind]::Unspecified)")
+    # The backstop deadline is built from the faked $now but the wait loop compares it with the
+    # REAL clock, so a fixed fixture date made this a time bomb (red after 09:00 local on that
+    # date). Keep the faked time-left-until-09:00 but anchor it to the real UtcNow.
+    deadline = "$deadline = [TimeZoneInfo]::ConvertTimeToUtc($now.Date.AddMinutes($windowEndMinute), $zone)"
+    assert script.count(deadline) == 1
+    script = script.replace(
+        deadline, "$deadline = [DateTime]::UtcNow.Add($now.Date.AddMinutes($windowEndMinute) - $now)")
     path = root / "scripts/ops/cold_snapshot_nightly_run.ps1"
     path.write_text(script, encoding="utf-8")
     request = production / "request.json"
