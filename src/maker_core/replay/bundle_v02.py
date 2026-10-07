@@ -18,7 +18,9 @@ plain ``.jsonl``, v0.3 streams are always gzip. Here:
   everything it read.
 - Limits are ``v2.limits`` (bytes AND time): pass one and every ``records()`` call get their own pass
   clock, so a re-read never inherits the first open's time; an optional ``RunBudget`` bounds the whole
-  run's deadline and stored input across bundles. A frozen ``bundle.Limits`` is still accepted.
+  run's deadline and stored input across bundles. Without one, the bundle gets its own lifetime budget
+  (``v2.limits.lifetime_budget``), so re-reads are never unbounded. A frozen ``bundle.Limits`` is still
+  accepted.
 - v0.2 coverage records name a manifest ``coverage_groups`` entry instead of a condition; a
   condition's coverage is its group's latest record. ``maker_core.replay.v2.compaction`` owns the
   expansion back to per-condition v0.1 rows.
@@ -44,7 +46,7 @@ from maker_core.replay.bundle import (FORMAT as FORMAT_V01, KINDS, MAX_CONDITION
                                       Limits, _Reader, _freeze, _hash, _identity, _integer, _json, _keys,
                                       load_bundle, regular_path, sha256, timestamp)
 from maker_core.replay.v2 import gzip_stream
-from maker_core.replay.v2.limits import PassReader, RunBudget, V2Limits, coerce
+from maker_core.replay.v2.limits import PassReader, RunBudget, V2Limits, coerce, lifetime_budget
 
 FORMAT_V02 = "maker_core.replay.bundle.v0.2"
 FORMAT_V03 = "maker_core.replay.bundle.v0.3"
@@ -107,18 +109,23 @@ class StreamBundle:
     root: Path
     _limits: V2Limits = field(repr=False, compare=False)
     _clock: object = field(repr=False, compare=False)
-    _run: RunBudget | None = field(repr=False, compare=False)
+    _run: RunBudget = field(repr=False, compare=False)  # the shared run, or this bundle's lifetime budget
     decoded_hashes: Mapping | None = field(default=None, compare=False)  # stream name -> decoded SHA-256
     compression: Mapping | None = field(default=None, compare=False)  # the v0.3 manifest's ``compression``
 
     def pass_reader(self) -> PassReader:
-        """A fresh pass clock (and the run's deadline, when the bundle was opened under a ``RunBudget``)."""
+        """A fresh pass clock, plus the run's deadline (or, with no run given, this bundle's lifetime)."""
         return PassReader(self._limits, self._clock, self._run)
+
+    def stream(self, stem: str) -> StreamRef | None:
+        """The stream named ``<stem>.jsonl`` (v0.1/v0.2) or ``<stem>.jsonl.gz`` (v0.3), or ``None``."""
+        names = (stem + ".jsonl", stem + ".jsonl.gz")
+        return next((ref for ref in self.streams if ref.name in names), None)
 
     def records(self) -> Iterator[CapturedRecord | GroupRecord]:
         """Pass two: every stream merged in ``(captured_at, sequence)`` order, one record at a time.
 
-        Each call is its own pass with its own clock (B-def D1); the run budget, if any, still binds.
+        Each call is its own pass with its own clock (B-def D1); the run or lifetime budget still binds.
         """
         reader = self.pass_reader()
         seen = bytearray()
@@ -263,9 +270,12 @@ def open_stream_bundle(directory: Path, *, limits: Limits | V2Limits | None = No
 
     The seal must be after the UTC day's end. This checks the export's assertion, not producer
     authenticity or the workstation wall clock. ``limits`` bound this bundle (a frozen ``Limits`` keeps
-    its meaning, see ``v2.limits.coerce``); ``run``, if given, is shared by every bundle of one run.
+    its meaning, see ``v2.limits.coerce``); ``run``, if given, is shared by every bundle of one run. With
+    no ``run``, the bundle gets its own lifetime budget (fail closed, X1 Defender M1).
     """
     v2_limits = coerce(limits)
+    if run is None:
+        run = lifetime_budget(v2_limits, clock)
     reader = PassReader(v2_limits, clock, run)
     root = regular_path(directory)
     manifest_bytes = reader.read(root / "bundle.json", MAX_MANIFEST_BYTES)
@@ -364,6 +374,24 @@ def _mark(seen, sequence):
     if seen[index] >> bit & 1:
         raise BundleError("duplicate_sequence_or_capture_outside_day")
     seen[index] |= 1 << bit
+
+
+def stream_records(bundle: StreamBundle, stem: str) -> Iterator[CapturedRecord | GroupRecord]:
+    """Public, stable accessor: pass two over ONE stream of an opened bundle, in ``(captured_at, sequence)``.
+
+    ``stem`` is the stream's name without its extension (``"descriptor"`` reads ``descriptor.jsonl`` in
+    v0.2 or ``descriptor.jsonl.gz`` in v0.3), so callers need not know the storage format. The call is its
+    own pass: a fresh pass clock, and the bundle's run (or lifetime) budget still binds. Every check of
+    ``records()`` applies to this stream: stored and decoded re-hash, record count, strict order and
+    sequence uniqueness within the stream, and refusal at the end if the file changed after pass one.
+    A missing stream raises ``BundleError("stream_missing")``. Consumers of a single kind (U1's universe
+    descriptors) use this instead of the private ``_stream``.
+    """
+    ref = bundle.stream(stem)
+    if ref is None:
+        raise BundleError("stream_missing")
+    return _stream(bundle, ref, {c.condition_id for c in bundle.conditions},
+                   {g.group_id for g in bundle.coverage_groups}, bytearray())
 
 
 def _stream(bundle, ref, conditions, groups, seen, reader=None):

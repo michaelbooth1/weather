@@ -13,11 +13,11 @@ import pytest
 
 from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import HOST_MAX_BYTES, Bundle, BundleError, Limits, sha256
-from maker_core.replay.bundle_v02 import FORMAT_V02, FORMAT_V03, load_any, open_stream_bundle
+from maker_core.replay.bundle_v02 import FORMAT_V02, FORMAT_V03, load_any, open_stream_bundle, stream_records
 from maker_core.replay.v2 import gzip_stream
 from maker_core.replay.v2.compaction import expand, row as plain_row
-from maker_core.replay.v2.limits import (CEILING_PASS_SECONDS, CEILING_RUN_SECONDS, GIB, RunBudget, V2Limits,
-                                         coerce)
+from maker_core.replay.v2.limits import (CEILING_PASS_SECONDS, CEILING_RUN_SECONDS,
+                                         DEFAULT_BUNDLE_LIFETIME_SECONDS, GIB, RunBudget, V2Limits, coerce)
 from maker_core.replay.v2.writer import BundleWriter, validate
 from tests.maker_core.test_replay_v2_writer import Day
 from tools.research.maker_replay_v2.fixture170 import Day as Day170
@@ -277,6 +277,32 @@ def test_records_can_be_reread_after_the_pass_one_time_cap(bundle):
         list(records)
 
 
+def test_without_a_run_budget_a_bundle_lifetime_still_bounds_every_re_read(bundle):
+    # X1 Defender M1: no caller passes ``run=`` today, so the fallback must fail closed. Three re-reads,
+    # each well under its own pass cap, cannot carry one bundle past its lifetime deadline.
+    folder, _ = bundle
+    clock = Clock()
+    opened = open_stream_bundle(folder, limits=V2Limits(max_pass_seconds=CEILING_PASS_SECONDS), clock=clock)
+    first = list(opened.records())
+    for _ in range(3):
+        clock.now += DEFAULT_BUNDLE_LIFETIME_SECONDS / 4  # each re-read starts far below its 14,400 s pass cap
+        assert list(opened.records()) == first
+    assert clock.now < DEFAULT_BUNDLE_LIFETIME_SECONDS
+    clock.now = DEFAULT_BUNDLE_LIFETIME_SECONDS  # the bundle's lifetime is over; a fresh pass clock does not help
+    with pytest.raises(BundleError, match="run_time_cap"):
+        list(opened.records())
+    # Mid-pass too: a pass that starts inside the lifetime is stopped when the lifetime ends.
+    clock.now = 0.0
+    reopened = open_stream_bundle(folder, clock=clock)
+    clock.now = DEFAULT_BUNDLE_LIFETIME_SECONDS - 100.0
+    records = reopened.records()
+    next(records)  # the pass clock starts here, far inside its own 4,096 s cap
+    clock.now = DEFAULT_BUNDLE_LIFETIME_SECONDS
+    with pytest.raises(BundleError, match="run_time_cap"):
+        list(records)
+    assert DEFAULT_BUNDLE_LIFETIME_SECONDS == CEILING_RUN_SECONDS
+
+
 def test_an_elapsed_run_deadline_refuses_every_pass(bundle):
     folder, _ = bundle
     clock = Clock()
@@ -375,3 +401,38 @@ def test_frozen_limits_still_bind_v03_like_v02(bundle):
         open_stream_bundle(folder, limits=Limits(max(stored, decoded - 1), 10**6, 300))
     assert hashlib.sha256((folder / "bundle.json").read_bytes()).hexdigest() == open_stream_bundle(
         folder, limits=Limits(2**30, 10**6, 300)).input_hashes["bundle.json"]
+
+
+# --- Public single-stream accessor (U1 Defender r2 C1) ----------------------------------------------------
+
+
+@pytest.mark.parametrize("compress", [True, False], ids=["v0.3", "v0.2"])
+def test_stream_records_reads_one_stream_by_stem_in_either_format(tmp_path, compress):
+    day = Day()
+    _write(tmp_path / "b", day, compress=compress)
+    opened = open_stream_bundle(tmp_path / "b")
+    every = list(opened.records())
+    for kind in ("descriptor", "book"):
+        assert opened.stream(kind).name == kind + (".jsonl.gz" if compress else ".jsonl")
+        got = list(stream_records(opened, kind))
+        assert got and got == [r for r in every if r.kind == kind]
+    assert opened.stream("absent") is None
+    with pytest.raises(BundleError, match="stream_missing"):
+        stream_records(opened, "absent")
+
+
+def test_stream_records_keeps_every_pass_two_check_and_the_lifetime_budget(bundle):
+    folder, _ = bundle
+    clock = Clock()
+    opened = open_stream_bundle(folder, clock=clock)
+    first = list(stream_records(opened, "descriptor"))
+    assert list(stream_records(opened, "descriptor")) == first  # each call is its own pass
+    clock.now = DEFAULT_BUNDLE_LIFETIME_SECONDS
+    with pytest.raises(BundleError, match="run_time_cap"):
+        list(stream_records(opened, "descriptor"))
+    clock.now = 0.0
+    reopened = open_stream_bundle(folder, clock=clock)
+    path = folder / reopened.stream("descriptor").name
+    path.write_bytes(path.read_bytes() + b"\x00")  # changed after pass one
+    with pytest.raises(BundleError, match="input_changed_between_passes"):
+        list(stream_records(reopened, "descriptor"))

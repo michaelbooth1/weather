@@ -20,10 +20,12 @@ from collections import Counter
 from datetime import date, datetime, timezone
 import json
 import os
+from pathlib import Path
 import threading
 import time
 import tracemalloc
 from types import SimpleNamespace
+from typing import Iterator
 
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS
 from maker_core.replay.ceilings import process_memory
@@ -179,8 +181,38 @@ def s2(day: date, source, out, *, form="v0.2", trace=False, max_output_bytes=HOS
     return result
 
 
+def book_lines(bundle_dir: Path) -> Iterator[bytes]:
+    """The book records of one exported bundle, as decoded JSON lines, for any bundle format.
+
+    v0.1: the ``book`` rows of ``events.jsonl``; v0.2: ``book.jsonl``; v0.3: ``book.jsonl.gz`` inflated by the
+    bounded v2 decoder (at most the manifest's declared decoded size). A measurement helper: the hash-checked
+    admission path is ``bundle_v02.open_stream_bundle``.
+    """
+    from maker_core.replay.bundle import FORMAT as FORMAT_V01, MAX_LINE_BYTES
+    from maker_core.replay.bundle_v02 import FORMAT_V02, FORMAT_V03
+    from maker_core.replay.v2 import gzip_stream
+    manifest = json.loads((bundle_dir / "bundle.json").read_bytes())
+    form = manifest.get("format")
+    if form == FORMAT_V01:
+        with (bundle_dir / "events.jsonl").open("rb") as handle:
+            yield from (line for line in handle if json.loads(line)["kind"] == "book")
+    elif form == FORMAT_V02:
+        with (bundle_dir / "book.jsonl").open("rb") as handle:
+            yield from handle
+    elif form == FORMAT_V03:
+        entry = next((e for e in manifest["streams"] if e["path"] == "book.jsonl.gz"), None)
+        if entry is None:
+            return
+        with (bundle_dir / entry["path"]).open("rb") as handle:
+            chunks = iter(lambda: handle.read(gzip_stream.CHUNK_BYTES), b"")
+            yield from gzip_stream.lines(gzip_stream.decode(chunks, entry["decoded_bytes"]), MAX_LINE_BYTES)
+    else:
+        raise ValueError(f"unsupported bundle format: {form!r}")
+
+
 def books(day: date, out, *, depths, minutes, union, trades):
-    """Book record bytes against levels a side: one short v0.2 export per depth, fitted by least squares."""
+    """Book record bytes against levels a side: one short export per depth (v0.3 gzip by default, any
+    format read through ``book_lines``), fitted by least squares on the decoded record bytes."""
     from tools.research.maker_replay_v2.capture170 import write
     from weather.market import maker_replay_bundle_v02 as exporter
     from weather.market.market_registry import BUILTIN_SPECS
@@ -194,14 +226,14 @@ def books(day: date, out, *, depths, minutes, union, trades):
             max_output_bytes=HOST_MAX_BYTES, max_records=HOST_MAX_RECORDS, carry_bundle=[], release_root=None,
             kinds=None), now=LATER)
         levels = records = 0
-        with (root / "bundle" / "book.jsonl").open("rb") as handle:
-            for line in handle:
-                book = json.loads(line)["payload"]
-                levels += sum(len(book[side]) for side in ("yes_bids", "yes_asks", "no_bids", "no_asks")) / 4
-                records += 1
+        for line in book_lines(root / "bundle"):
+            book = json.loads(line)["payload"]
+            levels += sum(len(book[side]) for side in ("yes_bids", "yes_asks", "no_bids", "no_asks")) / 4
+            records += 1
         stream = summary["streams"]["book"]
-        rows.append(dict(depth=depth, records=stream["records"], bytes=stream["bytes"],
-                         bytes_per_record=round(stream["bytes"] / stream["records"], 1),
+        decoded = stream.get("decoded_bytes", stream["bytes"])  # record bytes: v0.3 stores them gzipped
+        rows.append(dict(depth=depth, format=summary.get("format"), records=stream["records"], bytes=decoded,
+                         stored_bytes=stream["bytes"], bytes_per_record=round(decoded / stream["records"], 1),
                          mean_levels_a_side=round(levels / records, 3)))
     xs, ys = [r["mean_levels_a_side"] for r in rows], [r["bytes_per_record"] for r in rows]
     mx, my = sum(xs) / len(xs), sum(ys) / len(ys)

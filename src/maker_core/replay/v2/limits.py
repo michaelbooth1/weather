@@ -14,6 +14,10 @@ then up to 12 matched-clock rounds) ran against the clock of the first open: a 1
   (registration §8, 32,768 s) and its stored input total (§8, 16 GiB). It starts when it is built, and
   every pass of every bundle checks it, so a run cannot exceed its deadline through fresh pass clocks.
   Stored bytes are charged once per ``open_stream_bundle``; ``records()`` re-reads are not charged.
+- Fail closed (X1 Defender M1): a bundle opened WITHOUT a ``RunBudget`` gets its own lifetime budget
+  (``lifetime_budget``: the run deadline's default, 32,768 s from its open, and its own stored cap), held
+  on the bundle and checked by every pass. Fresh pass clocks therefore never make re-reads unbounded.
+  Looks and rehearsals (U2, U4) still pass ONE shared ``RunBudget`` for the whole run.
 
 Every limit is explicit, positive and below a fixed ceiling; raising one never samples or truncates
 input, it only widens what is admitted whole.
@@ -44,6 +48,8 @@ DEFAULT_BUNDLE_RECORDS = HOST_MAX_RECORDS
 DEFAULT_PASS_SECONDS = 4_096.0  # twice E4's 2,048 s per date
 DEFAULT_RUN_SECONDS = CEILING_RUN_SECONDS
 DEFAULT_RUN_STORED_BYTES = 16 * GIB  # registration draft §8: input <= 16 GiB in total
+# A bundle opened without a RunBudget: its whole life (every pass and re-read) fits one run's deadline.
+DEFAULT_BUNDLE_LIFETIME_SECONDS = DEFAULT_RUN_SECONDS
 
 
 def _positive_int(value, ceiling):
@@ -113,6 +119,13 @@ class RunBudget:
         if self.stored_bytes + stored > self.max_run_stored_bytes:
             raise BundleError("run_input_byte_cap")
         self.stored_bytes += stored
+
+
+def lifetime_budget(limits: V2Limits, clock=time.monotonic) -> RunBudget:
+    """The fail-closed fallback when no ``RunBudget`` is passed: one bundle's lifetime deadline, started at
+    its open, with the bundle's own stored cap as the stored total (so it never binds tighter than V2Limits)."""
+    return RunBudget(max_run_seconds=DEFAULT_BUNDLE_LIFETIME_SECONDS,
+                     max_run_stored_bytes=limits.max_bundle_stored_bytes, clock=clock)
 
 
 class PassReader:
