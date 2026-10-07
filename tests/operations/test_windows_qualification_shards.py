@@ -106,6 +106,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_memory_commit_guard_script.py",
             "tests/operations/test_storage_inventory_scope.py",
             "tests/operations/test_cold_snapshot_nightly_status_race.py",
+            "tests/operations/test_wu_token_scan_junction.py",
         ],
     ),
     "windows-lane-b": (
