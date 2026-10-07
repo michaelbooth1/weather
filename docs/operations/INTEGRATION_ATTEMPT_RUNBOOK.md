@@ -567,6 +567,17 @@ or authorizes live exchange mutation. Receipts encode that static boundary as
 `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`; they do not mislabel a hard-coded
 boolean as a measured credential or exchange outcome.
 
+## Correspondence index after the night
+
+Integration branches never carry the regenerated correspondence index, so no
+attempt conflicts on it. After the night's last successful merge, the morning
+closeout runs `scripts\ops\correspondence_index_closeout.ps1 -Land` once. It
+regenerates the index on origin/master, refuses unless only the index files
+changed and the strict check passes, and lands the result as a docs light-path
+commit (Markdown under `docs/`, roll-free, no lease). It is idempotent, and
+`documentation_transaction complete` fails while the index is stale. A failed
+attempt changes nothing here: the closeout regenerates whatever really landed.
+
 ## Verification and adoption
 
 A clean local Git status is a valid zero-row query. Native Windows qualification
