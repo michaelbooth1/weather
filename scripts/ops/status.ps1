@@ -3708,8 +3708,9 @@ $expNonZero = @{
     "WeatherHostHealthWatchdog"              = @("0x2")
 }
 # The taker was PAUSED by operator decision 2026-08-07 to focus 100% on the maker
-# (docs/operations/taker-paused-and-pruned-2026-08-07.md). Both tasks are deliberately
-# Disabled; flagging them daily is noise. Re-enable BOTH to restart the taker.
+# (docs/operations/taker-paused-and-pruned-2026-08-07.md) and RETIRED with the paper maker on
+# 2026-09-29: their runtime code and registrars were deleted (110o part 3). The four host tasks
+# stay Disabled and are classified here; they cannot be re-enabled into working code.
 # The off-host mirror was PAUSED by operator decision 2026-08-12 to keep this host's
 # resources on capture stability (docs/operations/mirror-paused-2026-08-12.md). These three
 # stay silent HERE because the mirror block below raises exactly one warn that carries the
@@ -3721,7 +3722,7 @@ $expDisabled = @(
     "WeatherModelMarketDisagreementAnalysis",
     "WeatherClobEnrichmentLoop",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
-    # Owner 2026-09-24: the paper maker roll is paused while the old maker is retired (DECISION_LOG).
+    # Owner 2026-09-24 paused, 2026-09-29 retired: paper maker runtime deleted (DECISION_LOG).
     "WeatherMarketMakingDailyRoll", "WeatherMarketMakingDailyRollSupervisor",
     "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
     # Legacy host-local queue drivers lack immutable expected-tip bindings. They stay off

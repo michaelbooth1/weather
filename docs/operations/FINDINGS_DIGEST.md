@@ -22,7 +22,7 @@ never pooled across the 2026-07-31 provenance boundary.
 4. One change has ever improved a served number: the serving floor, 2026-07-31. EF §3.
 5. No cell out of 114 pre-registered ones shows a quotable model edge. EF §1b.
 6. The declared primary objective (09:00–14:00 local) has no powered measurement; the old ~504-date requirement rested on a retired effect size and is withdrawn, and no replacement figure is citable. EF §1b, §5.
-7. No profitability result exists yet: RE-1 has four fills, one paid reward day (+2.13 vs ~2.03 modelled) and three settled lots (net +6.43) — far too little to judge. EF §10m.
+7. No profitability result exists yet: RE-1 has five fills (sessions 1, 4, 7, 8 and 11; four at the quote price, one strictly through) and one paid reward day (+2.13 vs ~2.03 modelled) — far too little to judge. The earlier realized net for the settled lots is superseded; to be restated from wallet-reader balances (Q-22). EF §10m.
 8. One attended real-money lifecycle test ran on 2026-09-06 off master with zero fills; it is spent and grants nothing. EF §10f.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.
@@ -95,10 +95,14 @@ never pooled across the 2026-07-31 provenance boundary.
   (`codex/re1-session1-analysis-20260923` @ `b4b97807c`).
 - **RE-1 sessions 2-8, 2026-09-24 (75 shares, attempts numbered separately from sessions):** minute-integrated modelled reward
   again matched accrual (0.438 vs 0.352/0.447; 0.376 vs 0.330/0.347); **the first paid day: UTC 09-24 paid +2.13 vs ~2.03
-  modelled, k ≈ 1.05**. **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Four fills, all
-  on the thinnest bands; only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); ~43.8 held to settlement. On an empty
+  modelled, k ≈ 1.05**. **Share halved within 2-4 minutes of posting in every session** (Miami 95% -> 3.6%). Three more fills
+  (sessions 4, 7 and 8; four in sessions 1-8 counting session 1's), all on the thinnest bands and all at the quote price;
+  only Miami's 75 YES looks informed (-8.5 c at +5/+30 min); the four session 1-8 lots (~43.8) were held toward settlement. On an empty
   band size and closeness buy no reward, only fill exposure; the owner's amendment now requires existing two-sided depth
   (>= max(75, size)) and local T+1/T+2. EF §10m.
+- **RE-1 session 11, 2026-09-25 (attempt 12, first fill on a contested band under the depth rule):** five taker trades
+  in one second filled the 75 YES @0.43 leg on Chicago 68-69°F Sep 25 (32.25). Four trades printed at our price; the
+  last printed at 0.42, strictly through it: the only strictly-through fill of RE-1's five. EF §10m.
 - **Open orders are limited to cash per market, not across markets (owner, replicated 2026-09-24):** 299.00 of resting buys on
   four bands were accepted on 96.15 cash; each weather band is its own market, so the same cash backs many bands, and the risk
   becomes simultaneous fills across markets beyond cash, whose venue handling is unmeasured. EF §10n.

@@ -7,6 +7,23 @@ health, and risk caps into auditable quote or no-quote intents.
 
 from __future__ import annotations
 
+from weather.market.quote_policy_defaults import (
+    DEFAULT_POLICY_CONFIG,
+    POLICY_VERSION,
+)
+
+from weather.market.observation_status import (
+    load_observation_status,
+)
+
+from weather.market.value_helpers import (
+    age_seconds,
+    bool_value,
+    first_present,
+    maybe_float,
+    parse_time,
+)
+
 import argparse
 import csv
 import hashlib
@@ -45,7 +62,6 @@ from weather.market.snapshot_cadence_quality import (
 
 
 SCHEMA_VERSION = "mm_quote_intent_v0.3"
-POLICY_VERSION = "mm_policy_v0.2"
 EARLY_HOUR_GUARDRAIL_SCHEMA_VERSION = "early_hour_market_guardrail_v0.1"
 DEFAULT_PROMOTION_REFRESH = data_path() / "backtest" / "f_family_promotion_refresh.json"
 DEFAULT_KNOWN_EDGE_MAP = data_path() / "backtest" / "mm_known_edge_map.json"
@@ -54,71 +70,6 @@ DEFAULT_OBSERVATION_STATUS = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_statu
 DEFAULT_OUT = data_path() / "backtest" / "quotes_long.csv"
 DEFAULT_JSON_OUT = data_path() / "backtest" / "mm_policy_shadow.json"
 
-DEFAULT_POLICY_CONFIG = {
-    "policy_version": POLICY_VERSION,
-    "tick_size": 0.001,
-    "min_price": 0.001,
-    "max_price": 0.999,
-    "quote_size": 5.0,
-    "harvest_half_spread": 0.01,
-    "max_book_age_seconds": 120.0,
-    "max_model_age_seconds": 900.0,
-    "max_watcher_age_seconds": 120.0,
-    "max_harvest_spread": 0.08,
-    "max_edge_spread": 0.12,
-    "min_depth_1pct_total": 1.0,
-    "shadow_disagreement_stand_down": 0.08,
-    "edge_min_advantage": 0.03,
-    "edge_fee_buffer": 0.005,
-    "adverse_selection_buffer": 0.01,
-    "max_event_notional": 25.0,
-    "max_band_notional": 10.0,
-    "max_correlated_regime_notional_usdc": 0.0,
-    "max_correlated_regime_joint_loss_usdc": 0.0,
-    "correlated_regime_market_groups": "",
-    "max_daily_loss": 25.0,
-    "information_event_calendar_enabled": True,
-    "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
-    "event_gate_widen_buffer": 0.01,
-    "event_gate_exception_enabled": False,
-    "event_gate_exception_event_classes": "",
-    "event_gate_exception_evidence_status": "",
-    "event_gate_exception_evidence_id": "",
-    "event_gate_exception_risk_cap_usdc": 0.0,
-    "clob_recon_policy_enabled": True,
-    "clob_recon_path": str(DEFAULT_CLOB_RECON),
-    "hourly_trust_multiplier_00_08": 0.35,
-    "hourly_trust_multiplier_09_14": 0.85,
-    "hourly_trust_multiplier_15_19": 1.0,
-    "hourly_trust_multiplier_20_23": 0.75,
-    "early_hour_guardrail_enabled": True,
-    "early_hour_guardrail_market_weight": 0.35,
-    "early_hour_guardrail_size_multiplier": 0.35,
-    "early_hour_guardrail_quote_widen_buffer": 0.01,
-    "early_hour_guardrail_min_edge_multiplier": 1.5,
-    "early_hour_guardrail_override_min_edge": 0.10,
-    "early_hour_guardrail_override_source_states": "all_fresh",
-    "early_hour_guardrail_override_count_buckets": "normal_count,high_count,full_count",
-    "early_hour_guardrail_override_disagreement_buckets": "low_disagreement,moderate_disagreement",
-    "early_hour_guardrail_override_max_forecast_disagreement": 1.5,
-    "snapshot_cadence_quality_enabled": True,
-    "max_snapshot_cadence_gap_seconds": 900.0,
-    "snapshot_cadence_stale_model_seconds": 900.0,
-    "snapshot_cadence_confidence_haircut": 0.75,
-    "snapshot_cadence_degraded_permission": "deny",
-    "snapshot_cadence_quote_size_multiplier": 0.5,
-    "snapshot_cadence_quote_widen_buffer": 0.01,
-    "current_high_trust_gate_enabled": True,
-    "current_high_trust_gate_start_hour_local": 15,
-    "current_high_trust_gate_edge_action": "deny",
-    "current_high_trust_gate_harvest_size_multiplier": 0.5,
-    "current_high_trust_gate_quote_widen_buffer": 0.01,
-    "maker_model_variant_basket_enabled": True,
-    "maker_model_variant_basket_id": "maker_default_v0",
-    "maker_model_variant_paths": "",
-    "maker_model_variant_ids": "",
-    "maker_model_variant_max_external_rows": 250000,
-}
 
 HOURLY_TRUST_BANDS = [
     ("early_00_08", 0, 8, "hourly_trust_multiplier_00_08"),
@@ -289,24 +240,6 @@ QUOTE_COLUMNS = [
 ]
 
 
-def maybe_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def first_present(row, *keys):
-    for key in keys:
-        value = row.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
 def clamp_probability(value):
     number = maybe_float(value)
     if number is None:
@@ -314,32 +247,7 @@ def clamp_probability(value):
     return max(0.0, min(1.0, number))
 
 
-def parse_time(value):
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        try:
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def utc_now(value=None):
-    parsed = parse_time(value)
-    return parsed or datetime.now(timezone.utc)
-
-
-def bool_value(value, default=False):
-    if value in (None, ""):
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "ok", "pass"}
+from weather.time import utc_now
 
 
 def _csv_tokens(value):
@@ -609,13 +517,6 @@ def config_with_clob_recon(config):
     if overrides:
         config = {**config, **overrides}
     return config, diagnostics
-
-
-def age_seconds(timestamp, now):
-    parsed = parse_time(timestamp)
-    if parsed is None:
-        return None
-    return max(0.0, (now - parsed).total_seconds())
 
 
 def promotion_state_from_action(action, verdict=None):
@@ -954,46 +855,6 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
         "promotion_allowlist_schema_version": allowlist.get("schema_version"),
         "promotion_allowlist_path": allowlist.get("path"),
         "microstructure_gate": micro_gate,
-    }
-
-
-def load_observation_status(path=DEFAULT_OBSERVATION_STATUS, now=None, config=None):
-    config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
-    now = utc_now(now)
-    path = Path(path)
-    if not path.exists():
-        return {
-            "path": str(path),
-            "exists": False,
-            "fresh": False,
-            "heartbeat_ok": False,
-            "watcher_age_seconds": None,
-            "reason": "missing observation watcher status",
-        }
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    watcher_age = age_seconds(payload.get("last_heartbeat"), now)
-    consecutive_errors = int(payload.get("consecutive_errors") or 0)
-    fresh = (
-        watcher_age is not None
-        and watcher_age <= float(config["max_watcher_age_seconds"])
-        and consecutive_errors == 0
-    )
-    markets = payload.get("markets") or {}
-    market_normalization = {
-        market_id: normalized_high_for_market({"markets": markets}, market_id)
-        for market_id in markets
-    }
-    return {
-        "path": str(path),
-        "exists": True,
-        "fresh": fresh,
-        "heartbeat_ok": fresh,
-        "watcher_age_seconds": watcher_age,
-        "last_heartbeat": payload.get("last_heartbeat"),
-        "consecutive_errors": consecutive_errors,
-        "markets": markets,
-        "market_normalization": market_normalization,
-        "reason": "fresh" if fresh else "stale or erroring observation watcher",
     }
 
 

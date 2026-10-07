@@ -32,7 +32,7 @@ from weather.market.exchange_economics import (
 from weather.market.market_config import ensure_date
 from weather.market.market_microstructure_capture import ClobClient
 from weather.market.market_registry import BUILTIN_SPECS
-from weather.market.mm_policy import utc_now
+from weather.time import utc_now
 from weather.operations.live_path_security import (
     assert_no_ambient_market_registry_override,
     validate_nonreparse_directory,
@@ -1076,6 +1076,11 @@ def _candidate_for_book(market, token_id, outcome_index, book):
         "post_only": True,
     }
     return result
+
+
+# Public name of the paper-run evidence loader shared with portable_live_candidate_preflight and the
+# Stage 0/1 paper-run prerequisite test (DECISION_LOG 2026-09-29).
+load_paper_quote_evidence = _load_paper_quote_evidence
 
 
 def select_live_pilot_candidate(

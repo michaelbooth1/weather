@@ -145,23 +145,6 @@ class TestMarketConfig(unittest.TestCase):
                 "eventSlug": "highest-temperature-in-toronto-on-may-28-2026",
             })
 
-    def test_legacy_diagnostic_readers_distinguish_absent_and_invalid_identity(self):
-        from weather.market.taker_bot_tape_io import market_local_time
-        from weather.market.taker_edge_permission import _row_local_hour
-
-        timestamp = {"captured_at_utc": "2026-05-28T15:00:00+00:00"}
-        for row in (timestamp, {**timestamp, "market_id": None}):
-            with self.subTest(row=row):
-                local, zone = market_local_time(row)
-                self.assertEqual((local.hour, zone), (11, "America/Toronto"))
-                self.assertEqual(_row_local_hour(row), 11)
-        for market_id in ("", " ", "nycc"):
-            with self.subTest(market_id=market_id):
-                row = {**timestamp, "market_id": market_id}
-                local, zone = market_local_time(row)
-                self.assertEqual((local.hour, zone), (15, "UTC"))
-                self.assertEqual(_row_local_hour(row), 15)
-
     def test_snapshot_store_defaults_to_event_slug_folder(self):
         config = config_for_date(date(2026, 5, 28))
         store = SnapshotStore(event_slug=config.event_slug)

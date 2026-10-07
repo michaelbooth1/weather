@@ -307,7 +307,7 @@ $targetDate = "YYYY-MM-DD"
 ```
 
 `daily_refresh` is the morning settlement-to-reporting chain. It can finalize
-settlement labels, run taker finalization checks, refresh trading/model evidence,
+settlement labels, refresh trading/model evidence,
 run promotion and shadow monitors, audit fleet/data health, refresh learning
 reports, and write `data/backtest/daily_refresh_status.json` plus
 `data/backtest/daily_refresh_report.md`.
@@ -324,28 +324,11 @@ stop the settled-day chain. Pass `--fail-on-observed-floor-safety` to
 lock is secured to restore fail-closed enforcement; detection and evidence
 requirements are identical in both modes.
 
-The scheduled maker paper-score step is host-bounded: it selects the latest 14
-`active_day_live_forward` runs and fails closed before loading more than 512 MiB
-of quote inputs. Operators can narrow those limits with
-`--maker-paper-latest-active-runs` and `--maker-paper-max-input-bytes`; raising
-them requires a separate host-capacity review.
-
-Finalized runs normally provide a source-bound `mm_scoring_projection_v0.1`
-base/variant CSV pair containing only current maker-score reader fields.
-Preflight validates both members against their canonical tapes and
-measures/passes those exact paths; if either member is missing, stale,
-malformed, or incompatible, the whole run falls back to both canonical quote
-tapes. For the scheduled active-day scorer only, canonical fallback captures a
-SHA-256-bound prefix ending at the last complete CSV record and the isolated
-child reads exactly that prefix; later appends are excluded, while any rewrite
-inside the prefix fails closed. Captured mtime is receipt metadata rather than
-an equality gate. The score receipt records selected and canonical bytes,
-their ratio, and every run's input mode. Existing runs can be projected without
-rewriting canonical tapes with:
-
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
-```
+The retired taker and paper maker (runtime code deleted 2026-09-29, 110o part 3)
+no longer have daily-refresh steps. Their run folders under `data/mm_runs` and
+`data/taker_runs` and the last `mm_paper_report.json` remain retained evidence;
+`trading_evidence` reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module.
 
 High-risk settlement-stage steps run one at a time in isolated child process
 trees. Each has a repository-declared timeout plus private-memory and
@@ -364,7 +347,7 @@ result cardinality/byte metrics.
 `--stage-a-max-commit-percent` may make admission stricter; loosening either
 requires host-capacity review.
 
-Exchange-economics snapshots gate paper/shadow taker and maker evidence. The
+Exchange-economics snapshots gate maker evidence. The
 tracked source template is
 `docs/research/exchange_economics_snapshot_template.json`; publish a fresh
 runtime snapshot before evidence runs and accept the baseline only after
@@ -465,29 +448,20 @@ F-family artifacts. For the local multi-market helper, use
 
 ### Trading Simulations
 
+The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
+were retired and their runtime code deleted on 2026-09-29 (110o part 3). Their
+retained run folders are read-only evidence. The informed maker is built in
+`maker_core`; see
+[the informed maker design](docs/operations/informed-maker-design-2026-09-25.md).
+
+`market_making_run` is retained only as the paper-run tool that produces the
+International live-pilot Stage 0/1 paper proof (runbook prerequisite 7), until
+the informed maker's own live procedure replaces it:
+
 ```powershell
-# Keyless market-making operator run.
-.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode shadow --markets all
-.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
 # Separately authorized paper-only midpoint-harvest profile; never emits live permission.
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
-.\venv\Scripts\python.exe -m weather.market.mm_paper
-.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
-
-# Paper taker-bot simulator.
-.\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60
-.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll start --disable-counterfactual-tape
-.\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
-.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
 ```
-
-Counterfactual replay tape remains enabled by default. The explicit daily-roll
-flag disables it for the launched child without changing the default. On every
-daily-roll start or recovery, the configured `counterfactual_retention_days`
-(14 by default) is enforced against both target-date age and file mtime. Only
-the two allowlisted counterfactual detail CSVs are removed; real order evidence
-and compact run/settlement/strategy summaries remain. Exact pre-delete hashes,
-byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
@@ -531,7 +505,7 @@ That command replaces both daily tasks. It intentionally omits the FULL
 production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
-refresh, maker/taker daily rolls and supervisors, analysis, host guards, and
+refresh, analysis, host guards, and
 candidate training are separate registrations. Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
@@ -590,8 +564,8 @@ data/
       market_ws.jsonl
   backtest/                     # reports, scoring outputs, promotion payloads
   settlements/<market-id>/      # settlement ledgers
-  mm_runs/                      # market-making run folders
-  taker_runs/                   # taker-bot run folders
+  mm_runs/                      # paper-maker run folders (retained evidence; Stage 0/1 paper runs)
+  taker_runs/                   # retired taker-bot run folders (read-only evidence)
 ```
 
 Durable model artifacts are tracked under `artifacts/`. Small deterministic

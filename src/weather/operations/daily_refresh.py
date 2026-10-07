@@ -67,10 +67,8 @@ from weather.reporting.scorecards import settled_day_root_cause
 from weather.reporting.candidate_lifecycle import variant_evidence_growth
 from weather.reporting.scorecards import winner_rank_parity
 from weather.reporting.location_analysis import june23_location_bias_repair
-from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.market import trading_evidence
 from weather.market import exchange_economics
-from weather.market import taker_bot
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations.long_job_guard import (
@@ -146,8 +144,6 @@ from weather.operations.daily_refresh_locks import (
 from weather.operations.daily_refresh_steps import (
     DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
     DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
-    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
-    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
     DEFAULT_RUNNERS,
     LANE_LEARNING,
     LANE_PROMOTION,
@@ -187,7 +183,6 @@ from weather.operations.daily_refresh_steps import (
     run_live_variant_settlement_scorecard_step,
     run_market_day_labels_finalize,
     run_market_beating_objective_scoreboard_step,
-    run_maker_paper_score_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
     run_observed_floor_safety_monitor_step,
@@ -205,9 +200,6 @@ from weather.operations.daily_refresh_steps import (
     run_settlement_source_audit_step,
     run_shadow_ab_monitor_step,
     run_snapshot_evaluation_step,
-    run_taker_edge_permission_map_step,
-    run_taker_finalization_watchdog_step,
-    run_taker_tail_casebook_step,
     run_trading_evidence_step,
     run_winner_rank_parity_step,
     run_step,
@@ -1101,20 +1093,6 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "resume_from_step": resume_from,
             "stop_after_step": stop_after,
             "bounded_recovery_run": bool(stop_after),
-            "maker_paper_latest_active_runs": int(
-                getattr(
-                    args,
-                    "maker_paper_latest_active_runs",
-                    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
-                )
-            ),
-            "maker_paper_max_input_bytes": int(
-                getattr(
-                    args,
-                    "maker_paper_max_input_bytes",
-                    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
-                )
-            ),
             "stage_a_min_available_reserve_mb": int(
                 getattr(
                     args,
@@ -1378,7 +1356,6 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             if (
                 name in STAGE_A_ISOLATED_STEPS
                 and runner is default_runners_by_name.get(name)
-                and not (name == "maker_paper_score" and getattr(args, "paper_maker_paused", False))
             ):
                 step_runner = lambda step_args, step_name=name: _run_isolated_stage_a_step(
                     step_args,

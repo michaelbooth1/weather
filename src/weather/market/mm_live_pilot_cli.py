@@ -67,11 +67,8 @@ from weather.market.mm_official_transport import (
     fetch_market_rule_endpoints,
 )
 from weather.market.mm_user_stream import OfficialUserStreamReader
-from weather.market.market_making_preflight import (
-    INTERNATIONAL_SETTLEMENT_UNIT,
-    SIGNATURE_TYPE_IDS,
-)
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.platform_contract import INTERNATIONAL_SETTLEMENT_UNIT, SIGNATURE_TYPE_IDS
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
 from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.operations.live_path_security import (

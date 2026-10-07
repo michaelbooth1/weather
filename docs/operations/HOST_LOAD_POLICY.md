@@ -198,7 +198,7 @@ a committed timetable.
 | Window | Load class |
 | --- | --- |
 | 00:00–00:30 | **PROTECTED for ad-hoc work — tail of the near-close window.** 00:05–00:30 is the taker/MM daily roll-over spike (scheduled, brief). The lease does not open until 00:30 |
-| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it. The 91a cold-snapshot nightly runs 06:50–09:00 (latest start 07:30), after the 04:45–06:45 tiering reserve, so it never takes the quiet window ([cold snapshot compression](cold-snapshot-compression.md)) |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:00 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch. Continues through 00:30 (first row) |
@@ -218,13 +218,10 @@ eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
 Scheduler `PT8H40M` cleanup limit (09:15). This leaves 15 minutes before the
 09:30 Stage-A exception; `StartWhenAvailable` is forbidden.
 
-Stage-A settlement safeguards: the daily taker edge-permission aggregation is
-single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
-14 active-day runs and fails closed before materialization when its selected
-quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
-`--maker-paper-max-input-bytes`). These independent input limits remain
-fail-closed alongside the per-step isolation and physical-memory admission
-owned by Roadmap Item 324.
+Stage-A settlement safeguards: the retired taker edge-permission aggregation and
+maker-paper scoring steps (and their input-limit flags) were deleted with the taker
+and paper-maker runtime on 2026-09-29. The remaining heavy steps keep the per-step
+isolation and physical-memory admission owned by Roadmap Item 324.
 
 The scheduled fleet-observability tail measures current fleet, tape,
 provenance, and child-resource state in an isolated 20-minute child with a
@@ -237,17 +234,6 @@ resumable fallback before launch, so a
 timeout terminalizes before the 11:55 outer teardown instead of leaving a
 nonterminal in-process status. Run full historical audits only as separately
 admitted work in the ordinary 00:30–09:00 window.
-
-For each run, a complete validated `mm_scoring_projection_v0.2` base/variant
-pair is measured and passed to the streaming scorer; any missing, stale,
-malformed, or incompatible member makes that run use both canonical tapes.
-The receipt records projected versus canonical bytes and exact input bindings.
-The scorer revalidates admitted size/mtime bindings (and projection hashes)
-before ingestion and checks that inputs stay stable through streaming. Daily
-roll projection finalization starts only after the superseded target-matched
-writer's exit is confirmed; otherwise canonical fallback remains in force.
-Projection compaction does not change the 512 MiB input cap, the 4 GiB
-isolated-child private cap, or the 3 GiB working-set cap.
 
 Snapshot fleet capture admits at most two isolated children by default, with a
 1,792 MiB process-tree working-set and private-commit cap per child. The 3,584
@@ -484,6 +470,23 @@ Stage-A, workstation or live authority is added.
    - This changes scheduling only; the windows, the lease and serial heavy work are
      unchanged. Head composition (caps, RS batching) is in
      [the git workflow](../git-workflow.md#integration-heads-for-a-night).
+9. **Reconciler tests run where they can fail** (option L5, owner 2026-10-06). The
+   reconciler test file runs in a host bounded suite only when the landing touches
+   the merge/reconciler surface (`scripts/ops/quiet_window_merge.ps1`, the
+   reconciler modules, `workload_admission`, integration-attempt runbook code);
+   otherwise once a night on the final tip. No test is weakened and no other host
+   rule changes. Until `bounded_worktree_test_suite.ps1` implements the selection,
+   the file still runs in every suite.
+10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
+    implements it).**
+    - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
+      reservation when the volume has >= 100 GiB free (tiering skips that night),
+      never two skips in a row.
+    - Roll-free heads settle 60 s instead of 300 s after a merge; the recovery
+      proof is still required. Roll-sensitive heads are unchanged.
+    - DST night 2026-11-01: no merge and no suite 01:45-02:15 local (OD30); the
+      daily tasks are re-registered around 10-30 because their triggers carry a
+      fixed -04:00 offset (OD28, #249).
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,

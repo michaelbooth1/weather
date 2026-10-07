@@ -48,18 +48,12 @@ from weather.operations.daily_refresh_source_steps import (
     write_ingest_quality_report,
 )
 from weather.operations.daily_refresh_trading_steps import (
-    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
-    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
     run_clob_order_book_tiering_step,
     run_closed_day_parquet_incremental_step,
     run_exchange_economics_rule_drift_step,
-    run_maker_paper_score_step,
     run_observed_floor_safety_monitor_step,
     run_replay_status_backfill_step,
     run_settlement_source_audit_step,
-    run_taker_edge_permission_map_step,
-    run_taker_finalization_watchdog_step,
-    run_taker_tail_casebook_step,
     run_trading_evidence_step,
 )
 from weather.operations.daily_refresh_reporting_steps import (
@@ -106,10 +100,6 @@ DEFAULT_RUNNERS = (
     ("public_wu_settlement_restore", run_public_wu_settlement_restore_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("exchange_economics_rule_drift", run_exchange_economics_rule_drift_step),
-    ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
-    ("taker_edge_permission_map", run_taker_edge_permission_map_step),
-    ("taker_tail_casebook", run_taker_tail_casebook_step),
-    ("maker_paper_score", run_maker_paper_score_step),
     ("settlement_source_audit", run_settlement_source_audit_step),
     ("observed_floor_safety_monitor", run_observed_floor_safety_monitor_step),
     ("trading_evidence", run_trading_evidence_step),

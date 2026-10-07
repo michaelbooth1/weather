@@ -131,49 +131,6 @@ def render_report(payload):
                     f"missing {summary.get('markets_with_missing_days')}; "
                     f"sparse {summary.get('markets_with_sparse_days')}"
                 )
-        elif step.get("name") == "taker_finalization_watchdog":
-            if result.get("status") == "SKIPPED":
-                detail = result.get("reason") or "skipped"
-            else:
-                detail = (
-                    f"{result.get('status')}; runs {result.get('run_count')}; "
-                    f"finalized {result.get('finalized_run_count')}; "
-                    f"pending {result.get('pending_finalization_count')}; "
-                    f"sla {result.get('sla_breach_count')}; "
-                    f"champion {result.get('champion_decision')}"
-                )
-        elif step.get("name") == "taker_edge_permission_map":
-            if result.get("status") == "SKIPPED":
-                detail = result.get("reason") or "skipped"
-            else:
-                detail = (
-                    f"{result.get('status')}; tapes {result.get('source_tape_count')}; "
-                    f"records {result.get('record_count')}; "
-                    f"allowed {result.get('edge_allowed_count')}; "
-                    f"observe {result.get('observe_count')}; "
-                    f"deny {result.get('deny_count')}"
-                )
-        elif step.get("name") == "taker_tail_casebook":
-            if result.get("status") == "SKIPPED":
-                detail = result.get("reason") or "skipped"
-            else:
-                detail = (
-                    f"{result.get('status')}; runs {result.get('source_run_count')}; "
-                    f"tail {result.get('tail_fill_count')}; "
-                    f"losing {result.get('losing_tail_fill_count')}; "
-                    f"no_go {result.get('no_go_candidate_count')}"
-                )
-        elif step.get("name") == "maker_paper_score":
-            if result.get("status") == "SKIPPED":
-                detail = result.get("reason") or "skipped"
-            else:
-                detail = (
-                    f"{result.get('paper_score_freshness_status')}; "
-                    f"latest {result.get('latest_completed_active_day') or '-'}; "
-                    f"covered {result.get('latest_covered_active_day') or '-'}; "
-                    f"fills {result.get('conservative_fills')}; "
-                    f"gate {result.get('gate_status')}"
-                )
         elif step.get("name") == "settled_day_analysis_barrier":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -595,10 +552,6 @@ def render_report(payload):
             f"First blocker: {first.get('detail') or '-'}",
             "",
         ]
-    taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}
-    taker_edge_permission = (payload.get("summary") or {}).get("taker_edge_permission_map") or {}
-    taker_tail = (payload.get("summary") or {}).get("taker_tail_casebook") or {}
-    maker_paper = (payload.get("summary") or {}).get("maker_paper_score") or {}
     truth_audit = (payload.get("summary") or {}).get("settlement_source_audit") or {}
     trading = (payload.get("summary") or {}).get("trading_evidence") or {}
     nightly_health = (payload.get("summary") or {}).get("nightly_health_checks") or {}
@@ -618,11 +571,7 @@ def render_report(payload):
             "",
         ]
     if (
-        taker_finalization.get("status")
-        or taker_edge_permission.get("status")
-        or taker_tail.get("status")
-        or maker_paper.get("status")
-        or truth_audit.get("status")
+        truth_audit.get("status")
         or trading.get("status")
     ):
         lines += [
@@ -632,45 +581,6 @@ def render_report(payload):
             "| Artifact | Status | Detail |",
             "| :--- | :--- | :--- |",
         ]
-        if taker_finalization.get("status"):
-            lines.append(
-                "| Finalization watchdog | "
-                f"{taker_finalization.get('status')} | "
-                f"runs={taker_finalization.get('run_count')}; "
-                f"finalized={taker_finalization.get('finalized_run_count')}; "
-                f"pending={taker_finalization.get('pending_finalization_count')}; "
-                f"sla={taker_finalization.get('sla_breach_count')}; "
-                f"champion={taker_finalization.get('champion_decision')} |"
-            )
-        if taker_edge_permission.get("status"):
-            lines.append(
-                "| Taker edge-permission map | "
-                f"{taker_edge_permission.get('status')} | "
-                f"tapes={taker_edge_permission.get('source_tape_count')}; "
-                f"records={taker_edge_permission.get('record_count')}; "
-                f"allowed={taker_edge_permission.get('edge_allowed_count')}; "
-                f"observe={taker_edge_permission.get('observe_count')}; "
-                f"deny={taker_edge_permission.get('deny_count')} |"
-            )
-        if taker_tail.get("status"):
-            lines.append(
-                "| Tail casebook | "
-                f"{taker_tail.get('status')} | "
-                f"runs={taker_tail.get('source_run_count')}; "
-                f"tail={taker_tail.get('tail_fill_count')}; "
-                f"losing={taker_tail.get('losing_tail_fill_count')}; "
-                f"no_go={taker_tail.get('no_go_candidate_count')} |"
-            )
-        if maker_paper.get("status"):
-            lines.append(
-                "| Maker paper score | "
-                f"{maker_paper.get('status')} | "
-                f"freshness={maker_paper.get('paper_score_freshness_status')}; "
-                f"latest={maker_paper.get('latest_completed_active_day') or '-'}; "
-                f"covered={maker_paper.get('latest_covered_active_day') or '-'}; "
-                f"fills={maker_paper.get('conservative_fills')}; "
-                f"gate={maker_paper.get('gate_status')} |"
-            )
         if truth_audit.get("status"):
             lines.append(
                 "| Settlement source audit | "
