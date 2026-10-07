@@ -18,6 +18,7 @@ import math
 from pathlib import Path
 
 from maker_core.contracts import OutcomeView, SettlementFact, Unavailable
+from maker_core.replay.export_gate import read_permitted
 from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, RewardTerms, decide, informed_v0
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.maker_plugin.clock import WeatherInformationClock
@@ -519,6 +520,7 @@ def verdict(summary):
 
 
 def run(args, *, clock=None):
+    read_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     output, root = Path(args.output).absolute(), Path(args.data_root).absolute()
     regular_path(root, root)
     regular_path(output, output)

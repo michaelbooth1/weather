@@ -40,7 +40,8 @@ from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, cap
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.market.maker_replay_bundle import (MAX_INPUT_BYTES, OUTPUT_LIMITS, ExportReader, Projection,
-                                                _carry_metadata, _raw_support, _support_records)
+                                                _carry_metadata, _raw_support, _support_records,
+                                                gate_carried_bundles)
 from weather.market.maker_replay_release import ReleaseSources
 from weather.market.maker_plugin.exposure import WeatherExposure
 from weather.market.market_registry import BUILTIN_SPECS
@@ -210,7 +211,7 @@ def _overlap(output, other):
 
 def export(args, *, now=None, reader=None, phase=None):
     """Export one closed UTC day as bundle v0.2 into the new directory ``args.out``."""
-    export_permitted(args.date, getattr(args, "owner_decision", None), now=now)  # first: before any input
+    export_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     phase = phase or (lambda label: None)
@@ -228,6 +229,7 @@ def export(args, *, now=None, reader=None, phase=None):
     for path in getattr(args, "carry_bundle", ()) or ():
         if _overlap(output, neutral_path(path)):
             raise ValueError("output_carry_overlap")
+    gate_carried_bundles(args)
     release_root = getattr(args, "release_root", None)
     if release_root is not None:
         release_root = neutral_path(release_root)

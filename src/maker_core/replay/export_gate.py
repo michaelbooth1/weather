@@ -14,6 +14,12 @@ ledger or lock.
   ``SIGNED_REGISTRATION_SHA256`` is ``None`` (unsigned), nothing can verify, so every gated day is refused.
   Signing is a reviewed code change that sets this constant and lands the v2 authorization verifier (unit U4).
 - **No override.** There is no parameter, environment variable or flag that skips the gate.
+- **Real clock.** The authorization verifier always receives the wall clock (``_utc_now``), never a caller's ``now``,
+  so an in-process caller cannot backdate an expiry check.
+- **Reads too.** The registration forbids panel data being "exported or read" before signature; ``read_permitted`` is
+  the same gate for read-only entry points (for example the maker plugin dry run).
+- **Verifier contract (U4).** ``verify_export_decision`` must be read-only and idempotent: a night export calls the
+  gate in ``export_day`` and again in the inner ``export`` with the same decision.
 
 Days outside the window (for example the calibration dates and 2026-10-16 onward) pass this gate and meet the
 exporter's own checks next.
@@ -23,6 +29,11 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 from maker_core.replay.bundle import BundleError
+
+try:  # Imported eagerly so `module-hash` and every export closure include it once U4 lands.
+    from maker_core.replay.v2 import authorization as _authorization
+except ImportError:  # U4 not landed: a gated day can never verify.
+    _authorization = None
 
 AUTHORIZATION_ID = "maker-replay-v2-v1"
 GATE_FIRST_UTC = datetime(2026, 9, 30, tzinfo=timezone.utc)
@@ -66,7 +77,11 @@ def gated(day) -> bool:
     return GATE_FIRST_UTC <= start and start + timedelta(days=1) <= GATE_END_UTC
 
 
-def export_permitted(day, owner_decision=None, *, now=None) -> date:
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def export_permitted(day, owner_decision=None) -> date:
     """Return the UTC day if it may be exported; otherwise raise ``BundleError`` before anything is opened."""
     parsed = utc_day(day)
     if not gated(parsed):
@@ -75,13 +90,14 @@ def export_permitted(day, owner_decision=None, *, now=None) -> date:
         raise BundleError("panel_export_requires_signed_registration")
     if owner_decision is None:
         raise BundleError("panel_export_requires_owner_decision")
-    try:
-        from maker_core.replay.v2 import authorization
-        verify = authorization.verify_export_decision
-    except (ImportError, AttributeError):
-        raise BundleError("panel_export_authorization_unavailable") from None
-    now = now or datetime.now(timezone.utc)
+    verify = getattr(_authorization, "verify_export_decision", None)
+    if verify is None:
+        raise BundleError("panel_export_authorization_unavailable")
     if verify(owner_decision, authorization_id=AUTHORIZATION_ID, registration_sha256=SIGNED_REGISTRATION_SHA256,
-              day=parsed, now=now) is not True:
+              day=parsed, now=_utc_now()) is not True:
         raise BundleError("panel_export_authorization_refused")
     return parsed
+
+
+# Read-only entry points use the same gate under a name that says what they do.
+read_permitted = export_permitted

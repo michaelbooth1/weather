@@ -1,14 +1,18 @@
 """The maker replay v2 panel export gate (Swarm M unit U6); fictional inputs only, no data is ever read.
 
-Guards: owner decision 3 (Swarm M 2026-10-06) and A-defender B1 -- every export entry point refuses UTC days
-2026-09-30..2026-10-15 before opening any input until the maker-replay-v2-v1 authorization verifies; B-defender
-D12 -- the v0.2 CLI only verifies the four thread pins and records the real pools and CPU count.
+Guards: owner decision 3 (Swarm M 2026-10-06) and A-defender B1 -- every export or read entry point refuses UTC
+days 2026-09-30..2026-10-15 before opening any input until the maker-replay-v2-v1 authorization verifies; U6
+Defender M1-M4 -- carried bundles are gated by their own day, the dry run is gated, the inner export keeps the owner
+decision and the verifier sees only the real clock; B-defender D12 -- the v0.2 CLI only verifies the four thread
+pins and records the real pools and CPU count. The structural entry-point ratchet is in
+test_maker_replay_panel_entry_points.py.
 """
 from __future__ import annotations
 
 import ast
 from datetime import date, datetime, timedelta, timezone
 import inspect
+import json
 import os
 from pathlib import Path
 import sys
@@ -23,6 +27,7 @@ from weather.market import maker_replay_bundle as bundle_v01
 from weather.market import maker_replay_bundle_v02 as bundle_v02
 from weather.market import maker_replay_night as night_v01
 from weather.market import maker_replay_night_v02 as night_v02
+from weather.market import maker_plugin_runner as runner
 from weather.market.maker_plugin import replay_export
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,14 +37,7 @@ BOUNDARY = ["2026-09-29", "2026-10-16"]
 GATE_CODE = "panel_export_requires_signed_registration"
 PINNED = {name: "1" for name in threads.PINNED_VARIABLES}
 MODULES = (bundle_v01, bundle_v02, night_v01, night_v02)
-# The gated exporter functions: (file, function, the argument attribute that names the day).
-GATED_FUNCTIONS = {
-    ("src/weather/market/maker_replay_night.py", "export_day"): "day",
-    ("src/weather/market/maker_replay_night_v02.py", "export_day"): "day",
-    ("src/weather/market/maker_replay_bundle.py", "export"): "date",
-    ("src/weather/market/maker_replay_bundle_v02.py", "export"): "date",
-}
-SCANNED = ("src/weather/market", "tools/research/maker_replay_v2")
+FIXED_NOW = datetime(2026, 10, 7, 1, tzinfo=timezone.utc)
 
 
 class InputOpened(Exception):
@@ -54,6 +52,12 @@ def _args(tmp_path, day):
 
 def _cli(tmp_path, day, command, flag="--day"):
     return [command, flag, day, "--data-root", str(tmp_path / "no-input"), "--out", str(tmp_path / "out")]
+
+
+def _dry(tmp_path, day):
+    return SimpleNamespace(date=day, data_root=tmp_path / "no-input", output=tmp_path / "out", markets=["chicago"],
+                           max_seconds=60.0, max_output_bytes=1024**2, max_input_bytes=1024**2,
+                           hypothetical_hazard_per_minute=None)
 
 
 ENTRY_POINTS = {
@@ -73,11 +77,16 @@ ENTRY_POINTS = {
     "maker_replay_bundle_v02.export": lambda t, d: bundle_v02.export(_args(t, d), now=LATE),
     "maker_replay_bundle_v02.main":
         lambda t, d: bundle_v02.main([*_cli(t, d, "bundle", "--date"), "--markets", "chicago"]),
+    "maker_plugin_runner.run": lambda t, d: runner.run(_dry(t, d)),
+    "maker_plugin_runner.main (dry_run)": lambda t, d: runner.main(
+        ["--date", d, "--data-root", str(t / "no-input"), "--output", str(t / "out"), "--markets", "chicago"]),
 }
 # The module whose own gate call guards each entry point (the mutant removes exactly that one).
-OWNER = {name: (night_v01 if name.startswith(("maker_replay_night.", "maker_plugin")) else
-                night_v02 if name.startswith("maker_replay_night_v02") else
-                bundle_v01 if name.startswith("maker_replay_bundle.") else bundle_v02) for name in ENTRY_POINTS}
+OWNER = {name: ((runner, "read_permitted") if name.startswith("maker_plugin_runner") else
+                (night_v01, "export_permitted") if name.startswith(("maker_replay_night.", "maker_plugin.")) else
+                (night_v02, "export_permitted") if name.startswith("maker_replay_night_v02") else
+                (bundle_v01, "export_permitted") if name.startswith("maker_replay_bundle.") else
+                (bundle_v02, "export_permitted")) for name in ENTRY_POINTS}
 
 
 @pytest.fixture
@@ -88,15 +97,17 @@ def spies(monkeypatch):
     def reader(*args, **kwargs):
         raise InputOpened("input_opened")
 
-    def gate(day, owner_decision=None, *, now=None):
+    def gate(day, owner_decision=None):
         calls.append(day)
-        result = export_gate.export_permitted(day, owner_decision, now=now)
+        result = export_gate.export_permitted(day, owner_decision)
         calls.append(("permitted", result))
         return result
 
     for module in MODULES:
         monkeypatch.setattr(module, "ExportReader", reader)
         monkeypatch.setattr(module, "export_permitted", gate)
+    monkeypatch.setattr(runner, "Reader", reader)
+    monkeypatch.setattr(runner, "read_permitted", gate)
     return calls
 
 
@@ -131,87 +142,10 @@ def test_boundary_days_pass_the_gate_and_meet_the_next_refusal(tmp_path, capsys,
 
 @pytest.mark.parametrize("name", sorted(ENTRY_POINTS))
 def test_mutant_without_the_gate_in_one_entry_point_is_caught(tmp_path, capsys, monkeypatch, spies, name):
-    monkeypatch.setattr(OWNER[name], "export_permitted", lambda day, *a, **k: export_gate.utc_day(day))
+    module, attribute = OWNER[name]
+    monkeypatch.setattr(module, attribute, lambda day, *a, **k: export_gate.utc_day(day))
     text = refusal(ENTRY_POINTS[name], tmp_path, "2026-10-01", capsys)
     assert GATE_CODE not in text  # so the 16-day test above fails for this mutant
-
-
-def _first_statement(function):
-    body = function.body
-    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
-        body = body[1:]  # docstring
-    return body[0] if body else None
-
-
-def gate_violations(tree, path, gated=GATED_FUNCTIONS):
-    """Exporter functions in one module that are unlisted, or whose first statement is not the gate."""
-    problems = []
-    imported = any(isinstance(node, ast.ImportFrom) and node.module == "maker_core.replay.export_gate"
-                   and any(alias.name == "export_permitted" and alias.asname is None for alias in node.names)
-                   for node in tree.body)
-    rebinds = [node for node in ast.walk(tree)
-               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-               and node.name == "export_permitted"
-               or isinstance(node, ast.Name) and node.id == "export_permitted" and isinstance(node.ctx, ast.Store)]
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        reads = any(isinstance(call, ast.Call) and (
-            isinstance(call.func, ast.Name) and call.func.id == "ExportReader"
-            or isinstance(call.func, ast.Attribute) and call.func.attr == "ExportReader") for call in ast.walk(node))
-        if node.name not in ("export", "export_day") and not reads:
-            continue
-        key = (path, node.name)
-        if key not in gated:
-            problems.append(f"{path}:{node.name} exports or opens input without being a listed gated entry point")
-            continue
-        first = _first_statement(node)
-        ok = (isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
-              and isinstance(first.value.func, ast.Name) and first.value.func.id == "export_permitted"
-              and first.value.args and isinstance(first.value.args[0], ast.Attribute)
-              and first.value.args[0].attr == gated[key])
-        if not ok:
-            problems.append(f"{path}:{node.name} does not call export_permitted(args.{gated[key]}) first")
-        if not imported or rebinds:
-            problems.append(f"{path}: export_permitted must be imported from maker_core.replay.export_gate, unshadowed")
-    return problems
-
-
-def _scanned():
-    for folder in SCANNED:
-        for path in sorted((ROOT / folder).rglob("*.py")):
-            yield path.relative_to(ROOT).as_posix(), ast.parse(path.read_text(encoding="utf-8"))
-
-
-def test_ast_every_exporter_calls_the_gate_as_its_first_statement():
-    problems, seen = [], set()
-    for path, tree in _scanned():
-        problems += gate_violations(tree, path)
-        seen |= {(path, n.name) for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    assert problems == []
-    assert set(GATED_FUNCTIONS) <= seen
-
-
-@pytest.mark.parametrize("mutation", ["remove", "after_mkdir", "wrong_day", "local_shadow"])
-def test_ast_check_catches_mutated_exporters(mutation):
-    path = "src/weather/market/maker_replay_bundle_v02.py"
-    source = (ROOT / path).read_text(encoding="utf-8")
-    line = '    export_permitted(args.date, getattr(args, "owner_decision", None), now=now)  # first: before any input\n'
-    assert source.count(line) == 1
-    if mutation == "remove":
-        source = source.replace(line, "")
-    elif mutation == "after_mkdir":
-        source = source.replace(line, "").replace("    partial.mkdir()\n", "    partial.mkdir()\n" + line)
-    elif mutation == "wrong_day":
-        source = source.replace(line, line.replace("args.date", "args.out"))
-    else:
-        source += "\n\ndef export_permitted(*args, **kwargs):\n    return None\n"
-    assert gate_violations(ast.parse(source), path)
-
-
-def test_ast_check_catches_a_new_unlisted_exporter():
-    source = "from weather.market.maker_replay_bundle import ExportReader\n\ndef s3(args):\n    ExportReader(args.data_root, 1, 1)\n"
-    assert gate_violations(ast.parse(source), "tools/research/maker_replay_v2/s3.py")
 
 
 def test_gated_window_is_exactly_sixteen_utc_days():
@@ -234,7 +168,8 @@ def test_ambiguous_days_are_refused_not_truncated(day, code):
 
 
 def test_no_override_parameter_environment_variable_or_flag(monkeypatch):
-    assert list(inspect.signature(export_gate.export_permitted).parameters) == ["day", "owner_decision", "now"]
+    assert list(inspect.signature(export_gate.export_permitted).parameters) == ["day", "owner_decision"]
+    assert export_gate.read_permitted is export_gate.export_permitted
     source = (ROOT / "src/maker_core/replay/export_gate.py").read_text(encoding="utf-8")
     assert "os.environ" not in source and "getenv" not in source and "argv" not in source
     assert export_gate.SIGNED_REGISTRATION_SHA256 is None
@@ -242,17 +177,19 @@ def test_no_override_parameter_environment_variable_or_flag(monkeypatch):
         for name in ("WEATHER_PANEL_EXPORT", "PANEL_GATE_OVERRIDE", "FORCE"):
             monkeypatch.setenv(name, value)
     with pytest.raises(BundleError, match=GATE_CODE):
-        export_gate.export_permitted("2026-10-03", ROOT / "decision.json", now=LATE)
-    for module in MODULES:
+        export_gate.export_permitted("2026-10-03", ROOT / "decision.json")
+    for module in (*MODULES, runner):
         assert not any(word in (inspect.getsource(module)) for word in ("--force", "--skip-gate", "--no-gate"))
 
 
 def _signed(monkeypatch, verifier):
+    """A test-only signature inside this process: the constant, a fake U4 module and a fixed real clock."""
     monkeypatch.setattr(export_gate, "SIGNED_REGISTRATION_SHA256", "a" * 64)
     module = ModuleType("maker_core.replay.v2.authorization")
     if verifier is not None:
         module.verify_export_decision = verifier
-    monkeypatch.setitem(sys.modules, "maker_core.replay.v2.authorization", module)
+    monkeypatch.setattr(export_gate, "_authorization", module)
+    monkeypatch.setattr(export_gate, "_utc_now", lambda: FIXED_NOW)
 
 
 def test_signed_registration_still_needs_a_verified_owner_decision(monkeypatch):
@@ -264,17 +201,17 @@ def test_signed_registration_still_needs_a_verified_owner_decision(monkeypatch):
 
     _signed(monkeypatch, verifier)
     with pytest.raises(BundleError, match="panel_export_requires_owner_decision"):
-        export_gate.export_permitted("2026-10-03", now=LATE)
-    assert export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE) == date(2026, 10, 3)
+        export_gate.export_permitted("2026-10-03")
+    assert export_gate.export_permitted("2026-10-03", Path("decision.json")) == date(2026, 10, 3)
     assert seen == [(Path("decision.json"), dict(authorization_id="maker-replay-v2-v1", registration_sha256="a" * 64,
-                                                 day=date(2026, 10, 3), now=LATE))]
+                                                 day=date(2026, 10, 3), now=FIXED_NOW))]
 
 
 @pytest.mark.parametrize("result", [False, None, "yes", 1])
 def test_a_verifier_that_does_not_return_true_refuses(monkeypatch, result):
     _signed(monkeypatch, lambda path, **kwargs: result)
     with pytest.raises(BundleError, match="panel_export_authorization_refused"):
-        export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE)
+        export_gate.export_permitted("2026-10-03", Path("decision.json"))
 
 
 def test_a_verifier_error_propagates_as_a_refusal(monkeypatch):
@@ -283,16 +220,16 @@ def test_a_verifier_error_propagates_as_a_refusal(monkeypatch):
 
     _signed(monkeypatch, verifier)
     with pytest.raises(BundleError, match="authorization_expired"):
-        export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE)
+        export_gate.export_permitted("2026-10-03", Path("decision.json"))
 
 
 def test_missing_v2_verifier_refuses(monkeypatch):
     _signed(monkeypatch, None)
     with pytest.raises(BundleError, match="panel_export_authorization_unavailable"):
-        export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE)
-    monkeypatch.setitem(sys.modules, "maker_core.replay.v2.authorization", None)  # import fails
+        export_gate.export_permitted("2026-10-03", Path("decision.json"))
+    monkeypatch.setattr(export_gate, "_authorization", None)  # U4 not landed
     with pytest.raises(BundleError, match="panel_export_authorization_unavailable"):
-        export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE)
+        export_gate.export_permitted("2026-10-03", Path("decision.json"))
 
 
 # ------------------------------------------------------------------------------------------- thread pins
@@ -382,3 +319,90 @@ def test_exporter_closure_has_no_blas_reductions():
             assert not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.MatMult)), path
             assert not (isinstance(node, ast.Attribute) and node.attr in ("dot", "matmul", "einsum")
                         and isinstance(node.value, ast.Name) and node.value.id in ("np", "numpy")), path
+
+
+def test_the_verifier_sees_the_real_clock_never_a_callers_now(monkeypatch):
+    """U6 Defender M4: exporters still accept ``now`` for closed-day checks, but it never reaches authorization."""
+    seen = []
+    _signed(monkeypatch, lambda path, **kwargs: seen.append(kwargs["now"]) or True)
+    assert "now" not in inspect.signature(export_gate.export_permitted).parameters
+    with pytest.raises(TypeError):
+        export_gate.export_permitted("2026-10-03", Path("decision.json"), now=LATE)
+    export_gate.export_permitted("2026-10-03", Path("decision.json"))
+    assert seen == [FIXED_NOW]
+    source = (ROOT / "src/maker_core/replay/export_gate.py").read_text(encoding="utf-8")
+    assert "now=_utc_now()" in source
+
+
+def test_authorization_module_is_imported_eagerly_for_the_module_hash():
+    """U6 Defender M3: the gate imports v2.authorization at import time, so module-hash covers it once U4 lands."""
+    tree = ast.parse((ROOT / "src/maker_core/replay/export_gate.py").read_text(encoding="utf-8"))
+    eager = [node for node in tree.body if isinstance(node, ast.Try)
+             and any(isinstance(s, ast.ImportFrom) and s.module == "maker_core.replay.v2"
+                     and [a.name for a in s.names] == ["authorization"] for s in node.body)]
+    assert eager
+    assert not any(isinstance(node, (ast.Import, ast.ImportFrom)) for fn in ast.walk(tree)
+                   if isinstance(fn, ast.FunctionDef) for node in ast.walk(fn))
+
+
+def _bundle_manifest(folder, day):
+    folder.mkdir(parents=True)
+    (folder / "bundle.json").write_text('{"day": "%s", "conditions": []}' % day, encoding="ascii")
+    return folder
+
+
+@pytest.mark.parametrize("exporter", [bundle_v01, bundle_v02])
+def test_a_carried_gated_bundle_is_refused_before_any_input(tmp_path, capsys, spies, exporter):
+    """U6 Defender M1: --carry-bundle of a 10-15 bundle into a 10-16 export is refused by the carried day."""
+    carried = _bundle_manifest(tmp_path / "carry" / "2026-10-15" / "bundle", "2026-10-15")
+    args = _args(tmp_path, "2026-10-16")
+    args.carry_bundle = [carried]
+    with pytest.raises(BundleError, match=GATE_CODE):
+        exporter.export(args, now=LATE)
+    assert not args.out.exists() and not args.out.with_name("out.partial").exists()
+    assert "2026-10-15" in spies and ("permitted", date(2026, 10, 15)) not in spies
+    args.carry_bundle = [_bundle_manifest(tmp_path / "carry" / "2026-09-29" / "bundle", "2026-09-29")]
+    with pytest.raises(InputOpened):  # the ungated carried day passes; the next step opens input
+        exporter.export(args, now=LATE)
+
+
+def test_a_carried_bundle_needs_a_bounded_manifest(tmp_path, spies):
+    args = _args(tmp_path, "2026-10-16")
+    (tmp_path / "carry").mkdir()
+    args.carry_bundle = [tmp_path / "carry"]
+    with pytest.raises(BundleError, match="carry_bundle_manifest_required"):
+        bundle_v01.export(args, now=LATE)
+
+
+@pytest.mark.parametrize("module", [night_v01, night_v02])
+def test_signed_night_export_end_to_end_keeps_the_decision_and_a_refusal_never_poisons_the_ledger(
+        tmp_path, monkeypatch, module):
+    """U6 Defender M3, through a whole night export of the fictional fixture day, made 'gated' for this test only."""
+    from tests.market.test_maker_replay_night import LATER, setup
+
+    args, _ = setup(tmp_path)
+    fixture_day = date.fromisoformat(args.day)
+    monkeypatch.setattr(export_gate, "GATE_FIRST_UTC", datetime.combine(fixture_day, datetime.min.time(), timezone.utc))
+    monkeypatch.setattr(export_gate, "GATE_END_UTC",
+                        datetime.combine(fixture_day + timedelta(days=1), datetime.min.time(), timezone.utc))
+    ledger = args.out / module.KINDS["panel"]["ledger"]
+    # Unsigned: refused before anything is created, so the day stays exportable.
+    with pytest.raises(BundleError, match=GATE_CODE):
+        module.export_day(args, "panel", now=LATER)
+    assert not args.out.exists()
+    # Signed in this process only, with a decision: verified by the outer and the inner gate, then sealed.
+    calls = []
+    _signed(monkeypatch, lambda path, **kwargs: calls.append((path, kwargs)) or True)
+    with pytest.raises(BundleError, match="panel_export_requires_owner_decision"):
+        module.export_day(args, "panel", now=LATER)
+    assert not args.out.exists()
+    args.owner_decision = tmp_path / "decision.json"
+    closure = module.module_sha256(module.module_closure()) if hasattr(module, "module_sha256") else None
+    receipt = module.export_day(args, "panel", now=LATER)
+    assert receipt["status"] == "SEALED" and receipt["day"] == args.day
+    expected = (args.owner_decision, dict(authorization_id="maker-replay-v2-v1", registration_sha256="a" * 64,
+                                          day=fixture_day, now=FIXED_NOW))
+    assert calls == [expected, expected]
+    assert [json.loads(line)["status"] for line in ledger.read_bytes().splitlines()] == ["SEALED"]
+    if closure is not None:
+        assert receipt["module_sha256"] == closure  # nothing new loads on the gated path

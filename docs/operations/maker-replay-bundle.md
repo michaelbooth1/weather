@@ -289,21 +289,33 @@ restart coverage is never claimed complete.
 
 Owner decision 3 (Swarm M, 2026-10-06) puts the `maker-replay-v2-v1` draft's rule into code: no panel or
 settlement-only date's 88a data may be exported before the registration is signed.
-`maker_core.replay.export_gate.export_permitted(day, owner_decision=None, *, now=None)` is the single gate.
+`maker_core.replay.export_gate.export_permitted(day, owner_decision=None)` is the single gate; `read_permitted` is the
+same function for read-only entry points (the registration says "exported or read").
 
 - **Gated days.** Every UTC day 2026-09-30 through 2026-10-15 inclusive (quote dates 09-30..10-13 plus the
   settlement-only 10-14 and 10-15). A day is a UTC calendar date: it is gated when
   `[day 00:00Z, day+1 00:00Z)` lies inside `[GATE_FIRST_UTC, GATE_END_UTC)` = `[2026-09-30T00:00Z, 2026-10-16T00:00Z)`.
   2026-09-29 and 2026-10-16 are not gated; they meet the exporter's own checks next.
 - **Where it runs.** It is the first statement of `maker_replay_night.export_day`, `maker_replay_night_v02.export_day`,
-  `maker_replay_bundle.export` and `maker_replay_bundle_v02.export`, before any reader, output folder, lock or ledger.
-  That covers every CLI (`replay_export`, `maker_replay_night{,_v02}`, `maker_replay_bundle{,_v02} bundle`) and the
-  research runner `tools/research/maker_replay_v2`. An AST test requires every function under `src/weather/market/`
-  and `tools/research/maker_replay_v2/` that is named `export`/`export_day` or constructs `ExportReader` to be a listed
-  gated function that calls the gate first.
+  `maker_replay_bundle.export`, `maker_replay_bundle_v02.export` and (as `read_permitted`) `maker_plugin_runner.run`,
+  before any reader, output folder, lock or ledger. That covers every CLI (`replay_export`,
+  `maker_replay_night{,_v02}`, `maker_replay_bundle{,_v02} bundle`, `maker_plugin.dry_run`) and the research runner
+  `tools/research/maker_replay_v2`.
+- **Carried bundles.** Each `--carry-bundle` is gated by its own day, read from its bounded `bundle.json`
+  (`carry_bundle_manifest_required` otherwise), before any input is opened: a 10-16 export cannot carry 10-15 rows.
+- **Night exports** forward `--owner-decision` to the inner `export`, which gates again with the same decision; a
+  refusal by the gate comes before the ledger, so it never burns the day.
+- **Structural ratchet.** `tests/market/test_maker_replay_panel_entry_points.py` parses every module under `src/` and
+  `tools/`. Any function that reaches a capture reader (`Reader`, `Segment`, `sealed_segments`, `ExportReader`,
+  `CaptureIndex`, or a subclass, through any import alias) without passing a gated function must have callers that
+  are checked in turn; module-level code, a `main` or a callerless function that reaches one ungated fails. A gated
+  function has no decorators and calls the gate, imported from `export_gate`, on its first parameter as its first
+  statement.
 - **Authorization.** While `export_gate.SIGNED_REGISTRATION_SHA256` is `None`, a gated day can never pass. After
   signature, a gated day also needs `--owner-decision PATH`, verified by
-  `maker_core.replay.v2.authorization.verify_export_decision` (unit U4), which must return exactly `True`.
+  `maker_core.replay.v2.authorization.verify_export_decision` (unit U4, imported eagerly so `module-hash` covers it),
+  which must return exactly `True` and be read-only and idempotent (a night export verifies twice). The verifier
+  always gets the wall clock, never a caller's `now`.
 - **No override.** There is no parameter, environment variable or flag that skips it.
 
 | Refusal code (`BundleError`) | Meaning |
@@ -314,6 +326,7 @@ settlement-only date's 88a data may be exported before the registration is signe
 | `panel_export_authorization_refused` | The verifier did not return `True`. |
 | `export_gate_day_required` | The day is not a `date` or a string (a `datetime` is refused, never truncated). |
 | `export_gate_noncanonical_day` | The day is not exactly `YYYY-MM-DD` (e.g. `20260930`). |
+| `carry_bundle_manifest_required` | A `--carry-bundle` has no bounded, parseable `bundle.json`. |
 
 A CLI prints these as `<command> refused: BundleError: <code>` and exits 2, with nothing written.
 

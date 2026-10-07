@@ -189,7 +189,7 @@ def _finalize(folder, cap, kind):
 
 
 def export_day(args, kind, *, now=None, clock=time.monotonic):
-    export_permitted(args.day, getattr(args, "owner_decision", None), now=now)  # first: before any input
+    export_permitted(args.day, getattr(args, "owner_decision", None))  # first: before any input
     started = clock()
     now = now or datetime.now(timezone.utc)
     day = date.fromisoformat(args.day)
@@ -246,6 +246,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic):
             summary = export(SimpleNamespace(date=args.day, markets=cities, data_root=root, out=pending,
                              max_seconds=args.max_seconds, max_input_bytes=args.max_input_bytes,
                              max_output_bytes=args.max_output_bytes, max_records=HOST_MAX_RECORDS, carry_bundle=[],
+                             owner_decision=getattr(args, "owner_decision", None),
                              release_root=release_root, kinds=KINDS[kind]["kinds"]),
                              now=now, reader=reader)
             receipt["bundle"] = _finalize(pending, args.max_output_bytes, kind)

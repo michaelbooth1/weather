@@ -278,6 +278,26 @@ def _support_records(projection, cid, support, hashes):
                 projection.add(cid, "plugin_input", max(at, projection.start), payload, hashes)
 
 
+MAX_CARRY_MANIFEST_BYTES = 8 * 1024**2
+
+
+def gate_carried_bundles(args):
+    """Each ``--carry-bundle`` passes the panel gate for its own day (read from its bounded ``bundle.json``)."""
+    paths = getattr(args, "carry_bundle", ()) or ()
+    if len(paths) > 8:
+        raise ValueError("carry_bundle_cap")
+    for path in paths:
+        manifest = neutral_path(Path(path)) / "bundle.json"
+        neutral_path(manifest)
+        if not manifest.is_file() or manifest.stat().st_size > MAX_CARRY_MANIFEST_BYTES:
+            raise BundleError("carry_bundle_manifest_required")
+        try:
+            day = json.loads(manifest.read_bytes()).get("day")
+        except (ValueError, AttributeError):
+            raise BundleError("carry_bundle_manifest_required") from None
+        export_permitted(day, getattr(args, "owner_decision", None))
+
+
 def _carry_metadata(args, projection, reader):
     """Carry only prior descriptors/band metadata, so closed bands can settle without fresh books."""
     paths = getattr(args, "carry_bundle", ()) or ()
@@ -325,7 +345,7 @@ def _carry_metadata(args, projection, reader):
 
 
 def export(args, *, now=None, reader=None):
-    export_permitted(args.date, getattr(args, "owner_decision", None), now=now)  # first: before any input
+    export_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     if day >= now.date():
@@ -343,6 +363,7 @@ def export(args, *, now=None, reader=None):
         source = neutral_path(path)
         if output == source or output.is_relative_to(source) or source.is_relative_to(output):
             raise ValueError("output_carry_overlap")
+    gate_carried_bundles(args)
     reader = reader or ExportReader(root, args.max_seconds, args.max_input_bytes)
     release_root = getattr(args, "release_root", None)
     if release_root is not None:

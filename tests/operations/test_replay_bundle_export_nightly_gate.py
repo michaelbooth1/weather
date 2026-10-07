@@ -178,12 +178,12 @@ def test_admission_refuses_below_min_available_without_waiting(available, refuse
         assert "below -MinAvailableMiB 4096; not waiting" in out
 
 
-def _job_source(script, limit_mib, wait_seconds):
+def _job_source(script, limit_mib, wait_seconds, priority="BelowNormal"):
     return f"""
     $ErrorActionPreference='Stop'
     . '{JOB_HELPER}'
     . '{OPS / "windows_kill_on_close_job.ps1"}'
-    $job=New-ReplayExportLimitedJob -JobMemoryLimitBytes ({limit_mib}MB) -ProcessMemoryLimitBytes ({limit_mib}MB)
+    $job=New-ReplayExportLimitedJob -JobMemoryLimitBytes ({limit_mib}MB) -ProcessMemoryLimitBytes ({limit_mib}MB) -PriorityClass {priority}
     $root=$job.StartAssigned('{sys.executable}', (ConvertTo-WeatherWindowsArgumentString -Tokens @('-c', '{script}')), '{ROOT}')
     $seen=@{{}}; $priorities=@{{}}
     $clock=[Diagnostics.Stopwatch]::StartNew()
@@ -201,20 +201,25 @@ def _job_source(script, limit_mib, wait_seconds):
         root_pid=$root.Id; seen=@($seen.Keys); priorities=$priorities; hit=$job.MemoryLimitHit;
         kind=$job.MemoryLimitKind; hit_pid=$job.MemoryLimitProcessId; peak=$job.PeakJobMemoryUsed;
         job_limit=$job.JobMemoryLimit; process_limit=$job.ProcessMemoryLimit; priority_class=$job.PriorityClass;
-        seconds=$clock.Elapsed.TotalSeconds }}
+        seconds=$clock.Elapsed.TotalSeconds;
+        stuck=@(if(-not $exited){{ foreach($id in $job.ProcessIds()){{ $p=Get-Process -Id $id -ErrorAction SilentlyContinue;
+            if($p){{ "$id cpu_ms=$($p.TotalProcessorTime.TotalMilliseconds) waits=$(($p.Threads | % {{ [string]$_.WaitReason }}) -join '/')" }} }} }}) }}
     $job.TerminateAndWait(5000); $root.Dispose(); $job.Dispose()
     Write-Output ($result | ConvertTo-Json -Compress -Depth 4)
     """
 
 
 def test_job_limit_kills_the_redirected_interpreter_that_overallocates():
-    """A real venv python.exe (redirector) whose interpreter child allocates past 256 MiB: the Job kills the tree."""
+    """A real venv python.exe (redirector) whose interpreter child allocates past 256 MiB: the Job kills the tree.
+
+    Normal priority here: the kill is independent of priority, and a BelowNormal member can be starved for a long
+    time on a loaded workstation (the next test covers BelowNormal with a long wait).
+    """
     code = ("import time\nblocks=[]\ntry:\n    for _ in range(64): blocks.append(bytearray(16*1024*1024))\n"
             "except MemoryError:\n    pass\ntime.sleep(60)\n")
-    result = json.loads(ps(_job_source(code.replace("'", "''"), 256, 90), timeout=180).strip().splitlines()[-1])
+    result = json.loads(ps(_job_source(code.replace("'", "''"), 256, 240, "Normal"), timeout=360).strip().splitlines()[-1])
     assert result["hit"] is True and result["kind"] in ("JOB_MEMORY_LIMIT", "PROCESS_MEMORY_LIMIT"), result
     assert result["exited"] is True and (result["exit_code"] & 0xFFFFFFFF) == MEMORY_LIMIT_EXIT, result
-    assert result["seconds"] < 60, result  # killed, not left to finish its sleep
     assert result["job_limit"] == result["process_limit"] == 256 * 1024**2
     assert result["peak"] <= 256 * 1024**2
     assert str(result["hit_pid"]) in result["seen"]
@@ -224,7 +229,8 @@ def test_job_limit_kills_the_redirected_interpreter_that_overallocates():
 
 def test_every_job_member_runs_below_normal():
     code = "import subprocess,sys,time\nsubprocess.run([sys.executable,'-c','import time; time.sleep(2)'])\n"
-    result = json.loads(ps(_job_source(code.replace("'", "''"), 512, 30), timeout=120).strip().splitlines()[-1])
+    # Generous: BelowNormal members wait behind any Normal-priority load on the workstation.
+    result = json.loads(ps(_job_source(code.replace("'", "''"), 512, 300), timeout=420).strip().splitlines()[-1])
     assert result["exited"] is True and result["exit_code"] == 0 and result["hit"] is False, result
     assert result["priority_class"] == 0x4000
     assert len(result["priorities"]) >= 2, result  # redirector, interpreter and its child

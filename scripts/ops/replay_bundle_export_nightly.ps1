@@ -140,7 +140,7 @@ function Assert-ReplayExportSource {
     if ($hash -cne $ExpectedSelfSha256) { throw 'nightly wrapper hash mismatch' }
 }
 
-if (-not $Day) { $Day = [DateTime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd') }
+if (-not $Day) { $Day = [DateTime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) }
 $parsedDay = [DateTime]::ParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
     [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 if (Test-ReplayExportPanelGated -UtcDay $parsedDay) {

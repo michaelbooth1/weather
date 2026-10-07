@@ -80,7 +80,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None, enviro
     In-process callers that pass no ``environ`` are not refused for threads; the receipt still records the
     process environment, the CPU count and the actual pools, with ``pinned`` saying whether the pins held.
     """
-    export_permitted(args.day, getattr(args, "owner_decision", None), now=now)  # first: before any input
+    export_permitted(args.day, getattr(args, "owner_decision", None))  # first: before any input
     threads = check_thread_pins(environ) if environ is not None else thread_record(os.environ)
     started = clock()
     now = now or datetime.now(timezone.utc)
@@ -135,6 +135,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None, enviro
             summary = export(SimpleNamespace(date=args.day, markets=cities, data_root=root, out=pending,
                              max_seconds=args.max_seconds, max_input_bytes=args.max_input_bytes,
                              max_output_bytes=args.max_output_bytes, max_records=HOST_MAX_RECORDS, carry_bundle=[],
+                             owner_decision=getattr(args, "owner_decision", None),
                              release_root=release_root, kinds=KINDS[kind]["kinds"]),
                              now=now, reader=reader, phase=phase)
             receipt["bundle"] = _finalize(pending, args.max_output_bytes, kind, summary)

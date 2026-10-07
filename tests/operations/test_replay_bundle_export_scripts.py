@@ -79,7 +79,8 @@ def test_lease_release_follows_proved_job_teardown(teardown_fails):
 def test_pinned_registrar_with_mock_scheduler(tmp_path, mode):
     (tmp_path / "data").mkdir()
     (tmp_path / "releases").mkdir()
-    ops = tmp_path / "scripts" / "ops"
+    deploy = tmp_path / "deploy"  # the exact-tip tree; production must be a disjoint tree
+    ops = deploy / "scripts" / "ops"
     ops.mkdir(parents=True)
     runner = ops / "replay_bundle_export_nightly.ps1"
     runner.write_bytes((OPS / runner.name).read_bytes())
@@ -134,13 +135,13 @@ function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -
     if($failed -ne EXPECT_FAILURE){Write-Output ($script:task|ConvertTo-Json -Depth 8);throw 'unexpected result'}
     if($script:registered -ne EXPECT_COUNT){throw 'unexpected Scheduler mutation'}
     """
-    invoke = (f"& '{registrar}' -RepoRoot '{tmp_path}' -DataRoot '{tmp_path / 'data'}' "
+    invoke = (f"& '{registrar}' -RepoRoot '{deploy}' -DataRoot '{tmp_path / 'data'}' "
               f"-ReleaseRoot '{tmp_path / 'releases'}' -OutputRoot '{tmp_path / 'panel'}' "
               f"-ExpectedModuleSha256 '{'g'*64 if mode == 'bad_module_pin' else 'c'*64}' "
               f"-ExpectedRunnerSha256 '{'0'*64 if mode == 'wrong_hash' else expected}' "
               f"-ProductionRoot '{production}' -MinAvailableMiB 7168 "
               + ("-WhatIf" if mode == "whatif" else ""))
-    source = source.replace("DEPLOY", str(tmp_path)).replace("PRODUCTION", str(production))
+    source = source.replace("DEPLOY", str(deploy)).replace("PRODUCTION", str(production))
     source = source.replace("$script:", "$global:")
     source = source.replace("INVOKE", invoke).replace("EXPECT_FAILURE", "$true" if mode in
                            {"wrong_hash", "bad_module_pin", "bad_readback"} else "$false")
@@ -154,3 +155,21 @@ def test_runner_pins_modules_not_a_git_tip_and_has_no_interval_flag():
     assert "'--expected-module-sha256', $ExpectedModuleSha256" in text and "'--max-seconds'" in text
     for retired in ("ExpectedSourceTip", "rev-parse", "--exclude-utc", "ExcludeUtc"):
         assert retired not in text
+
+
+def test_registrar_refuses_nested_deploy_and_production_trees(tmp_path):
+    deploy = tmp_path / "deploy"
+    ops = deploy / "scripts" / "ops"
+    ops.mkdir(parents=True)
+    registrar = ops / "register_replay_bundle_export_nightly.ps1"
+    registrar.write_bytes((OPS / registrar.name).read_bytes())
+    for name in ("data", "releases"):
+        (tmp_path / name).mkdir()
+    for production in (deploy, deploy / "inner", tmp_path):
+        production.mkdir(exist_ok=True)
+        source = (f"$ErrorActionPreference='Stop'; try {{ & '{registrar}' -RepoRoot '{deploy}' "
+                  f"-DataRoot '{tmp_path / 'data'}' -ReleaseRoot '{tmp_path / 'releases'}' "
+                  f"-OutputRoot '{tmp_path / 'panel'}' -ExpectedModuleSha256 '{'c' * 64}' -ExpectedRunnerSha256 "
+                  f"'{'0' * 64}' -ProductionRoot '{production}' -MinAvailableMiB 7168 -WhatIf; throw 'accepted' }} "
+                  "catch { if($_.Exception.Message -notlike '*must be disjoint trees*'){ throw } }")
+        ps(source)
