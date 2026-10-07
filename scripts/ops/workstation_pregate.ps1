@@ -306,6 +306,10 @@ $gitExe = $null
 
 try {
     # ------------------------------------------------------------ lease
+    # Prove this is the assigned non-capture workstation in every mode. The
+    # capture host's own heavy lease uses the same mutex name, so a held mutex
+    # (nested mode below) is no proof of which host this is.
+    Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
     if ($env:WEATHER_WORKSTATION_WRAPPER_ACTIVE -ceq "1") {
         # Nested inside workstation_heavy.ps1, which already holds the
         # host-global workstation lease. Prove somebody really holds it.
@@ -561,7 +565,20 @@ finally {
         $exitCode = 1
     }
     $receipt.finished_at = (Get-Date).ToString("o")
-    Write-WorkstationPregateReceipt -Receipt $receipt -Path $ReceiptPath
-    Write-Output ("workstation pre-gate {0} head={1} receipt={2}" -f $receipt.verdict, $Head, $ReceiptPath)
+    # The receipt verdict is authoritative. The exit is issued inside this
+    # finally because a PS 5.1 -File script stopped by Ctrl+C would otherwise
+    # exit 0 after a FAIL receipt; Write-Output during a stop would also abort
+    # the rest of this block, so the summary line goes straight to the console.
+    $receiptWritten = $false
+    try {
+        Write-WorkstationPregateReceipt -Receipt $receipt -Path $ReceiptPath
+        $receiptWritten = $true
+        [Console]::Out.WriteLine(
+            ("workstation pre-gate {0} head={1} receipt={2}" -f $receipt.verdict, $Head, $ReceiptPath)
+        )
+    }
+    finally {
+        if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
+        exit $exitCode
+    }
 }
-exit $exitCode

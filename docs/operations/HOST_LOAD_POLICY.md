@@ -142,8 +142,10 @@ below applies: no exemption, no queue state, the same windows and the same bound
   first. Kill-on-close Job and child-tree teardown are unchanged.
 - *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
   bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
-  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). When it is nested inside `workstation_heavy.ps1` it
-  reuses that wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
+  lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
+  wrapper's lease, but only after proving that another process holds the host-global mutex. It
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).

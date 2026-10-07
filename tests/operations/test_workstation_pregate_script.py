@@ -10,7 +10,11 @@ every head bound for a host landing night in exactly the host suite's mode:
   suite's ``Start-WeatherProcessInJob`` launch gives it, and a launch that
   shares the launcher's console is detected;
 * a head with a failing test yields FAIL; the receipt's log SHA-256 matches the
-  log; the detached worktree and per-chunk basetemps are removed.
+  log; the detached worktree and per-chunk basetemps are removed;
+* nested ("inherited" lease) mode still proves this is the assigned non-capture
+  workstation, because the capture host's heavy lease uses the same mutex name;
+* an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
+* a content-only change to any replaced host statement is refused (pinned hashes).
 
 The end-to-end tests run the real pre-gate and the real host suite against a
 small fixture repository whose ``venv`` reuses this interpreter's packages, in
@@ -28,6 +32,7 @@ import shutil
 import site
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -168,6 +173,41 @@ class _HeldWorkstationMutex:
         self.kernel32.CloseHandle(self.handle)
 
 
+ASSIGNMENT_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+. $env:PG_ADMISSION
+$hostId = Get-WeatherExecutionHostId
+$principal = Get-WeatherExecutionPrincipalId
+$record = switch ($env:PG_IDENTITY) {
+    'workstation' { [ordered]@{
+        active_portable_execution_host_id = $hostId; active_portable_execution_principal_id = $principal
+        assignment_status = 'ASSIGNED'; dedicated_capture_execution_host_id = ('f' * 64) } }
+    'capture' { [ordered]@{
+        active_portable_execution_host_id = $null; active_portable_execution_principal_id = $null
+        assignment_status = 'UNASSIGNED'; dedicated_capture_execution_host_id = $hostId } }
+    'unassigned' { [ordered]@{
+        active_portable_execution_host_id = ('e' * 64); active_portable_execution_principal_id = $principal
+        assignment_status = 'ASSIGNED'; dedicated_capture_execution_host_id = ('f' * 64) } }
+}
+$record.reassignment_requires_new_production_tip = $true
+$record.schema_version = 'international_live_execution_host_assignment_v0.1'
+[IO.File]::WriteAllText($env:PG_ASSIGNMENT, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+"""
+
+
+def _write_assignment(repo: Path, identity: str) -> None:
+    """Write an execution-host assignment that names this machine as ``identity``."""
+    (repo / "config").mkdir(parents=True, exist_ok=True)
+    env = {
+        **os.environ,
+        "PG_ADMISSION": str(OPS / "workload_admission.ps1"),
+        "PG_ASSIGNMENT": str(repo / "config" / "international_live_execution_host.json"),
+        "PG_IDENTITY": identity,
+    }
+    result = _run([*POWERSHELL, "-Command", ASSIGNMENT_SCRIPT], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+
+
 def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
     repo = root / "repo"
     (repo / "scripts" / "ops").mkdir(parents=True)
@@ -182,7 +222,8 @@ def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
     (repo / "tests" / "test_fixture_console.py").write_text(
         f"OUT_PATH = {str(probe_out)!r}\n" + FIXTURE_CONSOLE_TEST, encoding="utf-8"
     )
-    (repo / ".gitignore").write_text("venv/\ndata/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text("venv/\ndata/\nconfig/\n", encoding="utf-8")
+    _write_assignment(repo, "workstation")
     # As in the real repository: LF everywhere, so an autocrlf checkout stays clean.
     (repo / ".gitattributes").write_text("* text=auto eol=lf\n", encoding="utf-8")
     venv = _run([sys.executable, "-m", "venv", "--without-pip", str(repo / "venv")], timeout=300)
@@ -201,7 +242,18 @@ def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "bad")
     bad = _git(repo, "rev-parse", "HEAD")
-    return {"repo": str(repo), "good": good, "bad": bad}
+    started = root / "slow-started.txt"
+    (repo / "tests" / "test_fixture_slow.py").write_text(
+        "import time\nfrom pathlib import Path\n\n"
+        "def test_slow():\n"
+        f"    Path({str(started)!r}).write_text('started', encoding='utf-8')\n"
+        "    time.sleep(240)\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "slow")
+    slow = _git(repo, "rev-parse", "HEAD")
+    return {"repo": str(repo), "good": good, "bad": bad, "slow": slow, "slow_started": str(started)}
 
 
 @pytest.fixture(scope="module")
@@ -454,4 +506,219 @@ def test_driver_refuses_a_drifted_host_suite(tmp_path):
     ], cwd=tmp_path, timeout=60)
     assert result.returncode != 0
     assert "pre-gate rule 'window' matched 0" in result.stderr
+    assert not (tmp_path / "suite.log").exists()
+
+
+# ------------------------------------------------------------------ host proof in nested mode
+@pytest.mark.parametrize(
+    ("identity", "reason"),
+    [
+        ("capture", "workstation-offline admission is forbidden on the dedicated capture host"),
+        ("unassigned", "not the assigned non-capture workstation"),
+    ],
+)
+def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstation(tmp_path, identity, reason):
+    # The capture host's heavy lease uses the same mutex name, so a held mutex
+    # plus WEATHER_WORKSTATION_WRAPPER_ACTIVE=1 must not stand in for the host proof.
+    repo = tmp_path / "repo"
+    (repo / "scripts" / "ops").mkdir(parents=True)
+    for name in COPIED_SCRIPTS:
+        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    (repo / "venv" / "Scripts").mkdir(parents=True)
+    (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    _write_assignment(repo, identity)
+    receipt_path = tmp_path / "receipt.json"
+    env = os.environ.copy()
+    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
+    with _HeldWorkstationMutex():
+        result = _run([
+            *POWERSHELL, "-File", str(repo / "scripts" / "ops" / "workstation_pregate.ps1"),
+            "-Head", "a" * 40, "-RepoRoot", str(repo), "-OutputDirectory", str(tmp_path / "out"),
+            "-ReceiptPath", str(receipt_path), "-WorktreeParent", str(tmp_path / "wt"),
+        ], cwd=tmp_path, env=env, timeout=180)
+    assert receipt_path.is_file(), result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert result.returncode == 1
+    assert receipt["verdict"] == "FAIL"
+    assert any(reason in item for item in receipt["failure_reasons"]), receipt["failure_reasons"]
+    assert receipt["lease_mode"] is None
+    assert receipt["git_executable"] is None
+    assert receipt["worktree_removed"] is None
+    assert not (tmp_path / "wt").exists()
+
+
+# ------------------------------------------------------------------ interrupted exit code
+CTRL_C_SENDER = r"""
+import ctypes, sys
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.FreeConsole()
+if not k.AttachConsole(int(sys.argv[1])):
+    sys.exit(f"AttachConsole failed {ctypes.get_last_error()}")
+k.SetConsoleCtrlHandler(None, True)
+if not k.GenerateConsoleCtrlEvent(0, 0):
+    sys.exit(f"GenerateConsoleCtrlEvent failed {ctypes.get_last_error()}")
+"""
+
+# The "ignore Ctrl+C" console flag is inherited, and a queued test runner may
+# carry it. Clear it before starting the pre-gate, then ignore Ctrl+C here only.
+CTRL_C_LAUNCHER = r"""
+import ctypes, json, subprocess, sys
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.SetConsoleCtrlHandler(None, False)
+child = subprocess.Popen(json.loads(sys.argv[1]))
+k.SetConsoleCtrlHandler(None, True)
+sys.exit(child.wait())
+"""
+
+
+def _hidden_console() -> subprocess.STARTUPINFO:
+    startup = subprocess.STARTUPINFO()
+    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startup.wShowWindow = 0  # SW_HIDE
+    return startup
+
+
+def _ctrl_c_reaches_a_new_console(tmp_path: Path) -> bool:
+    """Some runners (e.g. a kill-on-close Job queue) never deliver console Ctrl+C."""
+    started = tmp_path / "ctrlc-probe-started"
+    script = tmp_path / "ctrlc_probe.ps1"
+    script.write_text(
+        f"Set-Content -LiteralPath '{started}' -Value x\n"
+        "try { while ($true) { Start-Sleep -Milliseconds 200 } } finally { exit 7 }\n",
+        encoding="utf-8",
+    )
+    command = [*POWERSHELL, "-File", str(script)]
+    process = subprocess.Popen(
+        [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
+        creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
+            time.sleep(0.2)
+        _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+        return process.wait(timeout=20) == 7
+    except subprocess.TimeoutExpired:
+        return False
+    finally:
+        if process.poll() is None:
+            _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
+            process.wait(timeout=60)
+
+
+def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_repo, tmp_path):
+    # test_pregate_exit_is_issued_from_the_final_finally guards the same contract
+    # statically wherever console Ctrl+C cannot be delivered.
+    if not _ctrl_c_reaches_a_new_console(tmp_path):
+        pytest.skip("console Ctrl+C is not delivered in this runner")
+    root = Path(fixture_repo["root"])
+    receipt_path = root / "receipt-interrupt.json"
+    started = Path(fixture_repo["slow_started"])
+    env = os.environ.copy()
+    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
+    command = [
+        *POWERSHELL, "-File", str(Path(fixture_repo["repo"]) / "scripts" / "ops" / "workstation_pregate.ps1"),
+        "-Head", fixture_repo["slow"], "-RepoRoot", fixture_repo["repo"],
+        "-OutputDirectory", str(root / "out-interrupt"), "-ReceiptPath", str(receipt_path),
+        "-WorktreeParent", str(root / "wt"),
+    ]
+    with _HeldWorkstationMutex():
+        # A private console so the Ctrl+C reaches only the pre-gate process.
+        process = subprocess.Popen(
+            [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
+            cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+        )
+        try:
+            deadline = time.monotonic() + 300
+            while not started.is_file():
+                assert process.poll() is None, "pre-gate finished before the slow chunk started"
+                assert time.monotonic() < deadline, "slow chunk never started"
+                time.sleep(0.5)
+            sender = _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+            assert sender.returncode == 0, sender.stderr
+            returncode = process.wait(timeout=180)
+        finally:
+            if process.poll() is None:
+                _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
+                process.wait(timeout=60)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert "host suite driver did not complete" in receipt["failure_reasons"]
+    assert returncode == 1
+    assert receipt["worktree_removed"] is True
+    assert not Path(receipt["worktree"]).exists()
+
+
+EXIT_SHAPE = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:PG_PREGATE, [ref]$tokens, [ref]$errors)
+$last = $ast.EndBlock.Statements[-1]
+$finally = if ($last -is [Management.Automation.Language.TryStatementAst]) { $last.Finally } else { $null }
+$inner = if ($finally) { $finally.Statements[-1] } else { $null }
+$exit = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements[-1].Extent.Text } else { $null }
+$writes = if ($finally) { @($finally.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Write-Output', 'Write-Host') }, $true)).Count } else { -1 }
+ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; writes = $writes }
+"""
+
+
+def test_pregate_exit_is_issued_from_the_final_finally():
+    # A stopped (Ctrl+C) PS 5.1 -File script skips statements after its finally
+    # and exits 0, and Write-Output during a stop aborts the finally.
+    result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+
+
+# ------------------------------------------------------------------ content pins
+def _run_driver_on(tmp_path: Path, suite_text: str) -> subprocess.CompletedProcess:
+    ops = tmp_path / "scripts" / "ops"
+    ops.mkdir(parents=True)
+    shutil.copyfile(DRIVER, ops / DRIVER.name)
+    (ops / HOST_SUITE.name).write_text(suite_text, encoding="utf-8")
+    return _run([
+        *POWERSHELL, "-File", str(ops / DRIVER.name),
+        "-RepoRoot", str(tmp_path / "absent"), "-WorktreeRoot", str(tmp_path / "absent"),
+        "-ExpectedTip", "0" * 40, "-LogPath", str(tmp_path / "suite.log"),
+        "-GitExecutablePath", "C:\\x\\git.exe",
+        "-ExpectedGitExecutableSha256", "0" * 64, "-ExpectedGitExecutableFileVersion", "1",
+    ], cwd=tmp_path, timeout=120)
+
+
+def test_driver_accepts_the_unmodified_host_suite_pins(tmp_path):
+    result = _run_driver_on(tmp_path, HOST_SUITE.read_text(encoding="utf-8-sig"))
+    assert result.returncode != 0  # it fails later, at the absent worktree
+    assert "drifted" not in result.stderr, result.stderr
+
+
+CONTENT_MUTANTS = {
+    # A new host check hidden inside the skipped window statement.
+    "window": (
+        'throw "bounded suite must start inside the 00:30-09:00 heavy-work window"\n}',
+        'throw "bounded suite must start inside the 00:30-09:00 heavy-work window"\n}\n'
+        'elseif ($env:COMPUTERNAME -ceq "X") { throw "host check" }',
+    ),
+    # Defender mutant S3: the host chunk cap changes inside the skipped lease check.
+    "lease_check": (
+        'if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }',
+        'if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }'
+        " else { $MaxFilesPerChunk = 1 }",
+    ),
+    "hard_stop": ("$hardStop = $localNow.Date.AddHours(9)", "$hardStop = $localNow.Date.AddHours(8)"),
+    "lease": (
+        '$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"',
+        '$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_suite"',
+    ),
+    "Assert-HostAdmission": ("    if ($workers -ne 3) {", "    if ($workers -ne 4) {"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(CONTENT_MUTANTS))
+def test_driver_refuses_a_content_only_change_to_a_replaced_host_statement(tmp_path, rule):
+    text = HOST_SUITE.read_text(encoding="utf-8-sig")
+    needle, replacement = CONTENT_MUTANTS[rule]
+    assert text.count(needle) == 1
+    result = _run_driver_on(tmp_path, text.replace(needle, replacement))
+    assert result.returncode != 0
+    assert f"replaced statement '{rule}' content changed" in result.stderr, result.stderr
     assert not (tmp_path / "suite.log").exists()

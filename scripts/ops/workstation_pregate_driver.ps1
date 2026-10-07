@@ -14,6 +14,8 @@
 #                                                       the workstation queue lease)
 #   - Assert-HostAdmission (capture workers, host    -> logging stub
 #     commit ceiling)
+# Each replaced statement (and the Assert-HostAdmission body) is also pinned by
+# a SHA-256 of its text, so a content-only host edit inside one fails closed.
 # Every replacement is written into the suite log, which the receipt hashes.
 # $PSScriptRoot/$PSCommandPath in replayed statements are rebound to the host
 # suite's directory and path (Invoke-Expression has no script file); the driver
@@ -142,6 +144,54 @@ if (@($pregateHostAst.EndBlock.Traps).Count -ne 1) {
 }
 if (-not (Test-WorkstationPregateStatement -Statement $pregateStatements[-1] -Rule "main")) {
     throw "host bounded suite drifted: the main try statement is no longer last"
+}
+
+# The rules above pin WHICH statements are replaced; these pins fix WHAT they
+# contain, so a host edit inside a replaced region (a new host check, a changed
+# chunk cap) cannot pass silently. SHA-256 of the statement text with CRLF
+# normalised to LF. A mismatch is a review prompt: read the host change, decide
+# whether the replacement still holds, then update the pin.
+$pregateContentPins = [ordered]@{
+    "window" = "b31fa770365442189209a8d72c129fe5f526369c85015137d937645189e52a10"
+    "hard_stop" = "3bec13e905618f7534c82e46ca5ca53083903b3a5c2bb40df178e7dde4d89063"
+    "lease" = "6da71e74b2ffcbff42b7cd2068aa97e9e04e887a4fa09638cfbb3b22c8d443b7"
+    "lease_check" = "ba9ebf8c7cc87f21602b0e55028929a9342ee38678645d1aa0136748eb92aa55"
+    "Assert-HostAdmission" = "36a3583bc670163c70828e7ddea0de0a3f2b5bec61f1954a2c6ece026df05a00"
+}
+function Get-WorkstationPregateTextSha256 {
+    param([Parameter(Mandatory = $true)][string]$Text)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($Text.Replace("`r`n", "`n"))
+        return -join ($hasher.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally { $hasher.Dispose() }
+}
+$pregateAdmission = @($pregateHostAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq "Assert-HostAdmission"
+}, $true))
+if ($pregateAdmission.Count -ne 1) {
+    throw "host bounded suite drifted: expected exactly one Assert-HostAdmission definition"
+}
+foreach ($pregateRule in $pregateContentPins.Keys) {
+    $pregateText = if ($pregateRule -ceq "Assert-HostAdmission") {
+        $pregateAdmission[0].Extent.Text
+    }
+    else {
+        @($pregateStatements | Where-Object {
+            Test-WorkstationPregateStatement -Statement $_ -Rule $pregateRule
+        })[0].Extent.Text
+    }
+    $pregateObserved = Get-WorkstationPregateTextSha256 -Text $pregateText
+    if ($pregateObserved -cne $pregateContentPins[$pregateRule]) {
+        throw (
+            "host bounded suite drifted: replaced statement '$pregateRule' content changed " +
+            "(sha256 $pregateObserved, pinned $($pregateContentPins[$pregateRule])); review the " +
+            "host change and update the pin in workstation_pregate_driver.ps1"
+        )
+    }
 }
 
 $script:pregateSkipNotes = @(

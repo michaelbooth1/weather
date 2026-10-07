@@ -137,11 +137,33 @@ host. The run:
   environment scrubbing, per-chunk `C:\pt` basetemp and JUnit handling are the host's code.
 - **Only host-only checks are replaced, and the log records each one.** These are the 00:30-09:00 window,
   the 09:00 hard stop, the capture-host lease, and `Assert-HostAdmission` (capture workers and the host
-  commit ceiling). If any of them no longer matches exactly once, the driver refuses.
-- **Admission and cleanup.** It takes the workstation FIFO queue lease (`workstation_offline_v1`). It runs
-  in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
+  commit ceiling). If any of them no longer matches exactly once, the driver refuses. Each replaced
+  statement, and the `Assert-HostAdmission` body, is also pinned by a SHA-256 of its text (CRLF normalised
+  to LF) in `workstation_pregate_driver.ps1`. A content-only host edit inside one of them (for example a
+  changed chunk cap or a new host check) is refused until someone reviews it and updates the pin.
+- **Admission and cleanup.** In every mode it first proves that this is the assigned non-capture
+  workstation (`Assert-WeatherWorkstationOfflineHost`); the capture host's heavy lease uses the same mutex
+  name, so a held mutex is no proof of which host this is. It then takes the workstation FIFO queue lease
+  (`workstation_offline_v1`), or, nested inside `workstation_heavy.ps1`, reuses that wrapper's lease. It
+  runs in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
 - **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
   receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.
+  **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
+  follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
+  issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
+  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
+
+Known gaps (Defender review of 2026-10-07, not fixed):
+
+- **Teardown order (N4).** The pre-gate terminates the driver Job before
+  `Set-WeatherHeavyWorkloadLeaseTeardownPending`, the reverse of `workstation_heavy.ps1`. If
+  `TerminateAndWait` throws, the lease is released normally rather than poisoned, so a child tree may
+  briefly outlive the lease. The verdict is still FAIL.
+- **Smaller gaps (N5).** `basetemp_removed=false` does not fail the verdict; the queue `finish` event is not
+  written; only nested mode is tested end to end, and the standalone queue path (`Enter-…Queued`,
+  TeardownPending, Exit) has no test.
+- Nested mode proves only that *some* process holds the mutex, not that the holder is an ancestor.
 
 **Console mode.** Each chunk owns a fresh, windowless console. Neither host hop shares its parent's console,
 so this comes from the creation flags, not from the S4U session. No Scheduled Task is needed or registered.
