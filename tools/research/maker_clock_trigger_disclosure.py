@@ -28,9 +28,10 @@ Fields per cell:
   to min(first OLD pull, clock failure, end of d). It is an UPPER bound because band close is not
   known here. ``--conditions {slug: open band count}`` turns it into ``added_pulled_condition_minutes``.
 - ``clock_unavailable``: the runner discards the whole clock of an event-minute when ``observe``
-  raises. A row whose detection or ``observed_at`` time cannot be parsed (for example SWOB's local
-  ``"HH:MM"``) raises at every minute of d, including minutes before that row was detected, so the
-  cell is ``"all_day"`` and counts no added pull. A row that fails later in ``observe`` makes the
+  raises. A row whose detection time cannot be parsed raises at every minute of d, including
+  minutes before that row was detected, so the cell is ``"all_day"`` and counts no added pull. An
+  unparseable or DST-ambiguous ``observed_at`` no longer raises: the clock skips that row only
+  (``clock.observed_time``), so it adds no pull and makes nothing unavailable. A row that fails later in ``observe`` makes the
   clock unavailable from its detection time; added pull stops there.
 
 The OLD clock is the fixed clock restricted to ``wu_history_high_increased``/``wu_history`` rows: the
@@ -160,12 +161,10 @@ def _new_high_times(row, *, old):
 
 def _fails_every_minute(row):
     """True when ``observe`` raises for this row whatever ``as_of`` is: the records copy, or the
-    detection/observed parse that precedes every other filter."""
+    detection parse that precedes every other filter. (A bad observed_at skips the row instead.)"""
     try:
         records([row])
         timestamp(row["current_captured_at_utc"])
-        if row.get("observed_at"):
-            timestamp(row["observed_at"])
     except CLOCK_ERRORS:
         return True
     return False

@@ -1,6 +1,8 @@
 """Replayable station clocks and conservative observation-trigger vetoes."""
-from datetime import timedelta
+from collections import Counter
+from datetime import date, datetime, time, timedelta, timezone
 import math
+import re
 
 from maker_core.contracts import InfoEvent, utc_time
 from weather.market.maker_plugin.inputs import event_identity, records, timestamp
@@ -32,12 +34,48 @@ SUPPORTING_TRIGGERS = frozenset({
     ("eccc_swob_latest_temp_above_wu_floor", "eccc_swob"),
 })
 
+# Per-row refusals of a trigger's observed_at. The row is skipped and counted in
+# ``WeatherInformationClock.last_skipped``; it never makes the clock unavailable.
+OBSERVED_AT_UNPARSEABLE = "observed_at_unparseable"
+OBSERVED_AT_LOCAL_DST_AMBIGUOUS = "observed_at_local_dst_ambiguous"
+_LOCAL_HHMM = re.compile(r"([01][0-9]|2[0-3]):([0-5][0-9])")
+
+
+def observed_time(row, tz):
+    """Return ``(UTC instant or None, refusal code or None)`` for a trigger row's observed_at.
+
+    Producers write ISO-8601 with a UTC offset (SWOB: the station's local time with its offset),
+    which is unambiguous across DST. A bare local ``"HH:MM"`` (the eccc_swob_history CSV shape; no
+    trigger producer writes it today) is read as wall time on the row's ``target_date`` in the
+    market's zone. In the repeated fall-back hour or the skipped spring-forward hour it has no single
+    instant, so the row is refused rather than guessed. Anything else unparseable, including a naive
+    ISO string, is refused too.
+    """
+    value = row.get("observed_at")
+    if not value:
+        return None, None
+    match = _LOCAL_HHMM.fullmatch(value) if isinstance(value, str) else None
+    if match:
+        try:
+            day = date.fromisoformat(row["target_date"])
+        except (KeyError, TypeError, ValueError):
+            return None, OBSERVED_AT_UNPARSEABLE
+        first = datetime.combine(day, time(int(match[1]), int(match[2])), tz)
+        if first.utcoffset() != first.replace(fold=1).utcoffset():
+            return None, OBSERVED_AT_LOCAL_DST_AMBIGUOUS
+        return first.astimezone(timezone.utc), None
+    try:
+        return timestamp(value), None
+    except (ValueError, TypeError, OverflowError):
+        return None, OBSERVED_AT_UNPARSEABLE
+
 
 class WeatherInformationClock:
     def __init__(self, universe, *, triggers=(), bulletins=()):
         self.universe = universe
         self.triggers = records(triggers)
         self.bulletins = records(bulletins)
+        self.last_skipped = Counter()  # Rows refused by the latest observe call, by refusal code.
 
     def upcoming(self, markets, from_utc, to_utc):
         utc_time(from_utc)
@@ -65,6 +103,7 @@ class WeatherInformationClock:
     def observe(self, markets, as_of_utc):
         utc_time(as_of_utc)
         events = []
+        self.last_skipped = Counter()
         for market in markets:
             spec, target = event_identity(market.event_id)
             for raw in self.bulletins:
@@ -83,8 +122,14 @@ class WeatherInformationClock:
                 if row.get("event_slug") != market.event_id:
                     continue
                 detected = timestamp(row["current_captured_at_utc"])
-                observed = timestamp(row["observed_at"]) if row.get("observed_at") else None
-                if detected > as_of_utc or (observed and observed > detected):
+                if detected > as_of_utc:
+                    continue  # Point in time: a later row is neither used nor counted.
+                # One bad observed_at skips that row only; it never fails the whole clock.
+                observed, refused = observed_time(row, spec.tz)
+                if refused:
+                    self.last_skipped[refused] += 1
+                    continue
+                if observed and observed > detected:
                     continue
                 if detected.astimezone(spec.tz).date() != target or (
                         observed and observed.astimezone(spec.tz).date() != target):

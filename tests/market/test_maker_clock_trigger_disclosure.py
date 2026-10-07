@@ -138,10 +138,10 @@ def test_no_old_pull_carries_to_end_of_day_and_from_previous_day(tmp_path):
     assert cell["new_only_detection_minutes"] == 1
 
 
-def test_real_swob_time_makes_the_event_day_unavailable_all_day(tmp_path):
+def test_bare_hhmm_swob_row_no_longer_makes_the_event_day_unavailable(tmp_path):
+    """Before the SWOB time-parse fix, a bare local "HH:MM" observed_at made the Toronto clock raise at
+    every minute of the day ("all_day"). It is now read on the target date in the market zone."""
     rows = [
-        # Toronto METAR pull BEFORE the SWOB row: the real runner still loses it, since the SWOB
-        # observed_at parse runs ahead of the as_of filter at every minute of the bundle day.
         row("metar_temp_bucket_crossed", "metar", slug=TOR, market="toronto", unit="C",
             previous=20.4, current=21.6, at=AT - timedelta(hours=2)),
         row("eccc_swob_latest_temp_bucket_crossed", "eccc_swob", slug=TOR, market="toronto", unit="C",
@@ -154,11 +154,21 @@ def test_real_swob_time_makes_the_event_day_unavailable_all_day(tmp_path):
     result = json.loads(out.read_text())
     cells = {c["market_id"]: c for c in result["cells"]}
     tor = cells["toronto"]
-    assert tor["clock_unavailable"] == "all_day"
-    assert (tor["new_only_detection_minutes"], tor["added_pulled_event_minutes"]) == (0, 0.)
+    assert tor["clock_unavailable"] is None
+    assert tor["new_only_detection_minutes"] == 2
+    assert tor["added_pulled_event_minutes"] == 479.5  # 16:00:30 UTC (the METAR pull) to end of day.
     assert cells["nyc"]["clock_unavailable"] is None and cells["nyc"]["new_only_detection_minutes"] == 1
     day = result["by_day"][DAY]
-    assert (day["events"], day["events_clock_unavailable_all_day"], day["events_with_added_pull"]) == (2, 1, 1)
+    assert (day["events"], day["events_clock_unavailable_all_day"], day["events_with_added_pull"]) == (2, 0, 2)
+
+
+def test_unparseable_observed_at_adds_no_pull_and_no_unavailability(tmp_path):
+    rows = [row("eccc_swob_latest_temp_bucket_crossed", "eccc_swob", slug=TOR, market="toronto", unit="C",
+                previous=20.4, current=21.6, observed="not a time")]
+    out = tmp_path / "r.json"
+    assert tool.main(["--date", DAY, "--triggers", str(live(tmp_path, rows)), "--out", str(out)]) == 0
+    [tor] = json.loads(out.read_text())["cells"]
+    assert tor["clock_unavailable"] is None and tor["new_only_detection_minutes"] == 0
 
 
 def test_reserved_undateable_and_overlong_lines_leave_no_trace(tmp_path, monkeypatch):

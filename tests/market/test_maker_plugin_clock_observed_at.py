@@ -7,10 +7,13 @@ observation time into ``observed_at``. For ECCC SWOB that is
 (``2030-07-03T14:00:00-04:00``), never a bare ``"HH:MM"``. The offset makes the
 DST fall-back hour unambiguous, so the clock never has to guess it.
 
-A value the clock cannot parse to an aware instant (a bare ``"HH:MM"`` from a
-legacy or hand-written row, a naive ISO string, garbage) is refused: that ROW is
-skipped and counted under ``observed_at_unparseable``; it is never interpreted,
-and it never makes the clock unavailable for the rest of the event-day.
+A bare local ``"HH:MM"`` (the ``weather.sources.eccc_swob_history`` CSV shape; no
+trigger producer writes it today) is read as wall time on the row's target date in the
+market's zone. In the repeated fall-back hour, or the skipped spring-forward hour, it has
+no single instant: that row is refused (``observed_at_local_dst_ambiguous``), never
+guessed. Anything else unparseable (a naive ISO string, garbage) is refused as
+``observed_at_unparseable``. A refused row is skipped and counted; it never makes the
+clock unavailable for the rest of the event-day.
 
 Fictional fixtures only (dates in 2030).
 """
@@ -28,6 +31,7 @@ from tests.market.test_maker_plugin_clock_triggers import kinds, trigger
 from tests.market.test_maker_plugin_dry_run import NOW as RUN_NOW, jsonl, layout, report
 
 UNPARSEABLE = "observed_at_unparseable"
+AMBIGUOUS = "observed_at_local_dst_ambiguous"
 
 
 class SwobParser(SourceFetchMixin, ModelUtilsMixin):
@@ -110,19 +114,43 @@ def test_dst_fall_back_repeated_hour_is_disambiguated_by_the_producer_offset():
     assert not skipped(clock)
 
 
-def test_bare_local_hhmm_is_refused_not_interpreted_even_in_the_repeated_hour():
-    """No producer writes a bare "HH:MM"; the clock refuses it rather than guess a date or offset."""
-    now = datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc)
-    universe, rows, spec, target, markets = toronto(now)
+def swob_hhmm_row(rows, spec, target, observed, captured):
     row = trigger(rows, spec, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob",
                   previous=19.6, current=20.6)
-    row.update(observed_at="01:30", current_captured_at_utc=(now - timedelta(minutes=5)).isoformat())
-    clock = WeatherInformationClock(universe, triggers=[row])
-    assert clock.observe(markets, now) == ()
-    assert clock.last_skipped == {UNPARSEABLE: 1}
+    row.update(observed_at=observed, current_captured_at_utc=captured.isoformat())
+    return row
 
 
-@pytest.mark.parametrize("bad", ["14:00", "2030-01-10T14:59:00", "not a time", 1894287540])
+def test_bare_local_hhmm_is_read_on_the_target_date_in_the_market_zone():
+    now = datetime(2030, 7, 3, 18, 10, tzinfo=timezone.utc)
+    universe, rows, spec, target, markets = toronto(now)
+    clock = WeatherInformationClock(universe, triggers=[swob_hhmm_row(rows, spec, target, "14:00", now)])
+    events = clock.observe(markets, now)
+    assert kinds(events) == ["new_high"] * 3
+    assert {e.observed_at_utc for e in events} == {datetime(2030, 7, 3, 18, tzinfo=timezone.utc)}  # EDT
+    assert not clock.last_skipped
+
+
+@pytest.mark.parametrize("now,wall,expected", [
+    (datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc), "01:30", None),        # repeated hour: refused
+    (datetime(2030, 11, 3, 6, 45, tzinfo=timezone.utc), "00:59", datetime(2030, 11, 3, 4, 59, tzinfo=timezone.utc)),
+    (datetime(2030, 11, 3, 7, 45, tzinfo=timezone.utc), "02:00", datetime(2030, 11, 3, 7, 0, tzinfo=timezone.utc)),
+    (datetime(2030, 3, 10, 8, 45, tzinfo=timezone.utc), "02:30", None),        # skipped hour: refused
+    (datetime(2030, 3, 10, 8, 45, tzinfo=timezone.utc), "03:00", datetime(2030, 3, 10, 7, 0, tzinfo=timezone.utc)),
+])
+def test_bare_local_hhmm_in_a_dst_transition_hour_is_refused_not_guessed(now, wall, expected):
+    universe, rows, spec, target, markets = toronto(now)
+    clock = WeatherInformationClock(universe, triggers=[swob_hhmm_row(rows, spec, target, wall, now)])
+    events = clock.observe(markets, now)
+    if expected is None:
+        assert events == ()
+        assert clock.last_skipped == {AMBIGUOUS: 1}
+    else:
+        assert {e.observed_at_utc for e in events} == {expected}
+        assert not clock.last_skipped
+
+
+@pytest.mark.parametrize("bad", ["24:00", "9:59", "2030-01-10T14:59:00", "not a time", 1894287540])
 def test_unparseable_observed_at_skips_only_that_row_and_counts_it(bad):
     from tests.market.test_maker_plugin import NOW
     universe, rows, spec, target, _, _ = fixture(lead=0)
@@ -147,7 +175,7 @@ def test_runner_counts_the_skip_and_keeps_the_clock_available(tmp_path):
     args, _, _ = layout(tmp_path, lead=0)
     _, rows, spec, target, _, _ = fixture(lead=0, now=RUN_NOW)
     row = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
-    row.update(observed_at="10:14", current_captured_at_utc=(RUN_NOW - timedelta(minutes=5)).isoformat(),
+    row.update(observed_at="2030-01-10T15:14:00", current_captured_at_utc=(RUN_NOW - timedelta(minutes=5)).isoformat(),
                previous_captured_at_utc=(RUN_NOW - timedelta(minutes=6)).isoformat())
     jsonl(args.data_root / "snapshots" / "observation_triggers.jsonl", [row])
     summary = run(args)
@@ -156,6 +184,8 @@ def test_runner_counts_the_skip_and_keeps_the_clock_available(tmp_path):
     outcomes = [o for r in report(args)["records"] for o in r["outcomes"] if "clock_events" in o]
     assert outcomes
     assert summary["coverage"]["clock.trigger_rows_skipped." + UNPARSEABLE] == len(outcomes)
+    # Coverage restored: before the fix every one of these band-minutes was "clock:" unavailable.
+    assert len(outcomes) == sum(len(r["outcomes"]) for r in report(args)["records"]) == 3
 
 
 def test_mutant_restoring_the_unguarded_parse_fails():
@@ -167,16 +197,16 @@ def test_mutant_restoring_the_unguarded_parse_fails():
     from tests.market.test_maker_plugin import NOW
 
     source = Path(fixed.__file__).read_text(encoding="utf-8")
-    anchor = "observed = observed_time(row)"
+    anchor = "observed, refused = observed_time(row, spec.tz)"
     assert source.count(anchor) == 1
-    mutated = source.replace(anchor, 'observed = timestamp(row["observed_at"]) if row.get("observed_at") else None')
+    mutated = source.replace(anchor, 'observed, refused = (timestamp(row["observed_at"]) if row.get("observed_at") else None), None')
     spec = importlib.util.spec_from_loader("clock_observed_mutant", loader=None)
     mutant = importlib.util.module_from_spec(spec)
     exec(compile(mutated, "clock_observed_mutant", "exec"), mutant.__dict__)
     universe, rows, spec_, target, _, _ = fixture(lead=0)
     markets = universe.discover(NOW, 2).markets
     broken = trigger(rows, spec_, target, reason="eccc_swob_latest_temp_bucket_crossed", source="eccc_swob")
-    broken["observed_at"] = "14:00"
+    broken["observed_at"] = "not a time"
     good = trigger(rows, spec_, target, reason="metar_temp_bucket_crossed", source="metar")
     with pytest.raises(ValueError):  # The old behaviour: one row kills the whole clock.
         mutant.WeatherInformationClock(universe, triggers=[broken, good]).observe(markets, NOW)
@@ -186,3 +216,17 @@ def test_mutant_restoring_the_unguarded_parse_fails():
     assert (mutant.WeatherInformationClock(universe, triggers=[good]).observe(markets, NOW)
             == fixed.WeatherInformationClock(universe, triggers=[good]).observe(markets, NOW))
     assert "clock_observed_mutant" not in sys.modules
+
+
+def test_naive_metar_report_time_skips_that_row_only():
+    """N5: if AWC ever served a naive reportTime, it would reach observed_at unchanged. It must not
+    take the clock down for the market; the row is refused, not read as UTC or local."""
+    from tests.market.test_maker_plugin import NOW
+    universe, rows, spec, target, _, _ = fixture(lead=0)
+    markets = universe.discover(NOW, 2).markets
+    naive = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+    naive["observed_at"] = (NOW - timedelta(minutes=2)).replace(tzinfo=None).isoformat()
+    wu = trigger(rows, spec, target)
+    clock = WeatherInformationClock(universe, triggers=[naive, wu])
+    assert kinds(clock.observe(markets, NOW)) == ["decided"] * 3 + ["new_high"] * 3
+    assert clock.last_skipped == {UNPARSEABLE: 1}

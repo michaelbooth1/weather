@@ -342,6 +342,8 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                 raise ValueError("corrupt_clock_input")
             events = clock.upcoming((descriptor,), now - timedelta(minutes=10), now + timedelta(minutes=3))
             events += clock.observe((descriptor,), now)
+            for code, count in sorted(clock.last_skipped.items()):
+                reader.coverage["clock.trigger_rows_skipped." + code] += count
             entry["clock_events"] = plain(events)
             entry["joins"]["clock"] = True
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
