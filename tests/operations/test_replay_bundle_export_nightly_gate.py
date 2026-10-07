@@ -191,14 +191,17 @@ def _job_source(script, limit_mib, wait_seconds, priority="BelowNormal"):
         foreach($id in $job.ProcessIds()){{
             $seen[[string]$id]=$true
             $p=Get-Process -Id $id -ErrorAction SilentlyContinue
-            if($p){{ try {{ $priorities[[string]$id]=[string]$p.PriorityClass }} catch {{ }} }}
+            # An empty PriorityClass means the member exited between the listing and the read: not a sample.
+            if($p){{ try {{ $c=[string]$p.PriorityClass; if($c){{ $priorities[[string]$id]=$c }} }} catch {{ }} }}
         }}
         Start-Sleep -Milliseconds 50; $root.Refresh()
     }}
     $exited=$root.HasExited
     if($exited){{ $root.WaitForExit() }}
+    Start-Sleep -Milliseconds 300  # let the completion port deliver the last NEW_PROCESS/limit messages
+    $members=@($job.MemberProcessIds() | % {{ [string]$_ }})
     $result=[ordered]@{{ exited=$exited; exit_code=$(if($exited){{[int64]$root.ExitCode}}else{{$null}});
-        root_pid=$root.Id; seen=@($seen.Keys); priorities=$priorities; hit=$job.MemoryLimitHit;
+        root_pid=$root.Id; seen=@($seen.Keys); members=$members; priorities=$priorities; hit=$job.MemoryLimitHit;
         kind=$job.MemoryLimitKind; hit_pid=$job.MemoryLimitProcessId; peak=$job.PeakJobMemoryUsed;
         job_limit=$job.JobMemoryLimit; process_limit=$job.ProcessMemoryLimit; priority_class=$job.PriorityClass;
         seconds=$clock.Elapsed.TotalSeconds;
@@ -222,8 +225,10 @@ def test_job_limit_kills_the_redirected_interpreter_that_overallocates():
     assert result["exited"] is True and (result["exit_code"] & 0xFFFFFFFF) == MEMORY_LIMIT_EXIT, result
     assert result["job_limit"] == result["process_limit"] == 256 * 1024**2
     assert result["peak"] <= 256 * 1024**2
-    assert str(result["hit_pid"]) in result["seen"]
-    if len(result["seen"]) > 1:  # the venv redirector started the real interpreter: the grandchild is named
+    # Exact membership from JOB_OBJECT_MSG_NEW_PROCESS: a short-lived member can fall between polling samples.
+    assert str(result["root_pid"]) in result["members"], result
+    assert str(result["hit_pid"]) in result["members"], result
+    if len(result["members"]) > 1:  # the venv redirector started the real interpreter: the grandchild is named
         assert result["hit_pid"] != result["root_pid"], result
 
 

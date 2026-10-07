@@ -33,6 +33,7 @@ namespace Weather.Operations
         private const Int32 JobObjectBasicProcessIdList = 3;
         private const Int32 JobObjectAssociateCompletionPortInformation = 7;
         private const Int32 JobObjectExtendedLimitInformation = 9;
+        private const UInt32 JOB_OBJECT_MSG_NEW_PROCESS = 6;
         private const UInt32 JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT = 9;
         private const UInt32 JOB_OBJECT_MSG_JOB_MEMORY_LIMIT = 10;
         private const UInt32 CREATE_SUSPENDED = 0x00000004;
@@ -44,6 +45,7 @@ namespace Weather.Operations
         private volatile bool memoryLimitHit;
         private volatile UInt32 memoryLimitProcessId;
         private volatile UInt32 memoryLimitMessage;
+        private readonly System.Collections.Generic.List<UInt32> members = new System.Collections.Generic.List<UInt32>();
 
         [StructLayout(LayoutKind.Sequential)]
         private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
@@ -272,6 +274,10 @@ namespace Weather.Operations
                     if (overlapped == IntPtr.Zero && port != IntPtr.Zero) { continue; }  // timeout
                     return;  // port closed
                 }
+                if (message == JOB_OBJECT_MSG_NEW_PROCESS)
+                {
+                    lock (members) { members.Add((UInt32)overlapped.ToInt64()); }
+                }
                 if (message == JOB_OBJECT_MSG_JOB_MEMORY_LIMIT || message == JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT)
                 {
                     memoryLimitProcessId = (UInt32)overlapped.ToInt64();
@@ -285,6 +291,8 @@ namespace Weather.Operations
 
         public bool MemoryLimitHit { get { return memoryLimitHit; } }
         public UInt32 MemoryLimitProcessId { get { return memoryLimitProcessId; } }
+        // Every process ever assigned to the Job (JOB_OBJECT_MSG_NEW_PROCESS), including members that already exited.
+        public UInt32[] MemberProcessIds() { lock (members) { return members.ToArray(); } }
         public string MemoryLimitKind
         {
             get
