@@ -1,0 +1,82 @@
+{
+  "schema": "h1_cut_plan_v1",
+  "rev": "r1-dryrun",
+  "spec_source_dir": "../../wt/workstation-chat/l-data/swarm-m/h1-frozen-20261007",
+  "build_line_commit": "501f47579",
+  "spec_cuts": [
+    {
+      "id": "H-1",
+      "source": "D-shadow-gate-spec-v3.3.md",
+      "sha256": "36120634030de0cdef91b5a7b4470390685d92be6d496c580c38dbf26e8940f9",
+      "handout_path": "spec/gate-spec-v3.3.md",
+      "expected_output_sha256": "70437cb34b8a77aa9141daaaed4997d9828853f3ba35c0fa4569d71db5485ef0"
+    },
+    {
+      "id": "H-2",
+      "source": "D-shadow-gate-spec-v3.2.md",
+      "sha256": "e7359abef77cd3b583e772203688edc42142f972c872a93a0257b1ad5d7ce2ab",
+      "handout_path": "spec/gate-spec-v3.2.md",
+      "expected_output_sha256": "abd9337c6cf332a694a246f88bbc940a448195e5fcda2b59053244495643d987"
+    },
+    {
+      "id": "H-3",
+      "source": "D-shadow-gate-spec-v3.1.md",
+      "sha256": "f0729884291142d25ea773a9d81f83ef80422a0aaf60898ef68089b694398f29",
+      "handout_path": "spec/gate-spec-v3.1.md",
+      "expected_output_sha256": "08f6d87c15995017fb1514511bde61812669b3968c75a0df57d07c9eb2c524d9"
+    },
+    {
+      "id": "H-4",
+      "source": "D-shadow-gate-spec-v3.md",
+      "sha256": "2bd3942ec7994a83a627574204024fc3cc3a38d311a4394df218654359bc0a9c",
+      "handout_path": "spec/gate-spec-v3.md",
+      "expected_output_sha256": "2c24c9f01c62836edffbd49a2496f76f6751955d16680f4b1b4831b3c3eb9a38"
+    },
+    {
+      "id": "H-5",
+      "source": "D-shadow-gate-spec-v2.md",
+      "sha256": "58484328bb3675bbbd2b7f9175ce9b0ad9648642a400aa714d993a723db05ca6",
+      "handout_path": "spec/gate-spec-v2.md",
+      "expected_output_sha256": "66668f9c6d8e7ccb138f1a5d6fdede9cd7463f3604146b13efa6159b22c1cacb"
+    }
+  ],
+  "code_items": [
+    {
+      "id": "H-6",
+      "path": "src/maker_core/contracts/__init__.py",
+      "blob": "cd4cac522e8288e3a874e9a10ac0c4780e88b018",
+      "expected_output_sha256": "92f9f721…a3b1"
+    },
+    {
+      "id": "H-7",
+      "path": "src/maker_core/contracts/conformance.py",
+      "blob": "87a7a13141ff28aa9592529afe468f3c6a87838d",
+      "expected_output_sha256": "414acf14…e7bb"
+    },
+    {
+      "id": "H-8",
+      "path": "src/maker_core/contracts/portfolio.py",
+      "blob": "036e302c68c4a44f32f72f58b6580b8222081d95",
+      "expected_output_sha256": "23b4d696…8b49"
+    },
+    {
+      "id": "H-9",
+      "path": "src/maker_core/quoting/policy.py",
+      "blob": "c4a709e02d0aa2087e414f417a7c308f6cf376de",
+      "expected_output_sha256": "60171f9d…62a8"
+    }
+  ],
+  "text_89a": {
+    "id": "H-10",
+    "path": "docs/roadmap/workstation-handoff-2026-09-89a-fill-toxicity-desk-study-tool.md",
+    "sha256": "ff7e85be0d0bf13667802d58eed464ba900c5f95f033a1fd15496d8eaba9d9d9"
+  },
+  "rulings_sheet": {
+    "id": "H-11",
+    "path": "docs/roadmap/maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md",
+    "commit": "de6d53f3a5d1fe21010603ba6ce87f4abce2958a",
+    "sha256": "c484844d9c36bd477ca6c56770722c181b01b76101ff594a0a45a9c636ffb79e",
+    "handout_path": "owner-rulings-2026-10-07.md"
+  },
+  "cover_prompt": null
+}
