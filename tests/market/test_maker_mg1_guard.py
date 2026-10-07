@@ -1,6 +1,9 @@
 """U7: MG-1 refuses every view-vs-outcome metric on reserved target dates (fictional fixtures only)."""
 import ast
 import inspect
+import io
+import os
+import subprocess
 from datetime import date, datetime, timezone
 from decimal import Decimal as D
 from pathlib import Path
@@ -17,6 +20,8 @@ from weather.market import maker_fair_value_statistics as statistics
 from weather.market.maker_plugin import fair_value_score as plugin_cli
 from weather.market import mg1_metric_guard as guard
 from weather.market.mg1_metric_guard import MG1Reserved
+from maker_core import mg1_window
+from maker_core.replay.v2.pipeline import Pass
 from tests.maker_core.fixtures.replay_scenario import Scenario
 
 
@@ -63,7 +68,16 @@ def probe_main(mods, target, monkeypatch):
     monkeypatch.setattr(sc, "regular_path", _stop)
     monkeypatch.setattr(sc, "load_bundle", _stop)
     monkeypatch.setattr(sc.argparse.ArgumentParser, "parse_args", _stop)
-    sc.main(["--bundle", "never-open", "--out", "never-written"])
+    err = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", err)
+    try:
+        sc.main(["--bundle", "never-open", "--out", "never-written"])
+    except SystemExit as exc:
+        prefix = "fair-value score refused: MG1Reserved: "
+        lines = err.getvalue().splitlines()
+        if exc.code == 2 and len(lines) == 1 and lines[0].startswith(prefix + "mg1_"):
+            raise MG1Reserved(lines[0][len(prefix):]) from None  # The CLI's one-line refusal.
+        raise
 
 
 def probe_settle(mods, target, monkeypatch):
@@ -129,13 +143,15 @@ def test_no_override_parameter_or_environment_variable():
     params = inspect.signature(guard.refuse_reserved_targets).parameters
     assert list(params) == ["targets", "entry"]
     assert list(inspect.signature(guard.is_reserved).parameters) == ["target"]
-    source = Path(guard.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-    attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
-    imports = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
-    assert not ({"os", "environ", "getenv", "sys"} & (names | attrs | imports))
-    assert not re.search(r"override|bypass|force", source.split('"""', 2)[2], re.IGNORECASE)
+    assert list(inspect.signature(mg1_window.refuse_paper_scoring).parameters) == ["days", "entry"]
+    for module in (guard, mg1_window):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        imports = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+        assert not ({"os", "environ", "getenv", "sys"} & (names | attrs | imports)), module.__name__
+        assert not re.search(r"override|bypass|force", source.split('"' * 3, 2)[2], re.IGNORECASE)
 
 
 # --- every entry point refuses a reserved target, and admits pre-window targets ----------------
@@ -164,11 +180,41 @@ def test_pre_window_targets_reach_the_metric(monkeypatch, module, qualname, entr
         assert "Sentinel" in detail  # Passed the guard and reached the (stubbed) evidence read.
 
 
-def test_plugin_cli_is_the_guarded_scorer_main(monkeypatch):
+def test_plugin_cli_is_the_guarded_scorer_main(monkeypatch, capsys):
     assert plugin_cli.main is scorer.main
     monkeypatch.setattr(scorer, "PANEL_END", date(2026, 10, 15))
-    with pytest.raises(MG1Reserved, match="maker_fair_value_score.main"):
+    with pytest.raises(SystemExit) as exc:
         plugin_cli.main(["--bundle", "x", "--out", "y"])
+    assert exc.value.code == 2
+    assert "maker_fair_value_score.main" in capsys.readouterr().err
+
+
+REFUSAL_LINE = ("fair-value score refused: MG1Reserved: "
+                "mg1_reserved_target_date:maker_fair_value_score.main:2026-10-15")
+
+
+@pytest.mark.parametrize("argv", [["--bundle", "x", "--out", "y"], [], ["--help"]])
+def test_refused_main_exits_2_with_one_line_and_no_traceback(monkeypatch, capsys, argv):
+    monkeypatch.setattr(scorer, "PANEL_END", date(2026, 11, 1))
+    monkeypatch.setattr(scorer, "regular_path", _stop)
+    with pytest.raises(SystemExit) as exc:
+        scorer.main(argv)
+    assert exc.value.code == 2
+    assert exc.value.__cause__ is None and exc.value.__suppress_context__
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.splitlines() == [REFUSAL_LINE] and err.endswith("\n")
+
+
+def test_refused_main_in_a_real_process_prints_one_line(tmp_path):
+    code = ("import datetime; from weather.market import maker_fair_value_score as s; "
+            "s.PANEL_END = datetime.date(2026, 10, 20); s.main(['--bundle', 'x', '--out', 'y'])")
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(SRC.parent), str(SRC)])}
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                          cwd=tmp_path, env=env)
+    assert done.returncode == 2, done.stderr
+    assert done.stdout == ""
+    assert done.stderr.splitlines() == [REFUSAL_LINE]
 
 
 def test_bundle_captured_on_a_reserved_day_is_refused_before_indexing(monkeypatch):
@@ -198,15 +244,26 @@ def _function(tree, qualname):
     return node
 
 
+def _is_guard_stmt(stmt):
+    """The guard call itself, or a try whose only statement is the guard and whose single handler
+    reports the refusal and exits 2: the CLI form."""
+    if isinstance(stmt, ast.Try):
+        handler = stmt.handlers[0] if len(stmt.handlers) == 1 else None
+        handler_ok = (handler is not None and isinstance(handler.type, ast.Name)
+                      and handler.type.id == "MG1Reserved" and isinstance(handler.body[-1], ast.Raise)
+                      and ast.unparse(handler.body[-1].exc) == "SystemExit(2)")
+        return (handler_ok and not stmt.orelse and not stmt.finalbody and len(stmt.body) == 1
+                and _is_guard_stmt(stmt.body[0]))
+    return (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)
+            and isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "refuse_reserved_targets")
+
+
 def _first_is_guard(func):
     body = list(func.body)
-    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
-            and isinstance(body[0].value.value, str):
+    if (body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
         body = body[1:]
-    if not body or not isinstance(body[0], ast.Expr) or not isinstance(body[0].value, ast.Call):
-        return False
-    call = body[0].value
-    return isinstance(call.func, ast.Name) and call.func.id == "refuse_reserved_targets"
+    return bool(body) and _is_guard_stmt(body[0])
 
 
 def _guard_entry(func):
@@ -250,8 +307,7 @@ class _DropGuard(ast.NodeTransformer):
         self.stack.append(node.name)
         self.generic_visit(node)
         if self.stack == self.path:
-            node.body = [s for s in node.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call)
-                         and isinstance(s.value.func, ast.Name) and s.value.func.id == "refuse_reserved_targets")]
+            node.body = [s for s in node.body if not _is_guard_stmt(s)]
         self.stack.pop()
         return node
 
@@ -317,3 +373,67 @@ def test_mm_paper_fill_settlement_still_scores_on_reserved_dates(tmp_path, day):
     assert result.final_cash == result.config.initial_cash + r["settled_inventory_pnl"]
     assert r["modeled_net_k1"] == r["reward_k1"] + r["nominal_rebate"] + r["settled_inventory_pnl"]
     assert D(0) < r["filled_shares"]
+
+
+# --- OD3: one named switch decides whether MM paper scoring is exempt --------------------------
+
+def _paper_result(tmp_path, day):
+    tmp_path.mkdir(parents=True)
+    s = Scenario(day=day, markets=("a",), minutes=40)
+    for minute in range(40):
+        s.book("a", minute * 60)
+    s.trade("a", 30)
+    s.settle("a", 2400)
+    return replay([s.bundle(tmp_path / "b")], ReplayConfig(hazard_per_minute=0))
+
+
+def _v2_pass(day, settled_on=None):
+    settlements = {} if settled_on is None else {"c": types.SimpleNamespace(
+        as_of_utc=datetime.combine(settled_on, datetime.min.time(), timezone.utc))}
+    scorer_ = types.SimpleNamespace(rows={(day.isoformat(), "c"): None}, band_days=lambda *a: ["scored"])
+    return Pass(engine=types.SimpleNamespace(settlements=settlements), scorer=scorer_)
+
+
+def test_od3_switch_is_pinned_until_the_owner_decides():
+    # OD3 is pending. Changing this value is the one-line owner decision; update this pin with it.
+    assert mg1_window.MG1_OD3_QUOTING_AND_PAPER_SCORING_EXEMPT is True
+
+
+@pytest.mark.parametrize("exempt", [True, False])
+def test_od3_switch_controls_paper_fill_settlement_on_reserved_dates(tmp_path, monkeypatch, exempt):
+    monkeypatch.setattr(mg1_window, "MG1_OD3_QUOTING_AND_PAPER_SCORING_EXEMPT", exempt)
+    reserved = _paper_result(tmp_path / "r", date(2026, 10, 15))
+    if exempt:
+        r, = paper_score(reserved)
+        assert r["settled_inventory_pnl"] == reserved.fills[0].size * (1 - reserved.fills[0].price)
+        assert _v2_pass(date(2026, 10, 15)).band_days(None, None) == ["scored"]
+    else:
+        with pytest.raises(MG1Reserved, match="mg1_reserved_paper_scoring:replay.score:2026-10-15"):
+            paper_score(reserved)
+        with pytest.raises(MG1Reserved, match="mg1_reserved_paper_scoring:v2.band_days:2026-10-15"):
+            _v2_pass(date(2026, 10, 15)).band_days(None, None)
+        # A pre-window fill whose settlement fact is dated inside the window is refused too.
+        with pytest.raises(MG1Reserved, match="v2.band_days:2026-10-15"):
+            _v2_pass(date(2026, 10, 14), settled_on=date(2026, 10, 15)).band_days(None, None)
+    # Pre-window paper scoring works under either answer.
+    r, = paper_score(_paper_result(tmp_path / "a", date(2026, 10, 14)))
+    assert r["unresolved_fills"] == 0
+    assert _v2_pass(date(2026, 10, 14)).band_days(None, None) == ["scored"]
+
+
+@pytest.mark.parametrize("exempt", [True, False])
+def test_od3_never_exempts_view_vs_outcome_metrics(monkeypatch, exempt):
+    monkeypatch.setattr(mg1_window, "MG1_OD3_QUOTING_AND_PAPER_SCORING_EXEMPT", exempt)
+    with pytest.raises(MG1Reserved, match="summarize"):
+        statistics.summarize([stat_row(date(2026, 10, 15))])
+
+
+@pytest.mark.parametrize("module,qualname", [("maker_core/replay/score.py", "score"),
+                                             ("maker_core/replay/v2/pipeline.py", "Pass.band_days")])
+def test_ast_paper_scorers_call_the_od3_guard_first(module, qualname):
+    func = _function(ast.parse((SRC / module).read_text(encoding="utf-8")), qualname)
+    body = func.body[1:] if isinstance(func.body[0].value if isinstance(func.body[0], ast.Expr) else None,
+                                       ast.Constant) else func.body
+    first = body[0]
+    assert (isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+            and isinstance(first.value.func, ast.Name) and first.value.func.id == "refuse_paper_scoring")

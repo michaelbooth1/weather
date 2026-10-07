@@ -13,6 +13,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from maker_core.evidence.journal import digest
+from maker_core.mg1_window import refuse_paper_scoring
 from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.v2.engine import EngineV2
 from maker_core.replay.v2.lockstep import drive, run_plan
@@ -30,6 +31,9 @@ class Pass:
     rows: list | None = None
 
     def band_days(self, books, markets):
+        # MG-1 / OD3: a no-op while paper scoring is exempt; otherwise reserved fills and settlements refuse.
+        refuse_paper_scoring([day for day, _ in self.scorer.rows]
+                             + [s.as_of_utc.date() for s in self.engine.settlements.values()], entry="v2.band_days")
         if self.rows is None:
             self.rows = self.scorer.band_days(self.engine.settlements, books, markets)
         return self.rows

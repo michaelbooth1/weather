@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 from maker_core.contracts import OutcomeView, SettlementFact, Unavailable
@@ -18,7 +19,7 @@ from maker_core.replay.payloads import decode
 from weather.market.maker_fair_value_statistics import BIN_EDGES, REPLICATES, SEED, tables
 from weather.market.maker_plugin.fair_value import WeatherFairValue
 from weather.market.maker_plugin.inputs import digest, event_identity, timestamp
-from weather.market.mg1_metric_guard import date_range, refuse_reserved_targets
+from weather.market.mg1_metric_guard import MG1Reserved, date_range, refuse_reserved_targets
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.paths import REPO_ROOT
 
@@ -334,8 +335,12 @@ def markdown(report):
 
 
 def main(argv=None):
-    # MG-1: refused before arguments are parsed or any path is touched.
-    refuse_reserved_targets(date_range(PANEL_START, PANEL_END), entry="maker_fair_value_score.main")
+    # MG-1: refused before arguments are parsed or any path is touched; one line, exit 2.
+    try:
+        refuse_reserved_targets(date_range(PANEL_START, PANEL_END), entry="maker_fair_value_score.main")
+    except MG1Reserved as exc:
+        sys.stderr.write(f"fair-value score refused: MG1Reserved: {exc}\n")
+        raise SystemExit(2) from None
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", action="append", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True, help="new report directory; inputs remain read-only")

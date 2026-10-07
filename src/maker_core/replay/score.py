@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
 
+from maker_core.mg1_window import refuse_paper_scoring
+
 HORIZONS = {"1m": 60, "5m": 300, "30m": 1800}
 MARK_TOLERANCE_SECONDS = 120
 
@@ -60,6 +62,9 @@ def score(result, *, check=lambda: None):
     P&L. They are null for excluded exposure or any unresolved fill. Markouts are
     alternative valuations, never added to settlement P&L.
     """
+    # MG-1 / OD3: a no-op while paper scoring is exempt; otherwise reserved fills and settlements refuse.
+    refuse_paper_scoring([f.at.date() for f in result.fills]
+                         + [s.as_of_utc.date() for s in result.settlements.values()], entry="replay.score")
     rows = {}
     def row(day, cid, market):
         key = day, cid

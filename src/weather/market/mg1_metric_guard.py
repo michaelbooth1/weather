@@ -16,63 +16,21 @@ checks (coverage, replay reproduction, parser version) are exempt and never
 call it.
 
 There is deliberately no override argument and no environment variable. The
-window may only become narrower, and only by editing the two constants below
-in a reviewed change whose tests pin the new values: ``MG1_D0`` (the recorded
-first eligible date, never before ``MG1_FLOOR``) and ``MG1_LAST`` (the recorded
-45th promotion-countable date). Until both are recorded, every target date on
-or after ``MG1_FLOOR`` is reserved.
+window may only become narrower, and only by editing ``MG1_D0`` and ``MG1_LAST``
+in ``maker_core.mg1_window`` (the single recorded copy) in a reviewed change
+whose tests pin the new values. Until both are recorded, every target date on
+or after ``MG1_FLOOR`` is reserved. The OD3 switch there does not affect this
+guard: view-vs-outcome metrics are refused whatever the owner decides on OD3.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
+# The window and its constants have one recorded copy in core (the OD3 switch lives there too).
+from maker_core.mg1_window import (MG1_D0, MG1_FLOOR, MG1_LAST, MG1_RESERVED_COUNT, MG1Reserved, as_date as _as_date, is_reserved, window)
 
-MG1_FLOOR = date(2026, 10, 15)
-# Recorded only from reserved-confirmation-window.md once D0 is dated and the
-# 45 promotion-countable dates are computed. Both None: open-ended from the floor.
-MG1_D0: date | None = None
-MG1_LAST: date | None = None
-MG1_RESERVED_COUNT = 45
-
-
-class MG1Reserved(ValueError):
-    """A view-vs-outcome metric was requested for an MG-1 reserved target date."""
-
-
-def window(d0=None, last=None):
-    """Return the inclusive reserved range ``(start, end)``; ``end`` None is open-ended.
-
-    Arguments exist only so the narrowing invariant can be tested; callers use
-    the recorded constants. An inconsistent recording fails closed to the
-    widest window rather than narrowing it.
-    """
-    d0 = MG1_D0 if d0 is None else d0
-    last = MG1_LAST if last is None else last
-    if d0 is None or last is None:
-        return MG1_FLOOR, None
-    if not (isinstance(d0, date) and isinstance(last, date)) or d0 < MG1_FLOOR or last < d0:
-        return MG1_FLOOR, None
-    return d0, last
-
-
-def _as_date(value):
-    if isinstance(value, datetime):
-        raise MG1Reserved("mg1_target_date_unparseable:datetime")
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            pass
-    raise MG1Reserved(f"mg1_target_date_unparseable:{value!r}"[:120])
-
-
-def is_reserved(target) -> bool:
-    """True when ``target`` (a date or ISO date string) is inside the MG-1 window."""
-    start, end = window()
-    day = _as_date(target)
-    return start <= day and (end is None or day <= end)
+__all__ = ["MG1_D0", "MG1_FLOOR", "MG1_LAST", "MG1_RESERVED_COUNT",
+           "MG1Reserved", "date_range", "is_reserved", "refuse_reserved_targets", "window"]
 
 
 def refuse_reserved_targets(targets, *, entry: str) -> None:
