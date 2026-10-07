@@ -227,3 +227,24 @@ def test_mutant_mw3_frozen_book_is_caught(tmp_path, monkeypatch, moved):
     with pytest.raises(AssertionError):
         test_mw3_public_book_onto_a_resting_leg_cancels_crossed_book_without_replacement(
             fresh(tmp_path), monkeypatch, moved, EngineV2)
+
+
+# -- Defender f0d97f11f note 2: the crossed check covers the NO pair too ------------------------------------
+# Public book crossed on the NO pair only (no_bids .53 >= no_asks .51); the YES pair is not crossed.
+NO_PAIR_CROSSED = dict(yb=lv((".47", 75)), ya=lv((".51", 75)), nb=lv((".53", 75)), na=lv((".51", 75)))
+
+
+def test_own_leg_crossed_is_not_counted_when_the_public_no_pair_alone_is_crossed(tmp_path, monkeypatch):
+    e, _ = run(tmp_path, NO_PAIR_CROSSED, monkeypatch)
+    there = at_moved(e)
+    assert there[0].decision.reasons[0] == "CROSSED_BOOK"
+    assert sum(e.own_leg_crossed.values()) == 0
+
+
+def test_mutant_crossed_yes_pair_only_is_caught(tmp_path, monkeypatch):
+    def yes_only(book):
+        return book is not None and bool(book.yes_bids and book.yes_asks) and (
+            max(p for p, _ in book.yes_bids) >= min(p for p, _ in book.yes_asks))
+    monkeypatch.setattr(kernel_module, "crossed", yes_only)
+    with pytest.raises(AssertionError):
+        test_own_leg_crossed_is_not_counted_when_the_public_no_pair_alone_is_crossed(tmp_path, monkeypatch)

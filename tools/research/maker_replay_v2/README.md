@@ -53,6 +53,8 @@ Engine rulings W1(a), W2(a) and F3 (owner, 2026-10-07; registration C11-C13) add
 the fictional fixtures under the frozen engine and under each ruling alone and together, and attributes every
 changed decision to its class (A1-A3, A5, A6) or fails (spec v3.2 §1.4, v3.3 §4.2). `frozen` is pinned to the
 pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Since F3, `lockstep.drive` and
-`pipeline.run_passes` require `time_zones` (market id to IANA zone; fictional markets use
-`sources.FIXTURE_ZONES`); `day_roll.NO_REFRESH` turns the refresh off and exists only for that re-run.
+`pipeline.run_passes` require `time_zones` (market id to IANA zone). A scored run takes it from
+`execution_manifest.market_time_zones`, which reads the bound universe inventory's `local_timezone` (already
+checked against each descriptor's close and horizon) and refuses a market whose conditions disagree (owner Gate
+Q1, 2026-10-07); fictional markets use `sources.FIXTURE_ZONES`; `day_roll.NO_REFRESH` turns the refresh off and exists only for that re-run.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

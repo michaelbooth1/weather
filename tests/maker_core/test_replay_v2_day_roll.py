@@ -220,3 +220,118 @@ def test_mutant_mcf2_skipped_refresh_is_caught(monkeypatch):
     monkeypatch.setattr(day_roll, "local_lead", lambda zone, target, instant: 99)  # every refresh out of scope
     with pytest.raises(AssertionError):
         test_engine_reads_the_refreshed_horizon_after_local_midnight(EngineV2)
+
+
+# -- Defender f0d97f11f note 5: engine-level fixtures across the DST change and east of UTC --------------------
+def busy(d, first_minute, last_minute):
+    """A view, fresh terms and a changed book every minute from ``first_minute`` to ``last_minute``."""
+    d.scenario.view(d.market, first_minute * 60, p=.5)
+    d.scenario.terms(d.market, first_minute * 60)
+    for minute in range(first_minute, last_minute):
+        d.scenario.book(d.market, minute * 60, mid=D(".5") + (D(".01") if minute % 2 else 0))
+
+
+def horizon_refusals(e, start, end):
+    return [d.decision.reasons[0] == "HORIZON_NOT_ELIGIBLE" for d in e.decisions if start <= d.at < end]
+
+
+def dst_engine():
+    first, second = Day(date(2026, 11, 1)), Day(date(2026, 11, 2))
+    first.descriptor(600, 2)  # 00:10Z 11-01 = 20:10 EDT 10-31: target 11-02, never re-captured
+    first.add(600, "info_event", {"events": []})
+    second.add(0, "info_event", {"events": []})
+    busy(second, 230, 312)  # 03:50Z-05:12Z on 11-02, across EST midnight (05:00Z), after the fall-back
+    sources = [first.source(), second.source()]
+    e = EngineV2(CONFIG, run_plan(sources))
+    drive(sources, [e], time_zones={"nyc": NY})
+    return e
+
+
+def test_engine_refresh_after_the_fall_back_uses_the_new_offset():
+    e = dst_engine()
+    before = horizon_refusals(e, utc(2026, 11, 2, 3, 50), utc(2026, 11, 2, 5))
+    after = horizon_refusals(e, utc(2026, 11, 2, 5), utc(2026, 11, 2, 5, 12))
+    assert before and not any(before)  # 23:50-23:59 EST on 11-01: lead 1, eligible
+    assert after and all(after)  # from 00:00 EST on 11-02: lead 0
+
+
+def test_mutant_fixed_offset_midnight_is_caught_by_the_engine_fixture(monkeypatch):
+    from maker_core.replay.v2 import day_roll
+
+    def fixed_offset(zone, instant):
+        local = instant.astimezone(day_roll._zone(zone) if isinstance(zone, str) else zone)
+        midnight = datetime.combine(local.date() + timedelta(days=1), datetime.min.time())
+        return (midnight - local.utcoffset()).replace(tzinfo=UTC)
+    monkeypatch.setattr(day_roll, "next_local_midnight", fixed_offset)
+    with pytest.raises(AssertionError):
+        test_engine_refresh_after_the_fall_back_uses_the_new_offset()
+
+
+TOKYO = "Asia/Tokyo"
+
+
+def tokyo_engine():
+    d = Day(date(2026, 11, 1), market="tky", cid="tky-band")
+    d.descriptor(600, 1)  # 00:10Z 11-01 = 09:10 JST 11-01: target 11-02
+    d.add(600, "info_event", {"events": []})
+    busy(d, 890, 912)  # 14:50Z-15:12Z: local midnight 11-02 JST is 15:00Z on the UTC date 11-01
+    src = d.source()
+    e = EngineV2(CONFIG, run_plan([src]))
+    drive([src], [e], time_zones={"tky": TOKYO})
+    return e
+
+
+def test_engine_lead_follows_the_local_date_east_of_utc():
+    e = tokyo_engine()
+    before = horizon_refusals(e, utc(2026, 11, 1, 14, 50), utc(2026, 11, 1, 15))
+    after = horizon_refusals(e, utc(2026, 11, 1, 15), utc(2026, 11, 1, 15, 12))
+    assert before and not any(before)
+    assert after and all(after)
+
+
+def test_mutant_utc_lead_is_caught_by_the_engine_fixture(monkeypatch):
+    from maker_core.replay.v2 import day_roll
+    monkeypatch.setattr(day_roll, "local_lead", lambda zone, target, instant: (target - instant.date()).days)
+    with pytest.raises(AssertionError):
+        test_engine_lead_follows_the_local_date_east_of_utc()
+
+
+# -- Owner Gate Q1 (2026-10-07): the zone map comes from the bound universe inventory --------------------------
+def zone_pack(tmp_path, zones):
+    """One condition of market ``a`` per day from 2026-11-20, each with its inventory ``local_timezone``."""
+    bundles, inventory = [], []
+    for n, zone in enumerate(zones):
+        day = date(2026, 11, 20) + timedelta(days=n)
+        s = Scenario(day, markets=("a",), minutes=10)
+        for r in s.records:
+            if r["kind"] == "descriptor":
+                r["payload"]["horizon_days"] = 1
+                r["payload_sha256"] = sha256(canonical_bytes(r["payload"]))
+        bundles.append(s.bundle(tmp_path / day.isoformat()))
+        inventory.append(dict(condition_id=s.cid("a"), market_id="a", domain_id="fictional",
+                              target_date=(day + timedelta(days=1)).isoformat(), local_timezone=zone))
+    return bundles, sorted(inventory, key=lambda r: r["condition_id"])
+
+
+def test_market_time_zones_come_from_the_validated_inventory(tmp_path):
+    from maker_core.replay.execution_manifest import market_time_zones
+    bundles, inventory = zone_pack(tmp_path, ["Europe/London", "Europe/London"])
+    zones = market_time_zones(bundles, inventory)
+    assert dict(zones) == {"a": "Europe/London"}
+    from maker_core.replay.v2.day_roll import DayRoll
+    DayRoll(zones)  # accepted by the reader as is
+
+
+def test_market_whose_conditions_disagree_on_the_zone_is_refused(tmp_path):
+    from maker_core.replay.execution_manifest import market_time_zones
+    # Both zones are UTC+0 in November, so each row passes the close/horizon check on its own.
+    bundles, inventory = zone_pack(tmp_path, ["UTC", "Europe/London"])
+    with pytest.raises(BundleError, match="market_time_zone_disagreement"):
+        market_time_zones(bundles, inventory)
+
+
+def test_market_time_zones_refuse_a_zone_the_descriptors_contradict(tmp_path):
+    from maker_core.replay.execution_manifest import market_time_zones
+    bundles, inventory = zone_pack(tmp_path, ["America/New_York"])  # close 00:00Z is 19:00 EST, not local midnight
+    with pytest.raises(BundleError, match="universe_target_descriptor_mismatch"):
+        market_time_zones(bundles, inventory)

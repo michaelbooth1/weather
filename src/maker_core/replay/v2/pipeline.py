@@ -109,6 +109,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds.
 
     ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
+    A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory).
     """
     sources = sorted(sources, key=lambda s: s.plan.day)
     plan = run_plan(sources)

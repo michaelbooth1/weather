@@ -3,6 +3,7 @@ from dataclasses import fields, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import time
+from types import MappingProxyType
 from zoneinfo import ZoneInfo
 
 from maker_core.evidence.journal import digest, plain
@@ -90,6 +91,19 @@ def _inventory(bundles, inventory, *, check):
     if discovered != descriptors:
         raise BundleError("universe_descriptor_missing")
     return by_id
+
+
+def market_time_zones(bundles, inventory, *, check=lambda: None):
+    """market_id -> IANA zone for the local-midnight horizon refresh (registration C13; owner Gate Q1, 2026-10-07).
+
+    Read from the bound universe inventory's ``local_timezone``, which ``_inventory`` has already checked against
+    every descriptor's ``close_at_utc`` (local midnight after the target) and ``horizon_days``. A market whose
+    conditions name different zones is refused rather than resolved."""
+    zones = {}
+    for row in _inventory(bundles, inventory, check=check).values():
+        if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
+            raise BundleError("market_time_zone_disagreement")
+    return MappingProxyType(dict(sorted(zones.items())))
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):
