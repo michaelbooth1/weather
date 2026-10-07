@@ -1,6 +1,13 @@
+"""Retained taker evidence-starvation classification.
+
+Guards: 110o part 3 retained-evidence contract - retired taker evidence keeps its starvation verdicts:
+risk-clean no-fill reasons behind a CLOB-discovery or snapshot block are countable, while stale-book
+evidence or a CLOB block with no reasons stays infra_starved_clob.
+"""
+
 import unittest
 
-from weather.market.taker_evidence_starvation import classify_taker_evidence_starvation
+from weather.reporting.market.retired_trading_evidence import classify_taker_evidence_starvation
 
 
 def _clob_discovery_summary(reason_counts):

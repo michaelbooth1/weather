@@ -30,8 +30,7 @@ SECRET_PATTERNS = [
 ]
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def parse_csv(value):

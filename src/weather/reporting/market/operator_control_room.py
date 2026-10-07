@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.paths import data_path
 
 

@@ -27,7 +27,7 @@ from weather.execution_host import (
     current_execution_host_id,
     current_execution_principal_id,
 )
-from weather.market.market_making_preflight import valid_evm_address
+from weather.market.platform_contract import valid_evm_address
 from weather.market.mm_credentials import (
     FUNDER_ENV,
     REFERENCE_ENV,

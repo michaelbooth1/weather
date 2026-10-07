@@ -723,8 +723,9 @@ contention** on this 16 GB host. Defenses in place:
    default. Verify with
    `Get-Process python,pythonw | Select Id,PriorityClass` — the snapshot/microstructure/
    observation workers should read `AboveNormal` (they will self-heal within 5 min if not).
-2. **Trading bots (`taker_bot`, `market_making_run`) stay `BelowNormal`** — they are
-   not streak-critical and must yield to capture.
+2. **Trading bots stay `BelowNormal`** — they are not streak-critical and must yield to
+   capture. (The paper `taker_bot` and the `market_making_run` daily roll were retired on
+   2026-09-29; `market_making_run` remains only as the attended Stage 0/1 paper-run tool.)
 3. **Heavy daily-chain steps are memory-admission-gated** so they don't start unless
    enough RAM is free (`daily_refresh_resources.py`).
 4. **Commit discipline:** commits touching loop-loaded modules *roll* the capture loops

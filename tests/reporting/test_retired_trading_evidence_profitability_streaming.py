@@ -1,3 +1,11 @@
+"""Retained taker profitability-artifact verification streams its tapes.
+
+Guards: 110o part 3 retained-evidence contract (retired_trading_evidence is a verbatim reader of the
+deleted taker owners) - streamed order verification keeps flat peak memory as tapes grow, equivalent
+sidecars do not change field checks, and unbound or orphan settled summaries never count as
+finalization evidence.
+"""
+
 import csv
 import gc
 import json
@@ -5,8 +13,8 @@ import os
 import tracemalloc
 from pathlib import Path
 
-import weather.market.taker_profitability_artifact_verification as verification_module
-from weather.market.taker_profitability_artifact_verification import (
+import weather.reporting.market.retired_trading_evidence as verification_module
+from weather.reporting.market.retired_trading_evidence import (
     FILLED_ORDER_FIELDS,
     ORDER_OPPORTUNITY_FIELDS,
     verify_taker_profitability_artifacts,

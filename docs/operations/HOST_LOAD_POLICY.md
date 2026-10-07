@@ -218,13 +218,10 @@ eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
 Scheduler `PT8H40M` cleanup limit (09:15). This leaves 15 minutes before the
 09:30 Stage-A exception; `StartWhenAvailable` is forbidden.
 
-Stage-A settlement safeguards: the daily taker edge-permission aggregation is
-single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
-14 active-day runs and fails closed before materialization when its selected
-quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
-`--maker-paper-max-input-bytes`). These independent input limits remain
-fail-closed alongside the per-step isolation and physical-memory admission
-owned by Roadmap Item 324.
+Stage-A settlement safeguards: the retired taker edge-permission aggregation and
+maker-paper scoring steps (and their input-limit flags) were deleted with the taker
+and paper-maker runtime on 2026-09-29. The remaining heavy steps keep the per-step
+isolation and physical-memory admission owned by Roadmap Item 324.
 
 The scheduled fleet-observability tail measures current fleet, tape,
 provenance, and child-resource state in an isolated 20-minute child with a
@@ -237,17 +234,6 @@ resumable fallback before launch, so a
 timeout terminalizes before the 11:55 outer teardown instead of leaving a
 nonterminal in-process status. Run full historical audits only as separately
 admitted work in the ordinary 00:30–09:00 window.
-
-For each run, a complete validated `mm_scoring_projection_v0.2` base/variant
-pair is measured and passed to the streaming scorer; any missing, stale,
-malformed, or incompatible member makes that run use both canonical tapes.
-The receipt records projected versus canonical bytes and exact input bindings.
-The scorer revalidates admitted size/mtime bindings (and projection hashes)
-before ingestion and checks that inputs stay stable through streaming. Daily
-roll projection finalization starts only after the superseded target-matched
-writer's exit is confirmed; otherwise canonical fallback remains in force.
-Projection compaction does not change the 512 MiB input cap, the 4 GiB
-isolated-child private cap, or the 3 GiB working-set cap.
 
 Snapshot fleet capture admits at most two isolated children by default, with a
 1,792 MiB process-tree working-set and private-commit cap per child. The 3,584

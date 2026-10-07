@@ -32,8 +32,6 @@ def _args(tmp, **overrides):
         "capture_resource_mode": "offline_host",
         "stage": "settlement",
         "stage_a_min_available_reserve_mb": 1536,
-        "maker_paper_latest_active_runs": 14,
-        "maker_paper_max_input_bytes": 512 * MIB,
         "_stage_a_available_memory_fn": lambda: 16 * 1024**3,
         "_stage_a_commit_percent_fn": lambda: 10.0,
     }
@@ -53,22 +51,18 @@ def _parent_payload():
 
 class TestDailyRefreshResources(unittest.TestCase):
     def test_high_risk_stage_a_inventory_is_explicit(self):
-        self.assertIn("taker_edge_permission_map", STAGE_A_ISOLATED_STEPS)
-        self.assertIn("maker_paper_score", STAGE_A_ISOLATED_STEPS)
         self.assertIn("closed_day_parquet_incremental", STAGE_A_ISOLATED_STEPS)
         self.assertIn("public_wu_settlement_restore", STAGE_A_ISOLATED_STEPS)
-        self.assertIn("taker_finalization_watchdog", STAGE_A_ISOLATED_STEPS)
         self.assertIn("fleet_observability", STAGE_A_ISOLATED_STEPS)
-        maker = step_resource_budget("maker_paper_score", reserve_mb=1536)
-        self.assertEqual(maker["private_memory_max_bytes"], 4096 * MIB)
-        self.assertEqual(maker["working_set_max_bytes"], 3072 * MIB)
-        # Phase 2: measured peak working set is ~687 MiB, so admission is gated on
-        # 2048 MiB rather than the 3072 MiB containment ceiling.
-        self.assertEqual(maker["admission_working_set_bytes"], 2048 * MIB)
-        self.assertEqual(
-            maker["required_available_before_start_bytes"],
-            (1536 + 2048) * MIB,
-        )
+        # The retired taker and paper-maker steps were deleted on 2026-09-29.
+        for retired in (
+            "taker_finalization_watchdog",
+            "taker_edge_permission_map",
+            "taker_tail_casebook",
+            "maker_paper_score",
+        ):
+            self.assertNotIn(retired, STAGE_A_ISOLATED_STEPS)
+            self.assertNotIn(retired, STAGE_A_STEP_RESOURCE_POLICIES)
         wu_restore = step_resource_budget(
             "public_wu_settlement_restore",
             reserve_mb=1536,
@@ -80,17 +74,6 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertEqual(
             wu_restore["required_available_before_start_bytes"],
             (1536 + 2048) * MIB,
-        )
-        watchdog = step_resource_budget(
-            "taker_finalization_watchdog",
-            reserve_mb=1536,
-        )
-        self.assertEqual(watchdog["timeout_seconds"], 60 * 60)
-        self.assertEqual(watchdog["private_memory_max_bytes"], 5120 * MIB)
-        self.assertEqual(watchdog["working_set_max_bytes"], 2048 * MIB)
-        self.assertEqual(
-            watchdog["required_available_before_start_bytes"],
-            3584 * MIB,
         )
         fleet = step_resource_budget("fleet_observability", reserve_mb=1536)
         self.assertEqual(fleet["timeout_seconds"], 20 * 60)
@@ -106,7 +89,6 @@ class TestDailyRefreshResources(unittest.TestCase):
         # Steps with a measured peak carry an explicit admission working set; every
         # other isolated step must still admit against its full containment ceiling.
         measured_admission_working_sets = {
-            "maker_paper_score": 2048 * MIB,
             "public_wu_settlement_restore": 2048 * MIB,
         }
         for step_name in STAGE_A_ISOLATED_STEPS:
@@ -146,30 +128,30 @@ class TestDailyRefreshResources(unittest.TestCase):
             )
 
     def test_explicit_admission_working_set_drives_physical_gate_only(self):
-        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["maker_paper_score"])
+        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["public_wu_settlement_restore"])
         configured["admission_working_set_bytes"] = 2304 * MIB
         with patch.dict(
             STAGE_A_STEP_RESOURCE_POLICIES,
-            {"maker_paper_score": configured},
+            {"public_wu_settlement_restore": configured},
         ), tempfile.TemporaryDirectory() as tmp:
-            budget = step_resource_budget("maker_paper_score", reserve_mb=1536)
+            budget = step_resource_budget("public_wu_settlement_restore", reserve_mb=1536)
             required = (1536 + 2304) * MIB
             args = _args(tmp)
             args._stage_a_available_memory_fn = lambda: required - 1
             blocked = build_stage_a_step_admission(
                 args,
-                "maker_paper_score",
+                "public_wu_settlement_restore",
                 budget,
             )
             args._stage_a_available_memory_fn = lambda: required
             admitted = build_stage_a_step_admission(
                 args,
-                "maker_paper_score",
+                "public_wu_settlement_restore",
                 budget,
             )
 
         self.assertEqual(budget["admission_working_set_bytes"], 2304 * MIB)
-        self.assertEqual(budget["working_set_max_bytes"], 3072 * MIB)
+        self.assertEqual(budget["working_set_max_bytes"], 2560 * MIB)
         self.assertEqual(budget["required_available_before_start_bytes"], required)
         self.assertEqual(blocked["decision"], "DEFER")
         self.assertEqual(admitted["decision"], "ADMIT")
@@ -179,7 +161,7 @@ class TestDailyRefreshResources(unittest.TestCase):
         )
         self.assertEqual(
             admitted["physical_memory"]["working_set_budget_bytes"],
-            3072 * MIB,
+            2560 * MIB,
         )
 
     def test_admission_working_set_never_exceeds_containment_ceiling(self):
@@ -191,15 +173,15 @@ class TestDailyRefreshResources(unittest.TestCase):
                 msg=step_name,
             )
 
-        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["maker_paper_score"])
+        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["public_wu_settlement_restore"])
         configured["admission_working_set_bytes"] = (
             configured["working_set_max_bytes"] + 1
         )
         with patch.dict(
             STAGE_A_STEP_RESOURCE_POLICIES,
-            {"maker_paper_score": configured},
+            {"public_wu_settlement_restore": configured},
         ), self.assertRaisesRegex(AssertionError, "containment ceiling"):
-            step_resource_budget("maker_paper_score")
+            step_resource_budget("public_wu_settlement_restore")
 
     def test_public_wu_restore_is_child_compatible_and_preserves_arguments(self):
         self.assertIs(
@@ -235,76 +217,27 @@ class TestDailyRefreshResources(unittest.TestCase):
             manifest["args"]["wu_settlement_restore_continue_on_error"]
         )
 
-    def test_taker_watchdog_is_child_compatible_and_preserves_arguments(self):
-        self.assertIs(
-            _runner_for_step("taker_finalization_watchdog"),
-            dict(DEFAULT_RUNNERS)["taker_finalization_watchdog"],
-        )
-        with tempfile.TemporaryDirectory() as tmp:
-            invocation = prepare_step_child_invocation(
-                _args(
-                    tmp,
-                    taker_finalization_date="2026-07-13",
-                    taker_finalization_sla_hours=7.5,
-                    taker_finalization_min_free_bytes=123456789,
-                    taker_finalization_no_finalize=True,
-                    skip_taker_bakeoff=False,
-                    taker_bakeoff_strategies="raw_edge_control,edge_band_v1",
-                    taker_champion_strategy_id="raw_edge_control",
-                    taker_champion_min_complete_label_days=4,
-                    taker_champion_min_settled_orders=9,
-                ),
-                "taker_finalization_watchdog",
-                run_id="taker-finalization-isolation",
-            )
-            manifest = json.loads(
-                Path(invocation["args_json"]).read_text(encoding="utf-8")
-            )
-
-        child_args = manifest["args"]
-        self.assertEqual(child_args["taker_finalization_date"], "2026-07-13")
-        self.assertEqual(child_args["taker_finalization_sla_hours"], 7.5)
-        self.assertEqual(
-            child_args["taker_finalization_min_free_bytes"],
-            123456789,
-        )
-        self.assertTrue(child_args["taker_finalization_no_finalize"])
-        self.assertFalse(child_args["skip_taker_bakeoff"])
-        self.assertEqual(
-            child_args["taker_bakeoff_strategies"],
-            "raw_edge_control,edge_band_v1",
-        )
-        self.assertEqual(
-            child_args["taker_champion_strategy_id"],
-            "raw_edge_control",
-        )
-        self.assertEqual(
-            child_args["taker_champion_min_complete_label_days"],
-            4,
-        )
-        self.assertEqual(child_args["taker_champion_min_settled_orders"], 9)
-
     def test_physical_availability_is_required_in_addition_to_child_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp)
-            budget = step_resource_budget("taker_edge_permission_map", reserve_mb=1536)
+            budget = step_resource_budget("clob_order_book_tiering", reserve_mb=1536)
             required = budget["required_available_before_start_bytes"]
             args._stage_a_available_memory_fn = lambda: required - 1
             blocked = build_stage_a_step_admission(
                 args,
-                "taker_edge_permission_map",
+                "clob_order_book_tiering",
                 budget,
             )
             args._stage_a_available_memory_fn = lambda: required
             admitted = build_stage_a_step_admission(
                 args,
-                "taker_edge_permission_map",
+                "clob_order_book_tiering",
                 budget,
             )
             args._stage_a_commit_percent_fn = lambda: 70.0
             commit_blocked = build_stage_a_step_admission(
                 args,
-                "taker_edge_permission_map",
+                "clob_order_book_tiering",
                 budget,
             )
 
@@ -407,16 +340,16 @@ class TestDailyRefreshResources(unittest.TestCase):
 
     def test_resource_gate_overrides_can_only_be_stricter(self):
         with self.assertRaisesRegex(ValueError, "reserve"):
-            step_resource_budget("maker_paper_score", reserve_mb=1535)
+            step_resource_budget("public_wu_settlement_restore", reserve_mb=1535)
         with self.assertRaisesRegex(ValueError, "finite"):
             step_resource_budget(
-                "maker_paper_score",
+                "public_wu_settlement_restore",
                 reserve_mb=1536,
                 max_commit_percent=float("nan"),
             )
         with self.assertRaisesRegex(ValueError, "no higher"):
             step_resource_budget(
-                "maker_paper_score",
+                "public_wu_settlement_restore",
                 reserve_mb=1536,
                 max_commit_percent=70.1,
             )
@@ -428,7 +361,7 @@ class TestDailyRefreshResources(unittest.TestCase):
             observed = {}
             captured_limits = {}
             configured = dict(
-                STAGE_A_STEP_RESOURCE_POLICIES["taker_edge_permission_map"]
+                STAGE_A_STEP_RESOURCE_POLICIES["clob_order_book_tiering"]
             )
             configured["admission_working_set_bytes"] = 1024 * MIB
 
@@ -447,7 +380,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                     json.dumps({
                         "schema_version": "daily_refresh_step_child_v0.2",
                         "status": "ok",
-                        "step": "taker_edge_permission_map",
+                        "step": "clob_order_book_tiering",
                         "pid": 43210,
                         "finished_at_utc": "2026-07-13T14:00:01+00:00",
                         "result": {
@@ -478,7 +411,7 @@ class TestDailyRefreshResources(unittest.TestCase):
 
             with patch.dict(
                 STAGE_A_STEP_RESOURCE_POLICIES,
-                {"taker_edge_permission_map": configured},
+                {"clob_order_book_tiering": configured},
             ), patch(
                 "weather.operations.daily_refresh.run_isolated_subprocess",
                 side_effect=fake_run,
@@ -486,7 +419,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                 result = _run_isolated_stage_a_step(
                     args,
                     payload,
-                    "taker_edge_permission_map",
+                    "clob_order_book_tiering",
                     run_id="test-run",
                 )
 
@@ -497,7 +430,7 @@ class TestDailyRefreshResources(unittest.TestCase):
             observed["current_step"]["child_started_before_user_code"]
         )
         self.assertIn(
-            "--resume-from-step taker_edge_permission_map",
+            "--resume-from-step clob_order_book_tiering",
             observed["current_step"]["resume_command"],
         )
         self.assertEqual(result["resource_execution"]["status"], "ok")
@@ -550,7 +483,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                         json.dumps({
                             "schema_version": "daily_refresh_step_child_v0.2",
                             "status": "ok",
-                            "step": "taker_edge_permission_map",
+                            "step": "clob_order_book_tiering",
                             "pid": 99999,
                             "parent_pid": parent_pid,
                             "finished_at_utc": "2026-07-13T14:00:01+00:00",
@@ -584,7 +517,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                         result = _run_isolated_stage_a_step(
                             args,
                             payload,
-                            "taker_edge_permission_map",
+                            "clob_order_book_tiering",
                             run_id="test-run",
                         )
                         validation = result["resource_execution"][
@@ -600,7 +533,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                             _run_isolated_stage_a_step(
                                 args,
                                 payload,
-                                "taker_edge_permission_map",
+                                "clob_order_book_tiering",
                                 run_id="test-run",
                             )
                         self.assertIn(
@@ -649,7 +582,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                     _run_isolated_stage_a_step(
                         args,
                         payload,
-                        "taker_edge_permission_map",
+                        "clob_order_book_tiering",
                         run_id="test-run",
                     )
             saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
@@ -665,7 +598,7 @@ class TestDailyRefreshResources(unittest.TestCase):
         )
         self.assertIn("--heavy-step-subprocess", saved["current_step"]["resume_command"])
 
-    def test_bounded_resume_keeps_fail_closed_maker_limits(self):
+    def test_bounded_resume_rebuilds_clean_stage_command(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(
                 tmp,
@@ -681,7 +614,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                     "--stage",
                     "settlement",
                     "--resume-from-step",
-                    "maker_paper_score",
+                    "trading_evidence",
                     "--disable-heavy-step-subprocess",
                     "--force-lock",
                 ],
@@ -695,8 +628,7 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertIn("--resume-from-step settlement_source_audit", command)
         self.assertNotIn("--force-lock", command)
         self.assertNotIn("--disable-heavy-step-subprocess", command)
-        self.assertIn("--maker-paper-latest-active-runs 14", command)
-        self.assertIn(f"--maker-paper-max-input-bytes {512 * MIB}", command)
+        self.assertNotIn("--maker-paper", command)
 
     def test_completed_child_with_blocked_postcheck_resumes_at_next_step(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -713,7 +645,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                     json.dumps({
                         "schema_version": "daily_refresh_step_child_v0.2",
                         "status": "ok",
-                        "step": "maker_paper_score",
+                        "step": "settlement_source_audit",
                         "pid": 9001,
                         "finished_at_utc": "2026-07-13T15:00:00+00:00",
                         "result": {"status": "PASS", "input_file_count": 2},
@@ -749,7 +681,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                 result = _run_isolated_stage_a_step(
                     args,
                     payload,
-                    "maker_paper_score",
+                    "settlement_source_audit",
                     run_id="test-run",
                 )
 
@@ -757,9 +689,9 @@ class TestDailyRefreshResources(unittest.TestCase):
             result["resource_execution"]["status"],
             "ok_postcheck_deferred",
         )
-        self.assertEqual(payload["current_step"]["name"], "settlement_source_audit")
+        self.assertEqual(payload["current_step"]["name"], "observed_floor_safety_monitor")
         self.assertIn(
-            "--resume-from-step settlement_source_audit",
+            "--resume-from-step observed_floor_safety_monitor",
             payload["current_step"]["resume_command"],
         )
 
