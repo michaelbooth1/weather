@@ -696,6 +696,17 @@ def test_whitespace_only_true_for_37_trailing_blank_line_deletions(fx):
     assert code == NO_TESTS
 
 
+def test_whitespace_hunk_paths_ignore_old_git_header_only_pairs():
+    # git < 2.51.1 prints the diff --git/index header for a pair whose changes -w/--ignore-* all ignored,
+    # and lists it under --name-only (the 2026-10-07 capture-host failure); only +++ marks a real hunk.
+    patch = ("diff --git a/docs/ws/00.md b/docs/ws/00.md\nindex 1111111..2222222 100644\n"
+             "diff --git a/docs/a b.md b/docs/a b.md\nindex 3333333..4444444 100644\n"
+             "--- a/docs/a b.md\t\n+++ b/docs/a b.md\t\n@@ -1 +1 @@\n-x\n+y\n"
+             'diff --git "a/docs/\\303\\251.md" "b/docs/\\303\\251.md"\nindex 5..6 100644\n'
+             '--- "a/docs/\\303\\251.md"\n+++ "b/docs/\\303\\251.md"\n@@ -1 +1 @@\n-x\n+y\n')
+    assert checks._hunk_paths_from_patch(patch) == ["docs/a b.md", "docs/é.md"]
+
+
 @pytest.mark.spawns
 @pytest.mark.parametrize(("case", "reason", "path"), [
     ("ps1_content", "non_whitespace_change", "scripts/ops/tool.ps1"),

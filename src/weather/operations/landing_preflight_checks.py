@@ -28,6 +28,7 @@ Worktree phase (the landing checkout, children run with the worktree interpreter
 from __future__ import annotations
 
 import ast
+import codecs
 import json
 import re
 from pathlib import Path
@@ -240,10 +241,42 @@ def _raw_changes(ctx: PreflightContext) -> list[dict[str, Any]]:
     return rows
 
 
+def _unquote_patch_path(name: str) -> str:
+    """Undo git's C-style quoting of a ``+++`` path, or drop the tab git appends to a name with a space."""
+
+    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+        return codecs.escape_decode(name[1:-1].encode("utf-8"))[0].decode("utf-8", "replace")
+    return name[:-1] if name.endswith("\t") else name
+
+
+def _hunk_paths_from_patch(patch: str) -> list[str]:
+    """Post-image paths that carry at least one hunk in ``git diff -p`` output.
+
+    Git before 2.51.1 ignored ``-w``/``--ignore-*`` under ``--name-only`` and, under
+    ``-p``, still printed the ``diff --git``/``index`` header of a pair whose every
+    change was ignored.  The ``---``/``+++`` lines come only with the first hunk on
+    every version, so their presence is the version-independent signal.
+    """
+
+    paths: set[str] = set()
+    for line in patch.splitlines():
+        if line.startswith("+++ "):
+            name = _unquote_patch_path(line[4:])
+            if name.startswith("b/"):
+                paths.add(name[2:])
+    return sorted(paths)
+
+
 def _name_only(ctx: PreflightContext, *flags: str) -> list[str]:
-    out = _git_text(ctx, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", *flags,
-                    ctx.base_tree, ctx.landing_tree)
-    return sorted(p for p in out.split("\0") if p)
+    """Paths whose diff under ``flags`` is non-empty, independent of the host git version.
+
+    Never ``--name-only`` with ignore flags: git < 2.51.1 lists every changed path
+    regardless of them (the capture host failed the M13 fixture that way, 2026-10-07).
+    """
+
+    out = _git_text(ctx, "diff", "-p", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--no-textconv",
+                    "--src-prefix=a/", "--dst-prefix=b/", *flags, ctx.base_tree, ctx.landing_tree)
+    return _hunk_paths_from_patch(out)
 
 
 def _numstat(ctx: PreflightContext) -> dict[str, tuple[int | None, int | None]]:
