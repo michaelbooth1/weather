@@ -63,6 +63,11 @@ Paid weather-provider access is unsupported. Do not add credentials, required
 environment variables, operator commands, or roadmap dependencies for paid
 weather data. WU labels come from retained local artifacts, the public
 page-backed collector, or an explicit reviewed manual-override policy.
+Free WU history access that sends the apiKey token scraped from WU's public web
+page is acceptable under this rule: no account, purchase or issued credential
+(owner, 2026-10-06, OD15). Keep that token out of logs, status files, tapes and
+commits; WU history fetching stays off on production until the token-redaction
+change lands (owner, 2026-10-07, OD24).
 
 ## Evidence and model claims
 

@@ -48,6 +48,10 @@ missions in parallel in this same clone.
   Windows-executing script still needs a local full suite until CI has a Windows lane for those tests
   ([development.md](../development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)). Wait for the PR's full GitHub CI to finish
   green. Fix the real cause of a failure, never by weakening a test.
+- An owner approval relayed by the production agent is valid for serving-model and merge decisions. Anything
+  touching money or credentials needs the owner directly (owner, 2026-10-06).
+- A workstation commit-charge ceiling at about 90% of the commit limit, mirroring the capture-host guard, is
+  approved (owner, 2026-10-07, OD33); until it exists, do not push the machine past that yourself.
 
 ## Finishing
 

@@ -470,6 +470,23 @@ Stage-A, workstation or live authority is added.
    - This changes scheduling only; the windows, the lease and serial heavy work are
      unchanged. Head composition (caps, RS batching) is in
      [the git workflow](../git-workflow.md#integration-heads-for-a-night).
+9. **Reconciler tests run where they can fail** (option L5, owner 2026-10-06). The
+   reconciler test file runs in a host bounded suite only when the landing touches
+   the merge/reconciler surface (`scripts/ops/quiet_window_merge.ps1`, the
+   reconciler modules, `workload_admission`, integration-attempt runbook code);
+   otherwise once a night on the final tip. No test is weakened and no other host
+   rule changes. Until `bounded_worktree_test_suite.ps1` implements the selection,
+   the file still runs in every suite.
+10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
+    implements it).**
+    - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
+      reservation when the volume has >= 100 GiB free (tiering skips that night),
+      never two skips in a row.
+    - Roll-free heads settle 60 s instead of 300 s after a merge; the recovery
+      proof is still required. Roll-sensitive heads are unchanged.
+    - DST night 2026-11-01: no merge and no suite 01:45-02:15 local (OD30); the
+      daily tasks are re-registered around 10-30 because their triggers carry a
+      fixed -04:00 offset (OD28, #249).
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
