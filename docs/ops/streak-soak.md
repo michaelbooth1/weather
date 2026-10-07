@@ -236,6 +236,8 @@ Classification and severity (`Get-FlagClass` plus a state-aware second pass):
   outage interval `status.ps1` reports (last System event before the OS start -> OS start)
   overlaps 12:00–18:00 local on any day. `status.ps1` also reports the unclean-boot count
   for 7 and 90 days (`host_stability` in its JSON); the watchdog carries it through.
+  An owner reset marker only **annotates** this flag; see
+  [owner reset acknowledgement](#owner-reset-acknowledgement).
 - `system clock is not synchronized` (and the stale-sync clock flags) is class
   `capture_integrity`: HIGH, CRITICAL inside the graded window.
 - Staleness-sweep rows are class `staleness_sweep` and carry the sweep's severity: a sweep
@@ -265,6 +267,34 @@ matches its registered SHA256. The pinned redeploy procedure is in
 [OPERATIONS_DESIGN.md](../operations/OPERATIONS_DESIGN.md#pinned-watchdog-redeploy).
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
+
+### Owner reset acknowledgement
+
+Windows cannot tell the owner's manual reset from a crash or a power loss: both leave the
+same unclean-boot record. Owner fact 2026-10-07: every host reset in the prior 30 days was
+the owner's own. After a manual reset, the owner records it with one command:
+
+```powershell
+.\scripts\ops\owner_reset_note.ps1 -At "2026-10-07 13:05" -Note "manual reset, screen frozen"
+```
+
+- `-At` is local wall-clock time (`yyyy-MM-dd HH:mm`, seconds optional) and may not be in
+  the future. `-Note` is one line of at most 200 characters.
+- It appends one `owner_reset_note_v1` record to the dated, append-only ledger
+  `data/alerts/owner_resets/owner_resets_<yyyy-MM>.jsonl` (runtime state, never tracked).
+  It writes nothing else.
+- `status.ps1` matches a marker when its time falls inside the outage interval or at most
+  15 minutes before it (before the boot when the outage start is unknown). A match appends
+  `- owner reset acknowledged <T> (<note>)` to the `UNEXPECTED SHUTDOWN` flag and fills
+  `host_stability.owner_reset_ack` in the JSON. The watchdog carries it as the alert's
+  `owner_reset_ack`.
+- **It never suppresses the alert.** Class, severity (HIGH, or CRITICAL when the outage
+  overlaps 12:00–18:00), action and the dedup fingerprint are computed from the flag
+  without the annotation, so acknowledging a reset neither demotes nor re-alerts. An
+  unmatched shutdown is unchanged. That day's capture grade still needs checking.
+- Parsing fails closed: any malformed record in a scanned ledger file means no annotation,
+  plus a note (`owner reset ledger unreadable (...)`). Repair the record; never edit the
+  alert.
 
 ## This host loses power (WeatherBootRecovery)
 

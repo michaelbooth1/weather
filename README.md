@@ -522,6 +522,14 @@ commands are the fastest sanity checks and keep working when Streamlit is down:
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain status
 ```
 
+After a manual host reset, the owner records it so the next `UNEXPECTED SHUTDOWN`
+flag is annotated, never suppressed or demoted
+([owner reset acknowledgement](docs/ops/streak-soak.md#owner-reset-acknowledgement)):
+
+```powershell
+.\scripts\ops\owner_reset_note.ps1 -At "2026-10-07 13:05" -Note "manual reset"
+```
+
 ## Data Layout
 
 `data/` is local runtime/cache/output state and is git-ignored.

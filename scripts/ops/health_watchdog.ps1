@@ -230,7 +230,9 @@ function Get-WeatherDiskDepthBucket([double]$FreeGiB) {
     return ">=50GiB"
 }
 function Get-WeatherFlagDedupKey([string]$Text) {
-    $k = [string]$Text
+    # The owner-reset annotation is never part of a condition's identity (owner 2026-10-07):
+    # acknowledging a reset must not mint a new fingerprint, reset first_seen or re-alert.
+    $k = [regex]::Replace([string]$Text, '^(UNEXPECTED SHUTDOWN.*?) - owner reset acknowledged \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(.*\)$', '$1', 'Singleline')
     $depthBucket = $null
     if ($k -match '^LOW DISK') {
         # The lookbehind keeps a comma-decimal "23,5 GB" from parsing as 5 (PR #255 fold Defender N6);
@@ -261,6 +263,16 @@ function Get-WeatherFlagTimestampTokens([string]$Text) {
         ForEach-Object { $_.Value })
     return ($found -join "|")
 }
+# Owner reset acknowledgement (owner 2026-10-07; scripts\ops\owner_reset_note.ps1): status.ps1
+# may append " - owner reset acknowledged <yyyy-MM-dd HH:mm> (<note>)" to an UNEXPECTED SHUTDOWN
+# flag. It is annotation only. Class, severity, outage parsing, timestamps and the dedupe key all
+# use the text without it, and the alert gains owner_reset_ack. Windows cannot tell an owner
+# reset from a crash, so the flag is never suppressed or demoted here.
+function Split-WeatherOwnerResetAck([string]$Text) {
+    $m = [regex]::Match([string]$Text, '^(UNEXPECTED SHUTDOWN.*?) - owner reset acknowledged (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \((.*)\)$', 'Singleline')
+    if (-not $m.Success) { return [pscustomobject]@{ text = [string]$Text; ack = $null } }
+    return [pscustomobject]@{ text = $m.Groups[1].Value; ack = [ordered]@{ at = $m.Groups[2].Value; note = $m.Groups[3].Value } }
+}
 function Test-WeatherOutageOverlapsGradedWindow([datetime]$Start, [datetime]$End) {
     if ($End -lt $Start) { $swap = $Start; $Start = $End; $End = $swap }
     for ($day = $Start.Date; $day -le $End.Date; $day = $day.AddDays(1)) {
@@ -288,14 +300,16 @@ foreach ($e in $entries) {
     $key = "$($e.class)|$(Get-WeatherFlagDedupKey $e.flag)"
     $demotedReason = $null
     $uncleanBoots7d = $null
+    $ownerAck = Split-WeatherOwnerResetAck $e.flag
+    $baseFlag = $ownerAck.text
     if ($e.class -eq "host_stability") {
         $bootText = $null; $startText = $null
-        $outage = [regex]::Match($e.flag, 'outage (\d{4}-\d{2}-\d{2} \d{2}:\d{2}|start unknown) -> (\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
+        $outage = [regex]::Match($baseFlag, 'outage (\d{4}-\d{2}-\d{2} \d{2}:\d{2}|start unknown) -> (\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
         if ($outage.Success) { $bootText = $outage.Groups[2].Value; $startText = $outage.Groups[1].Value }
         $end = [datetime]::MinValue; $start = [datetime]::MinValue
         $haveEnd = $false
         if ($bootText) { $haveEnd = [datetime]::TryParseExact($bootText, 'yyyy-MM-dd HH:mm', $invariant, 'None', [ref]$end) }
-        elseif ($e.flag -match '^UNEXPECTED SHUTDOWN (.+?) - verify') {
+        elseif ($baseFlag -match '^UNEXPECTED SHUTDOWN (.+?) - verify') {
             # Pre-2026-10-07 status format: only the boot time, in the host culture.
             $haveEnd = [datetime]::TryParse($Matches[1], [ref]$end)
         }
@@ -305,9 +319,9 @@ foreach ($e in $entries) {
             # A different unclean boot is a new condition, not a ticking number.
             $key = "$key|boot=$($end.ToString('yyyy-MM-dd HH:mm', $invariant))"
         }
-        if ($e.flag -match '(\d+) unclean boot\(s\) in 7d') { $uncleanBoots7d = [int]$Matches[1] }
+        if ($baseFlag -match '(\d+) unclean boot\(s\) in 7d') { $uncleanBoots7d = [int]$Matches[1] }
     }
-    $stamps = Get-WeatherFlagTimestampTokens $e.flag
+    $stamps = Get-WeatherFlagTimestampTokens $baseFlag
     $firstSeen = $now
     $failures = 1
     $before = $prevTracking[$key]
@@ -342,6 +356,7 @@ foreach ($e in $entries) {
     $e | Add-Member -NotePropertyName condition_age_hours -NotePropertyValue $ageHours
     $e | Add-Member -NotePropertyName demoted -NotePropertyValue $demotedReason
     $e | Add-Member -NotePropertyName unclean_boots_7d -NotePropertyValue $uncleanBoots7d
+    $e | Add-Member -NotePropertyName owner_reset_ack -NotePropertyValue $ownerAck.ack
     if ($demotedReason) { $e.act = "$($e.act) [demoted: $demotedReason]" }
 }
 $entries = @($entries | Sort-Object { $rank[$_.severity] })
@@ -369,7 +384,7 @@ $record = [ordered]@{
     today = $(if ($status.streak) { [string]$status.streak.today } else { "?" })
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act
                 consecutive_failures = $_.consecutive_failures; condition_age_hours = $_.condition_age_hours
-                demoted = $_.demoted; unclean_boots_7d = $_.unclean_boots_7d } })
+                demoted = $_.demoted; unclean_boots_7d = $_.unclean_boots_7d; owner_reset_ack = $_.owner_reset_ack } })
     notes = $notes
     expected_disabled_tasks = $expectedDisabledTasks
     demoted_sweep_checks = $demotedSweepChecks

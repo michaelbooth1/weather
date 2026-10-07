@@ -61,17 +61,66 @@ function Get-WeatherSweepFlags {
     catch { "STALENESS_SWEEP: cannot read latest findings ($($_.Exception.Message))" }
 }
 
+# Owner 2026-10-07: Windows cannot tell the owner's manual reset from a crash, and every reset
+# in the prior 30 days was the owner's. scripts\ops\owner_reset_note.ps1 appends owner markers to
+# data\alerts\owner_resets\owner_resets_<yyyy-MM>.jsonl. This reads the month files covering
+# [$From, $To]. It fails closed: ANY malformed record in a scanned file returns an error and no
+# markers, so a damaged ledger can never annotate an alert.
+function Read-WeatherOwnerResetMarkers {
+    param([string]$Directory, [datetime]$From, [datetime]$To)
+    $invariant = [cultureinfo]::InvariantCulture
+    $markers = @()
+    try {
+        $month = New-Object datetime($From.Year, $From.Month, 1)
+        while ($month -le $To) {
+            $path = Join-Path $Directory ("owner_resets_{0}.jsonl" -f $month.ToString('yyyy-MM', $invariant))
+            $month = $month.AddMonths(1)
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            $item = Get-Item -LiteralPath $path -ErrorAction Stop
+            if ($item.Length -gt 1MB) { throw "$($item.Name) exceeds 1 MiB" }
+            $lineNo = 0
+            foreach ($line in [IO.File]::ReadAllLines($item.FullName)) {
+                $lineNo++
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $where = "$($item.Name) line $lineNo"
+                $rec = $null
+                try { $rec = $line.TrimStart([char]0xFEFF) | ConvertFrom-Json -ErrorAction Stop } catch { throw "$where is not JSON" }
+                if ($rec -isnot [System.Management.Automation.PSCustomObject]) { throw "$where is not a JSON object" }
+                $fields = @{}
+                foreach ($name in @('schema', 'at', 'note', 'recorded_at')) {
+                    $prop = $rec.PSObject.Properties[$name]
+                    if ($null -eq $prop -or $prop.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($prop.Value)) { throw "$where lacks string field '$name'" }
+                    $fields[$name] = [string]$prop.Value
+                }
+                if ($fields.schema -cne 'owner_reset_note_v1') { throw "$where has unknown schema" }
+                $at = [datetime]::MinValue
+                if (-not [datetime]::TryParseExact($fields.at, 'yyyy-MM-ddTHH:mm:ss', $invariant, [Globalization.DateTimeStyles]::None, [ref]$at)) { throw "$where has a malformed 'at'" }
+                if ($fields.note.Length -gt 200 -or $fields.note -match '[\x00-\x1F\x7F]') { throw "$where has a malformed 'note'" }
+                $markers += [pscustomobject]@{ at = $at; note = $fields.note; recorded_at = $fields.recorded_at; ledger = $item.Name }
+            }
+        }
+    }
+    catch { return [pscustomobject]@{ markers = @(); error = $_.Exception.Message } }
+    return [pscustomobject]@{ markers = $markers; error = $null }
+}
+
 # Swarm P audit 2026-10-07 G1: unclean boots with the outage interval, so the watchdog can
 # decide whether the outage overlapped the 12:00-18:00 graded window. $Boots holds
 # [pscustomobject]@{ boot = <datetime>; last_alive = <datetime or $null> }, any order.
+# With -OwnerResetDirectory, an owner marker inside the outage (or at most
+# -OwnerResetToleranceMinutes before it; before the boot when the start is unknown) ANNOTATES
+# the flag and fills owner_reset_ack. It never suppresses the flag or changes its text before
+# the annotation, so the watchdog's class, severity and dedupe key are unchanged.
 function Get-WeatherUncleanBootState {
-    param([object[]]$Boots = @(), [datetime]$Now = (Get-Date))
+    param([object[]]$Boots = @(), [datetime]$Now = (Get-Date),
+        [string]$OwnerResetDirectory = "", [int]$OwnerResetToleranceMinutes = 15)
     $invariant = [cultureinfo]::InvariantCulture
     $ordered = @(@($Boots) | Where-Object { $_ -and $_.boot } | Sort-Object { [datetime]$_.boot } -Descending)
     $state = [ordered]@{
         unclean_boots_7d  = @($ordered | Where-Object { ($Now - [datetime]$_.boot).TotalDays -le 7 }).Count
         unclean_boots_90d = @($ordered | Where-Object { ($Now - [datetime]$_.boot).TotalDays -le 90 }).Count
         last_unclean_boot = $null; outage_start = $null; outage_end = $null; flag = $null; warn = $null
+        owner_reset_ack = $null; owner_reset_note = $null
     }
     if ($ordered.Count -eq 0) { return [pscustomobject]$state }
     $boot = [datetime]$ordered[0].boot
@@ -87,6 +136,27 @@ function Get-WeatherUncleanBootState {
     if (($Now - $boot).TotalHours -lt 24) {
         $state.flag = ("UNEXPECTED SHUTDOWN: host booted {0} after an unclean shutdown (outage {1} -> {0}); {2} unclean boot(s) in 7d - verify today's capture grade; an outage inside 12:00-18:00 ends the streak" -f
             $bootText, $startText, $state.unclean_boots_7d)
+        if ($OwnerResetDirectory) {
+            $ackFrom = $boot
+            if ($ordered[0].last_alive) { $ackFrom = [datetime]$ordered[0].last_alive }
+            $ackFrom = $ackFrom.AddMinutes(-$OwnerResetToleranceMinutes)
+            $read = Read-WeatherOwnerResetMarkers -Directory $OwnerResetDirectory -From $ackFrom -To $boot
+            if ($read.error) {
+                $state.owner_reset_note = ("owner reset ledger unreadable ({0}) - UNEXPECTED SHUTDOWN is not annotated; repair the ledger record, never the alert" -f $read.error)
+            }
+            else {
+                $match = @(@($read.markers) | Where-Object { $_.at -ge $ackFrom -and $_.at -le $boot } |
+                    Sort-Object { $_.at } -Descending | Select-Object -First 1)
+                if ($match.Count -gt 0) {
+                    $ackText = $match[0].at.ToString('yyyy-MM-dd HH:mm', $invariant)
+                    $state.owner_reset_ack = [ordered]@{
+                        at = $match[0].at.ToString('o'); note = $match[0].note; recorded_at = $match[0].recorded_at
+                        ledger = $match[0].ledger; tolerance_minutes = $OwnerResetToleranceMinutes
+                    }
+                    $state.flag = ("{0} - owner reset acknowledged {1} ({2})" -f $state.flag, $ackText, $match[0].note)
+                }
+            }
+        }
     }
     elseif ($state.unclean_boots_90d -ge 3) {
         $state.warn = ("{0} unexpected shutdowns in 90d, {1} in 7d (most recent {2}) - power loss is the top uncontrolled streak risk; a UPS would remove it" -f
@@ -4704,9 +4774,10 @@ try {
     }
 }
 catch {}
-$hostStability = Get-WeatherUncleanBootState -Boots $uncleanBoots
+$hostStability = Get-WeatherUncleanBootState -Boots $uncleanBoots -OwnerResetDirectory (Join-Path $repo "data\alerts\owner_resets")
 if ($hostStability.flag) { $flags.Add([string]$hostStability.flag) }
 elseif ($hostStability.warn) { $warns.Add([string]$hostStability.warn) }
+if ($hostStability.owner_reset_note) { $warns.Add([string]$hostStability.owner_reset_note) }
 
 # ---- the watchdog itself (who watches the watcher) ----
 # health_watchdog.ps1 is what alerts overnight while nobody is awake. If IT dies, every
