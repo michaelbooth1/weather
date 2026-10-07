@@ -159,3 +159,15 @@ def test_a_run_over_many_bundles_is_bounded_by_the_shared_stored_total(nineteen,
     with pytest.raises(BundleError, match="^run_input_byte_cap$"):
         producer.universe(*nineteen, run=RunBudget(max_run_stored_bytes=sizes[0] + sizes[1] + 1))
     assert len(calls) == 3 and max(sizes) < V2Limits().max_bundle_stored_bytes
+
+
+def test_the_calibration_opens_are_charged_to_the_same_run(nineteen, monkeypatch):
+    """U1r2 Defender NOTE-4 (mutant M3): a run total one byte under all 19 bundles refuses only at the last
+    (calibration) open. If the calibration opens had their own per-bundle budget, nothing would refuse."""
+    total = sum(open_stream_bundle(p).input_bytes for p in (*nineteen[0], *nineteen[1]))
+    calls = _recording_opens(monkeypatch)
+    with pytest.raises(BundleError, match="^run_input_byte_cap$"):
+        producer.universe(*nineteen, run=RunBudget(max_run_stored_bytes=total - 1))
+    assert len(calls) == 19
+    exact = RunBudget(max_run_stored_bytes=total)
+    assert producer.universe(*nineteen, run=exact) and exact.stored_bytes == total

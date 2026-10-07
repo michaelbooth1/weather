@@ -430,3 +430,88 @@ def test_pb2a_non_normalised_input_keys_are_refused(exports, key):
     _reseal(root, export_edit=lambda e: e["input_hashes"].update({key: "0" * 64}))
     with pytest.raises(BundleError, match=f"^transfer_inputs_outside_day:{DAY}$"):
         build([("calibration_hazard", root)])
+
+
+OTHER = DAY + timedelta(days=1)
+OWN = f"maker_evidence/{DAY}/"
+
+
+@pytest.mark.parametrize("key", [
+    f"maker_evidence./{OTHER}/x.jsonl",  # Win32 strips the trailing dot: another day's real folder
+    f"C:/maker_evidence/{OTHER}/x.jsonl",
+    f"C:maker_evidence/{OTHER}/x.jsonl",
+    f"maker_ev\u0131dence/{OTHER}/x.jsonl",  # dotless i survives casefold
+    f"maker_evidence /{OTHER}/x.jsonl",
+    f"release:maker_evidence/{OTHER}/x.jsonl",
+    f"{OWN}x\x00/y",
+    f"{OWN}x\ty",
+    f"{OWN}CON",
+    f"{OWN}nul.txt",
+    f"{OWN}COM1",
+    f"{OWN}x.jsonl:ads",
+    f"{OWN}... ",
+    f"{OWN}.. ",
+    f"{OWN}a./b",
+    f"{OWN}x?y",
+    f"{OWN}\u00e9.jsonl",
+    OWN + "x" * 600,
+    "carry:2030-1-1",
+    "carry:../x",
+], ids=["trailing-dot", "drive-absolute", "drive-relative", "dotless-i", "trailing-space", "release-escape",
+        "nul", "control", "device-con", "device-nul-ext", "device-com1", "ads", "dots-space", "dotdot-space",
+        "dot-inside", "wildcard", "non-ascii", "too-long", "carry-malformed", "carry-path"])
+def test_pb2a_windows_aliases_and_unsafe_keys_are_refused(exports, key):
+    """U1r2 Defender NOTE-2: keys are ASCII printable, capped in length, with no drive, ADS, device name,
+    Windows-invalid character or segment ending in a dot or space; ``:`` only in ``carry:<date>`` and the
+    ``release:`` prefix, whose path obeys the same rule (including PB2(a)'s own-day evidence prefix)."""
+    root = exports["calibration_hazard"]
+    _reseal(root, export_edit=lambda e: e["input_hashes"].update({key: "0" * 64}))
+    with pytest.raises(BundleError, match=f"^transfer_inputs_outside_day:{DAY}$"):
+        build([("calibration_hazard", root)])
+
+
+@pytest.mark.parametrize("key", [
+    f"carry:{DAY - timedelta(days=1)}", "release:artifacts/maker/release.json",
+    f"release:{OWN}15-x/books.jsonl", f"{OWN}15-x.y/books.jsonl.gz", "snapshots/x/settlements.jsonl",
+])
+def test_pb2a_keys_the_exporter_writes_are_admitted(exports, key):
+    root = exports["calibration_hazard"]
+    _reseal(root, export_edit=lambda e: e["input_hashes"].update({key: "0" * 64}))
+    assert build([("calibration_hazard", root)])["bundles"]
+
+
+def test_a_deeply_nested_stream_line_refuses_as_a_bounds_bundle_error(exports):
+    """U1r2 Defender LOW-B: the bounds scan is the first parse of a plain line; a 200k-deep last line
+    (400 KB, under the line cap) refuses ``transfer_bounds_outside_day`` instead of escaping as
+    ``RecursionError``."""
+    kind = "calibration_v01_reference"
+    root = exports[kind]
+    name = json.loads((root / "bundle" / "bundle.json").read_bytes())["streams"][0]["path"]
+
+    def nest_last(raw):
+        lines = raw.splitlines(keepends=True)
+        lines[-1] = NESTED + b"\n"
+        return b"".join(lines)
+    _reseal(root, stream_edit=(name, nest_last))
+    doc = build([(kind, root)])
+    assert transfer.verify(doc, [(kind, root)], bounds_check=False)  # pass one does not parse the line
+    with pytest.raises(BundleError, match=f"^transfer_bounds_outside_day:{DAY}:{name}$"):
+        transfer.verify(doc, [(kind, root)])
+
+
+def test_the_bounds_scan_uses_the_shared_run_not_each_bundle_lifetime(exports, monkeypatch):
+    """U1r2 Defender NOTE-4 (mutant M1): a 2,000 s jump after the last open is under every bundle's own
+    32,768 s lifetime and under the 4,096 s pass cap, but past a 1,000 s caller run, so only the shared run
+    refuses the PB2(b) scan."""
+    pairs = list(exports.items())
+    doc = build(pairs)
+    clock = FakeClock()
+
+    def late(count):
+        if count % len(pairs) == 0:
+            clock.now += 2_000.0
+    _recording_opens(monkeypatch, after=late)
+    assert transfer.verify(doc, pairs, clock=clock, run=RunBudget(max_run_seconds=5_000, clock=clock))
+    clock.now = 0.0
+    with pytest.raises(BundleError, match="^run_time_cap$"):
+        transfer.verify(doc, pairs, clock=clock, run=RunBudget(max_run_seconds=1_000, clock=clock))

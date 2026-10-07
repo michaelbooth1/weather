@@ -470,25 +470,95 @@ U1_MODULES = ("src/maker_core/replay/v2/universe_v02.py", "src/maker_core/replay
 X1_READER_MODULES = ("maker_core.replay.bundle_v02", "maker_core.replay.v2.limits", "maker_core.replay.v2.gzip_stream")
 
 
+def _private(name):
+    return name.startswith("_") and not name.startswith("__") and name != "_"
+
+
+def _x1_private_names():
+    """Every private name X1's reader modules define or assign (``_stream``, ``_run``, ``_limits`` ...)."""
+    names = set()
+    for module in X1_READER_MODULES:
+        tree = ast.parse((V2.parents[2] / (module.replace(".", "/") + ".py")).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.add(node.id)
+    return {n for n in names if _private(n)}
+
+
+def _private_x1_uses(relative, source, x1_private):
+    """AST walk (U1 Defender r2 C1, U1r2 Defender NOTE-3): offenders in one U1 module's source.
+
+    Flags a private name imported from an X1 reader module (absolute or relative ``from ..bundle_v02``),
+    a private attribute of an X1 module alias, any attribute named like an X1 private (``bundle._run``,
+    ``bundle._limits``), ``getattr``/``setattr``/``hasattr``/``delattr`` with a private string, any dynamic
+    import (``__import__``, ``import_module``) and any ``__dict__``/``vars`` access."""
+    package = relative.removeprefix("src/").removesuffix(".py").replace("/", ".").rsplit(".", 1)[0]
+    tree, aliases, offenders = ast.parse(source), set(), []
+
+    def absolute(node):
+        if not node.level:
+            return node.module or ""
+        base = package.split(".")[:len(package.split(".")) - node.level + 1]
+        return ".".join(base + ([node.module] if node.module else []))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = absolute(node)
+            if module in X1_READER_MODULES:
+                offenders += [f"{relative}:import {a.name}" for a in node.names if _private(a.name) or a.name == "*"]
+            aliases |= {a.asname or a.name for a in node.names if f"{module}.{a.name}" in X1_READER_MODULES}
+        elif isinstance(node, ast.Import):
+            aliases |= {a.asname or a.name for a in node.names if a.name in X1_READER_MODULES}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and (node.attr == "__dict__" or _private(node.attr) and (
+                node.attr in x1_private or ast.unparse(node.value) in aliases)):
+            offenders.append(f"{relative}:{ast.unparse(node)}")
+        elif isinstance(node, ast.Call):
+            name = ast.unparse(node.func).rsplit(".", 1)[-1]
+            text = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            if name in ("__import__", "import_module", "vars") or (
+                    name in ("getattr", "setattr", "hasattr", "delattr") and any(_private(t) for t in text)):
+                offenders.append(f"{relative}:{ast.unparse(node)}")
+    return offenders
+
+
 def test_u1_modules_use_only_the_public_x1_reader_api():
     """U1 Defender r2 C1: U1 reads streams through ``bundle_v02.stream_records`` / ``StreamBundle.stream``,
     never a private symbol of X1's reader (``_stream`` and friends), so a rename there cannot silently break
     universe derivation."""
-    root = V2.parents[3]
+    root, x1_private = V2.parents[3], _x1_private_names()
+    assert {"_stream", "_run", "_limits"} <= x1_private
     offenders = []
     for relative in U1_MODULES:
-        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
-        aliases = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module in X1_READER_MODULES:
-                offenders += [f"{relative}:{a.name}" for a in node.names if a.name.startswith("_")]
-            elif isinstance(node, ast.ImportFrom) and node.module in ("maker_core.replay", "maker_core.replay.v2"):
-                aliases |= {a.asname or a.name for a in node.names if a.name in ("bundle_v02", "limits", "gzip_stream")}
-            elif isinstance(node, ast.Import):
-                aliases |= {a.asname or a.name for a in node.names if a.name in X1_READER_MODULES}
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute) and node.attr.startswith("_") and not node.attr.startswith("__")
-                    and ast.unparse(node.value) in aliases):
-                offenders.append(f"{relative}:{ast.unparse(node)}")
+        offenders += _private_x1_uses(relative, (root / relative).read_text(encoding="utf-8"), x1_private)
     assert offenders == []
     assert universe_v02.stream_records is __import__("maker_core.replay.bundle_v02", fromlist=["x"]).stream_records
+
+
+@pytest.mark.parametrize("probe", [
+    "from ..bundle_v02 import _stream as _hidden",  # the r2 Defender's probe, line 1 (relative, level 2)
+    'getattr(__import__("maker_core.replay.bundle_v02", fromlist=["x"]), "_stream")',  # probe line 2
+    "from .. import bundle_v02 as b\nb._stream",
+    "from . import limits\nlimits._positive_int",
+    "from maker_core.replay.bundle_v02 import _stream as z",
+    "import maker_core.replay.bundle_v02 as m\nm._stream",
+    "from maker_core.replay.bundle_v02 import *",
+    "def f(bundle):\n    return bundle._run",
+    "def f(bundle):\n    return bundle._limits",
+    'def f(bundle):\n    return getattr(bundle, "_run")',
+    'def f(bundle):\n    return vars(bundle)["_run"]',
+    'def f(bundle):\n    return bundle.__dict__["_run"]',
+    'import importlib\nimportlib.import_module("maker_core.replay.bundle_v02")',
+], ids=["relative-import", "getattr-dunder-import", "relative-alias", "sibling-alias", "absolute-alias",
+        "module-alias", "star", "run-attr", "limits-attr", "getattr-run", "vars", "dict", "import-module"])
+def test_the_private_api_lint_catches_each_probe(probe):
+    """U1r2 Defender NOTE-3: the Defender's probe (relative import + ``getattr`` string) survived the r2
+    lint; appended to the real ``universe_v02`` source, each probe now yields an offender."""
+    relative = U1_MODULES[0]
+    source = (V2.parents[3] / relative).read_text(encoding="utf-8")
+    x1_private = _x1_private_names()
+    assert _private_x1_uses(relative, source, x1_private) == []
+    assert _private_x1_uses(relative, source + "\n" + probe + "\n", x1_private) != []
