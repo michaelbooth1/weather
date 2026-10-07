@@ -167,7 +167,8 @@ trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTIN
 a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
 reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
 "Rising" is relative to the previous poll, not the day's running high, and a new-high pull never
-expires. Because a trigger's local detection date must equal the target date, these events reach
+expires. Owner decision (2026-10-07): keep this previous-poll rule for now, and switch supporting pulls
+to a rise above the day's running maximum before any policy quotes T+0. Because a trigger's local detection date must equal the target date, these events reach
 lead-0 (T+0) conditions only. Actions, legs, fills, P&L, pulled seconds and cell sums are
 unchanged for every policy. What changes on a day with T+0 supporting pulls: `blind_re1`'s band-day
 `fills_in_events`/`fills_outside_events` split (every policy's fill event window reads the info
