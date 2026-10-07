@@ -41,7 +41,8 @@ trap {
     if (Get-Command Close-WeatherLaunchDiagnostics -ErrorAction SilentlyContinue) {
         Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
     }
-    throw
+    [Console]::Error.WriteLine("workstation pre-gate driver failed: $($_.Exception.Message)")
+    exit 1
 }
 
 $pregateHostScriptRoot = $PSScriptRoot
@@ -95,9 +96,6 @@ function Test-WorkstationPregateStatement {
     )
 
     switch ($Rule) {
-        "trap" {
-            return $Statement -is [Management.Automation.Language.TrapStatementAst]
-        }
         "window" {
             return $Statement -is [Management.Automation.Language.IfStatementAst] -and
                 $Statement.Extent.Text.Contains("00:30-09:00 heavy-work window")
@@ -125,7 +123,7 @@ function Test-WorkstationPregateStatement {
 }
 
 $pregateStatements = @($pregateHostAst.EndBlock.Statements)
-$pregateRules = @("trap", "window", "hard_stop", "lease", "lease_check", "main")
+$pregateRules = @("window", "hard_stop", "lease", "lease_check", "main")
 foreach ($pregateRule in $pregateRules) {
     $pregateMatches = @($pregateStatements | Where-Object {
         Test-WorkstationPregateStatement -Statement $_ -Rule $pregateRule
@@ -136,6 +134,11 @@ foreach ($pregateRule in $pregateRules) {
             "$($pregateMatches.Count) top-level statements (expected exactly 1)"
         )
     }
+}
+# The host's single top-level trap only closes its launch journal; it lives in
+# EndBlock.Traps (never replayed) and this driver's own trap does the same.
+if (@($pregateHostAst.EndBlock.Traps).Count -ne 1) {
+    throw "host bounded suite drifted: expected exactly one top-level trap"
 }
 if (-not (Test-WorkstationPregateStatement -Statement $pregateStatements[-1] -Rule "main")) {
     throw "host bounded suite drifted: the main try statement is no longer last"
@@ -151,7 +154,6 @@ $script:pregateSkipNotes = @(
 $script:pregateSkipNotesWritten = $false
 
 foreach ($pregateStatement in $pregateStatements) {
-    if (Test-WorkstationPregateStatement -Statement $pregateStatement -Rule "trap") { continue }
     if (Test-WorkstationPregateStatement -Statement $pregateStatement -Rule "window") { continue }
     if (Test-WorkstationPregateStatement -Statement $pregateStatement -Rule "lease_check") { continue }
     if (Test-WorkstationPregateStatement -Statement $pregateStatement -Rule "hard_stop") {
