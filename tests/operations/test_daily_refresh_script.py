@@ -194,7 +194,7 @@ def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race
 
     assert '[string]$EvidenceAt = "00:35"' in registration
     assert '[ValidateSet("00:35")]' in registration
-    assert "$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt" in registration
+    assert "$stageBTrigger = New-WeatherLocalDailyTrigger -At $EvidenceAt" in registration
     assert "foreach ($time in $EvidenceAt)" not in registration
     assert '"--disable-stage-trigger"' in contract
     assert '"--skip-historical-audits"' in contract
@@ -229,7 +229,7 @@ def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
     assert "Disable-ScheduledTask -TaskName $EvidenceTaskName" in registration
     assert "$evidenceTaskReadback = @(Get-ScheduledTask" in registration
     assert 'Settings.ExecutionTimeLimit -ne "PT8H40M"' in registration
-    assert 'StartBoundary).ToString("HH:mm") -ne $EvidenceAt' in registration
+    assert "Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$evidenceTaskTriggers[0].StartBoundary) -At $EvidenceAt" in registration
     assert '$evidenceTaskState -ne "Disabled"' in registration
     assert '$evidenceTaskState -eq "Disabled"' in registration
 

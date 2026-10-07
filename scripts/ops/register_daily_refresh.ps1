@@ -62,6 +62,7 @@ $contractScript = Resolve-RequiredFile `
     (Join-Path $RepoRoot "scripts\ops\daily_refresh_contract.ps1") `
     "daily refresh contract"
 . $contractScript
+. (Join-Path $PSScriptRoot "scheduled_task_local_trigger.ps1")
 
 $powerShellCommand = Get-Command $PowerShellExecutable `
     -CommandType Application -ErrorAction Stop
@@ -145,7 +146,7 @@ $stageAAction = New-ScheduledTaskAction `
     -Argument $stageAArguments `
     -WorkingDirectory $RepoRoot
 
-$stageATrigger = New-ScheduledTaskTrigger -Daily -At $At
+$stageATrigger = New-WeatherLocalDailyTrigger -At $At
 
 $stageASettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
@@ -175,7 +176,7 @@ $stageBAction = New-ScheduledTaskAction `
     -Argument $stageBArguments `
     -WorkingDirectory $RepoRoot
 
-$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt
+$stageBTrigger = New-WeatherLocalDailyTrigger -At $EvidenceAt
 
 $stageBSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
@@ -208,10 +209,18 @@ $evidenceTaskState = [string]$evidenceTaskReadback[0].State
 $evidenceTaskTriggers = @($evidenceTaskReadback[0].Triggers)
 if (
     $evidenceTaskTriggers.Count -ne 1 -or
-    ([datetime]$evidenceTaskTriggers[0].StartBoundary).ToString("HH:mm") -ne $EvidenceAt -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$evidenceTaskTriggers[0].StartBoundary) -At $EvidenceAt) -or
     [string]$evidenceTaskReadback[0].Settings.ExecutionTimeLimit -ne "PT8H40M"
 ) {
     throw "evidence task '$EvidenceTaskName' trigger or PT8H40M cleanup limit disagrees"
+}
+$stageATaskReadback = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop)
+if (
+    $stageATaskReadback.Count -ne 1 -or
+    @($stageATaskReadback[0].Triggers).Count -ne 1 -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]@($stageATaskReadback[0].Triggers)[0].StartBoundary) -At $At)
+) {
+    throw "settlement task '$TaskName' trigger is not one local (unzoned) daily boundary at $At"
 }
 if (-not $EnableEvidenceTask -and $evidenceTaskState -ne "Disabled") {
     throw "evidence task '$EvidenceTaskName' must remain disabled without -EnableEvidenceTask"

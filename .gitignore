@@ -69,3 +69,5 @@ config/local/
 **/.claude/first-run
 **/.claude/assistant-daemon-state.json
 .ruff_cache/
+# Credential blobs (Swarm P S09-2); the credential vault, not the tree, holds them.
+*.cred

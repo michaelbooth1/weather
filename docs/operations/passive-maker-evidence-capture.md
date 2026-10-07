@@ -163,8 +163,15 @@ capture command is not admitted as an offline workload.
 
 Only the production operator runs the registrar without `-WhatIf`, after
 integration qualification and dependency verification. `WeatherMakerEvidenceCapture`
-uses current-user S4U/Limited, IgnoreNew and a one-minute retry trigger; one
-long-running Python worker owns the lock. A Critical disk stop remains visible
+uses current-user S4U/Limited, IgnoreNew and a retry trigger; one
+long-running Python worker owns the lock. The **intended** retry interval is
+five minutes (`PT5M`, owner-approved efficiency audit 2026-09-27 in the
+[decision log](DECISION_LOG.md)): with the worker holding the lock, a one-minute
+trigger only produced about 1,440 refused starts a day. The host runs PT5M. The
+registrar still writes `PT1M`, so re-running it unchanged would revert the
+interval; aligning the registrar is an open owner question held behind the 88a
+freeze (Swarm P audit F2, 2026-10-07). Until it is answered, re-registration
+must restore PT5M on the trigger afterwards and read it back. A Critical disk stop remains visible
 and subsequent triggers keep refusing capture until disk recovers. The worker
 never stops another process. `scripts/ops/status.ps1` reads `status.json`, flags
 missing/stale/non-capturing state when armed and displays band count/disk/cap.

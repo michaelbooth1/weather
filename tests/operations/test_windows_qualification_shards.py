@@ -76,6 +76,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_cold_snapshot_compression_wrapper.py",
             "tests/operations/test_integration_phase_output.py",
             "tests/operations/test_health_watchdog_script.py",
+            "tests/operations/test_dst_audit_powershell_20261007.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_merge_queue_driver_dry.py",
@@ -137,6 +138,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
             "tests/operations/test_thin_ensure.py",
+            "tests/operations/test_scheduled_task_local_daily_triggers.py",
+            "tests/operations/test_exchange_economics_refresh_script.py",
         ],
     ),
     "reconciler-1": (
