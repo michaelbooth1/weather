@@ -374,7 +374,7 @@ def cut_env(tmp_path):
     plan = {
         "schema": h1.PLAN_SCHEMA,
         "rev": "r-test",
-        "spec_source_dir": str(specs),
+        "spec_source_dir": "specs",
         "build_line_commit": "HEAD",
         "spec_cuts": [
             {"id": "H-1", "source": "spec-a.md", "sha256": _sha((specs / "spec-a.md").read_bytes()),
@@ -387,7 +387,7 @@ def cut_env(tmp_path):
                         "blob": h1.git_blob_id(f"# synthetic {item}\nVALUE = 1\n".encode())}
                        for item, path in CODE_PATHS.items()],
         "text_89a": {"id": "H-10", "path": TEXT_89A, "sha256": _sha(b"# 89a contract (synthetic)\n")},
-        "rulings_sheet": {"id": "H-11", "file": str(rulings), "sha256": _sha(rulings.read_bytes())},
+        "rulings_sheet": {"id": "H-11", "file": "rulings.md", "sha256": _sha(rulings.read_bytes())},
         "cover_prompt": None,
     }
     plan_file = tmp_path / "plan.json"
@@ -452,7 +452,7 @@ def test_cut_refuses_import_in_filtered_tree(cut_env):
 @pytest.mark.spawns
 def test_cut_refuses_section4_hit_in_rulings_sheet(cut_env):
     plan = cut_env["plan"]
-    rulings = Path(plan["rulings_sheet"]["file"])
+    rulings = cut_env["tmp"] / plan["rulings_sheet"]["file"]
     rulings.write_text("# Rulings\nthe state.legs field\n", encoding="utf-8")
     plan["rulings_sheet"]["sha256"] = _sha(rulings.read_bytes())
     with pytest.raises(h1.CutRefused, match="§4 check"):
@@ -468,7 +468,8 @@ def test_rebind_identical_and_differing(cut_env, capsys):
     _git(repo, "commit", "-q", "-am", "unrelated change")
     identical = _git(repo, "rev-parse", "HEAD")
     record, _ = h1.run_rebind(manifest_file, repo, identical)
-    assert record["new_commit"] == identical and len(record["files"]) == 4
+    assert record["new_commit"] == identical
+    assert [f["id"] for f in record["files"]] == ["H-10", "H-6", "H-7", "H-8", "H-9"]
     _write_tree(repo, {CODE_PATHS["H-9"]: "# synthetic H-9\nVALUE = 2\n"})
     _git(repo, "commit", "-q", "-am", "policy change")
     assert h1.main(["rebind", "--manifest", str(manifest_file), "--repo", str(repo), "--commit", "HEAD"]) == 2
@@ -558,3 +559,140 @@ def test_r4b_list_rejects_unknown_class_and_duplicates():
         h1._withheld_map((("a.md", "other"),))
     with pytest.raises(h1.CutRefused, match="listed twice"):
         h1._withheld_map((("a.md", "path-mention"), ("a.md", "path-mention")))
+
+
+# --------------------------------------------------------------------------- Defender B1 and should-fixes
+
+
+@pytest.mark.parametrize(
+    ("path", "excluded"),
+    [
+        ("docs/research/maker-replay-v2-rule4b-results/s3_real_40.json", True),
+        ("docs/research/maker-replay-v2-x/deep/a.json", True),
+        ("docs/research/Maker-Replay-V2-plan.md", True),
+        (f"SRC/{PKG.upper()}/Replay/V2/kernel.py", True),
+        ("docs/research/maker-replay-v1-x/a.json", False),
+    ],
+)
+def test_exclusion_globs_cover_directories_and_case(path, excluded):
+    assert h1.excluded_by(path) is excluded
+
+
+@pytest.mark.parametrize("name", ["src" + chr(92) + "x.py", "C:/x.py", '"quoted"', "a\nb"])
+def test_tree_path_refuses_unsupported_forms(name):
+    with pytest.raises(h1.CutRefused, match="unsupported path"):
+        h1.check_tree_path(name)
+
+
+@pytest.mark.spawns
+def test_v2_named_path_refuses_unless_handout_item(cut_env):
+    _commit_files(cut_env["repo"], {"docs/notes/foo-MRV2.json": "{\"x\": 1}\n"}, "v2 name")
+    with pytest.raises(h1.CutRefused, match="foo-MRV2.json: path name says replay v2"):
+        _cut(cut_env)
+    files, _ = h1.filtered_files(cut_env["repo"], "HEAD", (), {"docs/notes/foo-mrv2.json"})
+    assert "docs/notes/foo-MRV2.json" in {entry.path for entry, _ in files}
+
+
+@pytest.mark.spawns
+def test_case_colliding_tree_paths_refuse(cut_env):
+    repo = cut_env["repo"]
+    blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=b"x\n", check=True,
+                          capture_output=True).stdout.decode().strip()
+    tree = subprocess.run(["git", "-C", str(repo), "mktree"], input=f"100644 blob {blob}\tA.md\n100644 blob {blob}\ta.md\n"
+                          .encode(), check=True, capture_output=True).stdout.decode().strip()
+    with pytest.raises(h1.CutRefused, match="case-colliding"):
+        h1.list_tree(repo, tree)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "from pathlib import Path\nROOT = Path('src') / ('maker' + '_core') / 'replay'\n",
+        "PKG = '_'.join(['maker', 'core'])\nimport importlib\nimportlib.import_module(PKG + '.replay')\n",
+    ],
+)
+def test_folded_forms_refuse(body):
+    assert h1.refusal_reasons("tools/x.py", body.encode())
+
+
+def test_utf16_and_archive_files_refuse():
+    assert any("UTF-16" in r for r in h1.refusal_reasons("tools/x.py", "VALUE = 1\n".encode("utf-16")))
+    assert any("archive" in r for r in h1.refusal_reasons("tools/x.zip", b"PK\x03\x04"))
+
+
+@pytest.mark.spawns
+def test_r1_no_reflog_and_fixed_identity(standalone):
+    assert not (standalone / ".git" / "logs").exists()
+    ident = _git(standalone, "log", "-1", "--format=%an <%ae> %at|%cn <%ce> %ct", "main")
+    assert ident == "H1 cut <h1-cut@example.invalid> 946684800|H1 cut <h1-cut@example.invalid> 946684800"
+    (standalone / ".git" / "logs").mkdir()
+    with pytest.raises(h1.CutRefused, match="logs"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_local_identity(standalone):
+    _git(standalone, "config", "user.name", "Someone")
+    with pytest.raises(h1.CutRefused, match="identity"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_cut_refuses_absolute_plan_path(cut_env):
+    plan = cut_env["plan"]
+    plan["rulings_sheet"]["file"] = str(cut_env["tmp"] / "rulings.md")
+    with pytest.raises(h1.CutRefused, match="is absolute"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_cut_refuses_abbreviated_code_pin(cut_env):
+    plan = cut_env["plan"]
+    plan["code_items"][0]["blob"] = plan["code_items"][0]["blob"][:8]
+    with pytest.raises(h1.CutRefused, match="full 40-hex blob id"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_manifest_holds_no_absolute_paths(cut_env):
+    _cut(cut_env)
+    raw = (cut_env["tmp"] / "out" / h1.MANIFEST_NAME).read_text(encoding="utf-8")
+    tmp = str(cut_env["tmp"])
+    assert all(form not in raw for form in (tmp, tmp.replace("\\", "/"), json.dumps(tmp)[1:-1], cut_env["tmp"].name))
+    manifest = json.loads(raw)
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["cut_script_blob"])
+
+
+@pytest.mark.spawns
+def test_rulings_sheet_from_repository_path(cut_env):
+    _commit_files(cut_env["repo"], {"docs/rulings.md": "# Rulings\nOD23: decide() unchanged.\n"}, "rulings")
+    plan = cut_env["plan"]
+    plan["rulings_sheet"] = {"id": "H-11", "path": "docs/rulings.md", "commit": "HEAD",
+                             "sha256": _sha(b"# Rulings\nOD23: decide() unchanged.\n")}
+    manifest, _ = _cut(cut_env, plan=plan)
+    row = next(r for r in manifest["handout"] if r["id"] == "H-11")
+    assert row["source"] == "docs/rulings.md" and row["handout_path"] == "rulings.md"
+
+
+def test_cut_script_identity_refuses_crlf(monkeypatch, tmp_path):
+    crlf = tmp_path / "script.py"
+    crlf.write_bytes(b"x = 1\r\n")
+    monkeypatch.setattr(h1, "__file__", str(crlf))
+    with pytest.raises(h1.CutRefused, match="CRLF"):
+        h1.cut_script_identity()
+
+
+@pytest.mark.spawns
+def test_rebind_refuses_non_descendant_and_89a_change(cut_env):
+    _cut(cut_env)
+    manifest_file = cut_env["tmp"] / "out" / h1.MANIFEST_NAME
+    repo = cut_env["repo"]
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "--orphan", "unrelated")
+    _git(repo, "commit", "-q", "-m", "unrelated root")
+    with pytest.raises(h1.CutRefused, match="does not descend"):
+        h1.run_rebind(manifest_file, repo, "unrelated")
+    _git(repo, "checkout", "-q", "-B", "line", base)
+    _commit_files(repo, {TEXT_89A: "# 89a contract (changed)\n"}, "89a change")
+    with pytest.raises(h1.CutRefused, match="H-10"):
+        h1.run_rebind(manifest_file, repo, "HEAD")

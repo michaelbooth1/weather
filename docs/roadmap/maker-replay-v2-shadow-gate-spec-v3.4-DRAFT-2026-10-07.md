@@ -505,6 +505,11 @@ tests/operations/test_maker_replay_v2_*
 - **R4b (master agent's ruling, 2026-10-07):** those 28 files and the cut script are withheld by the recorded list
   `R4B_WITHHELD` in the cut script, each with a reason class; the manifest lists path and class only, never content.
   An unlisted hit still refuses, and so does a listed entry that is missing, no longer hits or changes class.
+- **Glob semantics (Defender B1, 2026-10-07):** every glob above is matched case-insensitively, and a pattern whose
+  last segment matches a directory also excludes everything below it, so `docs/research/maker-replay-v2-*` covers the
+  `docs/research/maker-replay-v2-rule4b-results/` engine-output directory. As a second control, any included path
+  whose name matches `replay[-_]?v2` or `mrv2` (any case) refuses unless it is a handout item's source. Tree paths
+  with a backslash or a colon, and paths that collide when case-folded, refuse.
 
 The §4 check does **not** run over this tree; it runs only on the handout tree. The tree filter is a second, separate
 control.

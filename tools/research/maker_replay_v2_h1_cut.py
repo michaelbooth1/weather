@@ -17,9 +17,14 @@ Modes:
             repository in a NEW directory holding one parentless commit; assert the
             R1 invariants; write ``H1-manifest.json`` and print its SHA-256, the
             binding value. Any refusal deletes the partial output directory.
-``rebind``  Given a manifest and a new build-line commit, verify that the code items
-            (H-6..H-9) are byte-identical there (R2). Identical: print a re-bind
-            record. Different: exit non-zero with a diff summary (a re-hand).
+            Globs are case-insensitive and cover everything below a matching
+            directory; an included path whose name says replay v2 refuses unless it
+            is a handout source (Defender B1). Plan paths are relative, code pins are
+            full blob ids, and a CRLF checkout of this script is refused.
+``rebind``  Given a manifest and a new build-line commit that descends from the cut
+            commit, verify that the code items (H-6..H-9) and the 89a text (H-10) are
+            byte-identical there (R2). Identical: print a re-bind record. Different:
+            exit non-zero with a diff summary (a re-hand).
 
 Exit codes: 0 success, 2 refused (fail closed), 1 usage error.
 """
@@ -186,6 +191,12 @@ REPLAY_TEXT = re.compile(_MC + r"\s*[./\\]+\s*replay", re.IGNORECASE)
 DYNAMIC_IMPORT_CALLS = frozenset(
     {"import_module", "__import__", "find_spec", "spec_from_file_location", "run_module", "run_path", "load_module"}
 )
+
+# Belt and braces for B1: an included path whose name says v2 refuses unless it is a
+# handout item's source path. Archive and bytecode files refuse outright (unscannable).
+V2_PATH_NAME = re.compile(r"replay[-_]?v2|mrv2", re.IGNORECASE)
+UNSCANNABLE_SUFFIXES = (".pyc", ".pyo", ".pyd", ".zip", ".egg", ".whl", ".tar", ".gz", ".tgz", ".bz2", ".xz",
+                        ".7z", ".jar")
 
 # R4b (master agent's ruling, 2026-10-07): the recorded exclusion list. These are the
 # R4 refusal hits at 501f47579 outside every §5 glob, plus this cut script. Each was
@@ -462,6 +473,8 @@ def drift_check(source: bytes) -> dict:
 
 
 def glob_regex(pattern: str) -> re.Pattern[str]:
+    """Glob to regex. Case-insensitive; like gitignore, a pattern whose last segment
+    matches a directory also excludes everything below it (Defender B1)."""
     parts = pattern.split("/")
     out = []
     for index, part in enumerate(parts):
@@ -470,8 +483,8 @@ def glob_regex(pattern: str) -> re.Pattern[str]:
             out.append("(?:[^/]+/)*[^/]+" if last else "(?:[^/]+/)*")
             continue
         segment = "".join("[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c) for c in part)
-        out.append(segment if last else segment + "/")
-    return re.compile("".join(out))
+        out.append(segment + "(?:/.+)?" if last else segment + "/")
+    return re.compile("".join(out), re.IGNORECASE)
 
 
 _GLOB_RES = tuple(glob_regex(g) for g in EXCLUSION_GLOBS)
@@ -481,7 +494,17 @@ def excluded_by(path: str, globs: Iterable[re.Pattern[str]] = _GLOB_RES) -> bool
     return any(g.fullmatch(path) for g in globs)
 
 
+def _is_utf16(data: bytes) -> bool:
+    return data.startswith((b"\xff\xfe", b"\xfe\xff")) or (len(data) >= 4 and data.count(b"\x00") * 4 >= len(data))
+
+
 def _decode(data: bytes) -> str:
+    if _is_utf16(data):
+        for codec in ("utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                return data.decode(codec)
+            except UnicodeDecodeError:
+                continue
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
@@ -507,6 +530,12 @@ def _fold(node: ast.AST) -> str | None:
         return None if left is None or right is None else left + right
     if isinstance(node, ast.JoinedStr):
         return "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join"
+            and len(node.args) == 1 and isinstance(node.args[0], (ast.List, ast.Tuple))):
+        sep = _fold(node.func.value)
+        items = [_fold(e) for e in node.args[0].elts]
+        if sep is not None and all(i is not None for i in items):
+            return sep.join(items)
     return None
 
 
@@ -596,10 +625,12 @@ def _python_reasons(path: str, text: str) -> list[str]:
                 dynamic_nonconst = True
             elif REPLAY_TEXT.search(folded) or _is_replay_module(folded):
                 reasons.append(f"dynamic import of {folded}")
-        if isinstance(node, (ast.BinOp, ast.JoinedStr)):
+        if isinstance(node, (ast.BinOp, ast.JoinedStr, ast.Call)):
             folded = _fold(node)
-            if folded is not None and REPLAY_TEXT.search(folded):
-                reasons.append("folded string expression names the replay package")
+            if folded is not None and not isinstance(node, ast.Constant):
+                if REPLAY_TEXT.search(folded):
+                    reasons.append("folded string expression names the replay package")
+                constants.append((getattr(node, "lineno", 0), getattr(node, "col_offset", 0), folded))
     strings = [value for _, _, value in sorted(constants)]
     reasons.extend(_string_reasons(strings, imports_mc, dynamic_nonconst))
     return reasons
@@ -609,6 +640,12 @@ def refusal_reasons(path: str, data: bytes) -> list[str]:
     """R4: why ``path`` must not be in the filtered tree (empty list: allowed)."""
     text = _decode(data)
     reasons = []
+    if REPLAY_TEXT.search(data.decode("latin-1")):
+        reasons.append("raw bytes name the replay package")
+    if path.lower().endswith(UNSCANNABLE_SUFFIXES):
+        reasons.append("archive or bytecode file (unscannable; fail closed)")
+    if path.endswith((".py", ".pyi", ".pyw")) and _is_utf16(data):
+        reasons.append("UTF-16 python source (fail closed)")
     if REPLAY_TEXT.search(text):
         reasons.append("text names the replay package")
     if path.endswith((".py", ".pyi", ".pyw")):
@@ -634,10 +671,19 @@ def list_tree(repo: Path, commit: str) -> list[TreeEntry]:
         name = path.decode("utf-8")
         if kind != "blob" or mode not in ("100644", "100755"):
             raise CutRefused(f"filtered tree: unsupported entry {name} (mode {mode}, {kind}); fail closed")
-        if "\n" in name or name.startswith('"'):
-            raise CutRefused(f"filtered tree: unsupported path {name!r}")
+        check_tree_path(name)
         entries.append(TreeEntry(name, mode, blob))
+    folded: dict[str, str] = {}
+    for entry in entries:
+        other = folded.setdefault(entry.path.casefold(), entry.path)
+        if other != entry.path:
+            raise CutRefused(f"filtered tree: case-colliding paths {other!r} and {entry.path!r}")
     return entries
+
+
+def check_tree_path(name: str) -> None:
+    if "\n" in name or name.startswith('"') or "\\" in name or ":" in name:
+        raise CutRefused(f"filtered tree: unsupported path {name!r} (fail closed)")
 
 
 class BlobReader:
@@ -688,13 +734,14 @@ def _withheld_map(withheld: Sequence[tuple[str, str]]) -> dict[str, str]:
     return mapping
 
 
-def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD
-                   ) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
+def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
+                   handout_sources: Iterable[str] = ()) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
     """Apply the §5 globs, the R4b recorded list, then the R4 refusal over every remaining file.
 
     Returns the kept files and the withheld records (path and reason class only).
     """
     listed = _withheld_map(withheld)
+    allowed_names = {p.casefold() for p in handout_sources}
     files: list[tuple[TreeEntry, bytes]] = []
     records: list[dict] = []
     refused: list[str] = []
@@ -721,6 +768,8 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
                 else:
                     records.append({"path": entry.path, "reason_class": cls})
                 continue
+            if V2_PATH_NAME.search(entry.path) and entry.path.casefold() not in allowed_names:
+                reasons = [*reasons, "path name says replay v2 and it is not a handout item"]
             if reasons:
                 refused.append(f"{entry.path}: {'; '.join(reasons)}")
             files.append((entry, data))
@@ -764,6 +813,7 @@ def create_standalone_repo(repo_dir: Path, files: Sequence[tuple[TreeEntry, byte
     with tempfile.TemporaryDirectory() as empty_template:
         git(repo_dir, "init", "-q", f"--template={empty_template}", f"--initial-branch={BRANCH}")
     git(repo_dir, "config", "core.longpaths", "true")
+    git(repo_dir, "config", "core.logAllRefUpdates", "false")
     stream = io.BytesIO()
     stream.write(b"commit refs/heads/" + BRANCH.encode() + b"\n")
     stream.write(b"author " + SNAPSHOT_IDENT + b"\n")
@@ -779,6 +829,7 @@ def create_standalone_repo(repo_dir: Path, files: Sequence[tuple[TreeEntry, byte
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     git(repo_dir, "read-tree", BRANCH)
+    remove_tree(repo_dir / ".git" / "logs")
     commit = git(repo_dir, "rev-parse", BRANCH).decode().strip()
     tree = git(repo_dir, "rev-parse", f"{BRANCH}^{{tree}}").decode().strip()
     return {"commit": commit, "tree": tree}
@@ -790,7 +841,7 @@ def assert_r1_invariants(repo_dir: Path) -> dict:
     if not git_dir.is_dir():
         raise CutRefused("R1: .git is not a directory (a gitfile or worktree link is not standalone)")
     for relative in ("objects/info/alternates", "objects/info/http-alternates", "commondir", "info/grafts",
-                     "shallow", "worktrees", "modules"):
+                     "shallow", "worktrees", "modules", "logs", "hooks", "FETCH_HEAD", "ORIG_HEAD"):
         if (git_dir / relative).exists():
             raise CutRefused(f"R1: {relative} must be absent")
     packed = git_dir / "packed-refs"
@@ -799,7 +850,10 @@ def assert_r1_invariants(repo_dir: Path) -> dict:
             line = line.strip()
             if line and not line.startswith(("#", "^")) and line.split(" ", 1)[-1] != f"refs/heads/{BRANCH}":
                 raise CutRefused("R1: packed-refs holds another ref")
-    commits =git(repo_dir, "rev-list", "--all").decode().split()
+    identity = git(repo_dir, "config", "--local", "--get-regexp", r"^(user|author|committer)\.", check=False).strip()
+    if identity:
+        raise CutRefused("R1: an identity is configured in the repository")
+    commits = git(repo_dir, "rev-list", "--all").decode().split()
     if len(commits) != 1:
         raise CutRefused(f"R1: git rev-list --all counts {len(commits)} commits, not exactly 1")
     parents = git(repo_dir, "rev-list", "--parents", "-n", "1", commits[0]).decode().split()
@@ -817,7 +871,12 @@ def assert_r1_invariants(repo_dir: Path) -> dict:
     reachable = {line.split(" ", 1)[0] for line in git(repo_dir, "rev-list", "--objects", "--all").decode().splitlines()}
     if present != reachable:
         raise CutRefused(f"R1: {len(present - reachable)} object(s) not reachable from the snapshot commit")
-    return {"rev_list_all": 1, "parents": 0, "remotes": 0, "alternates": "absent", "refs": refs,
+    ident = SNAPSHOT_IDENT.decode()
+    for field_name in ("an", "ae", "at", "cn", "ce", "ct"):
+        value = git(repo_dir, "log", "-1", f"--format=%{field_name}", commits[0]).decode().strip()
+        if value not in ident:
+            raise CutRefused("R1: the snapshot commit does not carry the fixed identity")
+    return {"rev_list_all": 1, "parents": 0, "remotes": 0, "alternates": "absent", "logs": "absent", "refs": refs,
             "objects": len(present)}
 
 
@@ -842,8 +901,30 @@ class HandoutFile:
 
 
 def _plan_path(plan_dir: Path, value: str) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else plan_dir / path
+    """Plan paths are relative to the plan file; an absolute path is refused (host-specific binding)."""
+    if Path(value).is_absolute() or PurePosixPath(value).is_absolute() or re.match(r"^[A-Za-z]:", value):
+        raise CutRefused(f"plan path {value!r} is absolute; use a path relative to the plan file")
+    return plan_dir / value
+
+
+def _read_pinned_item(item: dict, plan_dir: Path, repo: Path, label: str) -> tuple[bytes, str, dict]:
+    """A pinned text item: ``{"path", "commit"}`` read from the repository, or ``{"file"}``
+    relative to the plan. Returns (bytes, source label, extra manifest fields)."""
+    if "path" in item and "commit" in item:
+        commit = resolve_commit(repo, item["commit"])
+        data = read_blob_at(repo, commit, safe_relpath(item["path"], label))
+        verify_sha256(data, item["sha256"], label)
+        return data, item["path"], {"source_commit": commit}
+    data = _read_pinned_file(_plan_path(plan_dir, item["file"]), item["sha256"], label)
+    return data, PurePosixPath(item["file"].replace("\\", "/")).name, {}
+
+
+def cut_script_identity() -> dict:
+    """The executing script's hash; a CRLF checkout is refused so the binding cannot drift."""
+    data = Path(__file__).read_bytes()
+    if b"\r" in data:
+        raise CutRefused("the cut script holds CR bytes (CRLF checkout); check it out with LF endings")
+    return {"cut_script_sha256": sha256_hex(data), "cut_script_blob": git_blob_id(data)}
 
 
 def _read_pinned_file(path: Path, expected: str, label: str) -> bytes:
@@ -893,6 +974,8 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     plan_dir = plan_file.resolve().parent
     commit = resolve_commit(repo, plan["build_line_commit"])
 
+    script_identity = cut_script_identity()
+
     # 1. Every pin is verified before any line is read.
     spec_dir = _plan_path(plan_dir, plan["spec_source_dir"])
     raw_specs: dict[str, bytes] = {}
@@ -904,26 +987,28 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         raise CutRefused(f"plan lacks spec cuts for table sources {sorted(missing)}")
     code_raw: dict[str, bytes] = {}
     for item in plan["code_items"]:
+        if not re.fullmatch(r"[0-9a-f]{40}", item.get("blob", "")):
+            raise CutRefused(f"{item['id']}: the code-item pin must be a full 40-hex blob id")
         data = read_blob_at(repo, commit, safe_relpath(item["path"], item["id"]))
-        if not hash_matches(git_blob_id(data), item["blob"]):
+        if git_blob_id(data) != item["blob"]:
             raise CutRefused(f"{item['id']}: blob id mismatch at {commit[:12]} for {item['path']}")
         code_raw[item["id"]] = data
     text89 = plan["text_89a"]
     data89 = read_blob_at(repo, commit, safe_relpath(text89["path"], text89["id"]))
     verify_sha256(data89, text89["sha256"], text89["id"])
     rulings = plan["rulings_sheet"]
-    rulings_data = _read_pinned_file(_plan_path(plan_dir, rulings["file"]), rulings["sha256"], rulings["id"])
+    rulings_data, rulings_source, rulings_extra = _read_pinned_item(rulings, plan_dir, repo, rulings["id"])
     cover = plan.get("cover_prompt")
     if cover:
-        cover_data = _read_pinned_file(_plan_path(plan_dir, cover["file"]), cover["sha256"], cover["id"])
+        cover_data, cover_source, cover_extra = _read_pinned_item(cover, plan_dir, repo, cover["id"])
     else:
         cover_data = (b"# H-12 cover prompt: PLACEHOLDER\n\nThe signed cover prompt is not written yet. A manifest "
                       b"that carries this placeholder is not bindable.\n")
     spec_in_force = plan.get("spec_in_force")
     spec_in_force_row = None
     if spec_in_force:
-        sif = _read_pinned_file(_plan_path(plan_dir, spec_in_force["file"]), spec_in_force["sha256"], "spec_in_force")
-        spec_in_force_row = {"name": Path(spec_in_force["file"]).name, "sha256": sha256_hex(sif)}
+        sif, sif_source, _ = _read_pinned_item(spec_in_force, plan_dir, repo, "spec_in_force")
+        spec_in_force_row = {"name": sif_source, "sha256": sha256_hex(sif)}
 
     # 2. Apply the §3 table.
     texts: dict[str, str] = {}
@@ -946,13 +1031,15 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     handout.append(HandoutFile(text89["id"], "text_89a", safe_relpath(text89.get("handout_path", text89["path"]),
                                text89["id"]), data89, text89["path"], text89["sha256"], {"commit": commit}))
     handout.append(HandoutFile(rulings["id"], "rulings_sheet",
-                               safe_relpath(rulings.get("handout_path", Path(rulings["file"]).name), rulings["id"]),
-                               rulings_data, Path(rulings["file"]).name, rulings["sha256"]))
+                               safe_relpath(rulings.get("handout_path", PurePosixPath(rulings_source).name),
+                                            rulings["id"]),
+                               rulings_data, rulings_source, rulings["sha256"], rulings_extra))
     cover_id = cover["id"] if cover else "H-12"
-    cover_path = cover.get("handout_path", Path(cover["file"]).name) if cover else "H-12-cover-prompt-PLACEHOLDER.md"
+    cover_path = (cover.get("handout_path", PurePosixPath(cover_source).name) if cover
+                  else "H-12-cover-prompt-PLACEHOLDER.md")
     handout.append(HandoutFile(cover_id, "cover_prompt", safe_relpath(cover_path, cover_id), cover_data,
-                               Path(cover["file"]).name if cover else "placeholder", sha256_hex(cover_data),
-                               {} if cover else {"placeholder": True}))
+                               cover_source if cover else "placeholder", sha256_hex(cover_data),
+                               cover_extra if cover else {"placeholder": True}))
     paths = [h.handout_path for h in handout]
     if len(set(p.lower() for p in paths)) != len(paths):
         raise CutRefused("handout paths are not unique")
@@ -981,7 +1068,9 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         checks["kernel_drift"] = drift_check(read_blob_at(repo, commit, KERNEL_PATH))
 
     # 5. Filtered tree, standalone repository, R1.
-    files, withheld_records = filtered_files(repo, commit, withheld)
+    handout_sources = {item["path"] for item in plan["code_items"]} | {text89["path"]}
+    handout_sources |= {row["path"] for row in (rulings, cover or {}, spec_in_force or {}) if "commit" in row}
+    files, withheld_records = filtered_files(repo, commit, withheld, handout_sources)
     checks["import_refusal_files"] = 0
     out_dir.mkdir(parents=True)
     try:
@@ -998,7 +1087,7 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
             "rev": plan.get("rev", "r1"),
             "bindable": cover is not None,
             "build_line_commit": commit,
-            "cut_script_sha256": sha256_hex(Path(__file__).read_bytes()),
+            **script_identity,
             "plan_sha256": sha256_hex(plan_bytes),
             "spec_in_force": spec_in_force_row,
             "handout_dir": HANDOUT_DIR,
@@ -1032,11 +1121,19 @@ def run_rebind(manifest_file: Path, repo: Path, new_rev: str) -> tuple[dict, str
     if manifest.get("schema") != MANIFEST_SCHEMA:
         raise CutRefused(f"manifest schema must be {MANIFEST_SCHEMA}")
     commit = resolve_commit(repo.resolve(), new_rev)
+    old_commit = manifest["build_line_commit"]
+    ancestry = subprocess.run(["git", "-C", str(repo.resolve()), "merge-base", "--is-ancestor", old_commit, commit],
+                              capture_output=True, env=_scrubbed_env(), check=False, timeout=600)
+    if ancestry.returncode != 0:
+        raise CutRefused(f"re-bind refused: {commit[:12]} does not descend from the cut commit {old_commit[:12]}")
     code = [row for row in manifest["handout"] if row["kind"] == "code"]
+    text89 = [row for row in manifest["handout"] if row["kind"] == "text_89a"]
+    if len(text89) != 1:
+        raise CutRefused("manifest must carry exactly one text_89a (H-10) row")
     if sorted(row["id"] for row in code) != sorted(CODE_IDS):
         raise CutRefused(f"manifest code items are {[r['id'] for r in code]}, expected {list(CODE_IDS)}")
     differences = []
-    for row in sorted(code, key=lambda r: r["id"]):
+    for row in sorted([*code, *text89], key=lambda r: r["id"]):
         try:
             data = read_blob_at(repo.resolve(), commit, row["source"])
         except CutRefused:
@@ -1052,7 +1149,8 @@ def run_rebind(manifest_file: Path, repo: Path, new_rev: str) -> tuple[dict, str
         "manifest_sha256": sha256_hex(manifest_bytes),
         "old_commit": manifest["build_line_commit"],
         "new_commit": commit,
-        "files": [{"id": r["id"], "source": r["source"], "sha256": r["sha256"]} for r in sorted(code, key=lambda r: r["id"])],
+        "files": [{"id": r["id"], "source": r["source"], "sha256": r["sha256"]}
+                  for r in sorted([*code, *text89], key=lambda r: r["id"])],
     }
     record_bytes = (json.dumps(record, sort_keys=True, indent=2) + "\n").encode("utf-8")
     return record, sha256_hex(record_bytes)
