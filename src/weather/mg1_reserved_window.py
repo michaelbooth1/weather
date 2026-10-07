@@ -138,19 +138,25 @@ def refuse_nbm_band_scoring(targets, *, entry: str) -> None:
 def drop_reserved_targets(items, *, target_of):
     """Split ``items`` before any outcome join: return ``(kept, counts)``.
 
-    ``target_of(item)`` gives the item's local target date. Reserved items are
-    dropped unless the registered MG-1 look is running; items whose date cannot
-    be read are always dropped. ``counts`` holds counts only, never dates.
+    ``target_of(item)`` gives the item's local target date, or a list of every
+    date the item could stand for (all must be readable and unreserved).
+    Reserved items are dropped unless the registered MG-1 look is running;
+    items with any unreadable date are always dropped. ``counts`` holds counts
+    only, never dates.
     """
     registered = registered_confirmation_entry() is not None
     kept, reserved, unreadable = [], 0, 0
     for item in items:
+        target = target_of(item)
         try:
-            day = as_date(target_of(item))
+            days = [as_date(t) for t in (target if isinstance(target, list) else [target])]
         except MG1Reserved:
             unreadable += 1
             continue
-        if is_reserved(day) and not registered:
+        if not days:
+            unreadable += 1
+            continue
+        if any(is_reserved(day) for day in days) and not registered:
             reserved += 1
             continue
         kept.append(item)

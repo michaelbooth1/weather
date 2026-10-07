@@ -267,7 +267,7 @@ def score_folder(
     normalize_partitions: bool = True,
 ) -> dict[str, Any]:
     # MG-1: refuse a reserved or unreadable target date before any settlement is opened.
-    refuse_nbm_band_scoring([date_from_event_slug(Path(folder).name)], entry="item190.score_folder")
+    refuse_nbm_band_scoring(_slug_dates(folder), entry="item190.score_folder")
     folder = Path(folder)
     spec = spec_for_slug(folder.name)
     if not is_nbm_us_market(spec):
@@ -307,6 +307,9 @@ def score_folder(
     features, feature_summary = _feature_index(folder)
     payload_summary = _payload_summary(folder)
     snapshots = _read_csv(folder / "snapshots_long.csv")
+    # MG-1: a snapshot row naming a reserved target date is refused before any outcome join.
+    refuse_nbm_band_scoring([s.get("target_date") for s in snapshots if s.get("target_date")],
+                            entry="item190.row_target_date")
     settlement_bucket = _safe_int(settlement.get("settlement_bucket"))
     skip_reasons: Counter[str] = Counter()
     rows: list[dict[str, Any]] = []
@@ -447,6 +450,19 @@ def _verdict(
     return "PASS", "SHADOW_READY"
 
 
+def _slug_dates(folder: str | Path) -> list[Any]:
+    """Target dates named by a folder: its own slug and, through any link or junction, the resolved one."""
+    folder = Path(folder)
+    names = [folder.name]
+    try:
+        resolved = folder.resolve().name
+    except OSError:
+        resolved = None  # Unresolvable: refused as unreadable below.
+    if resolved != folder.name:
+        names.append(resolved)
+    return [date_from_event_slug(name) if name else None for name in names]
+
+
 def build_payload(
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     *,
@@ -462,8 +478,7 @@ def build_payload(
     listed_paths = _folder_inputs(snapshots_root, as_of=as_of, folders=folders)
     # MG-1 (OD31): listing folder names is outcome-blind; drop reserved or unreadable target dates
     # before any folder is scored or joined to an outcome. Only the counts are disclosed.
-    folder_paths, mg1_folders = drop_reserved_targets(
-        listed_paths, target_of=lambda f: date_from_event_slug(Path(f).name))
+    folder_paths, mg1_folders = drop_reserved_targets(listed_paths, target_of=_slug_dates)
     folder_results, mg1_refused = [], 0
     for folder in folder_paths:
         try:
@@ -486,7 +501,7 @@ def build_payload(
         "listed_folder_count": len(listed_paths),
         "reserved_folders_dropped": mg1_folders["reserved_dropped"],
         "unreadable_folders_dropped": mg1_folders["unreadable_dropped"],
-        "settlement_target_refused": mg1_refused,
+        "folders_refused_by_own_target_date": mg1_refused,
         "reserved_rows_dropped": mg1_rows["reserved_dropped"],
         "unreadable_rows_dropped": mg1_rows["unreadable_dropped"],
     }
@@ -605,7 +620,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 ["Discovered folders", coverage.get("discovered_folder_count")],
                 ["MG-1 reserved folders dropped", mg1.get("reserved_folders_dropped")],
                 ["MG-1 unreadable-date folders dropped", mg1.get("unreadable_folders_dropped")],
-                ["MG-1 settlements naming a reserved date dropped", mg1.get("settlement_target_refused")],
+                ["MG-1 folders whose settlement or rows name a reserved date dropped", mg1.get("folders_refused_by_own_target_date")],
                 ["MG-1 reserved rows dropped", mg1.get("reserved_rows_dropped")],
                 ["MG-1 unreadable-date rows dropped", mg1.get("unreadable_rows_dropped")],
                 ["Scored folders", coverage.get("scored_folder_count")],
@@ -713,7 +728,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = run(build_parser().parse_args(argv))
     except MG1Reserved as exc:
-        # One line, exit 2. Pass --as-of 2026-10-15 (or earlier) to score pre-window dates only.
+        # Defense in depth: build_payload drops reserved dates, so this is reached only if a guard
+        # refuses outside the per-folder filter. One stderr line, exit 2, nothing written.
         sys.stderr.write(f"NBM settlement scoring refused: MG1Reserved: {exc}" + chr(10))
         return 2
     print(f"NBM probabilistic Tmax settlement scoring: {payload['verdict']} ({payload['cutover_decision']})")

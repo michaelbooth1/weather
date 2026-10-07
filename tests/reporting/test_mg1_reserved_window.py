@@ -3,6 +3,9 @@
 Owner decision OD31 (2026-10-07): the whole-history run drops reserved target dates before any outcome
 join and discloses only counts; non-reserved dates are scored as before. A direct single-folder call on
 a reserved date is refused. OD32: the window constants are bound to the reservation doc's status line.
+
+Guards: MG-1 reserved window (docs/operations/reserved-confirmation-window.md) on the item-190 NBM scorer -
+no reserved target date (slug, resolved link, settlement or row) reaches an outcome join or a metric.
 """
 import ast
 from datetime import date, datetime, timezone
@@ -160,9 +163,8 @@ def test_unparseable_folder_names_are_dropped_and_counted(tmp_path, monkeypatch)
 def test_real_run_scores_pre_window_dates_and_discloses_counts_only(tmp_path):
     pre = _write_nbm_folder(tmp_path / "pre", "2026-06-23")
     reserved = scored_folder(tmp_path / "res", date(2026, 10, 16))
-    # A pre-window slug whose settlement names a reserved target date: refused before the join, dropped.
-    mismatch = _write_nbm_folder(tmp_path / "mis", "2026-10-23")
-    # A pre-window slug with no settlement date whose source rows carry a reserved date: the row line.
+    # Pre-window slugs whose settlement, or whose rows, name a reserved target date: refused, dropped.
+    mismatch = _early_slug_reserved_settlement(tmp_path / "mis")
     undated = _undated_settlement_folder(tmp_path / "und", "2026-10-24")
     payload = item190.build_payload(tmp_path, folders=[pre, reserved, mismatch, undated])
     assert payload["coverage"]["target_dates"] == ["2026-06-23"]
@@ -170,9 +172,10 @@ def test_real_run_scores_pre_window_dates_and_discloses_counts_only(tmp_path):
     disclosed = payload["mg1_reserved_window"]
     assert disclosed == {"window_start": "2026-10-15", "window_end": None, "listed_folder_count": 4,
                          "reserved_folders_dropped": 1, "unreadable_folders_dropped": 0,
-                         "settlement_target_refused": 1, "reserved_rows_dropped": 3, "unreadable_rows_dropped": 0}
-    text = json.dumps(payload)
-    for leaked in ("2026-10-16", "2026-10-23", "2026-10-24", "october-16"):
+                         "folders_refused_by_own_target_date": 2, "reserved_rows_dropped": 0, "unreadable_rows_dropped": 0}
+    # The disclosure states the policy floor (window_start); nothing else may name a dropped date.
+    text = json.dumps({key: value for key, value in payload.items() if key != "mg1_reserved_window"})
+    for leaked in ("2026-10-15", "2026-10-16", "2026-10-24", "october-16"):
         assert leaked not in text, leaked  # Counts only: no reserved date is disclosed.
 
 
@@ -184,10 +187,39 @@ def _undated_settlement_folder(root, day):
     return folder
 
 
+def _early_slug_reserved_settlement(root):
+    """N1: a folder named for 2026-06-23 whose settlement.json names 2026-10-15 (rows stay 06-23)."""
+    folder = _write_nbm_folder(root, "2026-06-23")
+    settlement = json.loads((folder / "settlement.json").read_text(encoding="utf-8"))
+    settlement["target_date"] = "2026-10-15"
+    (folder / "settlement.json").write_text(json.dumps(settlement), encoding="utf-8")
+    return folder
+
+
 def test_settlement_naming_a_reserved_date_is_refused_before_the_join(tmp_path, monkeypatch):
     monkeypatch.setattr(item190, "resolve_outcome", _stop)
-    with pytest.raises(MG1Reserved, match="item190.settlement_target_date:2026-10-23"):
-        item190.score_folder(_write_nbm_folder(tmp_path, "2026-10-23"))
+    with pytest.raises(MG1Reserved, match="item190.settlement_target_date:2026-10-15"):
+        item190.score_folder(_early_slug_reserved_settlement(tmp_path / "a"))
+    with pytest.raises(MG1Reserved, match="item190.row_target_date:2026-10-24"):
+        item190.score_folder(_undated_settlement_folder(tmp_path / "b", "2026-10-24"))
+    payload = item190.build_payload(tmp_path, folders=[_early_slug_reserved_settlement(tmp_path / "c")])
+    assert payload["coverage"]["row_count"] == 0
+    assert payload["mg1_reserved_window"]["folders_refused_by_own_target_date"] == 1
+
+
+def test_a_link_named_for_an_early_date_resolving_to_a_reserved_folder_is_dropped(tmp_path, monkeypatch):
+    link = slug_folder(tmp_path, date(2026, 6, 23))
+    target = tmp_path / slug_name(date(2026, 10, 15))
+    real_resolve = Path.resolve
+    monkeypatch.setattr(Path, "resolve",
+                        lambda self, *a, **k: target if self == link else real_resolve(self, *a, **k))
+    monkeypatch.setattr(item190, "_read_json", _stop)
+    with pytest.raises(MG1Reserved, match="item190.score_folder:2026-10-15"):
+        item190.score_folder(link)
+    seen = []
+    monkeypatch.setattr(item190, "score_folder", lambda folder, **k: seen.append(folder))
+    payload = item190.build_payload(tmp_path, folders=[link])
+    assert seen == [] and payload["mg1_reserved_window"]["reserved_folders_dropped"] == 1
 
 
 def test_pre_window_scoring_is_unchanged(tmp_path):
@@ -231,10 +263,11 @@ def test_unparseable_single_folder_is_refused(tmp_path, monkeypatch):
         item190.score_folder(folder)
 
 
-def test_cli_exits_2_with_one_line_if_a_reserved_folder_ever_reaches_the_scorer(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(item190, "drop_reserved_targets",
-                        lambda items, target_of: (list(items), {"reserved_dropped": 0, "unreadable_dropped": 0}))
-    monkeypatch.setattr(item190, "_read_json", _stop)
+def test_cli_exits_2_with_one_line_on_a_refusal(tmp_path, monkeypatch, capsys):
+    def refuse(*args, **kwargs):
+        raise MG1Reserved("mg1_reserved_target_date:item190.score_folder:2026-10-16")
+
+    monkeypatch.setattr(item190, "build_payload", refuse)
     out = tmp_path / "out.json"
     code = item190.main([str(slug_folder(tmp_path, date(2026, 10, 16))), "--out", str(out),
                          "--report", str(tmp_path / "r.md")])
@@ -314,7 +347,7 @@ def test_mutant_admitting_one_reserved_date_is_detected():
     assert kept == [date(2026, 10, 14)] and counts["reserved_dropped"] == 2  # ... and never through the real one.
 
 
-def test_mutant_without_the_row_line_is_detected(tmp_path):
+def test_mutant_without_the_row_line_is_detected(tmp_path, monkeypatch):
     def drop_row_line(tree):
         func = _function(tree, "build_payload")
         for i, stmt in enumerate(func.body):
@@ -323,10 +356,21 @@ def test_mutant_without_the_row_line_is_detected(tmp_path):
                                          "{'reserved_dropped': 0, 'unreadable_dropped': 0}").body[0]
         return tree
 
-    undated = _undated_settlement_folder(tmp_path, "2026-10-24")
+    # The last line: a row that somehow still carries a reserved date never reaches a metric.
+    pre = _write_nbm_folder(tmp_path, "2026-06-23")
+    real_score = item190.score_folder
+
+    def relabel(folder, **kwargs):
+        result = real_score(folder, **kwargs)
+        result["rows"] = [dict(row, target_date="2026-10-24") for row in result["rows"]]
+        return result
+
     mutant = _load(SCORER, "mg1_mutant_item190_rows", drop_row_line)
-    assert mutant.build_payload(tmp_path, folders=[undated])["coverage"]["target_dates"] == ["2026-10-24"]
-    assert item190.build_payload(tmp_path, folders=[undated])["coverage"]["target_dates"] == []
+    mutant.score_folder = relabel
+    assert mutant.build_payload(tmp_path, folders=[pre])["coverage"]["target_dates"] == ["2026-10-24"]
+    monkeypatch.setattr(item190, "score_folder", relabel)
+    real = item190.build_payload(tmp_path, folders=[pre])
+    assert real["coverage"]["target_dates"] == [] and real["mg1_reserved_window"]["reserved_rows_dropped"] == 3
 
 
 def test_mutant_without_the_settlement_date_check_is_detected(tmp_path, monkeypatch):
@@ -336,14 +380,14 @@ def test_mutant_without_the_settlement_date_check_is_detected(tmp_path, monkeypa
                      if not (isinstance(s, ast.If) and "item190.settlement_target_date" in ast.unparse(s))]
         return tree
 
-    mismatch = _write_nbm_folder(tmp_path, "2026-10-23")
+    mismatch = _early_slug_reserved_settlement(tmp_path)
     mutant = _load(SCORER, "mg1_mutant_item190_settlement", drop_settlement_check)
     mutant.resolve_outcome = _stop
     with pytest.raises(Sentinel):  # The mutant joins the reserved settlement to an outcome.
         mutant.build_payload(tmp_path, folders=[mismatch])
     monkeypatch.setattr(item190, "resolve_outcome", _stop)
     real = item190.build_payload(tmp_path, folders=[mismatch])
-    assert real["coverage"]["target_dates"] == [] and real["mg1_reserved_window"]["settlement_target_refused"] == 1
+    assert real["coverage"]["target_dates"] == [] and real["mg1_reserved_window"]["folders_refused_by_own_target_date"] == 1
 
 
 # --- allowlist: only the registered MG-1 look, by exact name and bytes ----------------------------
@@ -399,3 +443,19 @@ def test_this_test_process_is_not_a_registered_entry():
     assert mg1.registered_confirmation_entry() is None
     assert not re.search(r"override|bypass", WINDOW.read_text(encoding="utf-8").split('"' * 3, 2)[2],
                          re.IGNORECASE)
+
+
+def test_mutant_without_the_row_date_check_is_detected(tmp_path, monkeypatch):
+    def drop_row_check(tree):
+        func = _function(tree, "score_folder")
+        func.body = [s for s in func.body if "item190.row_target_date" not in ast.unparse(s)]
+        return tree
+
+    undated = _undated_settlement_folder(tmp_path, "2026-10-24")
+    mutant = _load(SCORER, "mg1_mutant_item190_row_check", drop_row_check)
+    mutant.resolve_outcome = _stop
+    with pytest.raises(Sentinel):  # The mutant joins a reserved-dated row to an outcome.
+        mutant.build_payload(tmp_path, folders=[undated])
+    monkeypatch.setattr(item190, "resolve_outcome", _stop)
+    assert item190.build_payload(tmp_path, folders=[undated])["mg1_reserved_window"][
+        "folders_refused_by_own_target_date"] == 1
