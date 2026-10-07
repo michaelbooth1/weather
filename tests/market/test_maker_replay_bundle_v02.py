@@ -58,7 +58,8 @@ def test_v02_is_the_v01_projection_row_for_row(tmp_path, monkeypatch):
     assert summary["streams"]["coverage"]["records"] < summary["v01_kinds"]["coverage"]["records"]
     assert summary["coverage_groups"] == 1  # never subscribed: one always-unhealthy group
     assert sorted(p.name for p in args.out.iterdir()) == sorted(
-        ["bundle.json", "export.json", *(k + ".jsonl" for k in summary["streams"])])
+        ["bundle.json", "export.json", *(k + ".jsonl.gz" for k in summary["streams"])])
+    assert summary["format"] == "v0.3" and summary["compression"]["mtime"] == 0
     assert not args.out.with_name(args.out.name + ".partial").exists()
     assert before == {p: p.read_bytes() for p in args.data_root.rglob("*") if p.is_file()}
     args.out = tmp_path / "again"
@@ -125,13 +126,16 @@ def test_night_v02_seals_a_streamed_bundle_with_the_v01_gaps_and_per_kind_bytes(
     (tmp_path / "w").mkdir()
     other, _ = setup(tmp_path / "w", multi=True)
     report = night_v02.export_day(other, "panel", now=LATER)
-    assert report["status"] == "SEALED" and report["format"] == "v0.2"
+    assert report["status"] == "SEALED" and report["format"] == "v0.3"
+    assert report["bundle"]["format"] == "v0.3" and report["bundle"]["compression"]["codec"] == "gzip"
     assert (other.out / "panel-v02-ledger.jsonl").is_file() and not (other.out / "panel-ledger.jsonl").exists()
     bundle = report["bundle"]
     assert bundle["gaps"] == v1["bundle"]["gaps"] and bundle["conditions"] == v1["bundle"]["conditions"]
     assert bundle["v01_records"] == v1["bundle"]["records"]
     assert bundle["captured_band_cities"] == v1["bundle"]["captured_band_cities"] == ["chicago", "nyc"]
     assert set(bundle["kinds"]) == {k for k in bundle["v01_kinds"]}
+    assert all(len(v["decoded_sha256"]) == 64 for v in bundle["kinds"].values())
+    assert sum(v["decoded_bytes"] for v in bundle["kinds"].values()) > sum(v["bytes"] for v in bundle["kinds"].values())
     assert bundle["bytes"] == sum(p.stat().st_size for p in (other.out / other.day / "bundle").iterdir())
     assert report["peak_memory_bytes"] > 0 and report["runtime_seconds"] >= 0
     assert receipt(other)["status"] == "SEALED"
