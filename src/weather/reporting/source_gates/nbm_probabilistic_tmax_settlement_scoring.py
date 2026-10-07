@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +26,9 @@ from weather.calibration.pooled_candidate_scoring import (
     daily_first_candidate_comparison,
     grouped_candidate_comparison,
 )
+from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
+from weather.mg1_reserved_window import MG1Reserved, refuse_nbm_band_scoring
 from weather.model.continuous_density import bucket_interval_native
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
@@ -263,6 +266,8 @@ def score_folder(
     exclude_impossible: bool = True,
     normalize_partitions: bool = True,
 ) -> dict[str, Any]:
+    # MG-1: refuse a reserved or unreadable target date before any settlement is opened.
+    refuse_nbm_band_scoring([date_from_event_slug(Path(folder).name)], entry="item190.score_folder")
     folder = Path(folder)
     spec = spec_for_slug(folder.name)
     if not is_nbm_us_market(spec):
@@ -452,6 +457,8 @@ def build_payload(
     min_days: int = 2,
 ) -> dict[str, Any]:
     folder_paths = _folder_inputs(snapshots_root, as_of=as_of, folders=folders)
+    # MG-1: listing folder names is outcome-blind; refuse before any folder is scored.
+    refuse_nbm_band_scoring([date_from_event_slug(Path(f).name) for f in folder_paths], entry="item190.build_payload")
     folder_results = [
         score_folder(
             folder,
@@ -675,7 +682,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    payload = run(build_parser().parse_args(argv))
+    try:
+        payload = run(build_parser().parse_args(argv))
+    except MG1Reserved as exc:
+        # One line, exit 2. Pass --as-of 2026-10-15 (or earlier) to score pre-window dates only.
+        sys.stderr.write(f"NBM settlement scoring refused: MG1Reserved: {exc}" + chr(10))
+        return 2
     print(f"NBM probabilistic Tmax settlement scoring: {payload['verdict']} ({payload['cutover_decision']})")
     print(f"Rows scored: {(payload.get('coverage') or {}).get('row_count', 0)}")
     return 0
