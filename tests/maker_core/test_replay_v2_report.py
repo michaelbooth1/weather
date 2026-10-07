@@ -16,7 +16,7 @@ from maker_core.replay.v2.pipeline import run_passes
 from maker_core.replay.v2.report import build_report, report_bytes, small_cluster_bound
 from maker_core.replay.v2.score import BandDayScorer, Books
 from tools.research.maker_replay_v2.dense import DenseDay
-from tools.research.maker_replay_v2.sources import materialize
+from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, materialize
 
 DAY = date(2026, 9, 27)
 CONFIG = V2Config(hazard_per_minute=.001, debug=True)
@@ -36,7 +36,7 @@ def test_streaming_band_days_equal_the_frozen_scorer_on_the_same_intervals(polic
     plan = run_plan([source])
     scorer, books, frozen_books = BandDayScorer(policy, "strictly_through"), Books(), _Books()
     engine = EngineV2(replace(CONFIG, policy=policy, keep=True), plan, sink=scorer)
-    drive([source], [engine], observers=(books, frozen_books))
+    drive([source], [engine], observers=(books, frozen_books), time_zones=FIXTURE_ZONES)
     markets = {c.condition_id: c.market_id for c in plan.days[0].conditions}
     ours = scorer.band_days(engine.settlements, books, markets)
     result = ReplayResult(ReplayConfig(policy=policy), tuple(engine.decisions), tuple(engine.intervals),
@@ -58,7 +58,7 @@ def test_streaming_band_days_equal_the_frozen_scorer_on_the_same_intervals(polic
 
 def test_report_cells_sidecar_and_clarification_fields(tmp_path):
     source, _ = materialize(DenseDay(DAY, union=12, trades=20000, minutes=30))
-    run = run_passes([source], CONFIG)
+    run = run_passes([source], CONFIG, time_zones=FIXTURE_ZONES)
     report, binding = build_report(run, CONFIG, replicates=200, sidecar_path=tmp_path / "sidecar.jsonl")
     raw = (tmp_path / "sidecar.jsonl").read_bytes()
     assert binding["sha256"] == hashlib.sha256(raw).hexdigest() and binding["bytes"] == len(raw)
@@ -79,7 +79,7 @@ def test_report_cells_sidecar_and_clarification_fields(tmp_path):
     decision = report["registered_decision"]
     assert decision["status"] in ("UNDERPOWERED", "HURDLE_NOT_MET", "UNMATCHED", "UNIDENTIFIED", "BLOCKED")
     assert set(decision["clarification_3"]) >= {"quote_presence", "economic_mde", "screen"}
-    assert report_bytes(report) == report_bytes(build_report(run_passes([source], CONFIG), CONFIG,
+    assert report_bytes(report) == report_bytes(build_report(run_passes([source], CONFIG, time_zones=FIXTURE_ZONES), CONFIG,
                                                              replicates=200)[0])  # deterministic
 
 

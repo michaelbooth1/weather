@@ -19,6 +19,10 @@ from maker_core.replay.v2.lockstep import DayPlan, DaySource, record_from_row, w
 from tools.research.maker_replay_v2.fixture170 import MARKETS, Band, Day, Event, _cid
 
 
+# The fictional markets' IANA zones, for the local-midnight refresh (``maker_core.replay.v2.day_roll``).
+FIXTURE_ZONES = MappingProxyType(dict(MARKETS))
+
+
 def market_count(union):
     """About 3.5 bands an event, as at the real 170-band union with 12 markets x 4 events."""
     return max(1, min(len(MARKETS), round(union / (170 / len(MARKETS)))))

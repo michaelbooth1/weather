@@ -105,8 +105,11 @@ class Run:
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
 
 
-def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) -> Run:
-    """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds."""
+def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda *_: None) -> Run:
+    """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds.
+
+    ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
+    """
     sources = sorted(sources, key=lambda s: s.plan.day)
     plan = run_plan(sources)
     markets = {c.condition_id: c.market_id for day in plan.days for c in day.conditions}
@@ -120,7 +123,7 @@ def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) ->
             scorer = BandDayScorer(policy, bound, pull_runs=policy in ("informed-v0", "clock_only"))
             passes[bound][policy] = Pass(engine(cfg, plan, sink=scorer), scorer)
             engines.append(passes[bound][policy].engine)
-    drive(sources, engines, observers=(books,))
+    drive(sources, engines, observers=(books,), time_zones=time_zones)
     progress("base", len(engines))
     bisections, log = {}, []
     for bound in BOUNDS:
@@ -139,7 +142,7 @@ def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) ->
             trials[bound] = Pass(engine(cfg, plan, sink=scorer), scorer)
         if not trials:
             break
-        drive(sources, [t.engine for t in trials.values()])
+        drive(sources, [t.engine for t in trials.values()], time_zones=time_zones)
         progress("clock_round", len(trials))
         for bound, trial in trials.items():
             got, _ = fraction(trial.band_days(books, markets))
