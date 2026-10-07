@@ -457,9 +457,17 @@ OWN = f"maker_evidence/{DAY}/"
     OWN + "x" * 600,
     "carry:2030-1-1",
     "carry:../x",
+    f"MAKER_~1/{OTHER}/x.jsonl",  # 8.3 short name: resolves to maker_evidence where 8.3 names are live
+    f"maker_~1/{OTHER}/x.jsonl",
+    f"release:MAKER_~1/{OTHER}/x.jsonl",
+    f"{OWN}BOOKS~1.JSO",
+    "carry:2030-99-99",
+    f"{OWN}COM0",
 ], ids=["trailing-dot", "drive-absolute", "drive-relative", "dotless-i", "trailing-space", "release-escape",
         "nul", "control", "device-con", "device-nul-ext", "device-com1", "ads", "dots-space", "dotdot-space",
-        "dot-inside", "wildcard", "non-ascii", "too-long", "carry-malformed", "carry-path"])
+        "dot-inside", "wildcard", "non-ascii", "too-long", "carry-malformed", "carry-path",
+        "short-name", "short-name-lower", "short-name-release", "short-name-file", "carry-not-a-date",
+        "device-com0"])
 def test_pb2a_windows_aliases_and_unsafe_keys_are_refused(exports, key):
     """U1r2 Defender NOTE-2: keys are ASCII printable, capped in length, with no drive, ADS, device name,
     Windows-invalid character or segment ending in a dot or space; ``:`` only in ``carry:<date>`` and the
@@ -515,3 +523,14 @@ def test_the_bounds_scan_uses_the_shared_run_not_each_bundle_lifetime(exports, m
     clock.now = 0.0
     with pytest.raises(BundleError, match="^run_time_cap$"):
         transfer.verify(doc, pairs, clock=clock, run=RunBudget(max_run_seconds=1_000, clock=clock))
+
+
+def test_every_key_the_real_exporters_write_is_admitted(exports):
+    """U1r2 Defender D-1: refusing ``~`` (8.3 short names) and non-dates in ``carry:`` keeps every real key."""
+    keys = set()
+    for root in exports.values():
+        for raw in ((root / "bundle" / "export.json").read_bytes(), (root / "receipt.json").read_bytes()):
+            keys |= set(json.loads(raw).get("input_hashes", {}))
+    assert keys and any(k.startswith(f"maker_evidence/{DAY}/") for k in keys)
+    assert [k for k in sorted(keys) if transfer._normalised(k) is None] == []
+    assert build(list(exports.items()))["bundles"]
