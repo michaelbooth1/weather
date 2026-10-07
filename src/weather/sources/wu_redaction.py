@@ -109,7 +109,25 @@ _KEY_ELEMENT_RE = re.compile(r"[\w-]{0,32}api[_-]?key", re.IGNORECASE)
 # ``OSError.filename``/``filename2``/``strerror``, ``URLError.reason`` (a str),
 # ``SyntaxError.msg``/``text``.
 _TEXT_ATTRS = ("url", "filename", "filename2", "strerror", "winerror", "reason", "msg", "text")
+# Bounds nesting of *argument containers* only. The exception graph itself (chains,
+# groups, wrapped reasons, exceptions held in arguments) is walked with a worklist
+# and the ``seen`` set, with no depth cap (S2): a 40-step retry chain is redacted
+# to its bottom.
 _MAX_EXCEPTION_DEPTH = 16
+
+
+class _Walk(set):
+    """``id``s of exceptions already sanitized, plus the exceptions still to visit."""
+
+    def __init__(self):
+        super().__init__()
+        self.pending = []
+
+
+def _queue(seen, exc):
+    pending = getattr(seen, "pending", None)
+    if exc is not None and pending is not None and id(exc) not in seen:
+        pending.append(exc)
 
 
 def redact_wu_secrets(value):
@@ -168,7 +186,7 @@ def _redact_arg(arg, seen, depth):
     if isinstance(arg, bytes):
         return redact_wu_secrets(arg.decode("utf-8", "replace")).encode("utf-8")
     if isinstance(arg, BaseException):
-        _sanitize(arg, seen, depth + 1)
+        _queue(seen, arg)
         return arg
     if isinstance(arg, tuple):
         return tuple(_redact_sequence(arg, seen, depth))
@@ -240,19 +258,39 @@ def _redact_instance_attrs(exc, seen, depth):
     for name, value in items:
         if name.startswith("__") or name in ("request", "response"):
             continue
+        if isinstance(value, BaseException):
+            _queue(seen, value)
+            continue
+        if value is None or isinstance(value, (bool, int, float)):
+            continue
         if isinstance(value, (str, bytes, dict, list, tuple)):
             redacted = _redact_arg(value, seen, depth + 1)
-            if redacted != value:
-                try:
-                    setattr(exc, name, redacted)
-                except Exception:  # noqa: BLE001
-                    continue
+            changed = redacted != value
+        else:
+            # Any other object (a dataclass, a config) a custom ``__str__`` may render.
+            redacted = _redact_opaque(value)
+            changed = redacted is not value
+        if changed:
+            try:
+                setattr(exc, name, redacted)
+            except Exception:  # noqa: BLE001
+                continue
 
 
-def _sanitize(exc, seen, depth):
-    if exc is None or id(exc) in seen or depth > _MAX_EXCEPTION_DEPTH:
-        return
-    seen.add(id(exc))
+def _sanitize(exc, seen=None, depth=0):
+    """Sanitize ``exc`` and every exception reachable from it, iteratively (no depth cap)."""
+    walk = seen if isinstance(seen, _Walk) else _Walk()
+    _queue(walk, exc)
+    while walk.pending:
+        current = walk.pending.pop()
+        if current is None or id(current) in walk:
+            continue
+        walk.add(id(current))
+        _sanitize_one(current, walk)
+
+
+def _sanitize_one(exc, seen):
+    depth = 0
     try:
         exc.args = tuple(_redact_arg(arg, seen, depth) for arg in exc.args)
     except Exception:  # noqa: BLE001 - never replace the caller's failure with ours.
@@ -272,13 +310,13 @@ def _sanitize(exc, seen, depth):
             _redact_text_attr(holder, "url")
     for inner in getattr(exc, "exceptions", None) or ():
         if isinstance(inner, BaseException):
-            _sanitize(inner, seen, depth + 1)
+            _queue(seen, inner)
     # urllib3 keeps the wrapped failure on ``reason``; requests keeps it in args.
     reason = getattr(exc, "reason", None)
     if isinstance(reason, BaseException):
-        _sanitize(reason, seen, depth + 1)
-    _sanitize(exc.__cause__, seen, depth + 1)
-    _sanitize(exc.__context__, seen, depth + 1)
+        _queue(seen, reason)
+    _queue(seen, exc.__cause__)
+    _queue(seen, exc.__context__)
 
 
 def sanitize_exception(exc):
@@ -288,7 +326,7 @@ def sanitize_exception(exc):
     exception type, status code and attributes the failure classifier reads are
     unchanged; only text carrying the token is rewritten.
     """
-    _sanitize(exc, set(), 0)
+    _sanitize(exc)
     return exc
 
 

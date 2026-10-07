@@ -815,7 +815,7 @@ def test_mf1r_utf16_anywhere_in_a_file_is_found(tmp_path, capsys, build):
 
 def test_mf1r_utf16_token_straddling_a_chunk_boundary_is_counted_once(tmp_path):
     hex_token = secrets.token_hex(16)
-    encoded = f"apiKey={hex_token}".encode("utf-16-le")
+    encoded = f" apiKey={hex_token}".encode("utf-16-le")  # a space keeps the key on a word boundary
     for shift in (-6, -13, -20, -37):
         prefix = b"x" * (wu_token_scan.CHUNK_BYTES + shift)
         path = tmp_path / f"edge{-shift}.log"
