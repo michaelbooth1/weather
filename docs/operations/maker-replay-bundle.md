@@ -285,9 +285,57 @@ summaries supply recorded 88a process starts; sealed stream gaps/disconnects, di
 separately. Segment rotation is not called a restart. Crashes without a sealed summary remain explicitly unknown, so
 restart coverage is never claimed complete.
 
+### Panel export gate (maker replay v2)
+
+Owner decision 3 (Swarm M, 2026-10-06) puts the `maker-replay-v2-v1` draft's rule into code: no panel or
+settlement-only date's 88a data may be exported before the registration is signed.
+`maker_core.replay.export_gate.export_permitted(day, owner_decision=None, *, now=None)` is the single gate.
+
+- **Gated days.** Every UTC day 2026-09-30 through 2026-10-15 inclusive (quote dates 09-30..10-13 plus the
+  settlement-only 10-14 and 10-15). A day is a UTC calendar date: it is gated when
+  `[day 00:00Z, day+1 00:00Z)` lies inside `[GATE_FIRST_UTC, GATE_END_UTC)` = `[2026-09-30T00:00Z, 2026-10-16T00:00Z)`.
+  2026-09-29 and 2026-10-16 are not gated; they meet the exporter's own checks next.
+- **Where it runs.** It is the first statement of `maker_replay_night.export_day`, `maker_replay_night_v02.export_day`,
+  `maker_replay_bundle.export` and `maker_replay_bundle_v02.export`, before any reader, output folder, lock or ledger.
+  That covers every CLI (`replay_export`, `maker_replay_night{,_v02}`, `maker_replay_bundle{,_v02} bundle`) and the
+  research runner `tools/research/maker_replay_v2`. An AST test requires every function under `src/weather/market/`
+  and `tools/research/maker_replay_v2/` that is named `export`/`export_day` or constructs `ExportReader` to be a listed
+  gated function that calls the gate first.
+- **Authorization.** While `export_gate.SIGNED_REGISTRATION_SHA256` is `None`, a gated day can never pass. After
+  signature, a gated day also needs `--owner-decision PATH`, verified by
+  `maker_core.replay.v2.authorization.verify_export_decision` (unit U4), which must return exactly `True`.
+- **No override.** There is no parameter, environment variable or flag that skips it.
+
+| Refusal code (`BundleError`) | Meaning |
+| --- | --- |
+| `panel_export_requires_signed_registration` | Gated day and the registration is unsigned (the only outcome today). |
+| `panel_export_requires_owner_decision` | Gated day after signature, without `--owner-decision`. |
+| `panel_export_authorization_unavailable` | Signed, but the v2 authorization verifier is not installed. |
+| `panel_export_authorization_refused` | The verifier did not return `True`. |
+| `export_gate_day_required` | The day is not a `date` or a string (a `datetime` is refused, never truncated). |
+| `export_gate_noncanonical_day` | The day is not exactly `YYYY-MM-DD` (e.g. `20260930`). |
+
+A CLI prints these as `<command> refused: BundleError: <code>` and exits 2, with nothing written.
+
+**Thread pins (owner decision 2).** OpenBLAS reads `OPENBLAS_NUM_THREADS` once, at load, and the exporter imports
+numpy (through scipy) before `main` runs, so the pin must come from the launcher. `maker_replay_night_v02`'s `night`
+and `calibration` commands only verify, through `maker_core.replay.v2.threads.check_thread_pins`, that
+`OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `NUMEXPR_NUM_THREADS` all equal `1`; otherwise they
+refuse `blas_threads_not_pinned` before any output (after the panel gate). Every v0.2 receipt carries `threads`:
+the four values as seen, `pinned`, `logical_cpus` (`os.cpu_count()`), the `threadpoolctl` version (or `"absent"`)
+and the actual `pools` (API, library prefix, `num_threads`). In-process callers of `export_day` that pass no
+`environ` are recorded, not refused.
+
 ### Scheduled production export
 
-`scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It admits only the assigned capture host, holds
+`scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It launches the **v0.2** exporter
+(`python -B -m weather.market.maker_replay_night_v02 <night|calibration>`, `-Kind`, default `night`). Its first check
+is the panel gate: a `-Day` (default yesterday, UTC) in 2026-09-30..2026-10-15 writes
+`REFUSED: PANEL_GATED <day> ...` to stderr and exits **3** before the time window, path checks, self-hash, lease,
+Python or any output. Exit 3 is an expected refusal, not a failure; the task refuses every night from 10-01 to 10-16
+until the wrapper is changed. There is no override; exporting a panel day after signature needs a reviewed wrapper
+change and a re-pinned `-ExpectedSelfSha256`. Just before launch the wrapper sets the four thread variables to `1`
+in its own process environment, which the job-owned child inherits. It admits only the assigned capture host, holds
 the shared heavy-work lease, checks fresh commit charge below 70% and 50 GiB free, and owns the child in a kill-on-close
 Job. Starts are limited to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child gets at most
 2,700 seconds of cooperative budget (`--max-seconds`) inside a 2,730-second outer deadline and stops by 04:54:45 at the
@@ -296,7 +344,7 @@ refuses; the exporter itself launches no descendants. Unproved teardown poisons 
 waiting or automatic catch-up. The default day is yesterday in UTC, not local time.
 
 `scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`,
-`-ExpectedModuleSha256` (from `module-hash` in the same checkout) and `-ExpectedRunnerSha256`; `-RepoRoot` defaults to
+`-ExpectedModuleSha256` (from `python -B -m weather.market.maker_replay_night_v02 module-hash` in the same checkout) and `-ExpectedRunnerSha256`; `-RepoRoot` defaults to
 its own checkout. Use `-WhatIf` first: it checks pins without touching Scheduler. Registration binds 00:35 daily,
 S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It reads back the complete
 action, principal, trigger and safety settings. The runner is pinned by its own hash and the exporter's module-closure
