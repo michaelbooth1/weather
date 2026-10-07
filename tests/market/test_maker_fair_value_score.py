@@ -259,15 +259,15 @@ def statistical_row(day, market, p, *, source="nbp", lead=1):
 
 
 def test_hour_then_equal_market_day_weighting_and_separate_pooled_table():
-    rows = [statistical_row("d1", "a", .1), statistical_row("d1", "a", .3),
-            statistical_row("d2", "a", .9, source="fallback")]
+    rows = [statistical_row("2026-09-01", "a", .1), statistical_row("2026-09-01", "a", .3),
+            statistical_row("2026-09-02", "a", .9, source="fallback")]
     result = tables(rows)
     assert result["pooled_descriptive"]["brier"]["provider"]["estimate"] == pytest.approx((.05 + .81) / 2)
     assert result["nbp_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.05)
     assert result["fallback_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.81)
     assert result["nbp_lead_2"]["brier"] is None
-    tied = tables(rows + [statistical_row("d3", "b", .5, source="nbp_atoms"),
-                          statistical_row("d3", "c", .5, source="nbp_resolution_tails", lead=2)])
+    tied = tables(rows + [statistical_row("2026-09-03", "b", .5, source="nbp_atoms"),
+                          statistical_row("2026-09-03", "c", .5, source="nbp_resolution_tails", lead=2)])
     assert tied["pooled_descriptive"] == result["pooled_descriptive"]
     assert tied["nbp_lead_1"] == result["nbp_lead_1"]
     assert tied["nbp_atoms_lead_1"]["brier"]["provider"]["estimate"] == pytest.approx(.25)
@@ -283,7 +283,7 @@ def test_crossed_multiplicity_product_independent_reference_and_sparse_draws():
     for i in (0, 3, 51, 9999):
         assert crossed[i].tolist() == [list(dates[i]).count(j) * list(markets[i]).count(j) for j in (0, 1)]
         assert date_only[i].tolist() == [list(dates[i]).count(j) for j in (0, 1)]
-    table = summarize([statistical_row("d1", "a", .2), statistical_row("d2", "b", .8)])
+    table = summarize([statistical_row("2026-09-01", "a", .2), statistical_row("2026-09-02", "b", .8)])
     metric = table["brier"]["provider_minus_mid"]
     weights = crossed.sum(axis=1)
     expected = (crossed @ np.array([.04 - .25, .64 - .25]))[weights > 0] / weights[weights > 0]
@@ -293,7 +293,7 @@ def test_crossed_multiplicity_product_independent_reference_and_sparse_draws():
 
 
 def test_fixed_bins_endpoints_empty_bins_and_underpowered_rule():
-    rows = [statistical_row(str(d), str(m), p) for d in range(10) for m in range(10)
+    rows = [statistical_row(f"2026-09-1{d}", str(m), p) for d in range(10) for m in range(10)
             for p in (0, .1, .3, 1)]
     result = summarize(rows)
     assert result["status"] == "DESCRIPTIVE"
@@ -302,7 +302,7 @@ def test_fixed_bins_endpoints_empty_bins_and_underpowered_rule():
     assert empty["estimate"] is None and empty["crossed"]["interval_90"] is None
     assert empty["crossed"]["undefined_replicates"] == 10000
     assert summarize([r for r in rows if r["market_id"] != "9"])["status"] == "UNDERPOWERED"
-    assert summarize([r for r in rows if r["target_date"] != "9"])["status"] == "UNDERPOWERED"
+    assert summarize([r for r in rows if r["target_date"] != "2026-09-19"])["status"] == "UNDERPOWERED"
 
 
 def test_cli_deterministic_create_only_reports(tmp_path, monkeypatch, capsys):

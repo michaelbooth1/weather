@@ -18,6 +18,7 @@ from maker_core.replay.payloads import decode
 from weather.market.maker_fair_value_statistics import BIN_EDGES, REPLICATES, SEED, tables
 from weather.market.maker_plugin.fair_value import WeatherFairValue
 from weather.market.maker_plugin.inputs import digest, event_identity, timestamp
+from weather.market.mg1_metric_guard import date_range, refuse_reserved_targets
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.paths import REPO_ROOT
 
@@ -180,6 +181,8 @@ class Panel:
                     source=source, captured_at=at.isoformat(), bands=result)
 
     def settle(self, row):
+        # MG-1: refuse before this view is joined to any settlement fact.
+        refuse_reserved_targets([row["target_date"]], entry="maker_fair_value_score.settle")
         facts = []
         for band in row["bands"]:
             eligible = [r for r in self.facts[band["condition_id"]] if r.captured_at <= self.now]
@@ -240,6 +243,8 @@ class Panel:
 
 def score(bundle_paths, *, code_tip, now=None):
     """Verify and score explicit bundles. Clock injection is for unit fixtures only."""
+    # MG-1: the declared target panel is checked before any bundle, view or settlement is opened.
+    refuse_reserved_targets(date_range(PANEL_START, PANEL_END), entry="maker_fair_value_score.score")
     now = timestamp(now or datetime.now(timezone.utc))
     if now.date() < EARLIEST_DATE:
         raise ValueError("scoring_before_registered_earliest_date:2026-10-09")
@@ -260,6 +265,8 @@ def score(bundle_paths, *, code_tip, now=None):
         if remaining <= 0:
             raise ValueError("panel_byte_cap")
         bundle = load_bundle(Path(path), limits=Limits(max_bytes=min(64 * 1024**2, remaining)))
+        # MG-1 second line: a bundle captured on a reserved day is never indexed or joined.
+        refuse_reserved_targets([bundle.day], entry="maker_fair_value_score.bundle_day")
         if bundle.day >= now.date() or bundle.sealed_at > now:
             raise ValueError("bundle_not_closed_at_scoring")
         manifest = bundle.input_hashes["bundle.json"]
@@ -327,6 +334,8 @@ def markdown(report):
 
 
 def main(argv=None):
+    # MG-1: refused before arguments are parsed or any path is touched.
+    refuse_reserved_targets(date_range(PANEL_START, PANEL_END), entry="maker_fair_value_score.main")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", action="append", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True, help="new report directory; inputs remain read-only")
