@@ -28,10 +28,17 @@ Fields per cell:
   to min(first OLD pull, clock failure, end of d). It is an UPPER bound because band close is not
   known here. ``--conditions {slug: open band count}`` turns it into ``added_pulled_condition_minutes``.
 - ``clock_unavailable``: the runner discards the whole clock of an event-minute when ``observe``
-  raises. A row whose detection or ``observed_at`` time cannot be parsed (for example SWOB's local
-  ``"HH:MM"``) raises at every minute of d, including minutes before that row was detected, so the
-  cell is ``"all_day"`` and counts no added pull. A row that fails later in ``observe`` makes the
-  clock unavailable from its detection time; added pull stops there.
+  raises. A row whose detection or ``observed_at`` time cannot be parsed (live producers write ISO
+  with an offset; only a hand-made or backfill-CSV bare ``"HH:MM"`` fails here) raises at every
+  minute of d, including minutes before that row was detected, so the cell is ``"all_day"`` and
+  counts no added pull. A row that fails later in ``observe`` makes the clock unavailable from its
+  detection time; added pull stops there. If that detection time is at or before the start of d
+  (a row from d-1), the runner loses the whole of d, so the cell is ``"all_day"`` too.
+
+Fidelity limit: the numbers hold only for a well-formed trigger file. The exporter treats one
+malformed or non-object line anywhere in the file as a corrupt ``triggers`` source, which makes every
+event's clock unavailable on every bundle day; this counter drops such lines by design (custody) and
+still reports pulls. The exporter's own ``triggers`` coverage/error fields are authoritative.
 
 The OLD clock is the fixed clock restricted to ``wu_history_high_increased``/``wu_history`` rows: the
 old code dropped every other row before any event, and kept every other filter. A test pins that
@@ -120,7 +127,7 @@ def trigger_rows(path, days):
     for line in _lines(path):
         try:
             outer = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):  # A deeply nested line must not abort the run.
             continue
         if not isinstance(outer, dict):
             continue
@@ -201,7 +208,8 @@ def cell(day, slug, kept, bands=None):
         new |= row_new
         old |= row_old
     if failure is not None:
-        out["clock_unavailable"] = "from " + failure.isoformat()
+        # A failure at or before the start of d (a d-1 row) makes observe raise at every minute of d.
+        out["clock_unavailable"] = "all_day" if failure <= start else "from " + failure.isoformat()
         new = {t for t in new if t < failure}
         old = {t for t in old if t < failure}
     minute = lambda t: t.replace(second=0, microsecond=0)
