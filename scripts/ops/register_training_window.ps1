@@ -59,6 +59,7 @@ if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
     throw "training window contract script not found at $contractScript"
 }
 . $contractScript
+. (Join-Path $PSScriptRoot "scheduled_task_local_trigger.ps1")
 $runAt = Resolve-TrainingWindowRunAtLocal -RunAtLocal $RunAtLocal -RequireFuture
 $RunAtLocal = $runAt.ToString(
     "yyyy-MM-ddTHH:mm:ss",
@@ -144,7 +145,7 @@ $restoreAction = New-ScheduledTaskAction `
     -Argument $restoreActionArguments `
     -WorkingDirectory $RepoRoot
 
-$restoreTrigger = New-ScheduledTaskTrigger -Daily -At $RestoreAt
+$restoreTrigger = New-WeatherLocalDailyTrigger -At $RestoreAt
 
 $restoreSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
@@ -208,7 +209,7 @@ if ([string]$registeredRestore.TaskPath -ne "\" -or
     $restoreTriggers.Count -ne 1 -or
     [string]$restoreTriggers[0].CimClass.CimClassName -ne "MSFT_TaskDailyTrigger" -or
     [int]$restoreTriggers[0].DaysInterval -ne 1 -or
-    ([datetime]$restoreTriggers[0].StartBoundary).ToString("HH:mm") -ne "04:15" -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$restoreTriggers[0].StartBoundary) -At "04:15") -or
     -not [bool]$restoreTriggers[0].Enabled -or
     -not [string]::IsNullOrWhiteSpace([string]$restoreTriggers[0].Repetition.Interval) -or
     -not [bool]$registeredRestore.Settings.StartWhenAvailable -or

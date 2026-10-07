@@ -53,6 +53,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
 | Pausing, halting or clearing a maker runtime; the bleed-limit guard | [Maker trading guard](operations/maker-trading-guard.md) | Canonical runbook |
 | Running the public-reads-only maker shadow, reading its quotes tape, or scoring it against 88a | [Maker shadow runner](operations/maker-shadow-runner.md) | Canonical runbook |
+| Measuring the owner's manual resting orders (rewards, fills, markouts) | [Manual order journal](operations/manual-order-journal.md) | Canonical runbook |
 | Changing or adding documentation | [Documentation maintenance](documentation-maintenance.md), [docs/AGENTS.md](AGENTS.md) | Canonical guide |
 
 ## Durable technical contracts

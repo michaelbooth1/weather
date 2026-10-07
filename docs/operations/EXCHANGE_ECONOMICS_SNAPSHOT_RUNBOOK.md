@@ -78,9 +78,12 @@ collection passed.
 The daily helper `scripts\ops\refresh_exchange_economics_snapshot.ps1`
 (`-TargetDate` defaults to today's local date; `-EventMetadata`, `-Snapshot`,
 `-Platform`) runs the same collector. The scheduled task
-`WeatherExchangeEconomicsSnapshotRefresh` runs it daily; its registrar
-(`-At`, default `09:00`) replaces the task when re-run, so do not run the
-registrar just to refresh a snapshot:
+`WeatherExchangeEconomicsSnapshotRefresh` runs it daily at 06:50 local. The
+registrar accepts only `-At 06:50` and binds the absolute Windows PowerShell
+path, `-File` (never `-Command`), current-user S4U with RunLevel **Limited**,
+and an unzoned local daily boundary that follows DST (see "Daily triggers and
+DST" in [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md)). It replaces the task when
+re-run, so do not run the registrar just to refresh a snapshot:
 
 ```powershell
 .\scripts\ops\refresh_exchange_economics_snapshot.ps1          # refresh now
@@ -89,6 +92,13 @@ registrar just to refresh a snapshot:
 
 The helper accepts only `polymarket_global` and never accepts a baseline. A missing, stale, partially matched, or
 content-tampered snapshot blocks paper/trading evidence.
+
+Every run, scheduled or manual, writes `data\logs\exchange_economics_refresh_status.json` (atomically) and
+appends the same record to `data\logs\exchange_economics_refresh_history.jsonl`. `status` is `PASS`, `FAIL`
+(collector exited nonzero; `exit_code` and the last 40 output lines are kept in `output_tail`), `REFUSED`
+(exit 2: platform other than `polymarket_global`; exit 3: no `venv\Scripts\python.exe`) or `ERROR` (an
+unhandled PowerShell error, exit 1). Diagnose a nonzero `LastTaskResult` from that file before re-running
+anything; the task itself has no other log.
 
 This is a **current-day** proof. Do not apply today's per-condition rates to a
 historical leg merely because its token still appears in a file. Historical

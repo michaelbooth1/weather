@@ -38,6 +38,7 @@ if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
     throw "argument contract not found at $contractScript"
 }
 . $contractScript
+. (Join-Path $PSScriptRoot "scheduled_task_local_trigger.ps1")
 $powerShell = [string](
     Get-Command powershell.exe -CommandType Application -ErrorAction Stop
 ).Source
@@ -58,7 +59,7 @@ $action = New-ScheduledTaskAction `
     -Argument $arguments `
     -WorkingDirectory $RepoRoot
 
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-WeatherLocalDailyTrigger -At $At
 
 # Catch-up is deliberately disabled. A missed 05:00 run must remain visible;
 # starting it later can overlap the 09:30 Stage-A chain or a protected window.
@@ -99,9 +100,11 @@ if ($matches.Count -ne 1) {
 $registered = $matches[0]
 $registeredActions = @($registered.Actions)
 $registeredTriggers = @($registered.Triggers)
+# Local wall-clock boundary only: a zoned (fixed-offset) boundary is refused (DST-C1).
 $registeredTime = $null
-try { $registeredTime = ([datetime]$registeredTriggers[0].StartBoundary).ToString("HH:mm") }
-catch { }
+if (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$registeredTriggers[0].StartBoundary) -At $At) {
+    $registeredTime = $At
+}
 if ([string]$registered.TaskPath -ne "\" -or
     [string]$registered.State -eq "Disabled" -or
     $registeredActions.Count -ne 1 -or
