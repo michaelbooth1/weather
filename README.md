@@ -207,10 +207,22 @@ The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
 (`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
 conflicts, age, linked work, roll heuristic and a proposed action; it changes nothing.
 
+The workstation-only [landing preflight](docs/operations/LANDING_PREFLIGHT.md)
+(`python -m weather.operations.landing_preflight --head <ref> --earlier <n@sha> --tests affected`)
+judges a head on the night's cumulative merge (master, then the heads landing earlier, then
+the head) and writes a non-binding JSON verdict; exit 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT,
+4 TESTS_NOT_RUN or PASS_NO_TESTS, 5 SUPERSEDED, 6 DRY_RUN. It refuses to run on the capture host.
+
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
 Unmatched lots belong to owner-discretionary, outside bot bleed limits.
+
+The [maker shadow runner](docs/operations/maker-shadow-runner.md) tapes, each minute, what the
+maker would quote from public International Polymarket reads, every leg through the guard and none
+placed: `python -m weather.market.maker_shadow run --config <json> [--offline-fixture <json> --minutes <n>]`.
+`python -m weather.market.maker_shadow score --day <closed UTC day> --maker-evidence-root <dir>`
+writes diagnostics against sealed 88a capture and refuses embargoed panel days. No task is registered.
 
 Run commands from the repository root with the venv interpreter.
 

@@ -41,6 +41,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
 | Triaging the open pull-request queue | [PR hygiene report](operations/pr-hygiene.md) | Canonical runbook |
+| Checking a head on the night's cumulative merge before handing it to production | [Landing preflight](operations/LANDING_PREFLIGHT.md) | Canonical runbook |
 | Working on the maker pilot, live trading, or maker economics | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md), [Item 330 master plan](roadmap/items/item-330-maker-economics-refocus-master-plan.md), [Maker incentive feasibility](operations/maker-incentive-feasibility.md), [Exchange economics snapshot runbook](operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Canonical runbook; numbered item |
 | Moving the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
 | Retraining, or building or sequencing a release | [Nightly retrain runbook](operations/NIGHTLY_RETRAIN_RUNBOOK.md), [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md), [Release #1 is deferred](operations/release-one-deferred-until-a-retrained-candidate.md), [Release #1 and the MM clock](operations/release-one-is-not-the-mm-critical-path.md) | Canonical runbook; decision record |
@@ -51,6 +52,8 @@ research established) · **Generated** (edit the generator) · **History**
 | Looking up product purpose, setup, dashboard, or an operator command | [Root README](../README.md) | Canonical guide |
 | Starting or using the read-only account LAN service | [Wallet reader](operations/wallet-reader.md) | Canonical runbook |
 | Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
+| Pausing, halting or clearing a maker runtime; the bleed-limit guard | [Maker trading guard](operations/maker-trading-guard.md) | Canonical runbook |
+| Running the public-reads-only maker shadow, reading its quotes tape, or scoring it against 88a | [Maker shadow runner](operations/maker-shadow-runner.md) | Canonical runbook |
 | Changing or adding documentation | [Documentation maintenance](documentation-maintenance.md), [docs/AGENTS.md](AGENTS.md) | Canonical guide |
 
 ## Durable technical contracts

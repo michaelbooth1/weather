@@ -152,10 +152,13 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
+`portfolio`, `venue`, `runtime` and `replay` began as docstring-only placeholders; the
+portfolio ledger and the runtime [trading guard](maker-trading-guard.md) have since landed, and
+`maker_core.shadow` (with `maker_core.venue.public_feed`) is the public-reads-only
+[shadow runner](maker-shadow-runner.md); its tape projects `DecisionInputs` exactly.
 The fictional replay lives in tests. Production evidence loading, portfolio
 accounting, venue/credential access, session control, fitted hazard estimation,
-weather and YouTube plugins, shadow scoring and live execution are later phases.
+weather and YouTube plugins, economic shadow scoring and live execution are later phases.
 
 ## Update when
 
