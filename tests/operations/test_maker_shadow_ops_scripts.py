@@ -15,7 +15,7 @@ READOUT = ROOT / "scripts" / "ops" / "maker_shadow_readout.ps1"
 def test_registrar_runs_only_the_paper_shadow_module_with_a_stop_file():
     text = REGISTRAR.read_text(encoding="utf-8")
     assert "'-m weather.market.maker_shadow run --config \"{0}\" --stop-file \"{1}\"'" in text
-    assert "venv\Scripts\pythonw.exe" in text
+    assert r"venv\Scripts\pythonw.exe" in text
     assert '$TaskName = "WeatherMakerShadowRunner"' in text
     # Refuses a config that could point the guard at a real wallet book.
     assert '"shadow-maker"' in text and '"wallet_book"' in text and '"campaigns"' in text
@@ -44,4 +44,4 @@ def test_readout_is_read_only():
     for forbidden in ("python", "maker_evidence", "Register-", "Start-", "Stop-", "Remove-", "Set-", "Out-File",
                       "WriteAll", "workload_admission"):
         assert forbidden not in text.replace("Name='python.exe' OR Name='pythonw.exe'", "").replace(
-            "-m\s+weather\.market\.maker_shadow\s+run", ""), forbidden
+            r"-m\s+weather\.market\.maker_shadow\s+run", ""), forbidden
