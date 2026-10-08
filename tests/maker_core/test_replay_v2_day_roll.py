@@ -332,7 +332,7 @@ def zone_pack(tmp_path, zones):
 def test_market_time_zones_come_from_the_validated_inventory(tmp_path):
     from maker_core.replay.execution_manifest import market_time_zones
     bundles, inventory = zone_pack(tmp_path, ["Europe/London", "Europe/London"])
-    zones = market_time_zones(bundles, inventory)
+    zones = market_time_zones(bundles, inventory, registered=REGISTERED)
     assert dict(zones) == {"a": "Europe/London"}
     from maker_core.replay.v2.day_roll import DayRoll
     DayRoll(zones)  # accepted by the reader as is
@@ -343,11 +343,122 @@ def test_market_whose_conditions_disagree_on_the_zone_is_refused(tmp_path):
     # Both zones are UTC+0 in November, so each row passes the close/horizon check on its own.
     bundles, inventory = zone_pack(tmp_path, ["UTC", "Europe/London"])
     with pytest.raises(BundleError, match="market_time_zone_disagreement"):
-        market_time_zones(bundles, inventory)
+        market_time_zones(bundles, inventory, registered=REGISTERED)
 
 
 def test_market_time_zones_refuse_a_zone_the_descriptors_contradict(tmp_path):
     from maker_core.replay.execution_manifest import market_time_zones
     bundles, inventory = zone_pack(tmp_path, ["America/New_York"])  # close 00:00Z is 19:00 EST, not local midnight
     with pytest.raises(BundleError, match="universe_target_descriptor_mismatch"):
+        market_time_zones(bundles, inventory, registered=REGISTERED)
+
+
+# -- Delta Defender 3bf0eef5c notes (a)-(d) and the NO_REFRESH guard -------------------------------------------
+REGISTERED = MappingProxyType({"a": "Europe/London"})  # the fictional domain registry for market ``a``
+BAD_NAMES = ["Mars/Olympus_Mons", "europe/london", "../zoneinfo/UTC", "Europe/London ", " Europe/London",
+             "Europe/London\n", ""]
+
+
+@pytest.mark.parametrize("name", BAD_NAMES, ids=repr)
+def test_inventory_zone_lookup_failures_are_coded(tmp_path, name):
+    """(a)+(b): an invalid, mis-cased, traversal or whitespace-padded name refuses with a coded BundleError on
+    every platform (Windows' filesystem lookup accepted a trailing space)."""
+    from maker_core.replay.execution_manifest import _inventory
+    bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
+    inventory[0]["local_timezone"] = name
+    with pytest.raises(BundleError, match="unknown_time_zone|incomplete_universe_binding"):
+        _inventory(bundles, inventory, check=lambda: None)
+
+
+@pytest.mark.parametrize("name", [n for n in BAD_NAMES if n], ids=repr)
+def test_day_roll_zone_names_are_strict(name):
+    from maker_core.replay.v2.day_roll import DayRoll, local_lead, next_local_midnight
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        DayRoll({"a": name})
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        local_lead(name, date(2026, 11, 2), utc(2026, 11, 1))
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        next_local_midnight(name, utc(2026, 11, 1))
+
+
+def test_strict_zone_accepts_canonical_names_and_aliases():
+    from maker_core.replay.bundle import time_zone
+    for name in ("Europe/London", "UTC", "GB", "Asia/Tokyo", "America/New_York"):
+        assert time_zone(name).key == name
+
+
+def test_market_time_zones_require_the_domain_registry(tmp_path):
+    from maker_core.replay.execution_manifest import market_time_zones
+    bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
+    with pytest.raises(TypeError):
         market_time_zones(bundles, inventory)
+
+
+def test_same_offset_wrong_zone_is_refused_by_the_registry(tmp_path):
+    """(c): Africa/Abidjan equals London's offset in November, so the descriptor check alone passes it."""
+    from maker_core.replay.execution_manifest import _inventory, market_time_zones
+    bundles, inventory = zone_pack(tmp_path, ["Africa/Abidjan"])
+    _inventory(bundles, inventory, check=lambda: None)  # the offset-only check cannot tell
+    with pytest.raises(BundleError, match="market_time_zone_registry_mismatch"):
+        market_time_zones(bundles, inventory, registered=REGISTERED)
+
+
+def test_market_missing_from_the_registry_is_refused(tmp_path):
+    from maker_core.replay.execution_manifest import market_time_zones
+    bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
+    with pytest.raises(BundleError, match="market_time_zone_unregistered"):
+        market_time_zones(bundles, inventory, registered={"b": "Europe/London"})
+
+
+class DerivedLog:
+    """An observer recording every derived (local-midnight) item the lockstep emits."""
+
+    def __init__(self):
+        self.items = []
+
+    def instant(self, at, batch):
+        self.items.extend((at, i.condition_id, i.value.horizon_days, i.payload_sha256) for i in batch if i.derived)
+
+
+def fall_back_schedule():
+    first, second = Day(date(2026, 11, 1)), Day(date(2026, 11, 2))
+    first.descriptor(600, 2)
+    first.add(600, "info_event", {"events": []})
+    second.add(0, "info_event", {"events": []})
+    busy(second, 230, 312)
+    sources = [first.source(), second.source()]
+    log = DerivedLog()
+    drive(sources, [EngineV2(CONFIG, run_plan(sources))], observers=(log,), time_zones={"nyc": NY})
+    captured = next(r.payload_sha256 for r in first.source().records() if r.kind == "descriptor")
+    return log.items, captured
+
+
+def test_fall_back_emits_exactly_the_local_midnight_schedule():
+    """(d): one derived item per local midnight (04:00Z EDT, then 05:00Z EST), each sha chained from the prior."""
+    from maker_core.replay.v2.day_roll import derived_sha
+    items, captured = fall_back_schedule()
+    first = derived_sha(captured, 1)
+    assert items == [(utc(2026, 11, 1, 4), "nyc-band", 1, first),
+                     (utc(2026, 11, 2, 5), "nyc-band", 0, derived_sha(first, 0))]
+
+
+def test_mutant_fixed_offset_midnight_is_caught_by_the_fall_back_schedule(monkeypatch):
+    """The decisions cannot see this mutant after the fall-back; its extra 04:00Z item and chained sha can."""
+    from maker_core.replay.v2 import day_roll
+
+    def fixed_offset(zone, instant):
+        local = instant.astimezone(day_roll._zone(zone) if isinstance(zone, str) else zone)
+        midnight = datetime.combine(local.date() + timedelta(days=1), datetime.min.time())
+        return (midnight - local.utcoffset()).replace(tzinfo=UTC)
+    monkeypatch.setattr(day_roll, "next_local_midnight", fixed_offset)
+    with pytest.raises(AssertionError):
+        test_fall_back_emits_exactly_the_local_midnight_schedule()
+
+
+def test_scored_run_passes_refuse_no_refresh():
+    """NO_REFRESH exists for the attribution re-run's pre-F3 variant (``lockstep.drive``); the scored entry point
+    refuses it before any engine runs."""
+    from maker_core.replay.v2.day_roll import NO_REFRESH
+    from maker_core.replay.v2.pipeline import run_passes
+    with pytest.raises(BundleError, match="day_roll_refresh_required"):
+        run_passes([engine_day()], CONFIG, time_zones=NO_REFRESH)

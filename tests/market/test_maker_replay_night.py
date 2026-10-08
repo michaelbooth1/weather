@@ -423,3 +423,21 @@ def test_long_event_lists_are_trimmed_with_count_and_hash_instead_of_refusing(tm
     assert trimmed["total"] == len(full) and trimmed["sha256"] == sha256(canonical_bytes(full))
     assert trimmed["kept"] == len(sealed["gaps"]) < len(full) and sealed["gaps"] == full[:trimmed["kept"]]
     assert "details_omitted" not in sealed
+
+
+def test_market_time_zones_cross_check_the_built_in_registry(tmp_path):
+    """Defender 3bf0eef5c note (c): the zone map is checked by name against the domain registry, not only by the
+    descriptors' UTC offsets."""
+    from maker_core.replay.bundle import BundleError
+    from maker_core.replay.execution_manifest import market_time_zones
+    from weather.market.maker_replay_universe import registered_time_zones, universe
+    args, _ = setup(tmp_path, multi=True)
+    night(args, now=LATER)
+    folder = args.out / args.day / "bundle"
+    rows, bundle = universe([folder]), load_bundle(folder)
+    registry = registered_time_zones()
+    assert registry["nyc"] == "America/New_York" and registry["chicago"] == "America/Chicago"
+    assert dict(market_time_zones([bundle], rows, registered=registry)) == {
+        "chicago": "America/Chicago", "nyc": "America/New_York"}
+    with pytest.raises(BundleError, match="market_time_zone_registry_mismatch"):
+        market_time_zones([bundle], rows, registered=dict(registry, nyc="America/Toronto"))
