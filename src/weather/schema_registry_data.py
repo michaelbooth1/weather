@@ -927,6 +927,13 @@ REGISTERED_SCHEMAS = (
         "Exact WU temporary-file preflight and apply receipts with current orphan proofs.",
     ),
     SchemaSpec(
+        "wu_token_scan",
+        "wu_token_scan_v1",
+        "weather.operations.wu_token_scan",
+        "active",
+        "WU apiKey token-leak scan report (CLEAN/FOUND/INCOMPLETE) over repo, data and log roots; never contains the token.",
+    ),
+    SchemaSpec(
         "cleanup_preflight",
         "cleanup_preflight_v0.1",
         "weather.operations.cleanup_preflight",

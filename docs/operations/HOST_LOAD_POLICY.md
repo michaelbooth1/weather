@@ -140,6 +140,15 @@ below applies: no exemption, no queue state, the same windows and the same bound
   **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
   only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
   first. Kill-on-close Job and child-tree teardown are unchanged.
+- *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
+  bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
+  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
+  lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
+  wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
+  ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
+  [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
@@ -443,14 +452,16 @@ Stage-A, workstation or live authority is added.
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
-   suites use the repository-owned 25-file bounded wrapper. Never use
+   suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
    exact definition on the next session. Claude Code sessions have no hook; the
    S4U guard is their only backstop.
-7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
+7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
+   `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
+   restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
    point it at a directory you own outside `data\`, and delete that directory
    when the run ends — pass or fail. Measure free space on the volume before
    and after (`(Get-PSDrive C).Free`, or `df`), not `du` of the directory you
@@ -470,13 +481,13 @@ Stage-A, workstation or live authority is added.
    - This changes scheduling only; the windows, the lease and serial heavy work are
      unchanged. Head composition (caps, RS batching) is in
      [the git workflow](../git-workflow.md#integration-heads-for-a-night).
-9. **Reconciler tests run where they can fail** (option L5, owner 2026-10-06). The
-   reconciler test file runs in a host bounded suite only when the landing touches
-   the merge/reconciler surface (`scripts/ops/quiet_window_merge.ps1`, the
-   reconciler modules, `workload_admission`, integration-attempt runbook code);
-   otherwise once a night on the final tip. No test is weakened and no other host
-   rule changes. Until `bounded_worktree_test_suite.ps1` implements the selection,
-   the file still runs in every suite.
+9. **The reconciler execution file runs once a night, or when touched** (L5, owner
+   2026-10-06). The bounded suite skips
+   `tests/operations/test_production_baseline_reconciler_execution.py` (~19 min) when
+   it is given `-ReconcilerSurfaceBase` and the tip changes nothing on the file's
+   derived surface; the skip is logged. The night's final-tip run passes
+   `-IncludeReconciler`. With no base, or a surface that cannot be derived, the file
+   runs. Details are in [development](../development.md).
 10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
     implements it).**
     - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
@@ -486,7 +497,9 @@ Stage-A, workstation or live authority is added.
       proof is still required. Roll-sensitive heads are unchanged.
     - DST night 2026-11-01: no merge and no suite 01:45-02:15 local (OD30); the
       daily tasks are re-registered around 10-30 because their triggers carry a
-      fixed -04:00 offset (OD28, #249).
+      fixed -04:00 offset (OD28, #249), and the integration sequencer does not
+      run the night of 10-31 to 11-01 (05-F3). Task order and the read-only
+      check: [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md) "DST re-registration (OD28)".
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,

@@ -281,7 +281,7 @@ def test_capture_host_keeps_the_bounded_suite_rule_for_26_files(tmp_path: Path) 
         denied = HOOK.evaluate(_payload(command, repo), now=now, constrained_capture_host=True)
         assert _reason(denied) == (
             "An unbounded pytest run is forbidden on the 16 GB capture host; use the "
-            "repository-owned bounded 25-file suite wrapper."
+            "repository-owned chunked full suite (at most 25 files per child) wrapper."
         )
 
 

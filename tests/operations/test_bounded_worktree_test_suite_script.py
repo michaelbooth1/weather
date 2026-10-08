@@ -3,6 +3,7 @@ import re
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -13,6 +14,54 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
     os.name != "nt",
     reason="requires Windows PowerShell",
 )
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_chunk_temp_survives_pytest_initialization_and_restores_after_failure(tmp_path):
+    child_test = tmp_path / "test_child_temp.py"
+    child_test.write_text(
+        "import os, tempfile\nfrom pathlib import Path\n"
+        "def test_temp(tmp_path):\n"
+        "    root = Path(os.environ['TEMP'])\n"
+        "    assert root.is_dir() and root.name == 'temp'\n"
+        "    assert tmp_path.parent.parent == root.parent\n"
+        "    with tempfile.TemporaryDirectory() as folder:\n"
+        "        assert Path(folder).parent == root\n",
+        encoding="utf-8",
+    )
+    native = tmp_path / "probe.ps1"
+    native.write_text(r'''
+param($Source, $Root, $Python, $ChildTest)
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'script parse failed' }
+foreach ($name in @('Enter-SuiteChunkTemp','Exit-SuiteChunkTemp')) {
+    $node = $ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name}, $true)
+    . ([scriptblock]::Create($node.Extent.Text))
+}
+$oldTemp = $env:TEMP; $oldTmp = $env:TMP
+$saved = $null
+try {
+    $saved = Enter-SuiteChunkTemp -Root $Root
+    & $Python -m pytest -q -p no:cacheprovider --basetemp (Join-Path $Root 'pytest') $ChildTest
+    if ($LASTEXITCODE -ne 0) { throw 'child-temp-contract-failed' }
+    throw 'controlled-failure'
+}
+catch {
+    if ($_.Exception.Message -ne 'controlled-failure') { throw }
+}
+finally { if ($null -ne $saved) { Exit-SuiteChunkTemp -Saved $saved } }
+if ($env:TEMP -ne $oldTemp -or $env:TMP -ne $oldTmp) { throw 'parent temp environment changed' }
+Write-Output 'TEMP_CONTRACT_PASS'
+''', encoding="utf-8")
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(native),
+         str(SCRIPT), str(tmp_path / "chunk"), sys.executable, str(child_test)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "TEMP_CONTRACT_PASS" in result.stdout
 
 
 def test_bounded_suite_is_fail_closed_and_non_mutating():
@@ -82,7 +131,10 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "weather-integration-junit-" in text
     assert '"--junitxml", $junitTempPath' in text
     # Per-chunk basetemp on a short path, removed without following junctions.
-    assert '@("--basetemp", $chunkBaseTemp)' in text
+    assert '@("--basetemp", $chunkPytestBaseTemp)' in text
+    assert '$chunkPytestBaseTemp = Join-Path $chunkBaseTemp "pytest"' in text
+    assert 'Enter-SuiteChunkTemp -Root $chunkBaseTemp' in text
+    assert 'Exit-SuiteChunkTemp -Saved $chunkTempEnvironment' in text
     assert 'Join-Path $env:SystemDrive "pt"' in text
     assert 'rmdir /s /q' in text
     assert "refusing unsafe pytest basetemp cleanup" in text
@@ -335,6 +387,12 @@ $python = 'fake-python.exe'
 $argumentString = ''
 $WorktreeRoot = $env:WEATHER_BOUNDED_SUITE_TMP
 $junitTempPath = Join-Path $WorktreeRoot 'absent.xml'
+# This fixture isolates admission/Job disposal. The real temp helpers have
+# their own native pytest-initialization and failure-restoration test above.
+$chunkBaseTemp = $null
+$chunkTempEnvironment = $null
+function Enter-SuiteChunkTemp { param($Root) return @{} }
+function Exit-SuiteChunkTemp { param($Saved) }
 function New-WeatherKillOnCloseJob {
     $job = [pscustomobject]@{ Kind = 'fake-job' }
     $job | Add-Member ScriptMethod Dispose { $script:jobDisposals++ }

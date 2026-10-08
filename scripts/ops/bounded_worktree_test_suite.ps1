@@ -32,7 +32,15 @@ param(
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
     [switch]$SmokeTest,
-    [switch]$IntegrationPreflight
+    [switch]$IntegrationPreflight,
+    # L5 (owner decision 2026-10-06): the reconciler execution file runs only when the
+    # tip touches its surface (scripts/ops/reconciler_surface.ps1). The predicate needs
+    # the base this tip is measured against; without one the file is always included,
+    # so callers that pass nothing (integration attempts) run exactly as before.
+    [ValidatePattern("^$|^[0-9a-fA-F]{40}$")]
+    [string]$ReconcilerSurfaceBase = "",
+    # Forces the reconciler file in (the once-a-night run on the final tip).
+    [switch]$IncludeReconciler
 )
 
 $ErrorActionPreference = "Stop"
@@ -222,6 +230,13 @@ function Invoke-SuiteCheckedLocalGit {
                 [string]$Arguments[1] -ceq "--" -and
                 [string]$Arguments[2] -ceq "tests"
         }
+        "diff" {
+            $Arguments.Count -eq 5 -and
+                [string]$Arguments[1] -ceq "--name-only" -and
+                [string]$Arguments[2] -ceq "--no-renames" -and
+                [string]$Arguments[3] -cmatch '^[0-9a-f]{40}$' -and
+                [string]$Arguments[4] -cmatch '^[0-9a-f]{40}$'
+        }
         default { $false }
     }
     if (-not $valid) { throw "$Label refused an unsupported local Git query" }
@@ -302,6 +317,24 @@ function Invoke-SuiteCheckedLocalGit {
             )
         }
     }
+}
+
+function Enter-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $saved = @{ TEMP = $env:TEMP; TMP = $env:TMP }
+    $childTemp = Join-Path $Root "temp"
+    New-Item -ItemType Directory -Path $childTemp -ErrorAction Stop | Out-Null
+    $env:TEMP = $childTemp
+    $env:TMP = $childTemp
+    return $saved
+}
+
+function Exit-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][hashtable]$Saved)
+
+    $env:TEMP = $Saved.TEMP
+    $env:TMP = $Saved.TMP
 }
 
 function Write-SuiteLog {
@@ -767,6 +800,47 @@ try {
         )
     }
     if ($testFiles.Count -eq 0) { throw "no pytest files found in exact worktree" }
+    $inventoryTestFiles = @($testFiles)
+    $reconcilerTestFile = "tests/operations/test_production_baseline_reconciler_execution.py"
+    if (-not $IntegrationPreflight -and $testFiles -contains $reconcilerTestFile) {
+        $reconcilerInclude = $true
+        $reconcilerTouched = @()
+        $reconcilerSurfaceCount = "n/a"
+        if ($IncludeReconciler) {
+            $reconcilerReason = "forced by -IncludeReconciler"
+        }
+        elseif (-not $ReconcilerSurfaceBase) {
+            $reconcilerReason = "no -ReconcilerSurfaceBase supplied"
+        }
+        else {
+            try {
+                . (Join-Path $PSScriptRoot "reconciler_surface.ps1")
+                $changedPaths = @((Invoke-SuiteCheckedLocalGit `
+                    -Root $WorktreeRoot `
+                    -Arguments @("diff", "--name-only", "--no-renames",
+                        $ReconcilerSurfaceBase.ToLowerInvariant(), $ExpectedTip.ToLowerInvariant()) `
+                    -Label "reconciler surface diff").Rows)
+                $decision = Get-WeatherReconcilerDecision -Root $WorktreeRoot -ChangedPaths $changedPaths
+                $reconcilerInclude = [bool]$decision.Include
+                $reconcilerReason = [string]$decision.Reason
+                $reconcilerTouched = @($decision.Touched)
+                $reconcilerSurfaceCount = [string]$decision.SurfaceCount
+            }
+            catch {
+                # Fail closed: a predicate that cannot be evaluated includes the file.
+                $reconcilerInclude = $true
+                $reconcilerReason = "predicate unavailable ($($_.Exception.Message))"
+            }
+        }
+        if (-not $reconcilerInclude) {
+            $testFiles = @($testFiles | Where-Object { $_ -ne $reconcilerTestFile })
+        }
+        Write-SuiteLog (
+            "reconciler: $(if ($reconcilerInclude) { 'INCLUDED' } else { 'SKIPPED' }) " +
+            "reason=$reconcilerReason base=$(if ($ReconcilerSurfaceBase) { $ReconcilerSurfaceBase.ToLowerInvariant() } else { 'none' }) " +
+            "surface_paths=$reconcilerSurfaceCount touched=$(@($reconcilerTouched) -join ',')"
+        )
+    }
     if ($SmokeTest) {
         $testFiles = @($testFiles | Select-Object -First ([math]::Min(2, $testFiles.Count)))
     }
@@ -818,7 +892,7 @@ try {
         )) {
             throw "chunk $ordinal JUnit temp/evidence paths must share one volume"
         }
-        # Per-chunk pytest temp root on a short path, removed after the chunk.
+        # Both pytest and tempfile stay in this chunk's short, cleaned root.
         # Without it pytest keeps its temp trees in %TEMP% (2026-09-23: ~2.6 GB
         # after 10 chunks pushed the host under this suite's own disk floor).
         $chunkBaseTempParent = Join-Path $env:SystemDrive "pt"
@@ -829,17 +903,22 @@ try {
         if (Test-Path -LiteralPath $chunkBaseTemp) {
             throw "chunk $ordinal pytest basetemp unexpectedly already exists: $chunkBaseTemp"
         }
+        # Pytest clears --basetemp on first use. Keep TEMP/TMP in a sibling
+        # beneath the chunk root so that cleanup cannot erase the active TEMP.
+        $chunkPytestBaseTemp = Join-Path $chunkBaseTemp "pytest"
         $tokens = @(
             "-m", "pytest", "-q", "-p", "no:cacheprovider",
             "--junitxml", $junitTempPath
-        ) + @("--basetemp", $chunkBaseTemp) + @($chunks[$index])
+        ) + @("--basetemp", $chunkPytestBaseTemp) + @($chunks[$index])
         $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) starting files=$($chunks[$index].Count) junit=$junitPath"
 
         $childJob = $null
         $child = $null
         $exitCode = $null
+        $chunkTempEnvironment = $null
         try {
+            $chunkTempEnvironment = Enter-SuiteChunkTemp -Root $chunkBaseTemp
             $childJob = New-WeatherKillOnCloseJob
             $child = Start-WeatherProcessInJob `
                 -Job $childJob `
@@ -885,6 +964,9 @@ try {
             }
         }
         finally {
+            if ($null -ne $chunkTempEnvironment) {
+                Exit-SuiteChunkTemp -Saved $chunkTempEnvironment
+            }
             if ($childJob) { $childJob.Dispose() }
             if ($child) { $child.Dispose() }
             if (Test-Path -LiteralPath $junitTempPath) {
@@ -960,8 +1042,8 @@ try {
                 Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
                 Sort-Object
         )
-        if ($finalTestFiles.Count -ne $testFiles.Count -or
-            @(Compare-Object -ReferenceObject @($testFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
+        if ($finalTestFiles.Count -ne $inventoryTestFiles.Count -or
+            @(Compare-Object -ReferenceObject @($inventoryTestFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
             throw "tracked pytest inventory changed while the suite was running"
         }
     }

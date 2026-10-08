@@ -381,6 +381,26 @@ maker on 2026-09-29.
 
 ## Daily Refresh Delegated-Child Tasks
 
+Per-step profiling is opt-in: add `--profile-steps --profile-out <run-directory>`
+to an otherwise approved, admitted daily-refresh invocation. It does not
+grant a new execution window or change child containment. The optional
+`requirements-profiling.txt` supplies pyinstrument; without it the JSON
+records pyinstrument as unavailable while tracemalloc/memory capture remains.
+No profiler is started and no profile files are written by default.
+
+Each executed step writes a small JSON report with wall time, top twenty
+tracemalloc allocation sites and traced peak bytes, plus sampled Windows
+PrivateUsage (100 ms, process only). Private memory is null when unavailable,
+including on unsupported platforms; it is never mislabeled RSS. A separate
+bounded text sidecar holds pyinstrument output when installed. Isolated
+children write `isolated_step` reports, and the parent writes separate
+`orchestrator` reports including its wait. Do not sum those wall times or
+treat parent memory as the child's peak. Hard-killed children may have no
+terminal profile; containment receipts remain authoritative. Diagnostic
+failures do not change step results, exceptions, resource caps or deadlines.
+See [pyinstrument's API](https://pyinstrument.readthedocs.io/en/latest/reference.html)
+for reading its sample-based output.
+
 `scripts/ops/register_daily_refresh.ps1` registers both daily stages as
 scheduled PowerShell wrapper actions:
 
@@ -884,6 +904,86 @@ the task name, executable, repository path, or wrapper action requires a
 deliberate re-registration; stale definitions fail closed rather than being
 treated as scheduled evidence.
 
+## Daily triggers and DST
+
+`New-ScheduledTaskTrigger -Daily -At` stores a zoned StartBoundary (`...Z` in memory, a fixed `-04:00` once Task
+Scheduler saves it). A zoned boundary is a fixed UTC instant, so after daylight saving time ends every such task
+fires one hour early on the local clock (DST audit 2026-10-07, finding DST-C1). Every daily registrar therefore
+dot-sources `scripts/ops/scheduled_task_local_trigger.ps1`, builds its trigger with `New-WeatherLocalDailyTrigger`
+(an unzoned `yyyy-MM-ddTHH:mm:ss` local boundary that follows DST) and reads it back with
+`Test-WeatherLocalDailyStartBoundary`, which refuses any zone suffix. A `[datetime]` cast is not a read-back: it
+converts `00:30:00-04:00` to local time and hides the offset. Repeating `-Once -RepetitionInterval` triggers and
+run-specific one-shot triggers are interval- or instant-based and stay as they are.
+`tests/operations/test_scheduled_task_local_daily_triggers.py` fails on any daily trigger built outside the helper
+and on any registrar that emits a zoned daily boundary.
+
+### DST re-registration (OD28)
+
+Fixing the registrars changes nothing on the host until each daily task is re-registered from a checkout that
+contains the fix. The master-agent (production operator) does this; no other agent registers anything.
+
+**When.** Around 2026-10-30, after the fix has landed and production is on it, inside an allowed window (not
+12:00-00:30, and not over a running Stage-A chain or bounded suite), and in any case before the evening of
+2026-11-01 (the first night that fires an hour early).
+
+**Which tasks, in this order.** Re-run each registrar with exactly the parameters the live task was registered
+with (read them from the live action before starting); none of these changes the task's command:
+
+1. `WeatherColdSnapshotNightly` - `register_cold_snapshot_nightly.ps1` with the current approved policy path,
+   hash, `-ExpectedSourceTip` and `-Apply` (see [cold-snapshot-compression](cold-snapshot-compression.md)). This
+   also moves the host's legacy 00:30 trigger to the 06:50 slot approved on 2026-10-05.
+2. `WeatherDailySettlementPromotionRefresh` and `WeatherEveningEvidenceRefresh` - one run of
+   `register_daily_refresh.ps1` with the same Full or `-ProvenanceOnly` parameters as now. Stage B stays disabled
+   unless `-EnableEvidenceTask` is passed, which this step must not add.
+3. `WeatherClobTiering` - `register_clob_tiering.ps1`.
+4. `WeatherClobRawTapeTiering` - `register_clob_raw_tape_tiering.ps1`.
+5. `WeatherExchangeEconomicsSnapshotRefresh` - `register_exchange_economics_refresh.ps1` (also converts the live
+   task from RunLevel Highest and `-Command` to Limited and `-File` with a status file, Swarm P audit F1; see the
+   [economics runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
+6. `WeatherLocationConfigRefresh` - `register_location_config_refresh.ps1`.
+7. `WeatherTrainingWindowRestore` - `register_training_window.ps1` with its current parameters; the training
+   window stays disabled.
+
+Do not re-register `WeatherMakerEvidenceCapture` in this pass: its registrar still writes PT1M while the intended
+and live interval is PT5M ([passive maker evidence capture](passive-maker-evidence-capture.md)).
+
+**Verify, read-only, afterwards.** For every task above, `(Get-ScheduledTask -TaskName <name>).Triggers.StartBoundary`
+must show no `Z` or `+/-hh:mm` suffix. Then list the next run times across the change with the read-only
+`GetRunTimes` probe (Add-Type and COM only; registers and changes nothing):
+
+```powershell
+Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)] public struct ST{public ushort Y,Mo,Dow,D,H,Mi,S,Ms;public override string ToString(){return string.Format("{0:D4}-{1:D2}-{2:D2} {3:D2}:{4:D2}",Y,Mo,D,H,Mi);}}
+[ComImport,Guid("9c86f320-dee3-4dd1-b972-a303f26b061e"),InterfaceType(ComInterfaceType.InterfaceIsDual)] public interface IRT{
+[PreserveSig]int a(out IntPtr p);[PreserveSig]int b(out IntPtr p);[PreserveSig]int c(out int p);[PreserveSig]int d(out short p);[PreserveSig]int e(short p);
+[PreserveSig]int f(IntPtr a,out IntPtr b);[PreserveSig]int g(IntPtr a,int b,int c,IntPtr d,out IntPtr e);[PreserveSig]int h(int a,out IntPtr b);
+[PreserveSig]int i(out double p);[PreserveSig]int j(out int p);[PreserveSig]int k(out int p);[PreserveSig]int l(out double p);[PreserveSig]int m(out IntPtr p);
+[PreserveSig]int n(out IntPtr p);[PreserveSig]int o(int a,out IntPtr b);[PreserveSig]int q(IntPtr a,int b);[PreserveSig]int r(int a);
+[PreserveSig]int GetRunTimes(ref ST s,ref ST e,ref uint n,out IntPtr t);}
+public static class RTx{static ST S(DateTime d){var s=new ST();s.Y=(ushort)d.Year;s.Mo=(ushort)d.Month;s.D=(ushort)d.Day;return s;}
+public static string[] Get(object t,DateTime f,DateTime to){var a=S(f);var b=S(to);uint n=20;IntPtr p;int hr=((IRT)t).GetRunTimes(ref a,ref b,ref n,out p);if(hr<0)throw new Exception(hr.ToString("X"));
+var r=new string[n];int z=Marshal.SizeOf(typeof(ST));for(int i=0;i<n;i++)r[i]=Marshal.PtrToStructure(new IntPtr(p.ToInt64()+i*z),typeof(ST)).ToString();Marshal.FreeCoTaskMem(p);return r;}}
+"@
+$svc = New-Object -ComObject Schedule.Service; $svc.Connect()
+foreach ($n in 'WeatherColdSnapshotNightly','WeatherDailySettlementPromotionRefresh','WeatherEveningEvidenceRefresh',
+    'WeatherClobTiering','WeatherClobRawTapeTiering','WeatherExchangeEconomicsSnapshotRefresh',
+    'WeatherLocationConfigRefresh','WeatherTrainingWindowRestore') {
+  "$n : " + ([RTx]::Get($svc.GetFolder('\').GetTask($n), [datetime]'2026-10-30', [datetime]'2026-11-04') -join ' | ') }
+```
+
+Pass: every task keeps the same local time on each day, including 2026-11-02 onward (for example
+`2026-10-31 06:50 | 2026-11-01 06:50 | 2026-11-02 06:50`). Fail: a run one hour earlier from 2026-11-01 or
+2026-11-02 (for example `... | 2026-11-01 23:30 | ...` for a 00:30 task), which means the task still has a zoned
+boundary. A task that is disabled may return no run times; check its StartBoundary instead. Change `GetFolder('\')`
+if a task lives in a subfolder.
+
+**Around the change itself (owner decisions 2026-10-07).**
+
+- OD30: no merges and no bounded suites between 01:45 and 02:15 local on 2026-11-01; the 01:00-02:00 hour occurs
+  twice that night.
+- 05-F3: do not run the integration sequencer on the night of 2026-10-31 to 2026-11-01.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
@@ -896,5 +996,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, or retraining
+order or settlement recovery, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.

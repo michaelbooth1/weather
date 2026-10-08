@@ -26,6 +26,8 @@ def test_requirements_and_pyproject_dependency_pins_match():
     requirements_deps = sorted(_requirements_dependencies(REPO_ROOT / "requirements.txt"))
 
     assert requirements_deps == pyproject_deps
+    assert "pyarrow==24.0.0" in pyproject_deps
+    assert "joblib==1.5.3" in pyproject_deps
 
 
 def test_live_trading_sdk_is_exactly_pinned_to_unified_official_client():
@@ -34,3 +36,15 @@ def test_live_trading_sdk_is_exactly_pinned_to_unified_official_client():
     assert pyproject["project"]["optional-dependencies"]["live"] == [
         "polymarket-client==0.6.0"
     ]
+
+
+def test_harness_ignores_cover_nested_worktrees():
+    patterns = set((REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines())
+    assert {
+        "**/.claude/scheduled_tasks.lock", "**/.claude/scheduled_tasks.json",
+        "**/.claude/routines/.state/", "**/.claude/worktrees/",
+        "**/.claude/checkpoints/", "**/.claude/mailbox/",
+        "**/.claude/agent-registry.json", "**/.claude/agent-memory-local",
+        "**/.claude/first-run", "**/.claude/assistant-daemon-state.json",
+        ".ruff_cache/", "config/local/",
+    } <= patterns

@@ -195,7 +195,9 @@ credential selection and the scoped firewall commands.
 `scripts\ops\wait_pr_ci.ps1 -Pr <n> -ExpectedHead <sha>` waits (read-only, via `gh`) until
 every check on that exact PR head finishes; exit 0 means all green, 1 a failure, 2 a timeout,
 4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
-([guarded-merge runbook](docs/ops/streak-soak.md)).
+([guarded-merge runbook](docs/ops/streak-soak.md)). `scripts\ops\correspondence_index_closeout.ps1 [-Land]`
+regenerates the correspondence index on origin/master after the night's landings and pushes it as
+a docs-only branch (`-Land` hands it to the light path); it is idempotent.
 
 `scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
 folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.
@@ -234,6 +236,11 @@ Run commands from the repository root with the venv interpreter.
 # public WU page-backed collection, then audit/rebuild/recover as needed.
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto public-backfill --start 2026-06-29 --end 2026-06-29 --skip-existing
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto audit
+# Read-only leak scan for the WU page access token (OD15): paths, counts and
+# offsets only, never the value. A bulk scan: on the capture host it runs only
+# 00:30-09:00 under the shared lease (docs/operations/HISTORY_DATA_DESIGN.md).
+# A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links.
+.\venv\Scripts\python.exe -m weather.operations.wu_token_scan data\logs data\wunderground
 
 # METAR/ASOS redundant observation history.
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-22 --skip-existing

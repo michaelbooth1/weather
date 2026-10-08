@@ -117,12 +117,65 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
 | Modes | `-PreflightOnly`, `-SmokeTest`, `-IntegrationPreflight`, `-RequireLiveSdkContract` |
+| Reconciler file (L5, owner decision 2026-10-06) | `test_production_baseline_reconciler_execution.py` (~19 min) runs only when the diff from `-ReconcilerSurfaceBase` (40-hex) to the tip touches its surface. `scripts/ops/reconciler_surface.ps1` derives that surface from the test file, the scripts it names and their closure, the Python modules those scripts launch, and a floor: `quiet_window_merge.ps1`, `production_baseline_scheduler_rpc.ps1`, `workload_admission.ps1` and the integration-attempt scripts. The log records `reconciler: INCLUDED` or `SKIPPED` with the reason. `-IncludeReconciler` forces the file (the once-a-night final-tip run). No base, or a predicate that cannot be evaluated (a missing floor or test file), means the file is included, so integration attempts, which pass no base, run every file as before |
 
 The only merge-eligible result is the final log line `VERDICT: ALL CHUNKS PASSED`. When free disk is under the
 floor the suite cannot be admitted at all; that is a blocker to report, not a limit to lower.
 
 Test runs write large temporary trees. Give focused pytest an explicit `--basetemp` outside the repository and
 delete it afterwards; judge disk with the volume's free space, not a directory size.
+
+#### Workstation pre-gate (before a host landing slot)
+
+A head bound for a host landing night first passes `scripts/ops/workstation_pregate.ps1 -Head <40-hex>
+[-Base <40-hex>]` on the non-capture workstation, after its landing preflight. A FAIL keeps the head off the
+host. The run:
+
+- **Same mode as the host.** The pre-gate starts `workstation_pregate_driver.ps1` the way
+  `integration_attempt_suite.ps1` starts the host suite: `Start-WeatherProcessInJob` with captured output.
+  The driver then replays the host suite's own top-level statements from its AST. So the chunk plan
+  (25 files, time-packed), the `CREATE_SUSPENDED|CREATE_NO_WINDOW` chunk launch, Job containment,
+  environment scrubbing, per-chunk `C:\pt` basetemp and JUnit handling are the host's code.
+- **Only host-only checks are replaced, and the log records each one.** These are the 00:30-09:00 window,
+  the 09:00 hard stop, the capture-host lease, and `Assert-HostAdmission` (capture workers and the host
+  commit ceiling). If any of them no longer matches exactly once, the driver refuses. Each replaced
+  statement, and the `Assert-HostAdmission` body, is also pinned by a SHA-256 of its text (CRLF normalised
+  to LF) in `workstation_pregate_driver.ps1`. A content-only host edit inside one of them (for example a
+  changed chunk cap or a new host check) is refused until someone reviews it and updates the pin.
+- **Admission and cleanup.** In every mode it first proves that this is the assigned non-capture
+  workstation (`Assert-WeatherWorkstationOfflineHost`); the capture host's heavy lease uses the same mutex
+  name, so a held mutex is no proof of which host this is. It then takes the workstation FIFO queue lease
+  (`workstation_offline_v1`), or, nested inside `workstation_heavy.ps1`, reuses that wrapper's lease. It
+  runs in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
+- **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
+  receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.
+  **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
+  follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
+  issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
+  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
+
+Known gaps (Defender review of 2026-10-07, not fixed):
+
+- **Teardown order (N4).** The pre-gate terminates the driver Job before
+  `Set-WeatherHeavyWorkloadLeaseTeardownPending`, the reverse of `workstation_heavy.ps1`. If
+  `TerminateAndWait` throws, the lease is released normally rather than poisoned, so a child tree may
+  briefly outlive the lease. The verdict is still FAIL.
+- **Smaller gaps (N5).** `basetemp_removed=false` does not fail the verdict; the queue `finish` event is not
+  written; only nested mode is tested end to end, and the standalone queue path (`Enter-…Queued`,
+  TeardownPending, Exit) has no test.
+- Nested mode proves only that *some* process holds the mutex, not that the holder is an ancestor.
+
+**Console mode.** Each chunk owns a fresh, windowless console. Neither host hop shares its parent's console,
+so this comes from the creation flags, not from the S4U session. No Scheduled Task is needed or registered.
+A `DETACHED_PROCESS` Windows PowerShell driver is not a substitute: measured on 2026-10-06, it exits 0
+without running its script. The pre-gate cannot reproduce two host properties:
+
+- the S4U logon itself: session 0, a non-interactive window station, no network credentials;
+- the host's machine-level environment.
+
+The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
+lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`.
 
 ### Separate non-capture workstation
 

@@ -92,8 +92,9 @@ def test_generated_checks_use_source_parity_without_writes(tmp_path, monkeypatch
     write(tmp_path, "docs/roadmap/agent-report-2026-09-93a-new.md", "# New report\n")
     backlog.write_text("stale\n", encoding="utf-8")
     errors = knowledge.generated_index_errors(tmp_path)
-    # Root index and the new uncommitted shard for the correspondence, plus the backlog.
-    assert len(errors) == 3 and all("stale" in error for error in errors)
+    # The correspondence index is checked structurally (option D): the new report
+    # without a row is pending for the closeout, so only the backlog is stale.
+    assert len(errors) == 1 and "active-backlog.md" in errors[0]
     assert backlog.read_text() == "stale\n"  # check mode did not repair it
     assert not (tmp_path / "data").exists()
     backlog.write_bytes(original)

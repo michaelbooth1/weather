@@ -567,6 +567,17 @@ or authorizes live exchange mutation. Receipts encode that static boundary as
 `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`; they do not mislabel a hard-coded
 boolean as a measured credential or exchange outcome.
 
+## Correspondence index after the night
+
+Integration branches never carry the regenerated correspondence index, so no
+attempt conflicts on it. After the night's last successful merge, the morning
+closeout runs `scripts\ops\correspondence_index_closeout.ps1 -Land` once. It
+regenerates the index on origin/master, refuses unless only the index files
+changed and the strict check passes, and lands the result as a docs light-path
+commit (Markdown under `docs/`, roll-free, no lease). It is idempotent, and
+`documentation_transaction complete` fails while the index is stale. A failed
+attempt changes nothing here: the closeout regenerates whatever really landed.
+
 ## Verification and adoption
 
 A clean local Git status is a valid zero-row query. Native Windows qualification
@@ -598,6 +609,115 @@ first landing of this machinery must use the established guarded merge path,
 because production cannot freeze hashes for attempt scripts that do not exist
 there yet. Adopt the registrar only afterwards and under separate explicit
 scheduler authorization.
+
+## Merge-train dry pilot (M6)
+
+Owner approval 2026-10-05 (Swarm L list): a **non-binding** pilot, "3 dry nights, owner signs".
+`scripts/ops/merge_queue_driver.ps1 -Dry` reads an owner-signed queue and writes a "would have run X at
+T" receipt. It takes no lease, registers, starts or stops no task, and never merges, fetches or pushes.
+Registration authority stays with the operator under this runbook, and `WeatherMergeQueueDriver` stays
+Disabled. The driver's live mode still calls `quiet_window_merge.ps1` directly rather than registering
+attempts. Enabling it, or converting it to register attempts, is a separate owner decision taken after
+the pilot.
+
+**Queue (`weather_exact_tip_merge_queue_v1`).** One JSON file per night:
+
+- `night` (`yyyy-MM-dd`, the night's 00:30–09:00 window);
+- `base_sha` (40-hex `origin/master` at signing);
+- `plan_sha256` (from the `landing_night_plan`);
+- `on_failure: "stop_night"`;
+- `entries`, listed in `order` 1..n. Each entry carries:
+  - `branch` (`[origin/]codex/…` or `claude/…`) and the 40-hex `expected_tip`;
+  - `roll_class` (`ROLL-FREE`/`ROLL-SENSITIVE`, from `roll_verdict.ps1`);
+  - `approved: true` and `approval_ref` (the owner instruction or PR);
+  - `preflight_receipt`, a path relative to the queue file, and its `preflight_receipt_sha256`. The receipt
+    must name the tip.
+
+`scripts/ops/merge_queue.example.json` shows the shape.
+
+**Signing: only the owner signs; an agent never signs, and never adds or edits a key.**
+
+1. One time, the owner creates a dedicated key that agents cannot use: a passphrase-protected key
+   (`ssh-keygen -t ed25519 -C owner -f <owner key path>`, never loaded into `ssh-agent`) or a hardware
+   `ed25519-sk` key.
+2. The owner adds the line `owner namespaces="weather-merge-queue" <public key>` to
+   `scripts/ops/merge_queue_allowed_signers`, in a change the owner authors and instructs to merge. That
+   file on production `master` is the trust anchor. While it has no key line, every queue is refused.
+3. Each night, the workstation drafts `queue.json` beside its `receipts/`. The owner reviews it and runs
+   `ssh-keygen -Y sign -f <owner key path> -n weather-merge-queue queue.json`, which writes
+   `queue.json.sig`. Any later byte change invalidates the signature. To withdraw an approval, delete the
+   `.sig` or sign a replacement.
+4. Verification is
+   `ssh-keygen -Y verify -f scripts\ops\merge_queue_allowed_signers -I owner -n weather-merge-queue -s queue.json.sig`
+   with `queue.json` on stdin. The driver requires exit 0 and a `Good` line, and it records the key
+   fingerprint and the anchor's SHA-256.
+
+The driver refuses in these cases:
+
+- **Unsigned queue**: a missing, invalid or foreign signature, or no key in the anchor. Dry mode reports
+  `REFUSED_UNSIGNED` (exit 4, receipt written) before any ancestry read; live mode throws before merging.
+- **Signed queue that fails a check**: a wrong night, a moved tip, a missing receipt or a receipt-hash
+  mismatch, a `master` that does not contain `base_sha`, or a `master` that moved without any queue entry
+  merged. Dry mode reports `REFUSED` (exit 4).
+
+**Cut-off.** The 22:00 workstation cut-off cannot land a DECISION_LOG row on `master` the same day,
+because the light path is limited to before 12:00. The fix is that the signed queue lives **outside
+master**, as a host-local signed artifact under `data\merge_train\<night>\` (`queue.json`,
+`queue.json.sig`, `receipts/`). The production agent copies it from the owner. Because the signature
+carries the authority, the transport does not matter. The next morning's documentation transaction,
+before 12:00, records the queue SHA-256, the key fingerprint and the pilot comparison. The cut-off is
+not moved before 12:00, because heads keep being refreshed through the evening.
+
+**Each dry night (the production agent, read-only).**
+
+1. Operate the night exactly as this runbook already says.
+2. Run the dry driver at 00:35, again within 5 minutes after each real unit's merge task reaches a
+   terminal state, and again whenever the operator would otherwise wait:
+
+   ```powershell
+   .\scripts\ops\merge_queue_driver.ps1 -Dry -QueueFile data\merge_train\<night>\queue.json `
+     -LogFile data\merge_train\<night>\dry.log -GateTaskName <previous unit's merge task>[,<other gating task>]
+   ```
+
+   Gates come only from the lease state and from Scheduler `LastRunTime` + `LastTaskResult`, never from a
+   guessed attempt name or time (the 2026-10-05 mis-gated 91a wait). Each run writes
+   `data\merge_train_dry\<night>\receipt-<time>.json` with the verdict:
+   - `WOULD_RUN`, with `attempt_id`, `suite_at_local` and `merge_at_local`. The merge is at least 30
+     minutes after the suite, inside 01:00–03:40.
+   - `WAIT`, with `blocked_by`.
+   - `STOP_FOR_NIGHT`, after a failed or missing gate task or an exhausted merge window.
+   - `DONE`.
+3. Once a night, run the dry driver against a copy of the queue without its `.sig`. It must refuse with
+   exit 4.
+4. **Test the train once** (pilot only). Add `-TrainOnce` to the 00:35 run. When every unmerged entry is
+   ROLL-FREE and the final entry's chained preflight receipt is PASS, the receipt's `would_run` plans
+   ONE bounded suite on the final tip of the stacked chain (`suite_tip.kind = synthetic_chain`, the
+   unmerged orders on `master`), then the merges in order (`merge_orders`). Otherwise `train.eligible` is
+   false with `ineligible_reason`, and the per-head plan stands. Every run's `train` block also lists
+   each unmerged entry's chained preflight verdict. `intermediate_failed_where_final_passed` is true when
+   some earlier tip failed while the final tip passed (`intermediate_failures` names them): that is
+   the risk one final-tip suite hides. Report across the dry nights how often it was true, against
+   `suites_saved`. Nothing changes in live mode; `-TrainOnce` is a dry-only parameter.
+
+**What to compare in the morning** (one table per night):
+
+- for each entry, the dry verdict and order against what production actually landed;
+- the first `WOULD_RUN` time against the real suite task's `LastRunTime`, and the minutes between them
+  (the M1 idle measure);
+- every dry `WAIT`/`STOP_FOR_NIGHT` against the real lease holder and task results;
+- each refusal against whether production hit the same problem.
+
+**Success criteria.** All of these must hold on three consecutive nights. Any discordance resets the
+count.
+
+- No mutation by the driver: no task, lease or `master`/`origin` change attributable to it.
+- Every signed run verified, and every unsigned control refused.
+- The same branch and tip in the same order for every entry production landed.
+- No `WOULD_RUN` while the lease was held or a gate task was running, failed or had not run that night.
+- `STOP_FOR_NIGHT` for later units on any night where a real attempt froze.
+
+The owner then signs off the pilot result. Until then, OPERATIONS_AGENT_ROLE's rule that the driver
+"must not be enabled" stands.
 
 ## Update this file when
 

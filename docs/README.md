@@ -51,6 +51,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Setting up, testing, or checking the definition of done | [Development](development.md), [Python runtime audit gate](operations/PYTHON_RUNTIME_AUDIT_GATE.md), [Research audit harness](operations/RESEARCH_AUDIT_HARNESS.md) | Canonical guide |
 | Looking up product purpose, setup, dashboard, or an operator command | [Root README](../README.md) | Canonical guide |
 | Starting or using the read-only account LAN service | [Wallet reader](operations/wallet-reader.md) | Canonical runbook |
+| Measuring the owner's manual resting orders (rewards, fills, markouts) | [Manual order journal](operations/manual-order-journal.md) | Canonical runbook |
 | Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
 | Pausing, halting or clearing a maker runtime; the bleed-limit guard | [Maker trading guard](operations/maker-trading-guard.md) | Canonical runbook |
 | Running the public-reads-only maker shadow, reading its quotes tape, or scoring it against 88a | [Maker shadow runner](operations/maker-shadow-runner.md) | Canonical runbook |

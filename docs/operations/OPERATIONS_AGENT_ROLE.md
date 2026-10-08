@@ -149,7 +149,7 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
 
 - **Never run recursive `Get-ChildItem` over `data\`.** The tree holds millions of files and the scan
   starves capture. Target subtrees. A full `pytest` run breaches the memory ceiling too — use the
-  bounded 25-file wrapper (`scripts\ops\bounded_worktree_test_suite.ps1`).
+  full-suite wrapper (at most 25 files per chunk) (`scripts\ops\bounded_worktree_test_suite.ps1`).
 - **Test runs are disk writers.** Always pass `--basetemp` and delete it afterwards; measure free
   space before and after (`HOST_LOAD_POLICY.md` rule 7).
 - **Abandoning a tool call does NOT kill the process.** An abandoned scan ran 13 h × 2.94 GB and
@@ -216,7 +216,9 @@ threshold grades the day `partial`, and that grade is permanent. The threshold i
 - **Scheduled spine:** use `status.ps1` and Task Scheduler as dynamic truth. The legacy
   `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are held Disabled because their
   branch-only queues lacked immutable expected-tip binding; `merge_queue_driver.ps1` is the
-  repository-owned replacement and must not be enabled until a reviewed v1 queue exists.
+  repository-owned replacement and must not be enabled until a reviewed v1 queue exists. Only its
+  read-only `-Dry` mode runs, in the owner-signed dry pilot
+  ([runbook](INTEGRATION_ATTEMPT_RUNBOOK.md#merge-train-dry-pilot-m6)).
 - **`WeatherTrainingWindow` exit `2` and the chain's exit `1`/`0x2` are EXPECTED** while gates BLOCK
   pre-release. **Master is not guaranteed green. If something is red, it is yours.**
 - Merges run off **allowlists, not auto-discovery**. Merge timing comes from `roll_verdict.ps1`,
@@ -239,7 +241,8 @@ seven hours). These rules bind every production and workstation agent:
    diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch <b> -ExpectedTip
    <sha>` does exactly this (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
    receipt. Never run the merge tool's `-DryRun` for such a branch (that
-   dry run left the 09-24 marker).
+   dry run left the 09-24 marker). The morning closeout's correspondence-index regeneration is such a branch:
+   `scripts\ops\correspondence_index_closeout.ps1 -Land` prepares and lands it in one idempotent command.
 3. **Lanes do not block each other.** Landing, research runs, disk work and workstation missions are independent lanes;
    a stall in one never pauses the others. Record the stall and move to the next lane. This never licenses parallel heavy
    work on the capture host: heavy jobs stay serial under the shared lease.

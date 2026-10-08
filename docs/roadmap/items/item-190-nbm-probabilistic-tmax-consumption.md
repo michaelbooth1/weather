@@ -229,4 +229,24 @@ non-regression promotion gate. The current calibrated-baseline comparison is
 documented and blocks promotion because NBM-prob underperforms the current
 model and market on settled US slices.
 
+## 2026-10-07 MG-1 reserved-date filter (owner decision OD31)
+
+The settlement scorer is an NBM-guidance-to-band candidate under the
+[MG-1 reservation](../../operations/reserved-confirmation-window.md), so it never
+scores a reserved local target date (2026-10-15 onward until D0 and its last
+date are recorded in `weather.mg1_reserved_window`):
+
+- `build_payload` drops, before any outcome join, every folder whose slug date
+  (or the slug date it resolves to through a link) is reserved or unreadable.
+  It also drops every folder whose `settlement.json` or snapshot rows name a
+  reserved or unreadable date, and every remaining reserved-dated row. Non-reserved
+  dates score as before.
+- The payload's `mg1_reserved_window` block and the report's coverage table
+  disclose counts only, never the dropped dates.
+- A direct `score_folder` call on a reserved date raises `MG1Reserved`. The CLI
+  exits 0 when it drops dates; it exits 2 with one stderr line only if a refusal
+  escapes the filter.
+- `--as-of` is unchanged: discovery is exclusive of its date and defaults to
+  Toronto today. Reserved dates are dropped whatever `--as-of` admits.
+
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.

@@ -76,8 +76,12 @@ jobs:
               tests/operations/test_cold_snapshot_compression_wrapper.py
               tests/operations/test_integration_phase_output.py
               tests/operations/test_health_watchdog_script.py
+              tests/operations/test_dst_audit_powershell_20261007.py
               tests/operations/test_bounded_worktree_test_suite_script.py
+              tests/operations/test_workstation_pregate_script.py
+              tests/operations/test_reconciler_surface.py
               tests/operations/test_powershell_host_guard.py
+              tests/operations/test_merge_queue_driver_dry.py
               tests/operations/test_quiet_window_merge_execution.py
               tests/operations/test_landing_preflight.py
             mark: ''
@@ -105,6 +109,7 @@ jobs:
               tests/operations/test_memory_commit_guard_script.py
               tests/operations/test_storage_inventory_scope.py
               tests/operations/test_cold_snapshot_nightly_status_race.py
+              tests/operations/test_wu_token_scan_junction.py
             # Ratchets run once in CI: portable ones in ci.yml's audit job, the
             # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
             mark: not ratchet or windows_native
@@ -115,6 +120,7 @@ jobs:
               tests/operations/test_international_live_session_launcher_sealer.py
               tests/operations/test_storage_recovery_night_wrapper.py
               tests/operations/test_docs_light_path_script.py
+              tests/operations/test_correspondence_index_closeout_script.py
               tests/operations/test_international_live_session_runner.py
               tests/operations/test_live_runner_console_guards.py
               tests/operations/test_international_live_session_runner_stdin.py
@@ -135,6 +141,8 @@ jobs:
               tests/operations/test_codex_host_load_hook_focused_exemption.py
               tests/operations/test_workstation_heavy_queue.py
               tests/operations/test_thin_ensure.py
+              tests/operations/test_scheduled_task_local_daily_triggers.py
+              tests/operations/test_exchange_economics_refresh_script.py
             mark: ''
           - shard: reconciler-1
             split_file: test_production_baseline_reconciler_execution.py
