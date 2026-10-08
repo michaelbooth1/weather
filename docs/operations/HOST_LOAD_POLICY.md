@@ -487,7 +487,8 @@ Stage-A, workstation or live authority is added.
    it is given `-ReconcilerSurfaceBase` and the tip changes nothing on the file's
    derived surface; the skip is logged. The night's final-tip run passes
    `-IncludeReconciler`. With no base, or a surface that cannot be derived, the file
-   runs. Details are in [development](../development.md).
+   runs. No test is weakened and no other host rule changes. Details are in
+   [development](../development.md).
 10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
     implements it).**
     - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
