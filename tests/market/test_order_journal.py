@@ -315,6 +315,7 @@ catch { $failure = $_.Exception.Message }
 """
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 @pytest.mark.parametrize("case", ["valid", "whatif", "wrong_runner", "wrong_modules", "missing"])
 def test_registrar_requires_pins_before_mock_scheduler(tmp_path, case):
@@ -339,6 +340,7 @@ def test_registrar_requires_pins_before_mock_scheduler(tmp_path, case):
         assert bool(payload["error"]) == (case != "whatif")
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 @pytest.mark.parametrize("case", ["wrong_modules", "matching_pins_no_interpreter"])
 def test_runner_refuses_unpinned_source_before_python(tmp_path, case):
@@ -368,6 +370,7 @@ def junction_venv(state):
     return link
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 def test_runner_refuses_when_the_journal_module_resolves_outside_the_pinned_checkout(tmp_path):
     """Pinned files exist in RepoRoot, but the interpreter imports weather from another checkout."""
@@ -388,6 +391,7 @@ def test_runner_refuses_when_the_journal_module_resolves_outside_the_pinned_chec
         os.rmdir(link)
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 def test_runner_refuses_a_sibling_src2_that_shares_the_pinned_prefix(tmp_path):
     """<repo>\\src2 starts with the text <repo>\\src; the check must compare whole path segments."""
@@ -413,6 +417,7 @@ def test_runner_refuses_a_sibling_src2_that_shares_the_pinned_prefix(tmp_path):
     assert "src2" in line["detail"] and not list(journal.glob("*.jsonl"))
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 def test_runner_records_into_state_root_without_reader_config(tmp_path):
     """Real runner and interpreter; the reader config is absent, so no network read happens."""
@@ -436,6 +441,7 @@ def test_runner_records_into_state_root_without_reader_config(tmp_path):
         os.rmdir(link)
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
 def test_registrar_whatif_by_file_uses_its_own_root_and_prints_the_action(tmp_path):
     """-File without -RepoRoot, as the owner runs it; -WhatIf must still hash and never register."""
