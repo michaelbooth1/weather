@@ -131,7 +131,7 @@ Re-verify rather than trusting this list):
 | Task | Executes | Consequence |
 | :--- | :--- | :--- |
 | `WeatherBootRecovery` | `boot_recovery.ps1` in the linked worktree `weather-integration-attempt-recovery`, optionally pinned by `-ExpectedSelfSha256` (`register_boot_recovery.ps1 -ExpectedScriptSha256`) | A merged boot-recovery fix is inert until the task is re-registered. |
-| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. |
+| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. `status.ps1` reports drift between this deployment and `master` read-only (`watchdog_deployment`; see [pinned watchdog redeploy](#pinned-watchdog-redeploy)). |
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
 
@@ -149,6 +149,49 @@ Read the path inside `Arguments` (`-File <path>` or an encoded wrapper contract)
 it against `git worktree list`. If it is not the production checkout, the code to read is
 `git -C <that worktree> show HEAD:<script>`, not `master`. When a fix must reach such a task, the work item is
 "merge **and** redeploy", and the redeploy is a Scheduler mutation that needs its own authorization.
+
+### Pinned watchdog redeploy
+
+`status.ps1` (and the watchdog's `host_health_latest.json`) reports `watchdog_deployment`:
+the registered action's paths and SHA256 pins, the deployed file hashes, git blob identity
+of each deployed file against `master`, the deployed commit, and commits behind `master`
+(total and touching the two scripts) when git is available. `CURRENT` means both files
+match `master`; `DRIFT` is a note; `PIN_MISMATCH` is a FLAG (the task will refuse to run, or
+the bytes changed under it); `UNVERIFIED`/`UNKNOWN`/`NOT_REGISTERED` say what could not be
+read. The check never changes the scheduler, the deployment, or either checkout.
+
+To clear `DRIFT`, master-agent runs a reviewed pinned redeploy on the production host,
+from the production `master` checkout, after the source has landed (owner-ops review and
+an explicit scheduler scope are still required; the watchdog and status scripts are
+roll-free, so no quiet window is needed):
+
+```powershell
+$productionRoot = ([string](git rev-parse --show-toplevel)).Trim()
+if (([string](git branch --show-current)).Trim() -cne 'master') { throw 'Use production master' }
+$reviewedTip = '<full reviewed master SHA>'
+git merge-base --is-ancestor $reviewedTip HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Reviewed source has not landed' }
+$deploymentRoot = Join-Path (Split-Path $productionRoot -Parent) ('weather-watchdog-deployed-' + $reviewedTip.Substring(0, 8))
+$env:GIT_LFS_SKIP_SMUDGE = '1'
+git worktree add --detach $deploymentRoot $reviewedTip
+if ($LASTEXITCODE -ne 0) { throw 'Deployment checkout was not created; inspect before retrying' }
+git worktree lock --reason 'pinned WeatherHostHealthWatchdog deployment' $deploymentRoot
+$watchdog = Join-Path $deploymentRoot 'scripts\ops\health_watchdog.ps1'
+$status = Join-Path $deploymentRoot 'scripts\ops\status.ps1'
+$watchdogHash = (Get-FileHash -LiteralPath $watchdog -Algorithm SHA256).Hash.ToLowerInvariant()
+$statusHash = (Get-FileHash -LiteralPath $status -Algorithm SHA256).Hash.ToLowerInvariant()
+# Compare both hashes with the reviewed values recorded in the PR before registering.
+& (Join-Path $deploymentRoot 'scripts\ops\register_health_watchdog.ps1') `
+    -RepoRoot $productionRoot -WatchdogScriptPath $watchdog -ExpectedSelfSha256 $watchdogHash `
+    -StatusScriptPath $status -ExpectedStatusScriptSha256 $statusHash
+Start-ScheduledTask -TaskName 'WeatherHostHealthWatchdog'
+# Verify: host_health_latest.json is fresh and status.ps1 -Json shows watchdog_deployment.status CURRENT.
+```
+
+Keep the previous deployment worktree until the new one has produced a fresh
+`host_health_latest.json`; then record the adoption in the decision log and the state of
+play. The first run after a redeploy logs one `state_change` row (the fingerprint format
+changed with the 2026-10-07 dedupe keys).
 
 ## Startup After Reboot
 
