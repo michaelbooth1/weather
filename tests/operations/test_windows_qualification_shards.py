@@ -77,6 +77,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_integration_phase_output.py",
             "tests/operations/test_health_watchdog_script.py",
             "tests/operations/test_dst_audit_powershell_20261007.py",
+            "tests/operations/test_watchdog_classify_drift.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_workstation_pregate_script.py",
             "tests/operations/test_reconciler_surface.py",
