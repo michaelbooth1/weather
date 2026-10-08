@@ -1,4 +1,8 @@
-"""Manual order journal: fixture-only reader/CLOB replies, no network or account."""
+"""Manual order journal: fixture-only reader/CLOB replies, no network or account.
+
+Guards: docs/operations/manual-order-journal.md (record/verify/report CLI, hash chain, read-only public reads)
+and the PR #127 option A landing (DECISION_LOG 2026-10-07).
+"""
 import ast
 from decimal import Decimal
 import hashlib
