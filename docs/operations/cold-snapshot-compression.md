@@ -405,8 +405,11 @@ the exact source tip (all paths absolute):
 The variables must name the actual production root, immutable policy file,
 its hash and reviewed tip. Omitting `-Apply` registers metadata/writer-lock
 validation only. Before registration, perform a bounded dry run with
-`cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory,
-then one bounded low-budget apply; review its complete receipts. Do not invoke
+`cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory not
+named `nightly-*`. Pass `-MaxRuntimeSeconds 15300`, which the wrapper caps at
+the window end: the default 600 s is below the 720 s a nightly run needs, so
+the wrapper refuses without it (seen on the 2026-10-08 re-pin). Then run one
+bounded low-budget apply; review its complete receipts. Do not invoke
 either production path from the workstation. A policy expiry is an explicit
 stop, not permission to manufacture renewal authority.
 
