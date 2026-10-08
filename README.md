@@ -461,6 +461,21 @@ Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use
 `.\tools\train_all_markets.ps1`.
 
+METAR keying replay (read-only, target dates up to 2026-09-29 only). It
+re-parses the raw AWC payloads retained in each market-day folder's
+`observation_payloads/` under the retired `reportTime` keying
+(`metar-parser-v3`) and the served `obsTime` keying (`metar-parser-v4`), and
+writes one JSONL row per captured snapshot: rows only one keying admits, the
+METAR floor, running max, since-07:00 max and current reading. It verifies each
+blob's SHA-256, skips captures dated after 2026-09-29 without opening them, and
+refuses later `--date` values, an existing `--out`, and any `--out` inside
+`data/`. On the capture host run it inside the admitted heavy window under the
+shared lease:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
+```
+
 ### Trading Simulations
 
 The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
