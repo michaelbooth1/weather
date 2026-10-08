@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-07 09:00 America/Toronto (ALL LIVE TRADING PAUSED; N1 landed #207, RF #238/#120/#204 and #230; pf2 held on one host-suite failure; lockin-anchor-v3 first live evening passed; reboot capture gap 10-06 23:24-23:36; owner approved the 10-07 morning list).**
+**Last updated: 2026-10-08 10:45 America/Toronto (ALL LIVE TRADING PAUSED; N2 landed RS1b and RF2e; 91a re-pinned to 06:50; B replay needs an owner judgement on 3 rows; C3 not run 10-08, fallback 10-09; owner decisions 10-07 afternoon recorded).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -16,69 +16,69 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 ## Current authority
 
 - **No live trading (owner 2026-09-25).** The owner starts any future live run personally. The pause and bleed limit are a
-  fail-closed guard (#180, unmerged); with today's shared wallet it would HALT, so a live run first needs a complete ledger
-  (a dedicated wallet). Owner trades stay `owner-discretionary`.
+  fail-closed guard (#180, landed 10-08); with today's shared wallet it would HALT, so a live run first needs a complete
+  ledger (a dedicated wallet). Owner trades stay `owner-discretionary`.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
   01:00-04:00 only; roll-free 00:30-09:00 (the lease refuses later); docs-only by the light path before 12:00; never 12:00-00:30.
-- **Merge freeze lifted 2026-10-03, except 88a:** changes to 88a capture code or behaviour (#118, #172, #177, stacked #182)
-  wait until after 2026-10-14 so the unread panel is captured by one 88a code version.
-- Owner decisions 2026-09-30..10-07 are rows in [DECISION_LOG](DECISION_LOG.md). 10-06: L5 (host load policy rule 9); Swarm M
-  full size; #180 + #192 land once landable (usual gates); B (below); OD15 (scraped public WU apiKey token acceptable, kept out
-  of logs, tapes and commits; [domain context](AGENT_CONTEXT.md)); relayed approvals. 10-07: the morning list (below).
+- **Merge freeze lifted 2026-10-03, except 88a** (owner reading 10-07): the bytes of `maker_evidence_capture.py`,
+  `maker_evidence_store.py` and the 88a schema record, and 88a capture behaviour (#118, #172, #177, stacked #182), wait until
+  after 2026-10-14. Shared schema-registry record additions are not frozen.
+- Owner decisions 2026-09-30..10-07 are rows in [DECISION_LOG](DECISION_LOG.md).
 - **Testing (owner 10-04, PR #205):** focused + affected tests with PR CI as full-suite evidence once the Windows CI lane (#209)
   covers them; workstation focused runs (<= 25 files, no `serial`) are lease-exempt, full suites queue (#213).
 - **Workstation: one Claude Code chat directed by the production agent** (owner 10-03; [preamble](WORKSTATION_SESSION_PREAMBLE.md)).
   Owner approvals relayed by the production agent bind it for serving-model and merge decisions, never for money or
-  credentials (owner 10-06). The cloud agent is retired (owner 10-06). Claude Code has no host-load hook (S4U guard only).
+  credentials (owner 10-06). Claude Code has no host-load hook (S4U guard only). Production-host resets in the 30 days to
+  10-07 were all the owner's own manual resets, not system faults (owner 10-07).
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` `8969a514`. N1 10-07: #207 `522ddfbe`; RF #238 + #120 + #204 `99a399c2`;
-  #230 (#228 + #229 live-launcher stdin) `eefbb3df`; morning light paths #239 `16f45bf6` and RE-1 fill-count docs.
-- **pf2 head `4949296` NOT landed:** one host-suite failure, `tests/operations/test_landing_preflight.py::`
-  `test_whitespace_only_true_for_37_trailing_blank_line_deletions` (suspected host Git line-ending config); workstation fixing.
+- **Production source:** `master` = `origin/master` `6e5ff479`. N2 10-08: RS1b `1becbaf7` (pf2 #232 + git-version fix, #192
+  with #180, cold-snapshot test time-bomb fix); RF2e `6e5ff479` (#236, #241, rf110 #105/#125/#121, #252, #251 with #249, #250,
+  workstation pre-gate, #247, `wu_token_scan_v1` schema). Capture recovered after both rolls.
+- **Shadow scoring embargo** (landed with #192): `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13; lifting it
+  is a reviewed code change.
 - **Live seals:** #229 landed with #230, so every existing live seal must be RESEALED before any live attempt.
-- **Model, evening (EF §10q):** #191 lockin-anchor-v3 LIVE since 10-06 01:43; first live evening 10-06 passed in all 12
-  markets (floor active, no mass below the anchor).
-- **Next serving change (owner 10-06, B):** lockin-anchor-v4 (same-day METAR floor before lock-in; #246 `91bf0786` on #189
-  `5e03609e`) and `ML_MODEL_VERSION` v0.5.11 -> v0.5.12. ROLL-SENSITIVE; lands with #189 in a quiet window only after the
-  10-07 replay on scratch `77714748` shows 0 below-anchor mass in every hour block; its calibration paragraph goes in the record.
-- **Capture gap 10-06:** unclean reboot ~23:24, capture down to 23:36 (~12 min, near-close window); self-recovered, 0 torn jsonl.
-- **Model, morning:** MG-1 (captured NBM v2 guidance read) SIGNED 2026-10-04T16:10Z at `b044e0f1`; narrow reservation; needs
-  parser v2 (#190) landed; scored on new dates >= 10-15. 111h closed (EF §10p); the morning lead (§10h/§10j) stands.
-- **Maker replay v2** (PR #176; succeeds exam `maker-replay-2026-10-15`, closed NOT EXECUTED 10-03, panel UTC 09-30..10-14
-  never read, [plan B audit](../roadmap/audits/exam-plan-b-2026-10-03.md)): T+1/T+2 bands, v0.2 bundles, workstation rehearsal
-  and look, gates from calibration-only rehearsals before signature; build `codex/maker-replay-v2-build-20261003`; signature by
-  10-23, look by 11-15. Capture-host exports only within the nightly wrapper (2 GiB, 2,700 s) until S2/P1 decides.
+- **Model, evening (EF §10q):** #191 lockin-anchor-v3 LIVE since 10-06 01:43. **Next serving change (owner 10-06, B):** lockin-anchor-v4 (#246 `91bf0786` on #189 `5e03609e`), `ML_MODEL_VERSION`
+  v0.5.11 -> v0.5.12. **Replay 10-08 on scratch `77714748` (08-25..09-29):** clean run (no write outside its out-dir, no
+  foreign module); floor check and floor invariant PASS; the literal zero-below-anchor rule fails on 3 of 75,796 rows
+  (06-09: 2 rows, max 0.0096; 13-16: 1 row, max 0.0100; other blocks 0). The owner's landing condition was 0 in every block,
+  so B does not land until the owner judges these rows.
+- **Model, morning:** MG-1 SIGNED 2026-10-04T16:10Z at `b044e0f1`; needs parser v2 (#190); scored on new dates >= 10-15.
+- **Maker replay v2** (PR #176; panel UTC 09-30..10-14 never read): gate spec v3.4 ACCEPTED (owner 10-07) as the frozen basis
+  for the independent oracle. **OD18:** the oracle is written by a fresh agent the production agent starts on this host, from
+  a filtered standalone handout (one parentless commit, no remotes; exclusions recorded and hashed). Signature when the
+  gates pass (~10-18..20); look by 11-15.
+- **C3 console rehearsal:** approved for 10-08 09:00 (Q2 yes, Q1 keep, post-landing-night deviation accepted; the two
+  runtime-refreshed config files may be dirty, hashes recorded). All 08:50 gates were GO but the console was not opened;
+  files stay staged in `C:\c3` for the 10-09 fallback, which also needs 91a's first 06:50 run ended by 09:05.
 - **Settlement:** WRH "Hourly Data" rows (US), WRH Temp column (foreign), floor of the HKO daily maximum (Hong Kong). EF §10c.
 - **Pinned deployments (detached, locked worktrees):** `weather-watchdog-deployed-110n-1fc7ba35`,
-  `weather-manual-order-journal-deployed-ebe72984`, `weather-cold-snapshot-deployed-979c0e7`, `weather-exam-deployed-664c894`.
-- **Disk / 91a:** the nightly failed 4 of 5 nights (10-03, 10-04, 10-06, 10-07). 10-07: `FAILED_RETAIN_AND_INSPECT` on
-  capture admission (`capture_unhealthy:snapshot` at 00:34), resolved by `cold_snapshot_nightly_resolution` (no unfinished
-  file). #238 (06:50-09:00 move, read retries) landed in `99a399c2`; it applies after a production re-pin and re-registration.
-  Check `scratch\cold_snapshot_compression\nightly-<date>-*\wrapper-result.json` each morning. Policy expires 10-30.
+  `weather-manual-order-journal-deployed-ebe72984`, `weather-cold-snapshot-deployed-6e5ff47` (91a from 10-09),
+  `weather-cold-snapshot-deployed-979c0e7` (removed after the first 06:50 PASS), `weather-exam-deployed-664c894`.
+- **Disk / 91a:** 10-08 00:30 PASS, 20.4 GB reclaimed. Re-pinned 10-08 (#238): 06:50-09:00, PT2H20M, first run 10-09 06:50
+  ([runbook](cold-snapshot-compression.md)). Check `scratch\cold_snapshot_compression\nightly-<date>-*\wrapper-result.json`
+  each morning. Policy expires 10-30 (renewal week of 10-26 is an owner act). `WeatherReplayBundleExportNightly` stays
+  unregistered until at least 10-16.
 - **88a retention hold:** keep 88a data for UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
 
 ## Ordered critical path
 
-1. **Maker replay v2:** W2-W5 built (rules 1 and 4 = B); W6-W8; P1-P4 on calibration dates only; gates; signature by 10-23.
-   **Swarm M** (owner 10-06; 4 Fable + ~18 Opus + Defenders): v2 signature-ready, shadow-ready (#180/#192, shadow-vs-replay
-   gate, C3 rehearsal script), safe-to-quote map on already-read dates only.
-2. **Merges:** pf2 `4949296` (test fix); #189 + #246 (after the replay); #180, #192; RF #153; #105 + #125 + #121; #190 -> #210;
-   #196; #161 -> #162 -> #160; #152 + #173; #163; #142; after 10-14 #118, #172 + #182, #177; M4 merge-tool change 10-11/12.
-3. **Measurements (09-29 only; never 88a 09-30..10-14):** #173, #177 reports. **Research:** NBS/NBH probe; T+1/T+2 NWP timing.
-4. **Live:** not before the v2 look and >= 7 days of shadow agreeing with replay.
+1. **Maker replay v2:** W1/W2/F3 kernel fixes; W6-W8; oracle handout cut (~10-09/10) then the fresh oracle author; P1-P4 on
+   calibration dates only; gates; signature ~10-18..20 (OD25: a miss slips it). Shadow parity counted from engine freeze.
+2. **Merges, N3 (10-09):** #127 (option A); #259 before `045a8447e`; #255 fold; #258; SWOB `876ac224f`; H1 cut script; U6
+   `b88f5565`; #247 follow-up. Then #189 + #246 (after the B judgement); #153 (Stage B disabled); #190 -> #210; #196;
+   #161 -> #162 -> #160; #152 + #173; #163; #142; after 10-14 #118, #172 + #182, #177; M4 merge-tool change 10-11/12.
+3. **Measurements (09-29 only; never 88a 09-30..10-14):** #173, #177 reports; desk-study power rule (if N_req <= 14 the
+   embargo end moves 11-13 -> 10-31 by dated clarification). **Research:** NBS/NBH probe; T+1/T+2 NWP timing.
+4. **Live:** prerequisites in parallel now (wallet funding and Credential Manager setup stay owner acts); not before the v2
+   look and >= 7 days of shadow agreeing with replay.
 
-## Owner decisions 2026-10-07 (morning list approved as recommended; detail in DECISION_LOG)
+## Owner decisions 2026-10-07 (rows in DECISION_LOG)
 
-- Engine, before signature: fix W1, W2, F3 with disclosure and re-run attribution; a miss slips the signature (OD25); OD23 no
-  change; U1-Q1/U1-MF5 refuse; O9 transfer by 10-13; clock fix + SWOB as one unit before 10-23 (Q2/N4, OD36, OD37 drop "HH:MM").
-- MG-1: OD3/OD31/OD32 in [the reservation](reserved-confirmation-window.md); Q14/OD17 parse-and-discard is not a read; STQ
-  is exploratory (T+0 only, no rule). WU history stays OFF until the token redaction lands (OD24); OD27 read-only host scan.
-- Ops: [host load policy](HOST_LOAD_POLICY.md) rule 10 (tiering hole, RF settle 60 s, DST); OD29 #189 + #196 by 10-31;
-  OD33-OD35 workstation commit ceiling ~90%, pre-gate by 21:30 with receipts, PASS bound to the night's base SHA.
-- **Still open:** OD21 (live-executor unit/owner), C3 rehearsal day, OD11, STQ R1-R6 family and release/:52 windows, U6 merge
-  of `b88f5565` into the build line.
+- Morning list and 12:07 check-in list approved as recommended; 12:36 OD18 fresh host agent, OD21 DEFERRED, STQ PARKED;
+  18:02 critical-path shortcuts; 18:03 #127 option A on N3; 18:44 gate spec v3.4; 18:49 C3. **Open:** B replay judgement
+  (above); C3 day; OD21; STQ R1-R6 family and release/:52 windows.
 
 ## Standing decisions
 
