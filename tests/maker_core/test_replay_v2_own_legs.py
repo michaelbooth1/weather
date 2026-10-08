@@ -2,6 +2,8 @@
 
 Fictional fixtures only (shadow-gate spec v3.1 §3.7.1(a)/§3.7.2(a), v3.2 §1 and Annex K). The first decision
 is forced to a known QUOTE by patching the kernel's ``decide``; every later decision is the real ``decide()``.
+
+Guards: registration C11 and C12 (engine rulings W1(a) and W2(a), owner 2026-10-07).
 """
 from dataclasses import replace
 from datetime import datetime, timezone

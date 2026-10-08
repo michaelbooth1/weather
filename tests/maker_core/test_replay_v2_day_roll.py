@@ -1,5 +1,8 @@
 """Engine ruling F3: the horizon is refreshed at each market's local midnight (shadow-gate spec v3.2 §4.3, v3.3 §1,
 §3.1 and §4). Fictional fixtures only; the dates are invented and outside every reserved or excluded window.
+
+Guards: registration C13 (engine ruling F3, owner 2026-10-07), owner Gate Q1 zone source, and the Delta Defender
+3bf0eef5c notes (a)-(d) on strict, coded and registry-checked zone names and the fall-back emitted schedule.
 """
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -269,8 +272,9 @@ def test_engine_refresh_after_the_spring_forward_uses_the_new_offset():
 
 def test_mutant_fixed_offset_midnight_is_caught_by_the_engine_fixture(monkeypatch):
     """The previous midnight's UTC offset carried forward. After the fall-back it only adds a no-op refresh an
-    hour early (lead still 1) and then refreshes on time, so the spring-forward fixture is the one that bites:
-    the mutant refreshes an hour late."""
+    hour early (lead still 1) and then refreshes on time, so the decisions cannot catch it there; the spring-forward
+    fixture bites in decisions (the mutant refreshes an hour late), and the fall-back emitted-schedule test below
+    catches its extra item and chained sha."""
     from maker_core.replay.v2 import day_roll
 
     def fixed_offset(zone, instant):
@@ -278,7 +282,7 @@ def test_mutant_fixed_offset_midnight_is_caught_by_the_engine_fixture(monkeypatc
         midnight = datetime.combine(local.date() + timedelta(days=1), datetime.min.time())
         return (midnight - local.utcoffset()).replace(tzinfo=UTC)
     monkeypatch.setattr(day_roll, "next_local_midnight", fixed_offset)
-    test_engine_refresh_after_the_fall_back_uses_the_new_offset()  # survives here, by construction
+    test_engine_refresh_after_the_fall_back_uses_the_new_offset()  # the decisions alone cannot see it here
     with pytest.raises(AssertionError):
         test_engine_refresh_after_the_spring_forward_uses_the_new_offset()
 
@@ -363,11 +367,13 @@ BAD_NAMES = ["Mars/Olympus_Mons", "europe/london", "../zoneinfo/UTC", "Europe/Lo
 def test_inventory_zone_lookup_failures_are_coded(tmp_path, name):
     """(a)+(b): an invalid, mis-cased, traversal or whitespace-padded name refuses with a coded BundleError on
     every platform (Windows' filesystem lookup accepted a trailing space)."""
-    from maker_core.replay.execution_manifest import _inventory
+    from maker_core.replay.execution_manifest import active_intervals, market_time_zones
     bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
     inventory[0]["local_timezone"] = name
     with pytest.raises(BundleError, match="unknown_time_zone|incomplete_universe_binding"):
-        _inventory(bundles, inventory, check=lambda: None)
+        active_intervals(bundles, inventory)  # every manifest path through the inventory check
+    with pytest.raises(BundleError, match="unknown_time_zone|incomplete_universe_binding"):
+        market_time_zones(bundles, inventory, registered={"a": name})
 
 
 @pytest.mark.parametrize("name", [n for n in BAD_NAMES if n], ids=repr)
@@ -396,9 +402,9 @@ def test_market_time_zones_require_the_domain_registry(tmp_path):
 
 def test_same_offset_wrong_zone_is_refused_by_the_registry(tmp_path):
     """(c): Africa/Abidjan equals London's offset in November, so the descriptor check alone passes it."""
-    from maker_core.replay.execution_manifest import _inventory, market_time_zones
+    from maker_core.replay.execution_manifest import active_intervals, market_time_zones
     bundles, inventory = zone_pack(tmp_path, ["Africa/Abidjan"])
-    _inventory(bundles, inventory, check=lambda: None)  # the offset-only check cannot tell
+    active_intervals(bundles, inventory)  # the offset-only inventory check cannot tell
     with pytest.raises(BundleError, match="market_time_zone_registry_mismatch"):
         market_time_zones(bundles, inventory, registered=REGISTERED)
 

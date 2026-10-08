@@ -109,8 +109,13 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds.
 
     ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
-    A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory).
+    A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory) and
+    may not turn the refresh off: ``day_roll.NO_REFRESH`` is refused here (``day_roll_refresh_required``).
     """
+    from maker_core.replay.bundle import BundleError
+    from maker_core.replay.v2.day_roll import NO_REFRESH
+    if time_zones is NO_REFRESH:
+        raise BundleError("day_roll_refresh_required")
     sources = sorted(sources, key=lambda s: s.plan.day)
     plan = run_plan(sources)
     markets = {c.condition_id: c.market_id for day in plan.days for c in day.conditions}

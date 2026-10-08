@@ -56,5 +56,9 @@ pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Si
 `pipeline.run_passes` require `time_zones` (market id to IANA zone). A scored run takes it from
 `execution_manifest.market_time_zones`, which reads the bound universe inventory's `local_timezone` (already
 checked against each descriptor's close and horizon) and refuses a market whose conditions disagree (owner Gate
-Q1, 2026-10-07); fictional markets use `sources.FIXTURE_ZONES`; `day_roll.NO_REFRESH` turns the refresh off and exists only for that re-run.
+Q1, 2026-10-07). That descriptor check is offset-only, so the zone is also checked by name against the caller's
+domain registry (`registered=`; for weather `maker_replay_universe.registered_time_zones()`). Zone names are strict
+(`bundle.time_zone`: listed verbatim by `zoneinfo.available_timezones()`, else `unknown_time_zone`). Fictional
+markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in `lockstep.drive` and exists only
+for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

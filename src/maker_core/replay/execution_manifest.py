@@ -4,11 +4,10 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import time
 from types import MappingProxyType
-from zoneinfo import ZoneInfo
 
 from maker_core.evidence.journal import digest, plain
 from maker_core.replay import authorization
-from maker_core.replay.bundle import BundleError, Limits, _Reader, sha256, timestamp
+from maker_core.replay.bundle import BundleError, Limits, _Reader, sha256, time_zone, timestamp
 from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.calibration import calibrate
 from maker_core.replay.engine import ReplayConfig
@@ -79,7 +78,7 @@ def _inventory(bundles, inventory, *, check):
                 continue
             desc, item = decode(row), by_id[row.condition_id]
             target = date.fromisoformat(item["target_date"])
-            zone = ZoneInfo(item["local_timezone"])
+            zone = time_zone(item["local_timezone"])  # coded and strict on every platform
             # Target is supplied by the domain export, not parsed from slugs or
             # inferred with UTC dates. Check its local calendar binding.
             close = desc.market.close_at_utc.astimezone(zone)
@@ -93,16 +92,29 @@ def _inventory(bundles, inventory, *, check):
     return by_id
 
 
-def market_time_zones(bundles, inventory, *, check=lambda: None):
+def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
     """market_id -> IANA zone for the local-midnight horizon refresh (registration C13; owner Gate Q1, 2026-10-07).
 
     Read from the bound universe inventory's ``local_timezone``, which ``_inventory`` has already checked against
     every descriptor's ``close_at_utc`` (local midnight after the target) and ``horizon_days``. A market whose
-    conditions name different zones is refused rather than resolved."""
+    conditions name different zones is refused rather than resolved; names are compared as strings, so aliases
+    (``GB`` vs ``Europe/London``) count as a disagreement.
+
+    That descriptor check is offset-only: a wrong zone with the same UTC offset at each close (``Africa/Abidjan``
+    for a London market in November) passes it and would give a wrong local midnight across a DST change. So the
+    zone is also checked by name against ``registered`` (market_id -> zone), the domain's own market registry
+    supplied by the caller (the neutral core reads no domain registry; for weather it is
+    ``weather.market.maker_replay_universe.registered_time_zones``). A market missing from it is refused."""
     zones = {}
     for row in _inventory(bundles, inventory, check=check).values():
         if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
             raise BundleError("market_time_zone_disagreement")
+    registered = dict(registered)
+    for market, zone in zones.items():
+        if market not in registered:
+            raise BundleError("market_time_zone_unregistered")
+        if registered[market] != zone:
+            raise BundleError("market_time_zone_registry_mismatch")
     return MappingProxyType(dict(sorted(zones.items())))
 
 

@@ -16,7 +16,8 @@ every condition of that market whose latest descriptor precedes the midnight:
 Descriptors are not wake sources (``kernel.record_signature``), so a refresh changes the horizon read at the
 next wake and adds no decision of its own. The reader is a pure function of the day's records and the market
 time zones; the time-zone map is required (``lockstep.drive``) and ``NO_REFRESH`` exists only for the
-attribution re-run of the pre-F3 engine (``tools.research.maker_replay_v2.attribution``).
+attribution re-run of the pre-F3 engine (``tools.research.maker_replay_v2.attribution``): the scored entry point
+``pipeline.run_passes`` refuses it (``day_roll_refresh_required``). Zone names are strict (``bundle.time_zone``).
 """
 from __future__ import annotations
 
@@ -24,10 +25,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 import heapq
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from maker_core.evidence.journal import canonical_bytes
-from maker_core.replay.bundle import BundleError, sha256
+from maker_core.replay.bundle import BundleError, sha256, time_zone
 
 DERIVED = "local_midnight"
 SCOPE = range(0, 3)  # leads 0..2
@@ -42,10 +43,8 @@ NO_REFRESH = _NoRefresh()
 
 
 def _zone(name) -> ZoneInfo:
-    try:
-        return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
-        raise BundleError("unknown_time_zone") from exc
+    """Strict: the name must be listed verbatim by ``zoneinfo.available_timezones()`` (``bundle.time_zone``)."""
+    return time_zone(name)
 
 
 def local_lead(zone, target_date: date, instant: datetime) -> int:

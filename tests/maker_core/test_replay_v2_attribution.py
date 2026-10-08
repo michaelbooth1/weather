@@ -1,4 +1,7 @@
-"""Re-run and attribute (spec v3.2 §1.4, v3.3 §4.2) for W1(a), W2(a) and F3 on fictional fixtures."""
+"""Re-run and attribute (spec v3.2 §1.4, v3.3 §4.2) for W1(a), W2(a) and F3 on fictional fixtures.
+
+Guards: registration C11-C13 attribution discipline (spec v3.2 §1.4; owner decision 2026-10-07, OD25).
+"""
 import json
 from pathlib import Path
 
