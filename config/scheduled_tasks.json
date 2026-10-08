@@ -200,6 +200,15 @@
       "registration_evidence": "repository registrar repeats PT1M; the live host task repeats PT5M, the intended value (owner-approved efficiency audit 2026-09-27, DECISION_LOG; Swarm P F2). Registrar alignment to PT5M is an open owner question (88a behaviour freeze until 2026-10-14)"
     },
     {
+      "name": "WeatherMakerShadowRunner",
+      "owner": "docs/operations/maker-shadow-runner.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_maker_shadow_runner.ps1",
+      "registration_evidence": "repository registrar only (2026-10-08); not registered on the capture host until the owner-approved activation block in docs/operations/maker-shadow-runner.md runs"
+    },
+    {
       "name": "WeatherManualOrderJournal",
       "owner": "docs/operations/manual-order-journal.md",
       "state": "active",
