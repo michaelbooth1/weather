@@ -1368,6 +1368,37 @@ if ($null -eq $streak) { $flags.Add("streak checker failed to run") }
 $today = $streak.today_health
 if ($today -and $today.verdict -eq "AT_RISK") { $flags.Add("TODAY capture AT_RISK: $($today.reason)") }
 
+function ConvertTo-StatusInstant {
+    # Parses a status timestamp as an absolute instant. Windows PowerShell 5.1
+    # ConvertFrom-Json leaves ISO-8601 strings as strings; the loops write them
+    # with their UTC offset, so DateTimeOffset.Parse keeps the instant exact even
+    # across the DST fall-back hour (a wall-clock [datetime] cast does not).
+    # Offset-less strings are taken as UTC. Unparseable or empty input is $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    if (-not [string]$Value) { return $null }
+    try {
+        return [datetimeoffset]::Parse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    }
+    catch { return $null }
+}
+
+function Get-StatusAgeSeconds {
+    # Seconds from a status timestamp to $Now, both as UTC instants, so the
+    # repeated 01:00-02:00 hour of a DST fall-back cannot hide or invent an hour
+    # of staleness. $null when the timestamp is missing or unparseable.
+    param($Value, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    $instant = ConvertTo-StatusInstant $Value
+    if ($null -eq $instant) { return $null }
+    return ($Now - $instant).TotalSeconds
+}
+
 # ---- capture workers + priority (persistent loop must be alive & AboveNormal) ----
 # Match the FULL module path (as capture_priority_guard.ps1 does), NOT the short name,
 # and SKIP the short-lived per-cycle "hot capture" subprocesses the loop spawns to do
@@ -1418,7 +1449,8 @@ foreach ($label in $portableCaps.Keys) {
         $status = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Status) -Raw | ConvertFrom-Json
         $lock = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Lock) -Raw | ConvertFrom-Json
         $pidValue = [int]$status.pid
-        $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+        $ageSeconds = Get-StatusAgeSeconds $status.last_heartbeat
+        if ($null -eq $ageSeconds) { continue }
         $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
         if ($pidValue -gt 0 -and [int]$lock.pid -eq $pidValue -and $process -and
             $ageSeconds -ge 0 -and $ageSeconds -le [double]$spec.MaxAge) {
@@ -1464,10 +1496,10 @@ foreach ($label in $portableCaps.Keys) {
         $cleanAtProperty = $runtimeStatus.PSObject.Properties["last_clean_iteration_at"]
         if ($null -ne $cleanAtProperty -and $cleanAtProperty.Value) {
             try {
-                $runtimeState.last_clean_age_seconds = [math]::Round(
-                    ((Get-Date) - [datetime]$cleanAtProperty.Value).TotalSeconds,
-                    1
-                )
+                $cleanAgeSeconds = Get-StatusAgeSeconds $cleanAtProperty.Value
+                if ($null -ne $cleanAgeSeconds) {
+                    $runtimeState.last_clean_age_seconds = [math]::Round($cleanAgeSeconds, 1)
+                }
             }
             catch { }
         }
@@ -1527,7 +1559,8 @@ if ($executionTapeState.armed) {
         $executionSupervisor = Get-Content -LiteralPath (Join-Path $captureRoot "execution_tape_supervisor_status.json") -Raw | ConvertFrom-Json
         $executionPid = [int]$executionStatus.pid
         $executionProcess = Get-Process -Id $executionPid -ErrorAction SilentlyContinue
-        $executionAge = ((Get-Date) - [datetime]$executionStatus.last_heartbeat).TotalSeconds
+        $executionAge = Get-StatusAgeSeconds $executionStatus.last_heartbeat
+        if ($null -eq $executionAge) { throw "execution-tape heartbeat is unparseable" }
         $executionTapeState.pid = $executionPid
         $executionTapeState.heartbeat_age_seconds = [math]::Round($executionAge, 1)
         $executionTapeState.capture_state = [string]$executionStatus.state
