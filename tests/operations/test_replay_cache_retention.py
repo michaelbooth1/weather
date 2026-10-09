@@ -349,6 +349,7 @@ def _approve_and_write(plan, path):
 
 
 def test_plan_selects_only_exact_unreachable_rebuildable_key(tmp_path):
+    tmp_path = tmp_path.resolve()
     fixture = _fixture(tmp_path)
 
     plan = _plan(fixture)

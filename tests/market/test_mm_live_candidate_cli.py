@@ -600,63 +600,15 @@ def test_selector_can_refresh_the_exact_bootstrap_scope(tmp_path):
         "condition_id": CONDITION,
         "token_id": "102",
     }
-    gate = candidate_cli.load_stage1_candidate_gate(
-        tmp_path / "candidate.json",
-        TARGET_DATE,
-        expected_condition_id=CONDITION,
-        expected_token_id="102",
-        now=NOW,
-    )
-    assert gate["ok"] is True
-    assert gate["paper_quote_row_sha256"] == plan["selected"][
-        "paper_quote_proof"
-    ]["quote_row_sha256"]
-    assert gate["stage1_intent"] == plan["selected"]["stage1_intent"]
-    assert gate["tick_size"] == plan["selected"]["tick_size"]
-    assert gate["order_min_size"] == plan["selected"]["order_min_size"]
-    assert gate["fee_rate"] == plan["selected"]["fee_rate"]
-    assert gate["neg_risk"] is plan["selected"]["neg_risk"]
 
 
-def test_stage1_gate_rejects_a_tampered_candidate_plan(tmp_path):
-    snapshot = write_snapshot(tmp_path / "economics.json")
-    output = tmp_path / "candidate.json"
-    plan = select(
-        snapshot,
-        TARGET_DATE,
-        output,
-        tmp_path=tmp_path,
-        now=NOW,
-        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
-    )
-    plan["selected"]["token_id"] = "999"
-    output.write_text(json.dumps(plan), encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="plan_hash"):
+def test_retired_stage1_candidate_gate_fails_explicitly(tmp_path):
+    with pytest.raises(
+        RuntimeError,
+        match="economics/paper candidate gate has no Stage 1 authority",
+    ):
         candidate_cli.load_stage1_candidate_gate(
-            output,
-            TARGET_DATE,
-            expected_condition_id=CONDITION,
-            expected_token_id="101",
-            now=NOW,
-        )
-
-
-def test_stage1_gate_rejects_an_unconstrained_prebootstrap_plan(tmp_path):
-    snapshot = write_snapshot(tmp_path / "economics.json")
-    output = tmp_path / "candidate.json"
-    select(
-        snapshot,
-        TARGET_DATE,
-        output,
-        tmp_path=tmp_path,
-        now=NOW,
-        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
-    )
-
-    with pytest.raises(RuntimeError, match="constrained_scope"):
-        candidate_cli.load_stage1_candidate_gate(
-            output,
+            tmp_path / "candidate.json",
             TARGET_DATE,
             expected_condition_id=CONDITION,
             expected_token_id="101",

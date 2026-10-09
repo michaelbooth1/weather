@@ -1,15 +1,16 @@
-"""Three-page Streamlit router for the local owner/operator frontend."""
+"""Four-page Streamlit router for the local owner/operator frontend."""
 
 from __future__ import annotations
 
 import streamlit as st
 
 
-LIVE_REFRESH_SECONDS = 300
+LIVE_REFRESH_SECONDS = 10
 PAGE_LABELS = {
     "Cockpit": "cockpit",
-    "Control Room (historical pilot view)": "control",
+    "Control Room": "control",
     "Roadmap": "roadmap",
+    "Reward Simulator": "simulator",
 }
 
 
@@ -24,8 +25,11 @@ st.set_page_config(
 def _default_page():
     if "roadmap" in st.query_params:
         return "roadmap"
-    # Any ?market= value, including retired routes, keeps the Control Room.
-    return "control" if "market" in st.query_params else "cockpit"
+    if "market" not in st.query_params:
+        return "cockpit"
+    # ?market=simulator opens the simulator; any other ?market= value,
+    # including retired routes, keeps the Control Room.
+    return "simulator" if st.query_params.get("market") == "simulator" else "control"
 
 
 def _selected_page():
@@ -37,7 +41,7 @@ def _selected_page():
         if PAGE_LABELS[label] == default_page
     )
     st.sidebar.markdown("### Weather Operations")
-    st.sidebar.caption("Owner cockpit and International maker pilot")
+    st.sidebar.caption("Owner cockpit, project and trading monitor")
     selected = st.sidebar.selectbox("Page", labels, index=default_index)
     st.sidebar.caption("Read-only frontend")
     return PAGE_LABELS[selected]
@@ -54,9 +58,9 @@ def _sync_query_params(page):
             st.query_params.clear()
             st.query_params["roadmap"] = ""
         return
-    if set(st.query_params) != {"market"} or st.query_params.get("market") != "control":
+    if set(st.query_params) != {"market"} or st.query_params.get("market") != page:
         st.query_params.clear()
-        st.query_params["market"] = "control"
+        st.query_params["market"] = page
 
 
 def main():
@@ -70,6 +74,10 @@ def main():
         from app.views.cockpit import render_cockpit_page
 
         render_cockpit_page()
+    elif page == "simulator":
+        from app.views.liquidity_simulator import render_liquidity_simulator_page
+
+        render_liquidity_simulator_page()
     else:
         from app.views.control_room import render_control_room_page
 

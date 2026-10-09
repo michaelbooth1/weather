@@ -71,3 +71,6 @@ config/local/
 .ruff_cache/
 # Credential blobs (Swarm P S09-2); the credential vault, not the tree, holds them.
 *.cred
+
+# Persistent OS lock for the canonical location-config generation publisher.
+/config/.location_market_events.json.transaction.lock

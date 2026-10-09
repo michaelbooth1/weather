@@ -1,11 +1,15 @@
 # Streamlit App Instructions
 
 The canonical entry point is `app/streamlit_app.py`. It intentionally exposes
-only three pages: the default read-only Owner Cockpit (`?cockpit`), the Control
-Room (historical pilot view) and Roadmap. Keep it a thin
+four pages: the default read-only Owner Cockpit (`?cockpit`), the Control
+Room monitor, Roadmap, and the offline Reward Simulator. Keep it a thin
 router; page bodies belong in `app/views/`, reusable table rendering belongs
 in `app/table_utils.py`, and domain logic belongs in its owning `weather`
 package.
+
+`app/monitor_data.py` owns shared observation caches. Keep host collection
+independent of browser/session refreshes and preserve the bounded, projected
+readers in the [monitor contract](../docs/operations/OPERATOR_MONITOR.md).
 
 - Preserve `?market=control` and `?roadmap` compatibility. Retired overview,
   city, history, operations, and market-making routes (`?market=<any>`) fall
@@ -26,6 +30,10 @@ Focused checks:
 .\venv\Scripts\python.exe -m pytest tests\app -q
 .\venv\Scripts\python.exe -m pytest tests\app\test_app_architecture.py -q
 ```
+
+The simulator owns no network, credential, order, or monitor actions. Its view
+uses the canonical reward calculator through `weather.market.maker_reward_simulation`;
+scenario inputs and exports never qualify observed reward evidence.
 
 See [the architecture guide](../docs/architecture.md) for the UI boundary.
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from weather.backtesting.settled_days import folder_market_id
 from weather.io import read_json, write_json_atomic
+from weather.market.location_config import read_location_config_pair
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import REGISTRY
 from weather.operations.closed_market_day_archive import (
@@ -1485,11 +1486,14 @@ def inventory_rows(
     return rows
 
 
-def location_market_events_by_id(location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG):
-    path = Path(location_events_config)
-    if not path.exists():
-        return {}
-    payload = read_json(path, default={}) or {}
+def location_market_events_by_id(
+    location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG, *, payload=None,
+):
+    if payload is None:
+        path = Path(location_events_config)
+        if not path.exists():
+            return {}
+        payload = read_json(path, default={}) or {}
     return {
         row.get("location_id"): row
         for row in payload.get("locations") or []
@@ -1540,8 +1544,13 @@ def market_expansion_scorecard(
     locations_config=DEFAULT_LOCATIONS_CONFIG,
     location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG,
 ):
-    payload = read_json(locations_config, default={}) or {}
-    events_by_id = location_market_events_by_id(location_events_config)
+    pair = read_location_config_pair(
+        locations_config, location_events_config, allow_missing_legacy=True,
+    )
+    payload = pair.locations_payload
+    events_by_id = location_market_events_by_id(
+        location_events_config, payload=pair.event_metadata_payload,
+    )
     active = set(REGISTRY)
     rows = [
         score_location(location_with_market_events(location, events_by_id))
@@ -1552,6 +1561,7 @@ def market_expansion_scorecard(
     return {
         "locations_config": str(Path(locations_config)),
         "location_events_config": str(Path(location_events_config)),
+        "location_config_pair": pair.identity(),
         "active_market_ids": sorted(active),
         "candidate_count": len(rows),
         "blocked_count": len(blocked),

@@ -10,6 +10,48 @@ CONDITION = "0x" + "b" * 64
 TOKEN = "12345"
 
 
+def test_stage2_two_tokens_keep_account_wide_unrelated_rejection(tmp_path):
+    from tests.market.stage2_fakes import Clock, numeric_authority_fixture
+    from weather.market.mm_stage2_user_stream import Stage2UserStreamReader
+    clock = Clock()
+    root = numeric_authority_fixture(tmp_path / 'authority', clock)
+    socket = FakeWebsocket(['PONG', json.dumps([
+        order_event(), order_event(asset_id='67890', id='order-2'),
+    ]), json.dumps(order_event(asset_id='99999'))])
+    stream = Stage2UserStreamReader(
+        token_ids=(TOKEN, '67890'), authority_root=root, utc_clock=clock.now,
+        api_key='fixture-key', secret='fixture-secret', passphrase='fixture-passphrase',
+        maker_address=MAKER, condition_id=CONDITION, journal_path=tmp_path / 'stream.jsonl',
+        websocket_factory=lambda *_args, **_kwargs: socket,
+    )
+    with pytest.raises(RuntimeError, match='outside the two-token'):
+        stream.run()
+    assert stream.health()['state'] == 'FAILED'
+    assert len(stream.events_for_token(TOKEN)) == 1
+    assert len(stream.events_for_token('67890')) == 1
+    assert 'markets' not in json.loads(socket.sent[0])
+    first = json.loads((tmp_path / 'stream.jsonl').read_text().splitlines()[0])
+    assert first['token_ids'] == [TOKEN, '67890']
+
+
+def test_stage2_stream_rechecks_grants_before_transport(tmp_path):
+    from tests.market.stage2_fakes import Clock, numeric_authority_fixture
+    from weather.market.mm_stage2_user_stream import Stage2UserStreamReader
+    clock = Clock()
+    root = numeric_authority_fixture(tmp_path / 'authority', clock)
+    socket = FakeWebsocket([])
+    stream = Stage2UserStreamReader(
+        token_ids=(TOKEN, '67890'), authority_root=root, utc_clock=clock.now,
+        api_key='fixture-key', secret='fixture-secret', passphrase='fixture-passphrase',
+        maker_address=MAKER, condition_id=CONDITION, journal_path=tmp_path / 'stream.jsonl',
+        websocket_factory=lambda *_args, **_kwargs: socket,
+    )
+    (root / 'config/international_live_execution_host.json').write_text('{}')
+    with pytest.raises(ValueError):
+        stream.run()
+    assert not socket.sent and not (tmp_path / 'stream.jsonl').exists()
+
+
 class FakeWebsocket:
     def __init__(self, frames):
         self.frames = list(frames)

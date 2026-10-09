@@ -48,6 +48,21 @@ RECENT_REGISTERED_SCHEMAS = (
         "Nightly inventory, bounded batches and verified retained-file allocation savings.",
     ),
     SchemaSpec(
+        "maker_reward_simulation", "maker_reward_simulation_v0.1",
+        "weather.market.maker_reward_simulation", "active",
+        "Explicit hypothetical reward scenarios; no observed accrual, cash, or live authority.",
+    ),
+    SchemaSpec(
+        "maker_opportunity_capture", "maker_opportunity_capture_v0.1",
+        "weather.market.maker_opportunity_capture", "active",
+        "Bounded exact-condition public response capture with frozen selection, rules and both token books.",
+    ),
+    SchemaSpec(
+        "maker_opportunity_report", "maker_opportunity_report_v0.1",
+        "weather.reporting.market.maker_opportunity_report", "active",
+        "Source-bound order/capital diagnostics and explicit unresolved reward-economics evidence.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
@@ -1339,5 +1354,29 @@ RECENT_REGISTERED_SCHEMAS = (
         "weather.operations.landing_preflight",
         "active",
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
+    ),
+    SchemaSpec(
+        "lfc_ledger", "lfc_ledger_v0.1", "weather.market.lfc_ledger", "active",
+        "Append-only hash-chained history of the live-fill calibration campaign loss ledger L.",
+    ),
+    SchemaSpec(
+        "lfc_baseline", "lfc_baseline_v0.1", "weather.market.lfc_ledger", "active",
+        "Read-only T-24h/T-40min wallet baseline excluding pre-existing positions from L.",
+    ),
+    SchemaSpec(
+        "lfc_journal", "lfc_journal_v0.1", "weather.market.lfc_pilot", "active",
+        "Additive campaign events (L gate, selection, panel exclusion, queue-ahead, foreign order) in the RE-1 journal.",
+    ),
+    SchemaSpec(
+        "lfc_l_ledger", "lfc_l_ledger_v0.1", "weather.market.lfc_ledger", "active",
+        "l_ledger.json snapshot of the campaign L figures, rewritten from the verified ledger history.",
+    ),
+    SchemaSpec(
+        "lfc_session_end", "lfc_session_end_v0.1", "weather.market.lfc_pilot", "active",
+        "Per-session end record: reason, L figures, open orders, our fills and the owner notification.",
+    ),
+    SchemaSpec(
+        "lfc_analysis", "lfc_analysis_v0.1", "weather.market.lfc_analysis", "active",
+        "Descriptive pilot fill and markout summary; never a decision gate by itself.",
     ),
 )

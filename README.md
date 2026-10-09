@@ -84,12 +84,13 @@ Cockpit, and writes Streamlit logs under `data/logs/`:
 .\scripts\launch\start_weather_dashboard.cmd
 ```
 
-The frontend deliberately has only three pages:
+The frontend has four local pages:
 
 ```text
 http://localhost:8501/?cockpit
 http://localhost:8501/?market=control
 http://localhost:8501/?roadmap
+http://localhost:8501/?market=simulator
 ```
 
 The **Owner Cockpit** is the default page. Its Money, Work, Health and Exam
@@ -104,20 +105,30 @@ are constants from the signed replay calendar. During an exam it shows no policy
 P&L or policy comparison for panel dates. It has no mutation controls and fails
 closed on any exception.
 
-The **Control Room** (historical pilot view) is the decision-first surface for
-the capped International Polymarket maker pilot. It binds the latest maker run to an exact-target-date
-readiness receipt, the canonical host digest, International platform identity,
-execution-tape integrity, and the explicitly accepted exchange-economics
-baseline. Missing, stale, US-platform, or contradictory evidence produces
-`HOLD`; clearing every software gate produces only `READY FOR EXPLICIT
-APPROVAL`, never trading authority. It has no order, cancel, credential,
-promotion, or risk-setting controls.
+The **Control Room** shows the current project objective and next milestone,
+capture and portable-host observations, the selected attended session, recorded
+orders/fills/positions, and reconciled trading results. Paid rebates and rewards
+stay separate from estimates; missing evidence stays unknown. Session observations
+refresh every ten seconds while the page is open, with a shared slower host
+collector. The app has no trading or credential controls. See the
+[operator monitor guide](docs/operations/OPERATOR_MONITOR.md) to connect a local
+attempt or an explicitly supplied host receipt.
 
-The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
-roadmap index, separates dependency-held items from work with a clear path, and
-surfaces roadmap-integrity failures. Any `?market=` route, including the
-retired ones, falls back to the Control Room; other unknown routes open the
-Cockpit. The retired frontend pages are not retained as hidden code.
+The **Roadmap** puts the current maker workstreams and next actions above all
+active `OPEN` and `PARTIAL` work from the canonical roadmap index. It separates
+dependency-held items and surfaces roadmap-integrity failures. Any other
+`?market=` route, including the retired ones, falls back to the Control Room;
+other unknown routes open the Cockpit. The retired frontend pages are not
+retained as hidden code.
+
+The **Reward Simulator** is offline and hypothetical; see
+[the simulator guide](docs/operations/liquidity-reward-simulator.md).
+
+The **Reward Simulator** explores the public liquidity-reward formula with
+adjustable quotes, competition, partial fills, capital and costs. Optional
+captured-market presets remain separate from assumed midpoint and reward-pool
+inputs. Downloadable scenarios do not establish earned rewards or trading
+permission. See the [simulator guide](docs/operations/liquidity-reward-simulator.md).
 
 ## Tests And Local Checks
 

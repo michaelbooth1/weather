@@ -81,6 +81,7 @@ from weather.runtime_identity import (
     identities_match,
 )
 from weather.schema_registry import schema_version
+from weather.units import temperature_band_key
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 # The managed loop fires on a period equal to SNAPSHOT_INTERVAL, so every
@@ -2627,13 +2628,21 @@ class SnapshotStore:
         return rows_by_snapshot
 
     def snapshot_band_bins(self, snapshot):
+        """Read signed native bands for derived sidecars without changing tapes."""
         bins = []
         for row in snapshot.get("bands") or []:
-            value = self.safe_number(row.get("bin_value_c") or row.get("bin_value"))
-            value_hi = self.safe_number(row.get("bin_value_hi_c") or row.get("bin_value_hi") or value)
+            band_row = dict(row)
+            if band_row.get("bin_kind") in (None, ""):
+                band_row["bin_kind"] = band_row.get("kind")
+            kind, value, value_hi = temperature_band_key(band_row)
+            if value is None or value_hi is None:
+                raise ValueError(
+                    "cannot backfill an invalid native temperature band: "
+                    f"{row.get('range_label')!r}"
+                )
             bins.append({
                 "label": row.get("range_label"),
-                "kind": row.get("bin_kind") or row.get("kind"),
+                "kind": kind,
                 "value": value,
                 "value_hi": value_hi,
                 "market_yes": row.get("market_yes"),

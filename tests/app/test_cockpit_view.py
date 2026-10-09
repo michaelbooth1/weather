@@ -86,4 +86,4 @@ def test_retired_market_routes_still_fall_back_to_control_room(mock_load):
     app_test.run()
 
     assert not app_test.exception
-    assert app_test.selectbox[0].value == "Control Room (historical pilot view)"
+    assert app_test.selectbox[0].value == "Control Room"

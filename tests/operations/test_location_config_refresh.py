@@ -1,4 +1,8 @@
 import json
+import hashlib
+import io
+
+import pytest
 
 from weather.operations.location_config_refresh import (
     build_location_market_events,
@@ -117,3 +121,40 @@ def test_metadata_only_cli_leaves_location_registry_unchanged(tmp_path):
     assert locations_path.read_bytes() == before
     payload = json.loads(event_metadata_path.read_text(encoding="utf-8"))
     assert payload["locations"][0]["active_events"][0]["event_date"] == "2026-08-14"
+
+
+def test_full_final_page_cannot_publish_a_truncated_inventory(monkeypatch):
+    from weather.operations import location_config_refresh as refresh
+    monkeypatch.setattr(refresh.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(b'[{}]'))
+    with pytest.raises(ValueError, match="pagination is incomplete"):
+        refresh.fetch_gamma_events(limit=1, max_pages=2)
+
+
+def test_short_terminal_page_proves_pagination_complete(monkeypatch):
+    from weather.operations import location_config_refresh as refresh
+    pages = iter([b'[{"id":"1"}]', b'[]'])
+    monkeypatch.setattr(refresh.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(next(pages)))
+    assert refresh.fetch_gamma_events(limit=1, max_pages=2) == ([{"id": "1"}], [0, 1])
+
+
+def test_resolution_descriptions_retain_exact_bytes_and_separate_market_source():
+    from weather.operations.location_config_refresh import normalized_event
+    description = "Resolve using station X.\nRevisions accepted through 18:00.  "
+    result = normalized_event({"description": description, "resolutionSource": "https://event.test", "markets": [
+        {"description": "Market-specific rules", "resolutionSource": "https://market.test"}]})
+    assert result["description"] == description
+    assert result["description_sha256"] == hashlib.sha256(description.encode()).hexdigest()
+    assert result["markets"][0]["description"] == "Market-specific rules"
+    assert result["markets"][0]["resolution_source_url"] == "https://market.test"
+
+
+def test_failed_atomic_replace_preserves_the_previous_config(tmp_path, monkeypatch):
+    from weather.operations.location_config_refresh import write_json
+    path = tmp_path / "config.json"
+    path.write_text('{"previous":true}')
+    def interrupted(*args):
+        raise OSError("fixture interrupted before publication")
+    monkeypatch.setattr(type(path), "replace", interrupted)
+    with pytest.raises(OSError, match="fixture interrupted"):
+        write_json(path, {"new": True})
+    assert json.loads(path.read_text()) == {"previous": True}

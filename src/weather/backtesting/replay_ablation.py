@@ -126,8 +126,11 @@ def settlement_distance_bucket(band, settlement_bucket):
     bucket = safe_float(settlement_bucket)
     if bucket is None:
         return "unknown"
-    value = safe_float(band.get("bin_value_c") or band.get("bin_value"))
-    value_hi = band_value_hi(band.get("range_label"), band.get("bin_value_c") or band.get("bin_value"))
+    raw_value = band.get("bin_value_c")
+    if raw_value in (None, ""):
+        raw_value = band.get("bin_value")
+    value = safe_float(raw_value)
+    value_hi = band_value_hi(band.get("range_label"), raw_value)
     kind = str(band.get("bin_kind") or "").lower()
     if kind == "eq" and value is not None:
         distance = abs(value - bucket)

@@ -84,6 +84,7 @@ def market_harvest_clob_feature_rows(book_rows, *, now=None):
                 if captured is not None
                 else None
             ),
+            "book_age_observed_at_utc": current.isoformat(),
             "clob_midpoint": maybe_float(book.get("midpoint")),
             "clob_spread": maybe_float(book.get("spread")),
             "clob_best_bid": maybe_float(book.get("best_bid")),

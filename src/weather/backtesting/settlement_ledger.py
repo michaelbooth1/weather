@@ -617,6 +617,12 @@ def winning_band_from_frame(frame, settlement_bucket):
     for _, series in frame.iterrows():
         row = series.to_dict()
         label = row.get("range_label")
+        # read_csv represents absent legacy upper cells as floating NaN. Keep
+        # their label fallback without accepting malformed typed endpoints.
+        for field in ("bin_value_hi", "bin_value_hi_c"):
+            upper = row.get(field)
+            if isinstance(upper, float) and pd.isna(upper):
+                row[field] = None
         kind, value, value_hi = temperature_band_key(row)
         key = (str(label), kind, value, value_hi)
         if key in seen:

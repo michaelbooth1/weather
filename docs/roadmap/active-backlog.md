@@ -5,42 +5,45 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-10-08T15:57:53.949971+00:00
+Generated: 2026-10-09T20:18:59.061001+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 329 |
-| Active items | 13 |
+| Items | 332 |
+| Active items | 16 |
 | OPEN | 1 |
-| PARTIAL | 12 |
+| PARTIAL | 15 |
 | COMPLETE | 289 |
 | DORMANT | 27 |
 | Active, no disposition within 45 days of 2026-10-08 | 6 |
-| ROADMAP rows | 329 |
-| ROADMAP primary rows | 329 |
-| Metadata manifest rows | 329 |
+| ROADMAP rows | 332 |
+| ROADMAP primary rows | 332 |
+| Metadata manifest rows | 332 |
 | Lint errors | 0 |
 
 ## Active Items
 
 | Item | Status | Date | Disposition | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 67 | PARTIAL | 2026-08-30 | PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-09-06 | ATTENDED STAGE 0/1 PASSED; ECONOMIC PILOT OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 309 | PARTIAL | 2026-08-19 | INTERNATIONAL V0.3/PUSD CONTRACT INTEGRATED; EXPLICIT ACCEPTANCE OPEN | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-08-22 | WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | PARTIAL | 2026-09-13 | QUALIFICATION RESERVE RECOVERED; UPLOADS PAUSED | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | PARTIAL | 2026-09-07 | STAGE 0/1 PROVED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 | 331 | PARTIAL | 2026-09-12 | LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
 | 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
+| 334 | PARTIAL | 2026-09-07 | SELECTED SOURCE NATIVE VERIFIED; ADOPTION/EVIDENCE OPEN | [Post-Reclaim Model Economics And Research Plan](items/item-334-post-reclaim-model-economics-and-research-plan.md) |
+| 335 | PARTIAL | 2026-09-07 | NATIVE VERIFIED; IMPACT AND ADOPTION OPEN | [Signed Native Temperature Band Correctness](items/item-335-signed-native-temperature-band-correctness.md) |
 | 336 | PARTIAL | 2026-10-06 | WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | SCOPE QUESTION FOR THE OWNER | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
+| 338 | PARTIAL | 2026-09-07 | INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN | [Reproducible Runtime And Paired Model Comparison](items/item-338-reproducible-runtime-and-paired-model-comparison.md) |
 
 ## Active Items Without A Disposition In 45 Days
 

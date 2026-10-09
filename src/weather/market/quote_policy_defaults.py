@@ -1,9 +1,11 @@
 """Shared quote configuration values, independent of policy implementation."""
+from weather.market.mm_live_envelope import STAGE1_V1
 from weather.paths import config_path, data_path
+from weather.schema_registry import schema_version
 DEFAULT_INFORMATION_EVENT_CALENDAR = config_path() / "info_event_calendar.json"
 DEFAULT_CLOB_RECON = data_path() / "backtest" / "clob_book_recon.json"
 
-POLICY_VERSION = "mm_policy_v0.2"
+POLICY_VERSION = schema_version("mm_policy")
 
 
 DEFAULT_POLICY_CONFIG = {
@@ -23,12 +25,12 @@ DEFAULT_POLICY_CONFIG = {
     "edge_min_advantage": 0.03,
     "edge_fee_buffer": 0.005,
     "adverse_selection_buffer": 0.01,
-    "max_event_notional": 25.0,
-    "max_band_notional": 10.0,
+    "max_event_notional": float(STAGE1_V1.per_event_pusd),
+    "max_band_notional": float(STAGE1_V1.per_band_pusd),
     "max_correlated_regime_notional_usdc": 0.0,
     "max_correlated_regime_joint_loss_usdc": 0.0,
     "correlated_regime_market_groups": "",
-    "max_daily_loss": 25.0,
+    "max_daily_loss": float(STAGE1_V1.daily_loss_pusd),
     "information_event_calendar_enabled": True,
     "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
     "event_gate_widen_buffer": 0.01,
@@ -37,7 +39,7 @@ DEFAULT_POLICY_CONFIG = {
     "event_gate_exception_evidence_status": "",
     "event_gate_exception_evidence_id": "",
     "event_gate_exception_risk_cap_usdc": 0.0,
-    "clob_recon_policy_enabled": True,
+    "clob_recon_policy_enabled": False,
     "clob_recon_path": str(DEFAULT_CLOB_RECON),
     "hourly_trust_multiplier_00_08": 0.35,
     "hourly_trust_multiplier_09_14": 0.85,

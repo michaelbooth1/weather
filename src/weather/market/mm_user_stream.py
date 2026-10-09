@@ -173,7 +173,7 @@ class OfficialUserStreamReader:
             account_wide_subscription=True,
             maker_address=self.maker_address,
             condition_id=self.condition_id,
-            token_id=self.token_id,
+            **self._journal_token_scope(),
             secret_values_redacted=True,
         )
         websocket = None
@@ -226,12 +226,7 @@ class OfficialUserStreamReader:
                 items = payload if isinstance(payload, list) else [payload]
                 normalized: list[dict[str, Any]] = []
                 for item in items:
-                    normalized.extend(normalize_official_user_event(
-                        item,
-                        maker_address=self.maker_address,
-                        condition_id=self.condition_id,
-                        token_id=self.token_id,
-                    ))
+                    normalized.extend(self._normalize_event(item))
                 with self._mutex:
                     self._events.extend(normalized)
                     self._state = "SUBSCRIPTION_PROVEN"
@@ -253,6 +248,15 @@ class OfficialUserStreamReader:
             if self._state != "FAILED":
                 self._state = "STOPPED"
                 self._append("stream_stopped")
+
+    def _journal_token_scope(self):
+        return {"token_id": self.token_id}
+
+    def _normalize_event(self, item):
+        return normalize_official_user_event(
+            item, maker_address=self.maker_address,
+            condition_id=self.condition_id, token_id=self.token_id,
+        )
 
     def start(self) -> None:
         if self._thread is not None:
