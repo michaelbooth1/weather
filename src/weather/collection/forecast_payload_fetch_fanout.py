@@ -49,6 +49,19 @@ DEFAULT_POLL_SECONDS = 0.05
 MAX_RECEIPT_BYTES = 16 * 1024
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 _RECEIPT_CONTENT_SHA256_KEY = "_verified_receipt_content_sha256"
+# On Windows an exclusive create of a claim that another process is deleting
+# (delete-pending while any handle, such as a follower's stat or a scanner,
+# is still open) or holding without delete sharing fails with EACCES, not
+# EEXIST.  POSIX never reports a racing O_EXCL create that way.
+_WINDOWS_CLAIM_DENIAL_IS_CONTENTION = os.name == "nt"
+
+
+class _ClaimDenied(Exception):
+    """A Windows claim create was refused; treat it as transient contention."""
+
+    def __init__(self, error: PermissionError):
+        super().__init__(str(error))
+        self.error = error
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -308,6 +321,10 @@ class CrossProcessMarketInvariantFetchFanout:
             handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return None
+        except PermissionError as exc:
+            if not _WINDOWS_CLAIM_DENIAL_IS_CONTENTION:
+                raise
+            raise _ClaimDenied(exc) from exc
         try:
             os.write(handle, _canonical_json_bytes(payload))
             os.fsync(handle)
@@ -772,6 +789,11 @@ class CrossProcessMarketInvariantFetchFanout:
             "cycle_key": cycle_key,
             "scope_key": scope_key,
         }
+        # A Windows claim denial is retried as contention inside the same
+        # bounded wait.  If the latest attempt at the deadline was still
+        # denied, the denial is a real permission failure and is raised rather
+        # than failing open or being treated as a claim.
+        claim_denial: PermissionError | None = None
         while True:
             receipt = self._read_receipt(
                 self.cas.root, receipt_path, publication_claim=claim_path,
@@ -782,7 +804,14 @@ class CrossProcessMarketInvariantFetchFanout:
                     **key_fields,
                     waited_seconds=self.monotonic_fn() - started,
                 )
-            claim_token = self._try_claim(self.cas.root, claim_path, key_fields)
+            try:
+                claim_token = self._try_claim(
+                    self.cas.root, claim_path, key_fields,
+                )
+                claim_denial = None
+            except _ClaimDenied as denied:
+                claim_token = None
+                claim_denial = denied.error
             if claim_token is not None:
                 # Recheck after claiming in case another holder published just
                 # before releasing its claim.
@@ -804,6 +833,8 @@ class CrossProcessMarketInvariantFetchFanout:
                 )
             waited = self.monotonic_fn() - started
             if waited >= self.wait_timeout_seconds:
+                if claim_denial is not None:
+                    raise claim_denial
                 value = fetch_fn()
                 return FanoutFetchResult(
                     value,
