@@ -19,28 +19,13 @@ import json
 from pathlib import Path
 import re
 
+from maker_core.shadow.admission import EMBARGOED_UTC_DAYS, embargo_reason, utc_day  # windows live in core
 from weather.market.maker_evidence_store import SCHEMA, decode_body
 
-# Dates whose 88a evidence (and shadow tapes) must not be scored yet. Each window
-# comes from a signed or owner-approved plan; lifting one is a reviewed change here.
-EMBARGOED_UTC_DAYS = (
-    ("2026-09-30", "2026-10-15",
-     "maker replay v2 panel (UTC 09-30..10-14) and settlement-only day 10-15 (DECISION_LOG 2026-10-03)"),
-    ("2026-10-15", "2026-11-13",
-     "maker P&L desk-study decision panel: T+1/T+2 quote days for events 10-17..10-30 and its pre-registered "
-     "extension to at most 28 event dates (pre-registration 2026-10-01, read only after the 10-31 look)"),
-)
 MID_MAX_AGE = timedelta(seconds=120)
 MAX_PANEL_BYTES = 2 * 1024**3
 SEGMENT = re.compile(r"\d{2}-[0-9a-f]{12}\Z")
 ASSET_FILE = re.compile(r"book-([0-9]{1,100})\.jsonl\Z")
-
-
-def embargo_reason(day):
-    for start, end, reason in EMBARGOED_UTC_DAYS:
-        if start <= day <= end:
-            return reason
-    return None
 
 
 def _mid(book):
@@ -53,6 +38,10 @@ class MakerEvidencePanel:
     """Book mids and trade prints for the requested assets on one sealed 88a UTC day."""
 
     def __init__(self, root, day, assets):
+        # The reader guards itself: an embargoed or non-canonical day is refused before any path is built.
+        day = utc_day(day)
+        if embargo_reason(day):
+            raise ValueError("embargoed_utc_day")
         self.root, self.day = Path(root), day
         self.assets = {str(a) for a in assets}
         self.samples = {a: [] for a in self.assets}

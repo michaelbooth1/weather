@@ -1,5 +1,6 @@
 # One-line, read-only readout of the forward maker shadow runner for the owner's check-in.
-# Reads only file names, seal JSONs, the tail (at most 1 MiB) of the newest open tape and,
+# Reads only file names, seal JSONs, the embargo windows in src\maker_core\shadow\admission.py,
+# the tail (at most 1 MiB) of the newest open tape and,
 # when -ParityStartUtc is given, the agreement status of score reports. It writes nothing,
 # takes no lease, starts no Python and touches no 88a, panel or settlement data, so it is
 # safe at any hour. Contract: docs/operations/maker-shadow-runner.md.
@@ -14,6 +15,21 @@ $ErrorActionPreference = "Stop"
 $root = Join-Path $RepoRoot "data\maker_shadow"
 $tapes = Join-Path $root "tapes"
 $todayUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd")
+
+# Embargo text derived from the window constant in the code this script ships with (never hard-coded).
+$codeRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+$admission = Join-Path $codeRoot "src\maker_core\shadow\admission.py"
+$embargo = "embargo windows unreadable"
+if (Test-Path -LiteralPath $admission -PathType Leaf) {
+    $windows = @([regex]::Matches((Get-Content -LiteralPath $admission -Raw),
+        '\(\s*"(\d{4}-\d{2}-\d{2})",\s*"(\d{4}-\d{2}-\d{2})",\s*(FULL|OUTCOME),'))
+    if ($windows.Count) {
+        $through = ($windows | ForEach-Object { $_.Groups[2].Value } | Sort-Object)[-1]
+        $closed = ($windows | Where-Object { $_.Groups[3].Value -eq "FULL" } |
+            ForEach-Object { "{0}..{1}" -f $_.Groups[1].Value, $_.Groups[2].Value }) -join ", "
+        $embargo = "88a scoring embargoed through $through UTC; parity outcome-blind, never $closed"
+    }
+}
 
 $alive = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
     Where-Object { [string]$_.CommandLine -match '-m\s+weather\.market\.maker_shadow\s+run' }).Count
@@ -117,6 +133,6 @@ if (Test-Path -LiteralPath (Join-Path $root "STOP")) { $flags += "STOP file pres
 if (Test-Path -LiteralPath (Join-Path $root "PAUSE")) { $flags += "PAUSE file present" }
 $flagText = if ($flags.Count) { " [" + ($flags -join "; ") + "]" } else { "" }
 
-"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}{11}; rows today {6} ({7:N0} MB); crashed/unsealed tapes {8}; {9}; scoring embargoed through 2026-11-13 UTC{10}" -f `
+"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}{11}; rows today {6} ({7:N0} MB); crashed/unsealed tapes {8}; {9}; {12}{10}" -f `
     $(if ($alive) { "running" } else { "NOT running" }), $days.Count, $since, $last, $lastAge, $lastState,
-    $rowsToday, ($bytesToday / 1MB), $crashed, $parity, $flagText, $code
+    $rowsToday, ($bytesToday / 1MB), $crashed, $parity, $flagText, $code, $embargo
