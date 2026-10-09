@@ -236,6 +236,11 @@ class _Exclusions:
 class Kernel:
     """Per-condition state and the frozen decision logic; subclasses own scheduling, totals and intervals."""
 
+    # Owner Q2(a), 2026-10-08: blind RE-1 gets informed-v0's horizon gate. ``decide()`` applies
+    # ``eligible_horizons`` only to informed profiles, so the kernel applies it to blind RE-1 before its runtime.
+    # None turns it off (the attribution tool's pre-Q2 variants only).
+    blind_horizons = informed_v0.eligible_horizons
+
     def __init__(self, config: V2Config, plan):
         self.config, self.plan = config, plan
         self.profile = blind_re1 if config.policy == "blind_re1" else informed_v0
@@ -544,6 +549,10 @@ class Kernel:
             self.pull(cid, at, "REQUOTE_COOLDOWN")
             return
         desc = state.latest["descriptor"]
+        if (self.config.policy == "blind_re1" and self.blind_horizons is not None
+                and desc.horizon_days not in self.blind_horizons):
+            self.pull(cid, at, "HORIZON_NOT_ELIGIBLE")
+            return
         book = self.decision_book(state, state.legs)
         fair_value = (state.latest["outcome_view"] if self.informed else Unavailable("clock/blind baseline", at))
         value = DecisionInputs(desc.market, at, book, state.latest["terms"], fair_value, self.portfolio(cid),

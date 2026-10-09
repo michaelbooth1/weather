@@ -66,3 +66,28 @@ for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
 is the caller's duty). For `maker_replay_universe.universe()` inventories the check is close to a tautology (both
 sides read `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.
+
+Owner ruling Q2(a) (2026-10-08; registration C15) adds class **A8** to `attribution.py`: `horizon_sources` cuts each
+fixture day's condition windows by the §4 horizon clause (`maker_core.replay.v2.horizon.day_windows`, the same
+captured-or-derived descriptor timeline the engine reads), and the `Q2` variant is `all` plus the blind RE-1 horizon
+gate (`Kernel.blind_horizons`, `HORIZON_NOT_ELIGIBLE`). `report_q2()` attributes `Q2` on the clause windows against
+`all` on the envelope windows; every changed decision must be A8 or a cascade from one. A8 is not self-labelling
+(Defender M1, 2026-10-08): a decision is A8 only when the condition is outside the clause window inside the
+envelope **and** the post engine's own horizon read at that instant (its latest captured or derived descriptor) is
+missing or not in `A8_LEADS` = (1, 2), a literal independent of `horizon.py`; a blind gate pull is A8 under the same
+horizon test. Further checks fail the re-run. `FAIL_A8_CLAUSE_NOT_APPLIED` has two completeness rules: (i) a post
+decision taken while the engine's horizon is missing or outside 1..2, except a `CANCEL OUTSIDE_ACTIVE_INTERVAL` at
+the very instant a descriptor moved the engine's horizon from 1..2 to outside it (tightened for Defender D1: before,
+every such cancel was exempt, so a window end 20 s late on a sparse-wake band passed); (ii) after any instant's
+processing, legs still resting on a condition whose engine horizon is missing or outside 1..2. In the D1 fixture
+either rule alone catches the late end (the late cancel is not exempt, and the legs rest past the leaving instant);
+each rule also has its own test that only it passes (E1): a leg-free `no_quote` arm deciding at lead 0 for rule (i),
+and an engine that drops the interval-end withdrawal (legs rest, no further decision) for rule (ii). And
+`FAIL_A8_CUT_NOT_THE_CLAUSE`: a post wake cut out of its window while the engine reads 1..2. They are needed because
+rule 3 counts every change after the first direct one as cascade. `tests/maker_core/test_replay_v2_horizon.py` runs a
+negative control (a 5-minute cut at engine lead 1) and shows the re-run fails for an always-true A8 predicate,
+UTC-zone clause windows, an eligible set of (0, 1, 2), and a window end 20 s late on a Kathmandu band with no wake
+in those 20 s. The A8 fixtures show zero quote, fill and cash deltas; the value effects of Q2 rest
+on the hand-built engine tests in that module, not on these fixtures. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
+`q2_against_all`. `frozen` and the other variants run with the blind gate off, so the pinned prefix digests are
+unchanged.
