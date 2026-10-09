@@ -26,23 +26,28 @@ WINDOWS_POWERSHELL = pytest.mark.skipif(
     reason="requires Windows PowerShell",
 )
 
-# Extracts Get-SnapshotIterationProof from the real script with the PowerShell
-# parser and evaluates every case in one child, so the test executes the
-# shipped function rather than matching its text.
-PROOF_HARNESS = r"""
+# Extracts the named functions from the real script with the PowerShell parser
+# and evaluates every case in one child, so the tests execute the shipped
+# functions rather than matching their text.
+FUNCTION_LOADER = r"""
 $ErrorActionPreference = 'Stop'
 $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:PROBE_SCRIPT, [ref]$tokens, [ref]$errors)
 if (@($errors).Count -ne 0) { throw 'bounded_execution_tape_probe.ps1 does not parse' }
-$function = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -eq 'Get-SnapshotIterationProof'
-}, $true)) | Select-Object -First 1
-if ($null -eq $function) { throw 'missing Get-SnapshotIterationProof' }
-Invoke-Expression $function.Extent.Text
+foreach ($name in @($env:PROBE_FUNCTIONS -split ',')) {
+    $function = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $function) { throw "missing $name" }
+    Invoke-Expression $function.Extent.Text
+}
+"""
+
+PROOF_HARNESS = FUNCTION_LOADER + r"""
 $cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PROBE_CASES)) |
     ConvertFrom-Json
 $results = [ordered]@{}
@@ -152,6 +157,13 @@ PROOF_CASES = [
         _status(_at(-5), _at(-100)),
         _status(_at(PROBE_SECONDS - 3), _at(PROBE_SECONDS + 30)),
     ),
+    # N1: a heartbeat newer than the probe's final read (clock skew or a
+    # future-dated write) is not liveness evidence and must fail closed.
+    _case(
+        "future_heartbeat",
+        _status(_at(-5), _at(-100)),
+        _status(_at(PROBE_SECONDS + 30), _at(PROBE_SECONDS - 100)),
+    ),
     _case(
         "missing_cycle_parameters",
         _status(_at(-5), _at(-100)),
@@ -174,13 +186,18 @@ PROOF_CASES = [
 ]
 
 
-@pytest.fixture(scope="module")
-def proofs() -> dict:
-    payload = base64.b64encode(json.dumps(PROOF_CASES).encode("utf-8")).decode("ascii")
-    env = {**os.environ, "PROBE_SCRIPT": str(SCRIPT), "PROBE_CASES": payload}
+def _run_harness(harness: str, functions: str, cases: list, **extra_env: str) -> dict:
+    payload = base64.b64encode(json.dumps(cases).encode("utf-8")).decode("ascii")
+    env = {
+        **os.environ,
+        "PROBE_SCRIPT": str(SCRIPT),
+        "PROBE_FUNCTIONS": functions,
+        "PROBE_CASES": payload,
+        **extra_env,
+    }
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-         "-Command", PROOF_HARNESS],
+         "-Command", harness],
         capture_output=True,
         text=True,
         check=False,
@@ -191,6 +208,11 @@ def proofs() -> dict:
         raise RuntimeError(f"PowerShell harness failed: {result.stderr.strip() or result.stdout.strip()}")
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     return json.loads(lines[-1])
+
+
+@pytest.fixture(scope="module")
+def proofs() -> dict:
+    return _run_harness(PROOF_HARNESS, "ConvertTo-StatusInstant,Get-SnapshotIterationProof", PROOF_CASES)
 
 
 def _reasons(proof: dict) -> list[str]:
@@ -271,9 +293,25 @@ def test_snapshot_proof_fails_closed_on_missing_or_future_evidence(proofs):
     ]
     assert proofs["future_completion"]["ok"] is False
     assert proofs["future_completion"]["completed_iteration_age_seconds"] == pytest.approx(-30.0)
-    missing = _reasons(proofs["missing_cycle_parameters"])
+    # N1: an unknown completion bound must fail closed, not merely explain itself.
+    # With the bound unknown the completion-age check is skipped, so ok is the only guard.
+    missing_proof = proofs["missing_cycle_parameters"]
+    assert missing_proof["ok"] is False, missing_proof
+    assert missing_proof["advance_required"] is False
+    missing = _reasons(missing_proof)
     assert "snapshot status has no positive interval_minutes" in missing
     assert "snapshot status has no positive capture_execution.fleet_budget_seconds" in missing
+    # The completion itself is fresh: the missing parameters are the only failure.
+    assert len(missing) == 2, missing
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_snapshot_proof_rejects_a_heartbeat_newer_than_the_final_read(proofs):
+    proof = proofs["future_heartbeat"]
+    assert proof["ok"] is False, proof
+    assert proof["heartbeat_age_seconds"] == pytest.approx(-30.0)
+    assert _reasons(proof) == ["snapshot heartbeat age -30.0s is outside 0..300s"]
 
 
 @WINDOWS_POWERSHELL
@@ -284,6 +322,75 @@ def test_snapshot_proof_compares_offset_timestamps_as_instants(proofs):
     assert proof["heartbeat_age_seconds"] == pytest.approx(40.0)
     assert proof["completed_iteration_age_seconds"] == pytest.approx(500.0)
     assert proof["advanced"] is True
+
+
+# Get-HealthyCaptureWorkerCount run end to end against a temporary data\snapshots
+# tree whose loop_status.json and writer lock name this PowerShell process, so
+# only the heartbeat age decides. Timestamps are written as JSON strings and read
+# back through Get-Content | ConvertFrom-Json exactly as on the host (Windows
+# PowerShell 5.1 leaves them as strings).
+WORKER_HARNESS = FUNCTION_LOADER + r"""
+$RepoRoot = $env:PROBE_REPO_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText((Join-Path $snapshotRoot '.loop_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PROBE_CASES)) |
+    ConvertFrom-Json
+$results = [ordered]@{}
+foreach ($case in @($cases)) {
+    $status = '{"pid": ' + $PID + ', "last_heartbeat": "' + [string]$case.heartbeat + '"}'
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot 'loop_status.json'), $status, $utf8)
+    $results[[string]$case.name] = Get-HealthyCaptureWorkerCount `
+        -Now ([datetimeoffset]::Parse([string]$case.now, [Globalization.CultureInfo]::InvariantCulture))
+}
+$results | ConvertTo-Json -Compress
+"""
+
+# Toronto falls back at 2026-11-01 06:00Z: 01:59:59 EDT (-04:00) is followed by
+# 01:00:00 EST (-05:00), so 01:00-02:00 local repeats inside the 01:00-04:00 probe
+# window. "now" is given in the host's local offset, as Get-Date would show it.
+WORKER_CASES = [
+    # 150 s real age; a wall-clock difference reads -57.5 min (spurious unhealthy).
+    {"name": "fresh_across_fall_back", "heartbeat": "2026-11-01T01:58:00-04:00",
+     "now": "2026-11-01T01:00:30-05:00"},
+    # 62 min real age; a wall-clock difference reads 120 s (falsely healthy).
+    {"name": "stale_hour_hidden_by_fall_back", "heartbeat": "2026-11-01T01:10:00-04:00",
+     "now": "2026-11-01T01:12:00-05:00"},
+    {"name": "exactly_300_across_fall_back", "heartbeat": "2026-11-01T01:57:00-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    {"name": "just_over_300_across_fall_back", "heartbeat": "2026-11-01T01:56:59-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    # Written after fall-back, read "before" it on the clock face: 6 min in the future.
+    {"name": "future_heartbeat", "heartbeat": "2026-11-01T01:05:00-05:00",
+     "now": "2026-11-01T01:59:00-04:00"},
+    {"name": "utc_heartbeat", "heartbeat": "2026-11-01T05:59:00+00:00",
+     "now": "2026-11-01T01:01:00-05:00"},
+    {"name": "unparseable_heartbeat", "heartbeat": "not-a-time",
+     "now": "2026-11-01T01:01:00-05:00"},
+]
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_worker_count_ages_snapshot_heartbeat_on_utc_instants_across_fall_back(tmp_path):
+    counts = _run_harness(
+        WORKER_HARNESS,
+        "ConvertTo-StatusInstant,Get-HealthyCaptureWorkerCount",
+        WORKER_CASES,
+        PROBE_REPO_ROOT=str(tmp_path),
+    )
+    # Only the snapshot worker's files exist, so a healthy snapshot worker counts 1.
+    assert counts == {
+        "fresh_across_fall_back": 1,
+        "stale_hour_hidden_by_fall_back": 0,
+        "exactly_300_across_fall_back": 1,
+        "just_over_300_across_fall_back": 0,
+        "future_heartbeat": 0,
+        "utc_heartbeat": 1,
+        "unparseable_heartbeat": 0,
+    }
 
 
 def _text() -> str:
