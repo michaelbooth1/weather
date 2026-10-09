@@ -105,8 +105,23 @@ class Run:
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
 
 
-def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) -> Run:
-    """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds."""
+def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda *_: None) -> Run:
+    """Every pass of one scored run: eight base engines on one parse, then lockstep matched-clock rounds.
+
+    ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
+    A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory) and
+    may not turn the refresh off: ``day_roll.NO_REFRESH`` is refused here (``day_roll_refresh_required``).
+
+    Scope: this function accepts any zone mapping; zone names are strict (``day_roll._zone``), but the registry
+    cross-check binds only when the caller builds the map with ``market_time_zones(..., registered=)``. Binding the
+    zone map (or its sha) into the run digest is the T2 run-digest work; until then provenance is the caller's
+    duty. For a ``maker_replay_universe.universe()``-built inventory the cross-check is close to a tautology (both
+    sides read ``BUILTIN_SPECS``): it catches a tampered or hand-built inventory, not a wrong registry entry.
+    """
+    from maker_core.replay.bundle import BundleError
+    from maker_core.replay.v2.day_roll import NO_REFRESH
+    if time_zones is NO_REFRESH:
+        raise BundleError("day_roll_refresh_required")
     sources = sorted(sources, key=lambda s: s.plan.day)
     plan = run_plan(sources)
     markets = {c.condition_id: c.market_id for day in plan.days for c in day.conditions}
@@ -120,7 +135,7 @@ def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) ->
             scorer = BandDayScorer(policy, bound, pull_runs=policy in ("informed-v0", "clock_only"))
             passes[bound][policy] = Pass(engine(cfg, plan, sink=scorer), scorer)
             engines.append(passes[bound][policy].engine)
-    drive(sources, engines, observers=(books,))
+    drive(sources, engines, observers=(books,), time_zones=time_zones)
     progress("base", len(engines))
     bisections, log = {}, []
     for bound in BOUNDS:
@@ -139,7 +154,7 @@ def run_passes(sources, config, *, engine=EngineV2, progress=lambda *_: None) ->
             trials[bound] = Pass(engine(cfg, plan, sink=scorer), scorer)
         if not trials:
             break
-        drive(sources, [t.engine for t in trials.values()])
+        drive(sources, [t.engine for t in trials.values()], time_zones=time_zones)
         progress("clock_round", len(trials))
         for bound, trial in trials.items():
             got, _ = fraction(trial.band_days(books, markets))

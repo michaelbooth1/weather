@@ -48,3 +48,21 @@ Rule 4 = option B (owner, 2026-10-05) adds `rule4.py`: real view cadence on any 
 `restamped`: every view re-stamped at each book record, with NBP-like `stdev` drift), and the lazy-delivery
 harness behind `tests/maker_core/test_replay_v2_rule4.py`. `s3` and `s5` take `--view-cadence real` to measure
 under it.
+
+Engine rulings W1(a), W2(a) and F3 (owner, 2026-10-07; registration C11-C13) add `attribution.py`: it re-runs
+the fictional fixtures under the frozen engine and under each ruling alone and together, and attributes every
+changed decision to its class (A1-A3, A5, A6) or fails (spec v3.2 §1.4, v3.3 §4.2). `frozen` is pinned to the
+pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Since F3, `lockstep.drive` and
+`pipeline.run_passes` require `time_zones` (market id to IANA zone). A scored run takes it from
+`execution_manifest.market_time_zones`, which reads the bound universe inventory's `local_timezone` (already
+checked against each descriptor's close and horizon) and refuses a market whose conditions disagree (owner Gate
+Q1, 2026-10-07). That descriptor check is offset-only, so the zone is also checked by name against the caller's
+domain registry (`registered=`; for weather `maker_replay_universe.registered_time_zones()`). Zone names are strict
+(`bundle.time_zone`: listed verbatim by `zoneinfo.available_timezones()`, else `unknown_time_zone`). Fictional
+markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in `lockstep.drive` and exists only
+for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
+`run_passes` itself accepts any zone mapping: the registry check applies only when the map comes from
+`market_time_zones`, and binding the zone map into the run digest is the T2 run-digest work (until then, provenance
+is the caller's duty). For `maker_replay_universe.universe()` inventories the check is close to a tautology (both
+sides read `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
+Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

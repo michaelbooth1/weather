@@ -21,7 +21,7 @@ from maker_core.replay.v2.lockstep import DaySource, drive, record_from_row, run
 from tools.research.maker_replay_v2.bench import fingerprint
 from tools.research.maker_replay_v2.dense import DenseDay
 from tools.research.maker_replay_v2.rule4 import WakeLog, lazy, restamped
-from tools.research.maker_replay_v2.sources import ScaledDay, plan_of
+from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, ScaledDay, plan_of
 
 DAY = date(2026, 9, 27)  # fictional
 CONFIG = V2Config(hazard_per_minute=.001, debug=True, keep=True)
@@ -46,7 +46,7 @@ def source(day, pairs):
 def run(day, pairs, engine=EngineV2):
     src = source(day, pairs)
     result = engine(CONFIG, run_plan([src]))
-    drive([src], [result])
+    drive([src], [result], time_zones=FIXTURE_ZONES)
     return result
 
 

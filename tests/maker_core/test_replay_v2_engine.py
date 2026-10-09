@@ -13,19 +13,20 @@ from maker_core.replay.v2.money import MoneyError
 from maker_core.replay.v2.reference import ReferenceEngine
 from tools.research.maker_replay_v2.bench import differential, fingerprint
 from tools.research.maker_replay_v2.dense import DenseDay
-from tools.research.maker_replay_v2.sources import ScaledDay, materialize, regrouped
+from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, ScaledDay, materialize, regrouped
 from .fixtures.replay_scenario import Scenario
 
 DAY = date(2026, 9, 27)
 DAY_START = __import__("datetime").datetime(2026, 9, 27, tzinfo=__import__("datetime").timezone.utc)
 POLICIES = ("informed-v0", "blind_re1", "no_quote", "clock_only")
 CONFIG = V2Config(hazard_per_minute=.001, debug=True, keep=True)
+ZONES = {**FIXTURE_ZONES, "a": "UTC", "b": "UTC"}  # Scenario markets are UTC
 
 
 def pair(source, config):
     plan = run_plan([source])
     v2, ref = EngineV2(config, plan), ReferenceEngine(replace(config, debug=False), plan)
-    drive([source], [v2, ref])
+    drive([source], [v2, ref], time_zones=ZONES)
     return v2, ref
 
 
@@ -84,7 +85,7 @@ def test_decision_digest_invariant_under_coverage_regrouping_and_view_elision():
             prints = []
             for source in group:
                 engine = EngineV2(config, run_plan([source]))
-                drive([source], [engine])
+                drive([source], [engine], time_zones=ZONES)
                 prints.append(fingerprint(engine))
             assert prints[0] == prints[1] == prints[2], policy
 
@@ -108,7 +109,7 @@ def test_intervals_are_run_length_not_instants_times_bands():
     source, _ = materialize(DenseDay(DAY, union=40, trades=2000, minutes=20))
     plan = run_plan([source])
     engine = EngineV2(replace(CONFIG, debug=False), plan)
-    drive([source], [engine])
+    drive([source], [engine], time_zones=ZONES)
     assert engine.interval_count < engine.instants * len(engine.states) / 10
     assert engine.wakes < engine.instants * len(engine.states) / 10
 
@@ -124,11 +125,11 @@ def test_one_parse_drives_several_engines_identically():
     plan = run_plan([shared])
     configs = [replace(CONFIG, policy=p, fill_bound=b) for p in POLICIES for b in ("strictly_through", "at_price")]
     together = [EngineV2(c, plan) for c in configs]
-    drive([shared], together)
+    drive([shared], together, time_zones=ZONES)
     assert len(parses) == 1
     for config, engine in zip(configs, together):
         alone = EngineV2(config, plan)
-        drive([source], [alone])
+        drive([source], [alone], time_zones=ZONES)
         assert fingerprint(alone) == fingerprint(engine)
 
 
@@ -143,7 +144,7 @@ def test_running_totals_debug_assertion_detects_drift():
         engine.R = engine.R + D("0.000001")
     engine.changed = drifting
     with pytest.raises(RunningTotalsMismatch):
-        drive([source], [engine])
+        drive([source], [engine], time_zones=ZONES)
 
 
 def test_money_not_representable_at_one_millionth_is_refused(tmp_path):
@@ -154,7 +155,7 @@ def test_money_not_representable_at_one_millionth_is_refused(tmp_path):
     source = bundle_source(s.bundle(tmp_path / "bundle"))
     engine = EngineV2(CONFIG, run_plan([source]))
     with pytest.raises(MoneyError):
-        drive([source], [engine])
+        drive([source], [engine], time_zones=ZONES)
 
 
 def _book(s, seconds, mid=D(".5"), as_of=None, depth=D(75)):
@@ -246,7 +247,7 @@ def test_multi_day_run_equals_reference():
     for policy in ("informed-v0", "clock_only"):
         config = replace(CONFIG, policy=policy)
         v2, ref = EngineV2(config, plan), ReferenceEngine(replace(config, debug=False), plan)
-        drive(sources, [v2, ref])
+        drive(sources, [v2, ref], time_zones=ZONES)
         assert fingerprint(v2) == fingerprint(ref)
 
 
@@ -271,7 +272,7 @@ def test_reentry_and_pull_digests_ignore_a_repeated_views_capture_time(tmp_path)
     prints = []
     for bundle in (with_repeat, elided):
         engine = EngineV2(CONFIG, run_plan([bundle_source(bundle)]))
-        drive([bundle_source(bundle)], [engine])
+        drive([bundle_source(bundle)], [engine], time_zones=ZONES)
         prints.append(fingerprint(engine))
         assert any(d.decision.reasons == ("AWAIT_FRESH_REENTRY_INPUTS",) for d in engine.decisions)
     assert prints[0] == prints[1]
