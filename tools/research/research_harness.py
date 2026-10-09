@@ -158,6 +158,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "-09-78a estimand power and sign analysis; candidate closed unpowered.",
     },
+    "maker_pnl_power_rule_pilot.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Maker P&L desk-study power rule (N_req) on the 09-24..09-28 88a pilot; refuses dates after 09-29.",
+    },
 }
 
 
