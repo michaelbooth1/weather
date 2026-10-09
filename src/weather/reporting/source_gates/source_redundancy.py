@@ -131,6 +131,13 @@ def obs_sources_for_spec(spec):
 
 
 def earliest_minute(times_text):
+    """Earliest local wall-clock minute of a ``max_temp_times`` list.
+
+    Parts are ``HH:MM`` (every producer before 2026-10-07) or, for the ECCC SWOB backfill CSV since
+    then, ISO 8601 local time with a UTC offset. The ``HH:MM`` parse is tried first and is unchanged;
+    only a part it cannot read is tried as an aware ISO instant, whose own wall clock gives the same
+    minute the old ``HH:MM`` did. A naive ISO part is still skipped.
+    """
     minutes = []
     for part in str(times_text or "").split("|"):
         if not part or ":" not in part:
@@ -138,7 +145,13 @@ def earliest_minute(times_text):
         try:
             hour, minute = [int(item) for item in part[:5].split(":")]
         except ValueError:
-            continue
+            try:
+                parsed = datetime.fromisoformat(part.strip())
+            except ValueError:
+                continue
+            if parsed.utcoffset() is None:
+                continue
+            hour, minute = parsed.hour, parsed.minute
         minutes.append(hour * 60 + minute)
     return min(minutes) if minutes else None
 

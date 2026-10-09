@@ -26,6 +26,7 @@ from maker_core.replay.ceilings import process_memory
 from weather.market.maker_evidence_store import WriterLock
 from weather.market.maker_plugin.inputs import event_identity, timestamp
 from weather.market.maker_plugin_capture import Segment, StopRun, encoded, sealed_segments
+from weather.market.maker_plugin_runner import clock_trigger_rows_skipped
 from weather.market.maker_replay_bundle import (CALIBRATION_KINDS, MAX_INPUT_BYTES, OUTPUT_LIMITS, ExportReader,
                                                 export)
 from weather.paths import SRC_ROOT
@@ -250,6 +251,9 @@ def export_day(args, kind, *, now=None, clock=time.monotonic):
             receipt["bundle"]["support_errors"] = summary["support_errors"]
             receipt["bundle"]["counts"] = summary["counts"]
             receipt["bundle"]["trade_clock_skew"] = summary["trade_clock_skew"]
+            # Owner decision SWOB-b (2026-10-07): the clock's trigger-row refusals in the receipt summary,
+            # which survives the byte-cap trim that drops reader_coverage. A lower bound, never exact.
+            receipt["bundle"]["clock_trigger_rows_skipped"] = clock_trigger_rows_skipped(summary["reader_coverage"])
             final_seals = {folder.name: sha256(encoded(manifest))
                            for _, folder, manifest in sealed_segments(reader, args.day)}
             if final_seals != seals or reader.coverage["segments.unsealed_skipped"]:

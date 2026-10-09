@@ -420,6 +420,20 @@ def present_weather_summary(code, remark):
     return " | ".join(parts) if parts else None
 
 
+def observation_time(row):
+    """An hourly row's observation time for the CSV outputs: ISO 8601 local time WITH its UTC offset.
+
+    Owner decision 2026-10-07 (SWOB-a): ``daily_summary.csv`` (``first_time``, ``last_time`` and the
+    ``*_times`` lists) and ``comparison_rows.csv`` (``swob_times``, ``swob_first_reach_time``) carry
+    ``valid_time_local`` (e.g. ``2026-05-27T14:00:00-04:00``), never a bare ``HH:MM``, so a row is never
+    refused by the maker plugin clock if it ever feeds the trigger file. Readers take the local wall
+    clock from the string itself (``time_to_minutes``), so minutes are unchanged; files written before
+    this change carry ``HH:MM`` and still parse. The hourly JSONL ``local_time`` stays ``HH:MM``
+    (WU-shaped); that file already carries ``valid_time_local`` and ``valid_time_utc``.
+    """
+    return row.get("valid_time_local") or ""
+
+
 def summarize_daily(records):
     grouped = defaultdict(list)
     for row in records:
@@ -440,7 +454,7 @@ def summarize_daily(records):
             max_temp = max(proxy_values)
             max_temp_bucket = round_half_up(max_temp)
             max_times = [
-                row["local_time"]
+                observation_time(row)
                 for row in rows
                 if same_number(max_value([row.get("temp_c"), row.get("swob_max_1h_c")]), max_temp)
             ]
@@ -468,7 +482,7 @@ def summarize_daily(records):
             avg_temp = round(sum(air_values) / len(air_values), 2)
             air_max = max(air_values)
             air_max_times = [
-                row["local_time"]
+                observation_time(row)
                 for row in rows
                 if same_number(row.get("temp_c"), air_max)
             ]
@@ -480,7 +494,7 @@ def summarize_daily(records):
 
         max_1h = max_value(row.get("swob_max_1h_c") for row in rows)
         max_1h_times = [
-            row["local_time"]
+            observation_time(row)
             for row in rows
             if max_1h is not None and same_number(row.get("swob_max_1h_c"), max_1h)
         ]
@@ -493,8 +507,8 @@ def summarize_daily(records):
             {
                 "local_date": local_date,
                 "row_count": len(rows),
-                "first_time": rows[0].get("local_time"),
-                "last_time": rows[-1].get("local_time"),
+                "first_time": observation_time(rows[0]),
+                "last_time": observation_time(rows[-1]),
                 "max_temp_c": max_temp,
                 "max_temp_times": "|".join(max_times),
                 "max_temp_source": "|".join(max_sources),
@@ -609,7 +623,7 @@ def first_swob_reach_time(rows, threshold):
     for row in sorted(rows, key=lambda item: item.get("valid_time_local") or ""):
         proxy = max_value([row.get("temp_c"), row.get("swob_max_1h_c")])
         if proxy is not None and proxy >= threshold:
-            return row.get("local_time") or ""
+            return observation_time(row)
     return ""
 
 
@@ -874,8 +888,20 @@ def first_time_value(value):
 
 
 def time_to_minutes(value):
-    hour, minute = str(value).split(":")[:2]
-    return int(hour) * 60 + int(minute)
+    """Local wall-clock minutes of day from ``HH:MM`` (WU, pre-2026-10-07 SWOB CSVs) or aware ISO 8601.
+
+    The legacy ``HH:MM`` parse runs first and is unchanged; only a value it cannot read is tried as
+    ISO 8601 with a UTC offset (the SWOB CSV format since 2026-10-07). The minutes come from the
+    string's own local wall clock, never from a timezone conversion, so they equal the old ``HH:MM``.
+    """
+    try:
+        hour, minute = str(value).split(":")[:2]
+        return int(hour) * 60 + int(minute)
+    except ValueError:
+        parsed = datetime.fromisoformat(str(value).strip())
+        if parsed.utcoffset() is None:
+            raise ValueError(f"observation time without a UTC offset: {value!r}") from None
+        return parsed.hour * 60 + parsed.minute
 
 
 def to_number(value):

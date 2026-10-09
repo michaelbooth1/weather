@@ -161,6 +161,81 @@ decided 0/1 marginals. Scheduled METAR and model-cycle events expire ten minutes
 after their scheduled instant; detected model-cycle events expire ten minutes
 after fetch. New-high pulls and determined-band vetoes retain their original
 no-expiry behavior. Core windows/freshness and other admission checks still apply.
+Observation triggers: only the captured WU printed high (`wu_history_high_increased` from
+`wu_history`) can produce a `decided` veto. A rising supporting METAR, ECCC SWOB or WU-current
+trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTING_TRIGGERS`) produces
+a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
+reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
+"Rising" is relative to the previous poll, not the day's running high, and a new-high pull never
+expires. Owner decision (2026-10-07): keep this previous-poll rule for now, and switch supporting pulls
+to a rise above the day's running maximum before any policy quotes T+0. Because a trigger's local detection date must equal the target date, these events reach
+lead-0 (T+0) conditions only. Actions, legs, fills, P&L, pulled seconds and cell sums are
+unchanged for every policy. What changes on a day with T+0 supporting pulls: `blind_re1`'s band-day
+`fills_in_events`/`fills_outside_events` split (every policy's fill event window reads the info
+events) and its `FIRST_FILL_ENDS` decision digest (the decision hashes the fill, which carries
+`in_event_window`); `informed-v0`'s refusal reasons, wake/decision/interval counts and decision
+digests (each new info event is a wake); and therefore the report traces, sidecar rows, sidecar
+binding hash and report hash. Measure any v2 output limits on post-fix exports. **Trigger
+`observed_at`:** the live producers write ISO-8601 with a UTC offset (SWOB: station local time with
+its offset, from `model_sources.parse_swob_xml`), which the clock parses, so SWOB pulls work and DST is
+unambiguous. Anything that is not an aware instant (a bare local `HH:MM`, a naive ISO string, garbage)
+is refused, never interpreted (owner decision OD37,
+2026-10-07): that row is skipped and counted in the runner coverage as
+`clock.trigger_rows_skipped.observed_at_unparseable` (once per row per evaluated band-minute); it
+never makes the clock unavailable. A row detected after `as_of` is neither used nor counted.
+**Backfill CSV format (owner decision SWOB-a, 2026-10-07).** The ECCC SWOB backfill
+(`weather.sources.eccc_swob_history`) writes every observation time in its CSVs (`daily_summary.csv`
+`first_time`, `last_time`, `max_temp_times`, `swob_air_temp_max_times`, `swob_max_1h_times`;
+`comparison_rows.csv` `swob_times`, `swob_first_reach_time`) as ISO 8601 local time with its UTC offset
+(the hourly row's `valid_time_local`), so its rows are never refused if they ever feed the trigger file.
+Files written before then carry bare `HH:MM`; they are not rewritten and still parse. Its readers
+(`eccc_swob_history.time_to_minutes` and `source_redundancy.earliest_minute`) try the old `HH:MM`
+parse first, unchanged, and read only an aware ISO value they could not parse before, taking the
+string's own wall-clock minute, so every minute, peak minute and lead is unchanged. The hourly JSONL
+`local_time` stays `HH:MM` (WU-shaped; that file already carries `valid_time_local` and `valid_time_utc`).
+**Receipt summary (owner decision SWOB-b, 2026-10-07).** The night/calibration receipts (v0.1 and
+v0.2) carry `bundle.clock_trigger_rows_skipped`, built by
+`maker_plugin_runner.clock_trigger_rows_skipped` from these coverage keys, with
+`observed_at_unparseable` always present (an explicit 0). It survives the receipt byte-cap trim that
+drops `reader_coverage`, and it carries the same lower-bound caveat as the coverage key below. It is
+receipt-only: `export.json` and bundle bytes are unchanged. Hash-pin impact: SWOB-b changes
+`maker_plugin_runner.py`, `maker_replay_night.py` and `maker_replay_night_v02.py`, which are in the
+night exporters' module closure, so `replay_export module-hash` (the nightly export's registered
+`-ExpectedModuleSha256`), the v0.2 `module-hash` and `execution_manifest.source_hashes` change and must
+be re-pinned from the landed checkout; `maker_fair_value_score`'s `implementation_hashes`
+(`maker_plugin/*.py` only) does not. SWOB-a's modules are outside that closure and change no pin.
+**Scope of the observed_at change (not T+0 only).** The v1-exam clock parsed every truthy
+`observed_at` of an event's rows before the point-in-time filter, and the exporter keeps every row
+detected up to the end of the UTC bundle day, so one unparseable value made that event's clock
+unavailable for the whole UTC bundle day. That day can include lead-1 minutes before local midnight
+(for New York, 00:00-05:00 UTC), which are scored `informed-v0` T+1 band-minutes. A `clock:` failure
+makes `maker_plugin_runner.evaluate_event` record the band-minute unavailable and skip `decide` for
+that minute, so a minute lost this way had no decision at all. The refusal therefore can change T+1
+band-minute availability and with it scored `informed-v0` T+1 decisions, legs, fills and P&L (and
+the cell sums built from them), not only T+1 inputs, wherever such a row exists; only the
+supporting-pull change is lead-0 only. Expected incidence is 0, because live producers write aware
+times. Measure the incidence with `tools/research/maker_clock_trigger_disclosure.py`
+(`old_clock_unavailable_observed_at` per cell, `events_old_clock_unavailable_observed_at` per day)
+and check `clock.trigger_rows_skipped.observed_at_unparseable` on post-fix exports. **Both are lower
+bounds, not exact counts:**
+
+- The disclosure tool emits a cell only for an event that has a trigger row detected on the
+  `--date` day d. The v1 clock also read every earlier row of the event kept in d's bundle. So when the
+  bad row was detected on d-1 and the event has no row detected on d, the v1 clock lost day d (its
+  lead-1 minutes included) but no cell is emitted for d, and neither per-cell nor per-day field
+  counts it. Rows from d-2 or earlier are missed the same way, as is a row stamped exactly 00:00:00 of
+  d+1. Round 2's `clock_unavailable` has the same cell rule and the same limit.
+- `clock.trigger_rows_skipped.*` is runner coverage: one count per refused row per band-minute whose
+  clock step completed. It does count a bad d-1 row on d's minutes (d's bundle keeps it), but it misses
+  every band-minute that never reached a completed `observe` (a descriptor failure, a corrupt
+  `triggers` source, or another raise inside `observe`). Read it as "at least this many".
+
+The pre-signature check of `clock.trigger_rows_skipped.observed_at_unparseable` (and of the disclosure
+fields) on the post-fix calibration exports must carry these lower-bound caveats: a zero there does
+not by itself prove that no event-day lost its v1 clock to defect 2. **Re-pin** after
+this change: `execution_manifest.source_hashes` and the exporter hashes over `maker_plugin/*.py` and
+`maker_plugin_runner.py`, and `maker_fair_value_score`'s `implementation_hashes` over
+`maker_plugin/*.py` (fair-value score report bytes change on a rerun).
 
 Served T+0 joins require the bounded export to project `release_calibration_method`
 from the verified release's calibration artifact (`market_bin.method`) onto each
