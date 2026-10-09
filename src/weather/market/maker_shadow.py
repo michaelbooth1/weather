@@ -50,7 +50,10 @@ PAPER_KEYS = ("starting_cash_pusd", "bleed_limit_pusd", "fill_rule")
 
 
 GIT_TIMEOUT_SECONDS = 60
-MID_MINUTE_POLL = timedelta(seconds=30)  # Keeps 60 s trade coverage continuous between minute polls.
+# Mid-minute refresh: one trade poll and both books again per band, so the record stream's 60 s trade coverage
+# is continuous and no recorded book ages past the replay engine's 60 s freshness limit. Record stream only:
+# the shadow's decision inputs are the minute's own reads.
+MID_MINUTE_POLL = timedelta(seconds=30)
 
 
 def code_identity(root=REPO_ROOT):

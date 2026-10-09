@@ -1,20 +1,26 @@
 """Shadow tape v0.2 raw-record stream: replay-v2 bundle round trip, sequences, clocks, seal, scorer compatibility.
 
 Guards: maker shadow tape v0.2 record stream and day bundle (docs/operations/maker-shadow-runner.md, Tape v0.2
-  record stream); round trip against the vendored replay-v2 reader contract
+  record stream): receipt-time stamping with the mid-minute book refresh (no capture gap under an advancing
+  clock), the recorder fault boundary, the trade baseline across the UTC day roll and the Gamma/reward
+  allowlists; round trip against the vendored replay-v2 reader contract
   (tests/maker_core/fixtures/replay_v2_reader_contract.py, pinned to build-line 2d8cccb13).
 """
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
 import json
+import random
 import socket
+import types
 
 import pytest
 
 from maker_core.evidence.journal import verify_journal
 from maker_core.shadow import tape
-from maker_core.shadow.records import (BUNDLE_FORMAT, RawRecorder, RecordingReads, RecordStream, bundle_day,
-                                       day_active_intervals, day_directory, group_id, records_summary)
+from maker_core.shadow.records import (BUNDLE_FORMAT, SHADOW_REPLAY_LIMITS, RawRecorder, RecordingReads,
+                                       RecordStream, bundle_day, day_active_intervals, day_directory,
+                                       gamma_market_projection, group_id, records_summary, reward_projection)
 from maker_core.shadow.runner import book_from_public
 from maker_core.shadow.score import score_day
 from maker_core.shadow.tape import (SEAL_SCHEMA, SEAL_SCHEMA_V01, TAPE_SCHEMA, TAPE_SCHEMA_V01, TapeWriter,
@@ -192,7 +198,8 @@ def test_recorder_fault_costs_raw_records_not_the_tape(tmp_path):
     writer.record("minute", NOW, **runner.step(NOW, MARKETS))
     seal = writer.close("completed")
     rows = sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"]
-    assert rows[1]["raw"] == {"error": "RuntimeError"} and seal["records_stream"]["records"] == 0
+    assert rows[1]["raw"]["fault"] == "minute:RuntimeError" and seal["records_stream"]["records"] == 0
+    assert seal["records_stream"]["status"] == "ok"
 
 
 def test_terms_absence_is_recorded_and_replays_as_missing_terms(tmp_path):
@@ -249,3 +256,176 @@ def test_scorer_reads_v01_and_v02_tapes_side_by_side(tmp_path, monkeypatch):
     assert report["strata"]["policy"]["condition_minutes"] == 2
     assert report["own_size_mid"] == {"books_with_own_legs": 1, "mid_differs": 1, "minutes_recorded": 1,
                                       "minutes_not_recorded": 1}
+
+
+class AdvancingReads(Reads):
+    """Every public read advances the shared clock by its latency (fixed, or seeded jitter)."""
+
+    def __init__(self, latency, **kwargs):
+        super().__init__(**kwargs)
+        self.latency, self.clock = latency, None
+
+    def _tick(self):
+        self.clock.now += timedelta(seconds=self.latency())
+
+    def book(self, asset_id):
+        self._tick()
+        return super().book(asset_id)
+
+    def reward_terms(self, condition_id):
+        self._tick()
+        return super().reward_terms(condition_id)
+
+    def trades(self, condition_id):
+        self._tick()
+        return super().trades(condition_id)
+
+
+def advancing_hour(tmp_path, latency, *, prints=None, refresh=True):
+    inner = AdvancingReads(latency)
+    runner, reads, _, clock = recording_rig(tmp_path, inner)
+    inner.clock = clock
+    writer = TapeWriter(tmp_path / "tapes", clock=clock, scope={"mode": "fixture"}, run_id="adv",
+                        recorder=RawRecorder(reads, market_id=lambda slug: "fixture-market"))
+    nows = []
+    for n in range(60):
+        minute = NOW + timedelta(minutes=n)
+        clock.now = max(clock.now, minute)
+        if n % 15 == 0:
+            clock.now += timedelta(seconds=4)  # the runner's Gamma rediscovery delays that minute's reads
+        if prints and n in prints:
+            inner.prints[CONDITION] = prints[n](clock.now)
+        reads.poll([CONDITION])
+        payload = runner.step(minute, MARKETS)
+        nows.append(inputs_from(payload["conditions"][0]["inputs"]))
+        writer.record("minute", minute, **payload)
+        if refresh:
+            clock.now = max(clock.now, minute + timedelta(seconds=30))
+            writer.poll([CONDITION])
+    writer.close("completed")
+    path, _ = bundle_day(tmp_path / "tapes", DAY, clock=lambda: AFTER_DAY)
+    return reader.StreamBundle(path.parent), nows, inner
+
+
+@pytest.mark.parametrize("jitter", [False, True], ids=["fixed_190ms", "jittered"])
+def test_receipt_stamped_hour_under_an_advancing_clock_has_no_capture_gap(tmp_path, jitter):
+    rng = random.Random(20261009)
+    latency = (lambda: rng.uniform(0.05, 1.5)) if jitter else (lambda: 0.19)  # jitter: seeded, long tail
+    prints = {n: (lambda at, n=n: [wallet_print(at - timedelta(seconds=2), f"0xc{n}")]) for n in range(5, 60, 7)}
+    bundle, shadows, inner = advancing_hour(tmp_path, latency, prints=prints)
+    records = list(bundle.records())
+    assert all(reader.decode_record(r)[1] is None for r in records)  # nothing the real decoder would pop
+    books = [r.captured_at for r in records if r.kind == "book"]
+    assert max(b - a for a, b in zip(books, books[1:])) < timedelta(seconds=60)
+    for r in records:
+        if r.kind == "book":
+            assert reader.decode(r).as_of_utc == r.captured_at  # receipt stamped
+        if r.kind == "coverage":  # the window starts at the poll's receipt, never at a later decision instant
+            assert reader.decode(r).valid_until_utc - r.captured_at == timedelta(seconds=60)
+    decisions = {s.now for s in shadows}
+    assert not decisions & {r.captured_at for r in records if r.kind in ("book", "coverage", "trade")}
+    states = reader.replay_states(bundle)
+    ordered = sorted(states.items())
+    first = next(i for i, (_, state) in enumerate(ordered) if state[0])
+    assert ordered[first][0][0] - NOW < timedelta(seconds=40)  # covered from the first mid-minute refresh
+    gaps = [(at, state[1]) for (at, _), state in ordered[first:] if not state[0]]
+    assert gaps == []  # no CAPTURE_GAP / TRADE_CAPTURE_GAP on an unchanged book for the rest of the hour
+    for shadow in shadows[1:]:
+        covered, reason, latest = states[(shadow.now, CONDITION)]
+        assert (covered, reason) == (True, "COVERED")
+        public = book_from_public(inner.books[YES], inner.books[NO], CONDITION, latest["book"].as_of_utc)
+        assert latest["book"] == public and shadow.now - latest["book"].as_of_utc < timedelta(seconds=60)
+        assert (compose_book(replace(public, as_of_utc=shadow.book.as_of_utc), shadow.existing)
+                if compose_book else replace(public, as_of_utc=shadow.book.as_of_utc)) == shadow.book
+        assert ((latest["terms"].min_size, latest["terms"].max_spread_cents, latest["terms"].rate_per_day)
+                == (shadow.terms.min_size, shadow.terms.max_spread_cents, shadow.terms.rate_per_day))
+    trades = [r for r in records if r.kind == "trade"]
+    assert len(trades) == len(prints)  # the first poll (no prints) is the baseline; every later print is kept
+    # Control: without the mid-minute book refresh the same hour shows CAPTURE_GAP after each slow minute start.
+    control, _, _ = advancing_hour(tmp_path / "control", latency, prints=prints, refresh=False)
+    assert "CAPTURE_GAP" in {state[1] for state in reader.replay_states(control).values()}
+
+
+def test_malformed_print_timestamp_marks_the_poll_not_ok_and_the_run_goes_on(tmp_path):
+    runner, _, _, clock = recording_rig(tmp_path)
+    bad = wallet_print(NOW + timedelta(seconds=40), "0xbad")
+    bad["timestamp"] = "not-a-time"
+    good = wallet_print(NOW + timedelta(seconds=41), "0xd1")
+    writer, seal = record_run(tmp_path, runner, clock, 3, mid=False, prints={1: [bad, good]})
+    rows = [r for r in sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"] if r["event"] == "minute"]
+    assert len(rows) == 3 and all("fault" not in r["raw"] for r in rows)
+    folder = day_directory(tmp_path / "tapes", DAY)
+    records = [json.loads(line) for line in next(folder.glob("*-records.jsonl")).read_text().splitlines()]
+    assert [r["payload"]["venue"]["transactionHash"] for r in records if r["kind"] == "trade"] == ["0xd1"]
+    assert [r["payload"]["trade_stream_ok"] for r in records if r["kind"] == "coverage"] == [True, False, False]
+    assert seal["records_stream"]["status"] == "ok"
+
+
+def test_fsync_failure_marks_the_stream_broken_and_never_stops_the_runner(tmp_path, monkeypatch):
+    from maker_core.shadow import records
+    runner, _, _, clock = recording_rig(tmp_path)
+    calls = {"n": 0}
+
+    def fsync(fd):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise OSError(28, "fixture: no space left")
+    monkeypatch.setattr(records, "os", types.SimpleNamespace(fsync=fsync))
+    writer, seal = record_run(tmp_path, runner, clock, 3, mid=False)
+    rows = [r for r in sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"] if r["event"] == "minute"]
+    assert len(rows) == 3 and "fault" not in rows[0]["raw"]
+    assert rows[1]["raw"]["fault"] == "write:OSError" and rows[2]["raw"]["broken"] == "write:OSError"
+    stream_seal = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
+    assert stream_seal["status"] == "broken" and stream_seal["broken_reason"] == "write:OSError"
+    assert stream_seal["faults"] == {"write:OSError": 1} and seal["records_stream"]["status"] == "broken"
+    assert records_summary(tmp_path / "tapes", DAY)["broken_streams"] == [stream_seal["stream"]]
+    with pytest.raises(ValueError, match="broken_record_stream"):
+        bundle_day(tmp_path / "tapes", DAY, clock=lambda: AFTER_DAY)
+
+
+def test_trade_baseline_carries_across_the_utc_day_roll(tmp_path):
+    runner, _, _, clock = recording_rig(tmp_path)
+    start = (NOW - timedelta(days=1)).replace(hour=23, minute=58)  # the roll into DAY (no later dates)
+    late = wallet_print(start + timedelta(minutes=1, seconds=45), "0xe1")  # 23:59:45, first polled at 00:00
+    record_run(tmp_path, runner, clock, 4, start=start, prints={2: [late]})
+    root, previous_day = tmp_path / "tapes", start.date().isoformat()
+    day_one, _ = bundle_day(root, previous_day, clock=lambda: AFTER_DAY - timedelta(days=1))
+    day_two, _ = bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    assert not [r for r in reader.StreamBundle(day_one.parent).records() if r.kind == "trade"]
+    bundle = reader.StreamBundle(day_two.parent)
+    trades = [r for r in bundle.records() if r.kind == "trade"]
+    assert [(r.payload["traded_at_utc"], r.captured_at) for r in trades] == [
+        ((start + timedelta(minutes=1, seconds=45)).isoformat(), start + timedelta(minutes=2))]
+    states = reader.replay_states(bundle)
+    # The day's first record re-states the last descriptor, so the new day's first minute is covered.
+    assert states[(start + timedelta(minutes=2), CONDITION)][:2] == (True, "COVERED")
+
+
+def test_gamma_and_reward_records_are_allowlisted(tmp_path):
+    address = "0x" + "3" * 40
+    market = {"conditionId": CONDITION, "slug": "fixture-band", "submitted_by": address, "resolvedBy": address,
+              "description": "fixture", "bestBid": 0.49, "question": f"fixture {address}",
+              "clobRewards": [{"rewardsDailyRate": 100, "assetAddress": address, "id": "7"}]}
+    projected, dropped = gamma_market_projection(market)
+    assert projected == {"conditionId": CONDITION, "slug": "fixture-band", "bestBid": 0.49,
+                         "clobRewards": [{"rewardsDailyRate": 100}]}
+    assert dropped == 4  # submitted_by, resolvedBy, description, and the address-like question
+    record = {"condition_id": CONDITION, "rewards_max_spread": 5, "rewards_min_size": 20, "maker": address,
+              "rewards_config": [{"rate_per_day": 100, "start_date": "2026-09-01", "end_date": "2500-12-31",
+                                  "asset_address": address, "id": 3}]}
+    assert reward_projection(record) == {
+        "condition_id": CONDITION, "rewards_max_spread": 5, "rewards_min_size": 20,
+        "rewards_config": [{"rate_per_day": 100, "start_date": "2026-09-01", "end_date": "2500-12-31"}]}
+
+    class GammaReads(Reads):
+        def events(self, slugs):
+            return [{"slug": "highest-temperature-in-fixture", "id": "9", "negRisk": True, "markets": [market]}]
+    runner, reads, _, clock = recording_rig(tmp_path, GammaReads(rewards={CONDITION: record}))
+    reads.events(["highest-temperature-in-fixture"])
+    record_run(tmp_path, runner, clock, 1)
+    raw = next(day_directory(tmp_path / "tapes", DAY).glob("*-records.jsonl")).read_bytes()
+    assert address.encode() not in raw and b"submitted_by" not in raw and b'"dropped_keys":4' in raw
+
+
+def test_shadow_replay_limits_are_pinned_above_a_24_band_day():
+    assert SHADOW_REPLAY_LIMITS == {"max_records": 600_000, "max_bytes": 1024**3, "max_seconds": 900.0}

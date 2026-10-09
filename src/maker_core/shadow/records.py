@@ -7,18 +7,27 @@ the UTC day. After the day closes, ``bundle_day`` writes ``bundle.json`` (bundle
 day's sealed streams, so ``bundle_v02.open_stream_bundle`` + ``lockstep.stream_source`` read the tape
 directly; there is no converter.
 
-What is recorded (contract: docs/operations/maker-shadow-runner.md, "Tape v0.2 record stream"):
+Every record is stamped at its RECEIPT time (contract: docs/operations/maker-shadow-runner.md, "Tape v0.2
+record stream"):
 
-- ``book``: both tokens' full-depth CLOB levels exactly as received (the shadow's decision book is built
-  from them; its construction is not this module's), stamped at the shadow's decision instant;
-- ``terms``/``outcome_view``/``descriptor``/``info_event``: the decision's own inputs for that minute; a
-  minute without terms writes an explicit absence record the frozen decoder refuses, so a replay drops its
-  terms exactly when the shadow had none;
-- ``trade``: newly seen public prints (data-api), identity, price, size, side and venue time only;
-- ``coverage`` (v0.2 group record, one group per condition): trade-poll health, valid for 60 s;
-- ``plugin_input``: the raw Gamma market object and CLOB reward record, on change (provenance only).
+- ``book``: both tokens' full-depth CLOB levels exactly as received, ``captured_at = as_of`` = the receipt of
+  the later of the two reads. Read at the shadow's minute and again by the mid-minute refresh (~+30 s), so no
+  recorded book is older than the replay engine's 60 s freshness limit at the next decision. The shadow's
+  decision book is built from the minute's reads; its construction is not this module's;
+- ``terms``: the reward record's receipt (an explicit absence record, which the frozen decoder refuses, when
+  the shadow had no terms); ``descriptor``: at the minute's book receipt, on change;
+- ``outcome_view``/``info_event``: at the decision instant, where the shadow computes them;
+- ``trade``: newly seen public prints (data-api), identity, price, size, side and venue time only, at poll
+  receipt; ``coverage`` (v0.2 group record, one group per condition): that poll's health, valid for 60 s
+  from the poll's receipt;
+- ``plugin_input``: an allowlisted projection of the Gamma market object and of the CLOB reward record, on
+  change (provenance only; address-like values are dropped and counted).
 
-Public reads only; nothing here can place, cancel or sign. Paths are explicit caller inputs.
+Trade-poll baselines and seen prints are per run, so a print just before 00:00 UTC that is first polled after
+the day roll lands in the next day's stream. A recorder or file fault never stops the runner: ``TapeWriter``
+records it as not-OK coverage with a coded reason, and a stream whose file write failed is sealed ``broken``
+(``bundle_day`` refuses it). Public reads only; nothing here can place, cancel or sign. Paths are explicit
+caller inputs.
 """
 from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta, timezone
@@ -27,17 +36,31 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 
 from maker_core.evidence.journal import canonical_bytes, digest, plain, write_new
 
 BUNDLE_FORMAT = "maker_core.replay.bundle.v0.2"
 STREAM_SEAL_SCHEMA = "maker_core.shadow_records_seal.v0.1"
 COVERAGE_SECONDS = 60  # The replay decoder's cap on a coverage record's validity.
+TRADE_CLOCK_SKEW = timedelta(seconds=5)  # The replay decoder's bound on venue time after capture.
 TRADES_PAGE = 500  # ``public_feed.TRADES_LIMIT``: a full page cannot prove continuity.
+SEEN_MARGIN_SECONDS = 3600  # Seen print keys older than a poll's oldest print minus this are forgotten.
 MAX_LINE_BYTES = 1024**2  # The replay reader's per-record cap.
 MAX_SEQUENCE = 2**31 - 1
 CHUNK = 1024**2
 KIND_ORDER = ("plugin_input", "descriptor", "info_event", "terms", "outcome_view", "book", "trade", "coverage")
+# Replay-v2 ``bundle.Limits`` a shadow day must be read with: the default (100k records, 64 MiB, 300 s) refuses a
+# 12-band day. Sized for 24 bands with the mid-minute book refresh (~280k records, ~0.5 GB), with headroom.
+SHADOW_REPLAY_LIMITS = {"max_records": 600_000, "max_bytes": 1024**3, "max_seconds": 900.0}
+GAMMA_MARKET_KEYS = frozenset({
+    "conditionId", "slug", "question", "outcomes", "clobTokenIds", "active", "closed", "enableOrderBook",
+    "orderPriceMinTickSize", "orderMinSize", "endDate", "startDate", "bestBid", "bestAsk", "lastTradePrice",
+    "spread", "groupItemTitle", "groupItemThreshold", "clobRewards"})
+GAMMA_REWARD_KEYS = ("rewardsDailyRate", "startDate", "endDate", "rewardsAmount")
+REWARD_KEYS = ("condition_id", "rewards_max_spread", "rewards_min_size")
+REWARD_CONFIG_KEYS = ("start_date", "end_date", "rate_per_day", "total_rewards")
+ADDRESS = re.compile(r"(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])")
 D = Decimal
 
 
@@ -65,35 +88,76 @@ def _iso(value):
     return _time(value).astimezone(timezone.utc).isoformat()
 
 
+def _address_like(value):
+    if isinstance(value, str):
+        return ADDRESS.search(value) is not None
+    if isinstance(value, Mapping):
+        return any(_address_like(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_address_like(v) for v in value)
+    return False
+
+
+def gamma_market_projection(market):
+    """Allowlisted Gamma market keys; any other key, or an address-like value, is dropped and counted."""
+    kept, dropped = {}, 0
+    for key, value in sorted(market.items()):
+        if key not in GAMMA_MARKET_KEYS:
+            dropped += 1
+            continue
+        if key == "clobRewards":
+            value = [{k: row[k] for k in GAMMA_REWARD_KEYS if k in row}
+                     for row in value if isinstance(row, dict)] if isinstance(value, list) else None
+        if _address_like(value):
+            dropped += 1
+            continue
+        kept[key] = value
+    return kept, dropped
+
+
+def reward_projection(record):
+    """Allowlisted CLOB reward record (condition, spread, size, dated rates); None stays None."""
+    if not isinstance(record, Mapping):
+        return None
+    out = {k: record[k] for k in REWARD_KEYS if k in record and not _address_like(record[k])}
+    configs = record.get("rewards_config")
+    if isinstance(configs, list):
+        out["rewards_config"] = [{k: row[k] for k in REWARD_CONFIG_KEYS if k in row and not _address_like(row[k])}
+                                 for row in configs if isinstance(row, Mapping)]
+    return out
+
+
 class RecordingReads:
-    """``PublicReads`` proxy that keeps the latest raw reply of every read, for the record stream.
+    """``PublicReads`` proxy that keeps the latest raw reply of every read with its local receipt time.
 
     A trade poll made by ``poll`` is served once to the runner's own ``trades`` read of the same condition,
-    so the shadow's paper fills and the tape see the same prints.
+    so the shadow's paper fills and the tape see the same prints. Reads, replies and exceptions are the
+    wrapped reader's, unchanged: the shadow's decision inputs do not depend on the proxy.
     """
 
     def __init__(self, reads, clock):
         self.reads, self.clock = reads, clock
-        self.books, self.rewards, self.gamma = {}, {}, {}
+        self.books, self.rewards, self.gamma = {}, {}, {}  # values carry the receipt time first
         self.polls, self.served = {}, {}
 
     def book(self, asset_id):
         value = self.reads.book(asset_id)
-        self.books[str(asset_id)] = value
+        self.books[str(asset_id)] = (self.clock(), value)
         return value
 
     def reward_terms(self, condition_id):
         value = self.reads.reward_terms(condition_id)
-        self.rewards[str(condition_id).lower()] = value
+        self.rewards[str(condition_id).lower()] = (self.clock(), value)
         return value
 
     def events(self, slugs):
         value = self.reads.events(slugs)
+        received = self.clock()
         for event in value if isinstance(value, list) else ():
             source = digest(event)
             for market in event.get("markets") or ():
                 if isinstance(market, dict) and market.get("conditionId"):
-                    self.gamma[str(market["conditionId"]).lower()] = (event, market, source)
+                    self.gamma[str(market["conditionId"]).lower()] = (received, event, market, source)
         return value
 
     def _read_trades(self, cid):
@@ -171,8 +235,22 @@ def next_sequence(directory, day):
     return last + 1
 
 
+def _file_digest(path):
+    check, size, lines = hashlib.sha256(), 0, 0
+    with path.open("rb") as handle:
+        while chunk := handle.read(CHUNK):
+            check.update(chunk)
+            size += len(chunk)
+            lines += chunk.count(b"\n")
+    return check.hexdigest(), size, lines
+
+
 class RecordStream:
-    """One run's record stream for one UTC day: ordered, numbered, fsynced per batch, sealed streaming."""
+    """One run's record stream for one UTC day: ordered, numbered, fsynced per batch, sealed streaming.
+
+    A failed file write marks the stream ``broken``: later writes are skipped and the seal records the bytes
+    actually on disk with ``status = "broken"``. ``fault`` writes not-OK coverage for every described group.
+    """
 
     def __init__(self, directory, day, run_id):
         self.root, self.day, self.run_id = Path(directory), day, run_id
@@ -186,12 +264,15 @@ class RecordStream:
         self.kinds, self.conditions, self.dropped = {}, {}, {"out_of_order": 0, "outside_day": 0, "oversize": 0,
                                                               "undescribed_group": 0}
         self.emitted = {}  # (condition, label) -> payload hash, for on-change records
-        self.trade_seen, self.trade_newest = {}, {}
-        self.groups, self.described, self.outcomes = {}, set(), {}  # outcomes: condition -> recorded YES/NO tokens
+        self.groups, self.described = {}, set()
+        self.faults, self.broken = {}, None
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
         """Append ``(at, owner, kind, payload, sources, group)`` entries in captured order; return a summary."""
+        if self.broken:
+            return {"stream": self.path.name, "first_sequence": None, "last_sequence": None, "records": 0,
+                    "dropped": {}, "broken": self.broken}
         rank = {kind: i for i, kind in enumerate(KIND_ORDER)}
         ordered = sorted(enumerate(entries), key=lambda e: (e[1][0], rank.get(e[1][2], 99), e[0]))
         chunks, first, dropped = [], None, {k: 0 for k in self.dropped}
@@ -226,9 +307,13 @@ class RecordStream:
                 entry["last_minute"] = max(entry["last_minute"], minute.isoformat())
         if chunks:
             blob = b"".join(chunks)
-            self.handle.write(blob)
-            self.handle.flush()
-            os.fsync(self.handle.fileno())
+            try:
+                self.handle.write(blob)
+                self.handle.flush()
+                os.fsync(self.handle.fileno())
+            except OSError as error:  # The file may now hold part of the batch: sealed broken, never bundled.
+                self.broken = "write:" + type(error).__name__
+                raise
             self.sha.update(blob)
             self.bytes += len(blob)
             self.records += len(chunks)
@@ -237,6 +322,22 @@ class RecordStream:
         return {"stream": self.path.name, "first_sequence": first,
                 "last_sequence": None if first is None else first + len(chunks) - 1, "records": len(chunks),
                 "dropped": {k: v for k, v in dropped.items() if v}}
+
+    def fault(self, code, at):
+        """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
+        self.faults[code] = self.faults.get(code, 0) + 1
+        summary = {"stream": self.path.name, "fault": code, "records": 0}
+        if self.broken:
+            return dict(summary, broken=self.broken)
+        at = max(at, self.last_at) if self.last_at is not None else at
+        until = (at + timedelta(seconds=COVERAGE_SECONDS)).isoformat()
+        entries = [(at, gid, "coverage", {"trade_stream_ok": False, "valid_until_utc": until, "error": code},
+                    {"shadow_runner": digest({"fault": code})}, True)
+                   for gid, cid in sorted(self.groups.items()) if cid in self.described]
+        try:
+            return dict(self.write(entries), fault=code)
+        except Exception as error:  # noqa: BLE001 - a fault record must not raise
+            return dict(summary, broken=self.broken or "fault_write:" + type(error).__name__)
 
     def changed(self, cid, label, value):
         key, value_hash = (cid, label), digest(value)
@@ -251,20 +352,22 @@ class RecordStream:
                                          "first_minute": "9999", "last_minute": ""})
 
     def close(self):
-        """Close and seal: the file is re-hashed in bounded chunks and must equal what was written."""
-        self.handle.close()
-        check, size = hashlib.sha256(), 0
-        with self.path.open("rb") as handle:
-            while chunk := handle.read(CHUNK):
-                check.update(chunk)
-                size += len(chunk)
-        if check.hexdigest() != self.sha.hexdigest() or size != self.bytes:
-            raise ValueError("record_stream_changed_before_seal")
+        """Close and seal: the file is re-hashed in bounded chunks; a difference from what was written, or an
+        earlier failed write, seals the stream ``broken`` with the bytes actually on disk."""
+        try:
+            self.handle.close()
+        except OSError as error:
+            self.broken = self.broken or "close:" + type(error).__name__
+        sha, size, lines = _file_digest(self.path)
+        if not self.broken and (sha != self.sha.hexdigest() or size != self.bytes or lines != self.records):
+            self.broken = "record_stream_changed_before_seal"
         conditions = {cid: dict(v) for cid, v in sorted(self.conditions.items()) if v["last_minute"]}
         seal = {"schema_version": STREAM_SEAL_SCHEMA, "stream": self.path.name, "utc_day": self.day,
-                "run_id": self.run_id, "sha256": self.sha.hexdigest(), "bytes": self.bytes, "records": self.records,
+                "run_id": self.run_id, "status": "broken" if self.broken else "ok", "broken_reason": self.broken,
+                "sha256": sha, "bytes": size, "records": lines,
                 "first_sequence": self.first_sequence, "last_sequence": self.last_sequence,
-                "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped), "conditions": conditions,
+                "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped),
+                "faults": dict(sorted(self.faults.items())), "conditions": conditions,
                 "coverage_groups": {group_id(cid): [cid] for cid in conditions}}
         write_new(self.path.with_name(self.path.name.replace("-records.jsonl", "-records.seal.json")), seal)
         return seal
@@ -276,6 +379,12 @@ def _levels(rows):
 
 def _venue(reply):
     return {k: v for k, v in sorted(reply.items()) if k not in ("bids", "asks") and not isinstance(v, (dict, list))}
+
+
+def _book(at, yes, no, post_only):
+    return {"as_of_utc": at.isoformat(), "yes_bids": _levels(yes.get("bids")), "yes_asks": _levels(yes.get("asks")),
+            "no_bids": _levels(no.get("bids")), "no_asks": _levels(no.get("asks")), "post_only_available": post_only,
+            "venue": {"yes": _venue(yes), "no": _venue(no)}}
 
 
 def _market_payload(market_row):
@@ -298,67 +407,91 @@ def _trade_key(row):
 
 
 class RawRecorder:
-    """Turns one shadow minute (its tape payload plus the proxy's raw replies) into record-stream entries."""
+    """Turns the proxy's raw replies (and each shadow minute's own derived inputs) into record-stream entries.
+
+    Per run it keeps each condition's last recorded descriptor (carried into a new day's stream at its first
+    record, so the day's coverage group is described) and the trade-poll baseline and seen prints (carried
+    across the UTC day roll).
+    """
 
     def __init__(self, reads: RecordingReads, *, market_id: Callable[[str], str | None], domain_id="weather"):
         if not isinstance(reads, RecordingReads):
             raise TypeError("recording_reads_required")
         self.reads, self.market_id, self.domain_id = reads, market_id, domain_id
+        self.known = {}  # condition -> {"descriptor", "outcomes", "market_id", "sources", "post_only"}
+        self.trade_seen, self.trade_newest = {}, {}  # condition -> {key: venue seconds}, newest venue seconds
 
     def poll(self, condition_ids):
         self.reads.poll(sorted(condition_ids))
 
-    def _trades(self, stream, cid, outcomes, at, polls):
+    def _ensure(self, stream, cid, at):
+        """Register ``cid`` in ``stream`` and, if this stream has no descriptor yet, carry the last one forward."""
+        known = self.known.get(cid)
+        if known is None:
+            return []
+        stream.register(cid, market_id=known["market_id"], domain_id=self.domain_id)
+        if cid in stream.described or not stream.changed(cid, "descriptor", known["descriptor"]):
+            return []
+        return [(at, cid, "descriptor", known["descriptor"], known["sources"], False)]
+
+    def _trades(self, stream, cid, outcomes, polls):
         entries = []
+        tokens = {v: k for k, v in outcomes.items()}
         for polled_at, rows, error in polls:
-            when = at or polled_at
+            entries.extend(self._ensure(stream, cid, polled_at))
             ok = error is None
-            emitted = []
+            if ok and not isinstance(rows, list):
+                ok, rows = False, []
             if ok:
-                rows = [r for r in rows if str(r.get("conditionId", "")).lower() == cid]
-                stamps = []
+                rows = [r for r in rows if isinstance(r, Mapping) and str(r.get("conditionId", "")).lower() == cid]
+                parsed = []
                 for row in rows:
                     try:
-                        stamps.append(int(row["timestamp"]))
-                    except (KeyError, TypeError, ValueError):
-                        ok = False
-                newest = stream.trade_newest.get(cid)
+                        parsed.append((_trade_key(row), int(row["timestamp"]), row))
+                    except (KeyError, TypeError, ValueError, InvalidOperation, OverflowError):
+                        ok = False  # an unreadable print: this poll cannot prove the stream complete
+                stamps = [stamp for _, stamp, _ in parsed]
+                newest = self.trade_newest.get(cid)
                 if newest is not None and len(rows) >= TRADES_PAGE and (not stamps or min(stamps) > newest):
                     ok = False  # A full page that does not reach the previous poll may have skipped prints.
-                seen = stream.trade_seen.setdefault(cid, set())
+                seen = self.trade_seen.setdefault(cid, {})
                 baseline = newest is None
-                tokens = {v: k for k, v in outcomes.items()}
-                for row in rows:
-                    try:
-                        key = _trade_key(row)
-                    except (KeyError, TypeError, ValueError, InvalidOperation):
-                        continue
+                for key, stamp, row in parsed:
                     if key in seen:
                         continue
-                    seen.add(key)
+                    seen[key] = stamp
                     outcome, side = tokens.get(str(row.get("asset"))), str(row.get("side", "")).upper()
                     if baseline or outcome is None or side not in ("BUY", "SELL"):
                         continue
-                    traded = datetime.fromtimestamp(int(row["timestamp"]), tz=timezone.utc)
-                    emitted.append((when, cid, "trade", {
+                    try:
+                        traded = datetime.fromtimestamp(stamp, tz=timezone.utc)
+                    except (ValueError, OverflowError, OSError):
+                        ok = False
+                        continue
+                    if traded - polled_at > TRADE_CLOCK_SKEW:
+                        ok = False  # the replay decoder refuses this print: the poll is not a complete record
+                    entries.append((polled_at, cid, "trade", {
                         "trade_id": key, "outcome": outcome, "price": str(row["price"]), "size": str(row["size"]),
                         "traded_at_utc": traded.isoformat(), "aggressor_side": side,
                         "venue": {"transactionHash": row.get("transactionHash"), "asset": str(row.get("asset")),
-                                  "timestamp": int(row["timestamp"])}},
+                                  "timestamp": stamp}},
                         {"data_trades": digest(rows)}, False))
                 if stamps:
-                    stream.trade_newest[cid] = max(stamps + ([newest] if newest is not None else []))
+                    self.trade_newest[cid] = max(stamps + ([newest] if newest is not None else []))
+                    floor = min(stamps) - SEEN_MARGIN_SECONDS  # an older print can no longer reappear in a page
+                    self.trade_seen[cid] = {k: v for k, v in seen.items() if v >= floor}
                 elif newest is None:
-                    stream.trade_newest[cid] = 0
-            entries.extend(emitted)
-            entries.append((when, group_id(cid), "coverage",
-                            {"trade_stream_ok": ok, "valid_until_utc": (when + timedelta(seconds=COVERAGE_SECONDS)).isoformat(),
+                    self.trade_newest[cid] = 0
+            entries.append((polled_at, group_id(cid), "coverage",
+                            {"trade_stream_ok": ok,
+                             "valid_until_utc": (polled_at + timedelta(seconds=COVERAGE_SECONDS)).isoformat(),
                              **({} if error is None else {"error": error})},
                             {"data_trades": digest({"rows": rows if error is None else None, "error": error})}, True))
         return entries
 
     def minute(self, stream: RecordStream, record: Mapping):
-        """Entries for one minute: every evaluated condition's records at its decision instant."""
+        """Entries for one minute: the polls, books and reward records it read, each at its receipt time, and
+        the decision's own derived inputs (view, events) at its decision instant."""
         polls = self.reads.take_polls()
         entries = []
         for row in record.get("conditions", ()):
@@ -366,68 +499,93 @@ class RawRecorder:
             if "decision" not in row:
                 continue
             inputs = row["inputs"]
-            at = _time(inputs["now"])
+            now = _time(inputs["now"])
             market = _market_payload(inputs["market"])
-            outcomes = stream.outcomes[cid] = dict(market["outcome_tokens"])
+            outcomes = dict(market["outcome_tokens"])
+            yes, no = (self.reads.books.get(outcomes[o]) for o in ("YES", "NO"))
+            received = max(yes[0], no[0]) if yes is not None and no is not None else now
+            market_id = self.market_id(market["event_id"])
+            stream.register(cid, market_id=market_id, domain_id=self.domain_id)
+            entries.extend(self._trades(stream, cid, outcomes, polls.pop(cid, ())))
             gamma = self.reads.gamma.get(cid)
-            gamma_hash = market.get("source_hashes", {}).get("gamma_event") or (gamma[2] if gamma else None)
-            gamma_sources = {"gamma_event": gamma_hash} if gamma_hash else {"shadow_runner": digest(market)}
-            stream.register(cid, market_id=self.market_id(market["event_id"]), domain_id=self.domain_id)
-            if gamma is not None and stream.changed(cid, "gamma_market", gamma[1]):
-                event, raw_market, source = gamma
-                entries.append((at, cid, "plugin_input", {
-                    "source": "gamma_market", "event_slug": event.get("slug"), "event_id": event.get("id"),
-                    "neg_risk": event.get("negRisk"), "market": raw_market}, {"gamma_event": source}, False))
+            gamma_hash = market.get("source_hashes", {}).get("gamma_event") or (gamma[3] if gamma else None)
+            sources = {"gamma_event": gamma_hash} if gamma_hash else {"shadow_runner": digest(market)}
+            if gamma is not None:
+                gamma_at, event, raw_market, source = gamma
+                projected, dropped = gamma_market_projection(raw_market)
+                if stream.changed(cid, "gamma_market", projected):
+                    entries.append((received, cid, "plugin_input", {
+                        "source": "gamma_market", "received_at_utc": gamma_at.isoformat(),
+                        "event_slug": event.get("slug"), "event_id": event.get("id"), "neg_risk": event.get("negRisk"),
+                        "market": projected, "dropped_keys": dropped}, {"gamma_event": source}, False))
             descriptor = {"market": market, "horizon_days": row["horizon_days"]}
             if stream.changed(cid, "descriptor", descriptor):
-                entries.append((at, cid, "descriptor", descriptor, gamma_sources, False))
+                entries.append((received, cid, "descriptor", descriptor, sources, False))
             events = {"events": inputs.get("events") or []}
             if stream.changed(cid, "info_event", events):
-                entries.append((at, cid, "info_event", events, {"shadow_runner": digest(events)}, False))
-            reward = self.reads.rewards.get(cid)
+                entries.append((now, cid, "info_event", events, {"shadow_runner": digest(events)}, False))
+            reward_at, reward = self.reads.rewards.get(cid) or (now, None)
             reward_hash = digest({"record": reward})
-            if stream.changed(cid, "clob_reward", {"record": reward}):
-                entries.append((at, cid, "plugin_input", {"source": "clob_reward", "record": reward},
+            projected = reward_projection(reward)
+            if stream.changed(cid, "clob_reward", {"record": projected}):
+                entries.append((reward_at, cid, "plugin_input", {"source": "clob_reward", "record": projected},
                                 {"clob_reward": reward_hash}, False))
             terms = inputs.get("terms")
             if terms is not None:
-                payload = {k: terms[k] for k in ("as_of_utc", "min_size", "max_spread_cents", "rate_per_day")}
+                payload = {"as_of_utc": reward_at.isoformat(),
+                           **{k: terms[k] for k in ("min_size", "max_spread_cents", "rate_per_day")}}
             else:
-                payload = {"as_of_utc": inputs["book"]["as_of_utc"],
+                payload = {"as_of_utc": reward_at.isoformat(),
                            "absent": (row.get("venue") or {}).get("terms_reason") or "no_terms"}
-            entries.append((at, cid, "terms", payload, {"clob_reward": reward_hash}, False))
+            entries.append((reward_at, cid, "terms", payload, {"clob_reward": reward_hash}, False))
             view = _view_payload(inputs["fair_value"])
-            entries.append((at, cid, "outcome_view", view, {"shadow_runner": digest(view)}, False))
-            yes, no = (self.reads.books.get(outcomes[o]) for o in ("YES", "NO"))
+            entries.append((now, cid, "outcome_view", view, {"shadow_runner": digest(view)}, False))
+            post_only = inputs["book"].get("post_only_available", True)
             if yes is not None and no is not None:
-                book = {"as_of_utc": inputs["book"]["as_of_utc"], "yes_bids": _levels(yes.get("bids")),
-                        "yes_asks": _levels(yes.get("asks")), "no_bids": _levels(no.get("bids")),
-                        "no_asks": _levels(no.get("asks")),
-                        "post_only_available": inputs["book"].get("post_only_available", True),
-                        "venue": {"yes": _venue(yes), "no": _venue(no)}}
-                entries.append((at, cid, "book", book, {"clob_book_yes": digest(yes), "clob_book_no": digest(no)},
-                                False))
-            entries.extend(self._trades(stream, cid, outcomes, at, polls.pop(cid, ())))
+                entries.append((received, cid, "book", _book(received, yes[1], no[1], post_only),
+                                {"clob_book_yes": digest(yes[1]), "clob_book_no": digest(no[1])}, False))
+            self.known[cid] = {"descriptor": descriptor, "outcomes": outcomes, "market_id": market_id,
+                               "sources": sources, "post_only": post_only}
         entries.extend(self._orphan_polls(stream, polls))
         return entries
 
     def _orphan_polls(self, stream, polls):
-        """Polls of conditions not evaluated in this batch: kept at receipt time once a descriptor exists."""
+        """Polls of conditions not evaluated in this batch: kept at receipt time once a descriptor is known."""
         entries = []
         for cid, rows in sorted(polls.items()):
-            outcomes = self._outcomes(stream, cid)
-            if outcomes is not None:
-                entries.extend(self._trades(stream, cid, outcomes, None, rows))
+            known = self.known.get(cid)
+            if known is not None:
+                entries.extend(self._trades(stream, cid, known["outcomes"], rows))
         return entries
 
-    def _outcomes(self, stream, cid):
-        if cid not in stream.described:
-            return None  # A coverage group record may not precede its member's first descriptor.
-        return stream.outcomes.get(cid)  # the tokens of the condition's last recorded descriptor
-
-    def between(self, stream: RecordStream):
-        """Entries for a mid-minute trade poll (descriptor-seen conditions only), at receipt time."""
-        return self._orphan_polls(stream, self.reads.take_polls())
+    def between(self, stream: RecordStream, condition_ids):
+        """Mid-minute refresh, for conditions with a recorded descriptor: one trade poll and both books read
+        again, each at receipt time, so the recorded book never ages past the replay freshness limit between
+        two shadow minutes. A failed or mismatched book read is counted and skipped; it never raises."""
+        entries, failed = [], 0
+        for cid in sorted(set(condition_ids) & set(self.known)):
+            known = self.known[cid]
+            self.reads.poll([cid])
+            replies = []
+            for outcome in ("YES", "NO"):
+                try:
+                    reply = self.reads.book(known["outcomes"][outcome])
+                except Exception:  # noqa: BLE001 - a failed public read costs this refresh only
+                    break
+                if not isinstance(reply, Mapping) or str(reply.get("market", "")).lower() != cid:
+                    break
+                replies.append((self.reads.books[known["outcomes"][outcome]][0], reply))
+            if len(replies) != 2:
+                failed += 1
+                continue
+            at = max(replies[0][0], replies[1][0])
+            entries.extend(self._ensure(stream, cid, at))
+            entries.append((at, cid, "book", _book(at, replies[0][1], replies[1][1], known["post_only"]),
+                            {"clob_book_yes": digest(replies[0][1]), "clob_book_no": digest(replies[1][1])}, False))
+        entries.extend(self._orphan_polls(stream, self.reads.take_polls()))
+        if failed:
+            stream.faults["refresh:book_read"] = stream.faults.get("refresh:book_read", 0) + failed
+        return entries
 
 
 # -- day bundle and read paths ---------------------------------------------------------------------------
@@ -449,13 +607,8 @@ def _stream_seals(root, day):
 def verify_stream(root, seal):
     """Re-hash one sealed stream in bounded chunks and count its records; raises on any difference."""
     path = day_directory(root, seal["utc_day"]) / seal["stream"]
-    check, size, lines = hashlib.sha256(), 0, 0
-    with path.open("rb") as handle:
-        while chunk := handle.read(CHUNK):
-            check.update(chunk)
-            size += len(chunk)
-            lines += chunk.count(b"\n")
-    if check.hexdigest() != seal["sha256"] or size != seal["bytes"] or lines != seal["records"]:
+    sha, size, lines = _file_digest(path)
+    if sha != seal["sha256"] or size != seal["bytes"] or lines != seal["records"]:
         raise ValueError("record_stream_differs_from_seal")
     return path
 
@@ -470,6 +623,9 @@ def records_summary(root, day):
             kinds[kind] = kinds.get(kind, 0) + count
     return {"streams": [{"stream": s["stream"], "sha256": s["sha256"], "records": s["records"]} for s in seals],
             "unsealed_streams": unsealed, "records": sum(s["records"] for s in seals),
+            "broken_streams": [s["stream"] for s in seals if s.get("status") != "ok"],
+            "faults": {k: sum(s.get("faults", {}).get(k, 0) for s in seals)
+                       for k in sorted({k for s in seals for k in s.get("faults", {})})},
             "kinds": dict(sorted(kinds.items())),
             "dropped": {k: sum(s["dropped"].get(k, 0) for s in seals) for k in ("out_of_order", "outside_day",
                                                                                 "oversize", "undescribed_group")}}
@@ -492,8 +648,9 @@ def day_active_intervals(root, day):
 def bundle_day(root, day, *, clock):
     """Write ``records/<day>/bundle.json`` (bundle v0.2) over the day's sealed streams, after the day closes.
 
-    Refuses an open day, an unsealed stream, a stream that differs from its seal, a condition without a
-    registry market id, or a condition whose market identity differs between runs. Create-only.
+    Refuses an open day, an unsealed stream, a stream sealed ``broken`` (a failed file write), a stream that
+    differs from its seal, a condition without a registry market id, or a condition whose market identity
+    differs between runs. Create-only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc)
     end, sealed_at = start + timedelta(days=1), clock()
@@ -502,6 +659,8 @@ def bundle_day(root, day, *, clock):
     seals, unsealed = _stream_seals(root, day)
     if unsealed:
         raise ValueError("unsealed_record_stream")
+    if any(s.get("status") != "ok" for s in seals):
+        raise ValueError("broken_record_stream")
     seals = [s for s in seals if s["records"]]
     if not seals:
         raise ValueError("no_sealed_record_stream")
@@ -532,5 +691,6 @@ def bundle_day(root, day, *, clock):
 
 
 __all__ = ["BUNDLE_FORMAT", "COVERAGE_SECONDS", "RawRecorder", "RecordStream", "RecordingReads",
-           "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals", "day_directory", "group_id",
-           "next_sequence", "records_summary", "stream_name", "verify_stream"]
+           "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals", "day_directory",
+           "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
+           "stream_name", "verify_stream"]

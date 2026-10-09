@@ -155,36 +155,63 @@ public replies in bundle v0.2 row format (`sequence captured_at condition_id|gro
 payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
 `-records.seal.json` (`maker_core.shadow_records_seal.v0.1`). `maker_core.shadow.records` owns it:
 
-- `RecordingReads` wraps the public feed and keeps the last raw book, reward and Gamma reply.
-  A trade poll taken before each minute's step is served once to the runner's own paper-fill
-  read, so the tape and the paper book see the same prints.
-- `captured_at` is the condition's decision instant (`inputs.now`), so every shadow
-  condition-minute is a replay instant with the same inputs. Per evaluated condition:
-  `descriptor`, `info_event` and the raw Gamma market and CLOB reward record
-  (`plugin_input`) on change; `terms` every minute (an `absent` record when the shadow had
-  none, which replays as `MISSING_TERMS`); `outcome_view`; `book` (full raw levels, before
-  the runner's 25-level cut, plus venue scalars); new public prints as `trade`, deduplicated on
-  the paper-fill print key with no wallet or profile fields; and one `coverage` record for
-  the condition's group (`cov-<condition id chars 3-26>`).
-- The first poll of a stream is a trade baseline (nothing emitted). A full page
-  (`TRADES_PAGE` 500) that does not reach the previous newest print sets
-  `trade_stream_ok` false. A poll at minute+30 s (live mode) keeps the 60 s coverage
-  continuous between decision instants.
+- `RecordingReads` wraps the public feed and keeps the last raw book, reward and Gamma reply
+  with its local receipt time. A trade poll taken before each minute's step is served once to
+  the runner's own paper-fill read, so the tape and the paper book see the same prints. The
+  shadow's decision inputs are the minute's own reads, unchanged by the recorder.
+- **Every record is stamped at its receipt time** (`captured_at`), never at the decision
+  instant. `book`: full raw levels of both tokens (before the runner's 25-level cut, plus venue
+  scalars), `captured_at = as_of` = receipt of the later of the two reads. `terms`: the reward
+  record's receipt, every minute (an `absent` record when the shadow had none, which replays as
+  `MISSING_TERMS`). `descriptor` and the allowlisted Gamma market (`plugin_input`, with its own
+  `received_at_utc`): at the minute's book receipt, on change. The CLOB reward record
+  (`plugin_input`, allowlisted): at its receipt, on change. `outcome_view` and `info_event`
+  (on change): at the decision instant, where the shadow computes them. New public prints as
+  `trade` and one `coverage` record for the condition's group (`cov-<condition id chars
+  3-26>`): at the poll's receipt, valid 60 s from it.
+- **Mid-minute refresh** (live mode, minute+30 s, `TapeWriter.poll` ->
+  `RawRecorder.between`): per band with a recorded descriptor, one trade poll and both books
+  read again, so no recorded book is older than the replay engine's 60 s freshness limit at the
+  next decision, even when a minute's reads start late (Gamma rediscovery). Record stream only.
+  Cost at 12 bands: 24 extra CLOB book GETs a minute (the 12 trade GETs at +30 s already
+  existed), from 60 to 84 public GETs a minute, about +4.6 s of sequential reads at 190 ms
+  each. The first minute of a run (or of a newly selected band) replays as
+  `MISSING_COVERAGE`: its first poll precedes its first descriptor.
+- Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
+  seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
+  roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the
+  previous newest print, an unreadable print, or a print more than 5 s after its poll's receipt
+  sets that poll's `trade_stream_ok` false. Deduplicated on the paper-fill print key, with no
+  wallet or profile fields.
+- Gamma and reward provenance is allowlisted (`records.GAMMA_MARKET_KEYS`,
+  `REWARD_KEYS`, `REWARD_CONFIG_KEYS`); any other key or an address-like value
+  (`0x` + 40 hex, for example `submitted_by`) is dropped and counted in `dropped_keys`.
+- A new day's stream re-states each known band's last descriptor at its first record, so the
+  day's coverage group is described from the first poll.
 - Sequences continue across runs of a day (the next run starts after every sealed and
   unsealed stream's last sequence). A record behind the stream clock, outside the day,
   over 1 MiB or a coverage group before its member's first descriptor is dropped and
   counted in the minute's `raw.dropped` and the stream seal.
-- A recorder fault costs only that minute's raw records (`raw.error`); the quotes tape
-  continues.
+- **Fault boundary.** A recorder or file fault never stops the runner. `TapeWriter` codes
+  it (`minute:<Error>`, `between:<Error>`, `write:<Error>`), counts it in the stream seal's
+  `faults` and writes not-OK coverage for every described band from that instant; the
+  minute's `raw` block carries the code. A failed write or fsync marks the stream broken:
+  later writes are skipped, and the seal records the bytes actually on disk with
+  `status: broken` and `broken_reason`. `bundle-day` refuses a day with a broken stream
+  (`broken_record_stream`). If sealing the stream itself fails, the quotes tape is still
+  sealed, with `records_stream_error`.
 - `bundle-day` (`records.bundle_day`) writes `records/<day>/bundle.json`
   (`maker_core.replay.bundle.v0.2`, provenance `captured`, conditions from first to last
   recorded minute, one coverage group per condition) after the UTC day has closed.
   `records.day_active_intervals` gives the per-run windows for `stream_source(...,
   active_intervals=...)`; `records.records_summary` is the scorer's verified read.
-- Size, synthetic fixture with two prints a minute: about 7 records and 4.4-7.4 KB per
-  condition-minute (10-60 book levels), so about 75-130 MB and 120 k records per UTC day at 12
-  bands, on top of the quotes tape. That is above the replay reader's default `Limits`
-  (64 MiB, 100 k records); replay of a shadow day passes explicit limits.
+- Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was
+  about 121 k records and 104 MB of record stream plus 62 MB of quotes tape. The mid-minute
+  book refresh adds one book record per band-minute (about 5 KB at those depths), an estimated
+  140 k records and 190 MB of record stream at 12 bands (about 280 k and 380 MB at 24). The
+  replay reader's default `Limits` (64 MiB, 100 k records, 300 s) refuse such a day; read it
+  with `Limits(**records.SHADOW_REPLAY_LIMITS)` (600 k records, 1 GiB, 900 s). Nothing prunes
+  record streams.
 - The round-trip test admits a bundle through a vendored copy of the reader rules
   (`tests/maker_core/fixtures/replay_v2_reader_contract.py`, pinned to build-line
   `2d8cccb13`) until the reader is on master.
@@ -252,7 +279,8 @@ owner/production act; editing or testing the registrar arms nothing.
 - **Readout** (read-only, any hour): `scripts\ops\maker_shadow_readout.ps1
   [-ParityStartUtc <yyyy-MM-dd>]` prints one line: process, sealed days, last tick,
   the live run's code (`code <12 hex>`, `DIRTY`, `unbound (<git_error>)` or `not recorded`),
-  rows and MB today, crashed tapes, parity days and the embargo. It reads names, seal
+  rows and MB today (quotes tape plus record stream), crashed tapes, parity days and the
+  embargo. It reads names and sizes, seal
   JSONs, the first line (at most 64 KiB) and at most the last MiB of the open tape and,
   with `-ParityStartUtc`, score agreement status; it never starts Python or reads 88a.
 - **Restart** (after any merge that touches the runner's modules, and **at the engine

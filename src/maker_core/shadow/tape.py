@@ -164,8 +164,10 @@ class TapeWriter:
     """One journal per UTC day for this run; a day roll writes terminal + seal, then opens the next day.
 
     With ``recorder`` (a ``records.RawRecorder``) each day also gets a record stream: every ``minute`` record
-    first appends its raw records, ``poll`` takes a mid-minute trade poll, and ``close`` seals the stream
-    before the journal's terminal record, so the terminal and the seal bind it.
+    first appends its raw records, ``poll`` takes the mid-minute refresh (trade poll and both books again),
+    and ``close`` seals the stream before the journal's terminal record, so the terminal and the seal bind it.
+    The recorder is behind a fault boundary: any exception while building or writing records is recorded on
+    the stream as a coded fault (not-OK trade coverage from that instant) and never reaches the runner.
     """
 
     def __init__(self, directory, *, clock, scope, run_id=None, recorder=None):
@@ -197,33 +199,46 @@ class TapeWriter:
         if event == "minute":
             self.minutes += 1
             if self.stream is not None:
-                try:
-                    entries = self.recorder.minute(self.stream, payload)
-                except Exception as error:  # A recorder fault costs raw records, never the quotes tape.
-                    payload["raw"] = {"error": type(error).__name__}
-                else:
-                    payload["raw"] = self.stream.write(entries)
+                payload["raw"] = self._guarded("minute", lambda: self.recorder.minute(self.stream, payload))
         return self.journal.record(event, minute_utc=minute_utc, **payload)
 
+    def _guarded(self, stage, build):
+        """Build and write record entries; a fault costs raw records (coded on the stream), never the run."""
+        stream = self.stream
+        try:
+            entries = build()
+        except Exception as error:  # noqa: BLE001 - the recorder must never stop the runner
+            return stream.fault(f"{stage}:{type(error).__name__}", self.clock())
+        try:
+            return stream.write(entries)
+        except Exception as error:  # noqa: BLE001 - an fsync/disk fault marks the stream, the run goes on
+            return stream.fault(f"write:{type(error).__name__}", self.clock())
+
     def poll(self, condition_ids):
-        """Mid-minute trade poll into the current day's record stream; None without a recorder."""
+        """Mid-minute refresh into the current day's record stream; None without a recorder."""
         if self.recorder is None or self.stream is None:
             return None
-        self.recorder.poll(condition_ids)
-        return self.stream.write(self.recorder.between(self.stream))
+        return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids))
 
     def close(self, reason):
         if self.journal is None:
             return None
-        journal, path, stream_seal = self.journal, self.journal.path, None
+        journal, path, stream_seal, stream_error = self.journal, self.journal.path, None, None
         if self.stream is not None:
-            stream_seal, self.stream = self.stream.close(), None
+            stream, self.stream = self.stream, None
+            try:
+                stream_seal = stream.close()
+            except Exception as error:  # noqa: BLE001 - the journal is sealed even if the stream seal fails
+                stream_error = "records_seal:" + type(error).__name__
         journal.record("terminal", reason=reason, minutes=self.minutes,
-                       **({} if stream_seal is None else {"records": stream_seal}))
+                       **({} if stream_seal is None else {"records": stream_seal}),
+                       **({} if stream_error is None else {"records_error": stream_error}))
         journal.close()
-        bound = None if stream_seal is None else {k: stream_seal[k] for k in ("stream", "sha256", "bytes", "records")}
+        bound = None if stream_seal is None else {k: stream_seal[k]
+                                                  for k in ("stream", "status", "sha256", "bytes", "records")}
         seal = {"schema_version": SEAL_SCHEMA, "tape": path.name, "utc_day": self.day, "run_id": self.run_id,
-                **seal_digest(path), "records_stream": bound}
+                **seal_digest(path), "records_stream": bound,
+                **({} if stream_error is None else {"records_stream_error": stream_error})}
         write_new(path.with_name(path.name.replace(".tape.jsonl", ".seal.json")), seal)
         self.sealed.append(seal)
         self.journal = None
