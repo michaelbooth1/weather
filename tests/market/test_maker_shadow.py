@@ -25,12 +25,18 @@ from tests.maker_core.fixtures.shadow_rig import (CAPS, CONDITION, NO, NOW, PAPE
                                                   public_book, reward_record)
 
 
+REAL_CODE_IDENTITY = maker_shadow.code_identity
+FIXTURE_CODE = {"git_commit": "f" * 40, "git_dirty": False, "git_error": None}
+
+
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("shadow test attempted network")
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
+    # run() must not spawn git in these fixture tests; the real code_identity is exercised below.
+    monkeypatch.setattr(maker_shadow, "code_identity", lambda: dict(FIXTURE_CODE))
 
 
 def write(path, value):
@@ -198,3 +204,63 @@ def test_cli_import_closure_has_no_order_client_or_credentials():
                  "weather.market.mm_credentials", "weather.market.live_sdk_overlay",
                  "weather.market.maker_evidence_capture", "weather.market.wallet_reader"}
     assert not {m for m in loaded if m in forbidden or m.split(".")[0] in forbidden}
+
+
+def _git(cwd, *args):
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=cwd,
+                          check=True, capture_output=True, text=True, timeout=60).stdout.strip()
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(maker_shadow.shutil.which("git") is None, reason="git not on PATH")
+def test_code_identity_records_commit_and_dirty_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.txt").write_text("one\n")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-q", "-m", "c1")
+    head = _git(repo, "rev-parse", "HEAD")
+    assert REAL_CODE_IDENTITY(repo) == {"git_commit": head, "git_dirty": False, "git_error": None}
+    (repo / "untracked.txt").write_text("runtime state\n")  # untracked files never make the tree dirty
+    assert REAL_CODE_IDENTITY(repo)["git_dirty"] is False
+    (repo / "a.txt").write_text("two\n")
+    assert REAL_CODE_IDENTITY(repo) == {"git_commit": head, "git_dirty": True, "git_error": None}
+    plain = tmp_path / "not_a_repo"
+    plain.mkdir()
+    assert REAL_CODE_IDENTITY(plain) == {"git_commit": None, "git_dirty": None, "git_error": "git_failed"}
+
+
+def test_code_identity_never_raises(monkeypatch):
+    monkeypatch.setattr(maker_shadow.shutil, "which", lambda name: None)
+    assert REAL_CODE_IDENTITY()["git_error"] == "git_unavailable"
+    monkeypatch.setattr(maker_shadow.shutil, "which", lambda name: "git")
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 60)
+    monkeypatch.setattr(maker_shadow.subprocess, "run", timeout)
+    assert REAL_CODE_IDENTITY() == {"git_commit": None, "git_dirty": None, "git_error": "git_timeout"}
+    monkeypatch.setattr(maker_shadow.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="not-a-sha\n", stderr=""))
+    assert REAL_CODE_IDENTITY()["git_error"] == "git_output_invalid"
+
+
+def test_tape_opening_scope_carries_code_identity_and_score_surfaces_it(tmp_path, capsys, monkeypatch):
+    calls = []
+    identity = {"git_commit": "c" * 40, "git_dirty": False, "git_error": None}
+    monkeypatch.setattr(maker_shadow, "code_identity", lambda: calls.append(1) or dict(identity))
+    tapes = run_offline(tmp_path, minutes=3)
+    assert calls == [1]  # computed once at start, not per minute
+    opened = json.loads(tapes[0].read_text().splitlines()[0])
+    assert opened["event"] == "opened" and {k: opened["scope"][k] for k in identity} == identity
+    capsys.readouterr()
+    write_panel(tmp_path / "maker_evidence")
+    out = tmp_path / "report.json"
+    assert maker_shadow.main(["score", "--day", "2026-09-28", "--tape-root", str(tmp_path / "tapes"),
+                              "--maker-evidence-root", str(tmp_path / "maker_evidence"), "--out", str(out)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    report = json.loads(out.read_text())
+    assert report["tapes"][0]["git_commit"] == "c" * 40 and report["tapes"][0]["git_dirty"] is False
+    assert report["code"] == {"git_commits": ["c" * 40], "tapes": 1, "dirty_tapes": 0, "unbound_tapes": 0}
+    assert printed["code"] == report["code"]

@@ -117,7 +117,7 @@ day and run: `<day>-<run>.tape.jsonl`, a `maker_core.evidence.journal` chain
 
 | Event | Content |
 | --- | --- |
-| `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id |
+| `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id; code identity `git_commit` / `git_dirty` / `git_error` (below) |
 | `universe` / `universe_error` | Selected conditions, candidates, cap drops, refusal counts, missing events |
 | `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
 | `terminal` | End reason and minute count |
@@ -130,6 +130,16 @@ At a day roll or exit the runner writes `terminal`, then a create-only
 bytes, records, final line hash). A tape without a seal (crash) is listed by the
 scorer and never read. The dotted schema names follow the journal's
 `maker_core.journal.v0.1` convention and are not schema-registry entries.
+
+**Code identity.** `run` computes the checkout's commit once at start
+(`weather.market.maker_shadow.code_identity`: `git -C <weather.paths.REPO_ROOT> rev-parse HEAD`
+and `git status --porcelain --untracked-files=no`) and records it in the `opened` scope of
+every tape of the run: `git_commit` (hex), `git_dirty` (tracked changes present) and
+`git_error` (`null`, or `git_unavailable` / `git_failed` / `git_timeout` /
+`git_output_invalid` / `git_status_failed`). A git failure never stops the recorder; the tape
+then says the code was not bound. Code changes do not apply to a running process, so the
+recorded commit is the code the run imported; tapes written before this field read as
+`not_recorded`.
 
 ## Nightly scoring against 88a
 
@@ -155,6 +165,11 @@ create-only report (`maker_core.shadow_score.v0.1`, default
 - **Modelled reward** at `k_share` 1.0/0.5/0.3 from the decision's share and the
   recorded rate. Not paid reward. Legs on bands 88a did not select are counted
   as `legs_not_in_panel`, never scored.
+
+- **Code:** each entry of `tapes` carries its `git_commit` / `git_dirty` / `git_error`, and
+  `code` summarises the day: distinct `git_commits`, `tapes`, `dirty_tapes`, and
+  `unbound_tapes` (no commit, or not provably clean). The CLI's one-line output repeats `code`.
+  It is surfaced, never judged: parity-day counting uses it (the gate's parity definition).
 
 No settlement mark, rebate, hurdle, bootstrap or verdict is computed: economic
 scoring belongs to a pre-registered look (maker replay v2, the maker P&L desk
@@ -185,9 +200,18 @@ owner/production act; editing or testing the registrar arms nothing.
   (the latch persists).
 - **Readout** (read-only, any hour): `scripts\ops\maker_shadow_readout.ps1
   [-ParityStartUtc <yyyy-MM-dd>]` prints one line: process, sealed days, last tick,
+  the live run's code (`code <12 hex>`, `DIRTY`, `unbound (<git_error>)` or `not recorded`),
   rows and MB today, crashed tapes, parity days and the embargo. It reads names, seal
-  JSONs, at most the last MiB of the open tape and, with `-ParityStartUtc`, score
-  agreement status; it never starts Python or reads 88a.
+  JSONs, the first line (at most 64 KiB) and at most the last MiB of the open tape and,
+  with `-ParityStartUtc`, score agreement status; it never starts Python or reads 88a.
+- **Restart** (after any merge that touches the runner's modules, and **at the engine
+  freeze**): create the stop file; wait until no `maker_shadow run` process remains and the
+  newest tape has its `.seal.json`; apply the change; delete the stop file (the next
+  five-minute repetition respawns the run, or `Start-ScheduledTask WeatherMakerShadowRunner`
+  starts it at once); confirm the readout shows the new `code`. The runner is not a
+  STALE_CODE supervisor, so nothing restarts it automatically. Parity days count only from
+  the first UTC day whose every sealed tape records the frozen commit (or a later reviewed
+  one) with `git_dirty` false.
 - **Resources, measured on the workstation 2026-10-08 with 24 bands** (`max_conditions`
   24): about 35 MB working set and 22 MB private, about 1.5 s CPU per minute, 14-20 s
   of sequential public GETs per minute (about 75 requests) after a first minute of
@@ -234,4 +258,4 @@ description lists the pieces).
 ## Update when
 
 Update with the commands, the registrar or readout, config or fixture schema, endpoint allowlist, tape or
-score format, guard integration, fill or markout rules, or the embargo windows.
+score format (including the code-identity fields), guard integration, fill or markout rules, or the embargo windows.

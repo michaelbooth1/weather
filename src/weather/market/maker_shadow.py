@@ -15,7 +15,11 @@ import argparse
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import json
+import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import sys
 import time
 
@@ -31,7 +35,7 @@ from maker_core.venue.public_feed import FixtureTransport, PublicFeed, UrllibTra
 from weather.market.maker_shadow_panel import MakerEvidencePanel, embargo_reason
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import all_specs
-from weather.paths import data_path
+from weather.paths import REPO_ROOT, data_path
 
 CONFIG_SCHEMA = "weather.maker_shadow_config.v0.1"
 FIXTURE_SCHEMA = "weather.maker_shadow_fixture.v0.1"
@@ -40,6 +44,42 @@ DEFAULT_ROOT = data_path("maker_shadow")
 CAP_KEYS = ("cash", "band_cap", "order_cap", "wallet_cap", "event_cap")
 GUARD_KEYS = ("policy", "latch_dir", "pause_file")
 PAPER_KEYS = ("starting_cash_pusd", "bleed_limit_pusd", "fill_rule")
+
+
+GIT_TIMEOUT_SECONDS = 60
+
+
+def code_identity(root=REPO_ROOT):
+    """Git commit and dirty flag of the checkout this process runs from, computed once at start.
+
+    Never raises: a missing git or a non-repository is recorded as ``git_commit`` None with an enumerated
+    ``git_error``, so the recorder still runs and the tape says the code was not bound. ``git_dirty`` counts
+    tracked changes only (untracked runtime files under ``data/`` are ignored by git anyway).
+    """
+    git = shutil.which("git")
+    if git is None:
+        return {"git_commit": None, "git_dirty": None, "git_error": "git_unavailable"}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+    def call(*args):
+        return subprocess.run([git, "-C", str(root), *args], capture_output=True, text=True, check=False,
+                              timeout=GIT_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL, creationflags=flags)
+
+    try:
+        head = call("rev-parse", "--verify", "HEAD^{commit}")
+        if head.returncode != 0:
+            return {"git_commit": None, "git_dirty": None, "git_error": "git_failed"}
+        commit = head.stdout.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
+            return {"git_commit": None, "git_dirty": None, "git_error": "git_output_invalid"}
+        status = call("status", "--porcelain", "--untracked-files=no")
+        if status.returncode != 0:
+            return {"git_commit": commit, "git_dirty": None, "git_error": "git_status_failed"}
+        return {"git_commit": commit, "git_dirty": bool(status.stdout.strip()), "git_error": None}
+    except subprocess.TimeoutExpired:
+        return {"git_commit": None, "git_dirty": None, "git_error": "git_timeout"}
+    except OSError:
+        return {"git_commit": None, "git_dirty": None, "git_error": "git_unavailable"}
 
 
 def _refuse(condition, reason):
@@ -207,7 +247,8 @@ def run(args):
              "guard_policy_sha256": digest(config["guard"]["policy"]), "composition": COMPOSITION_VERSION,
              "fair_value": "unavailable:weather_fair_value_provider_not_integrated",
              "hazard_per_minute": config["hazard_per_minute"], "adverse_markout": config["adverse_markout"],
-             "caps": config["caps"], "paper": config["paper"], "guard_book": "paper_campaign_book"}
+             "caps": config["caps"], "paper": config["paper"], "guard_book": "paper_campaign_book",
+             **code_identity()}
     writer = TapeWriter(out, clock=clock, scope=scope)
     markets, discovered_at, done, reason, last = [], None, 0, "completed", None
     try:
@@ -263,7 +304,8 @@ def score(args):
     report = score_day(tapes, panel, utc_day=day, unsealed=unsealed, panel_summary=panel.summary)
     out = Path(args.out) if args.out else DEFAULT_ROOT / "scores" / f"{day}-{digest(report)[:16]}.json"
     write_new(out, report)
-    print(json.dumps({"report": str(out), "agreement": report["agreement"]["status"], "label": report["label"]}))
+    print(json.dumps({"report": str(out), "agreement": report["agreement"]["status"], "label": report["label"],
+                      "code": report["code"]}))
     return 0
 
 
