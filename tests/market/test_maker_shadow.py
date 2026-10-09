@@ -11,6 +11,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -315,14 +316,22 @@ def test_rediscovery_is_due_at_each_market_local_midnight():
 
 class RefreshWriter:
     def __init__(self, clock, duration):
-        self.clock, self.duration, self.polls, self.skips = clock, duration, [], []
+        self.clock, self.duration, self.polls, self.skips, self.skipped_minutes = clock, duration, [], [], []
 
     def poll(self, condition_ids):
         self.polls.append((self.clock.now, list(condition_ids)))
         self.clock.now += self.duration
 
-    def skip_refresh(self, code):
+    def skip_refresh(self, code, minute):
         self.skips.append((self.clock.now, code))
+        self.skipped_minutes.append(minute)
+
+    def monotonic(self):  # the refresh duration is measured on a monotonic clock; here it follows the fixture
+        return self.clock.now.timestamp()
+
+
+def refresh(writer, clock, minute, estimate):
+    return maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, estimate, monotonic=writer.monotonic)
 
 
 def test_mid_minute_refresh_is_skipped_when_it_would_overrun_the_next_minute():
@@ -332,26 +341,147 @@ def test_mid_minute_refresh_is_skipped_when_it_would_overrun_the_next_minute():
     minute, second = NOW.replace(second=0, microsecond=0), timedelta(seconds=1)
     clock = maker_shadow.SimulatedClock(minute + 30 * second)
     writer = RefreshWriter(clock, 9 * second)
-    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, maker_shadow.REFRESH_ESTIMATE)
+    estimate = refresh(writer, clock, minute, maker_shadow.REFRESH_ESTIMATE)
     assert estimate == 9 * second and writer.polls == [(minute + 30 * second, [CONDITION])]
     clock.now = minute + 51 * second  # the step overran: 51 s + 10 s ends after the next minute starts
-    assert maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, 10 * second) == 10 * second
+    assert refresh(writer, clock, minute, 10 * second) == 10 * second
     assert writer.skips == [(minute + 51 * second, maker_shadow.REFRESH_SKIPPED)] and len(writer.polls) == 1
     clock.now = minute + 50 * second  # ends exactly at the next minute: it fits
-    maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, 10 * second)
+    refresh(writer, clock, minute, 10 * second)
     assert len(writer.polls) == 2 and len(writer.skips) == 1
     nxt = minute + timedelta(minutes=1)
     clock.now, writer.duration = nxt + 30 * second, 25 * second  # a slow refresh: the estimate becomes 25 s
-    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, nxt, maker_shadow.REFRESH_ESTIMATE)
+    estimate = refresh(writer, clock, nxt, maker_shadow.REFRESH_ESTIMATE)
     assert estimate == 25 * second
     later = nxt + timedelta(minutes=1)
     clock.now = later + 40 * second  # 40 s + 25 s overruns, although the 10 s default would have fit
-    assert maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, later, estimate) == estimate
+    assert refresh(writer, clock, later, estimate) == maker_shadow.REFRESH_ESTIMATE  # a skip re-measures
     assert len(writer.polls) == 3 and writer.skips[-1] == (later + 40 * second, maker_shadow.REFRESH_SKIPPED)
     clock.now, writer.duration = later + timedelta(minutes=1, seconds=30), 45 * second
-    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, later + timedelta(minutes=1), estimate)
+    estimate = refresh(writer, clock, later + timedelta(minutes=1), estimate)
     assert estimate == maker_shadow.MID_MINUTE_POLL  # capped: a refresh started on time always fits
     last = later + timedelta(minutes=2)
     clock.now = last + 30 * second
-    maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, last, estimate)
+    refresh(writer, clock, last, estimate)
     assert len(writer.polls) == 5 and len(writer.skips) == 2
+
+
+def test_one_slow_refresh_never_locks_out_later_refreshes_after_a_late_wake():
+    """N7 / Defender F1. After one 45 s refresh the capped estimate is 30 s, and the run loop always wakes a little
+    after +30 s: the skip resets the estimate, so the very next minute refreshes and measures again. Kills the
+    lock-out (a skip keeping the stale estimate gives 60 skips and 0 polls)."""
+    minute, second, late = NOW.replace(second=0, microsecond=0), timedelta(seconds=1), timedelta(milliseconds=1)
+    clock = maker_shadow.SimulatedClock(minute + 30 * second)
+    writer = RefreshWriter(clock, 45 * second)
+    estimate = refresh(writer, clock, minute, maker_shadow.REFRESH_ESTIMATE)
+    assert estimate == maker_shadow.MID_MINUTE_POLL and len(writer.polls) == 1
+    writer.duration = 9 * second
+    for n in range(1, 61):
+        at = minute + timedelta(minutes=n)
+        clock.now = at + maker_shadow.MID_MINUTE_POLL + late  # the minute boundary + 30 s + 1 ms
+        estimate = refresh(writer, clock, at, estimate)
+    assert writer.skipped_minutes == [minute + timedelta(minutes=1)]  # one skip, then refreshes resume
+    assert [at for at, _ in writer.polls[1:]] == [minute + timedelta(minutes=n, seconds=30) + late
+                                                  for n in range(2, 61)]
+    assert estimate == 9 * second
+
+
+
+def test_a_backward_refresh_duration_is_clamped_to_zero():
+    """N7 / Defender F4, M6: a duration below zero (a clock that steps back) is clamped, never a negative
+    estimate that would let any later refresh "fit"."""
+    minute = NOW.replace(second=0, microsecond=0)
+    clock = maker_shadow.SimulatedClock(minute + maker_shadow.MID_MINUTE_POLL)
+    writer = RefreshWriter(clock, timedelta(seconds=-5))
+    assert refresh(writer, clock, minute, maker_shadow.REFRESH_ESTIMATE) == timedelta(0)
+
+class SleepDrivenClock:
+    """The offline run jumps ``clock.now`` to the next minute after each step; this clock ignores that jump and
+    advances only through the patched ``time.sleep`` (or a slow step), so the loop reaches its +30 s refresh."""
+
+    def __init__(self, start):
+        self._now = start
+
+    def __call__(self):
+        return self._now
+
+    now = property(lambda self: self._now, lambda self, value: None)
+
+    def advance(self, seconds):
+        self._now += timedelta(seconds=seconds)
+
+
+@pytest.mark.parametrize("step_seconds", [0, 51])
+def test_run_loop_takes_the_mid_minute_refresh_through_the_overrun_check(tmp_path, monkeypatch, step_seconds):
+    """N7 / Defender F2: the run loop's +30 s refresh goes through ``mid_minute_refresh``. An on-time loop refreshes
+    every minute it waits through; a 51 s decision step makes each refresh skip, named per minute on the stream
+    seal and in gaps.json. Kills mutant W (the loop calls ``writer.poll`` directly, never skipping)."""
+    clocks, calls = [], []
+    real_refresh, real_build = maker_shadow.mid_minute_refresh, maker_shadow.build_runner
+
+    def make_clock(start):
+        clocks.append(SleepDrivenClock(start))
+        return clocks[-1]
+
+    def spy(writer, condition_ids, clock, minute, estimate, monotonic=None):
+        calls.append((clock(), minute))
+        return real_refresh(writer, condition_ids, clock, minute, estimate,
+                            monotonic=lambda: clock().timestamp())
+
+    def slow_runner(config, feed, clock):
+        runner = real_build(config, feed, clock)
+        step = runner.step
+
+        def timed(minute, markets):
+            result = step(minute, markets)
+            clock.advance(step_seconds)  # a slow decision step
+            return result
+        runner.step = timed
+        return runner
+
+    monkeypatch.setattr(maker_shadow, "SimulatedClock", make_clock)
+    monkeypatch.setattr(maker_shadow, "mid_minute_refresh", spy)
+    monkeypatch.setattr(maker_shadow, "build_runner", slow_runner)
+    monkeypatch.setattr(maker_shadow, "time", types.SimpleNamespace(
+        sleep=lambda seconds: clocks[-1].advance(seconds), monotonic=maker_shadow.time.monotonic))
+    run_offline(tmp_path, minutes=3)
+    minutes = [NOW + timedelta(minutes=n) for n in range(2)]  # the run stops after its third step
+    assert [m for _, m in calls] == minutes
+    from maker_core.shadow.records import day_directory
+    folder = day_directory(tmp_path / "tapes", NOW.date().isoformat())
+    seal = json.loads(next(folder.glob("*-records.seal.json")).read_bytes())
+    if step_seconds:
+        assert [at for at, _ in calls] == [m + timedelta(seconds=step_seconds) for m in minutes]
+        assert seal["faults"] == [{"fault_code": maker_shadow.REFRESH_SKIPPED, "count": 2}]
+        assert seal["skipped_refresh_minutes"] == [m.isoformat() for m in minutes]
+        assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(),
+                                  "--tape-root", str(tmp_path / "tapes")]) == 0
+        gaps = json.loads((folder / "gaps.json").read_bytes())
+        assert gaps["skipped_refreshes"] == [{"run_id": seal["run_id"], "stream": seal["stream"],
+                                              "minutes": [m.isoformat() for m in minutes]}]
+    else:
+        assert [at for at, _ in calls] == [m + maker_shadow.MID_MINUTE_POLL for m in minutes]
+        assert seal["faults"] == [] and seal["skipped_refresh_minutes"] == []
+
+
+def test_bundle_day_cli_excludes_a_broken_run_from_its_summary(tmp_path, capsys):
+    """Q-D5 / Defender F5: a broken run whose stream no longer matches its seal is excluded and listed in the CLI's
+    ``excluded``; the printed summary covers only the bundled streams, so it never refuses after the bundle is
+    written. Kills mutant M5 (the CLI prints ``excluded: []``)."""
+    from maker_core.shadow.records import STREAM_SEAL_SCHEMA, day_directory
+    run_offline(tmp_path, minutes=2)
+    capsys.readouterr()
+    day, root = NOW.date().isoformat(), tmp_path / "tapes"
+    folder = day_directory(root, day)
+    good = json.loads(next(folder.glob("*-records.seal.json")).read_bytes())
+    name = f"{day}-ghost-records.jsonl"
+    (folder / name).write_bytes(b"partial")  # differs from its seal: re-verifying it would refuse the day
+    write(folder / name.replace(".jsonl", ".seal.json"), {
+        "schema_version": STREAM_SEAL_SCHEMA, "stream": name, "utc_day": day, "run_id": "ghost",
+        "status": "broken", "broken_reason": "write:OSError", "sha256": "0" * 64, "bytes": 99, "records": 5,
+        "kinds": {"book": 5}, "dropped": {}, "faults": [], "conditions": {}})
+    assert maker_shadow.main(["bundle-day", "--day", day, "--tape-root", str(root)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["excluded"] == [{"run_id": "ghost", "stream": name, "reason": "broken_record_stream:write:OSError"}]
+    assert printed["streams"] == 1 and printed["records"]["records"] == good["records"]
+    assert printed["records"]["kinds"] == good["kinds"] and printed["records"]["broken_streams"] == []

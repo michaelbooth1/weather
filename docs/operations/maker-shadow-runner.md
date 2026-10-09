@@ -181,10 +181,18 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun skip** (owner
   decision N7, `maker_shadow.mid_minute_refresh`): the refresh is skipped when it would not
   finish before the next minute starts (start + estimate after the next minute), so it never
-  delays the next decision. The estimate is the run's last measured refresh, capped at 30 s
-  (a refresh started on time always fits), 10 s before the first measurement. A skip reads
-  nothing and is counted on the stream seal as `refresh:skipped_overrun`; that minute's trade
-  coverage may then lapse before the next minute's poll, which replays as a true capture gap.
+  delays the next decision. The estimate is the run's last measured refresh (measured on the
+  monotonic clock, so a wall-clock step never feeds it), capped at 30 s, and 10 s before the
+  first measurement. A skip measures nothing, so it resets the estimate to at most 10 s and the
+  next minute's refresh measures again: one slow refresh (a capped 30 s estimate, with the loop
+  always waking a few ms after +30 s) never locks out later refreshes. A skip reads nothing,
+  is counted on the stream seal as `refresh:skipped_overrun` and names its minute in the seal's
+  `skipped_refresh_minutes` and in `gaps.json` `skipped_refreshes` (`[{run_id, stream,
+  minutes}]`, bundled streams only); that minute's trade coverage may then lapse before the
+  next minute's poll, which replays as a true capture gap. **Bias:** skips happen in the
+  minutes whose decision step overran (many bands, deep books, rediscovery), so book staleness
+  concentrates in busy minutes; a replay or parity consumer should read `skipped_refreshes`
+  rather than treat stale-book minutes as random.
 - Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
   seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
   roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the
@@ -236,13 +244,17 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   and rename), then the create-only `bundle.json`; a re-run fills in a missing `gaps.json`
   beside an existing bundle instead of refusing `bundle_exists`. **Per-run exclusion** (owner
   decision Q-D5): a stream sealed `broken`, or one still unsealed an hour
-  (`records.UNSEALED_GRACE`) after the UTC day closed (a killed run: reboot or
-  `Stop-ScheduledTask`), excludes only its own run. It is left out of `bundle.json`, listed in
+  (`records.UNSEALED_GRACE`) after the UTC day closed (a killed, broken or stalled run: reboot,
+  `Stop-ScheduledTask`, or a host sleep or hang over 00:00 UTC longer than the grace, which
+  seals the stream only at its next record), excludes only its own run. It is left out of `bundle.json`, listed in
   `gaps.json` under `excluded_streams` (`[{run_id, stream, reason}]`, reason
   `unsealed_record_stream`, `broken_record_stream:<broken_reason>` or `sealed_after_bundle`)
   and in the CLI's `excluded`, and `records.day_active_intervals` gives its run no interval
   (it reads the bundle's stream list once `bundle.json` exists), so the replay claims nothing
-  for that run's minutes. Within the hour an unsealed stream still refuses
+  for that run's minutes. A stalled run that seals later stays excluded (`sealed_after_bundle`
+  on a re-run); a re-run beside an existing bundle validates only the bundled streams. The CLI's
+  printed `records` summary covers only the bundled streams. Schedule the nightly `bundle-day`
+  at or after 01:00 UTC. Within the hour an unsealed stream still refuses
   `unsealed_record_stream`, because its run may still be sealing it at the day roll and the
   bundle is create-only. A day whose every stream is excluded refuses
   `no_sealed_record_stream`. A stream that differs from its own `ok` seal, or an unreadable

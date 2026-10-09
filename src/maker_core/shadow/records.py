@@ -274,6 +274,7 @@ class RecordStream:
         self.emitted = {}  # (condition, label) -> payload hash, for on-change records
         self.groups, self.described = {}, set()
         self.faults, self.broken = {}, None
+        self.skipped_refreshes = []  # minutes (ISO) whose mid-minute refresh was skipped (owner decision N7)
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
@@ -343,6 +344,13 @@ class RecordStream:
     def count_fault(self, code, n=1):
         self.faults[code] = self.faults.get(code, 0) + n
 
+    def skip_refresh(self, code, minute):
+        """Count a skipped mid-minute refresh and name its minute on the seal (``skipped_refresh_minutes``), so a
+        replay can tell which minutes lack the refresh; nothing is written to the stream itself."""
+        self.count_fault(code)
+        if minute is not None:
+            self.skipped_refreshes.append(minute.astimezone(timezone.utc).isoformat())
+
     def fault(self, code, at):
         """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
         self.count_fault(code)
@@ -387,7 +395,8 @@ class RecordStream:
                 "sha256": sha, "bytes": size, "records": lines,
                 "first_sequence": self.first_sequence, "last_sequence": self.last_sequence,
                 "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped),
-                "faults": fault_list(self.faults), "conditions": conditions,
+                "faults": fault_list(self.faults), "skipped_refresh_minutes": sorted(set(self.skipped_refreshes)),
+                "conditions": conditions,
                 "coverage_groups": {group_id(cid): [cid] for cid in conditions}}
         write_new(self.path.with_name(self.path.name.replace("-records.jsonl", "-records.seal.json")), seal)
         return seal
@@ -735,9 +744,15 @@ def verify_stream(root, seal):
     return path
 
 
-def records_summary(root, day):
-    """Scorer read path for v0.2: every sealed stream of ``day`` verified against its seal, kinds counted."""
+def records_summary(root, day, streams=None):
+    """Scorer read path for v0.2: every sealed stream of ``day`` verified against its seal, kinds counted.
+
+    With ``streams`` (stream file names, e.g. a bundle's), only those streams are read and counted.
+    """
     seals, unsealed = _stream_seals(root, day)
+    if streams is not None:
+        seals = [s for s in seals if s["stream"] in streams]
+        unsealed = [name for name in unsealed if name in streams]
     kinds = {}
     for seal in seals:
         verify_stream(root, seal)
@@ -794,7 +809,9 @@ def bundle_day(root, day, *, clock):
     condition whose market identity differs between runs, each with a coded ``ValueError``. Create-only.
     Runs that sealed their quotes tape without a stream (``stream_gaps``) and the excluded streams are named in
     ``gaps.json`` beside the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field),
-    written first and atomically; a re-run fills it in when ``bundle.json`` exists without it. They are also
+    written first and atomically; a re-run fills it in when ``bundle.json`` exists without it, validating only
+    the bundled streams. ``gaps.json`` also names, per bundled stream, the minutes whose mid-minute refresh was
+    skipped (``skipped_refreshes``, owner decision N7; their books may age past 60 s). They are also
     returned under the manifest's ``gaps`` and ``excluded`` keys by ``bundle_day`` only. Read the day with
     ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
@@ -806,6 +823,14 @@ def bundle_day(root, day, *, clock):
     if unsealed and sealed_at < end + UNSEALED_GRACE:
         raise ValueError("unsealed_record_stream")  # its run may still be sealing it at the day roll
     every_seal, seals = seals, [s for s in seals if s.get("status") == "ok" and s["records"]]
+    path = day_directory(root, day) / "bundle.json"
+    gaps_path = path.with_name("gaps.json")
+    if path.exists() and gaps_path.exists():
+        raise FileExistsError(str(path))
+    existing = _read_json(path, "bundle_unreadable") if path.exists() else None
+    if existing is not None:  # a fill-in validates only the bundled streams, never one sealed after the bundle
+        bundled = {row.get("path") for row in existing.get("streams") or ()}
+        seals = [s for s in seals if s["stream"] in bundled]
     if not seals:
         raise ValueError("no_sealed_record_stream")
     conditions = {}
@@ -830,17 +855,15 @@ def bundle_day(root, day, *, clock):
         "streams": [{"path": s["stream"], "sha256": s["sha256"], "bytes": s["bytes"], "records": s["records"]}
                     for s in seals]}
     gaps = stream_gaps(root, day)
-    path = day_directory(root, day) / "bundle.json"
-    gaps_path = path.with_name("gaps.json")
-    if path.exists() and gaps_path.exists():
-        raise FileExistsError(str(path))
-    existing = _read_json(path, "bundle_unreadable") if path.exists() else None
     bundled = {s["path"] for s in (existing or manifest)["streams"]}
     excluded = _excluded_streams(day, every_seal, unsealed, bundled)
+    skipped = [{"run_id": s.get("run_id"), "stream": s["stream"], "minutes": s["skipped_refresh_minutes"]}
+               for s in every_seal if s["stream"] in bundled and s.get("skipped_refresh_minutes")]
     # gaps.json first, atomically (a temp file renamed over it), then the create-only bundle.json: a bundle
     # never exists without its gap sources, and a re-run after a failure in between fills gaps.json in.
     _replace_json(gaps_path, {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
-                              "runs_without_record_stream": gaps, "excluded_streams": excluded})
+                              "runs_without_record_stream": gaps, "excluded_streams": excluded,
+                              "skipped_refreshes": skipped})
     if existing is not None:
         return path, dict(existing, gaps=gaps, excluded=excluded)
     write_new(path, manifest)

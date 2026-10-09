@@ -55,8 +55,10 @@ GIT_TIMEOUT_SECONDS = 60
 # the shadow's decision inputs are the minute's own reads.
 MID_MINUTE_POLL = timedelta(seconds=30)
 # The refresh is skipped when it would not finish before the next minute starts (owner decision N7), so it never
-# delays the next decision. Its duration is the run's last measured refresh, capped at MID_MINUTE_POLL (a refresh
-# started on time always fits); before a first measurement, about the 9 s measured at 24 bands.
+# delays the next decision. Its duration is the run's last measured refresh (monotonic clock), capped at
+# MID_MINUTE_POLL; before a first measurement, and again after every skip, about the 9 s measured at 24 bands.
+# The reset after a skip makes the next minute measure again, so one slow refresh (or a wake a few ms after
+# +30 s with a capped estimate) never locks every later refresh out.
 REFRESH_ESTIMATE = timedelta(seconds=10)
 REFRESH_SKIPPED = "refresh:skipped_overrun"
 
@@ -66,14 +68,20 @@ def refresh_fits(now, minute, estimate):
     return now + estimate <= minute + timedelta(minutes=1)
 
 
-def mid_minute_refresh(writer, condition_ids, clock, minute, estimate):
-    """Run the mid-minute refresh of ``minute`` if it fits, else count it skipped; returns the next estimate."""
-    started = clock()
-    if not refresh_fits(started, minute, estimate):
-        writer.skip_refresh(REFRESH_SKIPPED)
-        return estimate
+def mid_minute_refresh(writer, condition_ids, clock, minute, estimate, monotonic=None):
+    """Run the mid-minute refresh of ``minute`` if it fits, else record it skipped; returns the next estimate.
+
+    ``clock`` (wall, UTC) decides the fit; the duration is measured on ``monotonic`` (default
+    ``time.monotonic``), so a wall-clock step never feeds the estimate. A skip measures nothing, so it resets
+    the estimate to at most ``REFRESH_ESTIMATE`` and the next minute's refresh measures again.
+    """
+    monotonic = monotonic or time.monotonic
+    if not refresh_fits(clock(), minute, estimate):
+        writer.skip_refresh(REFRESH_SKIPPED, minute)
+        return min(estimate, REFRESH_ESTIMATE)
+    started = monotonic()
     writer.poll(condition_ids)
-    return min(max(clock() - started, timedelta(0)), MID_MINUTE_POLL)
+    return min(timedelta(seconds=max(0.0, monotonic() - started)), MID_MINUTE_POLL)
 
 
 def code_identity(root=REPO_ROOT):
@@ -374,8 +382,10 @@ def bundle(args):
     day = date.fromisoformat(args.day).isoformat()
     tape_root = Path(args.tape_root) if args.tape_root else DEFAULT_ROOT / "tapes"
     try:
+        # bundle_day verifies every bundled stream against its seal before it writes anything; the summary
+        # covers exactly those streams, never an excluded (broken or unsealed) run's.
         path, manifest = bundle_day(tape_root, day, clock=lambda: datetime.now(timezone.utc))
-        summary = records_summary(tape_root, day)
+        summary = records_summary(tape_root, day, streams={s["path"] for s in manifest["streams"]})
     except FileExistsError:
         print(json.dumps({"refused": "bundle_exists", "utc_day": day}))
         return 2

@@ -244,10 +244,11 @@ class TapeWriter:
             return None
         return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids))
 
-    def skip_refresh(self, code):
-        """Count a mid-minute refresh skipped because it would overrun the next minute (nothing was read)."""
+    def skip_refresh(self, code, minute=None):
+        """Record a mid-minute refresh of ``minute`` skipped because it would overrun the next minute (nothing was
+        read): counted in the stream seal's ``faults`` and named in its ``skipped_refresh_minutes``."""
         if self.stream is not None:
-            self.stream.count_fault(code)
+            self.stream.skip_refresh(code, minute)
 
     def close(self, reason):
         if self.journal is None:

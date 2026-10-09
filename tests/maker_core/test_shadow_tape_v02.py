@@ -5,7 +5,7 @@ Guards: maker shadow tape v0.2 record stream and day bundle (docs/operations/mak
   clock), the recorder fault boundary (transactional trade state, coded faults that survive the seal
   scrubber, stream open, durable-only counters, coded bundle refusals, gap sources written first and
   atomically, a broken or unsealed stream excluding only its own run (owner decision Q-D5), a skipped
-  mid-minute refresh counted on the seal (N7)), the trade baseline across the UTC day roll and the
+  mid-minute refresh counted and named per minute on the seal (N7)), the trade baseline across the UTC day roll and the
   Gamma/reward/book-venue allowlists;
   round trip against the vendored replay-v2 reader contract
   (tests/maker_core/fixtures/replay_v2_reader_contract.py, pinned to build-line 2d8cccb13).
@@ -654,7 +654,8 @@ def test_runs_without_a_record_stream_are_named_as_gap_sources(tmp_path):
     assert manifest["gaps"] == [gap] and "gaps" not in json.loads(path.read_bytes())
     gaps = json.loads((path.parent / "gaps.json").read_bytes())
     assert gaps == {"schema_version": GAPS_SCHEMA, "day": DAY, "bundle": "bundle.json",
-                    "runs_without_record_stream": [gap], "excluded_streams": []}
+                    "runs_without_record_stream": [gap], "excluded_streams": [],
+                    "skipped_refreshes": []}
     assert reader.StreamBundle(path.parent).conditions  # the replay reader still opens the day
 
 
@@ -752,9 +753,61 @@ def test_a_skipped_refresh_is_counted_on_the_stream_seal(tmp_path):
     """N7. Kills mutant N7-skip-not-counted (a skipped refresh leaves no trace in the seal or summary)."""
     runner, _, _, clock = recording_rig(tmp_path)
     writer, _ = record_run(tmp_path, runner, clock, 1, mid=False, close=False)
-    writer.skip_refresh("refresh:skipped_overrun")
+    writer.skip_refresh("refresh:skipped_overrun", NOW)
     writer.close("completed")
     seal = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
     assert seal["faults"] == [{"fault_code": "refresh:skipped_overrun", "count": 1}]
+    assert seal["skipped_refresh_minutes"] == [NOW.isoformat()]  # per minute, not only a day total (F3)
     assert records_summary(tmp_path / "tapes", DAY)["faults"] == seal["faults"]
     TapeWriter(tmp_path / "plain", clock=clock, scope={"mode": "fixture"}).skip_refresh("x")  # no recorder: no-op
+
+
+def test_a_stream_sealed_after_the_bundle_is_excluded_and_gets_no_interval(tmp_path):
+    """Q-D5 (ported from the Defender's late-seal test). A stalled run, unsealed when the day is bundled after the
+    grace, seals ``ok`` later; a re-run beside the bundle lists it ``sealed_after_bundle`` and gives it no interval,
+    and the reader never yields its records. Kills mutants M2 (``day_active_intervals`` ignores ``bundle.json``),
+    M4 (a re-run derives ``excluded`` from a fresh manifest) and an F6 regression (a fill-in validating a stream
+    the bundle does not contain)."""
+    runner, _, _, clock = recording_rig(tmp_path)
+    root = tmp_path / "tapes"
+    record_run(tmp_path, runner, clock, 2, run_id="r1", mid=False)
+    late, _ = record_run(tmp_path, runner, clock, 2, run_id="r2", start=NOW + timedelta(minutes=10), mid=False,
+                         close=False)
+    late.stream.handle.flush()
+    day_end = NOW.replace(hour=0) + timedelta(days=1)
+    path, manifest = bundle_day(root, DAY, clock=lambda: day_end + UNSEALED_GRACE)
+    assert [e["reason"] for e in manifest["excluded"]] == ["unsealed_record_stream"]
+    late.stream.close()  # the stalled run seals its stream after the bundle
+    late.journal.handle.close()
+    (path.parent / "gaps.json").unlink()
+    _, again = bundle_day(root, DAY, clock=lambda: day_end + 2 * UNSEALED_GRACE)
+    assert [(e["run_id"], e["reason"]) for e in again["excluded"]] == [("r2", "sealed_after_bundle")]
+    assert again["streams"] == manifest["streams"]
+    assert day_active_intervals(root, DAY) == [(CONDITION, NOW, NOW + timedelta(minutes=2))]
+    seals = {s["run_id"]: s for s in (json.loads(p.read_bytes()) for p in path.parent.glob("*-records.seal.json"))}
+    assert seals["r2"]["status"] == "ok" and seals["r2"]["records"]
+    sequences = sorted(r.sequence for r in reader.StreamBundle(path.parent).records())
+    assert sequences == list(range(seals["r1"]["first_sequence"], seals["r1"]["last_sequence"] + 1))
+    (path.parent / "gaps.json").unlink()
+    (path.parent / _stream_of("r2")).write_bytes(b"changed after the bundle")  # not bundled: never validated
+    _, third = bundle_day(root, DAY, clock=lambda: day_end + 3 * UNSEALED_GRACE)
+    assert third["excluded"] == again["excluded"]
+
+
+def test_an_ok_stream_with_no_records_is_neither_bundled_nor_excluded(tmp_path):
+    """Q-D5 / Defender F8. A run that opened its stream but recorded nothing seals ``ok`` with zero records: it is
+    left out of the bundle and is not an exclusion. Kills mutant M1 (it is listed as ``sealed_after_bundle``)."""
+    runner, _, _, clock = recording_rig(tmp_path)
+    root = tmp_path / "tapes"
+    record_run(tmp_path, runner, clock, 2, run_id="r1", mid=False)
+    clock.now = NOW + timedelta(minutes=10)
+    empty = TapeWriter(root, clock=clock, scope={"mode": "fixture"}, run_id="r2",
+                       recorder=RawRecorder(runner.reads, market_id=lambda slug: "fixture-market"))
+    empty.record("universe", clock.now, selected=[])  # opens the day's stream; no raw record is written
+    empty.close("completed")
+    seal = json.loads((day_directory(root, DAY) / f"{DAY}-r2-records.seal.json").read_bytes())
+    assert seal["status"] == "ok" and seal["records"] == 0
+    path, manifest = bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    assert [s["path"] for s in manifest["streams"]] == [_stream_of("r1")] and manifest["excluded"] == []
+    assert json.loads((path.parent / "gaps.json").read_bytes())["excluded_streams"] == []
+    assert day_active_intervals(root, DAY) == [(CONDITION, NOW, NOW + timedelta(minutes=2))]
