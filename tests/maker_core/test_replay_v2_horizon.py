@@ -434,13 +434,13 @@ def late_end(sources, late=timedelta(seconds=20)):
     return out
 
 
-def sparse_cells(windows=None):
+def sparse_cells(windows=None, engine=EngineV2):
     from tools.research.maker_replay_v2 import attribution
     band, zones = sparse_band(), {"nyc": KATHMANDU}
     sources = [band.source(date(2026, 11, 20))]
-    base = attribution.run(sources, "all", zones)
+    base = attribution.run(sources, "all", zones, engine=engine)
     clause = attribution.horizon_sources(sources, zones)
-    post = attribution.run(clause if windows is None else windows(clause), "Q2", zones)
+    post = attribution.run(clause if windows is None else windows(clause), "Q2", zones, engine=engine)
     cells = {}
     for key, (engine, _) in post.items():
         engine.absent_a8(base[key][0])
@@ -459,3 +459,36 @@ def test_sparse_wake_band_passes_and_the_late_window_end_mutant_fails():
         assert not [d for d in engine.decisions if LEAVE < d.at < LEAVE + timedelta(seconds=20)]
     _, _, mutant = sparse_cells(late_end)
     assert "FAIL_A8_CLAUSE_NOT_APPLIED" in {c["verdict"] for c in mutant.values()}, mutant
+
+
+# -- Defender E1: each completeness rule has its own test ---------------------------------------------------------
+def test_completeness_rule_i_fails_leg_free_decisions_outside_leads_one_and_two():
+    """Rule (i) alone: with the window ending 10 min late, ``no_quote`` holds no legs (rule (ii) has nothing to see)
+    but keeps deciding at engine lead 0; those decisions must FAIL the re-run."""
+    _, post, cells = sparse_cells(lambda sources: late_end(sources, timedelta(minutes=10)))
+    assert sum(policy == "no_quote" for _, policy in post) == 2
+    for (bound, policy), (engine, _) in post.items():
+        if policy == "no_quote":
+            assert any(d.at > LEAVE for d in engine.decisions)
+            assert not any(e.legs for e in engine.states.values())
+            assert cells[bound, policy]["verdict"] == "FAIL_A8_CLAUSE_NOT_APPLIED", cells[bound, policy]
+
+
+class NoWithdrawal(EngineV2):
+    """Engine mutant: the interval-end withdrawal is dropped, so legs rest at lead 0 and no decision is taken."""
+
+    def pull(self, cid, at, reason):
+        if reason != "OUTSIDE_ACTIVE_INTERVAL":
+            super().pull(cid, at, reason)
+
+
+def test_completeness_rule_ii_fails_legs_left_resting_outside_leads_one_and_two():
+    """Rule (ii) alone: correct clause windows, but an engine that never withdraws at the interval end. After local
+    midnight the band is inactive, so it is never decided again (rule (i) sees no decision) and the base's later
+    lead-0 decisions are A8 by ``absent_a8``; only the resting legs show the clause was not applied."""
+    _, post, cells = sparse_cells(engine=NoWithdrawal)
+    assert sum(policy == "informed-v0" for _, policy in post) == 2
+    for (bound, policy), (engine, _) in post.items():
+        if policy == "informed-v0":
+            assert engine.states["ktm-band"].legs and not [d for d in engine.decisions if d.at >= LEAVE]
+            assert cells[bound, policy]["verdict"] == "FAIL_A8_CLAUSE_NOT_APPLIED", cells[bound, policy]

@@ -75,10 +75,14 @@ gate (`Kernel.blind_horizons`, `HORIZON_NOT_ELIGIBLE`). `report_q2()` attributes
 (Defender M1, 2026-10-08): a decision is A8 only when the condition is outside the clause window inside the
 envelope **and** the post engine's own horizon read at that instant (its latest captured or derived descriptor) is
 missing or not in `A8_LEADS` = (1, 2), a literal independent of `horizon.py`; a blind gate pull is A8 under the same
-horizon test. Further checks fail the re-run. `FAIL_A8_CLAUSE_NOT_APPLIED`: a post decision taken while the engine's
-horizon is missing or outside 1..2, except a `CANCEL OUTSIDE_ACTIVE_INTERVAL` at the very instant a descriptor moved
-the engine's horizon from 1..2 to outside it; or, after any instant's processing, legs still resting on a condition
-whose engine horizon is missing or outside 1..2 (Defender D1: a late window end on a sparse-wake band). And
+horizon test. Further checks fail the re-run. `FAIL_A8_CLAUSE_NOT_APPLIED` has two completeness rules: (i) a post
+decision taken while the engine's horizon is missing or outside 1..2, except a `CANCEL OUTSIDE_ACTIVE_INTERVAL` at
+the very instant a descriptor moved the engine's horizon from 1..2 to outside it (tightened for Defender D1: before,
+every such cancel was exempt, so a window end 20 s late on a sparse-wake band passed); (ii) after any instant's
+processing, legs still resting on a condition whose engine horizon is missing or outside 1..2. In the D1 fixture
+either rule alone catches the late end (the late cancel is not exempt, and the legs rest past the leaving instant);
+each rule also has its own test that only it passes (E1): a leg-free `no_quote` arm deciding at lead 0 for rule (i),
+and an engine that drops the interval-end withdrawal (legs rest, no further decision) for rule (ii). And
 `FAIL_A8_CUT_NOT_THE_CLAUSE`: a post wake cut out of its window while the engine reads 1..2. They are needed because
 rule 3 counts every change after the first direct one as cascade. `tests/maker_core/test_replay_v2_horizon.py` runs a
 negative control (a 5-minute cut at engine lead 1) and shows the re-run fails for an always-true A8 predicate,

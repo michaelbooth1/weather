@@ -21,8 +21,9 @@ cascade, or the re-run fails:
   run: (i) any decision recorded while the engine's horizon is missing or outside (1, 2) is a violation, except a
   ``CANCEL OUTSIDE_ACTIVE_INTERVAL`` at the very instant at which a descriptor moved the engine's horizon from
   (1, 2) to outside it; (ii) after any instant's processing, legs resting on a condition whose engine horizon is
-  missing or outside (1, 2) are a violation (Defender D1, 2026-10-08: a late window end on a sparse-wake band
-  otherwise hid behind a later exempt cancel). Soundness: a post wake outside the window but
+  missing or outside (1, 2) are a violation. Defender D1, 2026-10-08: when every such cancel was exempt, a late
+  window end on a sparse-wake band hid behind the late cancel; in that fixture either rule now catches it, and each
+  rule has its own test (E1). Soundness: a post wake outside the window but
   inside the envelope while the engine reads lead 1 or 2 is a cut the clause does not ask for
   (``FAIL_A8_CUT_NOT_THE_CLAUSE``). Both are needed because rule 3 treats every change after the first direct one
   as cascade, so a mislabelled cut later in the day would otherwise hide behind an earlier genuine A8. A8 is
