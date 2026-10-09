@@ -111,6 +111,12 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
     A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory) and
     may not turn the refresh off: ``day_roll.NO_REFRESH`` is refused here (``day_roll_refresh_required``).
+
+    Scope: this function accepts any zone mapping; zone names are strict (``day_roll._zone``), but the registry
+    cross-check binds only when the caller builds the map with ``market_time_zones(..., registered=)``. Binding the
+    zone map (or its sha) into the run digest is the T2 run-digest work; until then provenance is the caller's
+    duty. For a ``maker_replay_universe.universe()``-built inventory the cross-check is close to a tautology (both
+    sides read ``BUILTIN_SPECS``): it catches a tampered or hand-built inventory, not a wrong registry entry.
     """
     from maker_core.replay.bundle import BundleError
     from maker_core.replay.v2.day_roll import NO_REFRESH
