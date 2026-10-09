@@ -1,0 +1,460 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-10",
+  "label": "N4 landing night 2026-10-09 -> 2026-10-10 (production capture host)",
+  "master_sha": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+  "generated_at": "2026-10-09T12:40:02-04:00",
+  "source": "workstation DESKTOP-RFCD2GH N4 assembler; human summary l-data/N4-HEADS-20261010.md",
+  "execution_order_note": "slots are in EXECUTION order and every integration branch is stacked on the previous slot; any slot tip lands all earlier stacked slots, so a later slot may be landed directly as a batch (caps permitting)",
+  "schedule": {
+    "u6_p0_p4": "00:30-00:58",
+    "rs_suite_trigger": ">=01:00",
+    "rs_merge_trigger": ">=01:30 (>=30 min after suite trigger, <=03:40)",
+    "rf_batches": [
+      "RF-1 = land claude/integration-20261010-247fu (#261 + 247fu)",
+      "RF-2 = land claude/integration-20261010-268 (#264 + #262 + #268)"
+    ],
+    "rf_deadline": "all RF done by 06:15 (before 91a 06:50)",
+    "u6_p5": "optional, master at 04:00, start <=04:09:15 after lease release",
+    "overflow_drop_order": [
+      "#268",
+      "#262"
+    ],
+    "rs_failure_fallback": "every stacked RF tip contains RS; land the -nors chain instead (claude/integration-20261010-247fu-nors 3e911b22552159227bbe5c4ff1e49e16e68310fd, claude/integration-20261010-268-nors d3e7aecc1882103a0346bc6061e96a2d5ee76b83)"
+  },
+  "u6_deploy_block": "night-plans/2026-10-10/U6-DEPLOY-BLOCK.md",
+  "decisions_recorded": {
+    "recorded_at": "2026-10-09 ~11:10 America/Toronto",
+    "source": "owner: \"approve all recommendations\", relayed by master to the N4 assembler",
+    "n4_head_list_changed": false,
+    "items": [
+      "T1-T3: (a,a,a); being built on claude/gatelogic-t1t3-20261009 for N5 or later, not N4",
+      "Q2 N1 gap: (a), carry the last lead",
+      "v0.2 tape: D5 run-only and N7 yes are being built on claude/shadow-tape-v02-d5n7-20261009, stacked on #268, for N5 or later; D6 compress after 7 days; +40% GETs accepted; keep b2c1c5e3a",
+      "ea7abb367: keep",
+      "91a: option (b) only, the snapshot sleep heartbeat (RS, N5); (a) only on a fresh ask if (b) slips",
+      "Host Python 3.11.x upgrade: approved for a quiet-window night AFTER N5; plan being drafted, not in N4",
+      "U6 registrar 04:10 slot: approved; being built on the build line as claude/u6-registrar-0410-20261009; registration stays owner-gated, not before 10-16 (noted in the U6 block copy)",
+      "Exploratory driver admission: -MinAvailableMiB 9216",
+      "C3: deferred until the live prerequisites are near",
+      "Watchdog: redeployed by master at 11:10, pin 1794fd3b",
+      "N5 outlook also includes the econ contracts matcher PR claude/econ-contracts-matcher-20261009 (likely RS)"
+    ]
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "915b1167b47484a13de0d67838d4a7daaac3ac9d",
+    "pregate_base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+    "drift": "two docs-only light-path landings (1794fd3bd closeout + item 337; 915b1167b owner 10-09 11:10 approvals): STATE_OF_PLAY, DECISION_LOG, ROADMAP, active-backlog, item-337; no file overlap with any head",
+    "checks": "git merge-tree of every stacked and -nors tip onto 915b1167b rc 0; agent_docs_audit PASS on int-268 merged onto 1794fd3bd (22bba3bed) and onto 915b1167b (b593b18f9), both local only; qtest n4-268-on-1794-22bba3bed on the 1794fd3bd merge (hygiene, agent_docs_audit, knowledge_structure_audit, landing_preflight, schema_registry, import_architecture tests) 223 passed rc 0",
+    "note": "the host guarded merge runs its own bounded suite on the real merge; pre-gate receipts bind -Base 6ce62cba0"
+  },
+  "not_in_this_plan": "STATE_OF_PLAY lists #265-#267 under N4 merges; they were not in the assembler brief and were not built or pre-gated (#267 conflicts with #268 on one maker-shadow-runner.md row)",
+  "priority_order": [
+    "claude/integration-20261010-261",
+    "claude/integration-20261010-rs",
+    "claude/integration-20261010-247fu",
+    "claude/integration-20261010-264",
+    "claude/integration-20261010-262",
+    "claude/integration-20261010-268"
+  ],
+  "slots": [
+    {
+      "kind": "u6_deploy_p0_p4",
+      "exec": 0,
+      "window": "00:30-00:58 local",
+      "light": true,
+      "leased": false,
+      "block": "night-plans/2026-10-10/U6-DEPLOY-BLOCK.md",
+      "deploy_tip": "89618c30cbe23f4b267728692ccf8bc0b1c2dd0b",
+      "deploy_root": "C:\\Users\\micha\\Desktop\\github\\weather-exam-deployed-89618c30cbe23f4b267728692ccf8bc0b1c2dd0b",
+      "ordering": "runs BEFORE head 1 (RS). P0 stops if the heavy-workload lease is held, so the RS suite trigger must be >= 01:00 and its merge trigger >= 01:30; P0-P4 must have finished (<=00:58) before the RS attempt takes the lease",
+      "memory_mib": 7168,
+      "scheduler_registration": "NONE on N4 (owner yes required, not before 10-16)",
+      "fallback_night": "N5"
+    },
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261010-rs",
+      "sha": "dfce75ff239d7db54d2b2c0dd1123e75fd0e8f59",
+      "prs": [
+        259,
+        210,
+        270
+      ],
+      "priority": 2,
+      "exec": 1,
+      "members": {
+        "259": "9136728e958d703f122d22e6810f36d95d70e78d",
+        "210": "624af5db8a968386d19766116c34e7ec6166eee5",
+        "270": "90372e301352285ff2c3c5df686aed88d1b1ffc3"
+      },
+      "stacked_on": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "src/weather/sources/wu_history.py and src/weather/collection/forecast_payload_fetch_fanout.py are in the production closure union (D8, 2026-10-05) and in the static module-level walk from weather.collection.snapshot_tracker; wu_redaction.py newly enters the snapshot_tracker closure (wu_history now imports safe_attr at module level); wu_token_scan.py is free",
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (#259, #210 add no loop/task); #270 body carries one (no activation)",
+      "qtest": {
+        "log": "q-n4-rs-dfce75ff2.log",
+        "result": "564 passed, 2 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": null,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-dfce75ff239d-20261009T055305-150188\\receipt.json",
+        "receipt_sha256": "54b749b1aeee12fd9357749446c349cb51a278cfed3d495d42783bd63dac94f0",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "595383db5c6569fa748ab806808558b7b6ede4c4895347320e5d1c8d6b982304",
+        "inventory_files": 511,
+        "log_name": "pregate/pg-dfce75ff239d-20261009T055305-150188/receipt.json",
+        "chunks": 21,
+        "chunk_files": 511,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9209,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9143
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T05:53:05.3665056-04:00",
+        "finished_at": "2026-10-09T06:46:11.8272560-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261010-261",
+      "sha": "4b6c28af3580a5c5e7c798b63ad5c74609a0690f",
+      "prs": [
+        261
+      ],
+      "priority": 1,
+      "exec": 2,
+      "members": {
+        "261": "6e8b533c61f56638f1a03ccb2ed7a421cb33bb00"
+      },
+      "stacked_on": "claude/integration-20261010-rs dfce75ff239d7db54d2b2c0dd1123e75fd0e8f59",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "no importable file changed (ps1, config, docs, tests, workflow)",
+      "tier_a": "PASS",
+      "activation_block": "present in PR #261 body",
+      "qtest": {
+        "log": "q-n4-261-4b6c28af3.log",
+        "result": "294 passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-4b6c28af3580-20261009T064615-39312\\receipt.json",
+        "receipt_sha256": "ad61550cabec1c4245c7c42e672feaf8b2ac123f40979d55d4f43839429f248d",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "f9305a94adb67e76833186f0ba2bae7ba51d0c2de3380d31d6bbefda6422023f",
+        "inventory_files": 512,
+        "log_name": "pregate/pg-4b6c28af3580-20261009T064615-39312/receipt.json",
+        "chunks": 21,
+        "chunk_files": 512,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9220,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9154
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T06:46:16.0148715-04:00",
+        "finished_at": "2026-10-09T07:43:29.7329224-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261010-247fu",
+      "sha": "8d4acca02c375c8e4c4bf3457e6c7e97768f4020",
+      "prs": [
+        247
+      ],
+      "priority": 3,
+      "exec": 3,
+      "members": {
+        "247fu": "93d47d00598f1acadf93a11256ecf1e8603cf2a0 (hold commit 9d8fbf9be dropped)"
+      },
+      "stacked_on": "claude/integration-20261010-261 4b6c28af3580a5c5e7c798b63ad5c74609a0690f",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "docs + one test module only",
+      "tier_a": "PASS",
+      "activation_block": "not required",
+      "qtest": {
+        "log": "q-n4-247fu-8d4acca02.log",
+        "result": "266 passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-8d4acca02c37-20261009T074333-139352\\receipt.json",
+        "receipt_sha256": "654bfaf22a9df8afae7bad1ac89cea1421deff1df7354f7dacbb4cdabc462a4d",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "6cb7573a85dacf50a1143b1726172033ef0f90b08c970c39eb163f4a877fee10",
+        "inventory_files": 512,
+        "log_name": "pregate/pg-8d4acca02c37-20261009T074333-139352/receipt.json",
+        "chunks": 21,
+        "chunk_files": 512,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9221,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9155
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T07:43:33.2197244-04:00",
+        "finished_at": "2026-10-09T08:36:15.2625391-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261010-264",
+      "sha": "04215fbda937890d87e855689dce603edba9e0b1",
+      "prs": [
+        264
+      ],
+      "priority": 4,
+      "exec": 4,
+      "members": {
+        "264": "3b593b7e66f0653d3021309b1b9818e4a83e2f53"
+      },
+      "stacked_on": "claude/integration-20261010-247fu 8d4acca02c375c8e4c4bf3457e6c7e97768f4020",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "src/maker_core/shadow/score.py and src/weather/market/maker_shadow.py are in no static closure and not in the D8 union",
+      "tier_a": "PASS",
+      "activation_block": "present in PR #264 body",
+      "conflict_resolution": "tests/operations/test_maker_shadow_ops_scripts.py: union of #261 execution tests and #264 code-identity readout test (#264 was cut from #261's old tip ed258c2a3)",
+      "qtest": {
+        "log": "q-n4-264-04215fbda.log",
+        "result": "341 passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-04215fbda937-20261009T083619-136792\\receipt.json",
+        "receipt_sha256": "d5b757e818b185e94e559ed3d1afbcbd501edb4ec075c663763cb3ecfb960872",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "b827b7d60b569f7cc251d05609a3ee81dabd4056e5d4b9fe8580d561b642b3ca",
+        "inventory_files": 512,
+        "log_name": "pregate/pg-04215fbda937-20261009T083619-136792/receipt.json",
+        "chunks": 21,
+        "chunk_files": 512,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9229,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9163
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T08:36:19.6297840-04:00",
+        "finished_at": "2026-10-09T09:28:15.0105589-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261010-262",
+      "sha": "d80397e34f8aeed2c25e44c0555b69a762520adb",
+      "prs": [
+        262
+      ],
+      "priority": 5,
+      "exec": 5,
+      "members": {
+        "262": "a81eca4d48163e7fad85a6db666bd2996d505d4a"
+      },
+      "stacked_on": "claude/integration-20261010-264 04215fbda937890d87e855689dce603edba9e0b1",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "CI workflow, docs, one test module",
+      "tier_a": "PASS",
+      "activation_block": "not required (CI only)",
+      "qtest": {
+        "log": "q-n4-262-d80397e34.log",
+        "result": "267 passed, 15 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-d80397e34f8a-20261009T092819-43388\\receipt.json",
+        "receipt_sha256": "298e950c49fab26481f4a1c278f007390e7c452e7a2816ea8a536b3fc31b35cf",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "4c7a42d5e040231fb0363afc3b1ba78d96fba1cea0884b3f56fc5af0c572e5c8",
+        "inventory_files": 512,
+        "log_name": "pregate/pg-d80397e34f8a-20261009T092819-43388/receipt.json",
+        "chunks": 21,
+        "chunk_files": 512,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9229,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9163
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T09:28:19.2414192-04:00",
+        "finished_at": "2026-10-09T10:23:05.3533275-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261010-268",
+      "sha": "d5f7978f9d08494dcec6d2d29761d561c2dca72b",
+      "prs": [
+        268
+      ],
+      "priority": 6,
+      "exec": 6,
+      "members": {
+        "268": "14d2f11d349a820daed7c1b7ccc15b1c1ac4bb29"
+      },
+      "stacked_on": "claude/integration-20261010-262 d80397e34f8aeed2c25e44c0555b69a762520adb",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "maker_core/shadow/{records,score,tape}.py and market/maker_shadow.py in no static closure; host roll_verdict ROLL-FREE per master 05:22",
+      "tier_a": "PASS",
+      "activation_block": "present in PR #268 body",
+      "notes": "does not need #267; #267 on top of this stack conflicts (one maker-shadow-runner.md table row, per #268 body)",
+      "qtest": {
+        "log": "q-n4-268-d5f7978f9.log",
+        "result": "370 passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-d5f7978f9d08-20261009T102309-13568\\receipt.json",
+        "receipt_sha256": "68e9cfa5afb8b8c3ce7d2a46c56c5e4013df1c62f147cafa7d8e59f253be6d44",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "8072514c3765938281f44dab10da36d3897930c0cfec2e25412c7eddf3a7e138",
+        "inventory_files": 513,
+        "log_name": "pregate/pg-d5f7978f9d08-20261009T102309-13568/receipt.json",
+        "chunks": 21,
+        "chunk_files": 513,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9255,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9189
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T10:23:09.8993212-04:00",
+        "finished_at": "2026-10-09T11:17:48.0399656-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "u6_deploy_p5_optional",
+      "exec": 99,
+      "block": "night-plans/2026-10-10/U6-DEPLOY-BLOCK.md",
+      "deploy_tip": "89618c30cbe23f4b267728692ccf8bc0b1c2dd0b",
+      "decision": "master decides P5 (09-27 shakeout) at 04:00",
+      "window": "start only after the landing lease is released and no later than 04:09:15 local",
+      "ordering": "after the last landing that holds the lease; if landings still hold the lease at 04:09:15, P5 is skipped (fallback N5)"
+    }
+  ],
+  "fallback_if_rs_fails": [
+    {
+      "head": "claude/integration-20261010-247fu-nors",
+      "sha": "3e911b22552159227bbe5c4ff1e49e16e68310fd",
+      "prs": [
+        261,
+        247
+      ],
+      "stacked_on": "claude/integration-20261010-261-nors 96a49069b5fdcdf0e7b9cd6ca2e9c8bfd27005a7 on 6ce62cba0",
+      "expected_roll_class": "ROLL-FREE",
+      "pregate": null,
+      "note": "not separately pre-gated; it is an ancestor of 268-nors, whose pre-gate PASSED"
+    },
+    {
+      "head": "claude/integration-20261010-268-nors",
+      "sha": "d3e7aecc1882103a0346bc6061e96a2d5ee76b83",
+      "prs": [
+        261,
+        247,
+        264,
+        262,
+        268
+      ],
+      "stacked_on": "claude/integration-20261010-262-nors fd7d33dd84022f1cd176673527fac8fa2c266f82",
+      "expected_roll_class": "ROLL-FREE",
+      "qtest": {
+        "log": "q-n4-268nors-d3e7aecc1.log",
+        "result": "425 passed, 15 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n4heads\\pregate\\pg-d3e7aecc1882-20261009T111808-130464\\receipt.json",
+        "receipt_sha256": "ed5107aaa5e7e71330be8f3a2453d4065dca812708cf751266eb6f8457ac92c0",
+        "verdict": "PASS",
+        "base": "6ce62cba0cd6f8ddd50171afc8c81684eba1ee3d",
+        "base_is_ancestor": true,
+        "log_sha256": "43e19f09d5df4357e1287824bc0f75f8a617bb2ff6aa2b2a6dd234af6ffff2b6",
+        "inventory_files": 513,
+        "log_name": "pregate/pg-d3e7aecc1882-20261009T111808-130464/receipt.json",
+        "chunks": 21,
+        "chunk_files": 513,
+        "chunk_exit_codes_nonzero": [],
+        "driver_exit_code": 0,
+        "junit_totals": {
+          "tests": 9049,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 8983
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-09T11:18:08.1722174-04:00",
+        "finished_at": "2026-10-09T12:38:43.1951302-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      },
+      "note": "file set equals the stacked chain minus the RS files; 5 PRs exceeds the 4-PR head cap, so land as 247fu-nors then 268-nors, or split"
+    }
+  ],
+  "plan_sha256": "f3fbd8df2078a73ac3b2646e5dd96b1db5de93f600854f7ed8a5d980d67ac5b0"
+}
