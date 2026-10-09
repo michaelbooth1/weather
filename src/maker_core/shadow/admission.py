@@ -42,24 +42,35 @@ COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 RUN_ID = re.compile(r"(\d{8}T\d{6}Z)-[0-9a-f]{8}\Z")
 
-# Parity-report allowlist for ``outcome``-scoped days (gate parity wording §3 counters). Each entry is a type tag
-# or a nested mapping / ``[list item spec]``. Anything not listed (key, type or container) is refused.
-_COUNT, _TICKS, _TEXT, _FLAG, _HEX = "count", "ticks", "text", "flag", "hex"
+# Parity-report allowlist for ``outcome``-scoped days (gate parity wording §3 counters). Each entry is a value
+# spec: a closed enum (frozenset), a compiled pattern, a counter tag, a nested mapping or ``[list item spec]``.
+# Anything not listed (key, type, container or value) is refused. No free-text field exists.
+_COUNT, _TICKS, _FLAG, _DAY = "count", "ticks", "flag", "day"
+MAX_COUNT = 10 ** 7  # far above any day's condition-minute count; a larger number is a channel, not a count
+PARITY_REPORT_SCHEMA = "maker_core.shadow_parity.v0"
+PARITY_LABEL = "PARITY_OUTCOME_BLIND"
+PARITY_VERDICTS = frozenset({"PASS", "FAIL", "NOT_RUN", "REFUSED"})
+PARITY_REFUSALS = frozenset({
+    "utc_day_not_closed", "embargoed_utc_day", "parity_clock_not_started", "before_parity_clock",
+    "unsealed_tape", "no_sealed_tape", "code_unbound", "not_parity_commit", "tape_day_mismatch",
+    "not_parity_config", "run_unbound", "run_before_restart", "profile_mismatch"})
+# ``tape_code`` codes (``not_recorded``) and the runner's ``code_identity`` codes.
+TAPE_GIT_ERRORS = frozenset({"not_recorded", "git_unavailable", "git_failed", "git_output_invalid",
+                             "git_status_failed", "git_timeout"})
+TAPE_NAME = re.compile(r"\d{4}-\d{2}-\d{2}-\d{8}T\d{6}Z-[0-9a-f]{8}\.tape\.jsonl\Z")
 PARITY_COUNTERS = ("paired", "unevaluated", "shadow_only", "replay_only", "decision_mismatch", "price_mismatch",
                    "parity", "exact_equal")
 PARITY_FIELD_DISAGREEMENTS = ("action", "reasons", "sizes", "leg_order", "centre", "share_many", "net_per_minute")
 PARITY_REPORT_ALLOWLIST = {
-    "schema_version": _TEXT, "label": _TEXT, "utc_day": _TEXT, "verdict": _TEXT, "refused": _TEXT,
-    "engine_commit": _HEX, "shadow_commit": _HEX, "config_sha256": _HEX, "cohort_id": _HEX,
+    "schema_version": frozenset({PARITY_REPORT_SCHEMA}), "label": frozenset({PARITY_LABEL}), "utc_day": _DAY,
+    "verdict": PARITY_VERDICTS, "refused": PARITY_REFUSALS,
+    "engine_commit": COMMIT, "shadow_commit": COMMIT, "config_sha256": SHA256, "cohort_id": SHA256,
     "parity": {**{name: _COUNT for name in PARITY_COUNTERS}, "max_price_diff_ticks": _TICKS,
                "field_disagreements": {name: _COUNT for name in PARITY_FIELD_DISAGREEMENTS}},
-    "tapes": [{"tape": _TEXT, "sha256": _HEX, "git_commit": _HEX, "git_dirty": _FLAG, "git_error": _TEXT}],
-    "code": {"git_commits": [_HEX], "tapes": _COUNT, "dirty_tapes": _COUNT, "unbound_tapes": _COUNT},
+    "tapes": [{"tape": TAPE_NAME, "sha256": SHA256, "git_commit": COMMIT, "git_dirty": _FLAG,
+               "git_error": TAPE_GIT_ERRORS}],
+    "code": {"git_commits": [COMMIT], "tapes": _COUNT, "dirty_tapes": _COUNT, "unbound_tapes": _COUNT},
 }
-# Identifiers, day strings, tape names and enumerated codes only: no braces, quotes, brackets or whitespace,
-# so a JSON document cannot ride inside a string value.
-_TEXT_VALUE = re.compile(r"[A-Za-z0-9_.:+\-]{0,160}\Z")
-_HEX_VALUE = re.compile(r"[0-9a-f]{1,64}\Z")
 
 
 def utc_day(value):
@@ -153,17 +164,55 @@ def parity_clock_from(mapping):
                        mapping["config_sha256"])
 
 
+_MINT = object()  # only ``admit_parity_day`` holds it
+
+
+def _windows_with_defaults(windows):
+    """The caller's windows plus the permanent ones: a test or caller may add windows, never remove one."""
+    return tuple(windows) + tuple(w for w in EMBARGO_WINDOWS if w not in windows)
+
+
 @dataclass(frozen=True)
 class ParityAdmission:
+    """Minted only by ``admit_parity_day``; direct construction (or ``dataclasses.replace``) is refused.
+
+    An admitted token is re-validated on construction: canonical day, no ``full`` window, a ``ParityClock`` whose
+    first countable day is not after the day, and ``withhold_outcomes`` equal to the day's ``outcome`` scope.
+    """
+
     day: str
     refused: str | None
     reason: str | None = None
     withhold_outcomes: bool = False
     clock: ParityClock | None = field(default=None, compare=False)
+    windows: tuple = field(default=EMBARGO_WINDOWS, compare=False, repr=False)
+    mint: object = field(default=None, compare=False, repr=False)
+
+    def __post_init__(self):
+        if self.mint is not _MINT:
+            raise TypeError("parity_admission_not_minted: use admit_parity_day")
+        if self.refused is None:
+            _admitted_scope(self)
 
     @property
     def admitted(self):
         return self.refused is None
+
+
+def _admitted_scope(admission):
+    """Re-derive an admitted token from its day; the scope, or ``ValueError`` with the refusal code."""
+    day = utc_day(admission.day)
+    windows = _windows_with_defaults(admission.windows)
+    scope = embargo_scope(day, windows)
+    if scope == FULL:
+        raise ValueError("embargoed_utc_day")
+    if not isinstance(admission.clock, ParityClock):
+        raise ValueError("parity_clock_not_started")
+    if day < admission.clock.first_countable_day:
+        raise ValueError("before_parity_clock")
+    if admission.withhold_outcomes is not (scope == OUTCOME):
+        raise ValueError("parity_withholding_differs_from_scope")
+    return scope
 
 
 def _utc_now():
@@ -179,21 +228,26 @@ def admit_parity_day(day, clock, *, now=_utc_now, windows=EMBARGO_WINDOWS):
     its clock; ``bind_parity_tapes`` refuses any other.
     """
     day = utc_day(day)
+    windows = _windows_with_defaults(windows)
     current = now()
     if not isinstance(current, datetime) or current.tzinfo is None:
         raise ValueError("parity_now_not_aware")
+
+    def minted(refused, reason=None, **kw):
+        return ParityAdmission(day, refused, reason, windows=windows, mint=_MINT, **kw)
+
     if day >= current.astimezone(timezone.utc).date().isoformat():
-        return ParityAdmission(day, "utc_day_not_closed")
+        return minted("utc_day_not_closed")
     scope = embargo_scope(day, windows)
     if scope == FULL:
-        return ParityAdmission(day, "embargoed_utc_day", embargo_reason(day, windows))
+        return minted("embargoed_utc_day", embargo_reason(day, windows))
     if clock is None:
-        return ParityAdmission(day, "parity_clock_not_started")
+        return minted("parity_clock_not_started")
     if not isinstance(clock, ParityClock):
         raise TypeError("parity clock must be a ParityClock")
     if day < clock.first_countable_day:
-        return ParityAdmission(day, "before_parity_clock", clock=clock)
-    return ParityAdmission(day, None, embargo_reason(day, windows), withhold_outcomes=scope == OUTCOME, clock=clock)
+        return minted("before_parity_clock", clock=clock)
+    return minted(None, embargo_reason(day, windows), withhold_outcomes=scope == OUTCOME, clock=clock)
 
 
 def bind_parity_tapes(admission, tapes, unsealed, clock):
@@ -232,11 +286,12 @@ def open_parity_tapes(root, admission):
     """The only sanctioned way for the parity path to open tapes: D's sealed tapes, bound to the admission clock.
 
     Refuses (``ValueError``) anything but an admitted ``ParityAdmission``, and a day whose tapes do not bind.
-    Never opens another day's tape.
+    Re-derives the day, its window and its clock from the token before the glob; never opens another day's tape.
     """
     if not isinstance(admission, ParityAdmission) or not admission.admitted:
         raise ValueError("parity_day_not_admitted")
-    tapes, unsealed = sealed_tapes(root, admission.day)
+    _admitted_scope(admission)
+    tapes, unsealed = sealed_tapes(root, utc_day(admission.day))
     refused = bind_parity_tapes(admission, tapes, unsealed, admission.clock)
     if refused:
         raise ValueError(refused)
@@ -248,16 +303,22 @@ def _refuse(path, what):
 
 
 def _allowed_scalar(value, spec):
+    if isinstance(spec, frozenset):
+        return type(value) is str and value in spec
+    if isinstance(spec, re.Pattern):
+        return type(value) is str and value.isascii() and bool(spec.fullmatch(value))
     if spec == _COUNT:
-        return type(value) is int and value >= 0
+        return type(value) is int and 0 <= value <= MAX_COUNT
     if spec == _TICKS:
-        return (type(value) is Decimal and value.is_finite() and value >= 0) or (type(value) is int and value >= 0)
+        return ((type(value) is Decimal and value.is_finite() and 0 <= value <= MAX_COUNT)
+                or (type(value) is int and 0 <= value <= MAX_COUNT))
     if spec == _FLAG:
         return type(value) is bool
-    if spec == _TEXT:
-        return type(value) is str and bool(_TEXT_VALUE.fullmatch(value))
-    if spec == _HEX:
-        return type(value) is str and bool(_HEX_VALUE.fullmatch(value))
+    if spec == _DAY:
+        try:
+            return type(value) is str and utc_day(value) == value
+        except ValueError:
+            return False
     return False
 
 
@@ -281,18 +342,23 @@ def _check(value, spec, path):
 def assert_outcome_blind(report, admission):
     """On an ``outcome``-window day, refuse any parity report not inside ``PARITY_REPORT_ALLOWLIST``.
 
-    Exact keys at every level (``str`` keys only), and only dict, list, allowlisted ``str``, non-negative ``int``,
-    finite ``Decimal``, ``bool`` where listed, and None. Objects, dataclasses, tuples, sets, floats and
-    JSON-carrying strings are refused.
+    Exact keys at every level (``str`` keys only), and only dict, list, enumerated or pattern-exact ``str``
+    (canonical day, 40-hex commit, 64-hex digest, runner tape name), bounded non-negative ``int``, bounded finite
+    ``Decimal``, ``bool`` where listed, and None. Objects, dataclasses, tuples, sets, floats and free text are
+    refused. The window is re-derived from the token's day (with the permanent windows): the flag alone never
+    turns withholding off.
     """
     if not isinstance(admission, ParityAdmission):
         raise ValueError("parity_day_not_admitted")
-    if admission.withhold_outcomes:
+    scope = embargo_scope(utc_day(admission.day), _windows_with_defaults(admission.windows))
+    if admission.withhold_outcomes or scope == OUTCOME:
         _check(report, PARITY_REPORT_ALLOWLIST, "")
     return report
 
 
-__all__ = ["EMBARGOED_UTC_DAYS", "EMBARGO_WINDOWS", "FULL", "OUTCOME", "PARITY_CLOCK_FIELDS", "PARITY_CLOCK_SCHEMA",
-           "PARITY_COUNTERS", "PARITY_FIELD_DISAGREEMENTS", "PARITY_REPORT_ALLOWLIST", "ParityAdmission", "ParityClock",
+__all__ = ["EMBARGOED_UTC_DAYS", "EMBARGO_WINDOWS", "FULL", "MAX_COUNT", "OUTCOME", "PARITY_CLOCK_FIELDS",
+           "PARITY_CLOCK_SCHEMA", "PARITY_COUNTERS", "PARITY_FIELD_DISAGREEMENTS", "PARITY_LABEL", "PARITY_REFUSALS",
+           "PARITY_REPORT_ALLOWLIST", "PARITY_REPORT_SCHEMA", "PARITY_VERDICTS", "ParityAdmission", "ParityClock",
+           "TAPE_GIT_ERRORS", "TAPE_NAME",
            "admit_parity_day", "assert_outcome_blind", "bind_parity_tapes", "embargo_reason", "embargo_scope",
            "open_parity_tapes", "parity_clock_from", "run_started", "utc_day"]

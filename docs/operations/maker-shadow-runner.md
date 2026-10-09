@@ -202,15 +202,23 @@ Any parity scorer must, in order:
 1. `admit_parity_day(day, clock)` before opening anything. It computes today in UTC
    itself and requires a canonical closed day, not `full`, an explicit `ParityClock`,
    and a day on or after its `first_countable_day` (the day after the restart run
-   started). The admission carries its clock.
-2. `open_parity_tapes(root, admission)`, the only sanctioned tape opener. It reads
+   started). The admission carries its clock. Only `admit_parity_day` can mint a
+   `ParityAdmission`; direct construction is refused, and an admitted token (also
+   one made by `dataclasses.replace`) is re-validated against its day.
+2. `open_parity_tapes(root, admission)`, the only sanctioned tape opener. It first
+   re-derives the canonical day, its window (the permanent windows always apply),
+   the clock and the first countable day from the token, then reads
    `sealed_tapes(root, day)` only (never D-1 or D+1) and runs `bind_parity_tapes`:
    no unsealed tape, and every tape on the admission clock's shadow commit, clean,
    with the clock's `config_sha256` and a run started at or after the restart run.
 3. `assert_outcome_blind(report, admission)` before writing. On an `outcome` day it
-   enforces `PARITY_REPORT_ALLOWLIST`: exact keys and types (parity counters,
-   identifiers, tape code). Any other key, non-`str` key, object, tuple, set, float
-   or JSON-carrying string is refused.
+   enforces `PARITY_REPORT_ALLOWLIST`; the window is re-derived from the day, never
+   taken from the flag alone. Exact keys; strings only from closed enums (verdict,
+   label, refusal, tape `git_error`, schema) or exact patterns (canonical day,
+   40-hex commit, 64-hex digest and cohort id, the runner's tape name); counters are
+   non-negative `int` at most `MAX_COUNT`. Any other key, value, object, tuple, set
+   or float is refused. A ratchet test keeps `sealed_tapes(` callers to this module
+   and the diagnostic `score`.
 
 `MakerEvidencePanel` (the 88a reader) refuses an embargoed or non-canonical day in
 its own constructor, independently of `score`. The clock

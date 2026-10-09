@@ -360,3 +360,103 @@ def test_open_parity_tapes_refuses_an_unbound_day(tmp_path):
     _write_tape(tmp_path, "20310313T000000Z-0123abcd", datetime(2031, 3, 13, tzinfo=timezone.utc), git_dirty=True)
     with pytest.raises(ValueError, match="code_unbound"):
         adm.open_parity_tapes(tmp_path, ADMITTED)
+
+
+# ---- fix round 2: D1 unforgeable admission, re-derivation, and the sealed_tapes caller ratchet ----
+
+def test_parity_admission_cannot_be_constructed_outside_admission():
+    with pytest.raises(TypeError, match="parity_admission_not_minted"):
+        adm.ParityAdmission("2031-03-13", None, withhold_outcomes=True, clock=CLOCK)
+    with pytest.raises(TypeError, match="parity_admission_not_minted"):
+        adm.ParityAdmission("2026-10-01", "embargoed_utc_day")
+
+
+@pytest.mark.parametrize("changes, error", [
+    ({"day": "2026-10-01"}, "embargoed_utc_day"),            # real W1 day: permanent windows always apply
+    ({"day": "2031-03-05"}, "embargoed_utc_day"),            # injected full window travels with the token
+    ({"day": "*"}, "utc_day_not_canonical"),
+    ({"day": "2031-03-11"}, "before_parity_clock"),
+    ({"clock": None}, "parity_clock_not_started"),
+    ({"withhold_outcomes": False}, "parity_withholding_differs_from_scope"),
+    ({"windows": ()}, "parity_withholding_differs_from_scope"),  # dropping windows cannot drop the token's own
+    ({"day": "2026-10-20"}, "before_parity_clock"),          # real W2 day is still bound to the clock
+])
+def test_replace_on_a_minted_admission_is_revalidated(changes, error):
+    import dataclasses
+    with pytest.raises(ValueError, match=error):
+        dataclasses.replace(ADMITTED, **changes)
+
+
+def test_dropping_injected_windows_keeps_the_permanent_ones():
+    assert adm._windows_with_defaults(())[:len(EMBARGO_WINDOWS)] == EMBARGO_WINDOWS
+    assert admit_parity_day("2026-10-01", CLOCK, now=NOW, windows=()).refused == "embargoed_utc_day"
+    w2 = admit_parity_day("2026-10-20", parity_clock_from(clock_mapping(
+        freeze_utc="2026-10-18T09:00:00Z", restart_run_id="20261018T101500Z-0123abcd")), now=NOW, windows=())
+    assert w2.admitted and w2.withhold_outcomes
+
+
+def test_open_parity_tapes_rederives_before_the_glob(tmp_path, monkeypatch):
+    globbed = []
+    monkeypatch.setattr(adm, "sealed_tapes", lambda root, day: globbed.append(day) or ([], []))
+    forged = object.__new__(adm.ParityAdmission)  # bypasses __init__ entirely
+    for name, value in {"day": "2026-10-01", "refused": None, "reason": None, "withhold_outcomes": False,
+                        "clock": CLOCK, "windows": (), "mint": None}.items():
+        object.__setattr__(forged, name, value)
+    with pytest.raises(ValueError, match="embargoed_utc_day"):
+        adm.open_parity_tapes(tmp_path, forged)
+    object.__setattr__(forged, "day", "*")
+    with pytest.raises(ValueError, match="utc_day_not_canonical"):
+        adm.open_parity_tapes(tmp_path, forged)
+    assert globbed == []
+
+
+def test_withholding_follows_the_day_not_the_flag():
+    forged = object.__new__(adm.ParityAdmission)
+    for name, value in {"day": "2031-03-13", "refused": None, "reason": None, "withhold_outcomes": False,
+                        "clock": CLOCK, "windows": WINDOWS, "mint": None}.items():
+        object.__setattr__(forged, name, value)
+    with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
+        assert_outcome_blind({"fills": [1], "paper": {"cash_pusd": "9"}}, forged)
+    object.__setattr__(forged, "windows", ())
+    object.__setattr__(forged, "day", "2026-10-20")  # real W2 day, no injected windows
+    with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
+        assert_outcome_blind({"fills": [1]}, forged)
+
+
+def test_sealed_tapes_is_called_only_by_admission_and_the_diagnostic_score():
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "src"
+    callers = sorted(str(p.relative_to(root)).replace("\\", "/") for p in root.rglob("*.py")
+                     if p.name != "tape.py" and re.search(r"\bsealed_tapes\(", p.read_text(encoding="utf-8")))
+    assert callers == ["maker_core/shadow/admission.py", "weather/market/maker_shadow.py"], callers
+
+
+# ---- fix round 2: D2 no free-form scalar channels ----
+
+@pytest.mark.parametrize("leak", [
+    {"verdict": "cash_pusd:-12.34"}, {"verdict": "pass"}, {"label": "pnl_pusd:5.10"},
+    {"label": "DIAGNOSTIC_NOT_A_VERDICT"}, {"refused": "fills:3"}, {"schema_version": "x" * 160},
+    {"schema_version": "maker_core.shadow_parity.v0.cash"},
+    {"tapes": [{"git_error": "paper.summary.cash_pusd:99.5"}]}, {"tapes": [{"tape": "fills-2-cash-1.5"}]},
+    {"tapes": [{"tape": "2031-03-13-20310312T101500Z-0123abcd.tape.jsonl.x"}]},
+    {"tapes": [{"sha256": "0" * 63}]}, {"tapes": [{"git_commit": "a" * 64}]},
+    {"cohort_id": format(1234567, "x")}, {"cohort_id": "a" * 40}, {"engine_commit": "1"},
+    {"shadow_commit": "a" * 64}, {"config_sha256": "c" * 40}, {"code": {"git_commits": ["a" * 39]}},
+    {"utc_day": "not-a-day"}, {"utc_day": "2031-3-13"}, {"utc_day": "2031-02-30"},
+    {"parity": {"paired": 10 ** 30}}, {"parity": {"paired": adm.MAX_COUNT + 1}},
+    {"parity": {"max_price_diff_ticks": adm.Decimal("1e30")}}, {"code": {"tapes": 10 ** 8}},
+    {"parity": {"field_disagreements": {"sizes": 10 ** 9}}},
+])
+def test_free_text_hex_and_unbounded_channels_are_refused(leak):
+    with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
+        assert_outcome_blind({**FULL_REPORT, **leak}, ADMITTED)
+
+
+def test_every_enumerated_value_passes():
+    for verdict in adm.PARITY_VERDICTS:
+        for refused in [None, *adm.PARITY_REFUSALS]:
+            assert_outcome_blind({**FULL_REPORT, "verdict": verdict, "refused": refused}, ADMITTED)
+    for error in adm.TAPE_GIT_ERRORS:
+        assert_outcome_blind({**FULL_REPORT, "tapes": [{**FULL_REPORT["tapes"][0], "git_error": error}]}, ADMITTED)
+    assert_outcome_blind({**FULL_REPORT, "cohort_id": "d" * 64, "parity": {"paired": adm.MAX_COUNT}}, ADMITTED)
