@@ -8,6 +8,10 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
                                     non-zero with any open order on the account (S0-4)
     live [--session0 --run R]       one unattended session (the owner types `go <6 hex>`, then may leave)
     verify                          read-only: our open orders vs foreign ones, L figures, sessions, unresolved legs
+    wallet-verify [--since EPOCH]   read-only S0-1/S0-6 through the production-side wallet reader
+                                    (weather.market.wallet_reader_client; no venue credential): zero open orders,
+                                    L recomputed from venue fills of our order ids vs l_ledger.json to 0.01 pUSD, and
+                                    positions outside our tokens unchanged against the T-40 min baseline
     reconcile                       read-only order and trade reads -> ledger; closes a crashed session, writes its
                                     session_end.json and raises the notification (S0 run 0c)
     cancel-ours                     cancel OUR open orders only (ids from the ledger); never a foreign order
@@ -22,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
@@ -29,8 +34,9 @@ import signal
 import sys
 
 from weather.market import lfc_constants as LFC
-from weather.market.lfc_ledger import (Ledger, LedgerUnavailable, compare_baselines, fetch_account_positions,
-                                       latest_baseline, ledger_path, take_baseline, write_baseline)
+from weather.market.lfc_ledger import (SNAPSHOT_FILE, Ledger, LedgerUnavailable, compare_baselines,
+                                       fetch_account_positions, latest_baseline, ledger_path, normalize_positions,
+                                       take_baseline, traded_shares, write_baseline)
 from weather.market.lfc_panel_exclusion import EXCLUSION_FILE, excluded_conditions, load_panel_exclusions
 from weather.market.lfc_pilot import (PilotProfile, PilotSession, Session0Books, notify_owner, owner_local_date,
                                       pilot_root, session0_table, start_refusals, write_session_end)
@@ -61,6 +67,9 @@ def parser():
         mode.add_argument('--shadow-scope', type=Path,
                           help='session 0 only: the shadow-panel scope (JSON list of condition ids; may be [])')
     modes.add_parser('verify')
+    wallet = modes.add_parser('wallet-verify')
+    wallet.add_argument('--since', type=int,
+                        help='Unix seconds for the trades read (default: the ledger genesis, before any of our orders)')
     modes.add_parser('reconcile')
     modes.add_parser('cancel-ours')
     exclusions = modes.add_parser('exclusions')
@@ -420,6 +429,98 @@ def run_verify():
         venue.close()
 
 
+L_TOLERANCE_PUSD = Decimal('0.01')
+
+
+def wallet_reader_report(ledger, snapshot, t40, *, open_orders, trades, positions):
+    """S0-1 and S0-6 (session-0 spec section 5) from the wallet reader's open-orders, trades and positions routes.
+
+    Pure: the reads are passed in (None = the read failed). S0-1: zero open orders account-wide. S0-6: L recomputed
+    from the reader's authenticated fills for OUR order ids only, at each leg's limit price, equals the l_ledger.json
+    L to 0.01 pUSD (the snapshot must also be the one the verified ledger history produces), and every position
+    outside our tokens is unchanged against the T-40 min baseline. Any unreadable input fails that check.
+    """
+    report = {}
+    if isinstance(open_orders, list):
+        report['open_orders'] = len(open_orders)
+        report['s0_1'] = 'PASS' if not open_orders else 'FAIL'
+    else:
+        report['open_orders'], report['s0_1'] = 'ERR', 'FAIL'
+
+    ledger_l = ledger.L()
+    report['ledger_L'] = str(ledger_l)
+    try:
+        snapshot_l = Decimal(str(snapshot['L']))
+        fresh = snapshot.get('history_last_sha256') == ledger.previous and snapshot_l == ledger_l
+    except (TypeError, KeyError, InvalidOperation):
+        snapshot_l, fresh = None, False
+    report['l_ledger_json_L'] = str(snapshot_l) if snapshot_l is not None else 'ERR'
+    fills = trades.get('fills') if isinstance(trades, dict) else None
+    if isinstance(fills, list) and all(isinstance(row, dict) for row in fills):
+        traded = traded_shares(fills, ledger.our_order_ids())
+        venue_l = sum((Decimal(traded.get(oid, '0')) * Decimal(str(ledger.legs[key]['price']))
+                       for oid, key in ledger.by_order.items()), Decimal(0))
+        report['venue_L'] = str(venue_l)
+        difference = abs(venue_l - snapshot_l) if snapshot_l is not None else None
+        report['l_difference'] = str(difference) if difference is not None else 'ERR'
+        l_ok = fresh and difference is not None and difference <= L_TOLERANCE_PUSD
+    else:
+        report['venue_L'] = report['l_difference'] = 'ERR'
+        l_ok = False
+    if not fresh:
+        report['l_ledger_json'] = 'stale_or_unreadable'
+
+    tokens = ledger.tokens()
+    changed = None
+    if isinstance(positions, dict) and positions.get('status') == 'OBSERVED' and t40 is not None:
+        try:
+            rows = list(positions.get('positions') or []) + list(positions.get('resolved_positions') or [])
+            current = {a: Decimal(v) for a, v in normalize_positions(rows).items() if a not in tokens}
+            before = {a: Decimal(str(v)) for a, v in t40['positions'].items() if a not in tokens and Decimal(str(v))}
+            changed = sorted(a for a in set(current) | set(before) if current.get(a) != before.get(a))
+        except (TypeError, ValueError, KeyError, InvalidOperation):
+            changed = None
+    report['positions_changed_outside_pilot'] = changed if changed is not None else 'ERR'
+    report['s0_6'] = 'PASS' if l_ok and changed == [] else 'FAIL'
+    report['status'] = 'PASS' if report['s0_1'] == 'PASS' and report['s0_6'] == 'PASS' else 'FAIL'
+    return report
+
+
+def _epoch(value):
+    return int(datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp())
+
+
+def run_wallet_verify(args, *, reader=None, root=None):
+    """Read-only: the three wallet-reader routes, the verified ledger, its l_ledger.json and the T-40 baseline."""
+    from weather.market.re1_attended import SecretGuard
+    if reader is None:
+        from weather.market.wallet_reader_client import read_account as reader
+    from weather.market.wallet_reader_security import ReaderError
+    root = pilot_root() if root is None else Path(root)
+    ledger = Ledger.open(ledger_path(root), clock=_now)
+    since = args.since if args.since is not None else _epoch(ledger.rows[0]['recorded_at_utc'])
+    try:
+        snapshot = json.loads((root / SNAPSHOT_FILE).read_bytes())
+    except (OSError, ValueError):
+        snapshot = None
+    try:
+        t40 = latest_baseline(root, ledger, 't40')
+    except LedgerUnavailable:
+        t40 = None
+
+    def read(command, **options):
+        try:
+            return reader(command, **options)
+        except ReaderError:
+            return None
+    report = wallet_reader_report(ledger, snapshot if isinstance(snapshot, dict) else {}, t40,
+                                  open_orders=read('open-orders'), trades=read('trades', since=str(since)),
+                                  positions=read('positions', include_resolved=True))
+    report['since'] = since
+    SecretGuard().print(report)
+    return 0 if report['status'] == 'PASS' else 1
+
+
 def reconcile_ledger(ledger, venue):
     """Order reads -> terminal rows, venue trades -> mismatches; a session left open by a crash is closed once none
     of our orders rests. Returns the report and the ids of the sessions it closed."""
@@ -506,6 +607,8 @@ def main(argv=None):
             return run_live(args)
         if args.mode == 'verify':
             return run_verify()
+        if args.mode == 'wallet-verify':
+            return run_wallet_verify(args)
         if args.mode == 'reconcile':
             return run_reconcile()
         if args.mode == 'cancel-ours':

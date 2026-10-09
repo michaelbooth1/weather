@@ -3,7 +3,8 @@
 Guards: the signed start refusals (earliest start, 23:50Z hard stop, last start date, one counted session per
 owner-local date, session 0 passed first, 8 sessions, stop-at-100, open orders), the T-40-only baseline of session 0,
 session-0 flags refused without --session0, reconcile closing a crashed session (S0 run 0c) with its session_end.json
-and notification, trades mismatches surfaced, and cancel-ours never touching a foreign order.
+and notification, trades mismatches surfaced, cancel-ours never touching a foreign order, and the S0-1/S0-6
+wallet-reader verify (session-0 spec section 5) through fake wallet_reader_client reads.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -14,7 +15,8 @@ import pytest
 from weather.market import lfc_constants as LFC
 from weather.market.lfc_cli import (cancel_ours, check_flags, classify_open_orders, close_crashed, close_out,
                                     finish_session, load_conditions, parser, reconcile_ledger, session0_passed,
-                                    session_directory, session_identity, start_gates)
+                                    session_directory, session_identity, start_gates, run_wallet_verify,
+                                    wallet_reader_report)
 from weather.market.lfc_ledger import Ledger, take_baseline, write_baseline
 from weather.market.lfc_pilot import PilotProfile
 
@@ -256,3 +258,105 @@ def test_cancel_ours_never_touches_foreign_orders(tmp_path):
     receipt = cancel_ours(ledger, venue)
     assert venue.cancelled == ['o1'] and receipt['foreign_left'] == ['foreign'] and receipt['remaining_ours'] == []
     assert classify_open_orders([{'id': 'o2'}, {'id': 'x'}], ledger) == (['o2'], ['x'])
+
+
+# ----- S0-1 / S0-6 through the production-side wallet reader (fakes only) ---------------------------------------
+OLD = '9' * 20  # a pre-existing position, outside every pilot token
+
+
+def wallet_ledger(tmp_path, *, matched='2'):
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: S0_NOW, maker_address=MAKER)
+    write_baseline(tmp_path, take_baseline(label='t40', now=S0_NOW - timedelta(minutes=40), maker_address=MAKER,
+                                           positions=[{'asset': OLD, 'size': '7', 'conditionId': 'c-old'}],
+                                           open_orders=[], available_collateral='500'), ledger)
+    ledger.record('session_start', session_id='S0a-1', counted=False, session_number=0, session0_run='0a')
+    ledger.intent(session_id='S0a-1', intent_key='S0a-1:1', token_id='11', condition_id='c', price='.5', size='20',
+                  fee_rate_bps='0')
+    ledger.ack('S0a-1:1', 'o1')
+    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': matched}, source='test')
+    ledger.record('session_end', session_id='S0a-1', reason='fixed_end', cleanup_ok=True)
+    return ledger
+
+
+def snapshot(tmp_path):
+    return json.loads((tmp_path / 'l_ledger.json').read_bytes())
+
+
+def fills(*pairs):
+    return {'fills': [{'status': 'CONFIRMED', 'taker_order_id': 'someone',
+                       'maker_orders': [{'order_id': oid, 'matched_amount': amount}]} for oid, amount in pairs]}
+
+
+def positions(*pairs):
+    return {'status': 'OBSERVED', 'positions': [{'token_id': t, 'size': s} for t, s in pairs], 'resolved_count': 0}
+
+
+def report(tmp_path, ledger, *, open_orders=(), trades=None, held=None, snap=None):
+    t40 = json.loads(next(tmp_path.glob('baseline-t40-*.json')).read_bytes())
+    return wallet_reader_report(ledger, snapshot(tmp_path) if snap is None else snap, t40,
+                                open_orders=list(open_orders) if open_orders is not None else None,
+                                trades=fills(('o1', '2')) if trades is None else trades,
+                                positions=positions((OLD, '7'), ('11', '2')) if held is None else held)
+
+
+def test_wallet_verify_passes_when_venue_fills_reproduce_l_and_old_positions_are_unchanged(tmp_path):
+    ledger = wallet_ledger(tmp_path)
+    result = report(tmp_path, ledger)
+    assert result['status'] == 'PASS' and result['s0_1'] == 'PASS' and result['s0_6'] == 'PASS'
+    assert Decimal(result['venue_L']) == Decimal(result['l_ledger_json_L']) == Decimal('1.0')
+    assert result['positions_changed_outside_pilot'] == []
+
+
+def test_wallet_verify_counts_only_our_order_ids_and_ignores_failed_trades(tmp_path):
+    ledger = wallet_ledger(tmp_path)
+    trades = fills(('o1', '2'), ('foreign', '50'))
+    trades['fills'].append({'status': 'FAILED', 'maker_orders': [{'order_id': 'o1', 'matched_amount': '9'}]})
+    assert report(tmp_path, ledger, trades=trades)['status'] == 'PASS'
+
+
+@pytest.mark.parametrize('venue_shares,verdict', [('2.02', 'PASS'), ('2.04', 'FAIL'), ('0', 'FAIL')])
+def test_wallet_verify_l_tolerance_is_one_cent(tmp_path, venue_shares, verdict):
+    ledger = wallet_ledger(tmp_path)
+    assert report(tmp_path, ledger, trades=fills(('o1', venue_shares)))['s0_6'] == verdict
+
+
+def test_wallet_verify_fails_on_any_open_order_or_unreadable_route(tmp_path):
+    ledger = wallet_ledger(tmp_path)
+    assert report(tmp_path, ledger, open_orders=[{'id': 'foreign'}])['s0_1'] == 'FAIL'
+    unreadable = report(tmp_path, ledger, open_orders=None)
+    assert unreadable['open_orders'] == 'ERR' and unreadable['status'] == 'FAIL'
+    assert report(tmp_path, ledger, trades={'error': 'x'})['venue_L'] == 'ERR'
+    assert report(tmp_path, ledger, held={'status': 'PARTIAL', 'positions': []})['s0_6'] == 'FAIL'
+
+
+def test_wallet_verify_flags_a_changed_position_outside_the_pilot(tmp_path):
+    ledger = wallet_ledger(tmp_path)
+    result = report(tmp_path, ledger, held=positions((OLD, '6'), ('11', '2'), ('77', '1')))
+    assert result['s0_6'] == 'FAIL' and result['positions_changed_outside_pilot'] == ['77', OLD]
+
+
+def test_wallet_verify_refuses_a_stale_l_ledger_json(tmp_path):
+    ledger = wallet_ledger(tmp_path)
+    stale = dict(snapshot(tmp_path), history_last_sha256='0' * 64)
+    result = report(tmp_path, ledger, snap=stale)
+    assert result['s0_6'] == 'FAIL' and result['l_ledger_json'] == 'stale_or_unreadable'
+
+
+def test_wallet_verify_command_reads_only_the_three_reader_routes(tmp_path, capsys):
+    from weather.market.wallet_reader_client import ClientError
+    wallet_ledger(tmp_path)
+    calls = []
+
+    def reader(command, **options):
+        calls.append((command, options))
+        return {'open-orders': [], 'trades': fills(('o1', '2')),
+                'positions': positions((OLD, '7'), ('11', '2'))}[command]
+    args = parser().parse_args(['wallet-verify'])
+    assert run_wallet_verify(args, reader=reader, root=tmp_path) == 0
+    genesis = str(int(S0_NOW.timestamp()))
+    assert calls == [('open-orders', {}), ('trades', {'since': genesis}), ('positions', {'include_resolved': True})]
+    assert "'status': 'PASS'" in capsys.readouterr().out
+
+    def broken(command, **options):
+        raise ClientError('timeout')
+    assert run_wallet_verify(parser().parse_args(['wallet-verify', '--since', '5']), reader=broken, root=tmp_path) == 1
