@@ -44,7 +44,7 @@ def test_first_minute_has_no_own_legs_and_decides_on_the_public_book(tmp_path):
     row = first["conditions"][0]
     assert row["decision"]["action"] == "QUOTE"
     assert inputs_from(row["inputs"]).book.yes_bids == tuple(levels((("0.49", "75"),)))
-    assert first["own_size_mid"] == {"books_with_own_legs": 0, "mid_differs": 0}
+    assert first["own_size_mid"] == {"books_with_own_legs": 0, "mid_differs": 0, "own_leg_crossed": 0}
 
 
 def test_resting_legs_are_on_the_decision_book_and_the_tape_round_trips(tmp_path):
@@ -59,7 +59,7 @@ def test_resting_legs_are_on_the_decision_book_and_the_tape_round_trips(tmp_path
     assert (D(no_leg["price"]), D(no_leg["size"])) in inputs.book.no_bids
     assert (1 - D(yes_leg["price"]), D(yes_leg["size"])) in inputs.book.no_asks
     assert digest(inputs) == row["decision"]["input_hash"]
-    assert second["own_size_mid"] == {"books_with_own_legs": 1, "mid_differs": 0}  # .49 x 75 stays best
+    assert second["own_size_mid"] == {"books_with_own_legs": 1, "mid_differs": 0, "own_leg_crossed": 0}  # .49 x 75 stays best
 
 
 def test_a_resting_leg_that_becomes_the_best_qualified_bid_is_counted(tmp_path):
@@ -67,7 +67,7 @@ def test_a_resting_leg_that_becomes_the_best_qualified_bid_is_counted(tmp_path):
     _, second, legs = two_minutes(tmp_path, (("0.47", "75"),))
     yes_leg = next(leg for leg in legs if leg["outcome"] == "YES")
     assert D(yes_leg["price"]) == D(".48") and D(yes_leg["size"]) >= 20
-    assert second["own_size_mid"] == {"books_with_own_legs": 1, "mid_differs": 1}
+    assert second["own_size_mid"] == {"books_with_own_legs": 1, "mid_differs": 1, "own_leg_crossed": 0}
 
 
 def test_marks_use_the_public_book_not_the_composed_one(tmp_path):
@@ -83,3 +83,28 @@ def test_marks_use_the_public_book_not_the_composed_one(tmp_path):
     runner.step(clock.now, MARKETS)
     assert {bids for asset, bids in seen if asset == YES} == {tuple(levels((("0.49", "75"),)))}
     assert {bids for asset, bids in seen if asset == NO} == {tuple(levels((("0.49", "100"),)))}
+
+
+def test_public_book_moving_onto_a_resting_leg_is_counted_as_own_leg_crossed(tmp_path):
+    # The public YES ask drops to .48, onto the resting YES leg: only the composed book is crossed.
+    reads = Reads()
+    runner, _, _, clock, _ = rig(tmp_path, reads=reads)
+    first = runner.step(NOW, MARKETS)
+    assert first["own_size_mid"]["own_leg_crossed"] == 0
+    reads.books[YES] = public_book(YES, bids=(("0.47", "75"),), asks=(("0.48", "75"),))
+    clock.now = NOW + timedelta(minutes=1)
+    second = runner.step(clock.now, MARKETS)
+    decision = second["conditions"][0]["decision"]
+    assert (decision["action"], decision["reasons"][0]) == ("CANCEL", "CROSSED_BOOK")
+    assert second["own_size_mid"]["own_leg_crossed"] == 1
+
+
+def test_a_public_book_crossed_on_its_own_is_not_own_leg_crossed(tmp_path):
+    reads = Reads()
+    runner, _, _, clock, _ = rig(tmp_path, reads=reads)
+    runner.step(NOW, MARKETS)
+    reads.books[YES] = public_book(YES, bids=(("0.52", "75"),), asks=(("0.51", "75"),))
+    clock.now = NOW + timedelta(minutes=1)
+    second = runner.step(clock.now, MARKETS)
+    assert second["conditions"][0]["decision"]["reasons"][0] == "CROSSED_BOOK"
+    assert second["own_size_mid"]["own_leg_crossed"] == 0

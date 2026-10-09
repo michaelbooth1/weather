@@ -19,7 +19,7 @@ from typing import Callable, Mapping, Protocol
 
 from maker_core.contracts import MarketDescriptor, OutcomeView, Unavailable
 from maker_core.evidence.journal import digest, plain
-from maker_core.quoting.book import compose_book, own_size_moves_mid
+from maker_core.quoting.book import compose_book, crossed, own_size_moves_mid
 from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, RewardTerms, decide
 from maker_core.runtime.guard import ALLOW, GatedPlacement, GuardRefused, OrderGate
 from maker_core.shadow.paper import PaperLedger, fill_legs, parse_prints
@@ -133,7 +133,7 @@ class ShadowRunner:
         if not isinstance(self.placement, GatedPlacement):
             raise TypeError("gated_placement_required")
         self.resting, self.placed_at, self.previous_view = {}, {}, {}
-        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0}
+        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0, "own_leg_crossed": 0}
         self.minute_intents, self.events, self.assets, self.print_since, self.filled = [], {}, {}, {}, set()
         cancel_port.listeners.append(self._withdraw_all)
 
@@ -188,7 +188,7 @@ class ShadowRunner:
     def step(self, minute_utc, markets):
         """Evaluate every market once; return the ``minute`` tape payload."""
         self.minute_intents = []
-        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0}
+        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0, "own_leg_crossed": 0}
         self.events.update({m.descriptor.condition_id: m.descriptor.event_id for m in markets})
         paper = self._simulate_fills() if self.paper is not None else None
         current = {m.descriptor.condition_id for m in markets}
@@ -271,6 +271,9 @@ class ShadowRunner:
             last_requote_at=self.placed_at.get(d.condition_id),
             previous_fair_value=self.previous_view.get(d.condition_id))
         decision = decide(inputs)
+        if (decision.action in ("CANCEL", "END", "NO_QUOTE") and decision.reasons[0].upper() == "CROSSED_BOOK"
+                and not crossed(book)):
+            self.own_mid["own_leg_crossed"] += 1  # as the replay kernel's own_leg_crossed
         row.update(inputs=inputs_projection(inputs), decision=decision_projection(decision),
                    venue={"yes_timestamp": yes.get("timestamp"), "no_timestamp": no.get("timestamp"),
                           "terms_reason": terms_reason})

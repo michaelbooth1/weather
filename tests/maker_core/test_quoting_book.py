@@ -8,8 +8,9 @@ from decimal import Decimal as D
 
 import pytest
 
-from maker_core.quoting.book import UnmergedBookLevels, compose_book, own_size_moves_mid
+from maker_core.quoting.book import UnmergedBookLevels, compose_book, crossed, own_size_moves_mid
 from maker_core.quoting.policy import Book, QuoteLeg
+from maker_core.quoting.prices import qualified_mid
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 LEGS = (QuoteLeg("YES", D(".48"), D(20)), QuoteLeg("NO", D(".48"), D(20)))
@@ -70,3 +71,22 @@ def test_a_refusal_on_one_book_only_is_a_difference():
     one_sided = Book(T0, lv((".45", 5)), lv((".55", 100)), lv((".45", 100)), lv((".55", 100)))
     assert own_size_moves_mid(one_sided, compose_book(one_sided, (QuoteLeg("YES", D(".45"), D(30)),)), D(20))
     assert not own_size_moves_mid(one_sided, one_sided, D(20))
+
+
+def test_two_different_refusals_are_a_difference():
+    # Public: no qualified bid (.45 x 5 < min 20). Decision: the YES leg .52 x 30 qualifies above the .50 ask.
+    public = Book(T0, lv((".45", 5)), lv((".50", 100)), lv((".49", 100)), lv((".55", 100)))
+    decision = compose_book(public, (QuoteLeg("YES", D(".52"), D(30)),))
+    with pytest.raises(Exception, match="no_size_adjusted_midpoint"):
+        qualified_mid(public.yes_bids, public.yes_asks, D(20))
+    with pytest.raises(Exception, match="crossed_book"):
+        qualified_mid(decision.yes_bids, decision.yes_asks, D(20))
+    assert own_size_moves_mid(public, decision, D(20))
+
+
+def test_crossed_reads_either_outcome_pair_of_the_book_it_is_given():
+    assert not crossed(None)
+    assert not crossed(PROBE)
+    assert crossed(Book(T0, lv((".47", 75)), lv((".51", 75)), lv((".53", 75)), lv((".51", 75))))  # NO pair only
+    resting = compose_book(PROBE, (QuoteLeg("YES", D(".56"), D(30)),))  # own leg above the public ask
+    assert crossed(resting) and not crossed(PROBE)
