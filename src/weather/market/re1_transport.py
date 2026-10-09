@@ -449,7 +449,8 @@ class OwnerVenue:
         if self.readonly: raise RuntimeError('read_only')
         from weather.market.re1_sizing import SIZES
         size = number(request['size'])
-        if size not in (SIZES if self.profile is None else self.profile.SIZES) or size != getattr(self, 'size', Decimal(20)):
+        profile = getattr(self, 'profile', None)
+        if size not in (SIZES if profile is None else profile.SIZES) or size != getattr(self, 'size', Decimal(20)):
             raise RuntimeError('signed_order_binding')
         signed = self.client.create_limit_order(**request)
         expected_signer = self.maker if self.fields['SIGNATURE_TYPE'] == '3' else self.client.signer

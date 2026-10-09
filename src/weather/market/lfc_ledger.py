@@ -79,6 +79,9 @@ def band_reserve(size, prices):
     return _decimal(size) * sum((_decimal(p) for p in prices), Decimal(0))
 
 
+_HEADER = frozenset(('schema_version', 'kind', 'sequence', 'previous_sha256', 'recorded_at_utc', 'event'))
+
+
 class Ledger:
     """Chained ledger. Construct with Ledger.open (existing) or Ledger.create (explicit, once)."""
 
@@ -125,6 +128,8 @@ class Ledger:
 
     @staticmethod
     def _row(sequence, previous, clock, event, fields):
+        if set(fields) & _HEADER:
+            raise LedgerUnavailable('ledger_reserved_field')
         return {'schema_version': LEDGER_SCHEMA, 'kind': 'lfc_ledger', 'sequence': sequence,
                 'previous_sha256': previous, 'recorded_at_utc': utc(clock()).isoformat(), 'event': event, **fields}
 
@@ -336,7 +341,7 @@ class Ledger:
         if leg['status'] == 'terminal':
             if matched != _decimal(leg['size_matched']):
                 self.record('mismatch', order_id=str(order_id), recorded=leg['size_matched'], observed=str(matched),
-                            source=source, kind='terminal_size_matched')
+                            source=source, mismatch_kind='terminal_size_matched')
             return None
         return self.record('leg_terminal', order_id=str(order_id), size_matched=str(matched), status=status,
                            source=source)
@@ -351,10 +356,10 @@ class Ledger:
             leg, seen = self.legs[key], _decimal(traded.get(oid, 0))
             if leg['status'] == 'terminal' and seen != _decimal(leg['size_matched']):
                 found.append({'order_id': oid, 'recorded': leg['size_matched'], 'observed': str(seen),
-                              'kind': 'trades_vs_size_matched'})
+                              'mismatch_kind': 'trades_vs_size_matched'})
             elif leg['status'] != 'terminal' and seen > _decimal(leg['size']):
                 found.append({'order_id': oid, 'recorded': leg['size'], 'observed': str(seen),
-                              'kind': 'trades_exceed_size'})
+                              'mismatch_kind': 'trades_exceed_size'})
         return found
 
     def reconcile_trades(self, trades, *, source):

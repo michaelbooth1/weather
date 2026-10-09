@@ -58,7 +58,8 @@ def snapshot(clock, *, session0=False):
 
 
 def counted_table(clock, *, held=(), figures=None, cash='500'):
-    band = dict(market_id='los-angeles', market_timezone=REGISTRY['los-angeles'].timezone, target_date='2026-10-21',
+    band = dict(market_id='los-angeles', market_timezone=REGISTRY['los-angeles'].timezone,
+                target_date=(clock.now() + timedelta(days=1)).date().isoformat(),
                 condition_id=CONDITION, token_ids=list(TOKENS), snapshot=snapshot(clock), event_slug=LA_SLUG,
                 event_condition_ids=[CONDITION, OTHER])
     return select_table([band], now=clock.now(), available_collateral=cash, treatment=LFC.TREATMENT,
@@ -208,7 +209,7 @@ def test_full_session_rests_forty_counts_L_and_releases_it_after_cleanup(tmp_pat
     placement = [r for r in events(session, 'lfc_queue_ahead') if r['phase'] == 'placement']
     assert len(placement) == 2 and all(r['visible_at_price'] is not None for r in placement)
     snapshot_file = json.loads((tmp_path / 'root' / 'l_ledger.json').read_bytes())
-    assert snapshot_file['schema_version'] == 'lfc_l_ledger_v0.1' and snapshot_file['L'] == '0'
+    assert snapshot_file['schema_version'] == 'lfc_l_ledger_v0.1' and Decimal(snapshot_file['L']) == 0
 
 
 def test_selection_and_panel_exclusions_are_recorded_before_the_first_post(tmp_path):
@@ -306,6 +307,7 @@ def test_a_requote_rereads_the_balance(tmp_path):
     venue.balances = lambda: reads.append(1) or {'available_collateral': '1'}
     session.closed = False
     session.submits, session.active = 2, {}
+    session.journal.record = lambda *args, **kwargs: None  # the run closed the journal; this probes the gate only
     with pytest.raises(HoldEnd, match='cash_below_l_resting_plus_reserve'):
         session.authorize_post(0, session.prices[0], session.size, {'fee_rate_bps': '0'})
     assert reads
@@ -313,7 +315,7 @@ def test_a_requote_rereads_the_balance(tmp_path):
 
 def test_ledger_mismatch_or_halt_stops_the_session(tmp_path):
     session, venue, _, ledger = setup(tmp_path)
-    ledger.record('mismatch', order_id='x', recorded='0', observed='1', source='test', kind='test')
+    ledger.record('mismatch', order_id='x', recorded='0', observed='1', source='test', mismatch_kind='test')
     result = session.run(rehearsal_seconds=60)
     assert result['reason'] == 'l_reconciliation_mismatch' and not venue.calls
 
@@ -409,7 +411,7 @@ def test_trades_disagreeing_with_the_ledger_record_a_mismatch_after_retries(tmp_
     venue.trades = lambda: reads.append(1) or []
     session.run(rehearsal_seconds=600)
     assert len(reads) >= 5 and ledger.stop_reason() == 'l_reconciliation_mismatch'
-    assert ledger.mismatches[0]['kind'] == 'trades_vs_size_matched'
+    assert ledger.mismatches[0]['mismatch_kind'] == 'trades_vs_size_matched'
 
 
 def test_lagging_trades_are_re_read_before_a_mismatch(tmp_path):

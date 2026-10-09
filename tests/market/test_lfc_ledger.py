@@ -115,9 +115,11 @@ def test_halt_and_mismatch_stop_for_good_across_restarts(tmp_path):
     ledger, clock = new(tmp_path)
     ledger.record('halt', reason='test')
     assert ledger.stop_reason() == 'ledger_halted'
-    ledger.record('mismatch', order_id='o', recorded='0', observed='1', source='test', kind='test')
+    ledger.record('mismatch', order_id='o', recorded='0', observed='1', source='test', mismatch_kind='test')
     reopened = Ledger.open(ledger.path, clock=clock, maker_address=MAKER)
     assert reopened.stop_reason() == 'l_reconciliation_mismatch'
+    with pytest.raises(LedgerUnavailable, match='ledger_reserved_field'):
+        reopened.record('mismatch', order_id='o', kind='x')
     with pytest.raises(LedgerCap, match='l_reconciliation_mismatch'):
         reopened.post_gate(reserve=1, cap=100)
 
@@ -145,7 +147,7 @@ def test_trades_reconcile_counts_only_our_order_ids(tmp_path):
     assert traded_shares(trades, {'o1'}) == {'o1': '40'}
     assert ledger.reconcile_trades(trades, source='test') == ({'o1': '40'}, [])
     traded, found = ledger.reconcile_trades(trades[:1], source='test')
-    assert found[0]['kind'] == 'trades_vs_size_matched' and ledger.stop_reason() == 'l_reconciliation_mismatch'
+    assert found[0]['mismatch_kind'] == 'trades_vs_size_matched' and ledger.stop_reason() == 'l_reconciliation_mismatch'
 
 
 def test_snapshot_file_tracks_the_history(tmp_path):
