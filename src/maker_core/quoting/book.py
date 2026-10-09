@@ -6,7 +6,7 @@ size only from the competing reward score and the displayed depth). Every caller
 replay v2 kernel and the shadow runner) imports ``compose_book`` from here, so both compute the same book.
 
 Pure: no clock, no I/O, no venue. ``own_size_moves_mid`` is the OD23 shadow diagnostic (count only; it never
-changes a decision).
+changes a decision); ``crossed`` is the public-book test behind the own-leg-crossed count.
 """
 from __future__ import annotations
 
@@ -48,6 +48,15 @@ def compose_book(book, legs):
                    yes_asks=merged(book.yes_asks, [(1 - p, s) for p, s in no], False))
 
 
+def crossed(book):
+    """The book alone is crossed on either outcome (the ``OWN_LEG_CROSSED`` test, spec v3.2 §1.2): with a public
+    book that is not crossed, a ``CROSSED_BOOK`` decision was caused by own legs."""
+    if book is None:
+        return False
+    return any(bids and asks and max(p for p, _ in bids) >= min(p for p, _ in asks)
+               for bids, asks in ((book.yes_bids, book.yes_asks), (book.no_bids, book.no_asks)))
+
+
 def _mid(book, minimum):
     try:
         return qualified_mid(book.yes_bids, book.yes_asks, minimum)
@@ -66,4 +75,4 @@ def own_size_moves_mid(public, decision, minimum) -> bool:
     return _mid(public, minimum) != _mid(decision, minimum)
 
 
-__all__ = ["UnmergedBookLevels", "compose_book", "own_size_moves_mid"]
+__all__ = ["UnmergedBookLevels", "compose_book", "crossed", "own_size_moves_mid"]

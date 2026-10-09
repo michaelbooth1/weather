@@ -33,7 +33,8 @@ import hashlib
 
 from maker_core.contracts import OutcomeView, Unavailable
 from maker_core.evidence.journal import canonical_bytes, digest
-from maker_core.quoting.book import UnmergedBookLevels, compose_book as _compose_book, own_size_moves_mid
+from maker_core.quoting.book import (UnmergedBookLevels, compose_book as _compose_book, crossed,
+                                     own_size_moves_mid)
 from maker_core.quoting.policy import (DecisionInputs, ExposureLimit, Portfolio, QuoteDecision, _event_active,
                                        blind_re1, decide, informed_v0)
 from maker_core.replay.bundle import BundleError
@@ -607,14 +608,6 @@ def compose_book(book, legs):
         return _compose_book(book, legs)
     except UnmergedBookLevels:
         raise BundleError("unmerged_book_levels") from None
-
-
-def crossed(book):
-    """The public book alone is crossed on either outcome (the ``OWN_LEG_CROSSED`` test, spec v3.2 §1.2)."""
-    if book is None:
-        return False
-    return any(bids and asks and max(p for p, _ in bids) >= min(p for p, _ in asks)
-               for bids, asks in ((book.yes_bids, book.yes_asks), (book.no_bids, book.no_asks)))
 
 
 def info_boundaries(event):

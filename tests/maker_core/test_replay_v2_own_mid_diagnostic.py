@@ -24,6 +24,7 @@ BEHIND = dict(yb=lv((".49", 80)), ya=lv((".51", 75)), nb=lv((".49", 75)), na=lv(
 
 def test_kernel_composes_through_the_quoting_module():
     assert kernel_module._compose_book is book_module.compose_book
+    assert kernel_module.crossed is book_module.crossed
 
 
 @pytest.mark.parametrize("engine", [EngineV2, ReferenceEngine], ids=["v2", "reference"])
