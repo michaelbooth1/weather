@@ -38,14 +38,17 @@ from weather.market import lfc_constants as LFC
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
 from weather.market.reward_quote import QuoteRefused, _decimal
 
-LEDGER_SCHEMA = 'lfc_ledger_v0.1'
+# v0.2 (fix round 1, review F-5) adds leg_adopt: an unacknowledged intent adopted at reconcile onto the one venue
+# order that matches it. New rows are written as v0.2; v0.1 history stays valid and leg_adopt needs a v0.2 row.
+LEDGER_SCHEMA = 'lfc_ledger_v0.2'
+LEDGER_SCHEMAS = ('lfc_ledger_v0.1', 'lfc_ledger_v0.2')
 BASELINE_SCHEMA = 'lfc_baseline_v0.1'
 SNAPSHOT_SCHEMA = 'lfc_l_ledger_v0.1'
 LEDGER_FILE = 'ledger.jsonl'
 SNAPSHOT_FILE = 'l_ledger.json'
 POSITIONS_URL = 'https://data-api.polymarket.com/positions'
-_EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_terminal', 'session_end', 'halt',
-           'mismatch'}
+_EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
+           'halt', 'mismatch'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -139,12 +142,14 @@ class Ledger:
             raise LedgerUnavailable('ledger_empty')
         if not raw.endswith(b'\n'):
             raise LedgerUnavailable('ledger_truncated')
-        rows, previous, last = [], None, None
+        rows, previous, last, version = [], None, None, 0
         for index, line in enumerate(raw.splitlines(keepends=True)):
             try:
                 row = json.loads(line)
                 when = utc(row['recorded_at_utc'])
-                ok = (canonical_bytes(row) == line and row['schema_version'] == LEDGER_SCHEMA and
+                row_version = LEDGER_SCHEMAS.index(row['schema_version'])
+                ok = (canonical_bytes(row) == line and row_version >= version and
+                      (row['event'] != 'leg_adopt' or row['schema_version'] == 'lfc_ledger_v0.2') and
                       row['kind'] == 'lfc_ledger' and row['sequence'] == index and
                       row['previous_sha256'] == previous and row['event'] in _EVENTS and
                       (last is None or when >= last) and (index == 0) == (row['event'] == 'genesis'))
@@ -152,7 +157,7 @@ class Ledger:
                 ok = False
             if not ok:
                 raise LedgerUnavailable('ledger_chain_broken')
-            previous, last = hashlib.sha256(line).hexdigest(), when
+            previous, last, version = hashlib.sha256(line).hexdigest(), when, row_version
             rows.append(row)
         return rows
 
@@ -181,7 +186,7 @@ class Ledger:
                                             'condition_id', 'price', 'size', 'fee_rate_bps')},
                                             'order_id': None, 'status': 'intent', 'size_matched': '0'}
             session['legs'].append(row['intent_key'])
-        elif event == 'leg_ack':
+        elif event in ('leg_ack', 'leg_adopt'):
             leg = self.legs.get(row['intent_key'])
             if leg is None or leg['order_id'] is not None or not row['order_id'] or row['order_id'] in self.by_order:
                 raise LedgerUnavailable('ledger_ack_scope')
@@ -323,6 +328,18 @@ class Ledger:
 
     def ack(self, intent_key, order_id):
         return self.record('leg_ack', intent_key=intent_key, order_id=str(order_id))
+
+    def adopt(self, intent_key, order_id, *, source, evidence):
+        """Review F-5: bind an unacknowledged intent to the one venue order matching all of its fields; the leg then
+        resolves like any acknowledged leg (it stays at full resting cost until a terminal read)."""
+        return self.record('leg_adopt', intent_key=intent_key, order_id=str(order_id), source=source,
+                           evidence=evidence)
+
+    def unacknowledged_intents(self):
+        return [leg for leg in self.legs.values() if leg['status'] != 'terminal' and leg['order_id'] is None]
+
+    def row_sha256(self, sequence):
+        return hashlib.sha256(canonical_bytes(self.rows[sequence])).hexdigest()
 
     def terminal(self, order_id, row, *, source):
         """Record a proven terminal read; a still-live or unreadable order stays at full resting cost.

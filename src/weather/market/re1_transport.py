@@ -281,9 +281,13 @@ does not inherit it or override its grant check.
         return {'token_ids': list(self.tokens)}
 
 
-def bounded_rows(paginator):
+def bounded_rows(paginator, *, seconds=None):
+    # seconds: optional wall-clock bound (live-fill calibration trade reads, review F-6); RE-1 passes none.
     rows, cursors = [], set()
+    until = None if seconds is None else time.monotonic() + seconds
     for page in paginator:
+        if until is not None and time.monotonic() > until:
+            raise RuntimeError('read_time_budget')
         if len(cursors) >= 50 or page.next_cursor is not None and page.next_cursor in cursors:
             raise RuntimeError('pagination_budget')
         cursors.add(page.next_cursor)
@@ -407,7 +411,11 @@ class OwnerVenue:
                 raise TimeoutError('order_read_undecodable') from exc
             raise
     def trades(self):
-        return bounded_rows(self.client.list_account_trades(market=self.condition))
+        # trades_after/trades_seconds are set by the live-fill calibration pilot and its reconcile only (review F-6):
+        # trades after the campaign genesis, bounded in pages, rows and time. RE-1 sets neither.
+        after = getattr(self, 'trades_after', None)
+        options = {'market': self.condition} if after is None else {'market': self.condition, 'after': str(after)}
+        return bounded_rows(self.client.list_account_trades(**options), seconds=getattr(self, 'trades_seconds', None))
     def positions(self):
         evidence = fetch_current_positions(self.maker, self.condition, timeout_seconds=self.timeouts.get('positions', 2))
         if evidence.get('status') != 'OBSERVED': raise RuntimeError('positions_unreadable')

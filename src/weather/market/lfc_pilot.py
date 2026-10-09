@@ -24,7 +24,13 @@ by our order ids (a condition position alone is not our fill on the owner's exis
 cancel_all is account-wide, so it also cancels a foreign order found at runtime (S0 run 0b: expected).
 
 Session 0 (S0, explicit flag only): uncounted, counts in L, no panel exclusion, a market outside every panel,
-size = the market's min_order_size (<= 20), offset 5c, only the reward-terms check skipped. Sub-runs 0a-0f.
+size = the market's min_order_size (<= 20), offset 5c, only the reward-terms check skipped. Sub-runs 0a-0f, plus 0g
+(fix round 1, review F-1; DRAFT clarification C): the venue-only dead-man, with the script's stale cleanup off.
+
+Fix round 1 (review 2026-10-09 @ f88074d5; semantics in the DRAFT, UNSIGNED clarification C): fee_rate_bps == 0 at
+selection, every submit and every minute (else the session ends); every market rule compared each minute (F-9); a
+cancelled requote leg is re-read until terminal before L_resting is released (F-3); a foreign order seen on the user
+stream ends as foreign_open_order and any other stream failure has its own code (F-2).
 """
 from __future__ import annotations
 
@@ -43,7 +49,7 @@ from weather.market.lfc_panel_exclusion import append_exclusions, exclusion_line
 from weather.market.market_config import event_slug_for_date, market_id_from_slug
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import HoldEnd, _order_id, digest, utc, write_new, SCHEMA_VERSION
-from weather.market.re1_attended import Session, number
+from weather.market.re1_attended import Session, filled, number
 from weather.market.re1_rehearsal import Re1PublicBooks
 from weather.market.reward_quote import QuoteRefused, _levels
 
@@ -113,6 +119,47 @@ class PilotProfile:
         return Decimal('.79') * size, Decimal('.98') * size
 
 
+# ----- fee rule (review Q4 replacement; DRAFT clarification C) --------------------------------------------------
+def fee_refusal(rules, tokens):
+    """None when every token reads fee_rate_bps == 0; else 'fee_rate_unreadable' or 'fee_rate_nonzero'."""
+    try:
+        fees = [number(rules[token]['fee_rate_bps']) for token in tokens]
+    except Exception:
+        return 'fee_rate_unreadable'
+    if not fees:
+        return 'fee_rate_unreadable'
+    return None if all(fee == LFC.REQUIRED_FEE_RATE_BPS for fee in fees) else 'fee_rate_nonzero'
+
+
+def require_zero_fee(table):
+    """Preflight and live selection (both profiles): the selected market's tokens must read fee_rate_bps == 0."""
+    if table.get('selected_condition_id'):
+        selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
+        try:
+            rules, tokens = selected['snapshot']['rules'], selected['token_ids']
+        except (KeyError, TypeError):
+            raise RuntimeError('fee_rate_unreadable') from None
+        code = fee_refusal(rules, tokens)
+        if code:
+            raise RuntimeError(code)
+    return table
+
+
+def _rule_key(rule):
+    """Comparable market rules of one token; an unreadable rule never equals a readable one."""
+    try:
+        return (number(rule['tick_size']), number(rule['min_order_size']), number(rule['fee_rate_bps']),
+                rule['neg_risk'])
+    except Exception:
+        return ('unreadable', id(rule))
+
+
+def _terminal(row):
+    row = row if isinstance(row, dict) else {}
+    status = str(row.get('status') or row.get('official_order_status') or '').upper()
+    return bool(status) and status != 'LIVE'
+
+
 # ----- session 0 market choice (S0 section 2) -------------------------------------------------------------------
 def session0_slug_refusals(event_slug, *, now):
     """Rule 1: no slug prefix of the 12 built-in markets (any date) and no YouTube market slug."""
@@ -177,6 +224,9 @@ def session0_candidate(candidate, *, now, excluded_conditions, held_conditions, 
         rules = snapshot['rules']
         if any(number(r['tick_size']) != Decimal('.01') for r in rules.values()):
             raise QuoteRefused('unsupported_tick')
+        fee = fee_refusal(rules, candidate['token_ids'])
+        if fee:
+            raise QuoteRefused(fee)
         sizes = {number(r['min_order_size']) for r in rules.values()}
         if len(sizes) != 1 or not 0 < max(sizes) <= LFC.SESSION0_MAX_SIZE:
             raise QuoteRefused('session0_min_order_size')
@@ -376,6 +426,9 @@ class PilotSession(Session):
         self.cap = number(cap)
         self.posted_at = None
         self.dropped = self.stalled = False
+        self.dropped_at = None  # 0d/0g: monotonic time the heartbeat sends stopped
+        self.venue_deadman_observed = None  # 0g: the first terminal reads that proved the venue cancel
+        self.cancels_since_drop = 0
         if kwargs.get('mode') == 'live' and (ledger is None or not session_id or root is None):
             raise LedgerUnavailable('ledger_required')
         if not profile.session0 and kwargs.get('mode') == 'live' and not exclusion:
@@ -387,6 +440,14 @@ class PilotSession(Session):
         self.SIZES = profile.SIZES
         self.BAND_CEILING = Decimal('.98') * profile.size  # band cap of PR section 6 (39.2 at 40)
         super().__init__(**kwargs)
+        chosen = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
+        opening = chosen['snapshot'].get('rules')
+        self.opening_rules = ({t: dict(opening[t]) for t in self.tokens}
+                              if isinstance(opening, dict) and all(t in opening for t in self.tokens) else None)
+        if ledger is not None:
+            # Bounded trade reads (review F-6): only trades after the campaign genesis, before any of our orders.
+            self.venue.trades_after = str(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp()))
+            self.venue.trades_seconds = LFC.TRADE_READ_SECONDS
         self.scope.update(session_id=session_id, session0=profile.session0, session0_run=profile.run,
                           pilot_size=str(profile.size), budget_pusd=str(LFC.BUDGET_PUSD))
 
@@ -486,6 +547,11 @@ class PilotSession(Session):
             cash, resting = self._cash(balances, reserve)
             record.update(available_collateral=str(cash), L_resting=str(resting))
         self.journal.record('lfc_l_gate', lfc_journal_schema=LFC_JOURNAL_SCHEMA, **record)
+        fee = fee_refusal({self.tokens[leg]: rule}, [self.tokens[leg]])
+        if fee:
+            self.journal.record('lfc_fee_rule', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='submit', leg=leg,
+                                refusal=fee)
+            raise HoldEnd(fee)
         self._pending = {'token_id': self.tokens[leg], 'price': price, 'size': size,
                          'fee_rate_bps': rule['fee_rate_bps']}
 
@@ -509,6 +575,16 @@ class PilotSession(Session):
                             if snapshot else None, snapshot_observed_at_utc=snapshot and snapshot['observed_at_utc'])
 
     def minute_extra(self, snapshot):
+        # Review F-9: every market rule of our tokens is compared each minute; any change (or fee != 0) ends.
+        rules = snapshot.get('rules')
+        if not isinstance(rules, dict) or self.opening_rules is None:
+            raise HoldEnd('market_rules')
+        changed = sorted(t for t in self.tokens if _rule_key(rules.get(t)) != _rule_key(self.opening_rules[t]))
+        fee = fee_refusal(rules, self.tokens)
+        if changed or fee:
+            self.journal.record('lfc_market_rules_changed', lfc_journal_schema=LFC_JOURNAL_SCHEMA, tokens=changed,
+                                fee_refusal=fee)
+            raise HoldEnd(fee if fee and not changed else 'market_rules')
         for oid, (leg, price) in self.active.items():
             self.journal.record('lfc_queue_ahead', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='book_update',
                                 order_id=oid, leg=leg, token_id=self.tokens[leg], price=str(price),
@@ -517,6 +593,71 @@ class PilotSession(Session):
 
     def leg_terminal(self, oid, row):
         self.ledger.terminal(oid, row, source='session')
+
+    def cancel_terminal_row(self, oid, row):
+        """Review F-3: the pre-poll read can still say LIVE. Re-read (bounded) until terminal before L_resting is
+        released; if it never is, the leg stays reserved in L and the session ends with cancel_not_terminal."""
+        for _ in range(10):
+            if filled(row):
+                self.fill_seen = True
+                raise HoldEnd('fill')
+            if _terminal(row):
+                return row
+            self._alive()
+            self.clock.sleep(1)
+            row = self.required('cancel_terminal_read', lambda: self.venue.order(oid), checkpoint=False, order_id=oid)
+        if filled(row):
+            self.fill_seen = True
+            raise HoldEnd('fill')
+        if _terminal(row):
+            return row
+        self.journal.record('lfc_cancel_not_terminal', lfc_journal_schema=LFC_JOURNAL_SCHEMA, order_id=oid,
+                            status=str((row or {}).get('status')))
+        raise HoldEnd('cancel_not_terminal')
+
+    def cancel_leg(self, oid):
+        if self.profile.run == '0g' and self.dropped:
+            # Our own cancel would contaminate the venue dead-man proof: end through the cleanup instead (no pass).
+            raise HoldEnd('venue_deadman_requote_needed')
+        return super().cancel_leg(oid)
+
+    def check_fills(self, *, canceling=None, force=False):
+        try:
+            return super().check_fills(canceling=canceling, force=force)
+        except HoldEnd as exc:
+            if exc.reason == 'order_no_longer_resting' and self.profile.run == '0g' and self.dropped:
+                self._venue_deadman_observe()
+            if exc.reason == 'unknown_user_event':
+                self._stream_foreign_check('unknown_user_event')
+            raise
+        except RuntimeError as exc:
+            if str(exc) != 'user_stream_invalid_event':
+                raise
+            self._stream_foreign_check('user_stream_invalid_event')
+
+    def _stream_foreign_check(self, code):
+        """Review F-2: an account order event on a token outside the session (the owner's 0b order) fails the user
+        stream; it ends as foreign_open_order (with a forced account read for the record). Any other stream failure
+        ends with its own code instead of the generic 'exception'."""
+        stream = getattr(self.venue, 'stream', None)
+        failed = getattr(stream, 'failed_event', None)
+        maker = str(getattr(self.venue, 'maker', '')).lower()
+        stream_foreign = (isinstance(failed, dict) and str(failed.get('event_type', '')).lower() == 'order' and
+                          str(failed.get('asset_id')) not in self.tokens and
+                          str(failed.get('maker_address') or maker).lower() == maker)
+        try:
+            rows = self.required('account_open_orders', self.venue.open_orders, checkpoint=False)
+        except Exception as exc:
+            rows = None
+            self.journal.record('read_unavailable', fact='account_open_orders', exception_type=type(exc).__name__)
+        foreign = [_order_id(r) for r in rows if not self._ours(r)] if isinstance(rows, list) else None
+        if stream_foreign or foreign:
+            self.journal.record('lfc_foreign_open_order', lfc_journal_schema=LFC_JOURNAL_SCHEMA, order_ids=foreign,
+                                source='user_stream', stream_code=code,
+                                stream_order_id=failed.get('id') if stream_foreign else None)
+            raise HoldEnd('foreign_open_order') from None
+        self.journal.record('lfc_user_stream_failed', lfc_journal_schema=LFC_JOURNAL_SCHEMA, code=code)
+        raise HoldEnd(code) from None
 
     def positions_mean_fill(self, positions):
         # Existing wallet (PR section 7 change): fills are attributed by our order ids only.
@@ -544,9 +685,12 @@ class PilotSession(Session):
             raise HoldEnd(stopped)
         if not self.submits:
             return
+        # Review F-7: the account read's budget runs from the first post (while the band is being posted, from now).
         self._session0_flags()
+        self._venue_deadman_deadline()
         rows = self.freshness.read('account_open_orders', lambda: self.call('account_open_orders', self.venue.open_orders),
-                                   cadence=LFC.FOREIGN_CHECK_SECONDS, budget=3 * LFC.FOREIGN_CHECK_SECONDS)
+                                   cadence=LFC.FOREIGN_CHECK_SECONDS, budget=3 * LFC.FOREIGN_CHECK_SECONDS,
+                                   initial=self.clock.monotonic() if self.posted_at is None else self.posted_at)
         if rows is None:
             return
         if not isinstance(rows, list):
@@ -557,20 +701,76 @@ class PilotSession(Session):
             raise HoldEnd('foreign_open_order')
 
     def _session0_flags(self):
-        """S0 runs 0d (heartbeat sends stop, main loop alive) and 0f (main-loop stall), 120 s after posting."""
+        """S0 runs 0d/0g (heartbeat sends stop, main loop alive) and 0f (main-loop stall), 120 s after posting.
+        0g also disables the script's 8 s stale end, so only the venue dead-man can cancel (review F-1)."""
         if self.posted_at is None or self.clock.monotonic() - self.posted_at < LFC.SESSION0_DROP_AFTER_SECONDS:
             return
-        if self.profile.run == '0d' and not self.dropped:
-            self.dropped = True
-            self.journal.record('lfc_session0_test_flag', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0d',
-                                action='heartbeat_sends_stopped')
+        if self.profile.run in ('0d', '0g') and not self.dropped:
+            self.dropped, self.dropped_at = True, self.clock.monotonic()
             self.heartbeat_loop.drop_sends()
+            if self.profile.run == '0g':
+                self.heartbeat_loop.disable_stale_cleanup()
+            self.journal.record('lfc_session0_test_flag', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run=self.profile.run,
+                                action='heartbeat_sends_stopped', script_stale_cleanup=self.profile.run != '0g',
+                                last_heartbeat_ack=self.heartbeat_loop.last_ack, at_monotonic=self.dropped_at)
         if self.profile.run == '0f' and not self.stalled:
             self.stalled = True
             self.journal.record('lfc_session0_test_flag', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0f',
                                 action='main_loop_stall', seconds=LFC.SESSION0_STALL_SECONDS)
             self.clock.sleep(LFC.SESSION0_STALL_SECONDS)  # no tick: the watchdog must stop the heartbeat sends
             self.heartbeat_loop.check()
+
+    def _venue_deadman_reads(self):
+        rows = {}
+        for oid in list(self.active):
+            row = None
+            for _ in range(10):
+                row = self.required('venue_deadman_order', lambda: self.venue.order(oid), checkpoint=False, order_id=oid)
+                if _terminal(row):
+                    break
+                self._alive()
+                self.clock.sleep(1)
+            rows[oid] = row
+        return rows
+
+    def _venue_deadman_observe(self):
+        """0g: an order of ours stopped resting with no cancel from us. Record the first terminal read of each leg
+        (the proof) and end; the cleanup cancel that follows is a recorded safety step, not part of the proof."""
+        rows = self._venue_deadman_reads()
+        seconds = self.clock.monotonic() - self.dropped_at
+        self.venue_deadman_observed = {'seconds_after_drop': seconds, 'order_ids': sorted(rows)}
+        self.journal.record('lfc_venue_deadman_first_terminal', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0g',
+                            seconds_after_drop=seconds, rows=rows,
+                            own_cancel_requests_since_drop=self.cancels_since_drop,
+                            all_terminal=all(_terminal(r) for r in rows.values()))
+        if any(filled(r) for r in rows.values()):
+            self.fill_seen = True
+            raise HoldEnd('fill')
+        if rows and all(_terminal(r) for r in rows.values()) and self.cancels_since_drop == 0:
+            raise HoldEnd('venue_deadman_cancelled')
+        raise HoldEnd('order_no_longer_resting')
+
+    def _venue_deadman_deadline(self):
+        """0g hard wall-clock cap: at window + margin after the drop, read our orders; if any still rests, the venue
+        dead-man was not observed: the campaign ledger records a halt and the run ends through the cleanup."""
+        if self.profile.run != '0g' or self.dropped_at is None:
+            return
+        if (self.clock.monotonic() - self.dropped_at <
+                LFC.SESSION0_VENUE_WINDOW_SECONDS + LFC.SESSION0_VENUE_MARGIN_SECONDS):
+            return
+        rows = {}
+        for oid in list(self.active):
+            rows[oid] = self.required('venue_deadman_order', lambda: self.venue.order(oid), checkpoint=False,
+                                      order_id=oid)
+        if rows and all(_terminal(r) for r in rows.values()):
+            self._venue_deadman_observe()
+        self.journal.record('lfc_venue_deadman_not_observed', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0g',
+                            seconds_after_drop=self.clock.monotonic() - self.dropped_at, rows=rows)
+        try:
+            self.ledger.record('halt', reason='venue_deadman_not_observed', session_id=self.session_id)
+        except LedgerUnavailable:
+            self.evidence_failed = True
+        raise HoldEnd('venue_deadman_not_observed')
 
     def initial_positions_ok(self, rows):
         # Existing wallet (PR section 7): positions outside the selected event are the owner's and are pinned by the
@@ -590,6 +790,19 @@ class PilotSession(Session):
     def cleanup(self):
         if self.closed:
             return self.cleanup_ok
+        if self.profile.run in ('0d', '0g') and self.submits:
+            # Review F-1b: the first terminal read of each leg BEFORE our cleanup cancel; the per-leg
+            # cleanup_cancel_response follows in the RE-1 cleanup. That cancel is a safety step, never the proof.
+            rows = {}
+            for oid in list(self.known):
+                try:
+                    rows[oid] = self._recover('lfc_first_terminal_order_read', lambda: self.venue.order(oid))
+                except BaseException:
+                    rows[oid] = None
+            self._retain('lfc_first_terminal_order_read', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run=self.profile.run,
+                         rows=rows, before_cleanup_cancel=True, venue_deadman_observed=self.venue_deadman_observed)
+            self._retain('lfc_session0_safety_cancel', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run=self.profile.run,
+                         part_of_proof=False, order_ids=list(self.active))
         ok = super().cleanup()
         if self.submits:
             self.reconcile_trades()

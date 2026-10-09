@@ -81,7 +81,10 @@ class HeartbeatLoop:
         self.main_tick = self.started = clock.monotonic()
         self.last_ack, self.next_send = None, self.started
         self.failure = None
-        self.sends_dropped = False  # live-fill calibration session-0 run 0d only (lfc_pilot); never set by RE-1
+        self.sends_dropped = False  # live-fill calibration session-0 runs 0d/0g only (lfc_pilot); never set by RE-1
+        # Session-0 run 0g only (lfc_pilot, review F-1): the 8 s stale end is off so only the venue dead-man cancels;
+        # the 20 s main-loop watchdog stays on and the pilot holds its own hard wall-clock cap. Never set by RE-1.
+        self.stale_cleanup_disabled = False
         self.stopped = Event()
         self.thread = None
 
@@ -96,7 +99,7 @@ class HeartbeatLoop:
             self.failure = 'main_loop_stalled'
             self.stopped.set()
             return
-        if now - (self.last_ack if self.last_ack is not None else self.started) >= 8:
+        if not self.stale_cleanup_disabled and now - (self.last_ack if self.last_ack is not None else self.started) >= 8:
             self.failure = 'heartbeat_stale'
             self.stopped.set()
             return
@@ -143,12 +146,20 @@ class HeartbeatLoop:
             self.step()
         if self.failure:
             raise HoldEnd(self.failure)
+        if self.stale_cleanup_disabled:
+            return
         if self.clock.monotonic() - (self.last_ack if self.last_ack is not None else self.started) >= 8:
             raise HoldEnd('heartbeat_stale')
 
     def drop_sends(self):
         """Stop sending heartbeats while the stale checks keep running, so the venue cancels server-side."""
         self.sends_dropped = True
+
+    def disable_stale_cleanup(self):
+        """Session-0 run 0g only: sends already stopped; leave the cancel to the venue dead-man (bounded by the pilot)."""
+        if not self.sends_dropped:
+            raise RuntimeError('stale_cleanup_disable_requires_dropped_sends')
+        self.stale_cleanup_disabled = True
 
     def stop(self):
         self.stopped.set()

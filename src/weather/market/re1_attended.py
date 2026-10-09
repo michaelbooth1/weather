@@ -194,6 +194,10 @@ class Session:
     def leg_terminal(self, oid, row):
         """Called with a terminal order read (cancelled requote leg or cleanup read)."""
 
+    def cancel_terminal_row(self, oid, row):
+        """The order read handed to leg_terminal after a requote cancel; RE-1 passes its pre-poll read unchanged."""
+        return row
+
     def extra_checks(self, *, force=False):
         """Additional hard limits evaluated on every control checkpoint."""
 
@@ -515,6 +519,7 @@ class Session:
             self.clock.sleep(1)
         else:
             raise HoldEnd('cancel_not_terminal')
+        row = self.cancel_terminal_row(oid, row)
         del self.active[oid]
         self.leg_terminal(oid, row)
 

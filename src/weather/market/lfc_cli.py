@@ -14,10 +14,12 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
                                     positions outside our tokens unchanged against the T-40 min baseline
     reconcile                       read-only order and trade reads -> ledger; closes a crashed session, writes its
                                     session_end.json and raises the notification (S0 run 0c)
+    session0-attest --s0-2-seconds S owner attestation session0/pass.json (once): every required sub-run passed in the
+                                    ledger, S0-2 on 0c <= 20 s; bound to the current ledger row (review F-1)
     cancel-ours                     cancel OUR open orders only (ids from the ledger); never a foreign order
     exclusions --output F           band-days of panel_exclusions.jsonl (weather.market.lfc_panel_exclusion)
 
-Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f --event-slug SLUG (repeatable: the
+Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: the
 candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
 fails closed on missing or unreadable state. Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
@@ -39,7 +41,8 @@ from weather.market.lfc_ledger import (SNAPSHOT_FILE, Ledger, LedgerUnavailable,
                                        take_baseline, traded_shares, write_baseline)
 from weather.market.lfc_panel_exclusion import EXCLUSION_FILE, excluded_conditions, load_panel_exclusions
 from weather.market.lfc_pilot import (PilotProfile, PilotSession, Session0Books, notify_owner, owner_local_date,
-                                      pilot_root, session0_table, start_refusals, write_session_end)
+                                      pilot_root, require_zero_fee, session0_table, start_refusals,
+                                      write_session_end)
 from weather.market.mm_stage2_hold import _order_id, digest, utc, write_new
 
 _LIVE_STARTED = False
@@ -71,6 +74,9 @@ def parser():
     wallet.add_argument('--since', type=int,
                         help='Unix seconds for the trades read (default: the ledger genesis, before any of our orders)')
     modes.add_parser('reconcile')
+    attest = modes.add_parser('session0-attest')
+    attest.add_argument('--s0-2-seconds', required=True,
+                        help='S0-2 measured on run 0c (seconds from the crash to zero open orders); must be <= 20')
     modes.add_parser('cancel-ours')
     exclusions = modes.add_parser('exclusions')
     exclusions.add_argument('--output', type=Path, required=True)
@@ -89,15 +95,65 @@ def check_flags(args):
 
 
 # ----- pure gates (unit-tested with fakes) -----------------------------------------------------------------------
-def session0_passed(ledger):
-    """Session 1 may not start until session 0 has passed (PR section 9). Mechanical part: a session-0 run 0a that
-    ended on its fixed end with a clean cleanup; the owner judges S0-1..S0-8 by the verify commands."""
-    for session in ledger.sessions.values():
+SESSION0_PASS_SCHEMA = 'lfc_session0_pass_v0.1'
+SESSION0_PASS_FILE = Path('session0') / 'pass.json'
+
+
+def session0_runs_passed(ledger):
+    """{run: [session ids]} of session-0 sub-runs that ended with their required reason and a clean cleanup
+    (review F-1a; LFC.SESSION0_PASS_REASONS), each with the ledger sequence of its session_end row."""
+    ends = {row['session_id']: row['sequence'] for row in ledger.rows if row['event'] == 'session_end'}
+    passed = {}
+    for session_id, session in ledger.sessions.items():
         start, end = session['start'], session['end']
-        if (start.get('counted') is False and start.get('session0_run') == '0a' and end is not None and
-                end.get('reason') == 'fixed_end' and end.get('cleanup_ok') is True):
-            return True
-    return False
+        run = start.get('session0_run')
+        if (start.get('counted') is False and run in LFC.SESSION0_PASS_REASONS and end is not None and
+                end.get('reason') in LFC.SESSION0_PASS_REASONS[run] and end.get('cleanup_ok') is True):
+            passed.setdefault(run, []).append((session_id, ends[session_id]))
+    return passed
+
+
+def session0_mechanical(ledger):
+    """The required sub-runs still missing a clean pass (empty = the mechanical part holds)."""
+    passed = session0_runs_passed(ledger)
+    return sorted(run for run in LFC.SESSION0_PASS_REASONS if run not in passed)
+
+
+def session0_attestation(root, ledger):
+    """Refusals of the owner attestation session0/pass.json (empty = valid): it names one passing session per
+    required sub-run, is bound to a ledger row at or after all of their session_end rows, and records S0-2 measured
+    on run 0c at most 20 s (review F-1a/F-1c)."""
+    try:
+        body = json.loads((Path(root) / SESSION0_PASS_FILE).read_bytes())
+    except (OSError, ValueError):
+        return ['session0_attestation_missing']
+    refusals = []
+    passed = session0_runs_passed(ledger)
+    try:
+        if body.get('schema_version') != SESSION0_PASS_SCHEMA or body.get('kind') != 'lfc_session0_pass':
+            refusals.append('session0_attestation_schema')
+        sequence = int(body['ledger_sequence'])
+        if not 0 <= sequence < len(ledger.rows) or ledger.row_sha256(sequence) != body['ledger_previous_sha256']:
+            refusals.append('session0_attestation_not_bound_to_ledger')
+        named = body['sessions']
+        for run in LFC.SESSION0_PASS_REASONS:
+            match = [seq for sid, seq in passed.get(run, []) if sid == named.get(run)]
+            if not match or match[0] > sequence:
+                refusals.append('session0_attestation_run_' + run)
+        seconds = Decimal(str(body['s0_2_seconds_0c']))
+        if not seconds.is_finite() or not 0 <= seconds <= LFC.SESSION0_S0_2_MAX_SECONDS:
+            refusals.append('session0_s0_2_above_20_seconds')
+    except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
+        refusals.append('session0_attestation_unreadable')
+    return sorted(set(refusals))
+
+
+def session0_passed(ledger, *, root):
+    """Session 1 may not start until session 0 has passed (PR section 9; review F-1): every required sub-run (0a
+    fixed_end, 0b foreign_open_order, 0c reconciled_after_crash, 0d heartbeat_stale or order_no_longer_resting, 0e
+    l_budget_refused, 0g venue_deadman_cancelled; 0f optional) ended cleanly, and the owner attestation
+    session0/pass.json is bound to the ledger with S0-2 on 0c <= 20 s (the binding gate for session 1)."""
+    return not session0_mechanical(ledger) and not session0_attestation(root, ledger)
 
 
 def start_gates(*, ledger, now, profile, root, maker_address, open_orders, positions):
@@ -110,6 +166,9 @@ def start_gates(*, ledger, now, profile, root, maker_address, open_orders, posit
         refusals.append('ledger_open_session_needs_reconcile')
     if any(leg['order_id'] for leg in ledger.unresolved_legs()):
         refusals.append('ledger_unresolved_legs_need_reconcile')
+    if ledger.unacknowledged_intents():
+        # Review F-5: a lost submit ack stays in L until reconcile adopts its venue order and resolves it.
+        refusals.append('ledger_unacknowledged_intent_needs_reconcile')
     if not profile.session0:
         if ledger.counted_sessions() >= LFC.MAX_SESSIONS:
             refusals.append('session_cap')
@@ -117,7 +176,7 @@ def start_gates(*, ledger, now, profile, root, maker_address, open_orders, posit
         if any(s['start'].get('counted') and s['legs'] and s['start'].get('owner_local_date') == today
                for s in ledger.sessions.values()):
             refusals.append('local_date_already_used')
-        if not session0_passed(ledger):
+        if not session0_passed(ledger, root=root):
             refusals.append('session0_not_passed')
     try:
         t24 = None if profile.session0 else latest_baseline(root, ledger, 't24')
@@ -216,16 +275,19 @@ def _selector(args, *, root, ledger, now_fn=_now):
                    'panel_exclusions_sha256': hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None}
 
         def select(balances):
-            return session0_table(public.candidates(sorted(set(args.event_slug))), now=now_fn(), run=args.run,
-                                  available_collateral=balances['available_collateral'], ledger=ledger.figures(),
-                                  excluded_conditions=set(extras) | set(shadow) | panel,
-                                  held_conditions=held_conditions(root, ledger), scope_sources=sources)
+            return require_zero_fee(session0_table(
+                public.candidates(sorted(set(args.event_slug))), now=now_fn(), run=args.run,
+                available_collateral=balances['available_collateral'], ledger=ledger.figures(),
+                excluded_conditions=set(extras) | set(shadow) | panel,
+                held_conditions=held_conditions(root, ledger), scope_sources=sources))
         return public, select
     public = Re1PublicBooks()
 
     def select(balances):
-        return public.selection(available_collateral=balances['available_collateral'], treatment=LFC.TREATMENT,
-                                ledger=ledger.figures(), held_conditions=held_conditions(root, ledger))
+        # Fee rule (review Q4 replacement): the selected market must read fee_rate_bps == 0, else fail closed.
+        return require_zero_fee(public.selection(
+            available_collateral=balances['available_collateral'], treatment=LFC.TREATMENT,
+            ledger=ledger.figures(), held_conditions=held_conditions(root, ledger)))
     return public, select
 
 
@@ -290,8 +352,17 @@ def run_preflight(args):
     stopped = ledger.stop_reason()
     if stopped:
         raise RuntimeError(stopped)
+    from weather.market.re1_attended import SecretGuard
+    SecretGuard().print(ledger_state(ledger))  # review F-10: what a live start would refuse on
     _, select = _selector(args, root=root, ledger=ledger)
     return re1_preflight(root=root, select=select, profile=profile)
+
+
+def ledger_state(ledger):
+    return {'open_sessions': ledger.open_sessions(),
+            'unresolved_legs': [{k: leg[k] for k in ('session_id', 'intent_key', 'order_id', 'status')}
+                                for leg in ledger.unresolved_legs()],
+            **{k: str(v) for k, v in ledger.figures().items()}, 'stop_reason': ledger.stop_reason()}
 
 
 def run_live(args):
@@ -414,14 +485,14 @@ def run_live(args):
 def run_verify():
     fields, guard, venue = _read_only()
     try:
-        ledger = Ledger.open(ledger_path(pilot_root()), clock=_now, maker_address=fields['FUNDER_ADDRESS'])
+        root = pilot_root()
+        ledger = Ledger.open(ledger_path(root), clock=_now, maker_address=fields['FUNDER_ADDRESS'])
         ours, foreign = classify_open_orders(venue.open_orders(), ledger)
-        report = {'our_open_orders': ours, 'foreign_open_orders': foreign,
-                  **{k: str(v) for k, v in ledger.figures().items()}, 'stop_reason': ledger.stop_reason(),
-                  'counted_sessions': ledger.counted_sessions(), 'open_sessions': ledger.open_sessions(),
-                  'session0_passed': session0_passed(ledger),
-                  'unresolved_legs': [{k: leg[k] for k in ('session_id', 'intent_key', 'order_id', 'status')}
-                                      for leg in ledger.unresolved_legs()]}
+        report = {'our_open_orders': ours, 'foreign_open_orders': foreign, **ledger_state(ledger),
+                  'counted_sessions': ledger.counted_sessions(),
+                  'session0_passed': session0_passed(ledger, root=root),
+                  'session0_runs_missing': session0_mechanical(ledger),
+                  'session0_attestation': session0_attestation(root, ledger) or 'PASS'}
         report['status'] = 'PASS' if not ours and not foreign and not report['open_sessions'] else 'ATTENTION'
         guard.print(report)
         return 0 if report['status'] == 'PASS' else 1
@@ -430,6 +501,33 @@ def run_verify():
 
 
 L_TOLERANCE_PUSD = Decimal('0.01')
+
+
+def positions_inventory_readable(positions):
+    """Review F-4: S0-6 compares SIZES only. OBSERVED passes; a PARTIAL read passes only with a complete inventory
+    (inventory_complete is True), no unclassified rows, no top-level errors and a readable size on every row (marks
+    and resolved values are irrelevant). Anything else refuses."""
+    if not isinstance(positions, dict):
+        return False
+    status = positions.get('status')
+    if status not in ('OBSERVED', 'PARTIAL'):
+        return False
+    rows = positions.get('positions')
+    resolved = positions.get('resolved_positions') or []
+    if not isinstance(rows, list) or not isinstance(resolved, list):
+        return False
+    try:
+        for row in rows + resolved:
+            if not isinstance(row, dict) or not (row.get('token_id') or row.get('asset') or row.get('asset_id')):
+                return False
+            if not Decimal(str(row['size'])).is_finite():
+                return False
+    except (KeyError, InvalidOperation, ValueError, TypeError):
+        return False
+    if status == 'OBSERVED':
+        return True
+    return (positions.get('inventory_complete') is True and positions.get('unclassified_positions') == [] and
+            not positions.get('errors'))
 
 
 def wallet_reader_report(ledger, snapshot, t40, *, open_orders, trades, positions):
@@ -472,7 +570,8 @@ def wallet_reader_report(ledger, snapshot, t40, *, open_orders, trades, position
 
     tokens = ledger.tokens()
     changed = None
-    if isinstance(positions, dict) and positions.get('status') == 'OBSERVED' and t40 is not None:
+    report['positions_reader_status'] = positions.get('status') if isinstance(positions, dict) else 'ERR'
+    if positions_inventory_readable(positions) and t40 is not None:
         try:
             rows = list(positions.get('positions') or []) + list(positions.get('resolved_positions') or [])
             current = {a: Decimal(v) for a, v in normalize_positions(rows).items() if a not in tokens}
@@ -521,10 +620,149 @@ def run_wallet_verify(args, *, reader=None, root=None):
     return 0 if report['status'] == 'PASS' else 1
 
 
-def reconcile_ledger(ledger, venue):
-    """Order reads -> terminal rows, venue trades -> mismatches; a session left open by a crash is closed once none
-    of our orders rests. Returns the report and the ids of the sessions it closed."""
+def _post_order_ids(journal_path):
+    """Order ids from the raw POST /order responses retained in a session journal (review F-5, first source)."""
+    ids = []
+    try:
+        lines = Path(journal_path).read_bytes().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return None
+        if (row.get('event') == 'sdk_response' and str(row.get('method', '')).upper() == 'POST' and
+                str(row.get('path', '')).rstrip('/').endswith('/order') and isinstance(row.get('response'), dict)):
+            response = row['response']
+            oid = response.get('orderID') or response.get('order_id') or response.get('id')
+            if oid:
+                ids.append(str(oid))
+    return ids
+
+
+def _intent_request(root, ledger, leg):
+    """The persisted submit-N.intent.json request of an intent, checked against the ledger leg; None if unusable."""
+    start = ledger.sessions[leg['session_id']]['start']
+    if not start.get('directory') or root is None:
+        return None, None
+    directory = Path(root) / start['directory']
+    number_ = leg['intent_key'].rsplit(':', 1)[-1]
+    try:
+        request = json.loads((directory / f'submit-{number_}.intent.json').read_bytes())['request']
+        same = (str(request['token_id']) == leg['token_id'] and Decimal(str(request['price'])) == Decimal(leg['price'])
+                and Decimal(str(request['size'])) == Decimal(leg['size']) and request['side'] == 'BUY')
+        return (request if same else None), directory
+    except (OSError, ValueError, KeyError, TypeError, InvalidOperation):
+        return None, directory
+
+
+def _adoption_match(row, leg, expiration):
+    try:
+        return (isinstance(row, dict) and str(row.get('asset_id') or row.get('token_id')) == leg['token_id'] and
+                str(row.get('side', '')).upper() == 'BUY' and Decimal(str(row['price'])) == Decimal(leg['price']) and
+                Decimal(str(row['original_size'])) == Decimal(leg['size']) and
+                int(row['expiration']) == int(expiration))
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        return False
+
+
+def adopt_intents(ledger, venue, *, root, open_rows):
+    """Review F-5: an unacknowledged intent stays in L. Adopt it onto the one venue order matching token, side BUY,
+    price, original_size and expiration (= session end + 60 s, from the persisted intent request); candidates come
+    first from the session journal's raw POST /order responses, then from foreign-looking open orders. Anything
+    ambiguous (no usable intent file, an unreadable candidate, two matches, one order matching two intents) adopts
+    nothing for that intent: it stays in L and start_gates keeps refusing."""
+    pending = ledger.unacknowledged_intents()
+    if not pending:
+        return [], {}
+    known = ledger.our_order_ids()
+    reads, matches, refusals = {}, {}, {}
+
+    def read(oid):
+        if oid not in reads:
+            try:
+                reads[oid] = venue.order(oid)
+            except Exception as exc:
+                reads[oid] = exc
+        return reads[oid]
+    for leg in pending:
+        request, directory = _intent_request(root, ledger, leg)
+        if request is None:
+            refusals[leg['intent_key']] = 'adoption_intent_request_unusable'
+            continue
+        journal_ids = _post_order_ids(directory / 'journal.jsonl')
+        if journal_ids is None:
+            refusals[leg['intent_key']] = 'adoption_journal_unreadable'
+            continue
+        candidates = [(oid, 'journal_post_response') for oid in journal_ids if oid not in known]
+        candidates += [(_order_id(r), 'open_orders') for r in open_rows or [] if _order_id(r) not in known and
+                       _adoption_match(r, leg, request['expiration'])]
+        found = {}
+        for oid, source in candidates:
+            row = read(oid)
+            if isinstance(row, Exception):
+                refusals[leg['intent_key']] = 'adoption_candidate_unreadable'
+                break
+            if _adoption_match(row, leg, request['expiration']):
+                found.setdefault(oid, source)
+        else:
+            if len(found) == 1:
+                matches[leg['intent_key']] = next(iter(found.items()))
+            elif found:
+                refusals[leg['intent_key']] = 'adoption_ambiguous'
+            else:
+                refusals[leg['intent_key']] = 'adoption_no_matching_order'
+    chosen = [oid for oid, _ in matches.values()]
+    adopted = []
+    for key, (oid, source) in matches.items():
+        if chosen.count(oid) > 1:
+            refusals[key] = 'adoption_ambiguous'
+            continue
+        row = reads[oid]
+        ledger.adopt(key, oid, source=source, evidence={k: str(row.get(k)) for k in (
+            'asset_id', 'side', 'price', 'original_size', 'expiration', 'status', 'size_matched')})
+        adopted.append(oid)
+    return adopted, refusals
+
+
+def reconcile_trades_bounded(ledger, venue, *, attempts=LFC.TRADE_READ_ATTEMPTS,
+                             pause=LFC.TRADE_READ_PAUSE_SECONDS, sleep=None):
+    """Review F-6: the session's 5 x 2 s re-read at reconcile too. Before a mismatch is recorded, size_matched is
+    re-read from the order (a terminal read that differs from the ledger is itself recorded by Ledger.terminal)."""
+    import time
+    sleep = sleep or time.sleep
+    traded, found, before = {}, [], len(ledger.mismatches)
+    for attempt in range(attempts):
+        traded = traded_shares(venue.trades(), ledger.our_order_ids())
+        found = ledger.trade_mismatches(traded)
+        if not found:
+            return traded, []
+        for row in found:
+            try:
+                order = venue.order(row['order_id'])
+            except Exception:
+                continue
+            ledger.terminal(row['order_id'], order, source='reconcile_trade_check')
+        found = ledger.trade_mismatches(traded)
+        if not found or len(ledger.mismatches) > before:
+            break
+        if attempt + 1 < attempts:
+            sleep(pause)
+    for row in found:
+        ledger.record('mismatch', source='reconcile', **row)
+    return traded, found
+
+
+def reconcile_ledger(ledger, venue, *, root=None, sleep=None):
+    """Adoption of lost acks, order reads -> terminal rows, venue trades -> mismatches (re-read first); a session
+    left open by a crash is closed once none of our orders rests. Returns the report and the open-order rows."""
+    if hasattr(venue, '__dict__') and ledger.rows:
+        venue.trades_after = str(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp()))
+        venue.trades_seconds = LFC.TRADE_READ_SECONDS
+    before = len(ledger.mismatches)
     open_rows = venue.open_orders()
+    adopted, adoption_refusals = adopt_intents(ledger, venue, root=root, open_rows=open_rows)
     ours, foreign = classify_open_orders(open_rows, ledger)
     resolved = []
     for leg in ledger.unresolved_legs():
@@ -532,9 +770,11 @@ def reconcile_ledger(ledger, venue):
             row = venue.order(leg['order_id'])
             if ledger.terminal(leg['order_id'], row, source='reconcile') is not None:
                 resolved.append(leg['order_id'])
-    traded, mismatches = ledger.reconcile_trades(venue.trades(), source='reconcile')
+    traded, _ = reconcile_trades_bounded(ledger, venue, sleep=sleep)
+    mismatches = [{k: m.get(k) for k in ('order_id', 'recorded', 'observed', 'mismatch_kind', 'source')}
+                  for m in ledger.mismatches[before:]]
     closed = []
-    if not ours:
+    if not ours and not adoption_refusals:
         for session_id in ledger.open_sessions():
             finish_session(ledger, session_id, {'reason': 'reconciled_after_crash', 'cleanup_ok': True,
                                                 'fill_seen': None, 'source': 'reconcile'})
@@ -542,8 +782,8 @@ def reconcile_ledger(ledger, venue):
     return {'resolved_order_ids': resolved, 'closed_sessions': closed, 'our_open_orders': ours,
             'foreign_open_orders': foreign, 'traded': traded, 'mismatches': mismatches,
             **{k: str(v) for k, v in ledger.figures().items()}, 'stop_reason': ledger.stop_reason(),
-            'unacknowledged_intents': [leg['intent_key'] for leg in ledger.unresolved_legs() if not leg['order_id']]}, \
-        open_rows
+            'unacknowledged_intents': [leg['intent_key'] for leg in ledger.unacknowledged_intents()],
+            'adopted_order_ids': adopted, 'adoption_refusals': adoption_refusals}, open_rows
 
 
 def close_crashed(root, ledger, closed, open_rows, *, notifier=notify_owner):
@@ -565,12 +805,51 @@ def run_reconcile():
     try:
         root = pilot_root()
         ledger = Ledger.open(ledger_path(root), clock=_now, maker_address=fields['FUNDER_ADDRESS'])
-        report, open_rows = reconcile_ledger(ledger, venue)
+        report, open_rows = reconcile_ledger(ledger, venue, root=root)
         close_crashed(root, ledger, report['closed_sessions'], open_rows)
         guard.print(report)
-        return 0 if not report['our_open_orders'] and not report['mismatches'] else 1
+        return 0 if not (report['our_open_orders'] or report['mismatches'] or report['adoption_refusals'] or
+                         report['unacknowledged_intents']) else 1
     finally:
         venue.close()
+
+
+def session0_attest(root, ledger, *, s0_2_seconds, phrase, now):
+    """Write session0/pass.json once (never overwritten). Refuses unless every required sub-run passed in the
+    ledger and S0-2 on 0c is at most 20 s; the owner judges S0-1..S0-8 by the verify commands before typing."""
+    missing = session0_mechanical(ledger)
+    if missing:
+        raise RuntimeError('session0_runs_missing_' + '_'.join(missing))
+    seconds = Decimal(str(s0_2_seconds))
+    if not seconds.is_finite() or not 0 <= seconds <= LFC.SESSION0_S0_2_MAX_SECONDS:
+        raise RuntimeError('session0_s0_2_above_20_seconds')
+    sequence = len(ledger.rows) - 1
+    body = {'schema_version': SESSION0_PASS_SCHEMA, 'kind': 'lfc_session0_pass', 'attested_at_utc': utc(now).isoformat(),
+            'ledger_sequence': sequence, 'ledger_previous_sha256': ledger.previous, 's0_2_seconds_0c': str(seconds),
+            'sessions': {run: ids[-1][0] for run, ids in session0_runs_passed(ledger).items()
+                         if run in LFC.SESSION0_PASS_REASONS},
+            'owner_phrase': phrase}
+    path = Path(root) / SESSION0_PASS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return write_new(path, body), body
+
+
+def run_session0_attest(args, *, reader=input):
+    from weather.market.re1_attended import SecretGuard
+    root = pilot_root()
+    ledger = Ledger.open(ledger_path(root), clock=_now)
+    if not sys.stdin.isatty():
+        raise RuntimeError('owner_terminal_required')
+    phrase = 'attest session0 ' + str(ledger.previous)[:6]
+    guard = SecretGuard()
+    guard.print({'runs': session0_runs_passed(ledger), 's0_2_seconds_0c': args.s0_2_seconds,
+                 'ledger_previous_sha256': ledger.previous})
+    guard.print('Type: ' + phrase)
+    if ' '.join(str(reader()).lower().split()) != phrase:
+        raise RuntimeError('owner_confirmation_refused')
+    sha, body = session0_attest(root, ledger, s0_2_seconds=args.s0_2_seconds, phrase=phrase, now=_now())
+    guard.print({'status': 'ATTESTED', 'file': str(root / SESSION0_PASS_FILE), 'sha256': sha})
+    return 0
 
 
 def cancel_ours(ledger, venue):
@@ -613,6 +892,8 @@ def main(argv=None):
             return run_reconcile()
         if args.mode == 'cancel-ours':
             return run_cancel_ours()
+        if args.mode == 'session0-attest':
+            return run_session0_attest(args)
         from weather.market.lfc_panel_exclusion import main as exclusions_main
         return exclusions_main(['--exclusions', str(pilot_root() / EXCLUSION_FILE), '--output', str(args.output)])
     except BaseException as exc:

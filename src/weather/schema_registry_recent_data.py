@@ -1356,8 +1356,18 @@ RECENT_REGISTERED_SCHEMAS = (
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
     ),
     SchemaSpec(
-        "lfc_ledger", "lfc_ledger_v0.1", "weather.market.lfc_ledger", "active",
-        "Append-only hash-chained history of the live-fill calibration campaign loss ledger L.",
+        "lfc_ledger_v0_1_legacy", "lfc_ledger_v0.1", "weather.market.lfc_ledger", "legacy",
+        "Original rows of the live-fill calibration loss ledger; still verified in place inside a v0.2 chain.",
+    ),
+    SchemaSpec(
+        "lfc_ledger", "lfc_ledger_v0.2", "weather.market.lfc_ledger", "active",
+        "Append-only hash-chained history of the campaign loss ledger L, adding leg_adopt for a lost submit ack.",
+        supersedes=("lfc_ledger_v0.1",),
+        migration_notes="No rewrite: v0.1 rows stay valid; new rows are v0.2 and leg_adopt needs a v0.2 row.",
+    ),
+    SchemaSpec(
+        "lfc_session0_pass", "lfc_session0_pass_v0.1", "weather.market.lfc_cli", "active",
+        "Owner attestation that session 0 passed, bound to the ledger chain, with S0-2 measured on run 0c.",
     ),
     SchemaSpec(
         "lfc_baseline", "lfc_baseline_v0.1", "weather.market.lfc_ledger", "active",

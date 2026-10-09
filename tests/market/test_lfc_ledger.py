@@ -4,9 +4,12 @@ Guards: the signed L formula (filled x price + resting x limit, no fee term, zer
 L_after_cancel + reserve <= 100 with its boundary, stop-at-100 (L_filled + 38.4 > 100), mismatch halts, the
 l_ledger.json snapshot, the trades reconcile by our order ids, persistence across restarts and sessions, fail-closed
 on missing/empty/truncated/edited/changed-underneath state, and the T-24h/T-40min baselines.
+Fix round 1 (review F-5): schema v0.2 adds leg_adopt; a v0.1 history still verifies, versions never go backwards, and
+leg_adopt is valid only on a v0.2 row.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import json
 
 import pytest
@@ -326,3 +329,34 @@ def test_position_conditions_fail_closed_without_a_condition():
     assert position_conditions([{'conditionId': '0xA', 'size': '1'}, {'conditionId': '0xB', 'size': '0'}]) == ['0xa']
     with pytest.raises(ValueError, match='position_without_condition'):
         position_conditions([{'asset': '1', 'size': '1'}])
+
+
+def rechain(path, rows):
+    previous, raw = None, b''
+    for index, row in enumerate(rows):
+        line = ledger_module.canonical_bytes({**row, 'sequence': index, 'previous_sha256': previous})
+        previous, raw = hashlib.sha256(line).hexdigest(), raw + line
+    path.write_bytes(raw)
+
+
+def test_v0_1_history_verifies_and_leg_adopt_needs_a_v0_2_row(tmp_path):
+    ledger, clock = new(tmp_path)
+    ledger.record('session_start', session_id='S1', counted=True)
+    leg(ledger, 'S1', 'S1:1')
+    rechain(ledger.path, [{**row, 'schema_version': 'lfc_ledger_v0.1'} for row in ledger.rows])
+    old = Ledger.open(ledger.path, clock=clock)
+    assert [r['intent_key'] for r in old.unacknowledged_intents()] == ['S1:1'] and old.L() == Decimal(16)
+    old.adopt('S1:1', 'o9', source='journal_post_response', evidence={'price': '0.4'})
+    again = Ledger.open(ledger.path, clock=clock)
+    assert again.rows[-1]['schema_version'] == ledger_module.LEDGER_SCHEMA == 'lfc_ledger_v0.2'
+    assert again.legs['S1:1']['order_id'] == 'o9' and again.unacknowledged_intents() == [] and again.L() == 16
+    assert again.row_sha256(len(again.rows) - 1) == again.previous
+    with pytest.raises(LedgerUnavailable):
+        again.ack('S1:1', 'o10')  # adopted once; never re-bound
+    rows = again.rows
+    for bad in ([*rows[:-1], {**rows[-1], 'schema_version': 'lfc_ledger_v0.1'}],
+                [*rows, {**rows[1], 'event': 'halt', 'reason': 'x', 'schema_version': 'lfc_ledger_v0.1',
+                         'recorded_at_utc': rows[-1]['recorded_at_utc']}]):
+        rechain(ledger.path, bad)
+        with pytest.raises(LedgerUnavailable, match='ledger_chain_broken'):
+            Ledger.open(ledger.path, clock=clock)

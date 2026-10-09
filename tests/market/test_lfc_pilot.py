@@ -4,12 +4,17 @@ Guards: the declared 40-share deviation, the signed dates (earliest start 2026-1
 start local 10-31), the signed L gate and cash rule before any post, stop-at-100, the event-level position exclusion
 on the existing wallet, the foreign-order end, account-wide cancel-all cleanup, the trades reconcile, panel exclusions
 before the first post, session 0 (market rules, 5c quote at min size, sub-runs 0a/0b/0d/0e/0f) and the notification.
+Fix round 1 (review F-1..F-9, fee rule): the venue-only dead-man sub-run 0g (observed / not observed with a ledger
+halt), the 0d first terminal read before the safety cancel, a foreign order seen through a user-stream failure, the
+bounded terminal re-read after a cancel, fee_rate_bps == 0 at selection and at every submit, every market rule compared
+each minute, and the account read's freshness anchored at the first post.
 """
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,9 +23,9 @@ from weather.market import lfc_constants as LFC
 from weather.market import reward_quote
 from weather.market.lfc_ledger import Ledger, LedgerUnavailable
 from weather.market.lfc_panel_exclusion import EXCLUSION_FILE, FIELDS, load_panel_exclusions
-from weather.market.lfc_pilot import (PilotProfile, PilotSession, hard_stop, notify_owner, result_line,
-                                      session0_quote, session0_slug_refusals, session0_table, start_refusals,
-                                      validate_session0_table, write_session_end)
+from weather.market.lfc_pilot import (PilotProfile, PilotSession, fee_refusal, hard_stop, notify_owner,
+                                      require_zero_fee, result_line, session0_quote, session0_slug_refusals,
+                                      session0_table, start_refusals, validate_session0_table, write_session_end)
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import HoldEnd, digest
@@ -515,6 +520,16 @@ def test_session0_0d_heartbeat_drop_ends_and_cleans_up(tmp_path):
     assert flags and flags[0]['action'] == 'heartbeat_sends_stopped'
     assert result['reason'] == 'heartbeat_stale' and result['cleanup_ok'] and not venue.open_orders()
     assert LFC.SESSION0_DROP_AFTER_SECONDS <= clock.seconds < LFC.SESSION0_DROP_AFTER_SECONDS + 20
+    assert flags[0]['script_stale_cleanup'] is True and not session.heartbeat_loop.stale_cleanup_disabled
+    # Review F-1b: the first terminal read of every leg is journalled BEFORE the cleanup cancel, which is recorded
+    # per leg (cleanup_cancel_response) as a safety step outside the proof.
+    rows = journal(session)
+    names = [r['event'] for r in rows]
+    [first] = events(session, 'lfc_first_terminal_order_read')
+    assert set(first['rows']) == set(session.known) and len(session.known) == 2 and first['before_cleanup_cancel']
+    assert {r['order_id'] for r in events(session, 'cleanup_cancel_response')} == set(session.known)
+    assert names.index('lfc_first_terminal_order_read') < names.index('cleanup_cancel_request')
+    assert events(session, 'lfc_session0_safety_cancel')[0]['part_of_proof'] is False
 
 
 def test_session0_0e_L_budget_below_reserve_refuses_before_any_submit(tmp_path):
@@ -572,3 +587,199 @@ def test_session_end_is_written_once(tmp_path):
     assert body['schema_version'] == 'lfc_session_end_v0.1' and body['notification'] == {'toast_delivered': False}
     with pytest.raises(FileExistsError):
         write_session_end(tmp_path, SUMMARY)
+
+
+# ----- fix round 1: venue-only dead-man 0g (review F-1) ------------------------------------------------------------
+def venue_deadman(venue, clock, *, window=10, never=False):
+    """A fake venue dead-man: our LIVE orders are cancelled server-side once no heartbeat arrived for > window s."""
+    last = {'at': 0.0}
+    real_heartbeat = venue.heartbeat
+
+    def heartbeat():
+        last['at'] = clock.seconds
+        return real_heartbeat()
+    venue.heartbeat = heartbeat
+
+    def expire():
+        if not never and clock.seconds - last['at'] > window:
+            for row in venue.memory.orders.values():
+                if row['status'] == 'LIVE':
+                    row['status'] = 'CANCELED'
+    for name in ('order', 'open_orders'):
+        def wrapped(*args, _real=getattr(venue, name)):
+            expire()
+            return _real(*args)
+        setattr(venue, name, wrapped)
+
+
+def test_session0_0g_venue_deadman_cancel_is_observed_without_any_cancel_from_us(tmp_path):
+    session, venue, clock, ledger = setup(tmp_path, session0=True, run='0g')
+    venue_deadman(venue, clock)
+    result = session.run()
+    assert result['reason'] == 'venue_deadman_cancelled' and result['cleanup_ok'] and not venue.open_orders()
+    [flag] = [r for r in events(session, 'lfc_session0_test_flag') if r['action'] == 'heartbeat_sends_stopped']
+    assert flag['run'] == '0g' and flag['script_stale_cleanup'] is False
+    assert session.heartbeat_loop.stale_cleanup_disabled
+    [first] = events(session, 'lfc_venue_deadman_first_terminal')
+    assert first['all_terminal'] and first['own_cancel_requests_since_drop'] == 0 and len(first['rows']) == 2
+    assert first['seconds_after_drop'] <= LFC.SESSION0_VENUE_WINDOW_SECONDS + LFC.SESSION0_VENUE_MARGIN_SECONDS
+    names = [r['event'] for r in journal(session)]
+    assert 'cancel_request' not in names  # no cancel_leg at all: the venue alone cancelled
+    assert names.index('lfc_venue_deadman_first_terminal') < names.index('cleanup_cancel_request')
+    assert events(session, 'lfc_session0_safety_cancel')[0]['part_of_proof'] is False
+    assert not ledger.halted and ledger.L() == 0
+
+
+def test_session0_0g_without_a_venue_cancel_halts_the_campaign_and_cleans_up(tmp_path):
+    session, venue, clock, ledger = setup(tmp_path, session0=True, run='0g')
+    venue_deadman(venue, clock, never=True)
+    result = session.run()
+    assert result['reason'] == 'venue_deadman_not_observed' and result['cleanup_ok'] and not venue.open_orders()
+    [late] = events(session, 'lfc_venue_deadman_not_observed')
+    bound = LFC.SESSION0_VENUE_WINDOW_SECONDS + LFC.SESSION0_VENUE_MARGIN_SECONDS
+    assert bound <= late['seconds_after_drop'] < bound + 10  # the hard wall-clock cap
+    assert {r['status'] for r in late['rows'].values()} == {'LIVE'}
+    assert any(r['event'] == 'halt' and r['reason'] == 'venue_deadman_not_observed' for r in ledger.rows)
+    assert ledger.stop_reason() == 'ledger_halted' and ledger.L() == 0
+
+
+def test_stale_cleanup_can_only_be_disabled_after_sends_stop(tmp_path):
+    from weather.market.re1_resilience import HeartbeatLoop
+    loop = HeartbeatLoop(Clock(), lambda: {'status': 'ok'}, None, threaded=False)
+    with pytest.raises(RuntimeError, match='stale_cleanup_disable_requires_dropped_sends'):
+        loop.disable_stale_cleanup()
+
+
+# ----- fix round 1: a foreign order seen through the user stream (review F-2) --------------------------------------
+def stream_failure_at(venue, clock, failed, seconds=120):
+    venue.stream = SimpleNamespace(failed_event=None)
+    real = venue.events
+
+    def events_():
+        if clock.seconds >= seconds:
+            venue.stream.failed_event = failed
+            raise RuntimeError('user_stream_invalid_event')
+        return real()
+    venue.events = events_
+
+
+def test_session0_0b_foreign_order_through_a_stream_failure_ends_as_foreign_open_order(tmp_path):
+    session, venue, clock, _ = setup(tmp_path, session0=True, run='0b')
+    stream_failure_at(venue, clock, {'event_type': 'order', 'asset_id': '555', 'id': 'owner-manual',
+                                     'maker_address': venue.maker})
+    result = session.run()
+    assert result['reason'] == 'foreign_open_order' and result['cleanup_ok'] and not venue.open_orders()
+    [row] = events(session, 'lfc_foreign_open_order')
+    assert row['source'] == 'user_stream' and row['stream_order_id'] == 'owner-manual'
+
+
+def test_other_user_stream_failures_end_with_their_own_code(tmp_path):
+    session, venue, clock, _ = setup(tmp_path, session0=True, run='0b')
+    stream_failure_at(venue, clock, {'event_type': 'order', 'asset_id': TOKENS[0], 'weird': True})
+    result = session.run()
+    assert result['reason'] == 'user_stream_invalid_event' and result['cleanup_ok']
+    assert events(session, 'lfc_user_stream_failed')[0]['code'] == 'user_stream_invalid_event'
+    assert not events(session, 'lfc_foreign_open_order')
+
+
+# ----- fix round 1: terminal read after a cancel (review F-3) -------------------------------------------------------
+def resting_leg(tmp_path, *, live_reads):
+    session, venue, clock, ledger = setup(tmp_path)
+    ledger.intent(session_id='S1-test', intent_key='S1-test:1', token_id=TOKENS[0], condition_id=CONDITION,
+                  price='.3', size='40', fee_rate_bps='0')
+    ledger.ack('S1-test:1', 'x')
+    venue.memory.orders['x'] = {'id': 'x', 'asset_id': TOKENS[0], 'market': CONDITION, 'maker_address': venue.maker,
+                                'side': 'BUY', 'price': '.3', 'original_size': '40', 'size_matched': '0',
+                                'status': 'LIVE', 'associate_trades': []}
+    session.known['x'], session.active['x'] = 0, (0, Decimal('.3'))
+    real, reads = venue.order, []
+
+    def order(oid):
+        row = real(oid)
+        if venue.cancelled:
+            reads.append(oid)
+            if live_reads is None or len(reads) <= live_reads:
+                row['status'] = 'LIVE'  # the venue read still trails the acknowledged cancel
+        return row
+    venue.order = order
+    return session, venue, ledger, reads
+
+
+def test_cancel_releases_L_only_after_a_terminal_re_read(tmp_path):
+    session, venue, ledger, reads = resting_leg(tmp_path, live_reads=2)
+    assert ledger.L_resting() == Decimal(12)
+    session.cancel_leg('x')
+    assert 'x' not in session.active and ledger.L() == 0 and len(reads) == 3
+    assert len(events(session, 'cancel_terminal_read_request')) == 1
+
+
+def test_a_cancel_that_never_reads_terminal_keeps_L_resting_and_ends(tmp_path):
+    session, venue, ledger, _ = resting_leg(tmp_path, live_reads=None)
+    with pytest.raises(HoldEnd, match='cancel_not_terminal'):
+        session.cancel_leg('x')
+    assert 'x' in session.active and ledger.L_resting() == Decimal(12)
+    assert events(session, 'lfc_cancel_not_terminal')[0]['order_id'] == 'x'
+
+
+# ----- fix round 1: fee rule and market rules (fee_rate_bps == 0; review F-9) --------------------------------------
+def test_fee_rule_refuses_nonzero_or_unreadable_fees():
+    rules = {t: {'fee_rate_bps': '0'} for t in TOKENS}
+    assert fee_refusal(rules, TOKENS) is None
+    assert fee_refusal({**rules, TOKENS[1]: {'fee_rate_bps': '10'}}, TOKENS) == 'fee_rate_nonzero'
+    assert fee_refusal({TOKENS[0]: {'fee_rate_bps': '0'}}, TOKENS) == 'fee_rate_unreadable'
+    assert fee_refusal({t: {'fee_rate_bps': 'x'} for t in TOKENS}, TOKENS) == 'fee_rate_unreadable'
+    assert fee_refusal(rules, []) == 'fee_rate_unreadable'
+
+
+def test_session0_candidate_and_selection_require_a_zero_fee():
+    clock = Clock(S0_BASE)
+    snap = snapshot(clock, session0=True)
+    snap['rules'][TOKENS[0]]['fee_rate_bps'] = '5'
+    assert refusal(s0_table(clock, [s0_candidate(clock, snap=snap)])) == 'fee_rate_nonzero'
+    table = counted_table(Clock())
+    assert require_zero_fee(table) is table
+    table['rows'][0]['snapshot']['rules'][TOKENS[1]]['fee_rate_bps'] = '1'
+    with pytest.raises(RuntimeError, match='fee_rate_nonzero'):
+        require_zero_fee(table)
+    del table['rows'][0]['snapshot']['rules']
+    with pytest.raises(RuntimeError, match='fee_rate_unreadable'):
+        require_zero_fee(table)
+
+
+def test_a_nonzero_fee_at_submit_posts_nothing(tmp_path):
+    session, venue, _, _ = setup(tmp_path)
+    venue.memory.public_input['rules'][TOKENS[0]]['fee_rate_bps'] = '10'
+    result = session.run(rehearsal_seconds=60)
+    assert result['reason'] == 'fee_rate_nonzero' and not venue.calls and result['submits'] == 0
+    assert events(session, 'lfc_fee_rule')[0]['refusal'] == 'fee_rate_nonzero'
+
+
+@pytest.mark.parametrize('field,value', [('min_order_size', '6'), ('neg_risk', True), ('fee_rate_bps', '3')])
+def test_any_market_rule_change_ends_at_the_minute_check(tmp_path, field, value):
+    session, venue, clock, _ = setup(tmp_path)
+    real = venue.snapshot
+
+    def snap(condition, tokens, *, checkpoint=lambda: None):
+        if clock.seconds >= 90:
+            venue.memory.public_input['rules'][TOKENS[1]][field] = value
+        return real(condition, tokens, checkpoint=checkpoint)
+    venue.snapshot = snap
+    result = session.run(rehearsal_seconds=600)
+    assert result['reason'] == 'market_rules' and result['cleanup_ok'] and not venue.open_orders()
+    [changed] = events(session, 'lfc_market_rules_changed')
+    assert changed['tokens'] == [TOKENS[1]]
+    assert changed['fee_refusal'] == ('fee_rate_nonzero' if field == 'fee_rate_bps' else None)
+
+
+def test_account_open_orders_freshness_is_anchored_at_the_first_post(tmp_path):
+    # Review F-7: the 90 s budget of the account read starts at the first post, not at the session start.
+    session, venue, clock, _ = setup(tmp_path)
+    seen, real = [], session.freshness.read
+
+    def read(name, fn, **kwargs):
+        if name == 'account_open_orders':
+            seen.append(kwargs.get('initial'))
+        return real(name, fn, **kwargs)
+    session.freshness.read = read
+    session.run(rehearsal_seconds=120)
+    assert seen and None not in seen and session.posted_at is not None and seen[-1] == session.posted_at
