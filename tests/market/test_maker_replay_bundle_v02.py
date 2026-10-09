@@ -1,4 +1,7 @@
-"""Maker replay v2 W2: bundle v0.2 export of synthetic sealed 88a days; no production paths, clocks or network."""
+"""Maker replay v2 W2: bundle v0.2 export of synthetic sealed 88a days; no production paths, clocks or network.
+
+Guards: registration C3 (bundle format v0.2, v0.1 expansion equivalence) and §4/C15 (v0.2 envelope = lead window).
+"""
 from datetime import timedelta
 import hashlib
 import json
@@ -65,6 +68,30 @@ def test_v02_is_the_v01_projection_row_for_row(tmp_path, monkeypatch):
     v02.export(args, now=LATER + timedelta(days=3))
     assert {p.name: p.read_bytes() for p in args.out.iterdir()} == {
         p.name: p.read_bytes() for p in (tmp_path / "v02").iterdir()}
+
+
+def test_v02_condition_envelope_is_the_horizon_lead_window(tmp_path):
+    """Registration §4 / C15 (owner Q2(a)): v0.2 envelopes are local leads 1..2 of the target; v0.1 keeps the day."""
+    from datetime import datetime, timezone
+    from maker_core.replay.bundle import time_zone
+    from maker_core.replay.payloads import decode
+    from maker_core.replay.v2.horizon import lead_window
+    from weather.market.maker_replay_universe import registered_time_zones
+    args, _, _ = args_for(tmp_path, minutes=3, compressed=True)
+    both(tmp_path, args)
+    v1 = load_bundle(tmp_path / "bundle")
+    zones = {c.condition_id: time_zone(registered_time_zones()[c.market_id]) for c in v1.conditions}
+    targets = {r.condition_id: decode(r).market.close_at_utc.astimezone(zones[r.condition_id]).date() - timedelta(days=1)
+               for r in v1.records if r.kind == "descriptor"}
+    start = datetime.combine(v1.day, datetime.min.time(), tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+    v2 = {c["condition_id"]: c for c in json.loads((args.out / "bundle.json").read_bytes())["conditions"]}
+    assert set(v2) == set(targets) and v1.conditions
+    for c in v1.conditions:
+        assert (c.active_from, c.active_until) == (start, end)  # the frozen v0.1 exporter is unchanged
+        low, high = lead_window(zones[c.condition_id], targets[c.condition_id], start, end)
+        assert (v2[c.condition_id]["active_from"], v2[c.condition_id]["active_until"]) == (
+            low.isoformat(), high.isoformat())
 
 
 def test_coverage_groups_are_subscriptions_not_sockets(tmp_path):

@@ -12,6 +12,11 @@ same projection, row for row, and changes only where the rows go:
   its kind. The same-coverage refusal still fires if a group's members ever disagree.
 - No duplicate elision beyond the projection's own: v0.1 already skips repeated descriptors, terms,
   outcome views, info events and settlements, so a v0.2 day expands to exactly the v0.1 rows.
+- **The condition envelope follows the horizon clause** (registration §4, owner Q2(a), 2026-10-08):
+  ``active_from``/``active_until`` are ``maker_core.replay.v2.horizon.lead_window``, the UTC span of the
+  target's local leads 1..2 clipped to the day, instead of the whole day. Rows are unchanged; only the
+  manifest's envelope differs from v0.1's. Before a condition's first descriptor the engine still excludes it
+  as ``MISSING_DESCRIPTOR``; the execution manifest's declared intervals also trim that (``horizon``).
 - Validation streams the written bundle back (two-pass reader and expansion) and requires the
   expanded rows to equal the pushed v0.1 rows by count, bytes and an order-independent hash.
 
@@ -33,6 +38,7 @@ from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleErr
 from maker_core.replay.bundle import regular_path as neutral_path
 from maker_core.replay.export_gate import export_permitted
 from maker_core.replay.payloads import market_descriptor
+from maker_core.replay.v2.horizon import lead_window
 from maker_core.replay.v2.writer import BundleWriter, validate
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Segment, StopRun, encoded, sealed_segments
@@ -51,6 +57,8 @@ ASSUMPTIONS = [
     "Coverage groups are trade-stream subscriptions: conditions whose tokens share exactly the same "
     "subscriptions; a group's members must agree at every capture or the day is refused.",
     "No duplicate elision is added; the v0.1 projection already skips repeated payloads.",
+    "Each condition's active_from/active_until is the UTC span of its target's local leads 1..2 clipped to the day "
+    "(registration §4 horizon clause, owner Q2(a)); the v0.1 exporter keeps the whole day.",
 ]
 
 
@@ -166,8 +174,11 @@ def _project(args, reader, sources, projection):
                         continue
                     descriptor = market_descriptor(entry["descriptor"])
                     projection.descriptors[cid] = descriptor
+                    # Registration §4 horizon clause (owner Q2(a)): the envelope is the UTC span of local leads
+                    # 1..2 of the target, so a band leaves at the local midnight its lead becomes 0.
+                    active_from, active_until = lead_window(spec.tz, target, projection.start, projection.end)
                     projection.conditions[cid] = dict(condition_id=cid, market_id=spec.id, domain_id=descriptor.domain_id,
-                        active_from=projection.start.isoformat(), active_until=projection.end.isoformat())
+                        active_from=active_from.isoformat(), active_until=active_until.isoformat())
                     if len(projection.conditions) > 2000:
                         raise StopRun("condition_cap")
                     for outcome, token in descriptor.outcome_tokens.items():
