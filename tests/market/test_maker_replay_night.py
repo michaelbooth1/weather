@@ -107,6 +107,41 @@ def test_one_all_city_bundle_per_date_hashes_append_only_and_no_input_writes(tmp
     print("FIXTURE_DAY_BYTES", report["bundle"]["bytes"], report["bundle"]["records"])
 
 
+@pytest.mark.parametrize("fmt", ["v0.1", "v0.2"])
+@pytest.mark.parametrize("bad", [False, True])
+def test_receipt_summary_carries_the_clock_trigger_refusals(tmp_path, fmt, bad):
+    """Owner decision SWOB-b (2026-10-07): the clock's trigger-row refusal counter is in the receipt
+    summary (``bundle``), not only in reader_coverage, with an explicit 0 when nothing was refused."""
+    from tests.market.test_maker_plugin_clock_triggers import trigger
+    from tests.market.test_maker_plugin_dry_run import NOW as RUN_NOW
+    from weather.market import maker_replay_night_v02 as night_v02
+
+    args, _ = setup(tmp_path)
+    if bad:
+        _, rows, spec, target, _, _ = fixture(now=RUN_NOW)
+        row = trigger(rows, spec, target, reason="metar_temp_bucket_crossed", source="metar")
+        row.update(observed_at="15:14", current_captured_at_utc=(RUN_NOW - timedelta(minutes=5)).isoformat(),
+                   previous_captured_at_utc=(RUN_NOW - timedelta(minutes=6)).isoformat())
+        jsonl(args.data_root / "snapshots" / "observation_triggers.jsonl", [row])
+    report = night(args, now=LATER) if fmt == "v0.1" else night_v02.export_day(args, "panel", now=LATER)
+    assert report["status"] == "SEALED"
+    skipped = report["bundle"]["clock_trigger_rows_skipped"]
+    coverage = report["reader_coverage"].get("clock.trigger_rows_skipped.observed_at_unparseable", 0)
+    assert skipped == {"observed_at_unparseable": coverage}
+    assert (coverage > 0) is bad
+    assert receipt(args)["bundle"]["clock_trigger_rows_skipped"] == skipped
+
+
+def test_clock_trigger_rows_skipped_reads_only_the_clock_prefix_and_shows_an_explicit_zero():
+    from weather.market.maker_plugin_runner import clock_trigger_rows_skipped
+
+    coverage = {"clock.trigger_rows_skipped.observed_at_unparseable": 7, "clock.trigger_rows_skipped.other": 2,
+                "triggers.rows": 9, "clock.other": 4}
+    assert clock_trigger_rows_skipped(coverage) == {"observed_at_unparseable": 7, "other": 2}
+    assert clock_trigger_rows_skipped({}) == {"observed_at_unparseable": 0}
+    assert clock_trigger_rows_skipped(None) == {"observed_at_unparseable": 0}
+
+
 def test_exclusions_are_manifest_only(tmp_path):
     args, _ = setup(tmp_path)
     with pytest.raises(SystemExit):

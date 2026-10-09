@@ -253,7 +253,11 @@ completeness claim. Retries of any attempted day refuse; preserve the attempt fo
 new output root. The exporter never deletes evidence or repairs a torn ledger. Each receipt records bundle file hashes,
 bytes, records and conditions, observed free bytes, discovered cities, book gaps, recorded lifecycle events, final
 reader coverage (growth and skipped tails), the exporter's `trade_clock_skew` (under `bundle`), runtime and peak
-process memory.
+process memory. The `bundle` summary (v0.1 and v0.2 night/calibration receipts) also carries
+`clock_trigger_rows_skipped`: the plugin clock's trigger-row refusals by code, from the reader-coverage keys
+`clock.trigger_rows_skipped.<code>`, with `observed_at_unparseable` always present (an explicit 0). It stays in the
+receipt when an oversized receipt drops `reader_coverage`. It is a lower bound, not an exact count; see the
+`observed_at` contract in [maker-core-contracts.md](maker-core-contracts.md).
 
 Peak memory is driven by output size, not input: on a fixture the segment loop and join peak at about 2.5x the
 `events.jsonl` bytes, and each whole-output validation load (once inside the exporter, once more in the receipt's
