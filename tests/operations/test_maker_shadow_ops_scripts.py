@@ -178,3 +178,28 @@ def test_readout_on_an_empty_root_reports_nothing_sealed(tmp_path):
     assert "sealed days 0 since none; last tick none (n/a)" in line
     assert "parity clock not started" in line
     assert not any(root.iterdir())
+
+
+POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), r"System32\WindowsPowerShell\v1.0\powershell.exe")
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell 5.1 readout")
+@pytest.mark.parametrize(("scope", "expected"), [
+    ({"git_commit": "c" * 40, "git_dirty": False, "git_error": None}, "; code cccccccccccc;"),
+    ({"git_commit": "c" * 40, "git_dirty": True, "git_error": None}, "; code cccccccccccc DIRTY;"),
+    ({"git_commit": None, "git_dirty": None, "git_error": "git_unavailable"}, "; code unbound (git_unavailable);"),
+    ({}, "; code not recorded;"),
+])
+def test_readout_surfaces_the_live_tape_code_identity(tmp_path, scope, expected):
+    tapes = tmp_path / "data" / "maker_shadow" / "tapes"
+    tapes.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    rows = [{"event": "opened", "sequence": 0, "recorded_at_utc": now.isoformat(), "scope": {"mode": "x", **scope}},
+            {"event": "universe", "sequence": 1, "recorded_at_utc": now.isoformat()}]
+    (tapes / f"{now.date().isoformat()}-r1.tape.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                             str(READOUT), "-RepoRoot", str(tmp_path)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert expected in result.stdout and ", last record: universe" in result.stdout, result.stdout
