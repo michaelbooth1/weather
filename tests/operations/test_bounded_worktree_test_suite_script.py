@@ -621,9 +621,17 @@ def test_time_packing_is_deterministic_lpt_and_fails_closed_on_bad_tables(tmp_pa
 
 # -InterpreterPath (host Python upgrade prep, HOST-PY plan P7): the suite runs a
 # staged venv's python.exe while RepoRoot keeps the shared production lease. The
-# harness executes the script's own statements (interpreter selection, the lease
-# acquisition and the receipt log line) against a real staging venv.
-INTERPRETER_HARNESS = r"""
+# harness executes the script's own statements (the probe-sidecar refusal, the
+# interpreter selection, the lease acquisition and the receipt log line) against
+# real staging venvs.
+INTERPRETER_FUNCTIONS = (
+    "Get-SuiteDosDeviceTarget",
+    "Assert-SuiteInterpreterLocalRegularFile",
+    "Get-SuiteInterpreterOverrideHashes",
+    "Assert-SuiteInterpreterOverrideUnchanged",
+    "Resolve-SuiteInterpreterOverride",
+)
+INTERPRETER_PRELUDE = r"""
 $ErrorActionPreference = 'Stop'
 $tokens = $null
 $errors = $null
@@ -634,35 +642,49 @@ if ($errors.Count) { throw 'runner parse failure' }
 $ops = Split-Path -Parent $env:WEATHER_BOUNDED_SUITE_SCRIPT
 . (Join-Path $ops 'training_window_contract.ps1')
 . (Join-Path $ops 'windows_kill_on_close_job.ps1')
-$definition = @($ast.FindAll({
-    param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -ceq 'Resolve-SuiteInterpreterOverride'
-}, $true))
-if ($definition.Count -ne 1) { throw 'missing unique Resolve-SuiteInterpreterOverride' }
-Invoke-Expression $definition[0].Extent.Text
+foreach ($functionName in @(%FUNCTIONS%)) {
+    $definition = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq $functionName
+    }, $true))
+    if ($definition.Count -ne 1) { throw "missing unique $functionName" }
+    Invoke-Expression $definition[0].Extent.Text
+}
 $top = @($ast.EndBlock.Statements)
+$receipt = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$null -ne $interpreterOverride' -and
+        $node.Extent.Text.Contains('"interpreter_override "')
+}, $true))
+if ($receipt.Count -ne 1) { throw 'receipt statement is not unique' }
+""".replace(
+    "%FUNCTIONS%", ", ".join(f"'{name}'" for name in INTERPRETER_FUNCTIONS)
+)
+INTERPRETER_HARNESS = INTERPRETER_PRELUDE + r"""
+$sidecar = @($top | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Extent.Text.Contains('$interpreterProbeSidecar')
+})
 $select = @($top | Where-Object {
     $_ -is [Management.Automation.Language.IfStatementAst] -and
-        $_.Extent.Text.Contains('[string]::IsNullOrEmpty($InterpreterPath)')
+        $_.Extent.Text.Contains('[string]::IsNullOrEmpty($InterpreterPath)') -and
+        -not $_.Extent.Text.Contains('$interpreterProbeSidecar')
 })
 $lease = @($top | Where-Object {
     $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
         $_.Left.VariablePath.UserPath -ceq 'workloadLease'
 })
-$receipt = @($ast.FindAll({
-    param($node)
-    $node -is [Management.Automation.Language.IfStatementAst] -and
-        $node.Clauses[0].Item1.Extent.Text -ceq '$null -ne $interpreterOverride'
-}, $true))
-if ($select.Count -ne 1 -or $lease.Count -ne 1 -or $receipt.Count -ne 1) {
-    throw 'interpreter, lease or receipt statement is not unique'
+if ($sidecar.Count -ne 1 -or $select.Count -ne 1 -or $lease.Count -ne 1) {
+    throw 'sidecar, interpreter or lease statement is not unique'
 }
 $repoRootAssignments = @($top | Where-Object {
     $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
         $_.Left.VariablePath.UserPath -ceq 'RepoRoot'
 }).Count
 $selectIndex = [array]::IndexOf($top, $select[0])
+$sidecarIndex = [array]::IndexOf($top, $sidecar[0])
 $leaseIndex = [array]::IndexOf($top, $lease[0])
 function Write-WeatherLaunchDiagnostic {
     param($Journal, $Event, $Detail)
@@ -681,37 +703,188 @@ foreach ($case in (Get-Content -LiteralPath $env:WEATHER_INTERPRETER_CASES -Raw 
     $script:logLines = @()
     $RepoRoot = [string]$case.repo_root
     $InterpreterPath = [string]$case.interpreter_path
+    $ExpectedInterpreterVersion = [string]$case.expected_version
     $LogPath = [string]$case.log_path
     $launchJournal = $null
     $python = $null
     $interpreterOverride = 'unset'
     $failure = $null
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     try {
-        Invoke-Expression $select[0].Extent.Text
-        Invoke-Expression $lease[0].Extent.Text
-        Invoke-Expression $receipt[0].Extent.Text
+        Invoke-Expression $sidecar[0].Extent.Text
+        if ($null -ne $case.probe_timeout) {
+            $interpreterOverride = Resolve-SuiteInterpreterOverride `
+                -Path $InterpreterPath -ProbeOutputPrefix ($LogPath + '.interpreter') `
+                -LeaseRepoRoot $RepoRoot -ExpectedVersion $ExpectedInterpreterVersion `
+                -ProbeTimeoutSeconds ([int]$case.probe_timeout)
+            $python = $interpreterOverride.interpreter_path
+        }
+        else {
+            Invoke-Expression $select[0].Extent.Text
+            Invoke-Expression $lease[0].Extent.Text
+            Invoke-Expression $receipt[0].Extent.Text
+        }
     }
     catch { $failure = $_.Exception.Message }
     $results += ,[pscustomobject]@{
         name = [string]$case.name
         failure = $failure
         python = $python
+        elapsed_seconds = $watch.Elapsed.TotalSeconds
         events = @($script:events)
         leases = @($script:leases)
         log = @($script:logLines)
         repo_root_assignments = $repoRootAssignments
         select_before_lease = ($selectIndex -ge 0 -and $selectIndex -lt $leaseIndex)
+        sidecar_before_select = ($sidecarIndex -ge 0 -and $sidecarIndex -lt $selectIndex)
     }
 }
 ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
 """
+# Writes a suite log by executing the main body's own receipt line and every
+# statement from the pre-verdict interpreter re-hash to the terminal `exit`.
+VERDICT_HARNESS = INTERPRETER_PRELUDE + r"""
+$writeLog = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Write-SuiteLog'
+}, $true))
+Invoke-Expression $writeLog[0].Extent.Text
+$main = @($top | Where-Object {
+    $_ -is [Management.Automation.Language.TryStatementAst] -and
+        $_.Extent.Text.Contains('=== bounded worktree suite starting ===')
+})
+if ($main.Count -ne 1) { throw 'main statement is not unique' }
+$body = @($main[0].Body.Statements)
+$tail = -1
+for ($index = 0; $index -lt $body.Count; $index++) {
+    if ($body[$index].Extent.Text.Contains('Assert-SuiteInterpreterOverrideUnchanged')) { $tail = $index; break }
+}
+if ($tail -lt 0) { throw 'pre-verdict interpreter re-hash is missing from the main body' }
+$suiteLogWriter = [IO.StreamWriter]::new($env:WEATHER_VERDICT_LOG, $false, [Text.UTF8Encoding]::new($false))
+$interpreterOverride = $null
+if ($env:WEATHER_VERDICT_INTERPRETER) {
+    $interpreterOverride = Resolve-SuiteInterpreterOverride `
+        -Path $env:WEATHER_VERDICT_INTERPRETER -ProbeOutputPrefix ($env:WEATHER_VERDICT_LOG + '.interpreter') `
+        -LeaseRepoRoot $env:WEATHER_VERDICT_REPO
+}
+Write-SuiteLog '=== bounded worktree suite starting ==='
+Write-SuiteLog "worktree=$env:WEATHER_VERDICT_REPO branch=$env:WEATHER_VERDICT_BRANCH expected_tip=$env:WEATHER_VERDICT_TIP"
+Invoke-Expression $receipt[0].Extent.Text
+Write-SuiteLog 'planned chunks=2 files=40 max_files=20'
+if ($env:WEATHER_VERDICT_MUTATE) {
+    Add-Content -LiteralPath $env:WEATHER_VERDICT_MUTATE -Value '# swapped after the probe'
+}
+$SmokeTest = $false
+$IntegrationPreflight = $false
+$chunks = @(@('tests/a.py'), @('tests/b.py'))
+$launchStatus = 'FAIL'
+foreach ($statement in $body[$tail..($body.Count - 1)]) { Invoke-Expression $statement.Extent.Text }
+throw 'verdict tail returned without exit'
+"""
+# The three merge-evidence readers, run for real against the logs written above
+# with Scheduler, git and clock stubs (functions shadow cmdlets and git.exe).
+READERS_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$cases = Get-Content -LiteralPath $env:WEATHER_READER_CASES -Raw | ConvertFrom-Json
+$ops = $env:WEATHER_OPS
+$global:StubTip = $env:WEATHER_READER_TIP
+$global:StubRepo = $env:WEATHER_READER_REPO
+function global:git {
+    $global:LASTEXITCODE = 0
+    if ($args -contains 'rev-parse') { return $global:StubTip }
+    if ($args -contains 'bundle' -and $args -contains 'create') {
+        Set-Content -LiteralPath ([string]$args[4]) -Value 'stub bundle'
+    }
+}
+function global:Get-ScheduledTask {
+    return [pscustomobject]@{
+        State = 'Ready'
+        Actions = @([pscustomobject]@{
+            Execute = (Join-Path $PSHOME 'powershell.exe')
+            WorkingDirectory = $global:StubRepo
+            Arguments = $global:StubArguments
+        })
+    }
+}
+function global:Get-ScheduledTaskInfo {
+    return [pscustomobject]@{ LastRunTime = $global:StubLastRun; LastTaskResult = 0 }
+}
+$results = @()
+foreach ($case in $cases) {
+    $first = [string](@(Get-Content -LiteralPath $case.log)[0])
+    $global:StubLastRun = [datetime]::ParseExact(
+        $first.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture
+    )
+    $global:StubArguments = [string]$case.arguments
+    $outcome = $null
+    if ($case.reader -eq 'contract') {
+        try {
+            . (Join-Path $ops 'integration_attempt_contract.ps1')
+            $verdict = Get-WeatherIntegrationLogVerdict -Path $case.log
+            $planned = Assert-WeatherIntegrationFullSuiteVerdict -Verdict $verdict -ExpectedChunkCount 2
+            $outcome = "ACCEPTED $planned"
+        }
+        catch { $outcome = $_.Exception.Message }
+    }
+    elseif ($case.reader -eq 'bundle') {
+        function global:Get-Date { return [datetime]::Today.AddHours(1) }
+        try {
+            $output = & (Join-Path $ops 'package_exact_tip_bundle.ps1') `
+                -RepoRoot $global:StubRepo -WorktreeRoot $global:StubRepo `
+                -BranchRef 'claude/interp-test' -ExpectedTip $global:StubTip `
+                -SuiteTaskName 'stub-suite' -SuiteLog $case.log `
+                -EarliestSuiteRun ([datetime]::Today) `
+                -BundlePath $case.bundle -ManifestPath ($case.bundle + '.manifest.json')
+            $outcome = (@($output) -join "`n")
+        }
+        catch { $outcome = $_.Exception.Message }
+        Remove-Item Function:\Get-Date
+    }
+    else {
+        $output = & (Join-Path $ops 'suite_gated_quiet_merge.ps1') `
+            -Branch 'claude/interp-test' -ExpectedTip $global:StubTip `
+            -SuiteTaskName 'stub-suite' -SuiteLogPath $case.log `
+            -RepoRoot $global:StubRepo -QuietMergeScriptPath $env:WEATHER_READER_MERGE_STUB
+        $outcome = (@($output) -join "`n")
+    }
+    $results += ,[pscustomobject]@{ name = [string]$case.name; outcome = [string]$outcome }
+}
+ConvertTo-Json -InputObject @($results) -Compress
+"""
+
+
+def _make_venv(path: Path, pth: str | None = None) -> Path:
+    import venv
+
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(path)
+    if pth is not None:
+        (path / "Lib" / "site-packages" / "zz_interp_probe_test.pth").write_text(
+            pth + "\n", encoding="utf-8"
+        )
+    return path / "Scripts" / "python.exe"
+
+
+def _run_powershell(command: str, env: dict[str, str], timeout: int = 300):
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-Command", command],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def _free_drive_letter() -> str | None:
+    for letter in "ZYXWVUTSRQPONMLKJ":
+        if not os.path.exists(f"{letter}:\\"):
+            return letter
+    return None
 
 
 @pytest.fixture(scope="module")
 def interpreter_results(tmp_path_factory) -> dict[str, dict]:
     if os.name != "nt":
         pytest.skip("requires Windows PowerShell")
-    import venv
+    import shutil
 
     root = tmp_path_factory.mktemp("interp")
     production = root / "production"
@@ -721,56 +894,118 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
     no_venv = root / "no-venv"
     no_venv.mkdir()
     stage = root / "stage"
-    venv.EnvBuilder(with_pip=False, symlinks=False).create(stage / "venv")
-    stage_python = stage / "venv" / "Scripts" / "python.exe"
+    stage_python = _make_venv(stage / "venv")
     fake = root / "fake"
     fake.mkdir()
     (fake / "python.exe").write_text("not an interpreter\n", encoding="utf-8")
     (fake / "notpython.exe").write_bytes(stage_python.read_bytes())
+    # Probe-output and timeout contracts (Defender m1/m2): a site .pth runs even
+    # under -I, so it can stall the probe or corrupt its record.
+    slow_python = _make_venv(root / "slow" / "venv", "import time; time.sleep(30)")
+    junk_python = _make_venv(
+        root / "junk" / "venv",
+        "import os, sys; sys.stdout.write('not a python record'); sys.stdout.flush(); os._exit(0)",
+    )
+    late_exit_python = _make_venv(
+        root / "late-exit" / "venv",
+        "import atexit, os, sys; atexit.register(lambda: (sys.stdout.flush(), os._exit(3)))",
+    )
+    py312_python = _make_venv(
+        root / "py312" / "venv", "import sys; sys.version_info = (3, 12, 0, 'final', 0)"
+    )
+    same_base_python = _make_venv(root / "same-base" / "venv", "import sys; sys.base_prefix = sys.prefix")
+    # A non-venv interpreter copied to a venv-shaped path: the base python.exe
+    # with its DLLs and a ._pth that points at the base standard library.
+    base_dir = Path(sys.base_prefix)
+    renamed_scripts = root / "renamed" / "Scripts"
+    renamed_scripts.mkdir(parents=True)
+    shutil.copy2(Path(sys._base_executable), renamed_scripts / "python.exe")
+    for dll in base_dir.glob("*.dll"):
+        shutil.copy2(dll, renamed_scripts / dll.name)
+    (renamed_scripts / "python._pth").write_text(
+        f"{base_dir / 'Lib'}\n{base_dir / 'DLLs'}\n", encoding="utf-8"
+    )
     junction = root / "linked"
     made = subprocess.run(
         ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(stage)],
         capture_output=True, text=True, check=False,
     )
     assert made.returncode == 0, made.stdout + made.stderr
+    version_triple = ".".join(str(part) for part in sys.version_info[:3])
     cases = {
-        "omitted": (production, ""),
-        "omitted_missing_venv": (no_venv, ""),
-        "valid": (production, str(stage_python)),
-        "relative": (production, r"venv\Scripts\python.exe"),
-        "missing": (production, str(root / "absent" / "python.exe")),
-        "not_normalized": (production, str(stage / "venv" / "Scripts") + r"\..\Scripts\python.exe"),
-        "non_python_name": (production, str(fake / "notpython.exe")),
-        "non_python_file": (production, str(fake / "python.exe")),
-        "reparse_point": (production, str(junction / "venv" / "Scripts" / "python.exe")),
+        "omitted": (production, "", {}),
+        "omitted_missing_venv": (no_venv, "", {}),
+        "valid": (production, str(stage_python), {}),
+        "expected_version_match": (production, str(stage_python), {"expected_version": version_triple}),
+        "expected_version_mismatch": (production, str(stage_python), {"expected_version": "3.11.999"}),
+        "expected_without_path": (production, "", {"expected_version": version_triple}),
+        "relative": (production, r"venv\Scripts\python.exe", {}),
+        "missing": (production, str(root / "absent" / "python.exe"), {}),
+        "not_normalized": (production, str(stage / "venv" / "Scripts") + r"\..\Scripts\python.exe", {}),
+        "non_python_name": (production, str(fake / "notpython.exe"), {}),
+        "non_python_file": (production, str(fake / "python.exe"), {}),
+        "reparse_point": (production, str(junction / "venv" / "Scripts" / "python.exe"), {}),
+        "slow_probe": (production, str(slow_python), {"probe_timeout": 3}),
+        "junk_output": (production, str(junk_python), {}),
+        "late_nonzero_exit": (production, str(late_exit_python), {}),
+        "not_python_311": (production, str(py312_python), {}),
+        "prefix_equals_base": (production, str(same_base_python), {}),
+        "copied_base_interpreter": (production, str(renamed_scripts / "python.exe"), {}),
+        "base_interpreter": (production, str(Path(sys._base_executable)), {}),
     }
+    launcher = shutil.which("py")
+    if launcher:
+        # The Defender's bypass: the py.exe launcher renamed to python.exe.
+        renamed_launcher = root / "renamed-py" / "venv" / "Scripts"
+        renamed_launcher.mkdir(parents=True)
+        shutil.copy2(launcher, renamed_launcher / "python.exe")
+        cases["renamed_py_launcher"] = (production, str(renamed_launcher / "python.exe"), {})
+    letter = _free_drive_letter()
+    subst_made = False
+    if letter:
+        subst_made = subprocess.run(
+            ["subst", f"{letter}:", str(stage)], capture_output=True, text=True, check=False
+        ).returncode == 0
+    if subst_made:
+        cases["subst_drive"] = (production, f"{letter}:\\venv\\Scripts\\python.exe", {})
     payload = []
-    for name, (repo_root, interpreter) in cases.items():
+    for name, (repo_root, interpreter, extra) in cases.items():
         logs = root / "logs" / name
         logs.mkdir(parents=True)
         payload.append({"name": name, "repo_root": str(repo_root), "interpreter_path": interpreter,
-                        "log_path": str(logs / "suite.log")})
+                        "log_path": str(logs / "suite.log"), "expected_version": "",
+                        "probe_timeout": None, **extra})
+    # A retry with the LogPath of a refused probe meets a clean refusal.
+    junk_log = next(row["log_path"] for row in payload if row["name"] == "junk_output")
+    payload.append({"name": "retry_same_log", "repo_root": str(production),
+                    "interpreter_path": str(stage_python), "log_path": junk_log,
+                    "expected_version": "", "probe_timeout": None})
     cases_path = root / "cases.json"
     cases_path.write_text(json.dumps(payload), encoding="utf-8")
     env = os.environ.copy()
     env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
     env["WEATHER_INTERPRETER_CASES"] = str(cases_path)
     try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-             "-Command", INTERPRETER_HARNESS],
-            cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=180,
-        )
+        result = _run_powershell(INTERPRETER_HARNESS, env)
     finally:
         os.rmdir(junction)
+        if subst_made:
+            subprocess.run(["subst", f"{letter}:", "/d"], capture_output=True, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     results = {row["name"]: row for row in json.loads(result.stdout)}
     results["_paths"] = {
         "production": str(production),
         "stage_python": str(stage_python),
+        "stage_root": str(stage / "venv"),
         "stage_sha256": hashlib.sha256(stage_python.read_bytes()).hexdigest(),
+        "pyvenv_sha256": hashlib.sha256((stage / "venv" / "pyvenv.cfg").read_bytes()).hexdigest(),
+        "base_executable": str(Path(sys._base_executable)),
+        "base_sha256": hashlib.sha256(Path(sys._base_executable).read_bytes()).hexdigest(),
         "omitted_log": payload[0]["log_path"],
         "valid_log": payload[2]["log_path"],
+        "junk_log": junk_log,
+        "launcher": bool(launcher),
+        "subst": subst_made,
     }
     return results
 
@@ -802,10 +1037,24 @@ def test_valid_interpreter_path_runs_the_stage_python_and_is_recorded(interprete
         "interpreter_path": paths["stage_python"],
         "interpreter_sha256": paths["stage_sha256"],
         "python_version": " ".join(sys.version.splitlines()).strip(),
+        "python_version_triple": ".".join(str(part) for part in sys.version_info[:3]),
+        "expected_version": "",
+        "sys_executable": paths["stage_python"],
+        "sys_prefix": paths["stage_root"],
+        "sys_base_prefix": sys.base_prefix,
+        "pyvenv_cfg_path": str(Path(paths["stage_root"]) / "pyvenv.cfg"),
+        "pyvenv_cfg_sha256": paths["pyvenv_sha256"],
+        "base_executable": paths["base_executable"],
+        "base_executable_sha256": paths["base_sha256"],
         "lease_repo_root": paths["production"],
     }
-    probe = Path(paths["valid_log"] + ".interpreter.stdout.log")
-    assert probe.read_text(encoding="utf-8") == sys.version
+    probe = json.loads(Path(paths["valid_log"] + ".interpreter.stdout.log").read_text(encoding="utf-8"))
+    assert probe["version"] == sys.version and probe["prefix"] == paths["stage_root"]
+    matched = interpreter_results["expected_version_match"]
+    assert matched["failure"] is None and matched["python"] == paths["stage_python"]
+    assert json.loads(matched["log"][0][len("interpreter_override "):])["expected_version"] == ".".join(
+        str(part) for part in sys.version_info[:3]
+    )
 
 
 @pytest.mark.spawns
@@ -818,6 +1067,17 @@ def test_valid_interpreter_path_runs_the_stage_python_and_is_recorded(interprete
         ("non_python_name", "InterpreterPath must name a python.exe"),
         ("non_python_file", "InterpreterPath version probe could not start"),
         ("reparse_point", "InterpreterPath traverses a reparse point"),
+        ("slow_probe", "InterpreterPath version probe exceeded its bounded runtime"),
+        ("junk_output", "InterpreterPath version probe did not identify a Python interpreter (exit=0)"),
+        ("late_nonzero_exit", "InterpreterPath version probe did not identify a Python interpreter (exit=3)"),
+        ("not_python_311", "InterpreterPath is not Python 3.11: 3.12.0"),
+        ("expected_version_mismatch", "InterpreterPath is Python 3.11."),
+        ("prefix_equals_base",
+         "InterpreterPath is not a virtual environment interpreter: sys.prefix equals sys.base_prefix"),
+        ("copied_base_interpreter", "InterpreterPath is not a virtual environment interpreter: sys.prefix"),
+        ("base_interpreter", "InterpreterPath is not a virtual environment interpreter: sys.prefix"),
+        ("expected_without_path", "ExpectedInterpreterVersion requires InterpreterPath"),
+        ("retry_same_log", "bounded suite refuses to replace an existing interpreter probe output"),
     ],
 )
 def test_invalid_interpreter_path_is_refused_before_the_lease(interpreter_results, name, message):
@@ -825,6 +1085,32 @@ def test_invalid_interpreter_path_is_refused_before_the_lease(interpreter_result
     assert row["failure"] and row["failure"].startswith(message), row["failure"]
     assert row["python"] is None
     assert row["leases"] == [] and row["log"] == [] and row["events"] == []
+    if name == "slow_probe":
+        # The 3 s bound fired; the .pth would otherwise hold the probe for 30 s.
+        assert row["elapsed_seconds"] < 20
+    if name == "expected_version_mismatch":
+        assert row["failure"].endswith("not the expected 3.11.999")
+    if name in ("copied_base_interpreter", "base_interpreter"):
+        assert "is not the venv root" in row["failure"]
+
+
+@pytest.mark.spawns
+def test_renamed_launcher_and_subst_drive_are_refused(interpreter_results):
+    paths = interpreter_results["_paths"]
+    if not paths["launcher"] and not paths["subst"]:
+        pytest.skip("neither py.exe nor a free subst drive letter is available")
+    if paths["launcher"]:
+        row = interpreter_results["renamed_py_launcher"]
+        assert row["failure"] and row["failure"].startswith(
+            "InterpreterPath is not a virtual environment interpreter"
+        ), row["failure"]
+        assert row["leases"] == [] and row["python"] is None
+    if paths["subst"]:
+        row = interpreter_results["subst_drive"]
+        assert row["failure"] and row["failure"].startswith(
+            "InterpreterPath must be on a local fixed drive, not a mapped or subst letter"
+        ), row["failure"]
+        assert row["leases"] == [] and row["python"] is None
 
 
 @pytest.mark.spawns
@@ -837,3 +1123,151 @@ def test_interpreter_override_still_takes_the_shared_production_lease(interprete
     # interpreter is chosen before the lease, so no stage root can take it.
     assert interpreter_results["valid"]["repo_root_assignments"] == 1
     assert interpreter_results["valid"]["select_before_lease"] is True
+    assert interpreter_results["valid"]["sidecar_before_select"] is True
+
+
+@pytest.fixture(scope="module")
+def verdict_logs(tmp_path_factory) -> dict[str, dict]:
+    if os.name != "nt":
+        pytest.skip("requires Windows PowerShell")
+    root = tmp_path_factory.mktemp("verdict")
+    stage_python = _make_venv(root / "stage" / "venv")
+    swap_python = _make_venv(root / "swap" / "venv")
+    repo = root / "repo"
+    repo.mkdir()
+    tip = "ab" * 20
+    scenarios = {
+        "default": ("", ""),
+        "override": (str(stage_python), ""),
+        "swapped": (str(swap_python), str(root / "swap" / "venv" / "pyvenv.cfg")),
+    }
+    logs: dict[str, dict] = {}
+    for name, (interpreter, mutate) in scenarios.items():
+        log = root / f"{name}.log"
+        env = os.environ.copy()
+        env.update({
+            "WEATHER_BOUNDED_SUITE_SCRIPT": str(SCRIPT),
+            "WEATHER_VERDICT_LOG": str(log),
+            "WEATHER_VERDICT_INTERPRETER": interpreter,
+            "WEATHER_VERDICT_MUTATE": mutate,
+            "WEATHER_VERDICT_REPO": str(repo),
+            "WEATHER_VERDICT_BRANCH": "claude/interp-test",
+            "WEATHER_VERDICT_TIP": tip,
+        })
+        result = _run_powershell(VERDICT_HARNESS, env, timeout=180)
+        logs[name] = {
+            "returncode": result.returncode,
+            "output": result.stdout + result.stderr,
+            "path": str(log),
+            "lines": log.read_text(encoding="utf-8").splitlines(),
+        }
+    logs["_root"] = {"root": str(root), "repo": str(repo), "tip": tip}
+    return logs
+
+
+@pytest.mark.spawns
+def test_override_run_never_writes_the_merge_eligible_verdict(verdict_logs):
+    default = verdict_logs["default"]
+    assert default["returncode"] == 0, default["output"]
+    assert default["lines"][-1].endswith(
+        "  VERDICT: ALL CHUNKS PASSED (2/2); exact tip eligible for separate reviewed merge"
+    )
+    assert not any("interpreter" in line for line in default["lines"])
+    override = verdict_logs["override"]
+    assert override["returncode"] == 0, override["output"]
+    assert not any("ALL CHUNKS PASSED" in line for line in override["lines"])
+    assert any("  interpreter_override {" in line for line in override["lines"])
+    assert "interpreter override re-hash matched" in override["lines"][-2]
+    assert re.search(
+        r"  VERDICT: INTERPRETER QUALIFICATION PASSED \(2/2\); interpreter override "
+        r"sha256=[0-9a-f]{64} python=3\.11\.[0-9]+; NOT merge evidence$",
+        override["lines"][-1],
+    ), override["lines"][-1]
+    # An interpreter or pyvenv.cfg swapped after the probe gets no verdict at all.
+    swapped = verdict_logs["swapped"]
+    assert swapped["returncode"] != 0
+    assert "interpreter override changed while the suite was running (pyvenv_cfg_sha256)" in swapped["output"]
+    assert not any("VERDICT" in line for line in swapped["lines"])
+
+
+@pytest.mark.spawns
+def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
+    meta = verdict_logs["_root"]
+    root = Path(meta["root"])
+    default_log = verdict_logs["default"]["path"]
+    override_log = verdict_logs["override"]["path"]
+    # Forgeries isolate each suite-gate layer: the verdict alone (receipt line
+    # removed), and a merge-eligible log carrying an interpreter_override line.
+    verdict_only = root / "override-verdict-only.log"
+    verdict_only.write_text("\n".join(
+        line for line in verdict_logs["override"]["lines"] if "interpreter_override {" not in line
+    ) + "\n", encoding="utf-8")
+    forged = root / "forged-receipt.log"
+    default_lines = verdict_logs["default"]["lines"]
+    forged.write_text("\n".join(
+        default_lines[:2] + [default_lines[1][:21] + 'interpreter_override {"interpreter_path":"x"}']
+        + default_lines[2:]
+    ) + "\n", encoding="utf-8")
+    merge_stub = root / "quiet_merge_stub.ps1"
+    merge_stub.write_text("Write-Output 'QUIET MERGE STUB INVOKED'\nexit 0\n", encoding="utf-8")
+    suite_args = (
+        r"-NoProfile -File C:\stub\scripts\ops\bounded_worktree_test_suite.ps1 "
+        f"-ExpectedTip {meta['tip']} -BranchRef claude/interp-test -LogPath \"{{log}}\""
+    )
+    cases = [
+        ("contract_default", "contract", default_log, ""),
+        ("contract_override", "contract", override_log, ""),
+        ("bundle_default", "bundle", default_log, ""),
+        ("bundle_override", "bundle", override_log, ""),
+        ("gate_default", "gate", default_log, ""),
+        ("gate_override", "gate", override_log, ""),
+        ("gate_verdict_only", "gate", str(verdict_only), ""),
+        ("gate_forged_receipt", "gate", str(forged), ""),
+        ("gate_interpreter_argument", "gate", default_log,
+         r" -InterpreterPath C:\stage\venv\Scripts\python.exe"),
+        ("gate_interpreter_prefix", "gate", default_log, r" -Interp:C:\stage\venv\Scripts\python.exe"),
+    ]
+    payload = [
+        {"name": name, "reader": reader, "log": log,
+         "arguments": suite_args.replace("{log}", log) + extra,
+         "bundle": str(root / f"{name}.bundle")}
+        for name, reader, log, extra in cases
+    ]
+    cases_path = root / "reader-cases.json"
+    cases_path.write_text(json.dumps(payload), encoding="utf-8")
+    env = os.environ.copy()
+    env.update({
+        "WEATHER_READER_CASES": str(cases_path),
+        "WEATHER_OPS": str(SCRIPT.parent),
+        "WEATHER_READER_TIP": meta["tip"],
+        "WEATHER_READER_REPO": meta["repo"],
+        "WEATHER_READER_MERGE_STUB": str(merge_stub),
+    })
+    result = _run_powershell(READERS_HARNESS, env, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    outcome = {row["name"]: row["outcome"] for row in json.loads(result.stdout)}
+    # Controls: the same harness accepts the default (production venv) log.
+    assert outcome["contract_default"] == "ACCEPTED 2", outcome["contract_default"]
+    assert outcome["bundle_default"].endswith(
+        "PASS: exact-tip source bundle and manifest created"
+    ), outcome["bundle_default"]
+    assert outcome["gate_default"].endswith("QUIET MERGE STUB INVOKED"), outcome["gate_default"]
+    # integration_attempt_contract.ps1 Assert-WeatherIntegrationFullSuiteVerdict.
+    assert outcome["contract_override"] == "Full suite log is missing its exact PASS verdict."
+    # package_exact_tip_bundle.ps1 (-like "*VERDICT: ALL CHUNKS PASSED*").
+    assert outcome["bundle_override"] == "latest suite log has no full-suite PASS verdict"
+    assert not (root / "bundle_override.bundle").exists()
+    # suite_gated_quiet_merge.ps1: receipt-line refusal, anchored verdict regex,
+    # and the -InterpreterPath action-argument refusal.
+    for name in ("gate_override", "gate_forged_receipt"):
+        assert outcome[name] == (
+            "SUITE GATE REFUSED: suite log is an interpreter-override run, not merge evidence"
+        ), outcome[name]
+    assert outcome["gate_verdict_only"] == (
+        "SUITE GATE REFUSED: suite log does not end in the exact full-suite pass verdict"
+    ), outcome["gate_verdict_only"]
+    for name in ("gate_interpreter_argument", "gate_interpreter_prefix"):
+        assert outcome[name] == (
+            "SUITE GATE REFUSED: suite task action passes -InterpreterPath; "
+            "an interpreter qualification run is not merge evidence"
+        ), outcome[name]

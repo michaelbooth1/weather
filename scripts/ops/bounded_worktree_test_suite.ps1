@@ -45,7 +45,11 @@ param(
     # that runs the probe and every chunk instead of RepoRoot\venv. RepoRoot
     # still owns admission, capture state and the shared heavy-workload lease.
     # Empty (the default) keeps the production venv exactly as before.
-    [string]$InterpreterPath = ""
+    [string]$InterpreterPath = "",
+    # With -InterpreterPath only: the exact sys.version_info triple the staged
+    # interpreter must report (for example 3.11.9). Empty accepts any 3.11.x.
+    [ValidatePattern("^$|^[0-9]+\.[0-9]+\.[0-9]+$")]
+    [string]$ExpectedInterpreterVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +78,21 @@ if (-not (Test-Path -LiteralPath $logParent -PathType Container)) {
 }
 if (Test-Path -LiteralPath $LogPath) {
     throw "bounded suite refuses to append to or replace an existing log: $LogPath"
+}
+if (-not [string]::IsNullOrEmpty($InterpreterPath) -or
+    -not [string]::IsNullOrEmpty($ExpectedInterpreterVersion)) {
+    # Interpreter override only: the probe's sidecar outputs are create-new, so
+    # a retry with the same LogPath gets this clean refusal instead.
+    if ([string]::IsNullOrEmpty($InterpreterPath)) {
+        throw "ExpectedInterpreterVersion requires InterpreterPath"
+    }
+    foreach ($interpreterProbeSidecar in @(
+        ($LogPath + ".interpreter.stdout.log"), ($LogPath + ".interpreter.stderr.log")
+    )) {
+        if (Test-Path -LiteralPath $interpreterProbeSidecar) {
+            throw "bounded suite refuses to replace an existing interpreter probe output: $interpreterProbeSidecar"
+        }
+    }
 }
 if ($StartCommitPercent -ge $AbortCommitPercent) {
     throw "StartCommitPercent must be lower than AbortCommitPercent"
@@ -574,15 +593,100 @@ function Get-SuiteTimePackedChunks {
     return ,$chunks
 }
 
+function Get-SuiteDosDeviceTarget {
+    # The DOS device a drive letter names: \Device\... for a real volume,
+    # \??\<path> for a subst letter. $null when the letter is not defined.
+    param([Parameter(Mandatory = $true)][string]$DriveName)
+
+    if (-not ('Weather.Operations.SuiteDosDevice' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace Weather.Operations {
+    public static class SuiteDosDevice {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint QueryDosDeviceW(string deviceName, StringBuilder targetPath, int max);
+        public static string Query(string deviceName) {
+            StringBuilder buffer = new StringBuilder(32768);
+            uint length = QueryDosDeviceW(deviceName, buffer, buffer.Capacity);
+            if (length == 0) { return null; }
+            return buffer.ToString();
+        }
+    }
+}
+'@
+    }
+    return [Weather.Operations.SuiteDosDevice]::Query($DriveName)
+}
+
+function Assert-SuiteInterpreterLocalRegularFile {
+    # A regular file with no reparse point on the file or any parent directory.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $root = [IO.Path]::GetPathRoot($Path)
+    $cursor = $root
+    $item = $null
+    foreach ($component in $Path.Substring($root.Length).Split(
+        [char[]]@('\'), [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $cursor = Join-Path $cursor $component
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { throw "$Label does not exist: $Path" }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Label traverses a reparse point: $cursor"
+        }
+    }
+    if ($null -eq $item -or $item.PSIsContainer) {
+        throw "$Label is not a regular file: $Path"
+    }
+}
+
+function Get-SuiteInterpreterOverrideHashes {
+    # The bytes an override run depends on: the venv's python.exe (launcher),
+    # its pyvenv.cfg and the base interpreter that pyvenv.cfg selects.
+    param([Parameter(Mandatory = $true)][object]$Override)
+
+    return [ordered]@{
+        interpreter_sha256 = (Get-FileHash -LiteralPath $Override.interpreter_path -Algorithm SHA256).Hash.ToLowerInvariant()
+        pyvenv_cfg_sha256 = (Get-FileHash -LiteralPath $Override.pyvenv_cfg_path -Algorithm SHA256).Hash.ToLowerInvariant()
+        base_executable_sha256 = (Get-FileHash -LiteralPath $Override.base_executable -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Assert-SuiteInterpreterOverrideUnchanged {
+    # Re-hash before the verdict: an interpreter swapped after the probe must
+    # not inherit a qualification earned by different bytes.
+    param([Parameter(Mandatory = $true)][object]$Override)
+
+    $now = $null
+    try { $now = Get-SuiteInterpreterOverrideHashes -Override $Override } catch { }
+    if ($null -eq $now) {
+        throw "interpreter override changed while the suite was running (unreadable)"
+    }
+    foreach ($name in @($now.Keys)) {
+        if ([string]$now[$name] -cne [string]$Override.$name) {
+            throw "interpreter override changed while the suite was running ($name)"
+        }
+    }
+}
+
 function Resolve-SuiteInterpreterOverride {
     # -InterpreterPath (host Python upgrade prep). Accepts only an absolute,
-    # normalized local path to an existing regular python.exe with no reparse
-    # point anywhere on it, and records what will actually run: the path, its
-    # SHA-256 and the interpreter's own sys.version from a contained probe.
+    # normalized path on a local fixed (not subst) drive to an existing regular
+    # python.exe with no reparse point anywhere on it, whose contained probe
+    # proves a Python 3.11 virtual environment rooted at <venv>\Scripts\.. with
+    # its own pyvenv.cfg. Records what will actually run: the path, sys.version,
+    # sys.prefix/base_prefix/executable and the SHA-256 of the launcher,
+    # pyvenv.cfg and the base interpreter.
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$ProbeOutputPrefix,
         [Parameter(Mandatory = $true)][string]$LeaseRepoRoot,
+        [AllowEmptyString()][string]$ExpectedVersion = "",
         [ValidateRange(1, 300)][int]$ProbeTimeoutSeconds = 30
     )
 
@@ -597,27 +701,30 @@ function Resolve-SuiteInterpreterOverride {
     )) {
         throw "InterpreterPath must name a python.exe: $Path"
     }
+    if (-not [string]::IsNullOrEmpty($ExpectedVersion) -and $ExpectedVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+        throw "ExpectedInterpreterVersion must be an exact N.N.N version: $ExpectedVersion"
+    }
     $root = [IO.Path]::GetPathRoot($Path)
-    $cursor = $root
-    $item = $null
-    foreach ($component in $Path.Substring($root.Length).Split(
-        [char[]]@('\'), [StringSplitOptions]::RemoveEmptyEntries
-    )) {
-        $cursor = Join-Path $cursor $component
-        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
-        if ($null -eq $item) { throw "InterpreterPath does not exist: $Path" }
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "InterpreterPath traverses a reparse point: $cursor"
-        }
+    $driveType = $null
+    try { $driveType = ([IO.DriveInfo]::new($root)).DriveType } catch { }
+    $dosTarget = $null
+    try { $dosTarget = Get-SuiteDosDeviceTarget -DriveName $root.Substring(0, 2) } catch { }
+    if ($driveType -ne [IO.DriveType]::Fixed -or $null -eq $dosTarget -or
+        -not $dosTarget.StartsWith('\Device\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "InterpreterPath must be on a local fixed drive, not a mapped or subst letter: $root ($driveType, $dosTarget)"
     }
-    if ($null -eq $item -or $item.PSIsContainer) {
-        throw "InterpreterPath is not a regular file: $Path"
-    }
-    $sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-SuiteInterpreterLocalRegularFile -Path $Path -Label "InterpreterPath"
+    $venvRoot = Split-Path -Parent (Split-Path -Parent $Path)
 
     # -I ignores PYTHON* variables, the user site and the working directory.
+    # json.dumps keeps the record ASCII whatever the console code page.
     $probeArguments = ConvertTo-ScheduledTaskArgumentString `
-        -Tokens @("-I", "-c", "import sys; sys.stdout.write(sys.version)")
+        -Tokens @("-I", "-c", (
+            "import sys, json; sys.stdout.write(json.dumps(dict(" +
+            "version=sys.version, version_info=list(sys.version_info[:3]), " +
+            "executable=sys.executable, prefix=sys.prefix, base_prefix=sys.base_prefix, " +
+            "base_executable=getattr(sys, '_base_executable', ''))))"
+        ))
     $probeJob = $null
     $probe = $null
     $probeOutput = $null
@@ -654,16 +761,83 @@ function Resolve-SuiteInterpreterOverride {
         if ($probeJob) { $probeJob.Dispose() }
         if ($probe) { $probe.Dispose() }
     }
-    $version = ([IO.File]::ReadAllText($ProbeOutputPrefix + ".stdout.log") -replace '[\r\n]+', ' ').Trim()
-    if ($exitCode -ne 0 -or $version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+' -or $version.Length -gt 512) {
+    $probeText = [IO.File]::ReadAllText($ProbeOutputPrefix + ".stdout.log")
+    $record = $null
+    if ($probeText.Length -le 16384) {
+        try { $record = $probeText | ConvertFrom-Json } catch { $record = $null }
+    }
+    $triple = $null
+    if ($null -ne $record) {
+        $parts = @($record.version_info)
+        if ($parts.Count -eq 3 -and @($parts | Where-Object { $_ -isnot [int] }).Count -eq 0 -and
+            $record.version -is [string] -and $record.prefix -is [string] -and
+            $record.base_prefix -is [string] -and $record.executable -is [string] -and
+            $record.base_executable -is [string]) {
+            $triple = "{0}.{1}.{2}" -f $parts[0], $parts[1], $parts[2]
+        }
+    }
+    if ($exitCode -ne 0 -or $null -eq $triple) {
         throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
     }
-    return [pscustomobject][ordered]@{
+    $version = ($record.version -replace '[\r\n]+', ' ').Trim()
+
+    $sameFull = {
+        param([string]$Left, [string]$Right)
+        $l = $null
+        $r = $null
+        try {
+            $l = [IO.Path]::GetFullPath($Left).TrimEnd('\')
+            $r = [IO.Path]::GetFullPath($Right).TrimEnd('\')
+        }
+        catch { return $false }
+        return [string]::Equals($l, $r, [StringComparison]::OrdinalIgnoreCase)
+    }
+    $venvRefusal = $null
+    if (-not (& $sameFull $record.prefix $venvRoot)) {
+        $venvRefusal = "sys.prefix $($record.prefix) is not the venv root $venvRoot"
+    }
+    elseif (& $sameFull $record.prefix $record.base_prefix) {
+        $venvRefusal = "sys.prefix equals sys.base_prefix"
+    }
+    elseif (-not (& $sameFull $record.executable $Path)) {
+        $venvRefusal = "sys.executable $($record.executable) is not InterpreterPath"
+    }
+    if ($null -ne $venvRefusal) {
+        throw "InterpreterPath is not a virtual environment interpreter: $venvRefusal"
+    }
+    $pyvenvCfg = Join-Path $venvRoot "pyvenv.cfg"
+    Assert-SuiteInterpreterLocalRegularFile -Path $pyvenvCfg -Label "InterpreterPath pyvenv.cfg"
+    $baseExecutable = [string]$record.base_executable
+    if ($baseExecutable -notmatch '^[A-Za-z]:\\' -or -not (Test-Path -LiteralPath $baseExecutable -PathType Leaf) -or
+        ((Get-Item -LiteralPath $baseExecutable -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        (& $sameFull $baseExecutable $Path)) {
+        throw "InterpreterPath base interpreter is not a separate local regular file: $baseExecutable"
+    }
+    if ($triple -notmatch '^3\.11\.[0-9]+$') {
+        throw "InterpreterPath is not Python 3.11: $triple"
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedVersion) -and $triple -cne $ExpectedVersion) {
+        throw "InterpreterPath is Python $triple, not the expected $ExpectedVersion"
+    }
+
+    $override = [pscustomobject][ordered]@{
         interpreter_path = $Path
-        interpreter_sha256 = $sha256
+        interpreter_sha256 = $null
         python_version = $version
+        python_version_triple = $triple
+        expected_version = $ExpectedVersion
+        sys_executable = [string]$record.executable
+        sys_prefix = [string]$record.prefix
+        sys_base_prefix = [string]$record.base_prefix
+        pyvenv_cfg_path = $pyvenvCfg
+        pyvenv_cfg_sha256 = $null
+        base_executable = $baseExecutable
+        base_executable_sha256 = $null
         lease_repo_root = $LeaseRepoRoot
     }
+    $hashes = Get-SuiteInterpreterOverrideHashes -Override $override
+    foreach ($name in @($hashes.Keys)) { $override.$name = $hashes[$name] }
+    return $override
 }
 
 Assert-SuiteDiskHeadroom
@@ -731,7 +905,7 @@ else {
     # shared data\logs\heavy_workload.lock lease below) stays production.
     $interpreterOverride = Resolve-SuiteInterpreterOverride `
         -Path $InterpreterPath -ProbeOutputPrefix ($LogPath + ".interpreter") `
-        -LeaseRepoRoot $RepoRoot
+        -LeaseRepoRoot $RepoRoot -ExpectedVersion $ExpectedInterpreterVersion
     $python = $interpreterOverride.interpreter_path
     Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "INTERPRETER_OVERRIDE" `
         -Detail $interpreterOverride
@@ -1161,6 +1335,10 @@ try {
         }
     }
     Write-SuiteLog "final exact-tip, clean-worktree, and test-inventory recheck passed"
+    if ($null -ne $interpreterOverride) {
+        Assert-SuiteInterpreterOverrideUnchanged -Override $interpreterOverride
+        Write-SuiteLog "interpreter override re-hash matched: interpreter, pyvenv.cfg and base executable unchanged"
+    }
 
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
@@ -1169,6 +1347,18 @@ try {
     }
     if ($IntegrationPreflight) {
         Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
+        $launchStatus = "PASS"
+        exit 0
+    }
+    if ($null -ne $interpreterOverride) {
+        # A staged interpreter qualifies itself, never the production venv, so
+        # this verdict must not contain the merge-eligible phrase that the
+        # merge gates, attempt contract and bundle packager accept.
+        Write-SuiteLog (
+            "VERDICT: INTERPRETER QUALIFICATION PASSED ($($chunks.Count)/$($chunks.Count)); " +
+            "interpreter override sha256=$($interpreterOverride.interpreter_sha256) " +
+            "python=$($interpreterOverride.python_version_triple); NOT merge evidence"
+        )
         $launchStatus = "PASS"
         exit 0
     }

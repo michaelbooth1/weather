@@ -209,6 +209,11 @@ if ($actionArguments -notmatch $logPattern) { Refuse-SuiteGate "suite task actio
 if ($worktreePattern -and $actionArguments -notmatch $worktreePattern) {
     Refuse-SuiteGate "suite task action is not bound to the frozen WorktreeRoot"
 }
+# -InterpreterPath (or any prefix PowerShell would bind to it) runs a staged
+# interpreter: that run qualifies the interpreter and is never merge evidence.
+if ($actionArguments -match '(?i)(?:^|\s)-Inter[a-z]*(?::|\s|$)') {
+    Refuse-SuiteGate "suite task action passes -InterpreterPath; an interpreter qualification run is not merge evidence"
+}
 if ($ExpectedGateSha256) {
     if (-not [string]::Equals(
             [string]$suiteTask.Principal.UserId,
@@ -298,6 +303,9 @@ if (-not ($runLines -match $identityPattern)) {
 }
 if ($runLines -match "CHUNK\(S\) FAILED|SMOKE PASSED|PREFLIGHT PASSED") {
     Refuse-SuiteGate "suite log contains a non-full or failed verdict"
+}
+if ($runLines -match "interpreter_override ") {
+    Refuse-SuiteGate "suite log is an interpreter-override run, not merge evidence"
 }
 $lastLine = [string](@($runLines | Where-Object { $_ })[-1])
 $verdictMatch = [regex]::Match(
