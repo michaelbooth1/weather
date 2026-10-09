@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-09 10:40 America/Toronto (ALL LIVE TRADING PAUSED; N3 landed RS-A (lockin-anchor-v4 v0.5.12), H1 cut script and #258; #259, #261 and the #247 follow-up move to N4; C3 host console rehearsal not run, next date open; owner decisions 10-08 recorded).**
+**Last updated: 2026-10-09 10:40 America/Toronto (ALL LIVE TRADING PAUSED; N3 landed RS-A (lockin-anchor-v4 v0.5.12), H1 cut script and #258; #259, #261 and the #247 follow-up move to N4; C3 deferred; owner 10-09 11:10 approvals recorded; owner decisions 10-08 recorded).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -23,7 +23,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Merge freeze lifted 2026-10-03, except 88a** (owner reading 10-07): the bytes of `maker_evidence_capture.py`,
   `maker_evidence_store.py` and the 88a schema record, and 88a capture behaviour (#118, #172, #177, stacked #182), wait until
   after 2026-10-14. Shared schema-registry record additions are not frozen.
-- Owner decisions 2026-09-30..10-08 are rows in [DECISION_LOG](DECISION_LOG.md).
+- Owner decisions 2026-09-30..10-09 are rows in [DECISION_LOG](DECISION_LOG.md).
 - **Testing (owner 10-04, PR #205):** focused + affected tests with PR CI as full-suite evidence once the Windows CI lane
   (#262, pinned to host Python 3.11.0) covers them. Every night head is pre-gated on the stacked base it lands on,
   with the full ratchet/audit set (lesson of N3).
@@ -36,7 +36,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 - **Production source:** `master` = `origin/master` `6ce62cba`. N3 10-09: RS-A `6ad52c89` (#189, #246 lockin-anchor-v4
   `ML_MODEL_VERSION` v0.5.12, #127 option A, #255 fold); H1 handout cut script `89593f10`; #258 `6ce62cba`. Capture recovered.
-- **Host Python is 3.11.0** (gh-98778 broke #259 on the host); an upgrade paired with a release re-bind is an owner question.
+- **Host Python is 3.11.0** (gh-98778 broke #259 on the host); an upgrade with a release re-bind is approved (owner 10-09), after N5.
 - **Maker shadow:** #192 scorer landed; the forward runner (#261) did not land in N3 and goes first in N4. Activation per the
   owner's 10-08 decisions (24/7, 12 bands, hazard 0.001) the first morning after it lands. Parity definition: DECISION_LOG
   10-08. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (a reviewed code change lifts it).
@@ -49,7 +49,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): gate spec v3.4 is the frozen oracle basis; OD18 fresh oracle
   author on this host from a filtered standalone handout. Signature when the gates pass (~10-18..20); look by 11-15.
 - **C3 console rehearsal:** never run on the host: gates were GO 10-08 and 10-09 08:50 but the
-  console was not opened (the owner's Q7 workstation self-test passed 10-07 22:31). Files stay staged in `C:\c3`; next date is an owner question.
+  console was not opened (the owner's Q7 workstation self-test passed 10-07 22:31). Files stay staged in `C:\c3`; deferred until live prerequisites are near (owner 10-09).
 - **Settlement:** WRH "Hourly Data" rows (US), WRH Temp column (foreign), floor of the HKO daily maximum (Hong Kong). EF §10c.
 - **Pinned deployments (detached, locked worktrees):** watchdog, manual order journal, cold snapshot (91a `6e5ff47`; `979c0e7`
   kept until a clean 06:50 PASS) and exam; exact paths are the task actions (`Get-ScheduledTask`).
@@ -75,7 +75,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 | --- | --- | --- | --- |
 | Shadow runner activation (#261) | production | first morning after N4 | `maker_shadow_readout.ps1` running, tick < 90 s |
 | Re-pin `WeatherManualOrderJournal` to master (#127 landed) | production | 10-09 | task action path not `ebe72984` |
-| Redeploy `WeatherHostHealthWatchdog` (#255 landed) | production | 10-09 | task action path not `1fc7ba35` |
+| Remove old watchdog and journal deployments after the new pins verify | production | 10-09 evening | `status.ps1 -Json` watchdog CURRENT |
 | Remove `weather-cold-snapshot-deployed-979c0e7` | production | after a clean 06:50 PASS | path absent |
 | N4 night plan file + stacked pre-gates | workstation | 10-09 14:30 | `landing_night_plan_v0.1` file on its branch |
 | Econ matcher PR | workstation | 10-10 12:00 | PR open, roll verdict recorded |
