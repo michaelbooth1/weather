@@ -330,7 +330,7 @@
         "0x2"
       ],
       "registrar": null,
-      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation; DST (OD28): daily 08:10 trigger re-set in place with scripts/ops/reset_daily_trigger_local.ps1 -ExpectedAt 08:10, never recreated"
     },
     {
       "name": "WeatherStorageRecovery-*",
@@ -348,7 +348,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": null,
-      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation; DST (OD28): daily 12:00 trigger (PT30M repetition) re-set in place with scripts/ops/reset_daily_trigger_local.ps1 -ExpectedAt 12:00, never recreated"
     },
     {
       "name": "WeatherSuite0969a",
