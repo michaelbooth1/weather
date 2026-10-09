@@ -393,6 +393,35 @@ def test_strict_zone_accepts_canonical_names_and_aliases():
         assert time_zone(name).key == name
 
 
+class _LenientZone:
+    """A stand-in for a filesystem lookup that accepts any name (Windows accepted ``"Europe/London "``)."""
+
+    def __init__(self, key):
+        self.key = key
+
+
+@pytest.mark.parametrize("name", ["Europe/London ", "Europe/London\n", "europe/london", "Mars/Olympus_Mons"], ids=repr)
+def test_strict_zone_names_do_not_rely_on_the_platform_lookup(monkeypatch, name):
+    """Delta Defender c70581325 N1: strictness is the listed-name membership check, not the platform's ``ZoneInfo``.
+
+    Linux ``ZoneInfo`` already refuses these names, so without this stub a revert of the membership check
+    (``bundle.time_zone``) or of ``day_roll._zone`` to a raw lookup would pass CI (ubuntu) and regress only on Windows.
+    """
+    from maker_core.replay import bundle
+    from maker_core.replay.v2 import day_roll
+    monkeypatch.setattr(bundle, "ZoneInfo", _LenientZone)
+    monkeypatch.setattr(day_roll, "ZoneInfo", _LenientZone)
+    # positive control: the stub is the lookup actually used, so the refusals below are not vacuous
+    assert isinstance(bundle.time_zone("Europe/London"), _LenientZone)
+    assert isinstance(day_roll._zone("Europe/London"), _LenientZone)
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        bundle.time_zone(name)
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        day_roll._zone(name)
+    with pytest.raises(BundleError, match="unknown_time_zone"):
+        day_roll.DayRoll({"a": name})
+
+
 def test_market_time_zones_require_the_domain_registry(tmp_path):
     from maker_core.replay.execution_manifest import market_time_zones
     bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
