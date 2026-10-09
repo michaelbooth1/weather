@@ -65,7 +65,7 @@ class _ClaimDenied(Exception):
         self.error = error
 
 
-_LOG = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 # On Windows an antivirus or indexer handle, or a peer's open read handle, can
 # briefly deny an unlink or read with a sharing violation (PermissionError).
 # Retry it with the same bounded budget that weather.io uses for its atomic
@@ -236,7 +236,7 @@ def _write_immutable_json(
             # The staging name is unique and only aliases immutable receipt
             # bytes, so a leaked alias is harmless; raising here would replace
             # the publish outcome (or its original exception).
-            _LOG.warning(
+            logger.warning(
                 "cross-process fan-out staging alias left after %d denied "
                 "unlink attempts: %s: %s",
                 _TRANSIENT_DENIAL_RETRIES,
@@ -407,7 +407,7 @@ class CrossProcessMarketInvariantFetchFanout:
             )
         except PermissionError as exc:
             if _WINDOWS_TRANSIENT_DENIAL_RETRY:
-                _LOG.warning(
+                logger.warning(
                     "cross-process fan-out claim left in place after %d "
                     "denied read attempts: %s: %s",
                     _TRANSIENT_DENIAL_RETRIES,
@@ -427,7 +427,7 @@ class CrossProcessMarketInvariantFetchFanout:
         except PermissionError as exc:
             if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
                 raise
-            _LOG.warning(
+            logger.warning(
                 "cross-process fan-out claim left in place after %d denied "
                 "unlink attempts: %s: %s",
                 _TRANSIENT_DENIAL_RETRIES,

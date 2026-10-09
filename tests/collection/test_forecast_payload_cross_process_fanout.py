@@ -1165,3 +1165,53 @@ def test_windows_persistent_staging_unlink_denial_preserves_publish(
     assert "staging alias left" in caplog.text
     assert len(list(root.rglob("*.staging-*"))) == 1
     assert not list(root.rglob("*.claim"))
+
+
+def test_windows_persistent_claim_read_denial_logs_and_returns(
+    tmp_path, monkeypatch, caplog,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "read_text", ".claim", None)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    with caplog.at_level("WARNING", logger=fanout_module.__name__):
+        result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    # Bounded retry, then log and return: the holder's result is preserved.
+    assert len(denied) == fanout_module._TRANSIENT_DENIAL_RETRIES
+    assert len(sleeps) == fanout_module._TRANSIENT_DENIAL_RETRIES - 1
+    assert result.coordination_status == "cross_process_holder_published"
+    assert "denied read attempts" in caplog.text
+    assert len(list(root.rglob("*.claim"))) == 1
+
+
+def test_only_latest_claim_denial_is_raised_at_the_deadline(tmp_path, monkeypatch):
+    """One transient denial, then a crashed holder's claim: fail open, not raise."""
+
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    real_open = os.open
+    denied = []
+
+    def fake_open(path, flags, *args, **kwargs):
+        if flags & os.O_EXCL and str(path).endswith(".claim") and not denied:
+            denied.append(str(path))
+            # A holder wins the claim during our denied create, then crashes
+            # and leaves it behind: every later create sees EEXIST.
+            fanout_module.Path(path).write_text(
+                json.dumps({"token": "crashed-holder"}), encoding="utf-8",
+            )
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(fanout_module.os, "open", fake_open)
+    root = tmp_path / "shared-cas"
+    coordinator, _ = _fake_clock_coordinator(root, wait_timeout_seconds=1.0)
+    calls = []
+
+    result = _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    assert len(denied) == 1
+    assert calls == ["fetch"]
+    assert result.coordination_status == "cross_process_wait_timeout_fail_open"
+    assert result.wait_timed_out is True
