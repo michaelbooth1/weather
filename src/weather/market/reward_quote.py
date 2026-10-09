@@ -66,7 +66,7 @@ def price_reward_quote(**inputs) -> RewardQuote:
 
 
 def price_sized_reward_quote(*, size, **inputs) -> RewardQuote:
-    """Explicit 84h pure proposal; size is still bounded to 20/30/50/75."""
+    """Explicit 84h pure proposal; size is still bounded to 20/30/50/75 (40: calibration pilot)."""
     return _price_reward_quote(**inputs, size=size)
 
 
@@ -100,7 +100,8 @@ require explicit size and ceilings; no profile is selected by this calculation.
     step = _decimal(tick)
     order_cap, band_cap = _decimal(per_order_ceiling), _decimal(per_band_ceiling)
     size = _decimal(size)
-    if size not in (20, 30, 50, 75):
+    # 40 = live-fill calibration pilot (weather.market.lfc_constants.PILOT_SIZE), a declared deviation from 75.
+    if size not in (20, 30, 40, 50, 75):
         raise QuoteRefused("invalid_treatment_size")
     if not 0 < minimum <= size:
         raise QuoteRefused("reward_minimum_outside_treatment")

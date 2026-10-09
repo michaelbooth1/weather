@@ -296,10 +296,12 @@ def bounded_rows(paginator):
 class OwnerVenue:
     host = HOST
     def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False,
-                 preflight=False, timeouts=None, size='20', reserve_cap='19.6'):
+                 preflight=False, timeouts=None, size='20', reserve_cap='19.6', profile=None):
         from weather.market.re1_sizing import session_caps
         self.size, self.reserve_cap = number(size), number(reserve_cap)
-        _, ceiling = session_caps(self.size, 100)
+        # profile: the live-fill calibration pilot (weather.market.lfc_pilot) supplies its own size set and ceiling.
+        self.profile = profile
+        _, ceiling = session_caps(self.size, 100) if profile is None else profile.venue_ceiling(self.size)
         if not 0 < self.reserve_cap <= ceiling:
             raise RuntimeError('capital_cap')
         self.client, self.fields, self.guard = client, fields, guard
@@ -447,7 +449,7 @@ class OwnerVenue:
         if self.readonly: raise RuntimeError('read_only')
         from weather.market.re1_sizing import SIZES
         size = number(request['size'])
-        if size not in SIZES or size != getattr(self, 'size', Decimal(20)):
+        if size not in (SIZES if self.profile is None else self.profile.SIZES) or size != getattr(self, 'size', Decimal(20)):
             raise RuntimeError('signed_order_binding')
         signed = self.client.create_limit_order(**request)
         expected_signer = self.maker if self.fields['SIGNATURE_TYPE'] == '3' else self.client.signer

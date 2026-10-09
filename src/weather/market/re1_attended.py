@@ -72,14 +72,14 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices, size=SIZE):
+def observe(snapshot, prices, size=SIZE, sizes=SIZES):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
 True touch remains a separate submit safety check. Plain mid is sensitivity.
 """
     size = number(size)
-    if size not in SIZES:
+    if size not in sizes:
         raise HoldEnd('treatment_size')
     values = snapshot['quote_inputs']
     minimum, maximum, rate = (number(values[k]) for k in
@@ -140,6 +140,70 @@ def filled(row):
 
 
 class Session:
+    # Profile hooks (live-fill calibration, 2026-10-09). The RE-1 defaults below keep RE-1 behaviour unchanged;
+    # weather.market.lfc_pilot.PilotSession overrides them for the 40-share calibration pilot.
+    SIZES = SIZES
+    MAX_SESSIONS = MAX_SESSIONS
+    SECONDS = SECONDS
+    TREATMENT = 'RE-1-84h'
+    PROTOCOL = 'RE-1M-attended-84c'
+    BAND_CEILING = Decimal(75)
+
+    def session_seconds(self, realtime_rehearsal):
+        return 900 if realtime_rehearsal else SECONDS
+
+    def caps(self, size, available_collateral):
+        return session_caps(size, available_collateral)
+
+    def start_allowed(self, now):
+        return now.date().isoformat() <= LAST_DAY
+
+    def session_number_ok(self):
+        return bool(self.attempt) and 1 <= self.attempt.get('session_number', self.attempt['number']) <= self.MAX_SESSIONS
+
+    def authorize_post(self, leg, price, size, rule):
+        """Last pure gate before signing; RE-1 has none beyond its caps."""
+
+    def post_intent(self, request):
+        """Called inside before_post, after the intent file and before the raw POST."""
+
+    def posted(self, oid, leg, price):
+        """Called once an acknowledged order id is known."""
+
+    def leg_terminal(self, oid, row):
+        """Called with a terminal order read (cancelled requote leg or cleanup read)."""
+
+    def extra_checks(self, *, force=False):
+        """Additional hard limits evaluated on every control checkpoint."""
+
+    def after_open(self):
+        """Called once both legs rest."""
+
+    def minute_extra(self, snapshot):
+        """Called after each recorded minute."""
+
+    def initial_capital_ok(self, balances):
+        if self.sized:
+            ok = sum(self.prices) * self.size <= reserve_budget(balances['available_collateral'])
+            if ok:
+                self.band_cap = min(self.band_cap, reserve_budget(balances['available_collateral']))
+            return ok
+        return number(balances['available_collateral']) >= 25
+
+    def cancel_remaining(self):
+        """Account-wide cancel-all; True only when acknowledged."""
+        response = self._recover('cleanup_cancel_all', self.venue.cancel_all)
+        _cancel_ack_ids(response)
+        self._retain('cleanup_cancel_all_response', response=response)
+        return True
+
+    def account_clear(self, rows):
+        return rows == []
+
+    def validate_table(self, table):
+        validate_selection(table, expected_sha256=digest(table), condition_id=self.condition,
+                           token_ids=self.tokens, now=self.start, allow_sized=True)
+
     def __init__(self, *, venue, public, table, clock, directory, guard=None, mode='rehearse',
                  confirmation=None, attempt=None, realtime_rehearsal=False):
         self.venue, self.public, self.clock = venue, public, clock
@@ -149,18 +213,17 @@ class Session:
         self.start = utc(clock.now())
         if realtime_rehearsal and mode != 'rehearse':
             raise RuntimeError('live_duration_is_fixed')
-        self.planned_seconds = 900 if realtime_rehearsal else SECONDS
+        self.planned_seconds = self.session_seconds(realtime_rehearsal)
         self.end = self.start + timedelta(seconds=self.planned_seconds)
         self.deadline = clock.monotonic() + self.planned_seconds
         self.condition = table['selected_condition_id']
         selected = next(r for r in table['rows'] if r['condition_id'] == self.condition)
         self.tokens = tuple(selected['token_ids'])
-        validate_selection(table, expected_sha256=digest(table), condition_id=self.condition,
-                           token_ids=self.tokens, now=self.start, allow_sized=True)
+        self.validate_table(table)
         self.prices = [number(selected['quote'][k]) for k in ('yes_buy', 'no_buy')]
         self.size = number(selected['quote']['size'])
-        self.sized = table.get('size_treatment') == 'RE-1-84h'
-        self.order_cap, self.band_cap = (session_caps(self.size, table['available_collateral'])
+        self.sized = table.get('size_treatment') == self.TREATMENT
+        self.order_cap, self.band_cap = (self.caps(self.size, table['available_collateral'])
                                        if self.sized else (ORDER_CAP, BAND_CAP))
         self.selection_sha256 = digest(table)
         if mode == 'live' and (not self.sized or not confirmation or
@@ -187,7 +250,7 @@ class Session:
         self.attempt = attempt
         self.scope = {'condition_id': self.condition, 'token_ids': list(self.tokens),
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
-                      'protocol': 'RE-1M-attended-84c'}
+                      'protocol': self.PROTOCOL}
         if self.sized:
             self.scope.update(size=str(self.size), reserve_pusd=selected['quote']['reserve_pusd'],
                               available_collateral=table['available_collateral'],
@@ -248,6 +311,7 @@ class Session:
         write_new(self.directory / f'submit-{self.posts + 1}.intent.json',
                   {'number': self.posts + 1, 'request': request, 'scope': self.scope})
         self.posts += 1
+        self.post_intent(request)
 
     def control(self, *, force=False):
         # Checkpoints between reads are main-thread progress too. A blocked
@@ -274,6 +338,7 @@ class Session:
             raise HoldEnd('market_snapshot_stale')
         if getattr(self.venue, 'journal_failed', False):
             raise HoldEnd('response_journal_failed')
+        self.extra_checks(force=force)
         if force and ('geoblock' not in self.freshness.success or self.heartbeat_loop.last_ack is None):
             self.clock.sleep(.25)
             self.control(force=True)
@@ -332,23 +397,23 @@ class Session:
         """The sole sign/submit boundary. No CLI/config can widen these limits."""
         self.control(force=True)
         size = self.size if size is None else number(size)
-        if (self.mode == 'live' and (not self.attempt or not 1 <= self.attempt.get('session_number', self.attempt['number']) <= MAX_SESSIONS)):
+        if self.mode == 'live' and not self.session_number_ok():
             raise HoldEnd('session_cap')
         now = utc(self.clock.now())
-        if (self.venue.host != HOST or side != 'BUY' or size != self.size or size not in SIZES or
+        if (self.venue.host != HOST or side != 'BUY' or size != self.size or size not in self.SIZES or
                 post_only is not True or order_type != 'GTD' or leg not in (0, 1)):
             raise HoldEnd('submit_shape')
         if ((self.end - self.start).total_seconds() != self.planned_seconds or
-                self.mode == 'live' and self.planned_seconds != SECONDS or self.end.date() != self.start.date()):
+                self.mode == 'live' and self.planned_seconds != self.SECONDS or self.end.date() != self.start.date()):
             raise HoldEnd('session_duration_or_utc_day')
-        if now.date().isoformat() > LAST_DAY or (self.end - now).total_seconds() < 180:
+        if not self.start_allowed(now) or (self.end - now).total_seconds() < 180:
             raise HoldEnd('expiration_horizon')
         if self.submits >= MAX_SUBMITS or self.requotes > MAX_REQUOTES:
             raise HoldEnd('submit_budget')
         price = number(price)
         if price != self.prices[leg] or not Decimal('.17') <= price <= Decimal('.80') or price % Decimal('.01'):
             raise HoldEnd('submit_price')
-        if price * size > self.order_cap or sum(self.prices) * size > self.band_cap or sum(self.prices) * size > 75:
+        if price * size > self.order_cap or sum(self.prices) * size > self.band_cap or sum(self.prices) * size > self.BAND_CEILING:
             raise HoldEnd('capital_cap')
         expected = {oid: (self.tokens[i], p, size) for oid, (i, p) in self.active.items()}
         rows = self.required('open_orders', self.venue.open_orders)
@@ -376,13 +441,15 @@ class Session:
         if ((number(values['reward_min_size']) > size if self.sized else number(values['reward_min_size']) != SIZE)
                 or number(values['reward_rate_per_day']) < 40):
             raise HoldEnd('reward_terms')
-        observe(snapshot, self.prices, self.size)
+        observe(snapshot, self.prices, self.size, self.SIZES)
         rule = snapshot['rules'][self.tokens[leg]]
         if number(rule['tick_size']) != Decimal('.01') or number(rule['min_order_size']) > size or number(rule['fee_rate_bps']) < 0:
             raise HoldEnd('market_rules')
         asks = _levels(values['yes_asks' if leg == 0 else 'no_asks'])
         if price >= min(p for p, _ in asks):
             raise HoldEnd('fresh_ask')
+        self.submit_snapshot = snapshot
+        self.authorize_post(leg, price, size, rule)
         self.control()
         request = dict(token_id=self.tokens[leg], side=side, size=str(size), price=str(price),
                        post_only=post_only, expiration=int(self.end.timestamp()) + 60)
@@ -399,6 +466,7 @@ class Session:
             self.active[oid] = (leg, price)
             self.order_created[oid] = self.clock.monotonic()
             write_new(self.directory / f'submit-{self.posts}.ack.json', {'order_id': oid})
+            self.posted(oid, leg, price)
         if _value(response, 'trade_ids', 'tradeIDs') or response.get('status') == 'matched':
             self.fill_seen = True
             raise HoldEnd('fill')
@@ -426,26 +494,30 @@ class Session:
         else:
             raise HoldEnd('cancel_not_terminal')
         del self.active[oid]
+        self.leg_terminal(oid, row)
+
+    def _retain(self, event, **fields):
+        try:
+            self.journal.record(event, **fields)
+        except BaseException:
+            self.evidence_failed = True
+
+    def _recover(self, name, fn):
+        for attempt in range(3):
+            try:
+                return fn()
+            except Exception as exc:
+                self._retain(name + '_unavailable', exception_type=type(exc).__name__)
+                if not transient(exc) or attempt == 2:
+                    raise
+                self.clock.sleep(.5)
 
     def cleanup(self):
         """Cancellation does not depend on a working journal, stream or geoblock."""
         if self.closed:
             return self.cleanup_ok
         acknowledged = False
-        def retain(event, **fields):
-            try:
-                self.journal.record(event, **fields)
-            except BaseException:
-                self.evidence_failed = True
-        def recover(name, fn):
-            for attempt in range(3):
-                try:
-                    return fn()
-                except Exception as exc:
-                    retain(name + '_unavailable', exception_type=type(exc).__name__)
-                    if not transient(exc) or attempt == 2:
-                        raise
-                    self.clock.sleep(.5)
+        retain, recover = self._retain, self._recover
         if self.heartbeat_loop is not None:
             try:
                 self.heartbeat_loop.stop()
@@ -468,10 +540,7 @@ class Session:
                 retain('cleanup_cancel_unavailable', order_id=oid)
         try:
             retain('cleanup_cancel_all_request')
-            response = recover('cleanup_cancel_all', self.venue.cancel_all)
-            _cancel_ack_ids(response)
-            acknowledged = True
-            retain('cleanup_cancel_all_response', response=response)
+            acknowledged = self.cancel_remaining() is True
         except BaseException:
             acknowledged = False
         empty = False
@@ -479,7 +548,7 @@ class Session:
             for _ in range(10):  # the same read lag as cancel_leg
                 rows = recover('cleanup_open_orders', self.venue.open_orders)
                 retain('cleanup_open_orders', rows=rows)
-                empty = rows == []
+                empty = self.account_clear(rows)
                 if empty:
                     break
                 self.clock.sleep(1)
@@ -493,6 +562,10 @@ class Session:
                 retain('terminal_order', order=row)
                 if filled(row):
                     self.fill_seen = True
+                try:
+                    self.leg_terminal(oid, row)
+                except BaseException:
+                    self.evidence_failed = True
             positions = recover('terminal_positions', self.venue.positions)
             retain('terminal_positions', rows=positions)
             if positions:
@@ -524,7 +597,7 @@ class Session:
         reason, failure = 'fixed_end', None
         observed_minutes = 0
         try:
-            if self.end.date() != self.start.date() or self.start.date().isoformat() > LAST_DAY:
+            if self.end.date() != self.start.date() or not self.start_allowed(self.start):
                 raise HoldEnd('session_duration_or_utc_day')
             if self.required('initial_open_orders', self.venue.open_orders, checkpoint=False) != []:
                 raise HoldEnd('initial_open_orders')
@@ -532,15 +605,13 @@ class Session:
             if self.required('initial_positions', self.venue.positions, checkpoint=False) != []:
                 raise HoldEnd('initial_positions')
             balances = self.required('initial_balances', self.venue.balances, checkpoint=False)
-            if (sum(self.prices) * self.size > reserve_budget(balances['available_collateral']) if self.sized
-                    else number(balances['available_collateral']) < 25):
+            if not self.initial_capital_ok(balances):
                 raise HoldEnd('available_collateral')
-            if self.sized:
-                self.band_cap = min(self.band_cap, reserve_budget(balances['available_collateral']))
             self.freshness.started = self.market_time = self.clock.monotonic()
             self.opening_check()
             self.submit(0, self.prices[0])
             self.submit(1, self.prices[1])
+            self.after_open()
             next_minute = self.clock.monotonic()
             next_accrual = next_minute
             stop_at = self.deadline if rehearsal_seconds is None else min(self.deadline, self.clock.monotonic() + rehearsal_seconds)
@@ -563,7 +634,8 @@ class Session:
                     self.market_time = self.clock.monotonic()
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
-                    observation = observe(snapshot, self.prices, self.size)
+                    observation = observe(snapshot, self.prices, self.size, self.SIZES)
+                    self.minute_extra(snapshot)
                     self.control()
                     if self.clock.monotonic() >= next_accrual:
                         scoring = self.sample('scoring', lambda: self.venue.scoring(list(self.active)))

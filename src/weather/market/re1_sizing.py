@@ -33,3 +33,21 @@ def sized_quote(snapshot, available_collateral):
         if quote.reserve_pusd <= budget:
             return quote
     raise QuoteRefused('insufficient_size_reserve')
+
+
+def pilot_quote(snapshot, *, size, headroom, available_collateral, budget):
+    """Live-fill calibration pilot (lfc_constants): one fixed size, priced exactly as RE-1 prices it.
+
+    headroom = budget - L (the worst-case ledger). The band reserve must fit inside the headroom, and the wallet's
+    available cash must cover L + reserve (owner 2026-10-09 14:50). Never an exchange capability.
+    """
+    size, headroom, cash, budget = map(_decimal, (size, headroom, available_collateral, budget))
+    if not 0 <= headroom <= budget:
+        raise QuoteRefused('ledger_headroom_invalid')
+    quote = price_sized_reward_quote(**snapshot['quote_inputs'], size=size,
+                                     per_order_ceiling=Decimal('.8') * size, per_band_ceiling=size)
+    if quote.reserve_pusd > headroom:
+        raise QuoteRefused('ledger_headroom')
+    if cash < (budget - headroom) + quote.reserve_pusd:
+        raise QuoteRefused('cash_below_ledger_plus_reserve')
+    return quote

@@ -17,7 +17,8 @@ from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, public_quote, utc
 from weather.market.reward_quote import QuoteRefused, _decimal
-from weather.market.re1_sizing import reserve_budget, sized_quote
+from weather.market.re1_sizing import pilot_quote, reserve_budget, sized_quote
+from weather.market import lfc_constants as LFC
 from weather.market.reward_quote import _levels as _book_levels
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration, assert_no_ambient_market_registry_override
 
@@ -25,10 +26,18 @@ from weather.operations.live_path_security import assert_no_ambient_proxy_config
 LOCATION_ORDER = ('los-angeles', 'seattle', 'san-francisco', 'denver')
 
 
-def select_table(universe, *, now, complete=True, source_records=(), available_collateral=None):
-    """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment."""
+def select_table(universe, *, now, complete=True, source_records=(), available_collateral=None,
+                 treatment=None, headroom=None):
+    """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment.
+
+    treatment=LFC-40 is the live-fill calibration pilot: the same frozen rule, one fixed 40-share size, the band
+    reserve bounded by the worst-case-ledger headroom instead of the RE-1 wallet ceiling.
+    """
     current = utc(now)
-    if available_collateral is not None:
+    if treatment is not None:
+        if treatment != LFC.TREATMENT or available_collateral is None or headroom is None:
+            raise ValueError('pilot treatment requires cash and ledger headroom')
+    elif available_collateral is not None:
         reserve_budget(available_collateral)
     target = (current.date() + timedelta(days=1)).isoformat()
     rows, identities = [], set()
@@ -59,7 +68,9 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                 if (band['snapshot'].get('condition_id') != condition or
                         list(band['snapshot'].get('token_ids', ())) != list(band['token_ids'])):
                     raise QuoteRefused('public_scope_or_freshness')
-                quote = sized_quote(band['snapshot'], available_collateral)
+                quote = (sized_quote(band['snapshot'], available_collateral) if treatment is None else
+                         pilot_quote(band['snapshot'], size=LFC.PILOT_SIZE, headroom=headroom,
+                                     available_collateral=available_collateral, budget=LFC.BUDGET_PUSD))
                 # Owner 2026-09-24 (92a): require existing displayed YES-book depth of at least max(75, size) on each
                 # side within the reward max spread of the adjusted midpoint; an empty book pays the same reward at
                 # any size, so size there buys only fill exposure.
@@ -84,10 +95,14 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
         priority = LOCATION_ORDER.index(row['market_id']) if row['market_id'] in LOCATION_ORDER else len(LOCATION_ORDER)
         return (-row['predicted_360_minutes'], priority, row['condition_id'])
     survivors = sorted((r for r in rows if r['eligible']), key=rank)
-    treatment = {} if available_collateral is None else {
-        'size_treatment': 'RE-1-84h', 'available_collateral': str(_decimal(available_collateral)),
-        'reserve_budget_pusd': str(reserve_budget(available_collateral))}
-    return {**treatment, 'schema_version': SCHEMA_VERSION, 'kind': 'selection', 'created_at_utc': current.isoformat(),
+    if treatment is not None:
+        fields = {'size_treatment': treatment, 'available_collateral': str(_decimal(available_collateral)),
+                  'pilot_headroom_pusd': str(_decimal(headroom)), 'pilot_size': str(LFC.PILOT_SIZE)}
+    else:
+        fields = {} if available_collateral is None else {
+            'size_treatment': 'RE-1-84h', 'available_collateral': str(_decimal(available_collateral)),
+            'reserve_budget_pusd': str(reserve_budget(available_collateral))}
+    return {**fields, 'schema_version': SCHEMA_VERSION, 'kind': 'selection', 'created_at_utc': current.isoformat(),
             'target_date': target, 'universe_complete': complete is True,
             'source_records': list(source_records), 'location_tie_order': list(LOCATION_ORDER),
             'rows': sorted(rows, key=lambda r: (r['market_id'], r['condition_id'])),
@@ -106,8 +121,11 @@ def validate_selection(table, *, expected_sha256, condition_id, token_ids, now, 
         raise ValueError('selection table is stale, changed, incomplete or names another condition')
     original = [{k: v for k, v in row.items() if k not in {'eligible', 'refusal', 'predicted_360_minutes', 'quote'}}
                 for row in table['rows']]
+    pilot = table.get('size_treatment') == LFC.TREATMENT
     rebuilt = select_table(original, now=table['created_at_utc'], complete=True, source_records=table['source_records'],
-                           available_collateral=table.get('available_collateral'))
+                           available_collateral=table.get('available_collateral'),
+                           treatment=LFC.TREATMENT if pilot else None,
+                           headroom=table.get('pilot_headroom_pusd') if pilot else None)
     if rebuilt != table:
         raise ValueError('selection ranking does not reproduce the frozen rule')
     selected = next(row for row in table['rows'] if row['condition_id'] == condition_id)
@@ -224,9 +242,9 @@ class PublicBooks:
                     'reward_rate_per_day': str(rate),
                     'tick': str(books[0]['tick_size']), 'post_only_available': True}}
 
-    def selection(self, *, available_collateral=None):
+    def selection(self, *, available_collateral=None, treatment=None, headroom=None):
         assert_no_ambient_market_registry_override()
-        if available_collateral is not None:
+        if available_collateral is not None and treatment is None:
             reserve_budget(available_collateral)
         target = utc(self.clock()).date() + timedelta(days=1)
         universe, seen = [], set()
@@ -260,4 +278,4 @@ class PublicBooks:
                                      'target_date': target.isoformat(), 'condition_id': condition,
                                      'token_ids': tokens, 'snapshot': snapshot, 'event_slug': slug})
         return select_table(universe, now=self.clock(), source_records=self.records,
-                            available_collateral=available_collateral)
+                            available_collateral=available_collateral, treatment=treatment, headroom=headroom)
