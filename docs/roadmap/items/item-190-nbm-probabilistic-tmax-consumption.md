@@ -249,4 +249,32 @@ date are recorded in `weather.mg1_reserved_window`):
 - `--as-of` is unchanged: discovery is exclusive of its date and defaults to
   Toronto today. Reserved dates are dropped whatever `--as-of` admits.
 
+## 2026-10-08 MG-1 D0 stage decisions (owner, Q1-Q3)
+
+The MG-1 shadow stage `nbm_v2_guidance_read_v1` (pre-registration §2.2) is not
+built yet. It reads the parser-v2 payload from PR #190, so D0 condition (c)
+waits for #190 and the stage to land together. The owner answered the three
+D0 scoping questions on 2026-10-08 (20:04, relayed by the production agent):
+
+- **Q1 release binding: yes.** Production has no active release pointer.
+  "Bind into the release manifest" (§2.2) is met by binding three things:
+  - the stage id, config hash and code hash on every stage tape row;
+  - the runtime source fingerprint and git commit on every row;
+  - a frozen repository config entry with the same hashes.
+
+  Any future release manifest must carry the same block.
+- **Q2 floor-input changes: yes, option A.** #189, #196 and #246 change how
+  `high_so_far`, `trusted_current_max` and the physical floor are computed.
+  They are serving changes, and the look reports them as pre/post segments.
+  D0 does not move, and stage capture does not wait for them. MG-1's rule is
+  not modified (§6).
+- **Q3 tape: yes, a dedicated outcome-blind tape.** The stage writes its own
+  `nbm_guidance_read_shadow.jsonl`, never a `live_variant_predictions`
+  variant: Stage A's daily settlement scorecard joins that tape to outcomes.
+  The new tape is never joined to an outcome on reserved dates.
+
+The build plan and test list are in the workstation's 2026-10-07 scoping note,
+which is outside the repository. D0 is dated in the reservation file once it
+is determined (OD32).
+
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.

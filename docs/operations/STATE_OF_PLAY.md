@@ -44,7 +44,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   foreign module); floor check and floor invariant PASS; the literal zero-below-anchor rule fails on 3 of 75,796 rows
   (06-09: 2 rows, max 0.0096; 13-16: 1 row, max 0.0100; other blocks 0). The owner's landing condition was 0 in every block,
   so B does not land until the owner judges these rows.
-- **Model, morning:** MG-1 SIGNED 2026-10-04T16:10Z at `b044e0f1`; needs parser v2 (#190); scored on new dates >= 10-15.
+- **Model, morning:** MG-1 SIGNED at `b044e0f1`; needs parser v2 #190; dates >= 10-15; D0 stage Q1-Q3 yes (owner 10-08, item 190).
 - **Maker replay v2** (PR #176; panel UTC 09-30..10-14 never read): gate spec v3.4 ACCEPTED (owner 10-07) as the frozen basis
   for the independent oracle. **OD18:** the oracle is written by a fresh agent the production agent starts on this host, from
   a filtered standalone handout (one parentless commit, no remotes; exclusions recorded and hashed). Signature when the
