@@ -8,6 +8,9 @@ Fix round 1 (review F-1..F-9, fee rule): the venue-only dead-man sub-run 0g (obs
 halt), the 0d first terminal read before the safety cancel, a foreign order seen through a user-stream failure, the
 bounded terminal re-read after a cancel, fee_rate_bps == 0 at selection and at every submit, every market rule compared
 each minute, and the account read's freshness anchored at the first post.
+Fix round 2 (delta review 2026-10-09): a 0b ending foreign_open_order before the band is posted does not pass (N-1),
+cancel requests after the 0d/0g drop are counted for real and a counted one voids the 0g proof (N-2), and the
+pre-cancel first terminal reads are one attempt per leg (N-3).
 """
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -123,7 +126,8 @@ def setup(tmp_path, *, session0=False, run=None, base=None, filled=None, resting
         for r in venue.memory.orders.values() if Decimal(r['size_matched'])]
     profile = PilotProfile(session0=session0, run=(run or '0a') if session0 else None)
     sid = 'S0a-test' if session0 else 'S1-test'
-    ledger.record('session_start', session_id=sid, counted=not session0)
+    ledger.record('session_start', session_id=sid, counted=not session0,
+                  **({'session0_run': run or '0a'} if session0 else {}))
     exclusion = None if session0 else {'event_slug': LA_SLUG, 'condition_ids': [CONDITION, OTHER],
                                        'timezone_name': REGISTRY['los-angeles'].timezone}
     session = PilotSession(ledger=ledger, session_id=sid, profile=profile, root=root, exclusion=exclusion,
@@ -783,3 +787,85 @@ def test_account_open_orders_freshness_is_anchored_at_the_first_post(tmp_path):
     session.freshness.read = read
     session.run(rehearsal_seconds=120)
     assert seen and None not in seen and session.posted_at is not None and seen[-1] == session.posted_at
+
+
+# ----- fix round 2 (delta review 2026-10-09) -----------------------------------------------------------------------
+def test_session0_0b_foreign_order_before_the_band_posts_ends_but_does_not_pass(tmp_path):
+    # N-1: the owner's order reaches the stream before our band is posted; the run ends foreign_open_order with a
+    # clean cleanup, but it proves nothing about our resting orders and must not count in the session-0 gate.
+    from weather.market.lfc_cli import finish_session, session0_runs_passed
+    session, venue, clock, ledger = setup(tmp_path, session0=True, run='0b')
+    stream_failure_at(venue, clock, {'event_type': 'order', 'asset_id': '555', 'id': 'owner-manual',
+                                     'maker_address': venue.maker}, seconds=0)
+    result = session.run()
+    assert result['reason'] == 'foreign_open_order' and result['cleanup_ok'] and result['submits'] == 0
+    finish_session(ledger, 'S0a-test', result)
+    assert '0b' not in session0_runs_passed(ledger)
+
+
+def test_session0_0b_foreign_order_after_the_band_rests_passes_the_gate(tmp_path):
+    from weather.market.lfc_cli import finish_session, session0_runs_passed
+    session, venue, clock, ledger = setup(tmp_path, session0=True, run='0b')
+    add_foreign_at(venue, clock)
+    result = session.run()
+    assert result['reason'] == 'foreign_open_order' and result['cleanup_ok'] and len(session.known) == 2
+    finish_session(ledger, 'S0a-test', result)
+    assert [sid for sid, _ in session0_runs_passed(ledger)['0b']] == ['S0a-test']
+
+
+def test_session0_0g_a_cancel_request_of_ours_after_the_drop_voids_the_proof(tmp_path):
+    # N-2: own_cancel_requests_since_drop is measured. A cancel request of ours after the drop (here forced past the
+    # cancel_leg guard) is counted before it is sent, and the run cannot end venue_deadman_cancelled.
+    session, venue, clock, ledger = setup(tmp_path, session0=True, run='0g')
+    venue_deadman(venue, clock, never=True)
+    original, sent = session.extra_checks, []
+
+    def extra_checks(**kwargs):
+        original(**kwargs)
+        if session.dropped and not sent:
+            for oid in list(session.active):
+                sent.append(oid)
+                session.required('cancel', lambda oid=oid: venue.cancel(oid), checkpoint=False, order_id=oid)
+    session.extra_checks = extra_checks
+    result = session.run()
+    assert len(sent) == 2 and session.cancels_since_drop == 2
+    assert result['reason'] != 'venue_deadman_cancelled'
+    [first] = events(session, 'lfc_venue_deadman_first_terminal')
+    assert first['all_terminal'] and first['own_cancel_requests_since_drop'] == 2
+
+
+def test_session0_0g_pass_measures_zero_cancel_requests_since_the_drop(tmp_path):
+    session, venue, clock, _ = setup(tmp_path, session0=True, run='0g')
+    venue_deadman(venue, clock)
+    calls = []
+    original = session.call
+    session.call = lambda name, fn, **request: calls.append((name, session.dropped)) or original(name, fn, **request)
+    result = session.run()
+    assert result['reason'] == 'venue_deadman_cancelled' and session.cancels_since_drop == 0
+    assert not [c for c in calls if c[0] in ('cancel', 'cancel_all') and c[1]]
+
+
+def test_session0_pre_cancel_first_terminal_reads_are_one_attempt_per_leg(tmp_path):
+    # N-3: the 0d/0g reads in front of the safety cancel are not retried, so the cancel is not delayed.
+    session, venue, clock, _ = setup(tmp_path, session0=True, run='0d')
+    state = {'cleanup': False, 'reads': 0}
+    real_order = venue.order
+
+    def order(oid):
+        if state['cleanup'] and not venue.cancelled:
+            state['reads'] += 1
+            raise TimeoutError('read timed out')
+        return real_order(oid)
+    venue.order = order
+    real_cleanup = session.cleanup
+
+    def cleanup():
+        state['cleanup'] = True
+        return real_cleanup()
+    session.cleanup = cleanup
+    result = session.run()
+    assert result['reason'] == 'heartbeat_stale' and result['cleanup_ok'] and not venue.open_orders()
+    assert state['reads'] == 2 == len(session.known)
+    [first] = events(session, 'lfc_first_terminal_order_read')
+    assert set(first['rows']) == set(session.known) and all(v is None for v in first['rows'].values())
+    assert len(events(session, 'lfc_first_terminal_order_read_unavailable')) == 2

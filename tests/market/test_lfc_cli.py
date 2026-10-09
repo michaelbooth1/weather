@@ -9,6 +9,8 @@ Fix round 1: session0_passed needs every required sub-run plus the owner attesta
 0c <= 20 s (F-1), the PARTIAL positions read rule (F-4), adoption of a lost-ack intent onto its one matching venue
 order and the start refusal while an intent is unresolved (F-5), the bounded 5 x 2 s trade re-read with an order
 re-read at reconcile and the bounded trade reads (F-6), and the preflight ledger state (F-10).
+Fix round 2 (delta review 2026-10-09): every sub-run except 0e passes only with its band posted (N-1), adoption
+tolerates a truncated unterminated last journal line (N-6), and the 0g manual-trading-paused printout.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,10 +20,11 @@ import json
 import pytest
 
 from weather.market import lfc_constants as LFC
+from weather.market import lfc_cli
 from weather.market.lfc_cli import (cancel_ours, check_flags, classify_open_orders, close_crashed, close_out,
-                                    finish_session, ledger_state, load_conditions, parser,
+                                    confirmation, finish_session, ledger_state, load_conditions, parser,
                                     positions_inventory_readable, reconcile_ledger, session0_attest,
-                                    session0_attestation, session0_mechanical, session0_passed,
+                                    session0_attestation, session0_mechanical, session0_passed, session0_runs_passed,
                                     session_directory, session_identity, start_gates, run_wallet_verify,
                                     wallet_reader_report)
 from weather.market.lfc_ledger import Ledger, take_baseline, write_baseline
@@ -41,9 +44,20 @@ def ledger_with_baselines(tmp_path, *, now=NOW, t24=True):
     return ledger
 
 
-def pass_session0(ledger, *, reason='fixed_end', cleanup_ok=True, run='0a'):
+def pass_session0(ledger, *, reason='fixed_end', cleanup_ok=True, run='0a', posted=None):
+    """posted: 'band' (both legs acknowledged), 'none', 'one' (one leg acknowledged) or 'intent' (two intents, no
+    acknowledgement). Default: 'band' for every run except 0e, which posts nothing."""
+    posted = posted or ('none' if run == '0e' else 'band')
     sid = f'S0{run[1]}-x{len(ledger.sessions)}'
     ledger.record('session_start', session_id=sid, counted=False, session_number=0, session0_run=run)
+    legs = {'none': 0, 'one': 1, 'band': 2, 'intent': 2}[posted]
+    for n, token in enumerate(('t-yes', 't-no')[:legs], 1):
+        key = f'{sid}:{n}'
+        ledger.intent(session_id=sid, intent_key=key, token_id=token, condition_id='c', price='.3', size='5',
+                      fee_rate_bps='0')
+        if posted != 'intent':
+            ledger.ack(key, f'o-{sid}-{n}')
+            ledger.terminal(f'o-{sid}-{n}', {'status': 'CANCELED', 'size_matched': '0'}, source='test')
     ledger.record('session_end', session_id=sid, reason=reason, cleanup_ok=cleanup_ok)
 
 
@@ -92,15 +106,39 @@ def test_session0_pass_needs_every_required_sub_run_not_only_0a(tmp_path):
         assert not session0_passed(ledger, root=root) and 'session0_not_passed' in gates(ledger, root)
 
 
-@pytest.mark.parametrize('reason,cleanup_ok,run', [('foreign_open_order', True, '0a'), ('fixed_end', False, '0a'),
-                                                   ('exception', True, '0b'), ('heartbeat_stale', True, '0g'),
-                                                   ('venue_deadman_not_observed', True, '0g'),
-                                                   ('user_stream_invalid_event', True, '0b')])
-def test_session0_a_wrong_reason_or_unclean_cleanup_does_not_pass_its_run(tmp_path, reason, cleanup_ok, run):
+@pytest.mark.parametrize('reason,cleanup_ok,run,posted', [
+    ('foreign_open_order', True, '0a', None), ('fixed_end', False, '0a', None),
+    ('exception', True, '0b', None), ('heartbeat_stale', True, '0g', None),
+    ('venue_deadman_not_observed', True, '0g', None), ('user_stream_invalid_event', True, '0b', None),
+    # Delta review N-1: the accepted reason with a clean cleanup is not enough without the band posted.
+    ('foreign_open_order', True, '0b', 'none'), ('foreign_open_order', True, '0b', 'one'),
+    ('foreign_open_order', True, '0b', 'intent'), ('fixed_end', True, '0a', 'none'),
+    ('reconciled_after_crash', True, '0c', 'none'), ('heartbeat_stale', True, '0d', 'one'),
+    ('venue_deadman_cancelled', True, '0g', 'none'), ('l_budget_refused', True, '0e', 'band'),
+    ('l_budget_refused', True, '0e', 'one')])
+def test_session0_a_wrong_reason_or_unclean_cleanup_does_not_pass_its_run(tmp_path, reason, cleanup_ok, run, posted):
     ledger = ledger_with_baselines(tmp_path)
-    pass_session0(ledger, reason=reason, cleanup_ok=cleanup_ok, run=run)
-    assert run in session0_mechanical(ledger)
+    pass_session0(ledger, reason=reason, cleanup_ok=cleanup_ok, run=run, posted=posted)
+    assert run in session0_mechanical(ledger) and run not in session0_runs_passed(ledger)
     assert not session0_passed(ledger, root=tmp_path) and 'session0_not_passed' in gates(ledger, tmp_path)
+
+
+def test_session0_every_run_but_0e_passes_only_with_its_band_posted(tmp_path):
+    # Delta review N-1: a 0b ending foreign_open_order before our band rests proves nothing (S0-3 needs our orders
+    # resting), so it neither counts in the mechanical gate nor lets session0-attest write pass.json.
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path, skip='0b')
+    pass_session0(ledger, reason='foreign_open_order', run='0b', posted='none')
+    assert session0_mechanical(ledger) == ['0b']
+    with pytest.raises(RuntimeError, match='session0_runs_missing_0b'):
+        session0_attest(tmp_path, ledger, s0_2_seconds='5', phrase='x', now=NOW)
+    pass_session0(ledger, reason='foreign_open_order', run='0b')
+    assert session0_mechanical(ledger) == [] and set(session0_runs_passed(ledger)) == set(LFC.SESSION0_PASS_REASONS)
+    session0_attest(tmp_path, ledger, s0_2_seconds='5', phrase='x', now=NOW)
+    body = json.loads((tmp_path / 'session0' / 'pass.json').read_bytes())
+    assert body['sessions']['0b'] == [sid for sid, s in ledger.sessions.items()
+                                      if s['start'].get('session0_run') == '0b'][-1]
+    assert session0_passed(ledger, root=tmp_path)
 
 
 def test_session0_attestation_binds_the_ledger_and_s0_2_on_0c_at_most_20_seconds(tmp_path):
@@ -601,3 +639,49 @@ def test_preflight_ledger_state_names_open_sessions_and_unresolved_legs(tmp_path
     state = ledger_state(crashed(tmp_path))
     assert state['open_sessions'] == ['S0c-1'] and state['L'] == '40.0'
     assert [leg['order_id'] for leg in state['unresolved_legs']] == ['o1', 'o2']
+
+
+# ----- fix round 2: truncated last journal line (delta review N-6) --------------------------------------------------
+@pytest.mark.parametrize('tail,code', [(b'{"event": "sdk_resp', None),
+                                       (b'{"event": "sdk_resp\n', 'adoption_journal_unreadable')])
+def test_adoption_tolerates_only_an_unterminated_truncated_last_journal_line(tmp_path, tail, code):
+    ledger = lost_ack(tmp_path)
+    with open(tmp_path / 'session0' / '0c' / 'journal.jsonl', 'ab') as handle:
+        handle.write(tail)
+    venue = FakeVenue([], {'o1': {'status': 'CANCELED', 'size_matched': '0'}, 'o2': venue_order('o2')})
+    report_, _ = reconcile_ledger(ledger, venue, root=tmp_path, sleep=lambda s: None)
+    if code is None:
+        assert report_['adopted_order_ids'] == ['o2'] and report_['adoption_refusals'] == {}
+    else:
+        assert report_['adoption_refusals'] == {'S0c-1:2': code} and report_['adopted_order_ids'] == []
+
+
+# ----- fix round 2: manual trading paused throughout 0g (owner rule, clarification C5) ------------------------------
+def s0_confirmation_table():
+    row = {'condition_id': 'c', 'event_slug': 'e', 'quote': {'size': '5'}}
+    return {'rows': [row], 'selected_condition_id': 'c', 'available_collateral': '50'}
+
+
+@pytest.mark.parametrize('run', ['0a', '0d', '0g'])
+def test_the_0g_prompt_and_preflight_print_the_manual_trading_pause(tmp_path, monkeypatch, run):
+    printed = []
+    guard = SimpleNamespace(print=printed.append)
+    monkeypatch.setattr(lfc_cli.sys, 'stdin', SimpleNamespace(isatty=lambda: True))
+    table = s0_confirmation_table()
+    ledger = ledger_with_baselines(tmp_path, t24=False)
+    phrase = 'go ' + lfc_cli.digest(table)[:6]
+    confirmation(table, guard, profile=PilotProfile(session0=True, run=run), ledger=ledger, reader=lambda: phrase)
+    assert (LFC.SESSION0_0G_MANUAL_TRADING_PAUSED in printed) is (run == '0g')
+    assert 'PAUSED' in LFC.SESSION0_0G_MANUAL_TRADING_PAUSED and 'cancel' in LFC.SESSION0_0G_MANUAL_TRADING_PAUSED
+
+    from weather.market import re1_attended, re1_owner_checks
+    shown = []
+    monkeypatch.setattr(re1_attended, 'SecretGuard', lambda *a, **k: SimpleNamespace(print=shown.append))
+    monkeypatch.setattr(re1_owner_checks, 'run_preflight', lambda **kwargs: 0)
+    monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: tmp_path)
+    monkeypatch.setattr(lfc_cli, 'ledger_path', lambda root: ledger.path)
+    monkeypatch.setattr(lfc_cli, '_selector', lambda args, **kwargs: (None, None))
+    args = parser().parse_args(['preflight', '--session0', '--run', run, '--event-slug', 'a', '--event-slug', 'b',
+                                '--event-slug', 'c', '--extra-conditions', 'x.json', '--shadow-scope', 'y.json'])
+    assert lfc_cli.run_preflight(args) == 0
+    assert (LFC.SESSION0_0G_MANUAL_TRADING_PAUSED in shown) is (run == '0g')

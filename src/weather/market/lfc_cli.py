@@ -23,6 +23,14 @@ Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --e
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
 fails closed on missing or unreadable state. Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
+
+Session-0 runbook notes (DRAFT clarification C5; delta review 2026-10-09):
+- Every sub-run except 0e passes only if its band was posted (both legs with a venue order id); 0e posts nothing.
+  In 0b the owner places the foreign order only after both legs rest.
+- Run 0g: manual trading, including owner cancels in the UI, stays PAUSED from before the run until its result is
+  read; preflight and the confirmation prompt print this. The 0g proof is "every leg terminal with no cancel request
+  from this process since the drop" and cannot tell the venue dead-man from an owner cancel.
+- A 0d/0g pass seen through the REST order read reports evidence_complete: false; that is expected (delta review N-4).
 """
 from __future__ import annotations
 
@@ -102,16 +110,26 @@ SESSION0_PASS_SCHEMA = 'lfc_session0_pass_v0.1'
 SESSION0_PASS_FILE = Path('session0') / 'pass.json'
 
 
+def session0_band_posted(ledger, session):
+    """Delta review N-1: the session's band was posted, i.e. legs on two distinct tokens carry a venue order id
+    (acknowledged or adopted). An unacknowledged intent alone does not count."""
+    posted = {ledger.legs[key]['token_id'] for key in session['legs'] if ledger.legs[key]['order_id']}
+    return len(posted) >= 2
+
+
 def session0_runs_passed(ledger):
     """{run: [session ids]} of session-0 sub-runs that ended with their required reason and a clean cleanup
-    (review F-1a; LFC.SESSION0_PASS_REASONS), each with the ledger sequence of its session_end row."""
+    (review F-1a; LFC.SESSION0_PASS_REASONS), each with the ledger sequence of its session_end row. Every run except
+    0e must also have posted its band (delta review N-1: a 0b that ends foreign_open_order before our orders rest
+    proves nothing); 0e must have posted nothing (it refuses before any submit)."""
     ends = {row['session_id']: row['sequence'] for row in ledger.rows if row['event'] == 'session_end'}
     passed = {}
     for session_id, session in ledger.sessions.items():
         start, end = session['start'], session['end']
         run = start.get('session0_run')
         if (start.get('counted') is False and run in LFC.SESSION0_PASS_REASONS and end is not None and
-                end.get('reason') in LFC.SESSION0_PASS_REASONS[run] and end.get('cleanup_ok') is True):
+                end.get('reason') in LFC.SESSION0_PASS_REASONS[run] and end.get('cleanup_ok') is True and
+                (not session['legs'] if run == '0e' else session0_band_posted(ledger, session))):
             passed.setdefault(run, []).append((session_id, ends[session_id]))
     return passed
 
@@ -154,7 +172,8 @@ def session0_attestation(root, ledger):
 def session0_passed(ledger, *, root):
     """Session 1 may not start until session 0 has passed (PR section 9; review F-1): every required sub-run (0a
     fixed_end, 0b foreign_open_order, 0c reconciled_after_crash, 0d heartbeat_stale or order_no_longer_resting, 0e
-    l_budget_refused, 0g venue_deadman_cancelled; 0f optional) ended cleanly, and the owner attestation
+    l_budget_refused, 0g venue_deadman_cancelled; 0f optional) ended cleanly with its band posted (0e: nothing
+    posted; delta review N-1), and the owner attestation
     session0/pass.json is bound to the ledger with S0-2 on 0c <= 20 s (the binding gate for session 1)."""
     return not session0_mechanical(ledger) and not session0_attestation(root, ledger)
 
@@ -306,6 +325,8 @@ def confirmation(table, guard, *, profile, ledger, reader=input):
                  'available_collateral': table.get('available_collateral')})
     guard.print('Unattended after this phrase: every hard limit cancels all orders on the account and reconciles; '
                 'the exchange dead-man cancels everything if this process hangs or dies. Leave no other order.')
+    if profile.run == '0g':
+        guard.print(LFC.SESSION0_0G_MANUAL_TRADING_PAUSED)
     guard.print('Type: ' + phrase)
     typed = ' '.join(str(reader()).lower().split())
     if typed != phrase:
@@ -357,6 +378,8 @@ def run_preflight(args):
         raise RuntimeError(stopped)
     from weather.market.re1_attended import SecretGuard
     SecretGuard().print(ledger_state(ledger))  # review F-10: what a live start would refuse on
+    if profile.run == '0g':
+        SecretGuard().print(LFC.SESSION0_0G_MANUAL_TRADING_PAUSED)
     _, select = _selector(args, root=root, ledger=ledger)
     return re1_preflight(root=root, select=select, profile=profile)
 
@@ -627,13 +650,16 @@ def _post_order_ids(journal_path):
     """Order ids from the raw POST /order responses retained in a session journal (review F-5, first source)."""
     ids = []
     try:
-        lines = Path(journal_path).read_bytes().splitlines()
+        data = Path(journal_path).read_bytes()
     except OSError:
         return None
-    for line in lines:
+    lines = data.splitlines()
+    for number, line in enumerate(lines):
         try:
             row = json.loads(line)
         except ValueError:
+            if number == len(lines) - 1 and not data.endswith(b'\n'):
+                break  # delta review N-6: a crash mid-write (run 0c) truncates only the unterminated last line
             return None
         if (row.get('event') == 'sdk_response' and str(row.get('method', '')).upper() == 'POST' and
                 str(row.get('path', '')).rstrip('/').endswith('/order') and isinstance(row.get('response'), dict)):

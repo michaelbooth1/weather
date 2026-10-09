@@ -67,11 +67,18 @@ SESSION0_MIN_CANDIDATE_EVENTS = 3  # DRAFT clarification C: owner-listed candida
 # but the script's own 8 s stale cleanup is disabled so only the venue's /v1/heartbeats dead-man can cancel.
 SESSION0_RUNS = {'0a': 1200, '0b': 600, '0c': 600, '0d': 600, '0e': 600, '0f': 600, '0g': 600}
 SESSION0_DROP_AFTER_SECONDS = 120  # 0d/0g: heartbeat sends stop 120 s after posting; the main loop stays alive
-# 0g exposure bound: the venue cancels about 10 s after the last heartbeat (+5 s buffer) = the window; if our orders
-# still rest at window + margin after the drop, the run ends through the normal cleanup (a safety cancel that is
-# not part of the proof) and the campaign ledger records a halt.
+# 0g exposure bound: the venue cancels about 10 s after the last heartbeat (+5 s buffer) = the window. The cap is
+# at least window + margin after the drop, read at the next control checkpoint (>= 30 s + one control cycle); if
+# our orders still rest then, the run ends through the normal cleanup (a safety cancel that follows within one
+# control cycle plus read latency and is not part of the proof) and the campaign ledger records a halt. Requotes are
+# allowed before the drop and never sent after it. The proof is "every leg terminal with no cancel request from this
+# process since the drop"; it cannot tell the venue dead-man from an owner cancel, hence the manual-trading pause.
 SESSION0_VENUE_WINDOW_SECONDS = 15
 SESSION0_VENUE_MARGIN_SECONDS = 15
+# Owner rule (DRAFT clarification C5): printed by preflight and by the confirmation prompt of run 0g.
+SESSION0_0G_MANUAL_TRADING_PAUSED = (
+    'Run 0g: manual trading, including any owner cancel in the Polymarket UI, must stay PAUSED from before this run '
+    'until its result is read. An owner cancel would counterfeit the venue dead-man proof.')
 # session0_passed (review F-1a): every required sub-run ended with one of these reasons and a clean cleanup; 0f is
 # optional. Plus the owner attestation session0/pass.json bound to the ledger, with S0-2 measured on 0c.
 SESSION0_PASS_REASONS = {'0a': ('fixed_end',), '0b': ('foreign_open_order',), '0c': ('reconciled_after_crash',),
@@ -79,7 +86,8 @@ SESSION0_PASS_REASONS = {'0a': ('fixed_end',), '0b': ('foreign_open_order',), '0
                          '0g': ('venue_deadman_cancelled',)}
 SESSION0_S0_2_MAX_SECONDS = 20  # S0-2 measured on 0c gates session 1 (review F-1c)
 # Fee rule (review Q4 replacement; DRAFT clarification C): every token of the selected market must read
-# fee_rate_bps == 0 at selection and at every submit; non-zero or unreadable fails closed.
+# fee_rate_bps == 0 at selection, the submitted leg's token at every submit, and both tokens every minute;
+# non-zero or unreadable fails closed.
 REQUIRED_FEE_RATE_BPS = 0
 # Trade reads at reconcile (review F-6): the same 5 x 2 s re-read as the session cleanup, bounded in time.
 TRADE_READ_ATTEMPTS = 5

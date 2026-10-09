@@ -428,7 +428,7 @@ class PilotSession(Session):
         self.dropped = self.stalled = False
         self.dropped_at = None  # 0d/0g: monotonic time the heartbeat sends stopped
         self.venue_deadman_observed = None  # 0g: the first terminal reads that proved the venue cancel
-        self.cancels_since_drop = 0
+        self.cancels_since_drop = 0  # delta review N-2: cancel requests this process journalled after the drop
         if kwargs.get('mode') == 'live' and (ledger is None or not session_id or root is None):
             raise LedgerUnavailable('ledger_required')
         if not profile.session0 and kwargs.get('mode') == 'live' and not exclusion:
@@ -615,6 +615,13 @@ class PilotSession(Session):
                             status=str((row or {}).get('status')))
         raise HoldEnd('cancel_not_terminal')
 
+    def call(self, name, fn, **request):
+        # Delta review N-2: every cancel request this process sends after the 0d/0g drop is counted before it is
+        # sent; the 0g proof needs the count to be 0 (the cleanup's safety cancel follows the proof and is separate).
+        if self.dropped and name in ('cancel', 'cancel_all'):
+            self.cancels_since_drop += 1
+        return super().call(name, fn, **request)
+
     def cancel_leg(self, oid):
         if self.profile.run == '0g' and self.dropped:
             # Our own cancel would contaminate the venue dead-man proof: end through the cleanup instead (no pass).
@@ -793,12 +800,16 @@ class PilotSession(Session):
         if self.profile.run in ('0d', '0g') and self.submits:
             # Review F-1b: the first terminal read of each leg BEFORE our cleanup cancel; the per-leg
             # cleanup_cancel_response follows in the RE-1 cleanup. That cancel is a safety step, never the proof.
+            # Delta review N-3: one attempt per leg, no retry, so the safety cancel is not delayed; the RE-1
+            # cleanup's own terminal reads follow the cancel.
             rows = {}
             for oid in list(self.known):
                 try:
-                    rows[oid] = self._recover('lfc_first_terminal_order_read', lambda: self.venue.order(oid))
-                except BaseException:
+                    rows[oid] = self.venue.order(oid)
+                except BaseException as exc:
                     rows[oid] = None
+                    self._retain('lfc_first_terminal_order_read_unavailable', order_id=oid,
+                                 exception_type=type(exc).__name__)
             self._retain('lfc_first_terminal_order_read', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run=self.profile.run,
                          rows=rows, before_cleanup_cancel=True, venue_deadman_observed=self.venue_deadman_observed)
             self._retain('lfc_session0_safety_cancel', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run=self.profile.run,
