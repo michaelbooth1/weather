@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import os
@@ -616,3 +617,223 @@ def test_time_packing_is_deterministic_lpt_and_fails_closed_on_bad_tables(tmp_pa
     for result in results[1:1 + len(bad)]:
         assert result["error"] and "suite file timing table" in result["error"]
     assert "repeats a file" in results[-1]["error"]
+
+
+# -InterpreterPath (host Python upgrade prep, HOST-PY plan P7): the suite runs a
+# staged venv's python.exe while RepoRoot keeps the shared production lease. The
+# harness executes the script's own statements (interpreter selection, the lease
+# acquisition and the receipt log line) against a real staging venv.
+INTERPRETER_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if ($errors.Count) { throw 'runner parse failure' }
+$ops = Split-Path -Parent $env:WEATHER_BOUNDED_SUITE_SCRIPT
+. (Join-Path $ops 'training_window_contract.ps1')
+. (Join-Path $ops 'windows_kill_on_close_job.ps1')
+$definition = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Resolve-SuiteInterpreterOverride'
+}, $true))
+if ($definition.Count -ne 1) { throw 'missing unique Resolve-SuiteInterpreterOverride' }
+Invoke-Expression $definition[0].Extent.Text
+$top = @($ast.EndBlock.Statements)
+$select = @($top | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Extent.Text.Contains('[string]::IsNullOrEmpty($InterpreterPath)')
+})
+$lease = @($top | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.VariablePath.UserPath -ceq 'workloadLease'
+})
+$receipt = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$null -ne $interpreterOverride'
+}, $true))
+if ($select.Count -ne 1 -or $lease.Count -ne 1 -or $receipt.Count -ne 1) {
+    throw 'interpreter, lease or receipt statement is not unique'
+}
+$repoRootAssignments = @($top | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.VariablePath.UserPath -ceq 'RepoRoot'
+}).Count
+$selectIndex = [array]::IndexOf($top, $select[0])
+$leaseIndex = [array]::IndexOf($top, $lease[0])
+function Write-WeatherLaunchDiagnostic {
+    param($Journal, $Event, $Detail)
+    $script:events += ,[string]$Event
+}
+function Enter-WeatherHeavyWorkloadLease {
+    param($RepoRoot, $Workload)
+    $script:leases += ,[pscustomobject]@{ repo_root = $RepoRoot; workload = $Workload }
+    return 'lease'
+}
+function Write-SuiteLog { param([string]$Message) $script:logLines += ,$Message }
+$results = @()
+foreach ($case in (Get-Content -LiteralPath $env:WEATHER_INTERPRETER_CASES -Raw | ConvertFrom-Json)) {
+    $script:events = @()
+    $script:leases = @()
+    $script:logLines = @()
+    $RepoRoot = [string]$case.repo_root
+    $InterpreterPath = [string]$case.interpreter_path
+    $LogPath = [string]$case.log_path
+    $launchJournal = $null
+    $python = $null
+    $interpreterOverride = 'unset'
+    $failure = $null
+    try {
+        Invoke-Expression $select[0].Extent.Text
+        Invoke-Expression $lease[0].Extent.Text
+        Invoke-Expression $receipt[0].Extent.Text
+    }
+    catch { $failure = $_.Exception.Message }
+    $results += ,[pscustomobject]@{
+        name = [string]$case.name
+        failure = $failure
+        python = $python
+        events = @($script:events)
+        leases = @($script:leases)
+        log = @($script:logLines)
+        repo_root_assignments = $repoRootAssignments
+        select_before_lease = ($selectIndex -ge 0 -and $selectIndex -lt $leaseIndex)
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
+"""
+
+
+@pytest.fixture(scope="module")
+def interpreter_results(tmp_path_factory) -> dict[str, dict]:
+    if os.name != "nt":
+        pytest.skip("requires Windows PowerShell")
+    import venv
+
+    root = tmp_path_factory.mktemp("interp")
+    production = root / "production"
+    (production / "venv" / "Scripts").mkdir(parents=True)
+    # The default path is only resolved, never executed, by the selection statement.
+    (production / "venv" / "Scripts" / "python.exe").write_bytes(b"MZ placeholder")
+    no_venv = root / "no-venv"
+    no_venv.mkdir()
+    stage = root / "stage"
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(stage / "venv")
+    stage_python = stage / "venv" / "Scripts" / "python.exe"
+    fake = root / "fake"
+    fake.mkdir()
+    (fake / "python.exe").write_text("not an interpreter\n", encoding="utf-8")
+    (fake / "notpython.exe").write_bytes(stage_python.read_bytes())
+    junction = root / "linked"
+    made = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(stage)],
+        capture_output=True, text=True, check=False,
+    )
+    assert made.returncode == 0, made.stdout + made.stderr
+    cases = {
+        "omitted": (production, ""),
+        "omitted_missing_venv": (no_venv, ""),
+        "valid": (production, str(stage_python)),
+        "relative": (production, r"venv\Scripts\python.exe"),
+        "missing": (production, str(root / "absent" / "python.exe")),
+        "not_normalized": (production, str(stage / "venv" / "Scripts") + r"\..\Scripts\python.exe"),
+        "non_python_name": (production, str(fake / "notpython.exe")),
+        "non_python_file": (production, str(fake / "python.exe")),
+        "reparse_point": (production, str(junction / "venv" / "Scripts" / "python.exe")),
+    }
+    payload = []
+    for name, (repo_root, interpreter) in cases.items():
+        logs = root / "logs" / name
+        logs.mkdir(parents=True)
+        payload.append({"name": name, "repo_root": str(repo_root), "interpreter_path": interpreter,
+                        "log_path": str(logs / "suite.log")})
+    cases_path = root / "cases.json"
+    cases_path.write_text(json.dumps(payload), encoding="utf-8")
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_INTERPRETER_CASES"] = str(cases_path)
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-Command", INTERPRETER_HARNESS],
+            cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=180,
+        )
+    finally:
+        os.rmdir(junction)
+    assert result.returncode == 0, result.stdout + result.stderr
+    results = {row["name"]: row for row in json.loads(result.stdout)}
+    results["_paths"] = {
+        "production": str(production),
+        "stage_python": str(stage_python),
+        "stage_sha256": hashlib.sha256(stage_python.read_bytes()).hexdigest(),
+        "omitted_log": payload[0]["log_path"],
+        "valid_log": payload[2]["log_path"],
+    }
+    return results
+
+
+@pytest.mark.spawns
+def test_omitted_interpreter_path_keeps_the_production_venv_unchanged(interpreter_results):
+    row = interpreter_results["omitted"]
+    paths = interpreter_results["_paths"]
+    assert row["failure"] is None
+    assert row["python"] == str(Path(paths["production"]) / "venv" / "Scripts" / "python.exe")
+    # No probe, no journal event, no receipt line: the default run is unchanged.
+    assert row["events"] == [] and row["log"] == []
+    assert list(Path(paths["omitted_log"]).parent.iterdir()) == []
+    missing = interpreter_results["omitted_missing_venv"]
+    assert missing["failure"].startswith("production venv interpreter is missing:")
+    assert missing["leases"] == []
+
+
+@pytest.mark.spawns
+def test_valid_interpreter_path_runs_the_stage_python_and_is_recorded(interpreter_results):
+    row = interpreter_results["valid"]
+    paths = interpreter_results["_paths"]
+    assert row["failure"] is None
+    assert row["python"] == paths["stage_python"]
+    assert row["events"] == ["INTERPRETER_OVERRIDE"]
+    assert len(row["log"]) == 1 and row["log"][0].startswith("interpreter_override {")
+    record = json.loads(row["log"][0][len("interpreter_override "):])
+    assert record == {
+        "interpreter_path": paths["stage_python"],
+        "interpreter_sha256": paths["stage_sha256"],
+        "python_version": " ".join(sys.version.splitlines()).strip(),
+        "lease_repo_root": paths["production"],
+    }
+    probe = Path(paths["valid_log"] + ".interpreter.stdout.log")
+    assert probe.read_text(encoding="utf-8") == sys.version
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        ("relative", "InterpreterPath must be an absolute, normalized local path"),
+        ("not_normalized", "InterpreterPath must be an absolute, normalized local path"),
+        ("missing", "InterpreterPath does not exist"),
+        ("non_python_name", "InterpreterPath must name a python.exe"),
+        ("non_python_file", "InterpreterPath version probe could not start"),
+        ("reparse_point", "InterpreterPath traverses a reparse point"),
+    ],
+)
+def test_invalid_interpreter_path_is_refused_before_the_lease(interpreter_results, name, message):
+    row = interpreter_results[name]
+    assert row["failure"] and row["failure"].startswith(message), row["failure"]
+    assert row["python"] is None
+    assert row["leases"] == [] and row["log"] == [] and row["events"] == []
+
+
+@pytest.mark.spawns
+def test_interpreter_override_still_takes_the_shared_production_lease(interpreter_results):
+    production = interpreter_results["_paths"]["production"]
+    for name in ("omitted", "valid"):
+        row = interpreter_results[name]
+        assert row["leases"] == [{"repo_root": production, "workload": "bounded_worktree_test_suite"}]
+    # RepoRoot is bound once, before the interpreter is chosen, and the
+    # interpreter is chosen before the lease, so no stage root can take it.
+    assert interpreter_results["valid"]["repo_root_assignments"] == 1
+    assert interpreter_results["valid"]["select_before_lease"] is True

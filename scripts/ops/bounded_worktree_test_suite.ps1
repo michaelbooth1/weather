@@ -40,7 +40,12 @@ param(
     [ValidatePattern("^$|^[0-9a-fA-F]{40}$")]
     [string]$ReconcilerSurfaceBase = "",
     # Forces the reconciler file in (the once-a-night run on the final tip).
-    [switch]$IncludeReconciler
+    [switch]$IncludeReconciler,
+    # Host Python upgrade prep: an absolute path to a staged venv's python.exe
+    # that runs the probe and every chunk instead of RepoRoot\venv. RepoRoot
+    # still owns admission, capture state and the shared heavy-workload lease.
+    # Empty (the default) keeps the production venv exactly as before.
+    [string]$InterpreterPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -569,6 +574,98 @@ function Get-SuiteTimePackedChunks {
     return ,$chunks
 }
 
+function Resolve-SuiteInterpreterOverride {
+    # -InterpreterPath (host Python upgrade prep). Accepts only an absolute,
+    # normalized local path to an existing regular python.exe with no reparse
+    # point anywhere on it, and records what will actually run: the path, its
+    # SHA-256 and the interpreter's own sys.version from a contained probe.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ProbeOutputPrefix,
+        [Parameter(Mandatory = $true)][string]$LeaseRepoRoot,
+        [ValidateRange(1, 300)][int]$ProbeTimeoutSeconds = 30
+    )
+
+    $normalized = $null
+    try { $normalized = [IO.Path]::GetFullPath($Path) } catch { }
+    if ($Path -notmatch '^[A-Za-z]:\\' -or $null -eq $normalized -or
+        -not [string]::Equals($normalized, $Path, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "InterpreterPath must be an absolute, normalized local path: $Path"
+    }
+    if (-not [string]::Equals(
+        [IO.Path]::GetFileName($Path), "python.exe", [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "InterpreterPath must name a python.exe: $Path"
+    }
+    $root = [IO.Path]::GetPathRoot($Path)
+    $cursor = $root
+    $item = $null
+    foreach ($component in $Path.Substring($root.Length).Split(
+        [char[]]@('\'), [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $cursor = Join-Path $cursor $component
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { throw "InterpreterPath does not exist: $Path" }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "InterpreterPath traverses a reparse point: $cursor"
+        }
+    }
+    if ($null -eq $item -or $item.PSIsContainer) {
+        throw "InterpreterPath is not a regular file: $Path"
+    }
+    $sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    # -I ignores PYTHON* variables, the user site and the working directory.
+    $probeArguments = ConvertTo-ScheduledTaskArgumentString `
+        -Tokens @("-I", "-c", "import sys; sys.stdout.write(sys.version)")
+    $probeJob = $null
+    $probe = $null
+    $probeOutput = $null
+    $exitCode = $null
+    try {
+        $probeJob = New-WeatherKillOnCloseJob
+        $probeOutput = [Weather.Operations.KillOnCloseJob+CapturedOutput]::new(
+            ($ProbeOutputPrefix + ".stdout.log"), ($ProbeOutputPrefix + ".stderr.log"), 65536
+        )
+        try {
+            $probe = Start-WeatherProcessInJob `
+                -Job $probeJob -FilePath $Path -ArgumentString $probeArguments `
+                -WorkingDirectory (Split-Path -Parent $Path) -OutputCapture $probeOutput
+        }
+        catch {
+            throw "InterpreterPath version probe could not start: $($_.Exception.Message)"
+        }
+        $probeDeadline = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $probe.HasExited) {
+            if ($probeDeadline.Elapsed.TotalSeconds -ge $ProbeTimeoutSeconds) {
+                throw "InterpreterPath version probe exceeded its bounded runtime"
+            }
+            $probeOutput.Drain()
+            Start-Sleep -Milliseconds 50
+            $probe.Refresh()
+        }
+        $probe.WaitForExit()
+        $exitCode = [int]$probe.ExitCode
+        $probeJob.TerminateAndWait(5000)
+        $probeOutput.Complete(2000)
+    }
+    finally {
+        if ($probeOutput) { $probeOutput.Dispose() }
+        if ($probeJob) { $probeJob.Dispose() }
+        if ($probe) { $probe.Dispose() }
+    }
+    $version = ([IO.File]::ReadAllText($ProbeOutputPrefix + ".stdout.log") -replace '[\r\n]+', ' ').Trim()
+    if ($exitCode -ne 0 -or $version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+' -or $version.Length -gt 512) {
+        throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
+    }
+    return [pscustomobject][ordered]@{
+        interpreter_path = $Path
+        interpreter_sha256 = $sha256
+        python_version = $version
+        lease_repo_root = $LeaseRepoRoot
+    }
+}
+
 Assert-SuiteDiskHeadroom
 
 $localNow = Get-Date
@@ -621,11 +718,24 @@ if ($dirty.Count -ne 0) {
     throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
 }
 
-$python = Join-Path $RepoRoot "venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "production venv interpreter is missing: $python"
+if ([string]::IsNullOrEmpty($InterpreterPath)) {
+    $interpreterOverride = $null
+    $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        throw "production venv interpreter is missing: $python"
+    }
+    $python = (Resolve-Path -LiteralPath $python).Path
 }
-$python = (Resolve-Path -LiteralPath $python).Path
+else {
+    # Only the interpreter changes: RepoRoot (admission, capture state and the
+    # shared data\logs\heavy_workload.lock lease below) stays production.
+    $interpreterOverride = Resolve-SuiteInterpreterOverride `
+        -Path $InterpreterPath -ProbeOutputPrefix ($LogPath + ".interpreter") `
+        -LeaseRepoRoot $RepoRoot
+    $python = $interpreterOverride.interpreter_path
+    Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "INTERPRETER_OVERRIDE" `
+        -Detail $interpreterOverride
+}
 
 $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
@@ -666,6 +776,9 @@ try {
     Write-SuiteLog "selected_git=$($worktreeQuery.Executable) expected_git_sha256=$ExpectedGitExecutableSha256 expected_git_file_version=$ExpectedGitExecutableFileVersion"
     Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
     Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
+    if ($null -ne $interpreterOverride) {
+        Write-SuiteLog ("interpreter_override " + ($interpreterOverride | ConvertTo-Json -Compress))
+    }
     # Bootstrap the safety boundary needed to qualify the hardening revision
     # that will later make these controls part of the strict v2 contract. The
     # marker is set by already-adopted code before candidate Python starts, so
