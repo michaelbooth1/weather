@@ -4,8 +4,14 @@ Guards: WeatherMakerShadowRunner registrar stays paper-only, S4U/Limited, BelowN
   stop file, and the owner readout stays read-only (docs/operations/maker-shadow-runner.md, Forward runner on the
   capture host).
 """
+from datetime import datetime, timezone
+import json
+import os
 from pathlib import Path
 import re
+import subprocess
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRAR = ROOT / "scripts" / "ops" / "register_maker_shadow_runner.ps1"
@@ -45,3 +51,28 @@ def test_readout_is_read_only():
                       "WriteAll", "workload_admission"):
         assert forbidden not in text.replace("Name='python.exe' OR Name='pythonw.exe'", "").replace(
             r"-m\s+weather\.market\.maker_shadow\s+run", ""), forbidden
+
+
+POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), r"System32\WindowsPowerShell\v1.0\powershell.exe")
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell 5.1 readout")
+@pytest.mark.parametrize(("scope", "expected"), [
+    ({"git_commit": "c" * 40, "git_dirty": False, "git_error": None}, "; code cccccccccccc;"),
+    ({"git_commit": "c" * 40, "git_dirty": True, "git_error": None}, "; code cccccccccccc DIRTY;"),
+    ({"git_commit": None, "git_dirty": None, "git_error": "git_unavailable"}, "; code unbound (git_unavailable);"),
+    ({}, "; code not recorded;"),
+])
+def test_readout_surfaces_the_live_tape_code_identity(tmp_path, scope, expected):
+    tapes = tmp_path / "data" / "maker_shadow" / "tapes"
+    tapes.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    rows = [{"event": "opened", "sequence": 0, "recorded_at_utc": now.isoformat(), "scope": {"mode": "x", **scope}},
+            {"event": "universe", "sequence": 1, "recorded_at_utc": now.isoformat()}]
+    (tapes / f"{now.date().isoformat()}-r1.tape.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                             str(READOUT), "-RepoRoot", str(tmp_path)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert expected in result.stdout and ", last record: universe" in result.stdout, result.stdout
