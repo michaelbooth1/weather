@@ -542,3 +542,19 @@ the claim `PermissionError`; after it, 20 of 20 passed, each claim with exactly
 one holder. Deterministic tests cover a transient denial, a persistent denial
 (raised at the budget, no fetch) and the POSIX path. This is a source repair
 pending guarded runtime adoption.
+
+### Follow-up: bounded Windows retry for claim release and staging cleanup
+
+The holder releases its claim in a `finally`. On Windows a transient sharing
+violation on that claim `unlink` raised `PermissionError` out of the `finally`,
+replacing the holder's result or its original exception, and a denied claim
+read silently leaked the claim. On Windows the claim read, the claim unlink and
+the receipt staging-alias unlink now retry a `PermissionError` with the same
+bounded budget `weather.io` uses for its atomic replace. If the denial outlasts
+that budget the module logs a warning and leaves the file: the holder's outcome
+is never replaced, followers fall back on the existing bounded wait, and the
+ownership check still prevents deleting another holder's claim. POSIX keeps
+exactly one attempt and its previous behaviour. Deterministic tests cover a
+transient denial, a persistent denial (holder outcome preserved), the POSIX
+path, the claim-read case and the staging alias. Stacked on the item L repair
+and pending guarded runtime adoption with it.
