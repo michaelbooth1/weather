@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-08 10:45 America/Toronto (ALL LIVE TRADING PAUSED; N2 landed RS1b and RF2e; 91a re-pinned to 06:50; B replay needs an owner judgement on 3 rows; C3 not run 10-08, fallback 10-09; owner decisions 10-07 afternoon recorded).**
+**Last updated: 2026-10-08 20:21 America/Toronto (OD23 signed and 20:21 shadow answers recorded; ALL LIVE TRADING PAUSED; N2 landed RS1b and RF2e; 91a re-pinned to 06:50; B replay needs an owner judgement on 3 rows; C3 not run 10-08, fallback 10-09; owner decisions 10-07 afternoon recorded).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -74,11 +74,11 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 4. **Live:** prerequisites in parallel now (wallet funding and Credential Manager setup stay owner acts); not before the v2
    look and >= 7 days of shadow agreeing with replay.
 
-## Owner decisions 2026-10-07 (rows in DECISION_LOG)
+## Owner decisions 2026-10-07/08 (rows in DECISION_LOG)
 
-- Morning list and 12:07 check-in list approved as recommended; 12:36 OD18 fresh host agent, OD21 DEFERRED, STQ PARKED;
-  18:02 critical-path shortcuts; 18:03 #127 option A on N3; 18:44 gate spec v3.4; 18:49 C3. **Open:** B replay judgement
-  (above); C3 day; OD21; STQ R1-R6 family and release/:52 windows.
+- 10-07 lists approved (OD18 host agent; OD21 DEFERRED; STQ PARKED; shortcuts; #127 A; v3.4; C3). 10-08 20:21: OD23 SIGNED
+  re-worded (`decide()` mid keeps own size; diagnostic built); shadow hazard 0.001 to freeze; Q2 (a) horizon clause; parity:
+  v0.2 raw tape, fills/cash/sizes/reasons reported only, embargo PR. **Open:** B replay judgement; C3 day; OD21; STQ R1-R6, release/:52.
 
 ## Standing decisions
 
