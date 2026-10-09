@@ -1,4 +1,7 @@
-"""Maker replay v2 W2: bundle v0.2 export of synthetic sealed 88a days; no production paths, clocks or network."""
+"""Maker replay v2 W2: bundle v0.2 export of synthetic sealed 88a days; no production paths, clocks or network.
+
+Guards: registration C3 (bundle format v0.2, v0.1 expansion equivalence) and §4/C15 (v0.2 envelope = lead window).
+"""
 from datetime import timedelta
 import hashlib
 import json
