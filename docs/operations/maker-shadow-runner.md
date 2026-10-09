@@ -224,7 +224,12 @@ Any parity scorer must, in order:
 its own constructor, independently of `score`. The clock
 (`maker_core.shadow_parity_clock.v0.1`: engine commit, freeze instant, shadow
 commit, restart run id, config sha) is an explicit input; nothing discovers it.
-The restart run id must not be earlier than the freeze instant.
+The restart run id must not be earlier than the freeze instant. The gate loads the
+clock only through `parity_clock_from`, from its tracked `config/` file; it never
+constructs a `ParityClock` directly or takes one from a command line or environment.
+The permanent `EMBARGO_WINDOWS` are always prepended to any injected windows, and
+every scope check (admission, re-validation, tape opening, outcome withholding)
+also checks the day against `EMBARGO_WINDOWS` directly.
 
 **Land before the engine-freeze restart.** The binding compares the whole-repository
 HEAD commit, so any host merge followed by a runner respawn after the restart

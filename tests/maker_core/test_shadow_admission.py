@@ -460,3 +460,37 @@ def test_every_enumerated_value_passes():
     for error in adm.TAPE_GIT_ERRORS:
         assert_outcome_blind({**FULL_REPORT, "tapes": [{**FULL_REPORT["tapes"][0], "git_error": error}]}, ADMITTED)
     assert_outcome_blind({**FULL_REPORT, "cohort_id": "d" * 64, "parity": {"paired": adm.MAX_COUNT}}, ADMITTED)
+
+
+# ---- fix round 3: E1 a caller's window entry cannot suppress the permanent windows ----
+
+class _AlwaysEqual(tuple):
+    __hash__ = tuple.__hash__
+
+    def __eq__(self, other):
+        return True
+
+
+def test_an_eq_overriding_window_entry_cannot_drop_the_permanent_windows(tmp_path):
+    evil = (_AlwaysEqual(("2000-01-01", "2000-01-01", OUTCOME, "x")),)
+    assert adm._windows_with_defaults(evil)[:len(EMBARGO_WINDOWS)] == EMBARGO_WINDOWS
+    early = parity_clock_from(clock_mapping(freeze_utc="2026-09-01T00:00:00Z",
+                                            restart_run_id="20260901T000000Z-0123abcd"))
+    assert admit_parity_day("2026-10-01", early, now=NOW, windows=evil).refused == "embargoed_utc_day"
+    w2 = admit_parity_day("2026-10-20", early, now=NOW, windows=evil)
+    assert w2.admitted and w2.withhold_outcomes
+    with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
+        assert_outcome_blind({"fills": [1]}, w2)
+
+
+def test_scope_is_checked_against_the_permanent_windows_whatever_the_token_carries(tmp_path, monkeypatch):
+    monkeypatch.setattr(adm, "_windows_with_defaults", lambda windows: tuple(windows))  # simulate a lost prepend
+    forged = object.__new__(adm.ParityAdmission)
+    for name, value in {"day": "2026-10-01", "refused": None, "reason": None, "withhold_outcomes": False,
+                        "clock": CLOCK, "windows": (), "mint": None}.items():
+        object.__setattr__(forged, name, value)
+    with pytest.raises(ValueError, match="embargoed_utc_day"):
+        adm.open_parity_tapes(tmp_path, forged)
+    object.__setattr__(forged, "day", "2026-10-20")
+    with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
+        assert_outcome_blind({"fills": [1]}, forged)

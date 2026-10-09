@@ -168,8 +168,18 @@ _MINT = object()  # only ``admit_parity_day`` holds it
 
 
 def _windows_with_defaults(windows):
-    """The caller's windows plus the permanent ones: a test or caller may add windows, never remove one."""
-    return tuple(windows) + tuple(w for w in EMBARGO_WINDOWS if w not in windows)
+    """The permanent windows, then the caller's: a test or caller may add windows, never remove one.
+
+    Always prepended, with no membership test (a caller's entry could override ``__eq__``); a duplicate is harmless.
+    """
+    return tuple(EMBARGO_WINDOWS) + tuple(windows)
+
+
+def _scope(day, windows):
+    """The most restrictive scope of ``day`` over the caller's windows and, independently, ``EMBARGO_WINDOWS``."""
+    scopes = [s for s in (embargo_scope(day, EMBARGO_WINDOWS), embargo_scope(day, _windows_with_defaults(windows)))
+              if s is not None]
+    return max(scopes, key=SCOPE_RANK.__getitem__) if scopes else None
 
 
 @dataclass(frozen=True)
@@ -202,8 +212,7 @@ class ParityAdmission:
 def _admitted_scope(admission):
     """Re-derive an admitted token from its day; the scope, or ``ValueError`` with the refusal code."""
     day = utc_day(admission.day)
-    windows = _windows_with_defaults(admission.windows)
-    scope = embargo_scope(day, windows)
+    scope = _scope(day, admission.windows)
     if scope == FULL:
         raise ValueError("embargoed_utc_day")
     if not isinstance(admission.clock, ParityClock):
@@ -238,7 +247,7 @@ def admit_parity_day(day, clock, *, now=_utc_now, windows=EMBARGO_WINDOWS):
 
     if day >= current.astimezone(timezone.utc).date().isoformat():
         return minted("utc_day_not_closed")
-    scope = embargo_scope(day, windows)
+    scope = _scope(day, windows)
     if scope == FULL:
         return minted("embargoed_utc_day", embargo_reason(day, windows))
     if clock is None:
@@ -350,7 +359,7 @@ def assert_outcome_blind(report, admission):
     """
     if not isinstance(admission, ParityAdmission):
         raise ValueError("parity_day_not_admitted")
-    scope = embargo_scope(utc_day(admission.day), _windows_with_defaults(admission.windows))
+    scope = _scope(utc_day(admission.day), admission.windows)
     if admission.withhold_outcomes or scope == OUTCOME:
         _check(report, PARITY_REPORT_ALLOWLIST, "")
     return report
