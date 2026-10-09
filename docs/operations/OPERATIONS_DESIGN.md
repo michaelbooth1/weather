@@ -255,6 +255,12 @@ next fully completed error-free iteration clears both fields and records the
 such as 12/12 recently captured markets does not override a current iteration
 error for Stage-A admission.
 
+`last_heartbeat` is liveness, not progress. The loop also refreshes it when it
+plans its sleep and every 60 s of the idle sleep. Those writes leave every
+other field unchanged, including the error latch, outcome, pause flag, identity
+and sleep plan. The [replay-cache compression guide](replay-cache-compression.md)
+owns the storage-admission bound that this cadence keeps.
+
 ### CLOB Book Loop
 
 - `data/snapshots/clob_loop_status.json`

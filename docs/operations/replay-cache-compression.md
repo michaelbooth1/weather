@@ -57,6 +57,19 @@ Git integration follows the separate canonical roll verdict and merge rules.
   cannot prove progress. Require at least 4 GiB physically available and
   host commit strictly below 70%. The child rechecks these at least once per
   second during streaming and between files. Any failure stops the batch.
+- **Snapshot heartbeat cadence guarantee.** This 180-second heartbeat bound
+  (`check_capture_health`, shared by every storage lane that calls it) relies on
+  the snapshot loop writing `last_heartbeat` at iteration start, every 5 s of a
+  capture batch, when it plans its sleep, and every 60 s
+  (`SLEEP_HEARTBEAT_SECONDS`) of the idle sleep between iterations. A healthy
+  loop's heartbeat is therefore never more than about 60 s old, plus any
+  post-batch bookkeeping time. Before this cadence the loop wrote nothing
+  during a sleep of about 290 s, so a healthy loop read
+  `capture_unhealthy:snapshot` for roughly the last 110 s of every cycle.
+  Sleep heartbeats are liveness only: they rewrite the status unchanged apart
+  from `last_heartbeat`. They never clear `consecutive_errors`, never set an
+  iteration outcome and never re-read the pause flag. Progress evidence remains
+  the 900-second clean-iteration bound.
 - This bounded compression lane reserves **20 GiB for capture plus two complete
   64 MiB file images and 1 MiB for evidence**. No generic heavy-work disk floor
   is changed. The reservation is independent of the ordinary 50 GiB threshold;
