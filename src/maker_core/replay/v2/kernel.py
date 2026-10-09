@@ -13,6 +13,10 @@ tree), unchanged except for the registered differences below:
   leg on its own bid array and, mirrored, on the complement's ask array, creating a level the public book
   lacks. The frozen loop added own size only at existing YES-side levels. A public book that moves onto a
   resting leg without a print now reads as crossed (``CROSSED_BOOK``, counted in ``own_leg_crossed``).
+  The composition is ``maker_core.quoting.book.compose_book``, imported unchanged by the shadow runner, so
+  replay and shadow decide on the same book. OD23 diagnostic (count only): ``own_size_books`` and
+  ``own_mid_differs`` count, per UTC date, decision books with own legs and those whose qualified mid differs
+  with own size removed.
 - **C12 replacement without the cancelled legs (engine ruling W2(a)).** A same-instant replacement decides
   on the public book; the frozen loop reused the pre-cancel book that still carried the cancelled legs.
 - **Who is decided when** is not decided here. The kernel calls hooks; ``engine.EngineV2`` (lazy per-band
@@ -29,6 +33,7 @@ import hashlib
 
 from maker_core.contracts import OutcomeView, Unavailable
 from maker_core.evidence.journal import canonical_bytes, digest
+from maker_core.quoting.book import UnmergedBookLevels, compose_book as _compose_book, own_size_moves_mid
 from maker_core.quoting.policy import (DecisionInputs, ExposureLimit, Portfolio, QuoteDecision, _event_active,
                                        blind_re1, decide, informed_v0)
 from maker_core.replay.bundle import BundleError
@@ -254,6 +259,9 @@ class Kernel:
         self.sink = None
         self._ticking = None
         self.own_leg_crossed = Counter()  # UTC date -> CROSSED_BOOK decisions on a public book that is not crossed
+        # OD23 diagnostic (count only): UTC date -> tick decision books carrying own legs, and those whose
+        # qualified mid differs from the public book's (own size removed).
+        self.own_size_books, self.own_mid_differs = Counter(), Counter()
         for day in plan.days:
             for c in day.conditions:
                 state = self.states.get(c.condition_id)
@@ -299,6 +307,15 @@ class Kernel:
     def replacement_book(self, state, cancelled):
         """The book of a same-instant replacement: the public book without the cancelled legs (C12, W2(a))."""
         return self.decision_book(state, ())
+
+    def own_mid_diagnostic(self, state, book, at):
+        """OD23: count a decision book with own legs, and whether its qualified mid moves with own size."""
+        public, terms = state.latest["book"], state.latest["terms"]
+        if book is public or not state.legs or getattr(terms, "min_size", None) is None:
+            return
+        self.own_size_books[at.date()] += 1
+        if own_size_moves_mid(public, book, terms.min_size):
+            self.own_mid_differs[at.date()] += 1
 
     def evaluate(self, value, cancelled=None):
         """One ``decide()`` call; ``cancelled`` holds the cancelled legs when it is a same-instant replacement."""
@@ -545,6 +562,7 @@ class Kernel:
             return
         desc = state.latest["descriptor"]
         book = self.decision_book(state, state.legs)
+        self.own_mid_diagnostic(state, book, at)
         fair_value = (state.latest["outcome_view"] if self.informed else Unavailable("clock/blind baseline", at))
         value = DecisionInputs(desc.market, at, book, state.latest["terms"], fair_value, self.portfolio(cid),
                                desc.horizon_days, events, self.profile, self.config.hazard_per_minute,
@@ -582,30 +600,13 @@ class Kernel:
 
 
 def compose_book(book, legs):
-    """The decision book: the public book plus own resting legs as the venue displays them (engine ruling W1(a)).
-
-    A YES leg (p, s) adds s at p on yes_bids and at 1 - p on no_asks; a NO leg (p, s) adds s at p on no_bids
-    and at 1 - p on yes_asks. A level absent from the public book is created; sizes at one price are summed;
-    order is bids high-to-low, asks low-to-high. as_of_utc and post_only_available are unchanged.
-    """
-    def merged(levels, additions, descending):
-        if not additions:
-            return levels
-        sizes = {}
-        for price, size in levels:
-            if price in sizes:
-                raise BundleError("unmerged_book_levels")  # guard for the live adapter (N3)
-            sizes[price] = size
-        for price, size in additions:
-            sizes[price] = sizes.get(price, D(0)) + size
-        return tuple(sorted(sizes.items(), key=lambda row: row[0], reverse=descending))
-    yes = [(leg.price, leg.size) for leg in legs if leg.outcome == "YES"]
-    no = [(leg.price, leg.size) for leg in legs if leg.outcome == "NO"]
-    return replace(book,
-                   yes_bids=merged(book.yes_bids, yes, True),
-                   no_asks=merged(book.no_asks, [(1 - p, s) for p, s in yes], False),
-                   no_bids=merged(book.no_bids, no, True),
-                   yes_asks=merged(book.yes_asks, [(1 - p, s) for p, s in no], False))
+    """The decision book (engine ruling W1(a)): ``maker_core.quoting.book.compose_book``, the one composition
+    the shadow runner also imports. An unmerged public side is a ``BundleError`` here (guard for the live
+    adapter, N3)."""
+    try:
+        return _compose_book(book, legs)
+    except UnmergedBookLevels:
+        raise BundleError("unmerged_book_levels") from None
 
 
 def crossed(book):

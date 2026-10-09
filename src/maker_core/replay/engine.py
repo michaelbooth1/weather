@@ -409,8 +409,11 @@ class ReplayEngine:
             return
         desc = state.latest["descriptor"]
         # Captured public depth excludes counterfactual orders. decide() subtracts
-        # own resting levels; add them only to already displayed matching levels
-        # so competitor depth is preserved without inventing a new qualified mid.
+        # own resting levels from competing score and displayed depth only; it keeps
+        # own size in the qualified mid (OD23, signed 2026-10-08). This frozen rule adds
+        # own size only at already displayed matching levels: it creates no level, but
+        # it can still move the qualified mid by lifting a sub-minimum level over the
+        # reward minimum size. Replay v2 uses maker_core.quoting.book.compose_book (W1(a)).
         book = state.latest["book"]
         def add_own(levels, outcome, mirror=False):
             additions = {leg.price if not mirror else 1-leg.price: leg.size
