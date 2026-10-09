@@ -19,8 +19,8 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
     cancel-ours                     cancel OUR open orders only (ids from the ledger); never a foreign order
     exclusions --output F           band-days of panel_exclusions.jsonl (weather.market.lfc_panel_exclusion)
 
-Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: the
-candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
+Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
+three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
 fails closed on missing or unreadable state. Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
 """
@@ -89,6 +89,9 @@ def check_flags(args):
             raise ValueError('session0_requires_run')
         if not args.event_slug or args.extra_conditions is None or args.shadow_scope is None:
             raise ValueError('session0_requires_event_slug_extra_conditions_shadow_scope')
+        if len({slug.strip().lower() for slug in args.event_slug}) < LFC.SESSION0_MIN_CANDIDATE_EVENTS:
+            # DRAFT clarification C: the owner lists at least three distinct off-panel events so the pick is a pick.
+            raise ValueError('session0_requires_three_candidate_events')
     elif args.run or args.event_slug or args.extra_conditions or args.shadow_scope:
         raise ValueError('session0_flags_without_session0')
     return PilotProfile(session0=args.session0, run=args.run)

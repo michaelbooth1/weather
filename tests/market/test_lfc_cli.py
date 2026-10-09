@@ -208,9 +208,14 @@ def test_flags_session0_requires_run_and_scope_files():
                        (['live', '--session0', '--run', '0a', '--event-slug', 'x'], 'extra_conditions')):
         with pytest.raises(ValueError, match=code):
             check_flags(parser().parse_args(argv))
+    scope = ['--extra-conditions', 'x.json', '--shadow-scope', 'y.json']
+    for slugs in (['a', 'b'], ['a', 'b', 'B ']):  # at least three distinct owner-listed events (clarification C)
+        with pytest.raises(ValueError, match='session0_requires_three_candidate_events'):
+            check_flags(parser().parse_args(['live', '--session0', '--run', '0d', *scope,
+                                             *[x for slug in slugs for x in ('--event-slug', slug)]]))
     args = parser().parse_args(['live', '--session0', '--run', '0d', '--event-slug', 'a', '--event-slug', 'b',
-                                '--extra-conditions', 'x.json', '--shadow-scope', 'y.json'])
-    assert check_flags(args).run == '0d' and args.event_slug == ['a', 'b']
+                                '--event-slug', 'c', *scope])
+    assert check_flags(args).run == '0d' and args.event_slug == ['a', 'b', 'c']
     with pytest.raises(SystemExit):
         parser().parse_args(['live', '--session0', '--run', '0z'])
     with pytest.raises(SystemExit):

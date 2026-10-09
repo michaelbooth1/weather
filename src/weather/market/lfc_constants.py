@@ -60,6 +60,7 @@ SESSION0_OFFSET = Decimal('.05')  # d = 5c from the mid, snapped outward
 SESSION0_END_DAYS = 7  # the market's end date is at least 7 days after the session date
 SESSION0_DEPTH_REACH = Decimal('.03')  # pick: largest two-sided displayed depth within 3c of the mid
 SESSION0_MID_RANGE = (Decimal('.20'), Decimal('.80'))
+SESSION0_MIN_CANDIDATE_EVENTS = 3  # DRAFT clarification C: owner-listed candidate events, distinct, off-panel
 # Sub-runs, each one owner-started run. Seconds = fixed end; 0a has a 20-minute end, 0b-0d at most 10 minutes,
 # 0e refuses before any submit, 0f is the optional main-loop stall, 0g the venue-only dead-man.
 # 0g (fix round 1, review F-1; DRAFT clarification C): the venue-only dead-man run. Heartbeat sends stop as in 0d,
