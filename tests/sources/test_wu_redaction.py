@@ -143,8 +143,9 @@ def test_pin_http_debug_loggers_raises_permissive_levels_only():
 
 
 def test_mutant_without_redaction_is_detected(token, monkeypatch):
-    """With the redaction regex disabled the same checks must fail."""
-    monkeypatch.setattr(wu_redaction, "_SECRET_RE", re.compile(r"(?!x)x"))
+    """With the redaction regexes disabled the same checks must fail."""
+    for name in ("_SECRET_RE", "_PAIR_RE", "_HEX32_NEAR_KEY_RE"):
+        monkeypatch.setattr(wu_redaction, name, re.compile(r"(?!x)x"))
     assert any(token in redact_wu_secrets(text) for text in _forms(token))
     error = _connection_error(token)
     sanitize_exception(error)
@@ -257,3 +258,452 @@ def test_log_redaction_logger_list_covers_installed_urllib3():
     assert emitting <= set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS), sorted(
         emitting - set(wu_redaction.HTTP_LOG_REDACTION_LOGGERS)
     )
+
+
+# --- N3: the redactor cleans every form the scanner flags (prior F4) -------------------
+
+
+def _encoded_forms(token):
+    return [
+        f"%22apiKey%22%3A%22{token}%22",
+        f"q=%22apikey%22%3a%22{token}%22&x=1",
+        f"%27apiKey%27%3A%20%27{token}%27",
+        f"apiKey%3A{token}",
+        f"apikey%3a{token}",
+        f"apiKey&#61;{token}",
+        f"%2522apiKey%2522%253A%2522{token}%2522",
+        f"apiKey%253D{token}",
+        f"\\u0022apiKey\\u0022:\\u0022{token}\\u0022",
+        f"\\u0022apiKey\\u0022\\u003a\\u0022{token}\\u0022",
+        f"X-Api-Key: {token}",
+        f"{{'X-Api-Key': '{token}'}}",
+    ]
+
+
+@pytest.mark.parametrize("index", range(len(_encoded_forms("t"))))
+def test_encoded_forms_the_scanner_flags_are_redacted(index, tmp_path):
+    from weather.operations.wu_token_scan import EXIT_CLEAN, EXIT_FOUND, exit_code_for, scan
+
+    hex_token = secrets.token_hex(16)
+    text = _encoded_forms(hex_token)[index]
+    flagged = tmp_path / "before.log"
+    flagged.write_text(text, encoding="utf-8")
+    assert exit_code_for(scan([flagged])) == EXIT_FOUND  # precondition: the scanner flags it
+
+    redacted = redact_wu_secrets(text)
+
+    assert hex_token not in redacted.lower(), text.replace(hex_token, "<fake>")
+    assert REDACTED in redacted
+    assert redact_wu_secrets(redacted) == redacted  # idempotent
+    cleaned = tmp_path / "after.log"
+    cleaned.write_text(redacted, encoding="utf-8")
+    assert exit_code_for(scan([cleaned])) == EXIT_CLEAN
+
+
+# --- N3: exceptions whose args hold a dict or another object (prior F2) ----------------
+
+
+class _Payload:
+    def __init__(self, token):
+        self.token = token
+
+    def __repr__(self):
+        return f"_Payload(apiKey={self.token!r})"
+
+
+def test_sanitize_exception_redacts_dict_and_object_args(token):
+    nested = RuntimeError({"params": {"apiKey": token, "units": "e"}, "tries": [f"apiKey={token}"]})
+    obj = ValueError(_Payload(token), 7)
+    keyed = KeyError({f"apiKey={token}": 1})
+    for error in (nested, obj, keyed):
+        assert token in _rendered(error)  # precondition: the token is in the rendered text
+        sanitize_exception(error)
+        assert token not in _rendered(error)
+        assert token not in str(error) and token not in repr(error)
+    # Non-secret structure survives: dicts stay dicts, plain values are untouched.
+    assert nested.args[0]["params"]["units"] == "e"
+    assert obj.args[1] == 7
+
+
+def test_log_filter_redacts_a_dict_arg_exception(token):
+    """Defender N3 (prior F2 through the filter): a dict-arg exception in exc_info."""
+    stream, handler = _capture_handler()
+    wu_redaction.install_wu_log_redaction(logger_names=(), handlers=[handler])
+    logger = logging.getLogger("weather.test.wu_redaction_dict_arg_probe")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        try:
+            raise RuntimeError({"params": {"apiKey": token}})
+        except RuntimeError:
+            logger.warning("boom", exc_info=True)
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+    text = stream.getvalue()
+    assert token not in text
+    assert "Traceback" in text and "RuntimeError" in text
+
+
+# --- PR #259 Defender MF2: every container shape that names the key is redacted ----------
+
+
+def _container_shapes(token):
+    return {
+        "list_value": {"apiKey": [token]},
+        "dict_value": {"params": {"apiKey": {"value": token}}},
+        "bytes_key": {b"apiKey": token},
+        "bytes_key_bytes_value": {b"api_key": token.encode()},
+        "tuple_pair": ("apiKey", token),
+        "requests_params_list": [("units", "e"), ("apiKey", token)],
+        "header_pair": ("X-Api-Key", token),
+        "bytes_pair": (b"apiKey", token.encode()),
+        "env_name_pair": ["WU_API_KEY", token],
+        "object_value": {"apiKey": _Payload(token)},
+    }
+
+
+@pytest.mark.parametrize("shape", sorted(_container_shapes("t")))
+def test_mf2_container_shapes_are_redacted_in_exceptions(token, shape):
+    error = RuntimeError(_container_shapes(token)[shape])
+    assert token in _rendered(error)  # precondition
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+    assert token not in repr(error.args)
+
+
+def test_mf2_non_secret_structure_and_null_values_survive(token):
+    error = RuntimeError({"apiKey": None, "units": ["e"], "n": 3}, [("units", "e"), ("page", 2)])
+
+    sanitize_exception(error)
+
+    assert error.args == ({"apiKey": None, "units": ["e"], "n": 3}, [("units", "e"), ("page", 2)])
+
+
+def _scanner_flags(text):
+    from weather.operations.wu_token_scan import PATTERNS
+
+    data = text.encode("utf-8")
+    return sorted(name for name, pattern in PATTERNS.items() if pattern.search(data))
+
+
+def _flagged_text_forms(token):
+    return _encoded_forms(token) + [
+        f"[('apiKey', '{token}')]",
+        f"[(b'apiKey', b'{token}')]",
+        f"('X-Api-Key', '{token}')",
+        f"api_key = '{token}'",
+        f"WU_API_KEY={token}",
+        f"apiKey => {token}",
+        f"apiKey is {token}",
+        f"apiKey\t\n= {token}",
+        f"API_KEY = \"{token}\";",
+        f"apiKey: [{token}]",
+        f"{{'apiKey': ['{token}']}}",
+        f"apiKey" + " " * 50 + f"{token}",
+    ]
+
+
+@pytest.mark.parametrize("index", range(len(_flagged_text_forms("t"))))
+def test_mf2_redactor_cleans_every_text_form_the_scanner_flags(index):
+    """The module docstring's claim: every form ``wu_token_scan`` flags is redacted."""
+    hex_token = secrets.token_hex(16)
+    text = "prefix " + _flagged_text_forms(hex_token)[index] + " suffix"
+    assert _scanner_flags(text), text.replace(hex_token, "<fake>")  # precondition
+
+    redacted = redact_wu_secrets(text)
+
+    assert hex_token not in redacted.lower(), redacted
+    assert _scanner_flags(redacted) == [], redacted
+    assert redact_wu_secrets(redacted) == redacted
+
+
+@pytest.mark.parametrize("shape", sorted(_container_shapes("t")))
+def test_mf2_rendered_container_shapes_scan_clean_after_sanitize(shape):
+    hex_token = secrets.token_hex(16)
+    error = RuntimeError(_container_shapes(hex_token)[shape])
+    assert _scanner_flags(_rendered(error)) or hex_token in _rendered(error)
+
+    sanitize_exception(error)
+
+    assert _scanner_flags(_rendered(error)) == []
+    assert hex_token not in _rendered(error)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"apiKey": null, "n": 1}',
+        '{"apiKey": true}',
+        '{"apiKey": 12}',
+        '{"api_key": false, "x": [1, 2]}',
+    ],
+)
+def test_json_literal_values_stay_valid_json(text):
+    import json
+
+    assert json.loads(redact_wu_secrets(text)) == json.loads(text)
+
+
+# --- PR #259 Defender MF3: an opaque object never falls back to a repr with the token ------
+
+
+class _BareRepr:
+    def __init__(self, token):
+        self.token = token
+
+    def __str__(self):
+        return f"apiKey={self.token}"
+
+    def __repr__(self):
+        return f"_BareRepr({self.token!r})"
+
+
+def test_mf3_opaque_object_is_replaced_by_a_fixed_placeholder(token):
+    error = RuntimeError(_BareRepr(token))
+    several = RuntimeError(_BareRepr(token), 1)
+
+    sanitize_exception(error)
+    sanitize_exception(several)
+
+    for item in (error, several):
+        assert token not in _rendered(item) and token not in repr(item.args)
+    assert error.args[0] == "<redacted _BareRepr>"
+
+
+# --- PR #259 Defender MF4: notes, filenames and str reasons --------------------------------
+
+
+def test_mf4_notes_filenames_and_reasons_are_redacted(token):
+    import urllib.error
+
+    url = f"https://api.example.invalid/v1/x?apiKey={token}"
+    noted = RuntimeError("fetch failed")
+    noted.add_note(f"while fetching {url}")
+    os_error = OSError(2, "No such file", f"cache/{url}", None, f"other/{url}")  # 4th is winerror
+    url_error = urllib.error.URLError(f"bad {url}")
+    nested = RuntimeError("outer")
+    nested.__cause__ = OSError(2, "missing", f"x?apiKey={token}")
+    group = ExceptionGroup("grp", [ValueError(url), KeyError({"apiKey": token})])
+    for error in (noted, os_error, url_error, nested, group):
+        assert token in _rendered(error)  # precondition
+
+        sanitize_exception(error)
+
+        assert token not in _rendered(error), type(error).__name__
+    assert os_error.errno == 2 and os_error.filename.startswith("cache/")
+    assert noted.__notes__[0].startswith("while fetching ")
+
+
+def test_mf4_custom_str_built_from_an_attribute_is_redacted(token):
+    class FetchError(Exception):
+        def __init__(self, url):
+            super().__init__("failed")
+            self.url_text = url
+
+        def __str__(self):
+            return f"failed for {self.url_text}"
+
+    error = FetchError(f"https://api.example.invalid/x?apiKey={token}")
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_mf4_log_filter_redacts_notes(token):
+    stream, handler = _capture_handler()
+    wu_redaction.install_wu_log_redaction(logger_names=(), handlers=[handler])
+    logger = logging.getLogger("weather.test.wu_redaction_notes_probe")
+    logger.addHandler(handler)
+    logger.propagate = False
+    error = RuntimeError("n")
+    error.add_note(f"https://api.example.invalid/x?apiKey={token}")
+    try:
+        logger.error("note", exc_info=error)
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+    assert token not in stream.getvalue()
+
+
+# --- PR #259 delta Defender S2: no depth cap on the exception chain walk -----------------
+
+
+def _cause_chain(url, length):
+    error = ValueError(url)
+    for index in range(length):
+        outer = RuntimeError(f"level {index}")
+        outer.__cause__ = error
+        error = outer
+    return error
+
+
+def _context_chain(url, length):
+    error = ValueError(url)
+    for index in range(length):
+        outer = RuntimeError(f"retry {index}")
+        outer.__context__ = error
+        error = outer
+    return error
+
+
+@pytest.mark.parametrize("length", [16, 17, 40, 200])
+@pytest.mark.parametrize("build", [_cause_chain, _context_chain])
+def test_s2_long_exception_chains_are_redacted_to_the_bottom(token, build, length):
+    error = build(f"https://api.example.invalid/x?apiKey={token}", length)
+    assert token in _rendered(error)  # precondition
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_s2_deeply_nested_groups_are_redacted(token):
+    error = ExceptionGroup("leaf", [ValueError(f"x?apiKey={token}")])
+    for index in range(30):
+        error = ExceptionGroup(f"g{index}", [error])
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_attribute_object_rendered_by_custom_str_is_redacted(token):
+    import dataclasses
+
+    @dataclasses.dataclass
+    class Cfg:
+        apiKey: str
+
+    class AttrError(Exception):
+        def __init__(self, cfg):
+            super().__init__("failed")
+            self.cfg = cfg
+
+        def __str__(self):
+            return f"failed with {self.cfg}"
+
+    error = AttrError(Cfg(apiKey=token))
+    assert token in _rendered(error)
+
+    sanitize_exception(error)
+
+    assert token not in _rendered(error)
+
+
+def test_n5_http_error_headers_stay_usable_and_are_redacted():
+    import http.client
+    import email.parser
+    import urllib.error
+
+    token = secrets.token_hex(16)
+    url = f"https://api.example.invalid/v1/x/historical.json?apiKey={token}&units=e"
+    headers = email.parser.Parser(_class=http.client.HTTPMessage).parsestr(
+        f"Location: {url}\r\nRetry-After: 5\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n"
+    )
+    error = urllib.error.HTTPError(url, 503, "busy", headers, None)
+
+    sanitize_exception(error)
+
+    assert error.headers.get("Retry-After") == "5"
+    assert error.headers.get_all("Set-Cookie") == ["a=1", "b=2"]
+    assert token not in str(error.headers) and token not in error.headers["Location"]
+    assert "apiKey" in error.headers["Location"]
+    assert token not in _rendered(error)
+
+
+def _pre_3_11_2_http_error(url, code, msg, hdrs):
+    """An ``HTTPError(url, code, msg, hdrs, fp=None)`` exactly as CPython < 3.11.2 builds it.
+
+    Before gh-98778 (fixed in 3.11.2, carried by the capture host's 3.11 interpreter)
+    ``HTTPError.__init__`` skipped ``addinfourl.__init__`` when ``fp`` was None, so the
+    ``tempfile._TemporaryFileWrapper`` base never set ``self.file`` and *any* missing
+    attribute lookup -- ``getattr(exc, "__notes__", None)`` included -- raised
+    ``KeyError: 'file'`` instead of AttributeError. Newer interpreters substitute
+    ``io.BytesIO()``, so the real constructor no longer reproduces it; this replays the
+    old ``__init__`` body verbatim on the current interpreter.
+    """
+    import urllib.error
+
+    error = urllib.error.HTTPError.__new__(urllib.error.HTTPError, url, code, msg, hdrs, None)
+    error.code = code
+    error.msg = msg
+    error.hdrs = hdrs
+    error.fp = None
+    error.filename = url
+    return error
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_n5_http_error_with_fp_none_is_sanitized_on_every_311_patch(build):
+    import email.parser
+    import http.client
+    import urllib.error
+
+    token = secrets.token_hex(16)
+    url = f"https://api.example.invalid/v1/x/historical.json?apiKey={token}&units=e"
+    headers = email.parser.Parser(_class=http.client.HTTPMessage).parsestr(
+        f"Location: {url}\r\nRetry-After: 5\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n"
+    )
+    if build == "constructor":
+        error = urllib.error.HTTPError(url, 503, "busy", headers, None)
+    else:
+        error = _pre_3_11_2_http_error(url, 503, "busy", headers)
+        with pytest.raises(KeyError):  # precondition: the host's failure mode is real here
+            getattr(error, "__notes__", None)
+
+    assert sanitize_exception(error) is error
+
+    assert error.code == 503
+    assert error.headers.get("Retry-After") == "5"
+    assert error.headers.get_all("Set-Cookie") == ["a=1", "b=2"]
+    assert "apiKey" in error.headers["Location"]
+    assert token not in error.headers["Location"] and token not in str(error.headers)
+    assert token not in error.filename and REDACTED in error.filename
+    assert token not in str(error) and token not in repr(error)
+    assert token not in _rendered(error)
+
+
+def _fp_none_http_error(build, url):
+    import urllib.error
+
+    if build == "constructor":
+        return urllib.error.HTTPError(url, 503, "busy", {}, None)
+    error = _pre_3_11_2_http_error(url, 503, "busy", {})
+    with pytest.raises(KeyError):  # precondition: the host's 3.11.0 failure mode is real here
+        getattr(error, "response", None)
+    return error
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_failure_class_for_fp_none_http_error_does_not_raise(build):
+    from weather.sources.wu_history import TRANSIENT_FAILURE
+
+    error = _fp_none_http_error(build, "https://api.example.invalid/v1/x/historical.json?units=e")
+
+    assert failure_class_for_exception(error) == TRANSIENT_FAILURE
+    assert failure_class_for_exception(error, page_backed=True) == TRANSIENT_FAILURE
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_write_fetch_error_records_fp_none_http_error(build, tmp_path):
+    import datetime as dt
+    import json as _json
+
+    from weather.sources.wu_history import TRANSIENT_FAILURE, WundergroundHistoryStore
+
+    error = _fp_none_http_error(build, "https://api.example.invalid/v1/x/historical.json?units=e")
+    store = WundergroundHistoryStore(tmp_path, station_icao="KXYZ", history_id="KXYZ:9:US")
+    day = dt.date(2026, 1, 5)
+
+    row = store.write_fetch_error(day, day, error)
+
+    assert row["failure_class"] == TRANSIENT_FAILURE
+    assert row["status_code"] is None and row["url"] is None
+    assert row["treated_as_source_unavailable"] is False
+    assert "HTTP Error 503" in row["error"]
+    logged = [_json.loads(line) for line in store.error_log_path.read_text(encoding="utf-8").splitlines()]
+    assert logged[-1] == row
