@@ -82,8 +82,10 @@ def test_replay_compares_old_and_new_vectors_per_snapshot(tmp_path):
 
     rows = {row["snapshot_id"]: row for row in map(json.loads, out.read_text().splitlines())}
     morning, evening = rows["s-morning"], rows["s-evening"]
-    assert morning["l1_new_vs_old"] == 0.0
-    assert morning["old_final"] == morning["new_final"]
+    # lockin-anchor-v4: before lock-in only the residue the hard floor left below
+    # the same-day anchor moves onto it; nothing else in the morning changes.
+    assert morning["l1_new_vs_old"] < 1e-6
+    assert morning["new_mass_below_anchor"] == 0.0
     assert evening["lockin_anchor"]["source"] == "observed_station_rows"
     assert evening["lockin_anchor"]["bucket"] == 89
     assert evening["old_lockin_strength"] == 0.0
@@ -91,7 +93,7 @@ def test_replay_compares_old_and_new_vectors_per_snapshot(tmp_path):
     assert evening["new_mass_above_anchor"] < evening["old_mass_above_anchor"]
     assert evening["l1_new_vs_old"] > 0.0
     blocks = {block["block"]: block for block in summary["blocks"]}
-    assert blocks["00-12"]["changed"] == 0
+    assert blocks["00-12"]["changed"] == 1  # the residue move above
     assert blocks["17-23"]["changed"] == 1
     assert summary["snapshots"] == 2
 

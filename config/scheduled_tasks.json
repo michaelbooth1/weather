@@ -206,7 +206,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_manual_order_journal.ps1",
-      "registration_evidence": "repository registrar (from PR #127 at ebe72984); the live task runs the pinned detached worktree weather-manual-order-journal-deployed-ebe72984 (DECISION_LOG 2026-09-30); journal modules are not on master until PR #127 lands"
+      "registration_evidence": "repository registrar (from PR #127 at ebe72984); the live task runs the pinned detached worktree weather-manual-order-journal-deployed-ebe72984 (DECISION_LOG 2026-09-30); journal modules land on master with PR #127 (N3)"
     },
     {
       "name": "WeatherMarketMakingDailyRoll",
