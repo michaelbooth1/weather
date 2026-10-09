@@ -212,6 +212,25 @@ def slug_market_ids(specs, now_utc, horizons):
             for spec in specs for h in horizons}
 
 
+def local_dates(specs, now_utc):
+    """Each market's local date at ``now_utc``."""
+    return {spec.id: now_utc.astimezone(spec.tz).date() for spec in specs}
+
+
+def discovery_due(previous, minute, specs, rediscover_minutes):
+    """Rediscover on schedule, at the UTC day change, and at any market's local midnight.
+
+    At a local midnight the bands' local leads change (a T+1 band becomes T+0), so the selection and each
+    band's ``horizon_days`` are recomputed, as the replay engine's day roll does (``day_roll.py``,
+    ``local_midnight``). ``previous`` is ``(minute, local dates)`` of the last discovery, or None.
+    """
+    if previous is None:
+        return True
+    at, dates = previous
+    return (minute - at >= timedelta(minutes=rediscover_minutes) or minute.date() != at.date()
+            or local_dates(specs, minute) != dates)
+
+
 def unavailable_fair_value(descriptor, now_utc):
     """The weather maker plugin is not on master: v0 shadow quotes blind width (grade-none caps)."""
     return Unavailable("weather_fair_value_provider_not_integrated", now_utc)
@@ -279,9 +298,7 @@ def run(args):
             if args.stop_file and Path(args.stop_file).exists():
                 reason = "stop_file"
                 break
-            utc_day = minute.date()
-            if discovered_at is None or minute - discovered_at[0] >= timedelta(minutes=config["rediscover_minutes"]) \
-                    or utc_day != discovered_at[1]:
+            if discovery_due(discovered_at, minute, specs, config["rediscover_minutes"]):
                 try:
                     market_ids.update(slug_market_ids(specs, minute, config["horizons"]))
                     markets, universe = discover(feed, specs, minute, horizons=config["horizons"],
@@ -289,7 +306,7 @@ def run(args):
                     writer.record("universe", minute, **universe)
                 except Exception as error:  # Keep the previous universe; the failure is on the tape.
                     writer.record("universe_error", minute, error=type(error).__name__)
-                discovered_at = (minute, utc_day)
+                discovered_at = (minute, local_dates(specs, minute))
             feed.poll([m.descriptor.condition_id for m in markets])  # Served once to the paper-fill read.
             writer.record("minute", minute, **runner.step(minute, markets))
             done, last, mid_poll = done + 1, minute, minute + MID_MINUTE_POLL

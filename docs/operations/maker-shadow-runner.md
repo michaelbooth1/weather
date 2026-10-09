@@ -98,7 +98,8 @@ and `replies`, a map from allowlisted URL to the recorded JSON reply.
 ## Selection and inputs
 
 Discovery reads the Gamma events of each market's **local** T+h dates (rediscovered
-every `rediscover_minutes` and at each UTC day change), keeps open, order-book,
+every `rediscover_minutes`, at each UTC day change and at each market's local midnight, so a
+band's `horizon_days` follows its local lead as the replay day roll does), keeps open, order-book,
 currently rewarded bands with an exact YES/NO mapping, and selects at most
 `max_conditions`, nearest-to-even Gamma mid first (selection only; no market
 price ever enters fair value). Each minute, per band in condition order: both

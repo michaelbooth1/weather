@@ -288,3 +288,17 @@ def test_offline_run_writes_record_stream_and_bundle_day_cli(tmp_path, capsys):
     manifest = json.loads((bundle.root / "bundle.json").read_text())
     assert manifest["conditions"][0]["market_id"] == "nyc"
     assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2
+
+
+def test_rediscovery_is_due_at_each_market_local_midnight():
+    specs = [s for s in maker_shadow.all_specs() if s.id in ("nyc", "seattle")]
+    found = NOW.replace(hour=3, minute=50)  # 23:50 in New York, 20:50 in Seattle
+    previous = (found, maker_shadow.local_dates(specs, found))
+    due = lambda minute: maker_shadow.discovery_due(previous, minute, specs, 15)  # noqa: E731
+    assert maker_shadow.discovery_due(None, found, specs, 15)
+    assert not due(found + timedelta(minutes=9))  # 23:59 New York: same local dates, inside the interval
+    assert due(found + timedelta(minutes=10))  # 00:00 New York: leads change, horizons are recomputed
+    assert due(found + timedelta(minutes=15))  # the schedule
+    later = NOW.replace(hour=6, minute=50)
+    previous = (later, maker_shadow.local_dates(specs, later))
+    assert not due(later + timedelta(minutes=9)) and due(later + timedelta(minutes=10))  # Seattle's midnight
