@@ -1,6 +1,6 @@
 # Live Fill-Calibration Pre-registration (DRAFT for owner signature)
 
-Status: DRAFT, 2026-10-09. Not signed. It authorizes no order. When it is
+Status: DRAFT, 2026-10-09. Rulings R1–R7 marked (owner ruling 2026-10-09 ~15:10, relayed by master-agent). Not signed: the owner's personal signature (§12) is still required, because relayed approvals are not valid for money (DECISION_LOG 10-06). It authorizes no order. When it is
 signed, it governs only the eight owner-started live fill-calibration
 sessions defined here. It is descriptive only and makes no promotion,
 edge, or readiness claim. International Polymarket only.
@@ -119,11 +119,8 @@ the whole session, never a band. The rules:
 3. **Rank.** Bands are ranked by predicted reward at size 40. Ties go by the
    RE-1 location order, then by ascending condition ID. The top band is
    posted.
-4. **RE-1's predicted-reward ≥ 2.0 threshold** is (owner ruling **R6**):
-   - kept: no session when no band meets it;
-   - or dropped: rank only.
-
-   Default if the owner is silent: **kept**.
+4. **RE-1's predicted-reward ≥ 2.0 threshold is kept** (R6, owner ruling 2026-10-09 ~15:10, relayed by master-agent). When no
+   band meets it, there is no session that date.
 5. **Record.** The script writes the full candidate table and the selected
    band to `selection.json` before the first post. It records the file's
    SHA-256 in `journal.jsonl`.
@@ -151,8 +148,9 @@ the whole session, never a band. The rules:
   10-17..10-30, extended to 11-13 when N_req is 15–28. A T+1 band quoted on
   local 10-15 (event 10-16) lies outside both panels. A T+2 band (event 10-17)
   lies inside, and the exclusion below covers it.
-- *Owner option R4.* Restrict the 10-15 session to T+1 only. That avoids
-  removing any desk-panel band-day on 10-15.
+- *R4 (declined, owner ruling 2026-10-09 ~15:10, relayed by master-agent).* The 10-15 session is **not** restricted to T+1.
+  T+2 bands quoted on 10-15 are excluded from the desk panel mechanically by
+  the rule below.
 
 **Exclusion rule (applies to every registration whose panel overlaps the
 campaign).**
@@ -214,8 +212,10 @@ The session preflight hashes both baselines into `journal.jsonl`.
 **Notification.**
 
 - At session end, the script writes `session_end.json` (reason, L, open
-  orders, fills) and raises an owner notification on the channel the owner
-  names (prerequisite P8).
+  orders, fills) and raises the owner notification (P8). The default is a
+  Windows desktop toast on the workstation, plus a one-line session result
+  that the master agent relays. No third-party service or new credential is
+  used. The owner may change this default (owner ruling 2026-10-09 ~15:10, relayed by master-agent).
 - When the notification fails, the session still ends cleanly, and the
   failure is recorded.
 
@@ -318,6 +318,9 @@ Session 0 is defined in the
   order, fill or markout enters `c_at`, `c_thr`, `q_ahead`, any markout or
   `f̂`.
 - Session 1 may not start until session 0 has passed.
+- **Agent read clearance** (owner ruling 2026-10-09 ~15:10, relayed by master-agent): agents may read **only** session 0's own
+  orders, fills and journal, plus wallet-reader rows for session 0's own
+  order IDs. Never 88a, panels or settlement for 2026-09-30..2026-10-15.
 
 ## 10. Prerequisites and owners
 
@@ -329,20 +332,22 @@ Session 0 is defined in the
 | P4 | **RE-1 code changes:** `SIZES` += 40; drop the `testing_wallet_cap` (wallet > 200) and `min(wallet − 10, 75)` sizing in favour of the L rule; replace the `initial_positions` refusal with the event-level position exclusion; attribute the cleanup fill by order ID; `LAST_DAY` → earliest 2026-10-15T00:00Z, last start 2026-10-31; `MAX_SESSIONS` 30 → 8; write `selection.json`, `panel_exclusions.jsonl` and `l_ledger.json`; add the session-0 mode (§9 spec); add the notification; rebase onto master. The RE-1 code lives only on `codex/re1-wallet-200-20260923`. All of it must pass fakes and tests before session 0. | Code-branch author | session 0 |
 | P5 | **88a scope.** The selected bands must be inside 88a capture for the whole session. Raw-update windows for `--extra-conditions` are ≤ 1800 s each. The owner or ops agent confirms 88a is running on each session date. | Ops (capture host) | the after-the-fact estimands |
 | P6 | **Signatures.** This document and both panel clarifications are signed by the **owner directly**: the 10-06 rule says relayed approvals are never valid for money. | Owner | everything |
-| P7 | **Contract deviations acknowledged** (see R1–R3): SoP critical path 4; DECISION_LOG 09-25 (d); the pilot's isolated-wallet envelope; the OD11 first-live cap. | Owner | session 0 |
-| P8 | **Notification channel.** Phone alerts were deferred on 09-27, so the owner names the channel, for example a local toast plus an e-mail draft or a file watch. | Owner | session 0 |
+| P7 | **Contract deviations acknowledged** via R1–R3 and R7 (owner ruling 2026-10-09 ~15:10, relayed by master-agent): SoP critical path 4; DECISION_LOG 09-25 (d); the pilot's isolated-wallet envelope; the OD11 first-live cap. Ruled; the owner's signature is still pending. | Owner | session 0 |
+| P8 | **Notification channel.** Default (owner ruling 2026-10-09 ~15:10, relayed by master-agent): a Windows desktop toast on the workstation plus a session-result line relayed by master. No third-party service, no new credentials; the owner may change it. The toast must be built in the code branch (P4). | Code author (owner may change) | session 0 |
 
 ## 11. Owner rulings to sign
 
+Every ruling below is marked as an owner ruling 2026-10-09 ~15:10, relayed by master-agent. The signature in §12 is still required.
+
 | Ruling | Choice |
 | --- | --- |
-| R1 | This campaign runs live before the v2 look and the ≥ 7-day parity milestone, as an explicit exception to SoP critical path 4 (relying on DECISION_LOG 10-07 row 78, which allows live prerequisites in parallel). ☐ yes ☐ no |
-| R2 | The existing wallet is used, an exception to the pilot's dedicated isolated wallet ≤ 100. Containment is L ≤ 100 by script order IDs, plus a manual-trading pause. ☐ yes ☐ no |
-| R3 | The DECISION_LOG 09-25 (d) "bleed limit in code before any RE-1 resumption" is satisfied by the in-script L ledger (§6), not by #180. ☐ yes ☐ no |
-| R4 | The 10-15 session is restricted to T+1 only. ☐ yes ☐ no (default: no) |
-| R5 | 40 shares per leg (deviation from 75). ☐ yes |
-| R6 | RE-1 predicted-reward ≥ 2.0 threshold. ☐ kept ☐ dropped (default: kept) |
-| R7 | The OD11 first-live cap (one band, minimum size, while real fills < 10) is read as satisfied by one band per session at 40, or the owner rules otherwise. ☐ yes ☐ no |
+| R1 | This campaign runs live before the v2 look and the ≥ 7-day parity milestone, as an explicit exception to SoP critical path 4 (relying on DECISION_LOG 10-07 row 78, which allows live prerequisites in parallel). ☒ yes ☐ no |
+| R2 | The existing wallet is used, an exception to the pilot's dedicated isolated wallet ≤ 100. Containment is L ≤ 100 by script order IDs, plus a manual-trading pause. ☒ yes ☐ no |
+| R3 | The DECISION_LOG 09-25 (d) "bleed limit in code before any RE-1 resumption" is satisfied by the in-script L ledger (§6), not by #180. ☒ yes ☐ no |
+| R4 | The 10-15 session is restricted to T+1 only. ☐ yes ☒ no (T+2 is excluded mechanically by §4) |
+| R5 | 40 shares per leg (deviation from 75). ☒ yes |
+| R6 | RE-1 predicted-reward ≥ 2.0 threshold. ☒ kept ☐ dropped |
+| R7 | The OD11 first-live cap (one band, minimum size, while real fills < 10) is read as satisfied by one band per session at 40, or the owner rules otherwise. ☒ yes ☐ no |
 
 ## 12. Signature
 
@@ -351,4 +356,4 @@ Signed before any session input, panel row or 88a row dated on or after
 
 - Owner: ______________________  Date (UTC): ____________
 - Data seen at signature: ______ (expected: none)
-- Rulings R1–R7 as marked above.
+- Rulings R1–R7 as marked above (owner ruling 2026-10-09 ~15:10, relayed by master-agent).

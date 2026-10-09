@@ -1,6 +1,6 @@
 # Live Fill-Calibration Panel Clarifications (DRAFT texts for owner signature)
 
-Status: DRAFT, 2026-10-09. Not signed. This file carries the dated
+Status: DRAFT, 2026-10-09. Rulings and defaults marked (owner ruling 2026-10-09 ~15:10, relayed by master-agent). Not signed: the owner's personal signatures are still required. This file carries the dated
 clarification texts that must be signed **before any panel read**. Once
 signed, each text is appended to its target document; for the gate spec it
 goes into a new dated file. The texts exclude every band-day that carries
@@ -72,8 +72,8 @@ not on master. The text is to be appended after Clarification 1.
 >
 > - On local quote date 2026-10-15, T+1 bands (event 10-16) lie outside the
 >   Part 2 panel; T+2 bands (event 10-17) lie inside it and are excluded by
->   this rule. If the owner restricts that session to T+1 only (campaign
->   ruling R4), no 10-15 band-day is removed.
+>   this rule. The 10-15 session is not restricted to T+1 (campaign ruling
+>   R4 declined, owner ruling 2026-10-09 ~15:10, relayed by master-agent). Its T+2 band-days are excluded mechanically.
 > - Every later session date falls inside the panel and is excluded by this
 >   rule.
 >
@@ -117,17 +117,18 @@ Targets:
 > - Parity on identical tapes (shadow versus replay on the same captured
 >   input) is not an outcome comparison against the market. The owner rules
 >   one of:
->   - ☐ (i) parity days still count in full, and only outcome panels
+>   - ☒ (i) parity days still count in full, and only outcome panels
 >     exclude; or
 >   - ☐ (ii) parity is computed over non-excluded conditions only.
 >
->   The default if unmarked is (i).
+>   Marked: (i), the default (owner ruling 2026-10-09 ~15:10, relayed by master-agent).
 > - Shadow fills on excluded conditions are reported in a separate table and
 >   never pooled.
 >
 > *First-live cap (OD11).* The campaign quotes one band per session at 40
-> shares. Whether that satisfies the pre-decided first-live cap is campaign
-> ruling R7. This clarification does not decide OD11.
+> shares. Campaign ruling R7 (owner ruling 2026-10-09 ~15:10, relayed by master-agent) reads that as satisfying the
+> pre-decided first-live cap. This clarification does not otherwise decide
+> OD11.
 >
 > *Earliest session.* No campaign order rests before 2026-10-15T00:00:00Z.
 > The earliest session is local afternoon 2026-10-15 (17:00–23:00Z for ET,

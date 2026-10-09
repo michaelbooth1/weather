@@ -1,6 +1,6 @@
 # Live Fill-Calibration Session 0 Spec (DRAFT for owner signature)
 
-Status: DRAFT, 2026-10-09. Not signed. Session 0 was approved in principle
+Status: DRAFT, 2026-10-09. Read clearance and P8 default marked (owner ruling 2026-10-09 ~15:10, relayed by master-agent). Not signed. Session 0 was approved in principle
 by the owner (relayed ~14:55); this spec is the version to sign. It
 authorizes no order. Session 0 is a live, owner-started limit and dead-man
 exercise on a market outside every panel. It counts toward the campaign L
@@ -25,9 +25,10 @@ fakes and tests. The ideal dates are 2026-10-12 or 2026-10-13. It must run
 before 2026-10-15T00:00Z so that session 1 can start on 10-15.
 
 Session-0 artefacts are live operational records dated inside 09-30..10-15.
-They are not 88a, panel or settlement data. Even so, a sub-agent working
-under the workstation embargo rules reads them only with the coordinator's
-clearance.
+They are not 88a, panel or settlement data. **Read clearance** (owner ruling 2026-10-09 ~15:10, relayed by master-agent):
+agents may read **only** session 0's own orders, fills and journal, plus
+wallet-reader rows for session 0's own order IDs. Never 88a, panels or
+settlement for 2026-09-30..2026-10-15.
 
 ## 2. Market choice rule (mechanical, checkable)
 
@@ -121,7 +122,7 @@ do {
 | S0-5 | 0e: no submit at all, with the refusal reason recorded. | `journal.jsonl` has no submit record; `session_end.json` reason `l_budget_refused`. |
 | S0-6 | L reconciles. Recomputed L from venue trades for our order IDs equals the `l_ledger.json` value to 0.01 pUSD, and only our order IDs are counted (the pre-existing positions are unchanged against the T − 40 min baseline). | `& $python -m weather.market.wallet_reader_client trades --since <session0 start epoch>`, compared with `l_ledger.json`; `positions` is diffed against the baseline. |
 | S0-7 | Every order the script submitted was GTD with expiration ≤ run end + 60 s. | The journal submit records. |
-| S0-8 | The notification arrived for each sub-run end, including 0c via the next-start reconcile, or its failure was recorded. | Owner confirms; `session_end.json` notification field. |
+| S0-8 | The notification (default: Windows desktop toast on the workstation plus a master-relayed result line) arrived for each sub-run end, including 0c via the next-start reconcile, or its failure was recorded. | Owner confirms; `session_end.json` notification field. |
 
 **Fail rule.** A failure of S0-1, S0-2 or S0-6 blocks session 1 until it
 is fixed and that sub-run is repeated. A repeat is still session 0 and still
