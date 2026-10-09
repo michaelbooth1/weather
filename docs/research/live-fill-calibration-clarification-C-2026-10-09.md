@@ -18,8 +18,14 @@ round, or running session 0 on its code.
   `docs/research/live-fill-calibration-code-review-2026-10-09.md`, PASS WITH
   REQUIRED FIXES. It is on branch `claude/lfc-code-review-20261009` @ `f88074d56`.
   Its findings are cited as F-n and its section 7 open questions as Q-n.
+- The independent delta review of that fix round,
+  `docs/research/live-fill-calibration-code-delta-review-2026-10-09.md`, PASS
+  WITH REQUIRED FIXES, on the same branch @ `287434ca4`. Its findings are cited
+  as N-n and its required text fixes as R-2a..R-2d.
 - Code: branch `claude/live-fill-calibration-code-m-20261009`, fix-round commits
-  `a96f951b4` and `c2043fefa` on top of `45000b66b`. Names below are the code's
+  `a96f951b4` and `c2043fefa` on top of `45000b66b`, plus fix round 2
+  `468607b13` (delta review N-1..N-3, N-6, the 0g pause notice). Names below are
+  the code's
   (`weather.market.lfc_constants`, `weather.market.lfc_cli`,
   `weather.market.lfc_pilot`).
 - Data seen while drafting: none. No 88a, panel or settlement data, and no
@@ -129,19 +135,43 @@ difference:
 - 0g: the same, but the script's own 8 s stale cleanup is also off, so only
   the venue's `/v1/heartbeats` dead-man can cancel.
 
-The 20 s main-loop watchdog stays on. Exposure is bounded four ways:
+**This weakens PR §7 layer 2.** For this one run, the script's own 8 s stale
+cleanup (PR §7 layer 2) is switched off after the drop. The weakening is
+explicit and bounded: one run, uncounted, at the market minimum size, for at
+most the cap below. PR §7 layer 3 (the venue dead-man) is the thing under
+test. The 20 s main-loop watchdog, the GTD expiry (session end + 60 s) and the
+L gate all stay on. No counted session can switch layer 2 off.
+
+Exposure is bounded four ways:
 - size is the market minimum (S0 §3);
 - the run lasts at most 10 min;
-- there is a hard cap of 30 s after the drop, which is the 15 s venue window
-  (10 s + 5 s buffer, PR §7 layer 3) plus a 15 s margin;
-- a 0g requote is never sent. It ends the run as
-  `venue_deadman_requote_needed`, which does not pass, so 0g is repeated.
+- there is a hard cap of **≥ 30 s + one control cycle** after the drop. The
+  30 s is the 15 s venue window (10 s + 5 s buffer, PR §7 layer 3) plus a 15 s
+  margin. The orders are read at the first control checkpoint at or after
+  30 s, and the safety cancel follows within one control cycle plus read
+  latency;
+- requotes are allowed **before** the drop, as in any session-0 run; a
+  replaced leg leaves the proof rows. **After** the drop a requote is never
+  sent. It ends the run as `venue_deadman_requote_needed`, which does not pass,
+  so 0g is repeated.
+
+**Owner rule: manual trading stays PAUSED throughout 0g.** From before 0g
+starts until its result has been read, the owner places no manual order and
+cancels nothing, including in the Polymarket UI. An owner cancel would
+counterfeit the proof, because the proof cannot tell it from the venue
+dead-man. `preflight --run 0g` and the 0g confirmation prompt print this rule.
 
 **How 0g ends:**
-- **Pass:** the first terminal read of every leg is journalled
-  (`lfc_venue_deadman_first_terminal`) with no cancel from us since the drop.
-  The run ends `venue_deadman_cancelled`.
-- **Fail:** at the 30 s cap, any of our orders still rests. The run ends
+- **Pass:** every leg reads terminal with **no cancel request from this
+  process** since the drop. The first terminal read of every leg is journalled
+  (`lfc_venue_deadman_first_terminal`), together with the measured count of
+  cancel requests this process sent after the drop
+  (`own_cancel_requests_since_drop`, which must be 0). The run ends
+  `venue_deadman_cancelled`. The proof is this observation, not an attribution
+  to the venue dead-man: it cannot tell the dead-man from any other external
+  cancel, and the manual-trading pause above is what excludes an owner cancel.
+- **Fail:** at the cap (≥ 30 s + one control cycle), any of our orders still
+  rests. The run ends
   `venue_deadman_not_observed`, and the **campaign ledger records a halt**,
   which stops the campaign for good under PR §6. This is stricter than the
   S0 §5 fail rule. Resuming would need a new ledger and a further
@@ -152,12 +182,18 @@ The 20 s main-loop watchdog stays on. Exposure is bounded four ways:
   proof.
 
 **0d journal.** Before the cleanup cancel, 0d journals the first terminal read
-of every leg (`lfc_first_terminal_order_read`). The RE-1 cleanup then journals
-the per-leg `cleanup_cancel_response`. The owner can then tell a
-venue-cancelled leg from a script-cancelled one.
+of every leg (`lfc_first_terminal_order_read`, one read attempt per leg so the
+cancel is not delayed). The RE-1 cleanup then journals the per-leg
+`cleanup_cancel_response`. The owner can then tell a leg that was already
+terminal from a script-cancelled one. A 0d or 0g end seen through the REST
+order read reports `evidence_complete: false`; that is expected.
 
 **Mechanical pass gate.** For each required run, the ledger needs an
 uncounted session that ended with an accepted reason and `cleanup_ok` true.
+Every run except 0e must also have posted its band: legs on two distinct
+tokens carry a venue order ID (acknowledged or adopted). 0e must have posted
+nothing. A 0b that ends `foreign_open_order` before our band rests does not
+pass, so in 0b the owner places the foreign order only after both legs rest.
 0f stays optional.
 
 | Run | Accepted end reason |
@@ -223,12 +259,15 @@ separately (`positions_reader_status`). Anything else fails S0-6.
 
 Amends PR §6, Venue terms row, and S0 §2 rule 5.
 
-**Where the fee is checked.** Every token of the selected market must read
-`fee_rate_bps` == 0 at each of these points:
-- preflight and live selection (both profiles);
-- each session-0 candidate (`fee_rate_nonzero` / `fee_rate_unreadable`);
-- every submit, before signing (`lfc_fee_rule`, ends the session);
-- every minute.
+**Where the fee is checked.** `fee_rate_bps` must read 0 at each of these
+points:
+- preflight and live selection (both profiles): every token of the selected
+  market;
+- each session-0 candidate (`fee_rate_nonzero` / `fee_rate_unreadable`): every
+  token of the candidate;
+- every submit, before signing: **per leg**, the token of the leg being
+  submitted (`lfc_fee_rule`, ends the session);
+- every minute: both tokens.
 
 A non-zero or unreadable fee fails closed. PR §6's L formula keeps no fee
 term, and this rule is what makes that safe.
@@ -240,8 +279,9 @@ at the opening selection:
 - fee;
 - `neg_risk`.
 
-Any change ends the session `market_rules`, and a bad fee alone ends it with
-its fee code. This is stricter than PR §6, which checked only at submit.
+Any change ends the session `market_rules`; a fee change is also a rule
+change, so it ends `market_rules` too. This is stricter than PR §6, which
+checked only at submit.
 
 ## C9. Other semantic changes made by the fix round
 
