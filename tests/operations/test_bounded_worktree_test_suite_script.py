@@ -352,7 +352,7 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
 if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
-foreach ($name in @('ConvertTo-StatusInstant', 'Get-HealthyCaptureWorkerCount')) {
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
     $functionAst = @($ast.FindAll({
         param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -448,7 +448,13 @@ def test_status_instant_parser_copies_stay_byte_identical():
     assert _function_text(ops / "status.ps1", "ConvertTo-StatusInstant") == suite
     probe = _function_text(ops / "bounded_execution_tape_probe.ps1", "ConvertTo-StatusInstant")
     assert probe in (None, suite)
+    # The DateTime-by-Kind front end (status.ps1 and this suite only) is pinned
+    # the same way; the parser above stays unchanged so the probe copy matches.
+    front = _function_text(SCRIPT, "ConvertTo-StatusUtcInstant")
+    assert front is not None and "[DateTimeKind]::Local" in front
+    assert _function_text(ops / "status.ps1", "ConvertTo-StatusUtcInstant") == front
     text = SCRIPT.read_text(encoding="utf-8-sig")
+    assert "$heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat" in text
     assert "$ageSeconds = ($Now - $heartbeat).TotalSeconds" in text
     assert "[datetime]$status.last_heartbeat" not in text
 

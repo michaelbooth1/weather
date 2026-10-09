@@ -1389,12 +1389,32 @@ function ConvertTo-StatusInstant {
     catch { return $null }
 }
 
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
 function Get-StatusAgeSeconds {
     # Seconds from a status timestamp to $Now, both as UTC instants, so the
     # repeated 01:00-02:00 hour of a DST fall-back cannot hide or invent an hour
     # of staleness. $null when the timestamp is missing or unparseable.
     param($Value, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
-    $instant = ConvertTo-StatusInstant $Value
+    $instant = ConvertTo-StatusUtcInstant $Value
     if ($null -eq $instant) { return $null }
     return ($Now - $instant).TotalSeconds
 }

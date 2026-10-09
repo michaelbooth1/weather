@@ -407,8 +407,28 @@ function ConvertTo-StatusInstant {
     catch { return $null }
 }
 
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
 function Get-HealthyCaptureWorkerCount {
-    # Ages are differences of UTC instants (ConvertTo-StatusInstant), never of
+    # Ages are differences of UTC instants (ConvertTo-StatusUtcInstant), never of
     # local wall-clock times: on the 2026-11-01 fall-back night the repeated
     # 01:00-02:00 hour falls inside the 00:30-09:00 suite window.
     param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
@@ -428,7 +448,7 @@ function Get-HealthyCaptureWorkerCount {
             $lock = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Lock) -Raw |
                 ConvertFrom-Json
             $pidValue = [int]$status.pid
-            $heartbeat = ConvertTo-StatusInstant $status.last_heartbeat
+            $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
             if ($null -eq $heartbeat) { continue }
             $ageSeconds = ($Now - $heartbeat).TotalSeconds
             $alive = $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
