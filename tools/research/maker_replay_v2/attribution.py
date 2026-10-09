@@ -17,9 +17,12 @@ cascade, or the re-run fails:
   re-run (Defender M1, 2026-10-08: A8 was self-labelling). Cases: the interval ends at local midnight and the legs
   are withdrawn there; a later wake inside the old envelope is not decided at all; a base decision with no post
   wake (e.g. the base's window-start ``MISSING_DESCRIPTOR`` pull) is A8 by the same test (``absent_a8``); blind
-  RE-1 refused by its gate (``HORIZON_NOT_ELIGIBLE``). Completeness: in the post run, any decision recorded while
-  the engine's horizon is missing or outside (1, 2), other than the interval-end ``CANCEL OUTSIDE_ACTIVE_INTERVAL``,
-  means the clause was not applied (``FAIL_A8_CLAUSE_NOT_APPLIED``); soundness: a post wake outside the window but
+  RE-1 refused by its gate (``HORIZON_NOT_ELIGIBLE``). Completeness (``FAIL_A8_CLAUSE_NOT_APPLIED``), in the post
+  run: (i) any decision recorded while the engine's horizon is missing or outside (1, 2) is a violation, except a
+  ``CANCEL OUTSIDE_ACTIVE_INTERVAL`` at the very instant at which a descriptor moved the engine's horizon from
+  (1, 2) to outside it; (ii) after any instant's processing, legs resting on a condition whose engine horizon is
+  missing or outside (1, 2) are a violation (Defender D1, 2026-10-08: a late window end on a sparse-wake band
+  otherwise hid behind a later exempt cancel). Soundness: a post wake outside the window but
   inside the envelope while the engine reads lead 1 or 2 is a cut the clause does not ask for
   (``FAIL_A8_CUT_NOT_THE_CLAUSE``). Both are needed because rule 3 treats every change after the first direct one
   as cascade, so a mislabelled cut later in the day would otherwise hide behind an earlier genuine A8. A8 is
@@ -97,7 +100,7 @@ def attributing(engine, q2=False):
 
     With ``q2`` the base is ``all`` (same books and refresh), so the book and horizon checks are off and the direct
     check is A8's (``outside_clause``: outside the post window, inside the envelope, and the engine's own horizon
-    missing or not in ``A8_LEADS``), plus the clause-completeness check in ``record_decision``."""
+    missing or not in ``A8_LEADS``), plus the clause-completeness checks in ``record_decision`` and ``_process``."""
     from maker_core.replay.v2 import kernel as k
 
     class Attributing(engine):
@@ -107,6 +110,7 @@ def attributing(engine, q2=False):
             self.captured, self.derived_shas = {}, set()
             self.inputs, self._pending = [], None
             self.envelope, self.horizons, self.clause_violations, self.unexplained_cuts = {}, {}, [], []
+            self.lead_now, self.left_at = {}, set()  # current engine horizon; (cid, at) where it left (1, 2)
             for day in self.plan.days:
                 for c in day.conditions:
                     self.envelope.setdefault(c.condition_id, []).append((c.active_from, c.active_until))
@@ -131,7 +135,11 @@ def attributing(engine, q2=False):
         def ingest(self, cid, kind, payload_sha, value, error, at):
             super().ingest(cid, kind, payload_sha, value, error, at)
             if kind == "descriptor":  # the engine's own horizon read, captured or derived (None when invalid)
-                self.horizons.setdefault(cid, []).append((at, None if error is not None else value.horizon_days))
+                lead = None if error is not None else value.horizon_days
+                self.horizons.setdefault(cid, []).append((at, lead))
+                if self.lead_now.get(cid) in A8_LEADS and lead not in A8_LEADS:
+                    self.left_at.add((cid, at))
+                self.lead_now[cid] = lead
             if kind == "descriptor" and error is None and payload_sha not in self.derived_shas:
                 self.captured[cid] = value.horizon_days
 
@@ -198,9 +206,17 @@ def attributing(engine, q2=False):
             self._pending = digest(value)
             return post
 
+        def _process(self, at, batch):
+            super()._process(at, batch)
+            if q2:  # completeness (ii): no legs may rest past the instant the engine's horizon leaves (1, 2)
+                for cid, state in self.states.items():
+                    if state.legs and self.lead_now.get(cid) not in A8_LEADS:
+                        self.clause_violations.append((at, cid, "LEGS_RESTING", ()))
+
         def record_decision(self, cid, at, decision):
-            if (q2 and self.engine_horizon(cid, at) not in A8_LEADS
-                    and (decision.action, decision.reasons) != ("CANCEL", ("OUTSIDE_ACTIVE_INTERVAL",))):
+            exempt = ((decision.action, decision.reasons) == ("CANCEL", ("OUTSIDE_ACTIVE_INTERVAL",))
+                      and (cid, at) in self.left_at)  # completeness (i): only the cancel at the leaving instant
+            if q2 and self.engine_horizon(cid, at) not in A8_LEADS and not exempt:
                 self.clause_violations.append((at, cid, decision.action, decision.reasons))
             self.inputs.append(self._pending)
             self._pending = None

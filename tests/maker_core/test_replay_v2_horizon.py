@@ -401,3 +401,61 @@ def test_mutant_eligible_leads_zero_one_two_fail_the_re_run(monkeypatch):
     monkeypatch.setattr(horizon, "ELIGIBLE", (0, 1, 2))
     result = attribution.report_q2(["dense-11-01-dst"])
     assert "FAIL_A8_CLAUSE_NOT_APPLIED" in verdicts(result), result
+
+
+# -- Defender D1: a late window end on a sparse-wake band -----------------------------------------------------------
+KATHMANDU = "Asia/Kathmandu"  # UTC+05:45: the 11-21 local midnight is 2026-11-20 18:15Z
+LEAVE = utc(2026, 11, 20, 18, 15)
+
+
+def sparse_band():
+    """Kathmandu, target 11-21, captured lead 1 at 00:01Z; books every 55 s from 18:00Z, so no book lands in
+    [18:15:00, 18:15:20) and only the interval end wakes the band at local midnight."""
+    band = Band(date(2026, 11, 21), cid="ktm-band", market="nyc", zone=KATHMANDU)
+    band.descriptor(utc(2026, 11, 20, 0, 1), 1)
+    band.event(utc(2026, 11, 20, 0, 1))
+    s = band.scenario(date(2026, 11, 20))
+    s.view(band.market, 18 * 3600, p=.5)
+    s.terms(band.market, 18 * 3600)
+    for second in range(18 * 3600, 18 * 3600 + 30 * 60, 55):
+        s.book(band.market, second, mid=D(".5") + (D(".01") if second // 55 % 2 else 0))
+    return band
+
+
+def late_end(sources, late=timedelta(seconds=20)):
+    """The mutant: every clause window that ends inside the day ends ``late`` after it."""
+    out = []
+    for s in sources:
+        p = s.plan
+        end = p.start + timedelta(days=1)
+        windows = {cid: tuple((a, b + late if b < end else b) for a, b in spans) for cid, spans in p.windows.items()}
+        out.append(DaySource(DayPlan(p.day, p.conditions, MappingProxyType(windows), p.groups, p.provenance,
+                                     p.input_hashes, p.declared), s.records))
+    return out
+
+
+def sparse_cells(windows=None):
+    from tools.research.maker_replay_v2 import attribution
+    band, zones = sparse_band(), {"nyc": KATHMANDU}
+    sources = [band.source(date(2026, 11, 20))]
+    base = attribution.run(sources, "all", zones)
+    clause = attribution.horizon_sources(sources, zones)
+    post = attribution.run(clause if windows is None else windows(clause), "Q2", zones)
+    cells = {}
+    for key, (engine, _) in post.items():
+        engine.absent_a8(base[key][0])
+        cells[key] = attribution.attribute(base[key][0], engine)
+    return base, post, cells
+
+
+def test_sparse_wake_band_passes_and_the_late_window_end_mutant_fails():
+    base, post, cells = sparse_cells()
+    assert {c["verdict"] for c in cells.values()} == {"PASS"}, cells
+    assert all(c["clause_violations"] == c["unexplained_cuts"] == 0 for c in cells.values()), cells
+    informed = next(e for (_, policy), (e, _) in post.items() if policy == "informed-v0")
+    assert [(d.decision.action, d.decision.reasons) for d in informed.decisions if d.at == LEAVE] == [
+        ("CANCEL", ("OUTSIDE_ACTIVE_INTERVAL",))]  # legs were resting and are withdrawn at local midnight
+    for engine, _ in base.values():  # sparse: no wake in the 20 s after local midnight on the envelope run
+        assert not [d for d in engine.decisions if LEAVE < d.at < LEAVE + timedelta(seconds=20)]
+    _, _, mutant = sparse_cells(late_end)
+    assert "FAIL_A8_CLAUSE_NOT_APPLIED" in {c["verdict"] for c in mutant.values()}, mutant
