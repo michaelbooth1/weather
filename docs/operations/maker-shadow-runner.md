@@ -161,8 +161,8 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   the runner's own paper-fill read, so the tape and the paper book see the same prints. The
   shadow's decision inputs are the minute's own reads, unchanged by the recorder.
 - **Every record is stamped at its receipt time** (`captured_at`), never at the decision
-  instant. `book`: full raw levels of both tokens (before the runner's 25-level cut, plus venue
-  scalars), `captured_at = as_of` = receipt of the later of the two reads. `terms`: the reward
+  instant. `book`: full raw levels of both tokens (before the runner's 25-level cut, plus the allowlisted
+  venue scalars `records.BOOK_VENUE_KEYS`; any other field or an address-like value is dropped), `captured_at = as_of` = receipt of the later of the two reads. `terms`: the reward
   record's receipt, every minute (an `absent` record when the shadow had none, which replays as
   `MISSING_TERMS`). `descriptor` and the allowlisted Gamma market (`plugin_input`, with its own
   `received_at_utc`): at the minute's book receipt, on change. The CLOB reward record
@@ -195,12 +195,26 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   counted in the minute's `raw.dropped` and the stream seal.
 - **Fault boundary.** A recorder or file fault never stops the runner. `TapeWriter` codes
   it (`minute:<Error>`, `between:<Error>`, `write:<Error>`), counts it in the stream seal's
-  `faults` and writes not-OK coverage for every described band from that instant; the
-  minute's `raw` block carries the code. A failed write or fsync marks the stream broken:
-  later writes are skipped, and the seal records the bytes actually on disk with
-  `status: broken` and `broken_reason`. `bundle-day` refuses a day with a broken stream
-  (`broken_record_stream`). If sealing the stream itself fails, the quotes tape is still
-  sealed, with `records_stream_error`.
+  `faults` (a list of `{fault_code, count}`: codes are values, so the seal's secret scrubber,
+  which drops keys containing `key`, never removes `between:KeyError`) and writes not-OK
+  coverage for every described band from the failed batch's **earliest poll receipt**; the
+  minute's `raw` block carries the code. The trade state is transactional: a batch's seen
+  prints and baseline are committed only after its records are written, so a print the
+  failed batch had parsed is polled again and re-emitted at the next poll (late, but present).
+  A malformed book reply (a level without `price` or `size`) is skipped and counted as
+  `minute:book_malformed` or `refresh:book_malformed`; a failed refresh read as
+  `refresh:book_read`. A failed write or fsync marks the stream broken: later writes are
+  skipped, and the seal records the bytes actually on disk with `status: broken` and
+  `broken_reason`. `bundle-day` refuses a day with a broken or unsealed stream
+  (`broken_record_stream`, `unsealed_record_stream`; whether to bundle only the `ok` streams
+  instead is an open owner question). If the stream cannot be opened (for example an
+  unreadable earlier seal of the day), the day runs without one: each minute's `raw` is
+  `{"broken": "open:<Error>"}` and the quotes tape seal carries `records_stream_error`, as it
+  does when sealing the stream itself fails.
+- **End of a run.** A stream's last coverage record stays valid for up to 60 s after the
+  run's last poll, so the last 30 s of a graceful run (up to 60 s after a crash) count as
+  covered interval time although nothing was polled. A missed print there cannot become a
+  replay fill (its capture instant would fall after the run), so this is noted, not fixed.
 - `bundle-day` (`records.bundle_day`) writes `records/<day>/bundle.json`
   (`maker_core.replay.bundle.v0.2`, provenance `captured`, conditions from first to last
   recorded minute, one coverage group per condition) after the UTC day has closed.

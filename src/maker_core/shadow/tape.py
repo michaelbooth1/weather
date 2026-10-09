@@ -166,24 +166,32 @@ class TapeWriter:
     With ``recorder`` (a ``records.RawRecorder``) each day also gets a record stream: every ``minute`` record
     first appends its raw records, ``poll`` takes the mid-minute refresh (trade poll and both books again),
     and ``close`` seals the stream before the journal's terminal record, so the terminal and the seal bind it.
-    The recorder is behind a fault boundary: any exception while building or writing records is recorded on
-    the stream as a coded fault (not-OK trade coverage from that instant) and never reaches the runner.
+    The recorder is behind a fault boundary: any exception while opening the stream, or building or writing
+    records, is recorded as a coded fault and never reaches the runner. A failed batch's trade state is
+    rolled back (its prints are polled again) and its not-OK trade coverage starts at the batch's earliest
+    poll receipt. A stream that cannot be opened leaves the day without one (``records_stream_error``).
     """
 
     def __init__(self, directory, *, clock, scope, run_id=None, recorder=None):
         self.directory, self.clock, self.recorder = Path(directory), clock, recorder
         self.scope = dict(scope, tape_schema=TAPE_SCHEMA)
         self.run_id = run_id or clock().strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
-        self.journal, self.day, self.minutes, self.stream = None, None, 0, None
+        self.journal, self.day, self.minutes, self.stream, self.open_error = None, None, 0, None, None
         self.sealed = []
 
     def _open(self, day):
         path = self.directory / f"{day}-{self.run_id}.tape.jsonl"
+        self.open_error = None
         if self.recorder is not None:
-            self.stream = RecordStream(self.directory, day, self.run_id)
+            try:
+                self.stream = RecordStream(self.directory, day, self.run_id)
+            except Exception as error:  # noqa: BLE001 - e.g. an unreadable earlier seal: no stream today
+                self.stream, self.open_error = None, "open:" + type(error).__name__
         relative = None if self.stream is None else f"records/{day}/{stream_name(day, self.run_id)}"
         self.journal = Journal(path, clock=self.clock, mode="public_shadow",
-                               scope=dict(self.scope, utc_day=day, run_id=self.run_id, records_stream=relative))
+                               scope=dict(self.scope, utc_day=day, run_id=self.run_id, records_stream=relative,
+                                          **({} if self.open_error is None
+                                             else {"records_stream_error": self.open_error})))
         self.day, self.minutes = day, 0
 
     def _roll(self, day):
@@ -200,7 +208,18 @@ class TapeWriter:
             self.minutes += 1
             if self.stream is not None:
                 payload["raw"] = self._guarded("minute", lambda: self.recorder.minute(self.stream, payload))
+            elif self.recorder is not None:
+                self._abort()  # no stream today: drop the recorder's polls so they never accumulate
+                payload["raw"] = {"broken": self.open_error}
         return self.journal.record(event, minute_utc=minute_utc, **payload)
+
+    def _abort(self):
+        """Roll back the recorder's failed batch; the not-OK coverage instant (earliest poll receipt)."""
+        try:
+            at = self.recorder.abort()
+        except Exception:  # noqa: BLE001 - a fault path must not raise
+            at = None
+        return self.clock() if at is None else at
 
     def _guarded(self, stage, build):
         """Build and write record entries; a fault costs raw records (coded on the stream), never the run."""
@@ -208,22 +227,27 @@ class TapeWriter:
         try:
             entries = build()
         except Exception as error:  # noqa: BLE001 - the recorder must never stop the runner
-            return stream.fault(f"{stage}:{type(error).__name__}", self.clock())
+            return stream.fault(f"{stage}:{type(error).__name__}", self._abort())
         try:
-            return stream.write(entries)
+            result = stream.write(entries)
         except Exception as error:  # noqa: BLE001 - an fsync/disk fault marks the stream, the run goes on
-            return stream.fault(f"write:{type(error).__name__}", self.clock())
+            return stream.fault(f"write:{type(error).__name__}", self._abort())
+        self.recorder.commit()
+        return result
 
     def poll(self, condition_ids):
         """Mid-minute refresh into the current day's record stream; None without a recorder."""
-        if self.recorder is None or self.stream is None:
+        if self.recorder is None:
+            return None
+        if self.stream is None:
+            self._abort()
             return None
         return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids))
 
     def close(self, reason):
         if self.journal is None:
             return None
-        journal, path, stream_seal, stream_error = self.journal, self.journal.path, None, None
+        journal, path, stream_seal, stream_error = self.journal, self.journal.path, None, self.open_error
         if self.stream is not None:
             stream, self.stream = self.stream, None
             try:

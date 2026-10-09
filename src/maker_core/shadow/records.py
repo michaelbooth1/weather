@@ -60,6 +60,9 @@ GAMMA_MARKET_KEYS = frozenset({
 GAMMA_REWARD_KEYS = ("rewardsDailyRate", "startDate", "endDate", "rewardsAmount")
 REWARD_KEYS = ("condition_id", "rewards_max_spread", "rewards_min_size")
 REWARD_CONFIG_KEYS = ("start_date", "end_date", "rate_per_day", "total_rewards")
+# The CLOB ``/book`` reply's scalar fields kept in a book record's ``venue`` block; anything else is dropped.
+BOOK_VENUE_KEYS = frozenset({"market", "asset_id", "timestamp", "hash", "min_order_size", "tick_size", "neg_risk",
+                             "last_trade_price"})
 ADDRESS = re.compile(r"(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])")
 D = Decimal
 
@@ -323,9 +326,12 @@ class RecordStream:
                 "last_sequence": None if first is None else first + len(chunks) - 1, "records": len(chunks),
                 "dropped": {k: v for k, v in dropped.items() if v}}
 
+    def count_fault(self, code, n=1):
+        self.faults[code] = self.faults.get(code, 0) + n
+
     def fault(self, code, at):
         """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
-        self.faults[code] = self.faults.get(code, 0) + 1
+        self.count_fault(code)
         summary = {"stream": self.path.name, "fault": code, "records": 0}
         if self.broken:
             return dict(summary, broken=self.broken)
@@ -367,10 +373,16 @@ class RecordStream:
                 "sha256": sha, "bytes": size, "records": lines,
                 "first_sequence": self.first_sequence, "last_sequence": self.last_sequence,
                 "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped),
-                "faults": dict(sorted(self.faults.items())), "conditions": conditions,
+                "faults": fault_list(self.faults), "conditions": conditions,
                 "coverage_groups": {group_id(cid): [cid] for cid in conditions}}
         write_new(self.path.with_name(self.path.name.replace("-records.jsonl", "-records.seal.json")), seal)
         return seal
+
+
+def fault_list(faults):
+    """Fault counts as ``[{"fault_code", "count"}]``: codes are values, so the seal's secret scrubber (which
+    drops mapping keys containing ``key``, ``token``, ...) never removes one such as ``between:KeyError``."""
+    return [{"fault_code": code, "count": count} for code, count in sorted(faults.items())]
 
 
 def _levels(rows):
@@ -378,7 +390,12 @@ def _levels(rows):
 
 
 def _venue(reply):
-    return {k: v for k, v in sorted(reply.items()) if k not in ("bids", "asks") and not isinstance(v, (dict, list))}
+    """Allowlisted scalar fields of a CLOB book reply (``BOOK_VENUE_KEYS``); address-like values dropped."""
+    return {k: v for k, v in sorted(reply.items()) if k in BOOK_VENUE_KEYS and not isinstance(v, (dict, list))
+            and not (isinstance(v, str) and ADDRESS.search(v))}
+
+
+MALFORMED = (KeyError, TypeError, ValueError, AttributeError, InvalidOperation)
 
 
 def _book(at, yes, no, post_only):
@@ -412,6 +429,11 @@ class RawRecorder:
     Per run it keeps each condition's last recorded descriptor (carried into a new day's stream at its first
     record, so the day's coverage group is described) and the trade-poll baseline and seen prints (carried
     across the UTC day roll).
+
+    The trade state is transactional: a batch (``minute`` or ``between``) stages its seen-print and baseline
+    updates, ``commit`` applies them after the batch's records are written, and ``abort`` discards them with
+    the batch's untaken polls and returns the batch's earliest poll receipt. A print in a failed batch is
+    therefore polled again and re-emitted, and the fault's not-OK coverage starts no later than its receipt.
     """
 
     def __init__(self, reads: RecordingReads, *, market_id: Callable[[str], str | None], domain_id="weather"):
@@ -420,9 +442,45 @@ class RawRecorder:
         self.reads, self.market_id, self.domain_id = reads, market_id, domain_id
         self.known = {}  # condition -> {"descriptor", "outcomes", "market_id", "sources", "post_only"}
         self.trade_seen, self.trade_newest = {}, {}  # condition -> {key: venue seconds}, newest venue seconds
+        self.pending, self.batch_start = {}, None  # staged trade state of the open batch; its first poll receipt
 
     def poll(self, condition_ids):
         self.reads.poll(sorted(condition_ids))
+
+    def _take(self):
+        polls = self.reads.take_polls()
+        stamps = [at for rows in polls.values() for at, _, _ in rows]
+        if stamps:
+            self.batch_start = min(stamps + ([self.batch_start] if self.batch_start is not None else []))
+        return polls
+
+    def commit(self):
+        """Apply the batch's staged trade state; call after its records were written."""
+        for cid, (seen, newest) in self.pending.items():
+            self.trade_seen[cid] = seen
+            if newest is None:
+                self.trade_newest.pop(cid, None)
+            else:
+                self.trade_newest[cid] = newest
+        self.pending, self.batch_start = {}, None
+
+    def abort(self):
+        """Discard a failed batch (staged trade state and untaken polls); its earliest poll receipt, or None."""
+        untaken = self.reads.take_polls()
+        stamps = [at for rows in untaken.values() for at, _, _ in rows]
+        if self.batch_start is not None:
+            stamps.append(self.batch_start)
+        self.pending, self.batch_start = {}, None
+        return min(stamps) if stamps else None
+
+    def _book_entries(self, stream, at, cid, yes, no, post_only, stage):
+        """A book record, or none and a counted ``<stage>:book_malformed`` fault for an unparsable reply."""
+        try:
+            payload = _book(at, yes, no, post_only)
+        except MALFORMED:
+            stream.count_fault(f"{stage}:book_malformed")
+            return []
+        return [(at, cid, "book", payload, {"clob_book_yes": digest(yes), "clob_book_no": digest(no)}, False)]
 
     def _ensure(self, stream, cid, at):
         """Register ``cid`` in ``stream`` and, if this stream has no descriptor yet, carry the last one forward."""
@@ -451,10 +509,11 @@ class RawRecorder:
                     except (KeyError, TypeError, ValueError, InvalidOperation, OverflowError):
                         ok = False  # an unreadable print: this poll cannot prove the stream complete
                 stamps = [stamp for _, stamp, _ in parsed]
-                newest = self.trade_newest.get(cid)
+                if cid not in self.pending:  # staged on a copy; committed only after the batch is written
+                    self.pending[cid] = (dict(self.trade_seen.get(cid, {})), self.trade_newest.get(cid))
+                seen, newest = self.pending[cid]
                 if newest is not None and len(rows) >= TRADES_PAGE and (not stamps or min(stamps) > newest):
                     ok = False  # A full page that does not reach the previous poll may have skipped prints.
-                seen = self.trade_seen.setdefault(cid, {})
                 baseline = newest is None
                 for key, stamp, row in parsed:
                     if key in seen:
@@ -477,11 +536,11 @@ class RawRecorder:
                                   "timestamp": stamp}},
                         {"data_trades": digest(rows)}, False))
                 if stamps:
-                    self.trade_newest[cid] = max(stamps + ([newest] if newest is not None else []))
                     floor = min(stamps) - SEEN_MARGIN_SECONDS  # an older print can no longer reappear in a page
-                    self.trade_seen[cid] = {k: v for k, v in seen.items() if v >= floor}
+                    self.pending[cid] = ({k: v for k, v in seen.items() if v >= floor},
+                                         max(stamps + ([newest] if newest is not None else [])))
                 elif newest is None:
-                    self.trade_newest[cid] = 0
+                    self.pending[cid] = (seen, 0)
             entries.append((polled_at, group_id(cid), "coverage",
                             {"trade_stream_ok": ok,
                              "valid_until_utc": (polled_at + timedelta(seconds=COVERAGE_SECONDS)).isoformat(),
@@ -492,7 +551,7 @@ class RawRecorder:
     def minute(self, stream: RecordStream, record: Mapping):
         """Entries for one minute: the polls, books and reward records it read, each at its receipt time, and
         the decision's own derived inputs (view, events) at its decision instant."""
-        polls = self.reads.take_polls()
+        polls = self._take()
         entries = []
         for row in record.get("conditions", ()):
             cid = row["condition_id"]
@@ -542,8 +601,7 @@ class RawRecorder:
             entries.append((now, cid, "outcome_view", view, {"shadow_runner": digest(view)}, False))
             post_only = inputs["book"].get("post_only_available", True)
             if yes is not None and no is not None:
-                entries.append((received, cid, "book", _book(received, yes[1], no[1], post_only),
-                                {"clob_book_yes": digest(yes[1]), "clob_book_no": digest(no[1])}, False))
+                entries.extend(self._book_entries(stream, received, cid, yes[1], no[1], post_only, "minute"))
             self.known[cid] = {"descriptor": descriptor, "outcomes": outcomes, "market_id": market_id,
                                "sources": sources, "post_only": post_only}
         entries.extend(self._orphan_polls(stream, polls))
@@ -561,7 +619,7 @@ class RawRecorder:
     def between(self, stream: RecordStream, condition_ids):
         """Mid-minute refresh, for conditions with a recorded descriptor: one trade poll and both books read
         again, each at receipt time, so the recorded book never ages past the replay freshness limit between
-        two shadow minutes. A failed or mismatched book read is counted and skipped; it never raises."""
+        two shadow minutes. A failed, mismatched or malformed book read is counted and skipped."""
         entries, failed = [], 0
         for cid in sorted(set(condition_ids) & set(self.known)):
             known = self.known[cid]
@@ -580,11 +638,11 @@ class RawRecorder:
                 continue
             at = max(replies[0][0], replies[1][0])
             entries.extend(self._ensure(stream, cid, at))
-            entries.append((at, cid, "book", _book(at, replies[0][1], replies[1][1], known["post_only"]),
-                            {"clob_book_yes": digest(replies[0][1]), "clob_book_no": digest(replies[1][1])}, False))
-        entries.extend(self._orphan_polls(stream, self.reads.take_polls()))
+            entries.extend(self._book_entries(stream, at, cid, replies[0][1], replies[1][1], known["post_only"],
+                                              "refresh"))
+        entries.extend(self._orphan_polls(stream, self._take()))
         if failed:
-            stream.faults["refresh:book_read"] = stream.faults.get("refresh:book_read", 0) + failed
+            stream.count_fault("refresh:book_read", failed)
         return entries
 
 
@@ -624,11 +682,18 @@ def records_summary(root, day):
     return {"streams": [{"stream": s["stream"], "sha256": s["sha256"], "records": s["records"]} for s in seals],
             "unsealed_streams": unsealed, "records": sum(s["records"] for s in seals),
             "broken_streams": [s["stream"] for s in seals if s.get("status") != "ok"],
-            "faults": {k: sum(s.get("faults", {}).get(k, 0) for s in seals)
-                       for k in sorted({k for s in seals for k in s.get("faults", {})})},
+            "faults": _summed_faults(seals),
             "kinds": dict(sorted(kinds.items())),
             "dropped": {k: sum(s["dropped"].get(k, 0) for s in seals) for k in ("out_of_order", "outside_day",
                                                                                 "oversize", "undescribed_group")}}
+
+
+def _summed_faults(seals):
+    total = {}
+    for seal in seals:
+        for row in seal.get("faults") or ():
+            total[row["fault_code"]] = total.get(row["fault_code"], 0) + row["count"]
+    return fault_list(total)
 
 
 def day_active_intervals(root, day):
@@ -690,7 +755,7 @@ def bundle_day(root, day, *, clock):
     return path, manifest
 
 
-__all__ = ["BUNDLE_FORMAT", "COVERAGE_SECONDS", "RawRecorder", "RecordStream", "RecordingReads",
+__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "RawRecorder", "RecordStream", "RecordingReads",
            "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals", "day_directory",
-           "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
+           "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
            "stream_name", "verify_stream"]

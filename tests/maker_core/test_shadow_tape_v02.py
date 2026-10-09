@@ -2,7 +2,8 @@
 
 Guards: maker shadow tape v0.2 record stream and day bundle (docs/operations/maker-shadow-runner.md, Tape v0.2
   record stream): receipt-time stamping with the mid-minute book refresh (no capture gap under an advancing
-  clock), the recorder fault boundary, the trade baseline across the UTC day roll and the Gamma/reward
+  clock), the recorder fault boundary (transactional trade state, coded faults that survive the seal
+  scrubber, stream open), the trade baseline across the UTC day roll and the Gamma/reward/book-venue
   allowlists; round trip against the vendored replay-v2 reader contract
   (tests/maker_core/fixtures/replay_v2_reader_contract.py, pinned to build-line 2d8cccb13).
 """
@@ -18,8 +19,8 @@ import pytest
 
 from maker_core.evidence.journal import verify_journal
 from maker_core.shadow import tape
-from maker_core.shadow.records import (BUNDLE_FORMAT, SHADOW_REPLAY_LIMITS, RawRecorder, RecordingReads,
-                                       RecordStream, bundle_day, day_active_intervals, day_directory,
+from maker_core.shadow.records import (BOOK_VENUE_KEYS, BUNDLE_FORMAT, SHADOW_REPLAY_LIMITS, RawRecorder,
+                                       RecordingReads, RecordStream, bundle_day, day_active_intervals, day_directory,
                                        gamma_market_projection, group_id, records_summary, reward_projection)
 from maker_core.shadow.runner import book_from_public
 from maker_core.shadow.score import score_day
@@ -377,7 +378,8 @@ def test_fsync_failure_marks_the_stream_broken_and_never_stops_the_runner(tmp_pa
     assert rows[1]["raw"]["fault"] == "write:OSError" and rows[2]["raw"]["broken"] == "write:OSError"
     stream_seal = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
     assert stream_seal["status"] == "broken" and stream_seal["broken_reason"] == "write:OSError"
-    assert stream_seal["faults"] == {"write:OSError": 1} and seal["records_stream"]["status"] == "broken"
+    assert stream_seal["faults"] == [{"fault_code": "write:OSError", "count": 1}]
+    assert seal["records_stream"]["status"] == "broken"
     assert records_summary(tmp_path / "tapes", DAY)["broken_streams"] == [stream_seal["stream"]]
     with pytest.raises(ValueError, match="broken_record_stream"):
         bundle_day(tmp_path / "tapes", DAY, clock=lambda: AFTER_DAY)
@@ -429,3 +431,136 @@ def test_gamma_and_reward_records_are_allowlisted(tmp_path):
 
 def test_shadow_replay_limits_are_pinned_above_a_24_band_day():
     assert SHADOW_REPLAY_LIMITS == {"max_records": 600_000, "max_bytes": 1024**3, "max_seconds": 900.0}
+
+
+class ReceiptReads(AdvancingReads):
+    """``AdvancingReads`` that logs each trade poll's receipt time, in call order."""
+
+    def __init__(self, latency, **kwargs):
+        super().__init__(latency, **kwargs)
+        self.receipts = []
+
+    def trades(self, condition_id):
+        rows = super().trades(condition_id)
+        self.receipts.append(self.clock.now)
+        return rows
+
+
+def stepped_run(tmp_path, inner, minutes, hooks):
+    """Live-mode minutes with a +30 s refresh; ``hooks[(minute, 0 | 30 | "after")]`` run before the minute's
+    poll, before the refresh and after it."""
+    runner, reads, _, clock = recording_rig(tmp_path, inner)
+    inner.clock = clock
+    writer = TapeWriter(tmp_path / "tapes", clock=clock, scope={"mode": "fixture"}, run_id="n1",
+                        recorder=RawRecorder(reads, market_id=lambda slug: "fixture-market"))
+    nothing = lambda: None  # noqa: E731
+    for n in range(minutes):
+        minute = NOW + timedelta(minutes=n)
+        clock.now = max(clock.now, minute)
+        hooks.get((n, 0), nothing)()
+        reads.poll([CONDITION])
+        writer.record("minute", minute, **runner.step(minute, MARKETS))
+        clock.now = max(clock.now, minute + timedelta(seconds=30))
+        hooks.get((n, 30), nothing)()
+        writer.poll([CONDITION])
+        hooks.get((n, "after"), nothing)()
+    seal = writer.close("completed")
+    stream = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
+    path, _ = bundle_day(tmp_path / "tapes", DAY, clock=lambda: AFTER_DAY)
+    return seal, stream, reader.StreamBundle(path.parent), reads
+
+
+def test_malformed_refresh_book_is_a_coded_fault_and_its_poll_keeps_the_print(tmp_path):
+    inner = ReceiptReads(lambda: 0.19)
+    good = inner.books[YES]
+    malformed = dict(good, bids=[{"price": "0.49"}])  # a level without ``size``
+
+    def refresh():
+        inner.prints[CONDITION] = [wallet_print(NOW + timedelta(minutes=1, seconds=20), "0xa1")]
+        inner.books[YES] = malformed
+
+    def restore():
+        inner.books[YES] = good
+    _, stream, bundle, reads = stepped_run(tmp_path, inner, 3, {(1, 30): refresh, (1, "after"): restore})
+    assert stream["status"] == "ok" and stream["faults"] == [{"fault_code": "refresh:book_malformed", "count": 1}]
+    refresh_receipt = inner.receipts[3]  # polls: m0, m0+30, m1, m1+30 (the malformed refresh)
+    records = list(bundle.records())
+    assert [r.captured_at for r in records if r.kind == "trade"] == [refresh_receipt]
+    coverage = [r for r in records if r.kind == "coverage" and r.captured_at == refresh_receipt]
+    assert [r.payload["trade_stream_ok"] for r in coverage] == [True]
+    assert not [r for r in records if r.kind == "book"
+                and refresh_receipt <= r.captured_at < NOW + timedelta(minutes=2)]
+    assert reads.polls == {} and reads.served == {}
+
+
+def test_minute_fault_rolls_the_trade_state_back_and_stamps_not_ok_at_the_poll_receipt(tmp_path, monkeypatch):
+    from maker_core.shadow import records as records_module
+    inner, fail = ReceiptReads(lambda: 0.19), {"on": False}
+    view = records_module._view_payload
+
+    def flaky_view(value):
+        if fail["on"]:
+            raise RuntimeError("fixture: fault after the trade parse")
+        return view(value)
+    monkeypatch.setattr(records_module, "_view_payload", flaky_view)
+
+    def arm():
+        inner.prints[CONDITION] = [wallet_print(NOW + timedelta(minutes=1, seconds=45), "0xb1")]
+        fail["on"] = True
+
+    def disarm():
+        fail["on"] = False
+    seal, stream, bundle, _ = stepped_run(tmp_path, inner, 4, {(2, 0): arm, (2, 30): disarm})
+    rows = [r for r in sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"] if r["event"] == "minute"]
+    assert rows[2]["raw"]["fault"] == "minute:RuntimeError" and seal["records_stream"]["status"] == "ok"
+    assert stream["faults"] == [{"fault_code": "minute:RuntimeError", "count": 1}]
+    lost_poll, next_poll = inner.receipts[4], inner.receipts[5]  # m2 (failed batch), m2+30 (refresh)
+    records = list(bundle.records())
+    fault = [r for r in records if r.kind == "coverage" and r.payload.get("error") == "minute:RuntimeError"]
+    assert [(r.captured_at, r.payload["trade_stream_ok"]) for r in fault] == [(lost_poll, False)]
+    # The print the failed batch had parsed is polled again and re-emitted, late but present.
+    trades = [r for r in records if r.kind == "trade"]
+    assert [(r.payload["venue"]["transactionHash"], r.captured_at) for r in trades] == [("0xb1", next_poll)]
+    states = reader.replay_states(bundle)
+    assert states[(lost_poll, CONDITION)][:2] == (False, "TRADE_CAPTURE_GAP")
+
+
+def test_fault_codes_survive_the_seal_secret_scrubber(tmp_path, monkeypatch):
+    def broken_between(self, stream, condition_ids):
+        raise KeyError("fixture")
+    monkeypatch.setattr(RawRecorder, "between", broken_between)
+    runner, _, _, clock = recording_rig(tmp_path)
+    _, seal = record_run(tmp_path, runner, clock, 2)
+    expected = [{"fault_code": "between:KeyError", "count": 2}]
+    stream = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
+    terminal = sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"][-1]
+    assert stream["faults"] == expected and terminal["records"]["faults"] == expected
+    assert records_summary(tmp_path / "tapes", DAY)["faults"] == expected
+
+
+def test_book_venue_fields_are_allowlisted(tmp_path):
+    address = "0x" + "4" * 40
+    inner = Reads()
+    for asset in (YES, NO):
+        inner.books[asset] = dict(inner.books[asset], maker_address=address, owner="fixture-owner", hash=address,
+                                  neg_risk=True)
+    runner, _, _, clock = recording_rig(tmp_path, inner)
+    record_run(tmp_path, runner, clock, 2)
+    raw = next(day_directory(tmp_path / "tapes", DAY).glob("*-records.jsonl")).read_bytes()
+    assert address.encode() not in raw and b"maker_address" not in raw and b"fixture-owner" not in raw
+    books = [json.loads(line)["payload"] for line in raw.splitlines() if json.loads(line)["kind"] == "book"]
+    assert books and all(set(b["venue"]["yes"]) <= BOOK_VENUE_KEYS and b["venue"]["yes"]["neg_risk"] is True
+                         for b in books)
+
+
+def test_record_stream_open_failure_never_stops_the_runner(tmp_path):
+    folder = day_directory(tmp_path / "tapes", DAY)
+    folder.mkdir(parents=True)
+    (folder / f"{DAY}-old-records.jsonl").write_bytes(b"")
+    (folder / f"{DAY}-old-records.seal.json").write_bytes(b"{not json")
+    runner, reads, _, clock = recording_rig(tmp_path)
+    _, seal = record_run(tmp_path, runner, clock, 2)
+    rows = sealed_tapes(tmp_path / "tapes", DAY)[0][0]["rows"]
+    assert [r["raw"] for r in rows if r["event"] == "minute"] == [{"broken": "open:JSONDecodeError"}] * 2
+    assert seal["records_stream"] is None and seal["records_stream_error"] == "open:JSONDecodeError"
+    assert reads.polls == {}
