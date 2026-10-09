@@ -31,6 +31,7 @@ from maker_core.evidence.journal import canonical_bytes, plain
 from maker_core.contracts import SettlementFact
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleError, sha256
 from maker_core.replay.bundle import regular_path as neutral_path
+from maker_core.replay.export_gate import export_permitted
 from maker_core.replay.payloads import market_descriptor
 from maker_core.replay.v2.writer import BundleWriter, validate
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
@@ -39,7 +40,8 @@ from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, cap
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.market.maker_replay_bundle import (MAX_INPUT_BYTES, OUTPUT_LIMITS, ExportReader, Projection,
-                                                _carry_metadata, _raw_support, _support_records)
+                                                _carry_metadata, _raw_support, _support_records,
+                                                gate_carried_bundles)
 from weather.market.maker_replay_release import ReleaseSources
 from weather.market.maker_plugin.exposure import WeatherExposure
 from weather.market.market_registry import BUILTIN_SPECS
@@ -209,6 +211,7 @@ def _overlap(output, other):
 
 def export(args, *, now=None, reader=None, phase=None):
     """Export one closed UTC day as bundle v0.2 into the new directory ``args.out``."""
+    export_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     phase = phase or (lambda label: None)
@@ -226,6 +229,7 @@ def export(args, *, now=None, reader=None, phase=None):
     for path in getattr(args, "carry_bundle", ()) or ():
         if _overlap(output, neutral_path(path)):
             raise ValueError("output_carry_overlap")
+    gate_carried_bundles(args)
     release_root = getattr(args, "release_root", None)
     if release_root is not None:
         release_root = neutral_path(release_root)
@@ -298,6 +302,7 @@ def main(argv=None):
     run.add_argument("--max-input-bytes", type=int, default=4 * 1024**3)
     run.add_argument("--max-output-bytes", type=int, default=2 * 1024**3)
     run.add_argument("--max-records", type=int, default=2**31)
+    run.add_argument("--owner-decision", type=Path, help="signed maker-replay-v2-v1 decision (panel dates only)")
     args = parser.parse_args(argv)
     try:
         result = export(args)

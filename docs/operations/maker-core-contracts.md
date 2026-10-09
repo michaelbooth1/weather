@@ -265,6 +265,9 @@ Use the topic's installed packages, or set `PYTHONPATH` to its absolute `src` di
 The interpreter's `-B` is required for the no-writes-outside-output invocation:
 it suppresses import-cache writes even before the entrypoint loads.
 Production runs remain subject to the host-load lease and window.
+Before it opens any input, `maker_plugin_runner.run` calls the maker replay v2 panel gate
+(`export_gate.read_permitted`), so a `--date` in 2026-09-30..2026-10-15 is refused until the
+`maker-replay-v2-v1` registration is signed (see [maker-replay-bundle.md](maker-replay-bundle.md)).
 
 It reads only sealed `maker_evidence/<UTC-date>/<hh>-<segment>/` manifests and their
 discovery, books, reward journals and referenced book shards. Raw and gzip forms

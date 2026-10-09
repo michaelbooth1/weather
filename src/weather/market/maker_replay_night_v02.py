@@ -22,6 +22,8 @@ from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import HOST_MAX_RECORDS, HOST_MAX_SECONDS, HOST_MAX_BYTES, regular_path, sha256
 from maker_core.replay.calibration import CALIBRATION_DATES
 from maker_core.replay.ceilings import process_memory
+from maker_core.replay.export_gate import export_permitted
+from maker_core.replay.v2.threads import check_thread_pins, thread_record
 from maker_core.replay.v2.writer import file_digests
 from weather.market.maker_evidence_store import WriterLock
 from weather.market.maker_plugin_capture import StopRun, encoded, sealed_segments
@@ -73,7 +75,14 @@ def _finalize(folder, cap, kind, summary):
                 captured_band_cities=sorted({c["market_id"] for c in manifest["conditions"]}))
 
 
-def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None):
+def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None, environ=None):
+    """Export one day. ``environ`` (the CLI passes the process environment) is checked for thread pins.
+
+    In-process callers that pass no ``environ`` are not refused for threads; the receipt still records the
+    process environment, the CPU count and the actual pools, with ``pinned`` saying whether the pins held.
+    """
+    export_permitted(args.day, getattr(args, "owner_decision", None))  # first: before any input
+    threads = check_thread_pins(environ) if environ is not None else thread_record(os.environ)
     started = clock()
     now = now or datetime.now(timezone.utc)
     day = date.fromisoformat(args.day)
@@ -112,7 +121,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None):
         pending = day_out / "pending"
         receipt = dict(day=args.day, kind=kind, format="v0.2", status="REFUSED", cities=[], bundle={}, gaps=[],
                        restart_events=[], module_sha256=modules, module_files=len(closure), free_before_bytes=before,
-                       active_intervals="MANIFEST_ONLY",
+                       active_intervals="MANIFEST_ONLY", threads=threads,
                        restart_completeness="UNKNOWN: only sealed run summaries are retained; crashes may have none")
         failure = reader = None
         try:
@@ -127,6 +136,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None):
             summary = export(SimpleNamespace(date=args.day, markets=cities, data_root=root, out=pending,
                              max_seconds=args.max_seconds, max_input_bytes=args.max_input_bytes,
                              max_output_bytes=args.max_output_bytes, max_records=HOST_MAX_RECORDS, carry_bundle=[],
+                             owner_decision=getattr(args, "owner_decision", None),
                              release_root=release_root, kinds=KINDS[kind]["kinds"]),
                              now=now, reader=reader, phase=phase)
             receipt["bundle"] = _finalize(pending, args.max_output_bytes, kind, summary)
@@ -179,7 +189,8 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None):
         return receipt
 
 
-def main(argv=None):
+def main(argv=None, *, environ=None):
+    """CLI; ``environ`` defaults to the process environment, which must carry the four thread pins."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("module-hash", help="print the v0.2 exporter's repository module-closure hash; reads no data")
@@ -194,13 +205,15 @@ def main(argv=None):
         run.add_argument("--max-input-bytes", type=int, default=DEFAULT_INPUT_BYTES)
         run.add_argument("--max-output-bytes", type=int, default=DEFAULT_OUTPUT_BYTES)
         run.add_argument("--max-seconds", type=float, default=DEFAULT_SECONDS)
+        run.add_argument("--owner-decision", type=Path, help="signed maker-replay-v2-v1 decision (panel dates only)")
     args = parser.parse_args(argv)
     if args.command == "module-hash":
         closure = module_closure()
         print(json.dumps(dict(module_sha256=module_sha256(closure), files=len(closure)), sort_keys=True))
         return 0
     try:
-        receipt = export_day(args, "panel" if args.command == "night" else "calibration")
+        receipt = export_day(args, "panel" if args.command == "night" else "calibration",
+                             environ=os.environ if environ is None else environ)
     except (ValueError, KeyError, TypeError, ArithmeticError, OSError, RuntimeError, StopRun) as exc:
         parser.exit(2, f"{args.command} refused: {type(exc).__name__}: {exc}\n")
     print(json.dumps({k: receipt[k] for k in ("status", "day", "kind", "format", "cities", "module_sha256")},
