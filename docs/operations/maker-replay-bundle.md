@@ -356,7 +356,11 @@ change and a re-pinned `-ExpectedSelfSha256`.
 
 **Two trees that never mix** (exact-tip deploy, as `maker_replay_exam_step.ps1`):
 
-- `-DeployRoot` (default: the tree that holds the invoked wrapper, and it must be that tree) is the exact-tip code.
+- `-DeployRoot` is the exact-tip code tree and must be the absolute, normalized path of the tree that holds the
+  invoked wrapper (otherwise `DeployRoot must own the invoked wrapper`). **Always pass it explicitly.** Its declared
+  default is computed from `$PSScriptRoot` in the `param` block, which is empty under `powershell.exe -File` in
+  Windows PowerShell 5.1, so a run that omits it fails parameter binding with exit 1 before the panel gate (a gated
+  day then exits 1, not 3). The registrar always passes it.
   Its `src` is the child's only `PYTHONPATH`, and it is the child's working directory.
 - `-ProductionRoot` (mandatory) supplies `venv\Scripts\python.exe`, run as `python -P -B`, the memory guard status
   `data\logs\memory_commit_guard_status.json`, `scripts\ops\workload_admission.ps1` (lease and host assignment) and
@@ -393,8 +397,10 @@ automatic catch-up.
 `scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`,
 `-ExpectedModuleSha256` (from `python -P -B -m weather.market.maker_replay_night_v02 module-hash` with
 `PYTHONPATH=<deploy>\src`), `-ExpectedRunnerSha256`, `-ProductionRoot` and `-MinAvailableMiB`. Its `-RepoRoot`
-(default: its own checkout) is the deploy tree and is passed to the runner as `-DeployRoot`. It refuses equal or
-nested deploy and production trees. Use `-WhatIf` first: it checks pins without touching Scheduler. Registration
+is the deploy tree and is passed to the runner as `-DeployRoot`; pass it explicitly, because its `$PSScriptRoot`
+default has the same `-File` defect. `-WhatIf` checks paths, disjointness and the runner hash only, not the module
+hash, the time zone or the host assignment. It refuses equal or
+nested deploy and production trees. Use `-WhatIf` first: it checks the runner pin without touching Scheduler. Registration
 binds 00:35 daily, S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It
 reads back the complete action, principal, trigger and safety settings. The runner is pinned by its own hash and the
 exporter's module-closure hash, not by a Git tip; a change to any imported exporter module stops the export until the

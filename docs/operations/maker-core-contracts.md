@@ -200,8 +200,8 @@ v0.2) carry `bundle.clock_trigger_rows_skipped`, built by
 drops `reader_coverage`, and it carries the same lower-bound caveat as the coverage key below. It is
 receipt-only: `export.json` and bundle bytes are unchanged. Hash-pin impact: SWOB-b changes
 `maker_plugin_runner.py`, `maker_replay_night.py` and `maker_replay_night_v02.py`, which are in the
-night exporters' module closure, so `replay_export module-hash` (the nightly export's registered
-`-ExpectedModuleSha256`), the v0.2 `module-hash` and `execution_manifest.source_hashes` change and must
+night exporters' module closure, so the v0.2 `module-hash` (the nightly export's registered
+`-ExpectedModuleSha256` since U6), the v0.1 `replay_export module-hash` and `execution_manifest.source_hashes` change and must
 be re-pinned from the landed checkout; `maker_fair_value_score`'s `implementation_hashes`
 (`maker_plugin/*.py` only) does not. SWOB-a's modules are outside that closure and change no pin.
 **Scope of the observed_at change (not T+0 only).** The v1-exam clock parsed every truthy
