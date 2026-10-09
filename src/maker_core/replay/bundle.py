@@ -10,13 +10,16 @@ from dataclasses import dataclass
 from functools import lru_cache
 from datetime import date, datetime, timedelta, timezone
 import hashlib
+import importlib.metadata
+import importlib.resources
+import io
 import json
 from pathlib import Path
 import re
 import stat
 import time
 from types import MappingProxyType
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from maker_core.contracts import utc_time
 from maker_core.evidence.journal import canonical_bytes
@@ -49,29 +52,106 @@ def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+# Owner T1(a), 2026-10-09: zone data comes only from this pinned PyPI ``tzdata`` (pyproject.toml and
+# requirements.txt pin the same version; ``tests/maker_core/test_replay_v2_run_binding.py`` checks it), never from
+# the platform's TZPATH, and the version plus the sha of the zone files actually used bind into the v2 run binding.
+TZDATA_VERSION = "2026.3"
+
+
+def _tzdata():
+    try:
+        return importlib.resources.files("tzdata")
+    except ModuleNotFoundError as exc:
+        raise BundleError("tzdata_unavailable") from exc
+
 
 @lru_cache(maxsize=1)
 def _zone_names() -> frozenset:
-    return frozenset(available_timezones())
+    """Every zone the pinned tzdata package lists (its ``zones`` file); no platform TZPATH entry is added."""
+    return frozenset(_tzdata().joinpath("zones").read_text(encoding="utf-8").split())
+
+
+@lru_cache(maxsize=None)
+def zone_file_bytes(name: str) -> bytes:
+    """The TZif bytes of a listed zone, read from the pinned tzdata package only; an unlisted name refuses."""
+    if not isinstance(name, str) or name not in _zone_names():
+        raise BundleError("unknown_time_zone")
+    node = _tzdata().joinpath("zoneinfo")
+    for part in name.split("/"):
+        node = node.joinpath(part)
+    return node.read_bytes()
+
+
+@lru_cache(maxsize=None)
+def pinned_zone(name: str) -> ZoneInfo:
+    """A ``ZoneInfo`` built from the pinned tzdata bytes; one object per name, as ``ZoneInfo(name)`` caches."""
+    return ZoneInfo.from_file(io.BytesIO(zone_file_bytes(name)), key=name)
 
 
 def time_zone(name) -> ZoneInfo:
-    """A strictly named IANA zone, or ``BundleError("unknown_time_zone")``.
+    """A strictly named IANA zone from the pinned tzdata package, or ``BundleError("unknown_time_zone")``.
 
-    The name must be listed verbatim by ``zoneinfo.available_timezones()``: a filesystem lookup alone is
+    The name must be listed verbatim by the pinned tzdata's ``zones`` file: a filesystem lookup alone is
     platform-dependent (Windows accepted ``"Europe/London "`` with a trailing space and maps case-insensitively),
     and an unlisted, mis-cased, padded or path-like name must refuse with a code on every platform. Aliases such
-    as ``GB`` are listed zones and are accepted as named; equality between names stays a string compare.
+    as ``GB`` are listed zones and are accepted as named; equality between names stays a string compare. The zone
+    is loaded from that package's bytes (``pinned_zone``), never from the platform's TZPATH (owner T1(a)).
     """
     if not isinstance(name, str) or name not in _zone_names():
         raise BundleError("unknown_time_zone")
     try:
-        zone = ZoneInfo(name)
+        zone = pinned_zone(name)
     except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
         raise BundleError("unknown_time_zone") from exc
     if zone.key != name:
         raise BundleError("unknown_time_zone")
     return zone
+
+
+class RegisteredZones(Mapping):
+    """market_id -> zone name with its provenance (owner T2(a)/T3(a), 2026-10-09).
+
+    Built only by ``execution_manifest.market_time_zones`` after the inventory and registry checks; ``source``
+    records that builder and the digests of the inventory and registry it checked, and the v2 run binding
+    (``pipeline.run_binding``) copies it into the run digest. A hand-made mapping has no ``source`` and binds as
+    ``builder="caller"``, which a scored (non-synthetic) report refuses. Hashes bind provenance; they do not stop
+    a caller from constructing this class by hand, so a verifier recomputes it from the bound inventory and registry.
+    """
+
+    __slots__ = ("_zones", "source")
+
+    def __init__(self, zones, source):
+        self._zones = MappingProxyType(dict(sorted(dict(zones).items())))
+        self.source = MappingProxyType(dict(source))
+
+    def __getitem__(self, market):
+        return self._zones[market]
+
+    def __iter__(self):
+        return iter(self._zones)
+
+    def __len__(self):
+        return len(self._zones)
+
+    def __repr__(self):
+        return f"RegisteredZones({dict(self._zones)!r})"
+
+
+def tzdata_binding(names) -> dict:
+    """T1(a): the pinned tzdata version, its IANA release and the sha of the zone files ``names`` resolve to.
+
+    Refuses ``tzdata_version_unpinned`` when the installed package is not ``TZDATA_VERSION``."""
+    try:
+        version = importlib.metadata.version("tzdata")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise BundleError("tzdata_unavailable") from exc
+    if version != TZDATA_VERSION:
+        raise BundleError("tzdata_version_unpinned")
+    import tzdata
+    files = [[name, sha256(zone_file_bytes(time_zone(name).key))] for name in sorted(set(names))]
+    return dict(package="tzdata", version=version, iana_version=tzdata.IANA_VERSION, tzpath_used=False,
+                zone_files=files, zone_files_sha256=sha256(canonical_bytes(files)))
+
 
 def timestamp(value: str) -> datetime:
     if not isinstance(value, str):

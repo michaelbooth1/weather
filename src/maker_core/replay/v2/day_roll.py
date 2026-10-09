@@ -17,7 +17,9 @@ Descriptors are not wake sources (``kernel.record_signature``), so a refresh cha
 next wake and adds no decision of its own. The reader is a pure function of the day's records and the market
 time zones; the time-zone map is required (``lockstep.drive``) and ``NO_REFRESH`` exists only for the
 attribution re-run of the pre-F3 engine (``tools.research.maker_replay_v2.attribution``): the scored entry point
-``pipeline.run_passes`` refuses it (``day_roll_refresh_required``). Zone names are strict (``bundle.time_zone``).
+``pipeline.run_passes`` refuses it (``day_roll_refresh_required``), and its run binding records ``day_roll_refresh``
+so a run driven without the refresh yields no report (owner T2(a), ``pipeline.verify_run_binding``). Zone names are
+strict and zone data comes only from the pinned tzdata (``bundle.time_zone``, owner T1(a)).
 """
 from __future__ import annotations
 
@@ -43,7 +45,7 @@ NO_REFRESH = _NoRefresh()
 
 
 def _zone(name) -> ZoneInfo:
-    """Strict: the name must be listed verbatim by ``zoneinfo.available_timezones()`` (``bundle.time_zone``)."""
+    """Strict: listed verbatim by the pinned tzdata and loaded from it only (``bundle.time_zone``, owner T1(a))."""
     return time_zone(name)
 
 

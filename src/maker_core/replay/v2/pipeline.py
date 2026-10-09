@@ -103,6 +103,63 @@ class Run:
     matches: dict  # bound -> matched-clock summary
     markets: dict
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
+    binding: dict | None = None  # ``run_binding``: set only by ``run_passes``; ``report.build_report`` requires it
+
+
+RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.1"
+CALLER_ZONE_MAP = dict(builder="caller", registry_checked=False)
+
+
+def _zone_pairs(time_zones):
+    return [[market, zone] for market, zone in sorted(dict(time_zones).items())]
+
+
+def run_binding(time_zones) -> dict:
+    """The run digest's inputs beyond the bundles (owner T1(a)/T2(a), 2026-10-09), with their SHA-256.
+
+    - ``day_roll_refresh``: always true here; ``day_roll.NO_REFRESH`` is refused (``day_roll_refresh_required``);
+    - ``time_zones`` and ``time_zones_sha256``: the exact market_id -> zone map the day roll used;
+    - ``time_zones_source``: ``RegisteredZones.source`` from ``execution_manifest.market_time_zones`` (builder,
+      ``registry_checked``, inventory and registry digests), or ``builder="caller"`` for any other mapping;
+    - ``tzdata``: ``bundle.tzdata_binding`` of those zones (pinned version, IANA release, zone-file shas); a
+      tzdata other than ``bundle.TZDATA_VERSION`` refuses ``tzdata_version_unpinned``.
+
+    ``sha256`` is the digest of every other field. It binds no decision: the decision and P&L digests are
+    unchanged by it."""
+    from maker_core.replay.bundle import BundleError, RegisteredZones, tzdata_binding
+    from maker_core.replay.v2.day_roll import NO_REFRESH
+    if time_zones is NO_REFRESH:
+        raise BundleError("day_roll_refresh_required")
+    pairs = _zone_pairs(time_zones)
+    source = dict(time_zones.source) if isinstance(time_zones, RegisteredZones) else dict(CALLER_ZONE_MAP)
+    body = dict(format=RUN_BINDING_FORMAT, day_roll_refresh=True, time_zones=dict(pairs),
+                time_zones_sha256=digest(pairs), time_zones_source=source,
+                tzdata=tzdata_binding(zone for _, zone in pairs))
+    return dict(body, sha256=digest(body))
+
+
+def verify_run_binding(run, *, scored) -> dict:
+    """Refuse a run whose binding is missing, altered, refresh-off or, when ``scored``, not from the registry.
+
+    ``scored`` is true for every report that is not FIXTURE_ONLY: such a run must come from ``run_passes`` with
+    a ``market_time_zones`` map (owner T2(a)); a fixture run may bind a hand-made map (``builder="caller"``)."""
+    from maker_core.replay.bundle import TZDATA_VERSION, BundleError
+    binding = getattr(run, "binding", None)
+    if not isinstance(binding, dict) or binding.get("format") != RUN_BINDING_FORMAT:
+        raise BundleError("run_binding_required")
+    if binding.get("sha256") != digest({k: v for k, v in binding.items() if k != "sha256"}):
+        raise BundleError("run_binding_digest_mismatch")
+    if binding["time_zones_sha256"] != digest(_zone_pairs(binding["time_zones"])):
+        raise BundleError("run_binding_digest_mismatch")
+    if binding["day_roll_refresh"] is not True:
+        raise BundleError("day_roll_refresh_required")
+    if binding["tzdata"].get("version") != TZDATA_VERSION:
+        raise BundleError("tzdata_version_unpinned")
+    if not set(run.markets.values()) <= set(binding["time_zones"]):
+        raise BundleError("market_time_zone_unknown")
+    if scored and binding["time_zones_source"].get("registry_checked") is not True:
+        raise BundleError("run_binding_unregistered_zone_map")
+    return binding
 
 
 def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda *_: None) -> Run:
@@ -112,16 +169,15 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory) and
     may not turn the refresh off: ``day_roll.NO_REFRESH`` is refused here (``day_roll_refresh_required``).
 
-    Scope: this function accepts any zone mapping; zone names are strict (``day_roll._zone``), but the registry
-    cross-check binds only when the caller builds the map with ``market_time_zones(..., registered=)``. Binding the
-    zone map (or its sha) into the run digest is the T2 run-digest work; until then provenance is the caller's
-    duty. For a ``maker_replay_universe.universe()``-built inventory the cross-check is close to a tautology (both
-    sides read ``BUILTIN_SPECS``): it catches a tampered or hand-built inventory, not a wrong registry entry.
+    Binding (owner T2(a), 2026-10-09): before any work, ``run_binding`` records the refresh flag, the zone map, its
+    sha and its source, and the pinned tzdata (T1(a)) into ``Run.binding``; ``report.build_report`` refuses a run
+    without it, and a non-fixture report refuses a map not built by ``market_time_zones(..., registered=)``. So a
+    run that bypasses this function (``lockstep.drive`` directly) or passes a hand-made map produces no scored
+    report. For a ``maker_replay_universe.universe()``-built inventory the registry cross-check is close to a
+    tautology (both sides read ``BUILTIN_SPECS``): it catches a tampered or hand-built inventory, not a wrong
+    registry entry.
     """
-    from maker_core.replay.bundle import BundleError
-    from maker_core.replay.v2.day_roll import NO_REFRESH
-    if time_zones is NO_REFRESH:
-        raise BundleError("day_roll_refresh_required")
+    binding = run_binding(time_zones)
     sources = sorted(sources, key=lambda s: s.plan.day)
     plan = run_plan(sources)
     markets = {c.condition_id: c.market_id for day in plan.days for c in day.conditions}
@@ -167,7 +223,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
         passes[bound]["clock_only"] = best
         matches[bound] = state.summary(len(best.engine.config.clock_pulls))
         matches[bound]["selected_windows_sha256"] = _windows_digest(best.engine.config.clock_pulls)
-    return Run(plan, books, passes, matches, markets, log)
+    return Run(plan, books, passes, matches, markets, log, binding)
 
 
 def _windows_digest(windows):

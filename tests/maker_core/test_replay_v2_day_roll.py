@@ -406,10 +406,11 @@ def test_strict_zone_names_do_not_rely_on_the_platform_lookup(monkeypatch, name)
 
     Linux ``ZoneInfo`` already refuses these names, so without this stub a revert of the membership check
     (``bundle.time_zone``) or of ``day_roll._zone`` to a raw lookup would pass CI (ubuntu) and regress only on Windows.
+    Since owner T1(a) the lookup is ``bundle.pinned_zone`` (the pinned tzdata bytes), so that is what the stub replaces.
     """
     from maker_core.replay import bundle
     from maker_core.replay.v2 import day_roll
-    monkeypatch.setattr(bundle, "ZoneInfo", _LenientZone)
+    monkeypatch.setattr(bundle, "pinned_zone", _LenientZone)
     monkeypatch.setattr(day_roll, "ZoneInfo", _LenientZone)
     # positive control: the stub is the lookup actually used, so the refusals below are not vacuous
     assert isinstance(bundle.time_zone("Europe/London"), _LenientZone)

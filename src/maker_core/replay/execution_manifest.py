@@ -1,13 +1,13 @@
 """Exact execution-pack bindings. Verification here is preflight, never enrollment."""
+from collections.abc import Mapping
 from dataclasses import fields, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import time
-from types import MappingProxyType
 
 from maker_core.evidence.journal import digest, plain
 from maker_core.replay import authorization
-from maker_core.replay.bundle import BundleError, Limits, _Reader, sha256, time_zone, timestamp
+from maker_core.replay.bundle import BundleError, Limits, RegisteredZones, _Reader, sha256, time_zone, timestamp
 from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.calibration import calibrate
 from maker_core.replay.engine import ReplayConfig
@@ -26,6 +26,7 @@ FROZEN_CONFIG = dict(policy="informed-v0", initial_cash="100", band_cap="100", o
                      wallet_cap="100", event_cap="100", factor_cap="100", max_book_gap_seconds=60,
                      fill_bound="strictly_through", clock_pulls=())
 CEILING_FIELDS = {"max_input_bytes", "max_records", "max_seconds", "max_output_bytes", "max_memory_bytes"}
+ZONE_MAP_BUILDER = "maker_core.replay.execution_manifest.market_time_zones"
 HURDLES = dict(primary_fill_bound="strictly_through", primary_metric="modeled_net_k1",
                economic_baselines=["blind_re1", "no_quote"], economic_lower_bound_strictly_above=0,
                quote_dates=14, min_dates=10, min_markets=10, min_valid_replicates=100,
@@ -104,7 +105,14 @@ def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
     for a London market in November) passes it and would give a wrong local midnight across a DST change. So the
     zone is also checked by name against ``registered`` (market_id -> zone), the domain's own market registry
     supplied by the caller (the neutral core reads no domain registry; for weather it is
-    ``weather.market.maker_replay_universe.registered_time_zones``). A market missing from it is refused."""
+    ``weather.market.maker_replay_universe.registered_time_zones``). A market missing from it is refused.
+
+    ``registered`` is required (owner T3(a), 2026-10-09): omitting it is a TypeError, and ``None`` or a value that
+    is not a mapping refuses ``market_time_zone_registry_required`` (never a silent skip). The result is a
+    ``RegisteredZones`` whose ``source`` (this builder plus the inventory and registry digests) binds into the v2
+    run digest (owner T2(a); ``pipeline.run_binding``)."""
+    if not isinstance(registered, Mapping):
+        raise BundleError("market_time_zone_registry_required")
     zones = {}
     for row in _inventory(bundles, inventory, check=check).values():
         if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
@@ -115,7 +123,8 @@ def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
             raise BundleError("market_time_zone_unregistered")
         if registered[market] != zone:
             raise BundleError("market_time_zone_registry_mismatch")
-    return MappingProxyType(dict(sorted(zones.items())))
+    return RegisteredZones(zones, dict(builder=ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
+                                       registry_sha256=digest(dict(sorted(registered.items())))))
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):

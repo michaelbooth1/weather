@@ -100,6 +100,26 @@ difference fails the re-run (`tools/research/maker_replay_v2/attribution.py`, pi
 `CANCEL CROSSED_BOOK` at which the public book alone is not crossed. It is the paper analogue of a live at-price
 fill, is reported per day, and is never counted as a fill. The fixture re-runs bind no panel value.
 
+C13's inputs are bound as follows (owner decisions T1(a), T2(a) and T3(a), 2026-10-09). They add binding fields
+only; no decision, P&L or base-pass prefix digest changes.
+- **Zone data (T1):** `tzdata` is a pinned dependency (`bundle.TZDATA_VERSION`, the same pin in `pyproject.toml`
+  and `requirements.txt`). Zone names and zone rules come only from that package, never from the platform's
+  TZPATH, so local midnights do not depend on the machine. The run binding records the tzdata version, its IANA
+  release and the SHA-256 of each zone file the run used. A different installed tzdata refuses the run
+  (`tzdata_version_unpinned`).
+- **Run binding (T2):** `pipeline.run_passes` binds the refresh flag (always on; `day_roll.NO_REFRESH` is
+  refused), the exact market-to-zone map, its SHA-256 and its source into `run_binding`, with a SHA-256 over all of
+  them, and the report carries it. The report refuses a run without that binding, with the refresh off or with an
+  altered map. A scored (non-fixture) report also refuses a map that `execution_manifest.market_time_zones` did not
+  build. So a run that bypasses `run_passes`, or passes a hand-made zone map, produces no scored report. The
+  binding proves provenance; it does not stop forgery, so a verifier recomputes the map from the bound inventory
+  and registry.
+- **Registry (T3):** `market_time_zones` requires `registered=` (the domain's market-to-zone registry). Omitting it
+  is an error; `None` or a non-mapping refuses `market_time_zone_registry_required`. A market missing from the
+  registry, or registered under another name, is refused.
+- **Day gaps (Q2 N1, decided (a), 2026-10-09):** across a missing panel day the day roll carries the last lead
+  (current behaviour). It is no longer an open owner item.
+
 Explicitly **not** changed: the 10 s submit freshness gate (still applied at every decision), the 60 s replacement
 cooldown (still not scheduled as an event), every profile parameter, the strict net screen, the hazard recipe and
 `max_m U_m` scalar, caps and cash, the fill predicate and sibling cancellation, and the RE-1 first-fill/session
@@ -112,8 +132,8 @@ convention. Also unchanged: the shared portfolio carried across all dates, never
 - A condition is **active** at UTC minute t when all of these hold:
   - t is on a quote-panel date;
   - the latest captured or derived descriptor for the condition at or before t has `horizon_days` 1 or 2. A derived
-    descriptor recomputes `horizon_days` at each market's local midnight (time zone database rule) and is otherwise
-    identical to the descriptor before it (C13);
+    descriptor recomputes `horizon_days` at each market's local midnight (time zone database rule, from the pinned
+    `tzdata` only; §3 after C13) and is otherwise identical to the descriptor before it (C13);
   - t is outside 05:00–08:00 UTC;
   - the condition's local target date is on or before 2026-10-14;
   - the condition is not in an owner-excluded market-date (Austin, target 2026-10-03; §2).
@@ -243,6 +263,9 @@ reconciliation.
 
   It also holds the band-day table (one row per band/UTC-day/policy/bound), the inference results, Clarification 3's
   fields and the Clarification 2 diagnostics.
+- **Run binding** (owner T1(a)/T2(a), 2026-10-09): the day-roll refresh flag, the market-to-zone map with its
+  SHA-256 and source, and the pinned tzdata version with its zone-file SHA-256s, plus one SHA-256 over all of them
+  (§3, after C13). The report refuses a run without it.
 - **Sidecar** (under its own ceiling, hash-bound in the receipt): the merged run-length excluded intervals and a
   decision-stream SHA-256 per engine pass. No estimator reads it.
 - Every estimator, bootstrap and hurdle reads only cell sums, which the registration already defines. So the

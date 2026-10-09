@@ -57,12 +57,15 @@ pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Si
 `execution_manifest.market_time_zones`, which reads the bound universe inventory's `local_timezone` (already
 checked against each descriptor's close and horizon) and refuses a market whose conditions disagree (owner Gate
 Q1, 2026-10-07). That descriptor check is offset-only, so the zone is also checked by name against the caller's
-domain registry (`registered=`; for weather `maker_replay_universe.registered_time_zones()`). Zone names are strict
-(`bundle.time_zone`: listed verbatim by `zoneinfo.available_timezones()`, else `unknown_time_zone`). Fictional
-markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in `lockstep.drive` and exists only
-for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
-`run_passes` itself accepts any zone mapping: the registry check applies only when the map comes from
-`market_time_zones`, and binding the zone map into the run digest is the T2 run-digest work (until then, provenance
-is the caller's duty). For `maker_replay_universe.universe()` inventories the check is close to a tautology (both
-sides read `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
+domain registry (`registered=`, required (owner T3(a)); for weather `maker_replay_universe.registered_time_zones()`).
+Zone names are strict and zone data is the pinned `tzdata` only (owner T1(a); `bundle.time_zone`: listed verbatim
+by the pinned package's `zones` file and loaded from its bytes, never from the platform's TZPATH, else
+`unknown_time_zone`). Fictional markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in
+`lockstep.drive` and exists only for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
+`run_passes` records `Run.binding` (owner T2(a); `pipeline.run_binding`): the refresh flag, the zone map, its sha
+and its source (`market_time_zones` or `caller`), and the tzdata version with the sha of each zone file used.
+`report.build_report` refuses a run without that binding, and a non-fixture report refuses a `caller` map, so a run
+driven around `run_passes` or with a hand-made map yields no scored report. For
+`maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
+`BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

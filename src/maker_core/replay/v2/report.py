@@ -165,16 +165,18 @@ def _config(config):
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
                  check=lambda: None):
     """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar)."""
+    from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
+    fixture_only = all(d.provenance == "synthetic" for d in plan.days)
+    run_binding = verify_run_binding(run, scored=not fixture_only)  # owner T2(a): no binding, no report
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))
         report = dict(format=REPORT_FORMAT, mode="comparison",
-                      status=("FIXTURE_ONLY" if all(d.provenance == "synthetic" for d in plan.days)
-                              else "PRE_REGISTERED_REPLAY"),
+                      status="FIXTURE_ONLY" if fixture_only else "PRE_REGISTERED_REPLAY",
                       pre_registration_sha256=registration_hash, configuration=_config(config),
                       input_hashes={d.day.isoformat(): dict(d.input_hashes) for d in plan.days},
-                      assumptions=ASSUMPTIONS, bounds={})
+                      run_binding=run_binding, assumptions=ASSUMPTIONS, bounds={})
         for bound in BOUNDS:
             check()
             band_days = {policy: passes[bound][policy].band_days(books, markets) for policy in POLICIES}
