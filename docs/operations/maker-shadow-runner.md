@@ -178,21 +178,31 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   Cost at 12 bands: 24 extra CLOB book GETs a minute (the 12 trade GETs at +30 s already
   existed), from 60 to 84 public GETs a minute, about +4.6 s of sequential reads at 190 ms
   each. The first minute of a run (or of a newly selected band) replays as
-  `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun skip** (owner
-  decision N7, `maker_shadow.mid_minute_refresh`): the refresh is skipped when it would not
-  finish before the next minute starts (start + estimate after the next minute), so it never
-  delays the next decision. The estimate is the run's last measured refresh (measured on the
-  monotonic clock, so a wall-clock step never feeds it), capped at 30 s, and 10 s before the
-  first measurement. A skip measures nothing, so it resets the estimate to at most 10 s and the
-  next minute's refresh measures again: one slow refresh (a capped 30 s estimate, with the loop
-  always waking a few ms after +30 s) never locks out later refreshes. A skip reads nothing,
-  is counted on the stream seal as `refresh:skipped_overrun` and names its minute in the seal's
-  `skipped_refresh_minutes` and in `gaps.json` `skipped_refreshes` (`[{run_id, stream,
-  minutes}]`, bundled streams only); that minute's trade coverage may then lapse before the
-  next minute's poll, which replays as a true capture gap. **Bias:** skips happen in the
-  minutes whose decision step overran (many bands, deep books, rediscovery), so book staleness
-  concentrates in busy minutes; a replay or parity consumer should read `skipped_refreshes`
-  rather than treat stale-book minutes as random.
+  `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun deadline** (owner
+  decision N7, `maker_shadow.mid_minute_refresh`): the refresh must not delay the next
+  decision. It has a hard deadline, `REFRESH_MARGIN` (3 s) before the next minute, and reads
+  its bands one at a time; a band is started only when the clock plus the per-band estimate is
+  within the deadline, so a slow refresh is cut short and the next decision starts on time.
+  The per-band estimate is the longest band read measured in this refresh and the run's
+  previous one, on the monotonic clock (a wall-clock step never feeds it); before a first
+  measurement, and after a refresh that read nothing, it is `REFRESH_BAND_BOUND` (15 s: a
+  band's three GETs at the 5 s transport timeout). **Bound:** only a band read that outlasts
+  its estimate can pass the deadline, and then the next decision is late by that excess, one
+  band at most (a hung GET can exceed its 5 s socket timeout); that refresh is
+  `refresh:late_overrun`. A refresh cut short is `refresh:partial_overrun`, one that read
+  nothing `refresh:skipped_overrun`. **Backoff:** after any of these the next refresh is
+  attempted only 1, 2, 4, then 8 minutes later (capped; by consecutive such refreshes), and
+  each backed-off minute is `refresh:skipped_backoff`; a full refresh that ended within the
+  deadline resets the backoff. So under sustained slowness a late decision recurs at most once
+  per 8-minute backoff, never every other minute. Every such minute is counted on the stream seal and
+  named in the seal's `incomplete_refreshes` (`[{minute, refreshed, left}]`, bands read and
+  left) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`, bundled
+  streams only); `bundle.json` is unchanged by them. A band left unread may let that minute's
+  trade coverage lapse before the next minute's poll, which replays as a true capture gap.
+  **Bias:** incomplete refreshes happen in the minutes whose decision step overran or whose
+  feed was slow (many bands, deep books, rediscovery), and bands are refreshed in condition-id
+  order, so book staleness concentrates in busy minutes and in later bands; a replay or parity
+  consumer should read `incomplete_refreshes` rather than treat stale-book minutes as random.
 - Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
   seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
   roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the

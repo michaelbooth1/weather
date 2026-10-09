@@ -54,34 +54,78 @@ GIT_TIMEOUT_SECONDS = 60
 # is continuous and no recorded book ages past the replay engine's 60 s freshness limit. Record stream only:
 # the shadow's decision inputs are the minute's own reads.
 MID_MINUTE_POLL = timedelta(seconds=30)
-# The refresh is skipped when it would not finish before the next minute starts (owner decision N7), so it never
-# delays the next decision. Its duration is the run's last measured refresh (monotonic clock), capped at
-# MID_MINUTE_POLL; before a first measurement, and again after every skip, about the 9 s measured at 24 bands.
-# The reset after a skip makes the next minute measure again, so one slow refresh (or a wake a few ms after
-# +30 s with a capped estimate) never locks every later refresh out.
-REFRESH_ESTIMATE = timedelta(seconds=10)
+# Overrun rule (owner decision N7): the refresh must not delay the next minute's decision. It has a hard deadline,
+# REFRESH_MARGIN before the next minute starts, and reads its bands one at a time: a band is started only when
+# the clock plus the per-band estimate is within the deadline. The per-band estimate is the longest band read
+# measured (monotonic clock) in this refresh and the run's previous one; before a first measurement, and after a
+# refresh that read nothing, it is REFRESH_BAND_BOUND (a band's three public GETs at the 5 s transport timeout).
+# Only a band read that outlasts its estimate can pass the deadline, so the next decision is late only by that
+# excess (one band); such a refresh is recorded as late. A refresh cut short (partial), that read nothing
+# (skipped) or that ended late is recorded per minute; after one, the next refresh is attempted only after a
+# capped exponential backoff (REFRESH_BACKOFF_MINUTES, by consecutive such refreshes), reset by a full refresh
+# that ended within the deadline.
+REFRESH_MARGIN = timedelta(seconds=3)
+REFRESH_BAND_BOUND = timedelta(seconds=15)
+REFRESH_BACKOFF_MINUTES = (1, 2, 4, 8)
 REFRESH_SKIPPED = "refresh:skipped_overrun"
+REFRESH_PARTIAL = "refresh:partial_overrun"
+REFRESH_LATE = "refresh:late_overrun"
+REFRESH_BACKOFF = "refresh:skipped_backoff"
 
 
-def refresh_fits(now, minute, estimate):
-    """True when a refresh started at ``now`` and lasting ``estimate`` ends by the start of the next minute."""
-    return now + estimate <= minute + timedelta(minutes=1)
+class RefreshPlan:
+    """The run's refresh state: the previous refresh's longest band read, and the backoff."""
+
+    def __init__(self):
+        self.band_estimate = None  # None: REFRESH_BAND_BOUND
+        self.incomplete = 0  # consecutive incomplete refreshes
+        self.resume_at = None  # first minute whose refresh may be attempted again
 
 
-def mid_minute_refresh(writer, condition_ids, clock, minute, estimate, monotonic=None):
-    """Run the mid-minute refresh of ``minute`` if it fits, else record it skipped; returns the next estimate.
+def mid_minute_refresh(writer, condition_ids, clock, minute, plan, monotonic=None):
+    """The mid-minute refresh of ``minute`` under the hard deadline and backoff; updates and returns ``plan``.
 
-    ``clock`` (wall, UTC) decides the fit; the duration is measured on ``monotonic`` (default
-    ``time.monotonic``), so a wall-clock step never feeds the estimate. A skip measures nothing, so it resets
-    the estimate to at most ``REFRESH_ESTIMATE`` and the next minute's refresh measures again.
+    ``clock`` (wall, UTC) decides the deadline; band reads are timed on ``monotonic`` (default
+    ``time.monotonic``), so a wall-clock step never feeds the estimate. Lost refresh work is recorded on the
+    stream with ``writer.incomplete_refresh(code, minute, refreshed, left)``.
     """
     monotonic = monotonic or time.monotonic
-    if not refresh_fits(clock(), minute, estimate):
-        writer.skip_refresh(REFRESH_SKIPPED, minute)
-        return min(estimate, REFRESH_ESTIMATE)
-    started = monotonic()
-    writer.poll(condition_ids)
-    return min(timedelta(seconds=max(0.0, monotonic() - started)), MID_MINUTE_POLL)
+    if plan.resume_at is not None and minute < plan.resume_at:
+        writer.incomplete_refresh(REFRESH_BACKOFF, minute, 0, len(condition_ids))
+        return plan
+    deadline = minute + timedelta(minutes=1) - REFRESH_MARGIN
+    carried = plan.band_estimate or REFRESH_BAND_BOUND
+    state = {"longest": None, "mark": None, "refreshed": 0, "left": 0}
+
+    def measure():
+        if state["mark"] is not None:
+            took = timedelta(seconds=max(0.0, monotonic() - state["mark"]))
+            state["longest"] = took if state["longest"] is None else max(state["longest"], took)
+            state["mark"] = None
+
+    def proceed(remaining):
+        """Called before each band read with the bands left (this one included); False stops the refresh."""
+        measure()
+        if clock() + max(carried, state["longest"] or timedelta(0)) > deadline:
+            state["left"] = remaining
+            return False
+        state["refreshed"] += 1
+        state["mark"] = monotonic()
+        return True
+
+    writer.poll(condition_ids, proceed=proceed)
+    measure()
+    plan.band_estimate = state["longest"]
+    late = clock() > deadline  # a band read outlasted its estimate
+    if state["left"] or late:
+        code = REFRESH_LATE if late else REFRESH_PARTIAL if state["refreshed"] else REFRESH_SKIPPED
+        writer.incomplete_refresh(code, minute, state["refreshed"], state["left"])
+        plan.incomplete += 1
+        backoff = REFRESH_BACKOFF_MINUTES[min(plan.incomplete, len(REFRESH_BACKOFF_MINUTES)) - 1]
+        plan.resume_at = minute + timedelta(minutes=backoff)
+    else:
+        plan.incomplete, plan.resume_at = 0, None
+    return plan
 
 
 def code_identity(root=REPO_ROOT):
@@ -312,15 +356,15 @@ def run(args):
     market_ids = {}
     writer = TapeWriter(out, clock=clock, scope=scope, recorder=RawRecorder(feed, market_id=market_ids.get))
     markets, discovered_at, done, reason, last, mid_poll = [], None, 0, "completed", None, None
-    refresh_estimate = REFRESH_ESTIMATE
+    refresh_plan = RefreshPlan()
     try:
         while not args.minutes or done < args.minutes:
             minute = clock().replace(second=0, microsecond=0)
             if minute == last:
                 if mid_poll is not None and clock() >= mid_poll:
                     mid_poll = None
-                    refresh_estimate = mid_minute_refresh(
-                        writer, [m.descriptor.condition_id for m in markets], clock, minute, refresh_estimate)
+                    refresh_plan = mid_minute_refresh(
+                        writer, [m.descriptor.condition_id for m in markets], clock, minute, refresh_plan)
                     continue
                 wake = mid_poll or minute + timedelta(minutes=1)
                 time.sleep(max(0.0, (wake - clock()).total_seconds()))

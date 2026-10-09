@@ -274,7 +274,7 @@ class RecordStream:
         self.emitted = {}  # (condition, label) -> payload hash, for on-change records
         self.groups, self.described = {}, set()
         self.faults, self.broken = {}, None
-        self.skipped_refreshes = []  # minutes (ISO) whose mid-minute refresh was skipped (owner decision N7)
+        self.incomplete_refreshes = {}  # minute (ISO) -> refresh cut short or skipped (owner decision N7)
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
@@ -344,12 +344,14 @@ class RecordStream:
     def count_fault(self, code, n=1):
         self.faults[code] = self.faults.get(code, 0) + n
 
-    def skip_refresh(self, code, minute):
-        """Count a skipped mid-minute refresh and name its minute on the seal (``skipped_refresh_minutes``), so a
-        replay can tell which minutes lack the refresh; nothing is written to the stream itself."""
+    def incomplete_refresh(self, code, minute, refreshed, left):
+        """Count a mid-minute refresh cut short, skipped or ended late and name it on the seal
+        (``incomplete_refreshes``: ``{minute, refreshed, left}`` band counts, by minute), so a replay can tell
+        which minutes lack refreshed books; nothing is written to the stream itself."""
         self.count_fault(code)
         if minute is not None:
-            self.skipped_refreshes.append(minute.astimezone(timezone.utc).isoformat())
+            at = minute.astimezone(timezone.utc).isoformat()
+            self.incomplete_refreshes[at] = {"minute": at, "refreshed": int(refreshed), "left": int(left)}
 
     def fault(self, code, at):
         """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
@@ -395,7 +397,8 @@ class RecordStream:
                 "sha256": sha, "bytes": size, "records": lines,
                 "first_sequence": self.first_sequence, "last_sequence": self.last_sequence,
                 "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped),
-                "faults": fault_list(self.faults), "skipped_refresh_minutes": sorted(set(self.skipped_refreshes)),
+                "faults": fault_list(self.faults),
+                "incomplete_refreshes": [row for _, row in sorted(self.incomplete_refreshes.items())],
                 "conditions": conditions,
                 "coverage_groups": {group_id(cid): [cid] for cid in conditions}}
         write_new(self.path.with_name(self.path.name.replace("-records.jsonl", "-records.seal.json")), seal)
@@ -639,12 +642,17 @@ class RawRecorder:
                 entries.extend(self._trades(stream, cid, known["outcomes"], rows))
         return entries
 
-    def between(self, stream: RecordStream, condition_ids):
+    def between(self, stream: RecordStream, condition_ids, proceed=None):
         """Mid-minute refresh, for conditions with a recorded descriptor: one trade poll and both books read
         again, each at receipt time, so the recorded book never ages past the replay freshness limit between
-        two shadow minutes. A failed, mismatched or malformed book read is counted and skipped."""
+        two shadow minutes. A failed, mismatched or malformed book read is counted and skipped. ``proceed``,
+        if given, is called before each band's reads with the number of bands left (this one included); False
+        stops the refresh there (the run's hard deadline), keeping what was read."""
         entries, failed = [], 0
-        for cid in sorted(set(condition_ids) & set(self.known)):
+        bands = sorted(set(condition_ids) & set(self.known))
+        for index, cid in enumerate(bands):
+            if proceed is not None and not proceed(len(bands) - index):
+                break
             known = self.known[cid]
             self.reads.poll([cid])
             replies = []
@@ -811,9 +819,9 @@ def bundle_day(root, day, *, clock):
     ``gaps.json`` beside the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field),
     written first and atomically; a re-run fills it in when ``bundle.json`` exists without it, validating only
     the bundled streams. ``gaps.json`` also names, per bundled stream, the minutes whose mid-minute refresh was
-    skipped (``skipped_refreshes``, owner decision N7; their books may age past 60 s). They are also
-    returned under the manifest's ``gaps`` and ``excluded`` keys by ``bundle_day`` only. Read the day with
-    ``Limits(**SHADOW_REPLAY_LIMITS)``.
+    cut short, skipped or ended late (``incomplete_refreshes``, owner decision N7; their books may age past
+    60 s). They are also returned under the manifest's ``gaps`` and ``excluded`` keys by ``bundle_day``
+    only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc)
     end, sealed_at = start + timedelta(days=1), clock()
@@ -857,13 +865,13 @@ def bundle_day(root, day, *, clock):
     gaps = stream_gaps(root, day)
     bundled = {s["path"] for s in (existing or manifest)["streams"]}
     excluded = _excluded_streams(day, every_seal, unsealed, bundled)
-    skipped = [{"run_id": s.get("run_id"), "stream": s["stream"], "minutes": s["skipped_refresh_minutes"]}
-               for s in every_seal if s["stream"] in bundled and s.get("skipped_refresh_minutes")]
+    incomplete = [{"run_id": s.get("run_id"), "stream": s["stream"], "refreshes": s["incomplete_refreshes"]}
+                  for s in every_seal if s["stream"] in bundled and s.get("incomplete_refreshes")]
     # gaps.json first, atomically (a temp file renamed over it), then the create-only bundle.json: a bundle
     # never exists without its gap sources, and a re-run after a failure in between fills gaps.json in.
     _replace_json(gaps_path, {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
                               "runs_without_record_stream": gaps, "excluded_streams": excluded,
-                              "skipped_refreshes": skipped})
+                              "incomplete_refreshes": incomplete})
     if existing is not None:
         return path, dict(existing, gaps=gaps, excluded=excluded)
     write_new(path, manifest)

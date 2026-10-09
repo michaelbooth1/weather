@@ -530,7 +530,7 @@ def test_minute_fault_rolls_the_trade_state_back_and_stamps_not_ok_at_the_poll_r
 
 
 def test_fault_codes_survive_the_seal_secret_scrubber(tmp_path, monkeypatch):
-    def broken_between(self, stream, condition_ids):
+    def broken_between(self, stream, condition_ids, proceed=None):
         raise KeyError("fixture")
     monkeypatch.setattr(RawRecorder, "between", broken_between)
     runner, _, _, clock = recording_rig(tmp_path)
@@ -655,7 +655,7 @@ def test_runs_without_a_record_stream_are_named_as_gap_sources(tmp_path):
     gaps = json.loads((path.parent / "gaps.json").read_bytes())
     assert gaps == {"schema_version": GAPS_SCHEMA, "day": DAY, "bundle": "bundle.json",
                     "runs_without_record_stream": [gap], "excluded_streams": [],
-                    "skipped_refreshes": []}
+                    "incomplete_refreshes": []}
     assert reader.StreamBundle(path.parent).conditions  # the replay reader still opens the day
 
 
@@ -749,17 +749,64 @@ def test_an_unsealed_stream_excludes_its_run_only_after_the_grace(tmp_path):
     assert again["excluded"] == excluded and again["streams"] == manifest["streams"]
 
 
-def test_a_skipped_refresh_is_counted_on_the_stream_seal(tmp_path):
-    """N7. Kills mutant N7-skip-not-counted (a skipped refresh leaves no trace in the seal or summary)."""
+def test_an_incomplete_refresh_is_counted_and_named_per_minute_on_the_stream_seal(tmp_path):
+    """N7. Kills mutant N7-skip-not-counted (an incomplete refresh leaves no trace in the seal or summary) and
+    F3-minute-dropped (only a day total, not the minute and the work it lost)."""
     runner, _, _, clock = recording_rig(tmp_path)
-    writer, _ = record_run(tmp_path, runner, clock, 1, mid=False, close=False)
-    writer.skip_refresh("refresh:skipped_overrun", NOW)
+    writer, _ = record_run(tmp_path, runner, clock, 2, mid=False, close=False)
+    later = NOW + timedelta(minutes=1)
+    writer.incomplete_refresh("refresh:skipped_backoff", later, 0, 1)
+    writer.incomplete_refresh("refresh:partial_overrun", NOW, 2, 3)
     writer.close("completed")
     seal = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
-    assert seal["faults"] == [{"fault_code": "refresh:skipped_overrun", "count": 1}]
-    assert seal["skipped_refresh_minutes"] == [NOW.isoformat()]  # per minute, not only a day total (F3)
+    assert seal["faults"] == [{"fault_code": "refresh:partial_overrun", "count": 1},
+                              {"fault_code": "refresh:skipped_backoff", "count": 1}]
+    assert seal["incomplete_refreshes"] == [{"minute": NOW.isoformat(), "refreshed": 2, "left": 3},
+                                            {"minute": later.isoformat(), "refreshed": 0, "left": 1}]
     assert records_summary(tmp_path / "tapes", DAY)["faults"] == seal["faults"]
-    TapeWriter(tmp_path / "plain", clock=clock, scope={"mode": "fixture"}).skip_refresh("x")  # no recorder: no-op
+    TapeWriter(tmp_path / "plain", clock=clock, scope={"mode": "fixture"}).incomplete_refresh("x", NOW, 0, 1)  # no-op
+
+
+def test_gaps_json_lists_incomplete_refreshes_of_bundled_streams_only(tmp_path):
+    """N7 / Defender F3 (ported from the Defender's bundled-only test). A run sealed after the bundle, with its
+    own incomplete refresh, is never listed under ``incomplete_refreshes``: the gaps describe the bundle. Kills
+    mutant F3-unfiltered (the bundled filter removed)."""
+    runner, _, _, clock = recording_rig(tmp_path)
+    root = tmp_path / "tapes"
+    early, _ = record_run(tmp_path, runner, clock, 2, run_id="r1", mid=False, close=False)
+    early.incomplete_refresh("refresh:partial_overrun", NOW, 0, 1)
+    early.close("completed")
+    late, _ = record_run(tmp_path, runner, clock, 2, run_id="r2", start=NOW + timedelta(minutes=10), mid=False,
+                         close=False)
+    late.stream.handle.flush()
+    day_end = NOW.replace(hour=0) + timedelta(days=1)
+    path, _ = bundle_day(root, DAY, clock=lambda: day_end + UNSEALED_GRACE)
+    late.incomplete_refresh("refresh:skipped_overrun", NOW + timedelta(minutes=10), 0, 1)
+    late.stream.close()  # sealed ``ok`` after the bundle, with an incomplete refresh
+    late.journal.handle.close()
+    (path.parent / "gaps.json").unlink()
+    _, again = bundle_day(root, DAY, clock=lambda: day_end + 2 * UNSEALED_GRACE)
+    assert [(e["run_id"], e["reason"]) for e in again["excluded"]] == [("r2", "sealed_after_bundle")]
+    gaps = json.loads((path.parent / "gaps.json").read_bytes())
+    assert [(g["run_id"], g["refreshes"]) for g in gaps["incomplete_refreshes"]] == [
+        ("r1", [{"minute": NOW.isoformat(), "refreshed": 0, "left": 1}])]
+
+
+def test_a_rerun_takes_bundled_streams_from_the_bundle_even_when_a_seal_is_gone(tmp_path):
+    """Defender delta review §5 (ported): M4 is not equivalent. Two runs are bundled; then ``gaps.json`` and r2's
+    seal are deleted and the day is re-run. The bundle names r2, so it is not an exclusion. Kills mutant M4 (a
+    re-run derives the bundled streams from a fresh manifest, listing r2 as ``unsealed_record_stream``)."""
+    runner, _, _, clock = recording_rig(tmp_path)
+    root = tmp_path / "tapes"
+    record_run(tmp_path, runner, clock, 2, run_id="r1", mid=False)
+    record_run(tmp_path, runner, clock, 2, run_id="r2", start=NOW + timedelta(minutes=10), mid=False)
+    path, manifest = bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    assert len(manifest["streams"]) == 2 and manifest["excluded"] == []
+    (path.parent / "gaps.json").unlink()
+    (path.parent / f"{DAY}-r2-records.seal.json").unlink()  # r2's stream now reads as unsealed, past the grace
+    day_end = NOW.replace(hour=0) + timedelta(days=1)
+    _, again = bundle_day(root, DAY, clock=lambda: day_end + UNSEALED_GRACE)
+    assert again["excluded"] == [] and again["streams"] == manifest["streams"]
 
 
 def test_a_stream_sealed_after_the_bundle_is_excluded_and_gets_no_interval(tmp_path):
