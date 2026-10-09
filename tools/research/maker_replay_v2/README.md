@@ -66,3 +66,12 @@ for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
 is the caller's duty). For `maker_replay_universe.universe()` inventories the check is close to a tautology (both
 sides read `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.
+
+Owner ruling Q2(a) (2026-10-08; registration C15) adds class **A8** to `attribution.py`: `horizon_sources` cuts each
+fixture day's condition windows by the §4 horizon clause (`maker_core.replay.v2.horizon.day_windows`, the same
+captured-or-derived descriptor timeline the engine reads), and the `Q2` variant is `all` plus the blind RE-1 horizon
+gate (`Kernel.blind_horizons`, `HORIZON_NOT_ELIGIBLE`). `report_q2()` attributes `Q2` on the clause windows against
+`all` on the envelope windows; every changed decision must be A8 (outside the clause window inside the envelope, or a
+blind gate pull) or a cascade from one. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
+`q2_against_all`. `frozen` and the other variants run with the blind gate off, so the pinned prefix digests are
+unchanged.

@@ -92,6 +92,15 @@ def _inventory(bundles, inventory, *, check):
     return by_id
 
 
+def _zones(by_id):
+    """market_id -> zone name from the validated inventory rows; a market whose conditions disagree is refused."""
+    zones = {}
+    for row in by_id.values():
+        if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
+            raise BundleError("market_time_zone_disagreement")
+    return zones
+
+
 def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
     """market_id -> IANA zone for the local-midnight horizon refresh (registration C13; owner Gate Q1, 2026-10-07).
 
@@ -105,10 +114,7 @@ def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
     zone is also checked by name against ``registered`` (market_id -> zone), the domain's own market registry
     supplied by the caller (the neutral core reads no domain registry; for weather it is
     ``weather.market.maker_replay_universe.registered_time_zones``). A market missing from it is refused."""
-    zones = {}
-    for row in _inventory(bundles, inventory, check=check).values():
-        if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
-            raise BundleError("market_time_zone_disagreement")
+    zones = _zones(_inventory(bundles, inventory, check=check))
     registered = dict(registered)
     for market, zone in zones.items():
         if market not in registered:
@@ -119,7 +125,26 @@ def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):
+    """Declared active intervals and the exclusion inventory (registration draft §4; owner Q2(a), 2026-10-08).
+
+    A condition is active while all hold: the latest **captured or derived** descriptor at or before t has
+    ``horizon_days`` 1 or 2 (``maker_core.replay.v2.horizon``, which replays the panel's descriptors through the
+    engine's own ``day_roll.DayRoll`` with the inventory's zones, carried across the panel's days in date order);
+    t is inside the bundle's envelope for the condition; t is outside 05:00-08:00 UTC; the day is a quote date and
+    the target is on or before the settlement-only date. So an interval ends at the local midnight at which the
+    band passes from lead 1 to lead 0, and the engine withdraws its legs there (interval end is a wake).
+
+    Exclusions: every whole-condition exclusion as before (``settlement_only``, ``target_after_settlement_only``),
+    plus each envelope run outside the clause with ``start``/``end`` and reason ``horizon_outside_1_2`` (a
+    descriptor holds a lead other than 1 or 2) or ``missing_descriptor`` (no valid descriptor yet). Those minutes
+    are inactive, so they are exclusions, never NO_QUOTE minutes. The maintenance window stays declared by
+    ``maintenance_utc`` and is not repeated here."""
+    from maker_core.replay.v2 import horizon
+    from maker_core.replay.v2.lockstep import bundle_source
+
     by_id = _inventory(bundles, inventory, check=check)
+    bundles = sorted(bundles, key=lambda b: b.day)
+    lines = horizon.timelines([bundle_source(b) for b in bundles], _zones(by_id))
     windows, excluded = [], []
     for bundle in bundles:
         start = datetime.combine(bundle.day, datetime.min.time(), tzinfo=timezone.utc)
@@ -131,11 +156,15 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
                 excluded.append(dict(date=bundle.day.isoformat(), condition_id=c.condition_id,
                                      reason="settlement_only" if bundle.day == SETTLEMENT_DATE else "target_after_settlement_only"))
                 continue
-            for low, high in ((c.active_from, min(c.active_until, maintenance_start)),
-                              (max(c.active_from, maintenance_end), c.active_until)):
-                if low < high:
-                    windows.append(dict(date=bundle.day.isoformat(), condition_id=c.condition_id,
-                                        start=low.isoformat(), end=high.isoformat()))
+            for low, high, reason in horizon.runs(lines.get(c.condition_id, ()), c.active_from, c.active_until):
+                if reason is not None:
+                    excluded.append(dict(date=bundle.day.isoformat(), condition_id=c.condition_id, reason=reason,
+                                         start=low.isoformat(), end=high.isoformat()))
+                    continue
+                for a, b in ((low, min(high, maintenance_start)), (max(low, maintenance_end), high)):
+                    if a < b:
+                        windows.append(dict(date=bundle.day.isoformat(), condition_id=c.condition_id,
+                                            start=a.isoformat(), end=b.isoformat()))
     return windows, excluded
 
 
