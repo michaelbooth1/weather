@@ -72,7 +72,11 @@ def test_readout_surfaces_the_live_tape_code_identity(tmp_path, scope, expected)
             {"event": "universe", "sequence": 1, "recorded_at_utc": now.isoformat()}]
     (tapes / f"{now.date().isoformat()}-r1.tape.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    records = tapes / "records" / now.date().isoformat()  # tape v0.2 record stream: counted by size
+    records.mkdir(parents=True)
+    (records / f"{now.date().isoformat()}-r1-records.jsonl").write_bytes(b"{}\n" * (1024**2 * 2 // 3))
     result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
                              str(READOUT), "-RepoRoot", str(tmp_path)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert expected in result.stdout and ", last record: universe" in result.stdout, result.stdout
+    assert " MB tape + 2 MB record stream);" in result.stdout, result.stdout
