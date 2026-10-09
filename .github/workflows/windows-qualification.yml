@@ -232,7 +232,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11'
+          # Pinned to the capture host's exact interpreter (CPython 3.11.0). Floating
+          # '3.11' resolves to the latest patch and hides pre-3.11.2 behaviour such as
+          # gh-98778 (urllib HTTPError(fp=None) raises KeyError on attribute lookup),
+          # which reached the host in PR #259. Ubuntu lanes stay on floating '3.11'.
+          python-version: '3.11.0'
           cache: pip
 
       - name: Install dependencies
