@@ -386,7 +386,52 @@ function Assert-SuiteDiskHeadroom {
     }
 }
 
+function ConvertTo-StatusInstant {
+    # Parses a status timestamp as an absolute instant. Windows PowerShell 5.1
+    # ConvertFrom-Json leaves ISO-8601 strings as strings; the loops write them
+    # with their UTC offset, so DateTimeOffset.Parse keeps the instant exact even
+    # across the DST fall-back hour (a wall-clock [datetime] cast does not).
+    # Offset-less strings are taken as UTC. Unparseable or empty input is $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    if (-not [string]$Value) { return $null }
+    try {
+        return [datetimeoffset]::Parse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    }
+    catch { return $null }
+}
+
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
 function Get-HealthyCaptureWorkerCount {
+    # Ages are differences of UTC instants (ConvertTo-StatusUtcInstant), never of
+    # local wall-clock times: on the 2026-11-01 fall-back night the repeated
+    # 01:00-02:00 hour falls inside the 00:30-09:00 suite window.
+    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
         # Snapshot normally sleeps for almost its 10-minute cadence. Keep this
@@ -403,7 +448,9 @@ function Get-HealthyCaptureWorkerCount {
             $lock = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Lock) -Raw |
                 ConvertFrom-Json
             $pidValue = [int]$status.pid
-            $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+            $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
+            if ($null -eq $heartbeat) { continue }
+            $ageSeconds = ($Now - $heartbeat).TotalSeconds
             $alive = $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
             if (
                 $pidValue -gt 0 -and
