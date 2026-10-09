@@ -179,8 +179,25 @@ study), not to this diagnostic.
 2026-09-30..2026-10-15 (maker replay v2 panel and settlement day) and
 2026-10-15..2026-11-13 (desk-study decision panel and its pre-registered
 extension), and any day not yet closed in UTC. The windows live in
-`weather.market.maker_shadow_panel.EMBARGOED_UTC_DAYS`; lifting one is a reviewed
-code change. The runner still tapes those days.
+`maker_core.shadow.admission.EMBARGO_WINDOWS` (re-exported by
+`weather.market.maker_shadow_panel`); lifting, shortening or re-scoping one is a
+reviewed code change. The runner still tapes those days.
+
+Each window has a scope. The first is `full`: nothing about its days is scored,
+parity included. The second is `outcome`: 88a, paper fills, cash, markouts and
+settlement stay refused, but the outcome-blind **parity path** (shadow vs frozen
+replay-v2 decisions on the shadow's own tapes, gate parity definition) may read
+its days. A day in both windows takes `full`. Any parity scorer must, in order:
+`admit_parity_day(day, clock, today=...)` before opening anything (canonical
+closed day, not `full`, an explicit `ParityClock`, on or after its
+`first_countable_day`, which is the day after the restart run started); open only
+`sealed_tapes(root, day)` (never D-1 or D+1); `bind_parity_tapes` (no unsealed
+tape; every tape bound to the clock's shadow commit, clean, the clock's
+`config_sha256`, a run started at or after the restart run); and
+`assert_outcome_blind(report, admission)` before writing, which refuses any
+outcome field on an `outcome`-window day. The clock (`maker_core.shadow_parity_clock.v0.1`:
+engine commit, freeze instant, shadow commit, restart run id, config sha) is an
+explicit input; nothing discovers it.
 
 ## Forward runner on the capture host
 

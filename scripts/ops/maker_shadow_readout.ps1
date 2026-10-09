@@ -117,6 +117,6 @@ if (Test-Path -LiteralPath (Join-Path $root "STOP")) { $flags += "STOP file pres
 if (Test-Path -LiteralPath (Join-Path $root "PAUSE")) { $flags += "PAUSE file present" }
 $flagText = if ($flags.Count) { " [" + ($flags -join "; ") + "]" } else { "" }
 
-"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}{11}; rows today {6} ({7:N0} MB); crashed/unsealed tapes {8}; {9}; scoring embargoed through 2026-11-13 UTC{10}" -f `
+"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}{11}; rows today {6} ({7:N0} MB); crashed/unsealed tapes {8}; {9}; 88a scoring embargoed through 2026-11-13 UTC; parity outcome-blind, never 09-30..10-15{10}" -f `
     $(if ($alive) { "running" } else { "NOT running" }), $days.Count, $since, $last, $lastAge, $lastState,
     $rowsToday, ($bytesToday / 1MB), $crashed, $parity, $flagText, $code
