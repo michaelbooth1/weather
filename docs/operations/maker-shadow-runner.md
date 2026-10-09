@@ -43,8 +43,10 @@ what it **would** quote. It never places, cancels or signs anything:
   real portfolio ledger from a paper snapshot, so bleed is the ledger's P&L on
   paper: cash plus open lots marked at the last two-sided mid read for the asset
   (`held_mark_max_age_seconds` is taped; a band that left the selection keeps its
-  last mark; settlement is not applied). A fill sets `fill_seen` for that band's
-  next decision (the sibling leg is cancelled). A print-read failure is a taped
+  last mark; settlement is not applied). A band's first paper fill (earliest print) cancels the
+  band at once, as the replay kernel does (`FILL_CANCEL_SIBLING`/`END` at the fill
+  instant): one fill per band, the sibling and any remainder stop resting, and
+  the next decision sees `fill_seen` with no own legs on its book. A print-read failure is a taped
   `print_gaps` entry, never read as "no fills". Bleed past the limit HALTs and
   latches exactly as for a live runtime; only the owner's latch command clears it.
   The paper book belongs to one run (a restart starts a fresh book; the latch

@@ -227,12 +227,16 @@ class ShadowRunner:
             assets = self.assets[cid]
             rows = fill_legs([(leg.outcome, assets[leg.outcome], leg.price, leg.size) for leg in legs],
                              prints, self.paper.fill_rule)
-            for outcome, asset, price, at, quantity, key in rows:
+            # Replay parity (Defender N3): the first fill cancels the band, as the replay kernel's
+            # FILL_CANCEL_SIBLING/END does at the fill instant: one fill per band, then no legs rest.
+            for outcome, asset, price, at, quantity, key in sorted(rows, key=lambda row: (row[3], row[5])):
                 if self.paper.fill(condition_id=cid, event_id=self.events.get(cid, cid), asset_id=asset,
                                    price=price, size=quantity, at_utc=at, key=key) is not None:
                     self.filled.add(cid)
+                    self.resting.pop(cid, None)
                     fills.append({"condition_id": cid, "outcome": outcome, "price": price, "size": quantity,
                                   "print_at_utc": at})
+                    break
         return {"fill_rule": self.paper.fill_rule, "fills": plain(fills), "print_gaps": gaps}
 
     def _condition(self, market, wallet):
