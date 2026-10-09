@@ -31,6 +31,7 @@ class Item:
     value: object
     error: str | None
     sequence: int
+    derived: str | None = None  # "local_midnight" for a day-roll descriptor (``day_roll``); None when captured
 
 
 @dataclass(frozen=True)
@@ -143,13 +144,20 @@ def items(source: DaySource) -> Iterable[tuple[datetime, list[Item]]]:
         yield at, [item for _, item in batch]
 
 
-def drive(sources, engines, *, observers=()):
-    """Parse each day once and feed every engine and observer the same instants; then finish engines."""
+def drive(sources, engines, *, time_zones, observers=()):
+    """Parse each day once and feed every engine and observer the same instants; then finish engines.
+
+    ``time_zones`` (market_id -> IANA zone) drives the local-midnight descriptor refresh (``day_roll``,
+    registration C13). It is required; ``day_roll.NO_REFRESH`` turns the refresh off and exists only for the
+    attribution re-run of the pre-F3 engine.
+    """
+    from maker_core.replay.v2.day_roll import NO_REFRESH, DayRoll
+    roll = None if time_zones is NO_REFRESH else DayRoll(time_zones)
     sources = sorted(sources, key=lambda s: s.plan.day)
     for source in sources:
         for engine in engines:
             engine.start_day(source.plan)
-        for at, batch in items(source):
+        for at, batch in (items(source) if roll is None else roll.items(source)):
             for observer in observers:
                 observer.instant(at, batch)
             for engine in engines:

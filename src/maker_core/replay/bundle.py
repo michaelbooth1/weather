@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -15,6 +16,7 @@ import re
 import stat
 import time
 from types import MappingProxyType
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from maker_core.contracts import utc_time
 from maker_core.evidence.journal import canonical_bytes
@@ -46,6 +48,30 @@ class BundleError(ValueError):
 def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
+
+
+@lru_cache(maxsize=1)
+def _zone_names() -> frozenset:
+    return frozenset(available_timezones())
+
+
+def time_zone(name) -> ZoneInfo:
+    """A strictly named IANA zone, or ``BundleError("unknown_time_zone")``.
+
+    The name must be listed verbatim by ``zoneinfo.available_timezones()``: a filesystem lookup alone is
+    platform-dependent (Windows accepted ``"Europe/London "`` with a trailing space and maps case-insensitively),
+    and an unlisted, mis-cased, padded or path-like name must refuse with a code on every platform. Aliases such
+    as ``GB`` are listed zones and are accepted as named; equality between names stays a string compare.
+    """
+    if not isinstance(name, str) or name not in _zone_names():
+        raise BundleError("unknown_time_zone")
+    try:
+        zone = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+        raise BundleError("unknown_time_zone") from exc
+    if zone.key != name:
+        raise BundleError("unknown_time_zone")
+    return zone
 
 def timestamp(value: str) -> datetime:
     if not isinstance(value, str):

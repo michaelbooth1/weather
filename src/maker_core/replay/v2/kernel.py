@@ -1,7 +1,7 @@
 """The decision kernel shared by the v2 engine and its reference schedule (registration draft §5).
 
 This is the frozen engine's per-record and per-decision logic (``maker_core.replay.engine`` at the exam
-tree), unchanged except for three registered differences:
+tree), unchanged except for the registered differences below:
 
 - **C5 money.** Cash, reserves, inventory and fill costs are exact 1e-6 amounts (``money``).
 - **No capture times of elidable records.** v1 re-entry after an ``INFO_PULL`` compared the outcome
@@ -9,6 +9,12 @@ tree), unchanged except for three registered differences:
   :402 and :264). Duplicate elision (§6) changes those capture times, so here re-entry reads the view's
   payload ``as_of_utc`` and a pull digest hashes the latest payload hashes. Books are never elided;
   the book's capture time is still read.
+- **C11 own legs on both sides (engine ruling W1(a)).** The decision book is ``compose_book``: every resting
+  leg on its own bid array and, mirrored, on the complement's ask array, creating a level the public book
+  lacks. The frozen loop added own size only at existing YES-side levels. A public book that moves onto a
+  resting leg without a print now reads as crossed (``CROSSED_BOOK``, counted in ``own_leg_crossed``).
+- **C12 replacement without the cancelled legs (engine ruling W2(a)).** A same-instant replacement decides
+  on the public book; the frozen loop reused the pre-cancel book that still carried the cancelled legs.
 - **Who is decided when** is not decided here. The kernel calls hooks; ``engine.EngineV2`` (lazy per-band
   timers, running totals, run-length intervals) and ``reference.ReferenceEngine`` (the frozen loop
   restricted to the wake set, recomputed totals, per-instant spans) implement them independently.
@@ -247,6 +253,7 @@ class Kernel:
         self.horizon, self.declared = plan.horizon, plan.declared
         self.sink = None
         self._ticking = None
+        self.own_leg_crossed = Counter()  # UTC date -> CROSSED_BOOK decisions on a public book that is not crossed
         for day in plan.days:
             for c in day.conditions:
                 state = self.states.get(c.condition_id)
@@ -284,6 +291,18 @@ class Kernel:
 
     def total_reserve(self) -> Decimal:
         raise NotImplementedError
+
+    def decision_book(self, state, legs):
+        """The book ``decide()`` reads: the public book with the resting legs (C11, W1(a))."""
+        return compose_book(state.latest["book"], legs)
+
+    def replacement_book(self, state, cancelled):
+        """The book of a same-instant replacement: the public book without the cancelled legs (C12, W2(a))."""
+        return self.decision_book(state, ())
+
+    def evaluate(self, value, cancelled=None):
+        """One ``decide()`` call; ``cancelled`` holds the cancelled legs when it is a same-instant replacement."""
+        return decide(value)
 
     def schedule(self, at):
         """blind RE-1's adapter schedules its session end through this name."""
@@ -364,6 +383,9 @@ class Kernel:
             state.placed_at = None
         if decision.action == "END":
             self.ended = True
+        if (decision.action in ("CANCEL", "END", "NO_QUOTE") and decision.reasons[0].upper() == "CROSSED_BOOK"
+                and not crossed(state.latest.get("book"))):
+            self.own_leg_crossed[at.date()] += 1
         self.changed(cid)
 
     def pull(self, cid, at, reason):
@@ -522,13 +544,7 @@ class Kernel:
             self.pull(cid, at, "REQUOTE_COOLDOWN")
             return
         desc = state.latest["descriptor"]
-        book = state.latest["book"]
-
-        def add_own(levels, outcome, mirror=False):
-            additions = {leg.price if not mirror else 1 - leg.price: leg.size
-                         for leg in state.legs if leg.outcome == outcome}
-            return tuple((price, size + additions.get(price, D(0))) for price, size in levels)
-        book = replace(book, yes_bids=add_own(book.yes_bids, "YES"), yes_asks=add_own(book.yes_asks, "NO", True))
+        book = self.decision_book(state, state.legs)
         fair_value = (state.latest["outcome_view"] if self.informed else Unavailable("clock/blind baseline", at))
         value = DecisionInputs(desc.market, at, book, state.latest["terms"], fair_value, self.portfolio(cid),
                                desc.horizon_days, events, self.profile, self.config.hazard_per_minute,
@@ -539,13 +555,17 @@ class Kernel:
             if self.total_reserve() > self.cash:
                 raise BundleError("cash_overcommitment")
             return
-        decision = decide(value)
+        decision = self.evaluate(value)
         self.record_decision(cid, at, decision)
         if "INFO_PULL" in decision.reasons and state.resume_after is None:
             state.resume_after = at
         if decision.action == "CANCEL" and decision.reasons[0] in REPLACEMENT_REASONS:
             if state.last_quote is None or at - state.last_quote >= timedelta(seconds=60):
-                replacement = decide(replace(value, existing=(), portfolio=self.portfolio(cid)))
+                if state.legs:  # record_decision(CANCEL) cleared them; survives python -O
+                    raise BundleError("replacement_with_resting_legs")
+                replacement = self.evaluate(replace(value, existing=(), portfolio=self.portfolio(cid),
+                                                    book=self.replacement_book(state, value.existing)),
+                                            value.existing)
                 self.record_decision(cid, at, replacement)
         view = state.latest["outcome_view"]
         if isinstance(view, OutcomeView) and state.decision.action == "QUOTE":
@@ -559,6 +579,41 @@ class Kernel:
             self.ended = False
             for state in self.states.values():
                 state.re1 = None
+
+
+def compose_book(book, legs):
+    """The decision book: the public book plus own resting legs as the venue displays them (engine ruling W1(a)).
+
+    A YES leg (p, s) adds s at p on yes_bids and at 1 - p on no_asks; a NO leg (p, s) adds s at p on no_bids
+    and at 1 - p on yes_asks. A level absent from the public book is created; sizes at one price are summed;
+    order is bids high-to-low, asks low-to-high. as_of_utc and post_only_available are unchanged.
+    """
+    def merged(levels, additions, descending):
+        if not additions:
+            return levels
+        sizes = {}
+        for price, size in levels:
+            if price in sizes:
+                raise BundleError("unmerged_book_levels")  # guard for the live adapter (N3)
+            sizes[price] = size
+        for price, size in additions:
+            sizes[price] = sizes.get(price, D(0)) + size
+        return tuple(sorted(sizes.items(), key=lambda row: row[0], reverse=descending))
+    yes = [(leg.price, leg.size) for leg in legs if leg.outcome == "YES"]
+    no = [(leg.price, leg.size) for leg in legs if leg.outcome == "NO"]
+    return replace(book,
+                   yes_bids=merged(book.yes_bids, yes, True),
+                   no_asks=merged(book.no_asks, [(1 - p, s) for p, s in yes], False),
+                   no_bids=merged(book.no_bids, no, True),
+                   yes_asks=merged(book.yes_asks, [(1 - p, s) for p, s in no], False))
+
+
+def crossed(book):
+    """The public book alone is crossed on either outcome (the ``OWN_LEG_CROSSED`` test, spec v3.2 §1.2)."""
+    if book is None:
+        return False
+    return any(bids and asks and max(p for p, _ in bids) >= min(p for p, _ in asks)
+               for bids, asks in ((book.yes_bids, book.yes_asks), (book.no_bids, book.no_asks)))
 
 
 def info_boundaries(event):
