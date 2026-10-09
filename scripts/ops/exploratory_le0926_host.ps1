@@ -3,9 +3,11 @@ EXPLORATORY_NOT_COUNTED step runner for the <= 2026-09-26 maker replay v2 shadow
 section 1.1 and 2). Runs ONE step from a locked, pinned, clean worktree on the capture host:
 
   snapshot  -Phase pre|post  names, sizes and mtimes of data\maker_evidence\2026-09-23..26 (no content read);
-                             post must equal pre (exit 7 otherwise). Light, unleased, no Python.
+                             post must equal pre (exit 7 otherwise). Unleased, no Python; the work runs in a
+                             child PowerShell inside a 512 MiB Job, 600 s cap, 00:35-04:45 window.
   verify    guard B over $Root\bundles (leased Python child).
-  seal      SHA-256 manifest of every staged bundle file, then a deny-write ACE on $Root\bundles. Light.
+  seal      SHA-256 manifest of every staged bundle file, then a deny-write ACE on $Root\bundles. Unleased;
+            same child PowerShell Job, 512 MiB, 600 s cap and window as snapshot.
   run       -HazardPerMinute 1.0|0.1|0.01: the guarded driver (leased Python child) into $Root\runs\h<H>.
   aggregate output manifest of $Root\runs, then the identifier-refusing aggregate (light Python child).
   unseal    removes the deny ACE.
@@ -15,7 +17,10 @@ Every Python child: <Prod>\venv\Scripts\python.exe -P -B -m tools.research.maker
 with PYTHONPATH=<Wt>\src;<Wt> for the child only, cwd <Root>\work, the four BLAS pins at 1, inside a
 New-ReplayExportLimitedJob (commit cap, BelowNormal). A __file__ probe first proves the modules resolve inside
 <Wt>. Child budget = min(step cap, 04:45 Toronto - now); hard stop of the whole Job tree at 04:50. An unproved
-teardown poisons the lease. Each step writes <Root>\receipts\<stamp>-<step>.step.json.
+teardown (of the child Job or of the import probe Job) poisons the lease, writes the step.json and exits 9.
+Leased steps first require <Prod>\scripts\ops\status.ps1 -Json to show no capture DOWN / ERRORING / AT_RISK
+flag (exit 10 otherwise). Device (\\?\, \\.\) and UNC paths are refused. Each step writes
+<Root>\receipts\<stamp>-<step>.step.json.
 Nothing here is counted toward any gate. It never writes under <Prod>.
 #>
 [CmdletBinding()]
@@ -29,7 +34,8 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('\A[A-Za-z0-9.-]{1,32}\z')][string]$RunId,
     [ValidateSet('1.0', '0.1', '0.01')][string]$HazardPerMinute,
     [ValidateRange(512, 65536)][int]$MinAvailableMiB,
-    [ValidateSet('pre', 'post')][string]$Phase
+    [ValidateSet('pre', 'post')][string]$Phase,
+    [switch]$Inner   # internal: the snapshot/seal body, launched by this runner inside its own capped Job
 )
 $ErrorActionPreference = 'Stop'
 
@@ -43,7 +49,12 @@ $Caps = @{
     verify    = @{ Lease = $true; Job = 1GB; Seconds = 1800; Admission = 3072; Disk = 1GB }
     run       = @{ Lease = $true; Job = 4GB; Seconds = 3600; Admission = 6144; Disk = 4GB }
     aggregate = @{ Lease = $false; Job = 512MB; Seconds = 600; Admission = 0; Disk = 0 }
+    snapshot  = @{ Lease = $false; Job = 512MB; Seconds = 600; Admission = 0; Disk = 0; Shell = $true }
+    seal      = @{ Lease = $false; Job = 512MB; Seconds = 600; Admission = 0; Disk = 0; Shell = $true }
 }
+$ExitTeardownUnproved = 9
+$PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$script:ProbeTeardownFailed = $false
 $ExitBlocked = 10       # a precondition refused before anything ran
 $Exit88aChanged = 7
 
@@ -66,7 +77,11 @@ function Write-StepJson([string]$Path, $Value) {
 
 # ---- pin, paths and placement (every step) -----------------------------------------------------------------
 foreach ($p in @($Worktree, $ProductionRoot, $Root)) {
-    if (-not [IO.Path]::IsPathRooted($p) -or $p -match '["\r\n]' -or (Get-FullPath $p) -cne $p.TrimEnd('\')) {
+    # Device (\\?\ \\.\ \??\) and UNC (\\server, //server) forms are refused before any normalization.
+    if ($p.Replace('/', '\').StartsWith('\\') -or $p.StartsWith('\??\')) { Stop-Step "device or UNC path refused: $p" }
+    $full = $null
+    try { $full = Get-FullPath $p } catch { Stop-Step "unparseable path refused: $p" }
+    if (-not [IO.Path]::IsPathRooted($p) -or $p -match '["\r\n]' -or $full -cne $p.TrimEnd('\')) {
         Stop-Step "absolute normalized path required: $p"
     }
     if (-not (Test-Path -LiteralPath $p -PathType Container)) { Stop-Step "missing directory $p" }
@@ -90,7 +105,7 @@ foreach ($d in @($Receipts, $Work, $Runs)) {
 }
 $head = ([string](& git -C $Worktree rev-parse HEAD)).Trim()
 if ($LASTEXITCODE -ne 0 -or $head -cne $Pin) { Stop-Step "worktree HEAD '$head' is not the pin $Pin" }
-$dirty = @(& git -C $Worktree status --porcelain --untracked-files=all)
+$dirty = @(& git -C $Worktree status --porcelain --ignored --untracked-files=all)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count) { Stop-Step 'pinned worktree is not clean' }
 $listing = @(& git -C $ProductionRoot worktree list --porcelain)
 if ($LASTEXITCODE -ne 0) { Stop-Step 'git worktree list failed' }
@@ -144,8 +159,31 @@ function Invoke-ImportProbe([UInt64]$JobBytes) {
     }
     finally {
         try { $probeJob.TerminateAndWait(5000) }
-        finally { if ($probe) { $probe.Dispose() }; $probeJob.Dispose() }
+        catch {
+            # An unproved probe teardown is the same fault as an unproved child teardown: poison, never release.
+            $script:ProbeTeardownFailed = $true
+            throw "import probe teardown unproved: $($_.Exception.Message)"
+        }
+        finally {
+            try { if ($probe) { $probe.Dispose() } } catch { }
+            try { $probeJob.Dispose() } catch { }
+        }
     }
+}
+
+function Assert-CaptureHealthy {
+    # Spec 2: a leased step starts only when production status.ps1 shows the capture loops healthy.
+    $status = Join-Path $ProductionRoot 'scripts\ops\status.ps1'
+    if (-not (Test-Path -LiteralPath $status -PathType Leaf)) { Stop-Step "missing $status" }
+    $raw = (& $PowerShellExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $status -Json -RepoRoot $ProductionRoot |
+        Out-String)
+    $health = $null
+    try { $health = $raw | ConvertFrom-Json } catch { Stop-Step 'status.ps1 -Json output did not parse; refusing' }
+    if ($null -eq $health -or -not ($health.PSObject.Properties.Name -contains 'flags')) {
+        Stop-Step 'status.ps1 -Json carried no flags field; refusing'
+    }
+    $bad = @(@($health.flags) | Where-Object { [string]$_ -match 'capture loop (DOWN|ERRORING)|capture AT_RISK' })
+    if ($bad.Count) { Stop-Step ('capture is not healthy: ' + ($bad -join '; ')) }
 }
 
 function Assert-LeasedAdmission([hashtable]$Cap) {
@@ -173,6 +211,7 @@ function Invoke-ExploratoryChild([string]$Name, [string[]]$Tokens, [string]$Resu
         $hostId = Get-WeatherExecutionHostId
         $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $ProductionRoot
         if ($hostId -cne [string]$assignment.dedicated_capture_execution_host_id) { Stop-Step 'not the assigned capture host' }
+        Assert-CaptureHealthy
         Assert-LeasedAdmission $cap
         $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $ProductionRoot -Workload "exploratory_le0926_$Name" `
             -ExpectedExecutionHostId $hostId
@@ -184,13 +223,18 @@ function Invoke-ExploratoryChild([string]$Name, [string[]]$Tokens, [string]$Resu
     try {
         try {
             Set-ChildEnvironment
-            Invoke-ImportProbe $cap.Job
+            if (-not $cap.Shell) { Invoke-ImportProbe $cap.Job }
             $available = [Weather.Operations.ReplayExportLimitedJob]::AvailablePhysicalMiB()
             if ($admission -and $available -lt [UInt64]$admission) {
                 throw "available physical memory $available MiB < $admission MiB; not waiting"
             }
             $job = New-ReplayExportLimitedJob -JobMemoryLimitBytes $cap.Job -ProcessMemoryLimitBytes $cap.Job
-            $child = $job.StartAssigned($Py, (ConvertTo-WeatherWindowsArgumentString -Tokens (@('-P', '-B', '-m', $Module) + $Tokens)), $Work)
+            if ($cap.Shell) {
+                $child = $job.StartAssigned($PowerShellExe, (ConvertTo-WeatherWindowsArgumentString -Tokens $Tokens), $Work)
+            }
+            else {
+                $child = $job.StartAssigned($Py, (ConvertTo-WeatherWindowsArgumentString -Tokens (@('-P', '-B', '-m', $Module) + $Tokens)), $Work)
+            }
             $null = $child.Handle
             while (-not $child.HasExited) {
                 if ($job.MemoryLimitHit) { break }
@@ -217,11 +261,16 @@ function Invoke-ExploratoryChild([string]$Name, [string[]]$Tokens, [string]$Resu
         Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
         try {
             if ($job) { $job.TerminateAndWait(5000) }
-            $proved = $true
+            $proved = -not $script:ProbeTeardownFailed
+        }
+        catch {
+            # Never let a teardown exception skip the receipt: record it, poison, exit 9 below.
+            $proved = $false
+            $failure = (@($failure, "teardown unproved: $($_.Exception.Message)") | Where-Object { $_ }) -join '; '
         }
         finally {
-            if ($child) { $child.Dispose() }
-            if ($job) { $job.Dispose() }
+            try { if ($child) { $child.Dispose() } } catch { }
+            try { if ($job) { $job.Dispose() } } catch { }
             if ($lease) {
                 if ($proved) { Exit-WeatherHeavyWorkloadLease -Lease $lease } else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease }
             }
@@ -242,7 +291,7 @@ function Invoke-ExploratoryChild([string]$Name, [string[]]$Tokens, [string]$Resu
         finished_utc = [DateTime]::UtcNow.ToString('o')
     }
     Write-StepJson (Join-Path $Receipts "$stamp-$Name.step.json") $record
-    if (-not $proved) { Stop-Step 'teardown unproved; lease poisoned; do not clear without the owner' 9 }
+    if (-not $proved) { Stop-Step 'teardown unproved; lease poisoned; do not clear without the owner' $ExitTeardownUnproved }
     if ($failure) { Stop-Step $failure }
     if ($hardStop -or $wsStop -or $limitHit) { Stop-Step "$Name stopped (hard stop $hardStop, working set $wsStop, commit $limitHit)" 8 }
     return $code
@@ -270,6 +319,15 @@ function Get-FileManifest([string]$Dir) {
 }
 
 $me = "$env:USERDOMAIN\$env:USERNAME"
+if ($Step -in @('snapshot', 'seal') -and -not $Inner) {
+    # Outer half: window, 600 s budget and a 512 MiB Job around a child PowerShell that does the body.
+    if ($Step -eq 'snapshot' -and -not $Phase) { Stop-Step '-Phase pre|post required' }
+    $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Step', $Step,
+        '-Worktree', $Worktree, '-Pin', $Pin, '-ProductionRoot', $ProductionRoot, '-Root', $Root, '-RunId', $RunId, '-Inner')
+    if ($Phase) { $tokens += @('-Phase', $Phase) }
+    exit (Invoke-ExploratoryChild $Step $tokens $null)
+}
+if ($Inner -and $Step -notin @('snapshot', 'seal')) { Stop-Step '-Inner is only for snapshot and seal' }
 switch ($Step) {
     'snapshot' {
         if (-not $Phase) { Stop-Step '-Phase pre|post required' }

@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -107,7 +108,7 @@ def mini(day=DAY):
     return r, a
 
 
-def write_bundle(root, day, conditions, groups, rows, *, receipt=None):
+def write_bundle(root, day, conditions, groups, rows, *, receipt=None, sealed_at=None):
     folder = Path(root) / day.isoformat()
     bundle = folder / "bundle"
     bundle.mkdir(parents=True)
@@ -122,7 +123,8 @@ def write_bundle(root, day, conditions, groups, rows, *, receipt=None):
         streams.append(dict(path=f"{kind}.jsonl", sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw),
                             records=len(items)))
     end = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    manifest = dict(format=FORMAT_V02, day=day.isoformat(), sealed_at=end.isoformat(), provenance="synthetic",
+    manifest = dict(format=FORMAT_V02, day=day.isoformat(), sealed_at=(sealed_at or end).isoformat(),
+                    provenance="synthetic",
                     conditions=conditions, coverage_groups=groups, streams=streams)
     (bundle / "bundle.json").write_bytes(canonical_bytes(manifest))
     receipt = receipt if receipt is not None else dict(day=day.isoformat(), status="SEALED", module_sha256="a" * 64,
@@ -204,7 +206,8 @@ def test_guard_a_refuses_duplicate_days(tmp_path):
     assert caught.value.code == "duplicate_day"
 
 
-@pytest.mark.parametrize("component", ["2026-09-28", "export-2026-10-03", "20260929", "2026-09-30"])
+@pytest.mark.parametrize("component", ["2026-09-28", "export-2026-10-03", "20260929", "2026-09-30", "2026.09.28",
+                                       "2026_09_28", "26-09-28", "Sep-28-2026", "28.09.2026", "oct 3 2026"])
 def test_guard_a_refuses_forbidden_date_path_components(capsys, tmp_path, component):
     root = tmp_path / component / "bundles"
     root.mkdir(parents=True)
@@ -215,9 +218,51 @@ def test_guard_a_refuses_forbidden_date_path_components(capsys, tmp_path, compon
 
 
 def test_guard_a_allows_window_dates_in_paths(tmp_path):
-    root = tmp_path / "2026-09-26" / "bundles"
+    root = tmp_path / "2026-09-26" / "bundles" / "2026.09.23" / "Sep-26-2026" / "le0926"
     root.mkdir(parents=True)
     assert ex.guard_a(["2026-09-26"], inputs=[root], outputs=[tmp_path / "EXPLORATORY-v.json"]) == [DAY]
+
+
+@pytest.mark.parametrize("prefix", ["\\\\?\\", "\\\\.\\", "\\\\server\\share\\", "//server/share/",
+                                    "\\??\\"])
+@pytest.mark.parametrize("role", ["input", "output", "forbid", "result"])
+def test_guard_a_refuses_device_extended_and_unc_prefixes(capsys, tmp_path, prefix, role):
+    bundles = tmp_path / "bundles"
+    bundles.mkdir()
+    plain_out = tmp_path / "EXPLORATORY-verify.json"
+    spelled = prefix + str(tmp_path).lstrip("\\/")
+    paths = dict(input=bundles, output=plain_out, forbid=tmp_path / "prod", result=None)
+    paths[role] = Path(spelled) / {"input": "bundles", "output": "EXPLORATORY-verify.json", "forbid": "prod",
+                                   "result": "EXPLORATORY-verify.result.json"}[role]
+    argv = ["verify", "--bundle-root", paths["input"], "--day", "2026-09-26", "--out", paths["output"],
+            "--forbid-root", paths["forbid"]]
+    if role == "result":
+        argv = ["verify", "--bundle-root", bundles, "--day", "2026-09-27", "--out", plain_out,
+                "--result", paths["result"]]
+    code, result = run_cli(capsys, *argv)
+    assert code == ex.EXIT_REFUSED
+    if role != "result":
+        assert result["reason"] == "path_device_or_unc_prefix"
+    assert not plain_out.exists() and not (tmp_path / "EXPLORATORY-verify.result.json").exists()
+
+
+def _link_dir(link, target):
+    if sys.platform == "win32":
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def test_guard_a_refuses_a_late_date_reached_only_through_a_junction(capsys, tmp_path):
+    real = tmp_path / "2026-09-28" / "bundles"
+    real.mkdir(parents=True)
+    alias = tmp_path / "alias"
+    _link_dir(alias, tmp_path / "2026-09-28")
+    code, result = run_cli(capsys, "verify", "--bundle-root", alias / "bundles", "--day", "2026-09-26",
+                           "--out", tmp_path / "EXPLORATORY-verify.json")
+    assert (code, result["reason"]) == (ex.EXIT_REFUSED, "forbidden_date_path_component")
+    assert result["component"] == "2026-09-28"
 
 
 @pytest.mark.parametrize("where, code", [
@@ -378,6 +423,14 @@ def test_verify_drops_refused_days_and_keeps_the_trailing_contiguous_block(capsy
         ("2026-09-23", "not_in_trailing_contiguous_block"), ("2026-09-24", "receipt_not_sealed")}
 
 
+def test_verify_breaches_on_a_seal_later_than_the_day_end(capsys, stage):
+    r, _ = mini()
+    write_mini(stage / "bundles", r, sealed_at=CUTOFF + timedelta(hours=1))
+    code, _ = verify(capsys, stage, "2026-09-26")
+    assert code == ex.EXIT_BREACH
+    assert "sealed_at_not_day_end" in _breach_codes(stage)
+
+
 def test_verify_refuses_a_tampered_stream(capsys, stage):
     r, _ = mini()
     folder = write_mini(stage / "bundles", r)
@@ -481,6 +534,59 @@ def test_guard_c_engine_refuses_a_settlement_at_the_cutoff():
         engine.finish()
 
 
+def _late_source(kind):
+    """A materialized fictional day plus one record that only guard C sees (verify is bypassed)."""
+    source = materialize(DenseDay(DAY, union=12, trades=10, minutes=2))[0]
+    cid = source.plan.conditions[0].condition_id
+    if kind == "trade":
+        late = dict(sequence=10**6, captured_at=(CUTOFF - timedelta(seconds=1)).isoformat(), condition_id=cid,
+                    kind="trade", payload=dict(trade_id="t-late", outcome="YES", price="0.4", size="1",
+                                               traded_at_utc=CUTOFF.isoformat(), aggressor_side="BUY"),
+                    payload_sha256="0" * 64, source_hashes=FICTIONAL)
+    else:
+        late = dict(sequence=10**6, captured_at=CUTOFF.isoformat(), condition_id=cid, kind="info_event",
+                    payload={"events": []}, payload_sha256="0" * 64, source_hashes=FICTIONAL)
+    inner = source.records
+    return DaySource(source.plan, lambda: iter([*inner(), record_from_row(late)])), source.plan
+
+
+def _zones(plan):
+    return {c.market_id: "America/New_York" for c in plan.conditions}
+
+
+def test_execute_wraps_every_source_in_guard_c():
+    """Kills 'guarded_source removed from execute': a post-cutoff traded_at only the source guard names."""
+    source, plan = _late_source("trade")
+    with pytest.raises(ex.GuardCBreach, match="trade_untimestamped_or_at_or_after_cutoff"):
+        ex.execute([source], _zones(plan), "1.0")
+
+
+def test_execute_drives_every_pass_through_the_guarded_engine(monkeypatch):
+    """Kills 'GuardedEngine removed from run_passes': with the source guard bypassed the engine still refuses."""
+    monkeypatch.setattr(ex, "guarded_source", lambda s: s)
+    source, plan = _late_source("instant")
+    with pytest.raises(ex.GuardCBreach, match="instant_at_or_after_cutoff"):
+        ex.execute([source], _zones(plan), "1.0")
+
+
+def test_execute_hands_run_passes_guarded_sources_and_the_guarded_engine(monkeypatch):
+    from maker_core.replay.v2 import pipeline
+    seen = {}
+
+    def spy(sources, config, *, time_zones, engine):
+        seen.update(sources=sources, config=config, engine=engine)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(pipeline, "run_passes", spy)
+    source, plan = _late_source("trade")
+    with pytest.raises(RuntimeError, match="stop"):
+        ex.execute([source], _zones(plan), "0.01")
+    assert seen["config"].hazard_per_minute == 0.01
+    assert seen["engine"].__name__ == "GuardedEngine" and seen["engine"].instant is not None
+    with pytest.raises(ex.GuardCBreach):
+        list(seen["sources"][0].records())
+
+
 def test_execute_refuses_a_hazard_outside_the_declared_grid():
     with pytest.raises(ex.Refusal) as caught:
         ex.execute([], {}, "0.5")
@@ -508,6 +614,8 @@ def test_verify_run_aggregate_end_to_end(capsys, stage):
     assert (code, result["status"]) == (0, "RUN"), result
     run = json.loads((stage / "runs" / "h1.0" / "EXPLORATORY-run.json").read_text())
     assert run["label"] == ex.LABEL and run["counted"] is False and run["market_count"] == 1
+    assert run["markout_note"] == ex.MARKOUT_NOTE
+    ex.check_schema(run, ex.RUN_SCHEMA)
     assert set(run["results"]) == {"strictly_through", "at_price"}
     for bound in run["results"].values():
         assert set(bound) == {*ex.POLICIES, "matched_clock"}
@@ -523,6 +631,7 @@ def test_verify_run_aggregate_end_to_end(capsys, stage):
     assert out.stat().st_size <= ex.AGGREGATE_MAX_BYTES
     text = out.read_text()
     assert "0x" not in text and "highest-temperature" not in text
+    assert aggregate["markout_note"] == ex.MARKOUT_NOTE and aggregate["heading"] == ex.HEADING
 
 
 def test_run_refuses_inputs_changed_since_verify(capsys, stage):
@@ -567,25 +676,74 @@ def _aggregate_inputs(stage, results):
     return verify_path, manifest
 
 
+def _np(**fields):
+    return {"at_price": {"no_quote": fields}}
+
+
 @pytest.mark.parametrize("results, reason", [
-    ({"at_price": {"no_quote": {"condition_id": "c"}}}, "aggregate_forbidden_key"),
-    ({"at_price": {"no_quote": {"note": "0x" + "ab" * 20}}}, "aggregate_hex_identifier"),
-    ({"at_price": {"0x" + "ab" * 20: 1}}, "aggregate_hex_identifier"),
-    ({"at_price": {"no_quote": {"note": "cd" * 32}}}, "aggregate_hex_identifier"),
-    ({"at_price": {"no_quote": {"note": "1234567890123456789"}}}, "aggregate_numeric_identifier"),
-    ({"at_price": {"no_quote": {"note": slug(DAY)}}}, "aggregate_event_slug"),
-    ({"at_price": {"no_quote": {"price": 0.4}}}, "aggregate_forbidden_key"),
-    ({"at_price": {"no_quote": {"trades": []}}}, "aggregate_forbidden_key"),
-    ({"at_price": {"no_quote": {"series": list(range(65))}}}, "aggregate_series_refused"),
-    ({"at_price": {"no_quote": {f"k{i}": "x" * 200 for i in range(1500)}}}, "aggregate_too_large"),
+    (_np(condition_id="c"), "aggregate_forbidden_key"),
+    (_np(note="0x" + "ab" * 20), "aggregate_key_not_allowed"),
+    ({"at_price": {"0x" + "ab" * 20: 1}}, "aggregate_key_not_allowed"),
+    (_np(price=0.4), "aggregate_forbidden_key"),
+    (_np(trades=[]), "aggregate_forbidden_key"),
+    (_np(per_day={"2026-09-26": {"series": list(range(65))}}), "aggregate_key_not_allowed"),
+    # the Defender's twelve evasions of 4601935ca (eleven aggregate, one path: see the prefix test above)
+    (_np(fills=int("7" * 77)), "aggregate_number_refused"),                       # int token id
+    (_np(filled_notional=float("7" * 77)), "aggregate_number_refused"),           # the same id as a float
+    (_np(filled_notional=0.1234567890123456), "aggregate_number_refused"),        # long-digit float
+    (_np(fills=1234567890123456), "aggregate_number_refused"),                    # 16-digit int
+    ({"at_price": {"matched_clock": {"status": "MHhhYmNkZWYwMTIzNDU2Nzg5YWJjZGVm"}}},
+     "aggregate_value_not_allowed"),                                               # base64 id as a value
+    (_np(exclusions={"MHhhYmNkZWYwMTIzNDU2Nzg5": 1}), "aggregate_key_not_allowed"),   # base64 id as a key
+    (_np(exclusions={"MHHHQUJDREVG": 1}), "aggregate_key_not_allowed"),               # upper-case base64 key
+    ({"at_price": {"matched_clock": {"selected_windows_sha256": "ab" * 12}}},
+     "aggregate_value_not_allowed"),                                               # truncated 24-hex id
+    ({"at_price": {"matched_clock": {"status": "\uff41\uff42" * 32}}},
+     "aggregate_value_not_allowed"),                                               # fullwidth hex
+    ({"at_price": {"matched_clock": {"selected_windows_sha256": "\uff41" * 64}}},
+     "aggregate_value_not_allowed"),                                               # fullwidth hex in a sha slot
+    (_np(per_day={f"t{i}": {"fills": i} for i in range(1440)}), "aggregate_dict_too_large"),  # packed series
+    (_np(per_day={"2026-09-25": {"fills": 1}, "10:00": {"fills": 2}}), "aggregate_key_not_allowed"),
+    ({"at_price": {"matched_clock": {"status": "Highest temperature in NYC on September 26?"}}},
+     "aggregate_value_not_allowed"),                                               # event title
+    (_np(conditionId="c"), "aggregate_key_not_allowed"),                          # camelCase id key
+    (_np(cities=["nyc", "atlanta", "austin"]), "aggregate_key_not_allowed"),      # short city list
+    (_np(exclusions={"INVALID_BOOK": "nyc"}), "aggregate_number_refused"),        # text in a count slot
+    (_np(fills=True), "aggregate_number_refused"),
+    (_np(per_day={"2026-09-27": {"fills": 1}}), "aggregate_key_not_allowed"),    # a day after the window
+    ({"h1.0": {}}, "aggregate_key_not_allowed"),
 ])
-def test_aggregate_refuses_identifiers_series_and_size(capsys, stage, results, reason):
+def test_aggregate_allowlist_refuses_identifiers_series_and_text(capsys, stage, results, reason):
     verify_path, manifest = _aggregate_inputs(stage, results)
     out = stage / "receipts" / "EXPLORATORY-aggregate.json"
     code, result = run_cli(capsys, "aggregate", "--run-root", stage / "runs", "--verify", verify_path,
                            "--input-manifest", manifest, "--out", out)
     assert (code, result["reason"]) == (ex.EXIT_AGGREGATE_REFUSED, reason)
     assert not out.exists()
+
+
+def test_aggregate_refuses_an_output_over_the_size_cap(capsys, stage, monkeypatch):
+    monkeypatch.setattr(ex, "AGGREGATE_MAX_BYTES", 512)
+    verify_path, manifest = _aggregate_inputs(stage, {"at_price": {"no_quote": {"fills": 1}}})
+    out = stage / "receipts" / "EXPLORATORY-aggregate.json"
+    code, result = run_cli(capsys, "aggregate", "--run-root", stage / "runs", "--verify", verify_path,
+                           "--input-manifest", manifest, "--out", out)
+    assert (code, result["reason"]) == (ex.EXIT_AGGREGATE_REFUSED, "aggregate_too_large")
+    assert not out.exists()
+
+
+def test_aggregate_allowlist_matches_the_engine_constants():
+    from maker_core.replay.fill_model import BOUNDS
+    from maker_core.replay.score import HORIZONS
+    assert ex.BOUND_KEYS == BOUNDS and ex.HORIZON_KEYS == ("0s", *HORIZONS)
+    assert ex.MATCH_INTERPRETATION in Path(ex.__file__).resolve().parents[3].joinpath(
+        "src", "maker_core", "replay", "v2", "pipeline.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("value, ok", [(0.1234567891, True), (1234567890123.0, False), (1e-9, True),
+                                       (0.12345678901234, False), (999999999999, True), (10**12, False)])
+def test_number_rule(value, ok):
+    assert ex._number_ok(value, False) is ok
 
 
 def test_aggregate_refuses_a_run_bound_to_another_verify(capsys, stage):
@@ -657,3 +815,46 @@ def test_powershell_scripts_parse_and_twin_refuses_a_late_day(tmp_path):
                            "-ExpectedModuleSha256", "0" * 64, "-ExpectedSelfSha256", "0" * 64],
                           capture_output=True, text=True, timeout=120)
     assert done.returncode != 0 and not sentinel.exists()
+
+
+HOST = REPO / "scripts" / "ops" / "exploratory_le0926_host.ps1"
+
+
+@pytest.mark.skipif(sys.platform != "win32" or _powershell() is None, reason="Windows PowerShell")
+@pytest.mark.parametrize("prefix", ["\\\\?\\", "\\\\.\\", "\\\\server\\share\\", "//server/share/", "\\??\\"])
+def test_host_runner_refuses_device_and_unc_paths_before_anything_runs(tmp_path, prefix):
+    bad = prefix + str(tmp_path / "wt")
+    done = subprocess.run([_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(HOST),
+                           "-Step", "verify", "-Worktree", bad, "-Pin", "0" * 40, "-ProductionRoot", str(tmp_path),
+                           "-Root", str(tmp_path / "root"), "-RunId", "fixture"],
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 10, (done.returncode, done.stderr)
+    assert "device or UNC path refused" in done.stderr
+
+
+@pytest.mark.skipif(sys.platform != "win32" or _powershell() is None, reason="Windows PowerShell")
+@pytest.mark.parametrize("bad", ["\\?\\C:\\wt", "C:\\w?t", "C:\\wt\\a:b:c"])
+def test_host_runner_refuses_unparseable_paths_as_a_controlled_refusal(tmp_path, bad):
+    done = subprocess.run([_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(HOST),
+                           "-Step", "verify", "-Worktree", bad, "-Pin", "0" * 40, "-ProductionRoot", str(tmp_path),
+                           "-Root", str(tmp_path / "root"), "-RunId", "fixture"],
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 10, (done.returncode, done.stderr)
+    assert "EXPLORATORY ABORT" in done.stderr
+
+
+def test_host_runner_text_carries_the_round_two_controls():
+    text = HOST.read_text(encoding="utf-8")
+    # S6: ignored files make the pinned tree dirty too.
+    assert "status --porcelain --ignored --untracked-files=all" in text
+    # S7: capture health before every leased step, and only then admission.
+    assert "Assert-CaptureHealthy\n        Assert-LeasedAdmission $cap" in text.replace("\r\n", "\n")
+    assert "status.ps1" in text and "capture loop (DOWN|ERRORING)|capture AT_RISK" in text
+    # S3: a teardown exception is caught (receipt + exit 9), and a probe teardown failure poisons.
+    assert "$script:ProbeTeardownFailed = $true" in text
+    assert "$proved = -not $script:ProbeTeardownFailed" in text
+    assert "$ExitTeardownUnproved = 9" in text
+    # S4: snapshot and seal run inside a 512 MiB / 600 s Job.
+    for step in ("snapshot", "seal"):
+        assert re.search(step + r" +=\s*@\{ Lease = \$false; Job = 512MB; Seconds = 600;", text)
+    assert "exit (Invoke-ExploratoryChild $Step $tokens $null)" in text

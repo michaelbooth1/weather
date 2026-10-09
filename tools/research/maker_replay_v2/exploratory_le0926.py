@@ -16,7 +16,12 @@ Guards
   Exit 4 on any breach.
 - **C (``run``):** the sources raise on any record at or after the cutoff, and the engine refuses any instant,
   fill or settlement at or after it, independently of ``verify``. Exit 6.
-- **Aggregate:** refuses (exit 5) any identifier, slug, price key, long series or an output over 256 KiB.
+- **Aggregate (and the run output):** an allowlist of exactly the keys and value shapes ``summarize`` emits.
+  Any other key, any free-text string, any int or float of magnitude >= 1e12, any float with more than 12
+  significant digits, any dict over 64 keys, any list over the schema's length or an output over 256 KiB is
+  refused (exit 5). Run outputs round every float to 10 significant digits before the check.
+- Markouts on fills within one horizon of the cutoff read the last book before it (stale, biased toward 0);
+  no book at or after the cutoff is ever read. Every run and aggregate carries that note.
 
 The sealed hazard derivation over the three post-cutoff days is never imported or called here: the hazard comes
 only from the declared grid. The inventory and time zones come only from the verified bundles' descriptors.
@@ -29,6 +34,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -49,19 +55,28 @@ HAZARD_GRID = ("1.0", "0.1", "0.01")  # per minute; declared before any export, 
 POLICIES = ("informed-v0", "no_quote", "blind_re1", "clock_only")
 FORBIDDEN_COMPONENT = re.compile(r"2026-(09-(2[7-9]|30)|1[0-2]-\d\d)")
 FORBIDDEN_COMPACT = re.compile(r"(?<!\d)2026(09(2[7-9]|30)|1[0-2]\d\d)(?!\d)")
+# Other spellings of a date after 2026-09-26: '.', '_', ' ' or '-' separators, two-digit years, month names.
+FORBIDDEN_SPELLED = (
+    re.compile(r"(?<![0-9])(20)?26[-._ ](09[-._ ](2[7-9]|30)|1[0-2][-._ ][0-3][0-9])(?![0-9])"),
+    re.compile(r"(?<![0-9])((2[7-9]|30)[-._ ]09|[0-3][0-9][-._ ]1[0-2])[-._ ](20)?26(?![0-9])"),
+    re.compile(r"(?i)(?<![a-z])(sep(t(ember)?)?[-._ ]?(2[7-9]|30)|oct(ober)?|nov(ember)?|dec(ember)?)"
+               r"(?![a-z])[-._ ,]*[0-9]{0,2}[-._ ,]*(20)?26(?![0-9])"),
+)
+DEVICE_OR_UNC_PREFIXES = ("\\\\?\\", "\\\\.\\", "\\\\", "//", "\\??\\")
 SUPPORT_TIME_KEYS = {"snapshots": "captured_at_utc", "source_rows": "captured_at_utc", "forecasts": "captured_at_utc",
                      "explanations": "captured_at_utc", "bulletins": "fetched_at",
                      "triggers": "current_captured_at_utc", "ledger_rows": "recorded_at_utc"}
 PAYLOAD_TIME = {"book": ("as_of_utc",), "terms": ("as_of_utc",), "outcome_view": ("value", "as_of_utc")}
 MAX_JSON_BYTES = 64 * 1024**2
 AGGREGATE_MAX_BYTES = 256 * 1024
-AGGREGATE_MAX_LIST = 64
+AGGREGATE_MAX_DICT = 64
+MAX_ABS_NUMBER = 10**12
+MAX_SIGNIFICANT_DIGITS = 12
+OUTPUT_SIGNIFICANT_DIGITS = 10
 FORBIDDEN_KEYS = frozenset({"condition_id", "condition_ids", "token_id", "token_ids", "asset_id", "asset_ids",
                             "trade_id", "trade_ids", "event_id", "event_ids", "event_slug", "slug", "slugs", "price",
                             "prices", "trade", "trades", "book", "books", "outcome_tokens", "market", "markets",
-                            "fills_detail", "rows", "records"})
-HEX_RUN = re.compile(r"[0-9a-fA-F]{32,}")
-DIGIT_RUN = re.compile(r"\d{15,}")
+                            "fills_detail", "rows", "records"})  # named in refusals only; the allowlist decides
 EXIT_REFUSED, EXIT_BREACH, EXIT_AGGREGATE_REFUSED, EXIT_GUARD_C = 2, 4, 5, 6
 HOST_LIMITS = Limits(HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS)
 
@@ -115,11 +130,22 @@ def inside(child, parent):
         return False
 
 
+def check_prefix(path):
+    """Refuse device, extended-length and UNC spellings: ``commonpath`` cannot compare them with drive paths."""
+    raw = str(path)
+    if raw.startswith(DEVICE_OR_UNC_PREFIXES) or raw.replace("/", "\\").startswith("\\\\"):
+        refuse("path_device_or_unc_prefix")
+    if os.path.splitdrive(os.path.abspath(raw))[0].startswith(("\\\\", "//")):
+        refuse("path_device_or_unc_prefix")
+
+
 def check_components(path):
+    check_prefix(path)
     path = Path(path)
     for parts in (path.parts, Path(os.path.realpath(path)).parts):
         for part in parts:
-            if FORBIDDEN_COMPONENT.search(part) or FORBIDDEN_COMPACT.search(part):
+            if (FORBIDDEN_COMPONENT.search(part) or FORBIDDEN_COMPACT.search(part)
+                    or any(p.search(part) for p in FORBIDDEN_SPELLED)):
                 refuse("forbidden_date_path_component", component=part)
 
 
@@ -165,6 +191,8 @@ def guard_a(days, *, inputs, outputs, directories=(), forbid_roots=(), require_d
         parsed.append(day)
     inputs = [Path(p) for p in inputs if p is not None]
     forbid = [Path(p) for p in forbid_roots or ()]
+    for root in forbid:
+        check_prefix(root)
     for path in (*inputs, *[p for p in (*outputs, *directories) if p is not None]):
         check_components(path)
     for source in inputs:
@@ -682,44 +710,141 @@ def cmd_run(args):
     summary = execute([stream_source(b) for b in bundles], zones, args.hazard_per_minute)
     result = dict(label=LABEL, counted=False, cutoff_utc_exclusive=EXPLORATORY_CUTOFF,
                   hazard_per_minute=args.hazard_per_minute, hazard_grid=list(HAZARD_GRID), pin=args.pin,
-                  verify_sha256=verify_sha, days_used=[d.isoformat() for d in days], markets=None,
+                  verify_sha256=verify_sha, days_used=[d.isoformat() for d in days], markout_note=MARKOUT_NOTE,
                   market_count=len(zones), results=summary)
-    result.pop("markets")
-    scrub(to_plain(result))
+    result = round_numbers(to_plain(result))
+    check_schema(result, RUN_SCHEMA)
     os.mkdir(args.out)
     sha = write_json(Path(args.out) / (PREFIX + "run.json"), result)
     return 0, dict(status="RUN", out_sha256=sha, hazard_per_minute=args.hazard_per_minute)
 
 
-# -- aggregate --------------------------------------------------------------------------------------------------
-def scrub(value, key=None):
-    """Refuse identifiers, slugs, price keys and series (exit 5)."""
+# -- aggregate allowlist ---------------------------------------------------------------------------------------
+CUTOFF_TEXT = EXPLORATORY_CUTOFF.isoformat()
+HEADING = "exploratory, not counted, <= 2026-09-26, partial settlement"
+MARKOUT_NOTE = ("markouts on fills within one horizon of the cutoff use the last book before 2026-09-27T00:00Z "
+                "(stale, biased toward 0); no book at or after the cutoff is read")
+MATCH_INTERPRETATION = "ex-post exposure-matched clock control; no return optimization"
+BOUND_KEYS = ("strictly_through", "at_price")  # == maker_core.replay.fill_model.BOUNDS (tested)
+HORIZON_KEYS = ("0s", "1m", "5m", "30m")  # "0s" plus maker_core.replay.score.HORIZONS (tested)
+
+_N, _I = ("num",), ("int",)
+_SHA, _PIN = ("re", re.compile(r"[0-9a-f]{64}")), ("re", re.compile(r"[0-9a-f]{40}"))
+_DAY = ("day",)
+_HAZARD = ("enum", frozenset(HAZARD_GRID))
+_Q = ("dict", {"n": _I, "mean": _N, "q1": _N, "median": _N, "q3": _N})
+_POLICY = ("dict", {
+    "decisions": _I, "band_days": _I, "band_days_quoted": _I, "quoted_fraction": _N, "covered_seconds": _N,
+    "fills": _I, "filled_shares": _N, "filled_notional": _N,
+    "markout_per_share": ("dict", {h: _Q for h in HORIZON_KEYS}),
+    "markout_missing": ("dict", {h: _I for h in HORIZON_KEYS}),
+    "spread_captured_per_share": _N,
+    "settled_subset": ("dict", {"fills": _I, "net_pnl": _N, "band_days_modeled_net_k1": _I, "modeled_net_k1": _N}),
+    "unsettled_at_cutoff": ("dict", {"conditions": _I, "lots": _I, "exposure": _N}),
+    "rewards": ("dict", {"k1": _N, "k05": _N, "nominal_rebate": _N}),
+    "exclusions": ("map", ("re", re.compile(r"[A-Z][A-Z0-9]{1,23}(_[A-Z][A-Z0-9]{1,23}){1,5}")), _I, 32),
+    "final_cash": _N,
+    "per_day": ("map", _DAY, ("dict", {"band_days": _I, "band_days_quoted": _I, "fills": _I, "quotes": _I}), 4),
+})
+_MATCH = ("dict", {
+    "status": ("enum", frozenset({"MATCHED", "UNMATCHED"})), "target": _N, "actual": _N, "tolerance": _N,
+    "absolute_error": _N, "attempts": _I, "calendar_prefix_fraction": _N, "selected_windows": _I,
+    "interpretation": ("enum", frozenset({MATCH_INTERPRETATION})), "selected_windows_sha256": _SHA,
+})
+_RESULTS = ("dict", {b: ("dict", {**{p: _POLICY for p in POLICIES}, "matched_clock": _MATCH}) for b in BOUND_KEYS})
+_COMMON = {"label": ("const", LABEL), "counted": ("const", False), "cutoff_utc_exclusive": ("const", CUTOFF_TEXT),
+           "pin": _PIN, "verify_sha256": _SHA, "days_used": ("list", _DAY, 4),
+           "hazard_grid": ("list", _HAZARD, len(HAZARD_GRID)), "markout_note": ("const", MARKOUT_NOTE)}
+RUN_SCHEMA = ("dict", {**_COMMON, "hazard_per_minute": _HAZARD, "market_count": _I, "results": _RESULTS})
+AGGREGATE_SCHEMA = ("dict", {
+    **_COMMON, "module_sha256": _SHA, "module_sha256_distinct": _I, "input_manifest_sha256": _SHA,
+    "days_dropped": ("list", ("dict", {"day": _DAY, "reason": ("re", re.compile(r"[a-z][a-z0-9_]{0,63}"))}), 4),
+    "hazards_missing": ("list", _HAZARD, len(HAZARD_GRID)),
+    "runs": ("list", ("dict", {"hazard_per_minute": _HAZARD, "run_sha256": _SHA}), len(HAZARD_GRID)),
+    "heading": ("const", HEADING), "results": ("dict", {"h" + h: _RESULTS for h in HAZARD_GRID}),
+})
+
+
+def _aggregate_refuse(code, where):
+    refuse(code, EXIT_AGGREGATE_REFUSED, where=where[-80:])
+
+
+def _number_ok(value, integer):
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return abs(value) < MAX_ABS_NUMBER
+    if integer or not isinstance(value, float) or not math.isfinite(value) or abs(value) >= MAX_ABS_NUMBER:
+        return False
+    mantissa = repr(abs(value)).split("e")[0].replace(".", "").lstrip("0").rstrip("0")
+    return len(mantissa) <= MAX_SIGNIFICANT_DIGITS
+
+
+def _window_day(value):
+    if not isinstance(value, str) or re.fullmatch(r"2026-09-2[3-6]", value) is None:
+        return False
+    return True
+
+
+def check_schema(value, node, where="$"):
+    """Refuse (exit 5) anything that is not exactly a shape ``summarize`` emits; ``None`` is allowed for leaves."""
+    kind = node[0]
+    if kind == "const":
+        if type(value) is not type(node[1]) or value != node[1]:
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+        return
+    if value is None:
+        return
+    if kind in ("num", "int"):
+        if not _number_ok(value, kind == "int"):
+            _aggregate_refuse("aggregate_number_refused", where)
+    elif kind == "enum":
+        if not isinstance(value, str) or value not in node[1]:
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+    elif kind == "re":
+        if not isinstance(value, str) or node[1].fullmatch(value) is None:
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+    elif kind == "day":
+        if not _window_day(value):
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+    elif kind == "list":
+        if not isinstance(value, list):
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+        if len(value) > node[2]:
+            _aggregate_refuse("aggregate_series_refused", where)
+        for i, item in enumerate(value):
+            check_schema(item, node[1], f"{where}[{i}]")
+    elif kind in ("dict", "map"):
+        if not isinstance(value, dict):
+            _aggregate_refuse("aggregate_value_not_allowed", where)
+        limit = node[3] if kind == "map" else AGGREGATE_MAX_DICT
+        if len(value) > min(limit, AGGREGATE_MAX_DICT):
+            _aggregate_refuse("aggregate_dict_too_large", where)
+        for key, item in value.items():
+            if kind == "dict":
+                if key not in node[1]:
+                    forbidden = isinstance(key, str) and key.casefold() in FORBIDDEN_KEYS
+                    _aggregate_refuse("aggregate_forbidden_key" if forbidden else "aggregate_key_not_allowed", where)
+                check_schema(item, node[1][key], f"{where}.{key}")
+            else:
+                try:
+                    check_schema(key, node[1], where)
+                except Refusal:
+                    _aggregate_refuse("aggregate_key_not_allowed", where)
+                check_schema(item, node[2], f"{where}.{key}")
+    else:  # pragma: no cover - schema typo
+        raise AssertionError(kind)
+
+
+def round_numbers(value):
+    """Every float to ``OUTPUT_SIGNIFICANT_DIGITS`` significant digits (the allowlist refuses longer ones)."""
     if isinstance(value, dict):
-        for k, v in value.items():
-            if str(k).casefold() in FORBIDDEN_KEYS:
-                refuse("aggregate_forbidden_key", EXIT_AGGREGATE_REFUSED, key=str(k)[:40])
-            _scrub_text(str(k), None)
-            scrub(v, str(k))
-    elif isinstance(value, list):
-        if len(value) > AGGREGATE_MAX_LIST:
-            refuse("aggregate_series_refused", EXIT_AGGREGATE_REFUSED, key=key)
-        for item in value:
-            scrub(item, key)
-    elif isinstance(value, str):
-        _scrub_text(value, key)
-
-
-def _scrub_text(text, key):
-    hashed = ((key is not None and key.endswith("sha256") and re.fullmatch(r"[0-9a-f]{64}", text))
-              or (key == "pin" and re.fullmatch(r"[0-9a-f]{40}", text)))
-    if "0x" in text.casefold():
-        refuse("aggregate_hex_identifier", EXIT_AGGREGATE_REFUSED, key=key)
-    if DIGIT_RUN.search(text) and not hashed:
-        refuse("aggregate_numeric_identifier", EXIT_AGGREGATE_REFUSED, key=key)
-    if HEX_RUN.search(text) and not hashed:
-        refuse("aggregate_hex_identifier", EXIT_AGGREGATE_REFUSED, key=key)
-    if "highest-temperature" in text.casefold() or event_target(text) is not None:
-        refuse("aggregate_event_slug", EXIT_AGGREGATE_REFUSED, key=key)
+        return {k: round_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [round_numbers(v) for v in value]
+    if isinstance(value, float) and math.isfinite(value):
+        return float(f"{value:.{OUTPUT_SIGNIFICANT_DIGITS}g}")
+    return value
 
 
 def cmd_aggregate(args):
@@ -737,6 +862,8 @@ def cmd_aggregate(args):
     for path in sorted(Path(args.run_root).glob("*/" + PREFIX + "run.json")):
         check_components(path)
         value, sha = read_json(path)
+        if not isinstance(value, dict):
+            refuse("run_output_inconsistent")
         hazard = value.get("hazard_per_minute")
         if (value.get("label") != LABEL or value.get("counted") is not False or hazard not in HAZARD_GRID
                 or value.get("days_used") != [d.isoformat() for d in days] or hazard in runs
@@ -753,10 +880,10 @@ def cmd_aggregate(args):
                   days_dropped=[dict(day=d["day"], reason=d["reason"]) for d in verified.get("days_dropped", ())],
                   hazard_grid=list(HAZARD_GRID), hazards_missing=[h for h in HAZARD_GRID if h not in runs],
                   runs=[dict(hazard_per_minute=h, run_sha256=runs[h][1]) for h in HAZARD_GRID if h in runs],
-                  heading="exploratory, not counted, <= 2026-09-26, partial settlement",
+                  heading=HEADING, markout_note=MARKOUT_NOTE,
                   results={"h" + h: runs[h][0]["results"] for h in HAZARD_GRID if h in runs})
     result = to_plain(result)
-    scrub(result)
+    check_schema(result, AGGREGATE_SCHEMA)
     raw = (json.dumps(result, sort_keys=True, indent=1) + "\n").encode()
     if len(raw) > AGGREGATE_MAX_BYTES:
         refuse("aggregate_too_large", EXIT_AGGREGATE_REFUSED)
