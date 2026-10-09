@@ -143,3 +143,26 @@ passed. Collection and validation are therefore production software rather
 than branch-only capability. The accepted-baseline checkbox deliberately
 remains open: neither the merge, scheduled refresh, paper proof, nor candidate
 selection may accept an economics baseline on the operator's behalf.
+
+## 2026-10-09 refresh failure: contracts-page wording drift
+
+`WeatherExchangeEconomicsSnapshotRefresh` has failed every run since
+2026-10-06 or earlier (last PASS 2026-10-05) with `missing current proof:
+global_rule_document_semantics_verified`. A no-write diagnostic fetch of the six
+official rule pages on 2026-10-09 showed that five pages pass every check. Only
+`https://docs.polymarket.com/resources/contracts` fails, on two keys:
+
+- `polygon_mainnet`: the page now says the contracts are deployed on Polygon
+  mainnet "with chain ID `137`"; the matcher required the literal
+  `chain id: 137`.
+- `pusd_collateral_proxy`: the row is now labelled "pUSD CollateralToken
+  proxy"; the matcher required `collateraltoken (proxy)`.
+
+No value changed: chain 137, the pUSD proxy address, the 0.05 weather fee, the
+25% rebate share and the 1 pUSD minimum are all still published. The fix on
+branch `claude/econ-contracts-matcher-20261009` accepts both wordings and stays
+strict on values: chain id 137 must appear in a Polygon sentence, and the first
+address after every pUSD CollateralToken proxy label must equal the pinned proxy
+address. Rule-document hashes are not part of the snapshot hash or the drift
+comparison, so the changed page hash needs no baseline re-acceptance. The
+explicit-acceptance checkbox above is unaffected.

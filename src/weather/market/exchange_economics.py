@@ -10,6 +10,7 @@ import argparse
 from copy import deepcopy
 import hashlib
 import json
+import re
 from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlencode
@@ -219,6 +220,36 @@ def _normalized_rule_text(value):
     return " ".join(str(value or "").lower().split())
 
 
+# Contracts-page matchers. Wording is tolerated (a docs rewrite, first failing
+# refresh 2026-10-06, moved
+# "Chain ID: 137" to "chain ID `137`" and "CollateralToken (proxy)" to
+# "CollateralToken proxy"); the VALUES stay exact: chain 137 in the Polygon
+# sentence, and the first address after every pUSD proxy label must be
+# the pinned pUSD collateral proxy.
+_POLYGON_CHAIN_ID_137 = re.compile(
+    r"polygon[^.]{0,60}?chain id[\s:`(]*137(?![0-9])"
+)
+_PUSD_PROXY_LABEL = re.compile(
+    r"pusd[^a-z0-9]{0,5}collateraltoken\s*(?:\(proxy\)|proxy)"
+)
+_EVM_ADDRESS = re.compile(r"0x[0-9a-f]{40}(?![0-9a-f])")
+
+
+def _polygon_chain_id_137(text):
+    return _POLYGON_CHAIN_ID_137.search(text) is not None
+
+
+def _pusd_proxy_label_binds_address(text):
+    labels = list(_PUSD_PROXY_LABEL.finditer(text))
+    if not labels:
+        return False
+    for label in labels:
+        address = _EVM_ADDRESS.search(text, label.end())
+        if address is None or address.group(0) != PUSD_COLLATERAL_PROXY_ADDRESS:
+            return False
+    return True
+
+
 def _rule_document_semantic_checks(canonical_url, source_text):
     text = _normalized_rule_text(source_text)
     no_spaces = text.replace(" ", "")
@@ -288,12 +319,8 @@ def _rule_document_semantic_checks(canonical_url, source_text):
         }
     if canonical_url.endswith("/resources/contracts"):
         return {
-            "polygon_mainnet": "chain id: 137" in text,
-            "pusd_collateral_proxy": all((
-                "pusd" in text,
-                "collateraltoken (proxy)" in text,
-                PUSD_COLLATERAL_PROXY_ADDRESS in text,
-            )),
+            "polygon_mainnet": _polygon_chain_id_137(text),
+            "pusd_collateral_proxy": _pusd_proxy_label_binds_address(text),
         }
     return {"recognized_rule_document": False}
 

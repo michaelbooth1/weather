@@ -395,6 +395,83 @@ def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
     assert "global_rule_document_semantics_verified" in gate["missing"]
 
 
+CONTRACTS_URL = "https://docs.polymarket.com/resources/contracts"
+PUSD_PROXY = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+# Pre-2026-10-06 wording (same shape as the collector fixture below).
+CONTRACTS_OLD_WORDING = f"""
+All contracts are deployed on Polygon mainnet (Chain ID: 137).
+pUSD - CollateralToken (proxy)
+{PUSD_PROXY}
+"""
+# Minimal excerpt of the docs.polymarket.com/resources/contracts wording that
+# first failed the 2026-10-06 refresh: the chain sentence and two table rows.
+CONTRACTS_NEW_WORDING = f"""
+These contracts are deployed on Polygon mainnet with chain ID `137`. Use the
+| pUSD CollateralToken proxy | [`{PUSD_PROXY}`](https://polygonscan.com/address/{PUSD_PROXY}) |
+| pUSD CollateralToken implementation | [`0xCe84E053301A82937F90ee2C2c1889cAb1db25dE`](https://polygonscan.com/address/0xCe84E053301A82937F90ee2C2c1889cAb1db25dE) |
+"""
+
+
+def _contracts_checks(text):
+    return exchange_economics._rule_document_semantic_checks(CONTRACTS_URL, text)
+
+
+@pytest.mark.parametrize("text", [CONTRACTS_OLD_WORDING, CONTRACTS_NEW_WORDING])
+def test_contracts_page_checks_accept_old_and_new_wording(text):
+    assert _contracts_checks(text) == {
+        "polygon_mainnet": True,
+        "pusd_collateral_proxy": True,
+    }
+
+
+@pytest.mark.parametrize("wrong_chain", ["1", "80002", "1370", "13"])
+@pytest.mark.parametrize("wording", [CONTRACTS_OLD_WORDING, CONTRACTS_NEW_WORDING])
+def test_contracts_page_rejects_any_chain_id_other_than_137(wording, wrong_chain):
+    text = wording.replace("Chain ID: 137", f"Chain ID: {wrong_chain}").replace(
+        "chain ID `137`", f"chain ID `{wrong_chain}`"
+    )
+    assert text != wording
+    checks = _contracts_checks(text)
+    assert checks["polygon_mainnet"] is False
+    assert checks["pusd_collateral_proxy"] is True
+
+
+def test_contracts_page_chain_id_must_be_tied_to_polygon():
+    text = CONTRACTS_NEW_WORDING.replace("Polygon mainnet", "Ethereum mainnet")
+    assert _contracts_checks(text)["polygon_mainnet"] is False
+
+
+@pytest.mark.parametrize("wording", [CONTRACTS_OLD_WORDING, CONTRACTS_NEW_WORDING])
+def test_contracts_page_rejects_wrong_pusd_proxy_address(wording):
+    wrong = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFC"
+    checks = _contracts_checks(wording.replace(PUSD_PROXY, wrong))
+    assert checks["pusd_collateral_proxy"] is False
+    assert checks["polygon_mainnet"] is True
+
+
+@pytest.mark.parametrize("wording", [CONTRACTS_OLD_WORDING, CONTRACTS_NEW_WORDING])
+def test_contracts_page_rejects_address_without_proxy_label(wording):
+    text = wording.replace("CollateralToken (proxy)", "CollateralToken").replace(
+        "CollateralToken proxy", "CollateralToken"
+    )
+    assert exchange_economics.PUSD_COLLATERAL_PROXY_ADDRESS in text.lower()
+    assert _contracts_checks(text)["pusd_collateral_proxy"] is False
+
+
+def test_contracts_page_proxy_label_must_bind_the_pinned_address():
+    # The label is present and the pinned address appears elsewhere, but the
+    # address following the proxy label is a different contract.
+    text = CONTRACTS_NEW_WORDING.replace(
+        f"| pUSD CollateralToken proxy | [`{PUSD_PROXY}`]"
+        f"(https://polygonscan.com/address/{PUSD_PROXY}) |",
+        "| pUSD CollateralToken proxy | `0xCe84E053301A82937F90ee2C2c1889cAb1db25dE` |
+"
+        f"| Other | `{PUSD_PROXY}` |",
+    )
+    assert exchange_economics.PUSD_COLLATERAL_PROXY_ADDRESS in text.lower()
+    assert _contracts_checks(text)["pusd_collateral_proxy"] is False
+
+
 def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_rewards(
     tmp_path,
     monkeypatch,
