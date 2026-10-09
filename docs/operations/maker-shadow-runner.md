@@ -61,8 +61,8 @@ wallet (which would HALT every minute on its INCOMPLETE ledger).
 
 ## Commands
 
-Workstation, from the repository root. Nothing registers a scheduled task; the
-owner (or production) decides where and when it runs.
+Workstation, from the repository root. On the capture host the forward run is
+the `WeatherMakerShadowRunner` task (next section); registering it is an owner act.
 
 ```powershell
 # No-network fixture run (deterministic, simulated clock):
@@ -167,19 +167,71 @@ extension), and any day not yet closed in UTC. The windows live in
 `weather.market.maker_shadow_panel.EMBARGOED_UTC_DAYS`; lifting one is a reviewed
 code change. The runner still tapes those days.
 
+## Forward runner on the capture host
+
+`scripts/ops/register_maker_shadow_runner.ps1` registers `WeatherMakerShadowRunner`:
+one long-lived `pythonw -m weather.market.maker_shadow run --config
+data\maker_shadow\shadow_config.json --stop-file data\maker_shadow\STOP` under an
+S4U/Limited principal at BelowNormal priority (task priority 7). Its five-minute
+repetition only respawns a crashed or rebooted run (IgnoreNew while one runs). The
+registrar refuses a missing config, a config naming a wallet book or a non-paper
+campaign, and an uninitialised latch, and supports `-WhatIf`. Registration is an
+owner/production act; editing or testing the registrar arms nothing.
+
+- **Stop** by creating the stop file: the run writes `terminal`, seals its tape at the
+  next minute and exits; every respawn then refuses (exit 2) until the file is
+  removed. `Stop-ScheduledTask` or a reboot kills the process and leaves an unsealed
+  tape, which the scorer lists and never reads. A restart starts a fresh paper book
+  (the latch persists).
+- **Readout** (read-only, any hour): `scripts\ops\maker_shadow_readout.ps1
+  [-ParityStartUtc <yyyy-MM-dd>]` prints one line: process, sealed days, last tick,
+  rows and MB today, crashed tapes, parity days and the embargo. It reads names, seal
+  JSONs, at most the last MiB of the open tape and, with `-ParityStartUtc`, score
+  agreement status; it never starts Python or reads 88a.
+- **Resources, measured on the workstation 2026-10-08 with 24 bands** (`max_conditions`
+  24): about 35 MB working set and 22 MB private, about 1.5 s CPU per minute, 14-20 s
+  of sequential public GETs per minute (about 75 requests) after a first minute of
+  about 65 s with discovery; about 88 KB of tape per minute, so about 126 MB per UTC
+  day. Nothing prunes tapes. **The day-roll seal** (`TapeWriter.close`) reads and
+  verifies the whole day's tape in memory: about 1.3 GB private for about 12 s at UTC
+  midnight on a full 24-band day (scales with bands and minutes). `score` of one full
+  day holds about 1.2 GB for its tapes before the 88a panel (up to 2 GiB of panel
+  reads), so it belongs in the leased night window.
+- **Parity.** The `score` agreement is a self-consistency check (each recorded decision
+  re-run from its recorded inputs). It is not a comparison with the v2 replay engine,
+  and parity days count only from the engine freeze (STATE_OF_PLAY).
+
 ## Not yet
 
-Live public-read verification (fixtures only so far: Gamma field names
-`orderPriceMinTickSize`/`orderMinSize`/`clobRewards`, the `/book` shape and the
-data-api `/trades` row fields follow 88a and public API usage), paper settlement
-of resolved bands, the weather fair-value plugin and information clock,
-settlement-horizon scoring, the closed-bundle replay engine comparison, the six
-drills of the Phase 3 design, a launcher with resource ceilings, and any
-scheduled task. Open PR #115 holds an earlier, larger shadow implementation
-stacked on the unmerged replay harness; #192 supersedes its runner, tape and
-nightly path (the #192 description lists the pieces).
+Status 2026-10-08; each item names its next step.
+
+- **Live public-read verification:** partly done. A four-minute workstation run on
+  2026-10-08 read Gamma events, CLOB books and CLOB reward records live: 24 bands were
+  selected with no `unevaluated` band and no `universe_error`, and the guard allowed
+  every minute. Every decision was `NO_QUOTE` (blind width without fair value), so no
+  leg rested and the data-api `/trades` read and the paper fill path were not exercised
+  live. Next: the first host days; the readout's print-gap count shows it.
+- **Paper settlement of resolved bands:** open, unscheduled; it needs an owner
+  decision on whether the shadow paper book matters before the v2 look.
+- **Weather fair-value plugin and information clock:** open; the plugin is not on
+  master (maker replay v2 line). Until it lands the shadow quotes blind width.
+- **Settlement-horizon scoring:** open; it belongs to a pre-registered look, not this
+  diagnostic.
+- **Closed-bundle replay engine comparison:** open; it needs the frozen v2 engine
+  (W1/W2/F3 merged) and is what shadow parity means for live readiness.
+- **The six Phase 3 drills:** open, unscheduled; owner to say whether they gate the
+  live pilot.
+- **Launcher with resource ceilings:** open. The scheduled task runs at BelowNormal
+  without a Job memory ceiling; the day-roll seal peak above is the reason to add a
+  streaming seal (or a ceiling) before raising `max_conditions`.
+- **Scheduled task:** registrar present (2026-10-08); host registration waits for
+  the owner.
+
+Open PR #115 holds an earlier, larger shadow implementation stacked on the unmerged
+replay harness; #192 supersedes its runner, tape and nightly path (the #192
+description lists the pieces).
 
 ## Update when
 
-Update with the commands, config or fixture schema, endpoint allowlist, tape or
+Update with the commands, the registrar or readout, config or fixture schema, endpoint allowlist, tape or
 score format, guard integration, fill or markout rules, or the embargo windows.

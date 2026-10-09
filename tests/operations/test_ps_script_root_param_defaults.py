@@ -63,6 +63,7 @@ BINDING_TARGETS = {
     "register_health_watchdog.ps1": "RepoRoot",
     "register_integration_attempt.ps1": "RepoRoot",
     "register_maker_evidence_capture.ps1": "RepoRoot",
+    "register_maker_shadow_runner.ps1": "RepoRoot",
     "register_nightly_retrain.ps1": "RepoRoot",
     "register_training_window.ps1": "RepoRoot",
     "register_wallet_reader_logon_task.ps1": "RepoRoot",

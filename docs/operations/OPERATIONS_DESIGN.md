@@ -92,6 +92,12 @@ or the existing capture recovery contract. The registrar is
 `scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
 remain explicit production actions.
 
+The paper-only `WeatherMakerShadowRunner` (registrar
+`scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
+process with its own stop file; it is not a capture worker, and no capture loop imports its
+modules. Its [owning contract](maker-shadow-runner.md) defines registration, stop and
+readout.
+
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
 not itself the long-running capture process. A healthy/no-op or successful
