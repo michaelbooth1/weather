@@ -400,13 +400,23 @@ automatic catch-up.
 is the deploy tree and is passed to the runner as `-DeployRoot`; pass it explicitly, because its `$PSScriptRoot`
 default has the same `-File` defect. `-WhatIf` checks paths, disjointness and the runner hash only, not the module
 hash, the time zone or the host assignment. It refuses equal or
-nested deploy and production trees. Use `-WhatIf` first: it checks the runner pin without touching Scheduler. Registration
-binds 00:35 daily, S4U/Limited current user, IgnoreNew, a 50-minute Scheduler ceiling and no StartWhenAvailable. It
-reads back the complete action, principal, trigger and safety settings. The runner is pinned by its own hash and the
+nested deploy and production trees. Use `-WhatIf` first: it checks the runner pin without touching Scheduler and names
+the slot and its limit. Registration binds one daily `-At` slot, S4U/Limited current user, IgnoreNew and no
+StartWhenAvailable, with a per-slot Scheduler ceiling:
+
+- `00:35` (the default): 50 minutes.
+- `04:10` (owner decision 2026-10-09): after the 01:00-04:00 quiet merge window, so landing nights keep the task
+  enabled. The ceiling is 45 minutes, so the Scheduler backstop fires by 04:55, before the 05:00 tiering. The runner is
+  unchanged: it clamps a 04:10 start to its own 04:54:45 stop, so the child gets about 2,655 seconds, not 2,700, and
+  teardown and lease release finish before the backstop.
+
+Any other slot is refused at parameter binding. It
+reads back the complete action, principal, trigger, slot ceiling and safety settings. The runner is pinned by its own hash and the
 exporter's module-closure hash, not by a Git tip; a change to any imported exporter module stops the export until the
 registrar is re-run with reviewed pins. Registration and production qualification belong to the production operator;
-fixture tests and a draft PR grant neither. The task can contend with other heavy jobs at 00:35 and visibly refuses a
-busy lease; choosing a different schedule needs a reviewed registrar change.
+fixture tests and a draft PR grant neither. The task can contend with other heavy jobs at either slot and visibly
+refuses a busy lease (at 04:10, a landing that overruns 04:00 holds it); choosing a different schedule needs a reviewed
+registrar change.
 
 The implementation includes typed payload validation, the shared-`decide()` event engine and portfolio reservations,
 both fill bounds and sibling cancellation, reward/fee/markout/settlement scores, baselines, and date/crossed inference.
