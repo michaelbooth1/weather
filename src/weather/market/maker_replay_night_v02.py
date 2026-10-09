@@ -65,10 +65,13 @@ def _finalize(folder, cap, kind, summary):
     if total > cap:
         raise StopRun("bundle_output_cap")
     manifest = json.loads((folder / "bundle.json").read_bytes())
-    return dict(format="v0.2", files=files, bytes=total, records=sum(s["records"] for s in summary["streams"].values()),
+    return dict(format=summary["format"], compression=summary.get("compression"), files=files, bytes=total,
+                records=sum(s["records"] for s in summary["streams"].values()),
                 v01_records=summary["v01_equivalent"]["records"], conditions=len(manifest["conditions"]),
                 coverage_groups=summary["coverage_groups"],
-                kinds={k: dict(bytes=v["bytes"], records=v["records"], spilled_runs=v["spilled_runs"])
+                kinds={k: dict(bytes=v["bytes"], records=v["records"], spilled_runs=v["spilled_runs"],
+                               decoded_bytes=v.get("decoded_bytes", v["bytes"]),
+                               decoded_sha256=v.get("decoded_sha256", v["sha256"]))
                        for k, v in summary["streams"].items()},
                 v01_kinds=summary["v01_kinds"], v01_equivalent=summary["v01_equivalent"],
                 gaps=book_gaps(manifest["conditions"], summary["book_minutes"]) if kind == "panel" else [],
@@ -119,7 +122,7 @@ def export_day(args, kind, *, now=None, clock=time.monotonic, phase=None, enviro
         before = shutil.disk_usage(out).free
         day_out.mkdir()
         pending = day_out / "pending"
-        receipt = dict(day=args.day, kind=kind, format="v0.2", status="REFUSED", cities=[], bundle={}, gaps=[],
+        receipt = dict(day=args.day, kind=kind, format="v0.3", status="REFUSED", cities=[], bundle={}, gaps=[],
                        restart_events=[], module_sha256=modules, module_files=len(closure), free_before_bytes=before,
                        active_intervals="MANIFEST_ONLY", threads=threads,
                        restart_completeness="UNKNOWN: only sealed run summaries are retained; crashes may have none")

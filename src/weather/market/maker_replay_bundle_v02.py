@@ -263,12 +263,13 @@ def export(args, *, now=None, reader=None, phase=None):
         checked = validate(partial, written["v01"], limits=OUTPUT_LIMITS, check=reader.check)
         if checked["kinds"] != {k: v["records"] for k, v in written["v01_kinds"].items()}:
             raise BundleError("v02_expansion_kind_counts_differ")
-        summary = dict(status="EXPORTED_FOR_DIAGNOSTICS", format="v0.2", day=args.date,
+        summary = dict(status="EXPORTED_FOR_DIAGNOSTICS", format=written["format_label"], day=args.date,
             counts=dict(sorted(projection.counts.items())), input_bytes=reader.bytes_read,
             input_hashes=dict(sorted(reader.hashes.items())), reader_coverage=dict(sorted(reader.coverage.items())),
             support_errors=dict(sorted(sources.errors.items())), trade_clock_skew=projection.skew_summary(),
             streams=written["streams"], coverage_groups=written["coverage_groups"], v01_equivalent=written["v01"],
             v01_kinds=written["v01_kinds"], manifest_bytes=written["manifest_bytes"],
+            compression=written["compression"],
             bundle_bytes=written["manifest_bytes"] + sum(s["bytes"] for s in written["streams"].values()),
             book_minutes={cid: sorted(m) for cid, m in sorted(projection.book_minutes.items())},
             assumptions=ASSUMPTIONS)

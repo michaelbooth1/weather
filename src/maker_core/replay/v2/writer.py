@@ -2,7 +2,7 @@
 
 The exporter pushes v0.1 rows in its own sequence order. Nothing whole-output is held in memory:
 
-- **Sorted streams.** Each kind is one ``<kind>.jsonl`` stream sorted by ``(captured_at, sequence)``.
+- **Sorted streams.** Each kind is one stream sorted by ``(captured_at, sequence)``.
   A kind that arrives in order is written straight to disk. A kind that breaks order (plugin inputs
   keep their original capture clock, ledger settlements their later record clock) spills bounded
   sorted runs and is merged once at the end.
@@ -11,6 +11,13 @@ The exporter pushes v0.1 rows in its own sequence order. Nothing whole-output is
   are only known at the end of the day, so ``finish`` replays the spool through the W1
   ``Compactor`` under the final groups. The same-coverage refusal (``coverage_group_mismatch``)
   is the Compactor's. No duplicate elision is added: the exporter already drops repeats.
+- **Compression (format v0.3, the default; owner decision 8).** Each finished stream is gzipped once at
+  ``finish`` into ``<kind>.jsonl.gz`` (``v2.gzip_stream``: ``mtime=0``, empty header name, fixed level), so
+  the transient disk peak is about decoded plus stored bytes. The manifest binds stored ``sha256``/``bytes``
+  and the decoded ``decoded_sha256``/``decoded_bytes``/``records``; the decoded SHA-256 is the cross-host
+  identity, because stored bytes depend on the zlib build. ``compress=False`` writes plain v0.2
+  ``<kind>.jsonl`` streams. ``max_stream_bytes`` bounds DECODED bytes while writing; the exporter checks
+  stored bytes against its output cap after ``finish``.
 - **Validation** (``validate``) re-reads the written bundle through the two-pass stream reader
   and ``expand``, and needs the expanded rows' order-independent sum hash, count and bytes to
   equal those of the v0.1 rows pushed. ``v01`` is also the SHA-256 the v0.1 exporter would have
@@ -28,13 +35,15 @@ import shutil
 
 from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import BundleError, Limits, sha256, timestamp
-from maker_core.replay.bundle_v02 import FORMAT_V02, open_stream_bundle
+from maker_core.replay.bundle_v02 import FORMAT_V02, FORMAT_V03, GROUPED_FORMATS, open_stream_bundle
+from maker_core.replay.v2 import gzip_stream
 from maker_core.replay.v2.compaction import Compactor, expand, row as plain_row
 
 SPILL_BYTES = 32 * 1024**2
 MAX_RUNS = 256
 MOD = 2**256
 WORK = "_work"
+FORMAT_LABELS = {FORMAT_V02: "v0.2", FORMAT_V03: "v0.3"}
 
 
 def row_hash(raw: bytes) -> int:
@@ -139,7 +148,12 @@ class SortedStream:
 class BundleWriter:
     """Push v0.1 rows (dict plus canonical bytes) in sequence order; ``finish`` writes the v0.2 bundle."""
 
-    def __init__(self, folder: Path, *, spill_bytes: int = SPILL_BYTES, max_stream_bytes: int | None = None):
+    def __init__(self, folder: Path, *, spill_bytes: int = SPILL_BYTES, max_stream_bytes: int | None = None,
+                 compress: bool = True, level: int = gzip_stream.LEVEL):
+        if compress and (type(level) is not int or not 1 <= level <= 9):
+            raise BundleError("invalid_compression_level")
+        self.compress, self.level = compress, level
+        self.format = FORMAT_V03 if compress else FORMAT_V02
         self.folder, self.work = folder, folder / WORK
         self.work.mkdir(parents=True)
         self.spill_bytes, self.max_stream_bytes = spill_bytes, max_stream_bytes
@@ -246,21 +260,37 @@ class BundleWriter:
         for kind in sorted(self.streams):
             check()
             stream = self.streams[kind]
-            result = stream.finish(self.folder / f"{kind}.jsonl")
-            refs.append(dict(path=f"{kind}.jsonl", sha256=result["sha256"], bytes=result["bytes"],
-                             records=result["records"]))
-            streams[kind] = dict(result, spilled_runs=stream.spilled_runs)
+            if not self.compress:
+                result = stream.finish(self.folder / f"{kind}.jsonl")
+                refs.append(dict(path=f"{kind}.jsonl", sha256=result["sha256"], bytes=result["bytes"],
+                                 records=result["records"]))
+                streams[kind] = dict(result, spilled_runs=stream.spilled_runs)
+                continue
+            plain = self.work / f"{kind}.jsonl"
+            decoded = stream.finish(plain)
+            stored = gzip_stream.compress_file(plain, self.folder / f"{kind}.jsonl.gz", level=self.level,
+                                               check=check)
+            plain.unlink()
+            refs.append(dict(path=f"{kind}.jsonl.gz", sha256=stored["sha256"], bytes=stored["bytes"],
+                             decoded_sha256=decoded["sha256"], decoded_bytes=decoded["bytes"],
+                             records=decoded["records"]))
+            streams[kind] = dict(sha256=stored["sha256"], bytes=stored["bytes"], decoded_sha256=decoded["sha256"],
+                                 decoded_bytes=decoded["bytes"], records=decoded["records"],
+                                 sum256=decoded["sum256"], spilled_runs=stream.spilled_runs)
         members = {}
         for cid, gid in sorted(groups.items()):
             if cid in self.covered:
                 members.setdefault(gid, []).append(cid)
-        value = dict(manifest, format=FORMAT_V02, streams=refs,
+        extra = dict(compression=gzip_stream.compression_record(self.level)) if self.compress else {}
+        value = dict(manifest, **extra, format=self.format, streams=refs,
                      coverage_groups=[dict(group_id=g, condition_ids=c) for g, c in sorted(members.items())])
         raw = canonical_bytes(value)
         with (self.folder / "bundle.json").open("xb") as handle:
             handle.write(raw)
         shutil.rmtree(self.work)
-        return dict(manifest_bytes=len(raw), manifest_sha256=sha256(raw), streams=streams,
+        return dict(format=self.format, format_label=FORMAT_LABELS[self.format],
+                    compression=gzip_stream.receipt_record(self.level) if self.compress else None,
+                    manifest_bytes=len(raw), manifest_sha256=sha256(raw), streams=streams,
                     coverage_groups=len(members), v01=self.v01.result(),
                     v01_kinds={k: dict(bytes=self.kind_bytes[k], records=self.kind_records[k])
                                for k in sorted(self.kind_records)})
@@ -305,7 +335,7 @@ def validate(folder: Path, expected: Mapping, *, limits: Limits | None = None,
     ``(captured_at, sequence)`` order. Returns per-kind counts of the expanded rows.
     """
     bundle = open_stream_bundle(folder, limits=limits)
-    if bundle.format != FORMAT_V02:
+    if bundle.format not in GROUPED_FORMATS:
         raise BundleError("unsupported_bundle_format")
     total, size, count, kinds, last = 0, 0, 0, Counter(), None
     for record in expand(bundle.records(), bundle.coverage_groups):

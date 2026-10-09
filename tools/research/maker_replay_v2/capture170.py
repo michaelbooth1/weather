@@ -19,6 +19,12 @@ panel or settlement data is read; every identity, price and forecast is invented
 
 ``EvidenceStore`` fsyncs every append; the generator is not the measurement, so ``fsync`` is
 suspended while it writes. The exporter run that follows is untouched.
+
+Reproducible (X1 Defender point 5): ``EvidenceStore`` names each hourly segment ``HH-<uuid4 hex[:12]>``,
+and that path flows into subscription references, segment manifests and every exported row's
+``sealed_segment`` hash. While it writes, the generator swaps the store module's ``uuid4`` for a
+separately seeded source, so two generations with the same arguments are byte-identical and the
+existing draws of ``self.rng`` do not shift. The production ``EvidenceStore`` is not changed.
 """
 from __future__ import annotations
 
@@ -31,7 +37,9 @@ import math
 import os
 from pathlib import Path
 import random
+import uuid
 
+from weather.market import maker_evidence_store
 from weather.market.maker_evidence_store import EvidenceStore, encoded
 from weather.market.market_registry import BUILTIN_SPECS
 
@@ -48,6 +56,21 @@ def _no_fsync():
         os.fsync = original
 
 
+@contextmanager
+def _seeded_segment_ids(seed: str):
+    """Swap the store module's ``uuid4`` for a seeded source (its own RNG) while the fixture writes."""
+    rng, original = random.Random(seed), maker_evidence_store.uuid4
+
+    def seeded():
+        return uuid.UUID(int=rng.getrandbits(128), version=4)
+
+    maker_evidence_store.uuid4 = seeded
+    try:
+        yield
+    finally:
+        maker_evidence_store.uuid4 = original
+
+
 def _slug(spec, target):
     return f"{spec.slug_prefix}-{target.strftime('%B').lower()}-{target.day}-{target.year}"
 
@@ -61,6 +84,7 @@ class CaptureDay:
         self.day, self.trades, self.connections, self.outages = day, trades, connections, outages
         self.book_depth, self.terms_changes, self.minutes = book_depth, terms_changes, minutes
         self.rng = random.Random(f"capture170-{day}-{union}-{trades}-{seed}")
+        self.segment_seed = f"capture170-segments-{day}-{union}-{trades}-{seed}"
         self.start = datetime.combine(day, time(), tzinfo=timezone.utc)
         self.events, self.token = [], 1000
         slots = [(m, k) for m in range(len(specs)) for k in range(4)]
@@ -208,7 +232,7 @@ class CaptureDay:
             key = e["socket"] if e["found"] == self.start else e["slug"]
             entry = subs.setdefault(key, [e["socket"], [], e["found"] == self.start, False])
             entry[1] += [t for b in e["bands"] for t in (b["yes"], b["no"])]
-        with _no_fsync():
+        with _no_fsync(), _seeded_segment_ids(self.segment_seed):
             store = EvidenceStore(root / "maker_evidence", clock=lambda: now[0])
             for at, kind, value in self._timeline():
                 now[0] = at
