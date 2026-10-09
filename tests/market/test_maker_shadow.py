@@ -1,7 +1,8 @@
 """Weather shadow CLI: no-network fixture run, 88a fixture panel scoring, embargo and import closure.
 
-Guards: weather maker shadow CLI no-network run, 88a scoring embargo and import closure
-  (docs/operations/maker-shadow-runner.md, Commands and Nightly scoring against 88a).
+Guards: weather maker shadow CLI no-network run, 88a scoring embargo, import closure and the mid-minute refresh
+  skip (owner decision N7) (docs/operations/maker-shadow-runner.md, Commands, Tape v0.2 record stream and
+  Nightly scoring against 88a).
 """
 from datetime import datetime, timedelta, timezone
 import json
@@ -287,7 +288,7 @@ def test_offline_run_writes_record_stream_and_bundle_day_cli(tmp_path, capsys):
     assert kinds == {"plugin_input", "descriptor", "book", "terms", "outcome_view", "info_event", "coverage"}
     manifest = json.loads((bundle.root / "bundle.json").read_text())
     assert manifest["conditions"][0]["market_id"] == "nyc"
-    assert printed["gaps"] == []
+    assert printed["gaps"] == [] and printed["excluded"] == []
     assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2
     capsys.readouterr()
     (bundle.root / "bundle.json").unlink()
@@ -310,3 +311,47 @@ def test_rediscovery_is_due_at_each_market_local_midnight():
     later = NOW.replace(hour=6, minute=50)
     previous = (later, maker_shadow.local_dates(specs, later))
     assert not due(later + timedelta(minutes=9)) and due(later + timedelta(minutes=10))  # Seattle's midnight
+
+
+class RefreshWriter:
+    def __init__(self, clock, duration):
+        self.clock, self.duration, self.polls, self.skips = clock, duration, [], []
+
+    def poll(self, condition_ids):
+        self.polls.append((self.clock.now, list(condition_ids)))
+        self.clock.now += self.duration
+
+    def skip_refresh(self, code):
+        self.skips.append((self.clock.now, code))
+
+
+def test_mid_minute_refresh_is_skipped_when_it_would_overrun_the_next_minute():
+    """N7. Kills mutants N7-always-refresh (no skip), N7-strict-boundary (a refresh ending exactly at the next
+    minute is skipped), N7-stale-estimate (the measured duration is ignored) and N7-uncapped-estimate (one slow
+    refresh locks every later on-time refresh out)."""
+    minute, second = NOW.replace(second=0, microsecond=0), timedelta(seconds=1)
+    clock = maker_shadow.SimulatedClock(minute + 30 * second)
+    writer = RefreshWriter(clock, 9 * second)
+    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, maker_shadow.REFRESH_ESTIMATE)
+    assert estimate == 9 * second and writer.polls == [(minute + 30 * second, [CONDITION])]
+    clock.now = minute + 51 * second  # the step overran: 51 s + 10 s ends after the next minute starts
+    assert maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, 10 * second) == 10 * second
+    assert writer.skips == [(minute + 51 * second, maker_shadow.REFRESH_SKIPPED)] and len(writer.polls) == 1
+    clock.now = minute + 50 * second  # ends exactly at the next minute: it fits
+    maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, minute, 10 * second)
+    assert len(writer.polls) == 2 and len(writer.skips) == 1
+    nxt = minute + timedelta(minutes=1)
+    clock.now, writer.duration = nxt + 30 * second, 25 * second  # a slow refresh: the estimate becomes 25 s
+    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, nxt, maker_shadow.REFRESH_ESTIMATE)
+    assert estimate == 25 * second
+    later = nxt + timedelta(minutes=1)
+    clock.now = later + 40 * second  # 40 s + 25 s overruns, although the 10 s default would have fit
+    assert maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, later, estimate) == estimate
+    assert len(writer.polls) == 3 and writer.skips[-1] == (later + 40 * second, maker_shadow.REFRESH_SKIPPED)
+    clock.now, writer.duration = later + timedelta(minutes=1, seconds=30), 45 * second
+    estimate = maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, later + timedelta(minutes=1), estimate)
+    assert estimate == maker_shadow.MID_MINUTE_POLL  # capped: a refresh started on time always fits
+    last = later + timedelta(minutes=2)
+    clock.now = last + 30 * second
+    maker_shadow.mid_minute_refresh(writer, [CONDITION], clock, last, estimate)
+    assert len(writer.polls) == 5 and len(writer.skips) == 2

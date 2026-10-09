@@ -77,7 +77,8 @@ the `WeatherMakerShadowRunner` task (next section); registering it is an owner a
 
 Exit 0 is success; exit 2 is a refusal printed as JSON (invalid config, stop file
 present at start, embargoed or open day, no sealed tape; for `bundle-day` an open day,
-an unsealed or changed record stream, or an existing `bundle.json`). Initialise the guard
+an unsealed record stream within an hour of the day close, no bundleable stream, a changed
+record stream, or an existing `bundle.json`). Initialise the guard
 latch first with `python -m maker_core.runtime.guard_latch init --state-dir <dir>`;
 an uninitialised latch is a HALT.
 
@@ -177,7 +178,13 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   Cost at 12 bands: 24 extra CLOB book GETs a minute (the 12 trade GETs at +30 s already
   existed), from 60 to 84 public GETs a minute, about +4.6 s of sequential reads at 190 ms
   each. The first minute of a run (or of a newly selected band) replays as
-  `MISSING_COVERAGE`: its first poll precedes its first descriptor.
+  `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun skip** (owner
+  decision N7, `maker_shadow.mid_minute_refresh`): the refresh is skipped when it would not
+  finish before the next minute starts (start + estimate after the next minute), so it never
+  delays the next decision. The estimate is the run's last measured refresh, capped at 30 s
+  (a refresh started on time always fits), 10 s before the first measurement. A skip reads
+  nothing and is counted on the stream seal as `refresh:skipped_overrun`; that minute's trade
+  coverage may then lapse before the next minute's poll, which replays as a true capture gap.
 - Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
   seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
   roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the
@@ -205,9 +212,8 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `minute:book_malformed` or `refresh:book_malformed`; a failed refresh read as
   `refresh:book_read`. A failed write or fsync marks the stream broken: later writes are
   skipped, and the seal records the bytes actually on disk with `status: broken` and
-  `broken_reason`. `bundle-day` refuses a day with a broken or unsealed stream
-  (`broken_record_stream`, `unsealed_record_stream`; whether to bundle only the `ok` streams
-  instead is an open owner question). If the stream cannot be opened (for example an
+  `broken_reason`. A broken stream excludes only its own run from the day bundle (owner
+  decision Q-D5, below). If the stream cannot be opened (for example an
   unreadable earlier seal of the day), the day runs without one: each minute's `raw` is
   `{"broken": "open:<Error>"}` and the quotes tape seal carries `records_stream_error`, as it
   does when sealing the stream itself fails.
@@ -228,7 +234,19 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `stream_gaps`, the CLI's `gaps`, and `records/<day>/gaps.json` beside the bundle (the
   bundle format admits no extra field). `gaps.json` is written first, atomically (temp file
   and rename), then the create-only `bundle.json`; a re-run fills in a missing `gaps.json`
-  beside an existing bundle instead of refusing `bundle_exists`. A stream batch advances its sequence and kind counts
+  beside an existing bundle instead of refusing `bundle_exists`. **Per-run exclusion** (owner
+  decision Q-D5): a stream sealed `broken`, or one still unsealed an hour
+  (`records.UNSEALED_GRACE`) after the UTC day closed (a killed run: reboot or
+  `Stop-ScheduledTask`), excludes only its own run. It is left out of `bundle.json`, listed in
+  `gaps.json` under `excluded_streams` (`[{run_id, stream, reason}]`, reason
+  `unsealed_record_stream`, `broken_record_stream:<broken_reason>` or `sealed_after_bundle`)
+  and in the CLI's `excluded`, and `records.day_active_intervals` gives its run no interval
+  (it reads the bundle's stream list once `bundle.json` exists), so the replay claims nothing
+  for that run's minutes. Within the hour an unsealed stream still refuses
+  `unsealed_record_stream`, because its run may still be sealing it at the day roll and the
+  bundle is create-only. A day whose every stream is excluded refuses
+  `no_sealed_record_stream`. A stream that differs from its own `ok` seal, or an unreadable
+  seal, still refuses the whole day. A stream batch advances its sequence and kind counts
   only after its bytes are fsynced, so a failed batch never leaves a sequence gap in an `ok`
   seal.
 - Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was
@@ -237,7 +255,19 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   140 k records and 190 MB of record stream at 12 bands (about 280 k and 380 MB at 24). The
   replay reader's default `Limits` (64 MiB, 100 k records, 300 s) refuse such a day; read it
   with `Limits(**records.SHADOW_REPLAY_LIMITS)` (600 k records, 1 GiB, 900 s). Nothing prunes
-  record streams.
+  or compresses record streams or tapes yet; see Retention below.
+- **Retention** (owner decision Q-D6, 2026-10-09: compress sealed days after 7 days, never
+  delete). Not built: no existing tiering hook covers shadow tapes (`clob_raw_tape_tiering`,
+  `closed_day_projection_tiering` and `cold_snapshot_compression` each own other families with
+  their own guards), and every reader here (`sealed_tapes`, `verify_stream`, the replay
+  reader) opens plain files. Follow-up spec: a separate `maker_shadow compress-day --day`
+  (or a new family in an existing tiering tool) that, for a UTC day closed at least 7 days and
+  already bundled, gzips each sealed tape and record stream beside the original, proves the
+  decompressed sha256, bytes and line count equal the seal, then removes the plain file; the
+  seals, `bundle.json` and `gaps.json` stay plain. Before it runs, `sealed_tapes`,
+  `verify_stream`, `records_summary` and `next_sequence` must read `.gz` transparently, and a
+  replay of a compressed day must decompress to a scratch copy (the replay reader does not
+  read gzip). Leased night window; roll-free.
 - The round-trip test admits a bundle through a vendored copy of the reader rules
   (`tests/maker_core/fixtures/replay_v2_reader_contract.py`, pinned to build-line
   `2d8cccb13`) until the reader is on master.

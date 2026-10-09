@@ -54,6 +54,26 @@ GIT_TIMEOUT_SECONDS = 60
 # is continuous and no recorded book ages past the replay engine's 60 s freshness limit. Record stream only:
 # the shadow's decision inputs are the minute's own reads.
 MID_MINUTE_POLL = timedelta(seconds=30)
+# The refresh is skipped when it would not finish before the next minute starts (owner decision N7), so it never
+# delays the next decision. Its duration is the run's last measured refresh, capped at MID_MINUTE_POLL (a refresh
+# started on time always fits); before a first measurement, about the 9 s measured at 24 bands.
+REFRESH_ESTIMATE = timedelta(seconds=10)
+REFRESH_SKIPPED = "refresh:skipped_overrun"
+
+
+def refresh_fits(now, minute, estimate):
+    """True when a refresh started at ``now`` and lasting ``estimate`` ends by the start of the next minute."""
+    return now + estimate <= minute + timedelta(minutes=1)
+
+
+def mid_minute_refresh(writer, condition_ids, clock, minute, estimate):
+    """Run the mid-minute refresh of ``minute`` if it fits, else count it skipped; returns the next estimate."""
+    started = clock()
+    if not refresh_fits(started, minute, estimate):
+        writer.skip_refresh(REFRESH_SKIPPED)
+        return estimate
+    writer.poll(condition_ids)
+    return min(max(clock() - started, timedelta(0)), MID_MINUTE_POLL)
 
 
 def code_identity(root=REPO_ROOT):
@@ -284,13 +304,15 @@ def run(args):
     market_ids = {}
     writer = TapeWriter(out, clock=clock, scope=scope, recorder=RawRecorder(feed, market_id=market_ids.get))
     markets, discovered_at, done, reason, last, mid_poll = [], None, 0, "completed", None, None
+    refresh_estimate = REFRESH_ESTIMATE
     try:
         while not args.minutes or done < args.minutes:
             minute = clock().replace(second=0, microsecond=0)
             if minute == last:
                 if mid_poll is not None and clock() >= mid_poll:
                     mid_poll = None
-                    writer.poll([m.descriptor.condition_id for m in markets])
+                    refresh_estimate = mid_minute_refresh(
+                        writer, [m.descriptor.condition_id for m in markets], clock, minute, refresh_estimate)
                     continue
                 wake = mid_poll or minute + timedelta(minutes=1)
                 time.sleep(max(0.0, (wake - clock()).total_seconds()))
@@ -364,7 +386,8 @@ def bundle(args):
         print(json.dumps({"refused": "io_error:" + type(error).__name__, "utc_day": day}))
         return 2
     print(json.dumps({"bundle": str(path), "utc_day": day, "streams": len(manifest["streams"]),
-                      "conditions": len(manifest["conditions"]), "gaps": manifest["gaps"], "records": summary}))
+                      "conditions": len(manifest["conditions"]), "gaps": manifest["gaps"],
+                      "excluded": manifest["excluded"], "records": summary}))
     return 0
 
 
