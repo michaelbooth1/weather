@@ -455,3 +455,221 @@ def test_sleep_heartbeat_write_failure_does_not_kill_the_loop(tmp_path, monkeypa
 
     assert status["iterations"] == 2
     assert len(batches) == 2
+
+
+def _first_sleep_plan_and_beats(writes, marker):
+    plan = writes[marker["index"]]
+    beats = [write for write in writes[marker["index"] + 1:] if write["iterations"] == 1]
+    return plan, beats
+
+
+def _assert_liveness_only(plan, beats, expected_count):
+    assert len(beats) == expected_count
+    expected = {key: value for key, value in plan.items() if key != "last_heartbeat"}
+    previous = datetime.fromisoformat(plan["last_heartbeat"])
+    for write in beats:
+        assert {key: value for key, value in write.items() if key != "last_heartbeat"} == expected
+        beat = datetime.fromisoformat(write["last_heartbeat"])
+        assert (beat - previous).total_seconds() == tracker.SLEEP_HEARTBEAT_SECONDS
+        previous = beat
+
+
+def test_sleep_helper_cadence_is_exact_when_the_check_interval_does_not_divide_it(tmp_path):
+    beats = []
+    slept = []
+
+    result = tracker.sleep_until_due_or_triggered_work(
+        288,
+        queue_root=tmp_path / "trigger_queue",
+        sleep_fn=slept.append,
+        check_seconds=7,
+        heartbeat_fn=lambda: beats.append(sum(slept)),
+        heartbeat_seconds=60,
+    )
+
+    assert result == {"interrupted": False, "remaining_seconds": 0.0}
+    # 7 s does not divide 60 s: the chunk before each boundary is shortened
+    # (8 x 7 s + 4 s) instead of drifting the beats to 63/126/189/252 s.
+    assert beats == [60, 120, 180, 240]
+    assert sum(slept) == 288
+    assert max(slept) <= 7
+    assert slept[:9] == [7] * 8 + [4]
+
+    beats.clear()
+    slept.clear()
+    tracker.sleep_until_due_or_triggered_work(
+        200,
+        queue_root=tmp_path / "trigger_queue",
+        sleep_fn=slept.append,
+        check_seconds=90,
+        heartbeat_fn=lambda: beats.append(sum(slept)),
+        heartbeat_seconds=60,
+    )
+    # A check interval longer than the cadence still beats exactly every 60 s.
+    assert beats == [60, 120, 180]
+    assert sum(slept) == 200
+
+
+def _fail_idle_writes(monkeypatch):
+    original_write = tracker.write_loop_status
+    original_sleep = tracker.sleep_until_due_or_triggered_work
+    phase = {"sleeping": False}
+
+    def failing_idle_write(status):
+        if phase["sleeping"]:
+            raise PermissionError("synthetic disk refusal")
+        return original_write(status)
+
+    def tracked_sleep(*args, **kwargs):
+        phase["sleeping"] = True
+        try:
+            return original_sleep(*args, **kwargs)
+        finally:
+            phase["sleeping"] = False
+
+    monkeypatch.setattr(tracker, "write_loop_status", failing_idle_write)
+    monkeypatch.setattr(tracker, "sleep_until_due_or_triggered_work", tracked_sleep)
+
+
+def test_failed_sleep_heartbeat_writes_leave_one_rate_limited_diagnostic(tmp_path, monkeypatch):
+    clock = Clock()
+    batches = _patch_loop(monkeypatch, tmp_path, clock)
+    _fail_idle_writes(monkeypatch)
+
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=4,
+        sleep_fn=clock.advance,
+        now_fn=clock.now,
+        available_memory_fn=lambda: 16 * GIB,
+        trigger_queue_root=tmp_path / "trigger_queue",
+    )
+
+    assert status["iterations"] == 4
+    assert len(batches) == 4
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "diagnostics.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    failures = [record for record in records if record.get("status") == "sleep_heartbeat_write_failed"]
+    # Three 288 s sleeps fail 12 beats (72..252, 372..552, 672..852 s). The first
+    # is recorded; the next record waits 600 s and counts the 7 in between.
+    assert [
+        (record["time"], record["suppressed_since_last_diagnostic"]) for record in failures
+    ] == [
+        ((START + timedelta(seconds=72)).isoformat(), 0),
+        ((START + timedelta(seconds=672)).isoformat(), 7),
+    ]
+    assert failures[0]["error"] == "PermissionError: synthetic disk refusal"
+    assert tracker.SLEEP_HEARTBEAT_FAILURE_DIAGNOSTIC_SECONDS == 600.0
+
+
+def test_failed_heartbeat_diagnostic_write_is_also_swallowed(tmp_path, monkeypatch):
+    clock = Clock()
+    batches = _patch_loop(monkeypatch, tmp_path, clock)
+    _fail_idle_writes(monkeypatch)
+    original_append = tracker.append_diagnostic
+    attempted = []
+
+    def failing_append(record):
+        if record.get("status") == "sleep_heartbeat_write_failed":
+            attempted.append(record)
+            raise OSError("synthetic diagnostics refusal")
+        return original_append(record)
+
+    monkeypatch.setattr(tracker, "append_diagnostic", failing_append)
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=2,
+        sleep_fn=clock.advance,
+        now_fn=clock.now,
+        available_memory_fn=lambda: 16 * GIB,
+        trigger_queue_root=tmp_path / "trigger_queue",
+    )
+
+    assert status["iterations"] == 2
+    assert len(batches) == 2
+    assert len(attempted) == 1  # still rate-limited after a failed diagnostic
+
+
+def test_sleep_after_a_paused_iteration_beats_and_keeps_the_pause_state(tmp_path, monkeypatch):
+    clock = Clock()
+    batches = _patch_loop(monkeypatch, tmp_path, clock)
+    (tmp_path / "pause.flag").write_text("", encoding="utf-8")
+    writes = _record_writes(monkeypatch)
+    marker = {}
+
+    def sleep_fn(seconds):
+        marker.setdefault("index", len(writes) - 1)
+        clock.advance(seconds)
+
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=2,
+        sleep_fn=sleep_fn,
+        now_fn=clock.now,
+        available_memory_fn=lambda: 16 * GIB,
+        trigger_queue_root=tmp_path / "trigger_queue",
+    )
+
+    assert batches == []
+    assert status["paused"] is True
+    plan, beats = _first_sleep_plan_and_beats(writes, marker)
+    assert plan["paused"] is True
+    assert plan["last_sleep_seconds"] == 600.0
+    assert plan["last_completed_iteration_at"] is None
+    # A paused iteration plans the full 600 s interval: beats at 60..540 s.
+    _assert_liveness_only(plan, beats, 9)
+
+
+def test_sleep_after_a_debounced_stale_code_iteration_beats_without_progress(tmp_path, monkeypatch):
+    clock = Clock()
+    batches = _patch_loop(monkeypatch, tmp_path, clock)
+    monkeypatch.setattr(
+        tracker,
+        "runtime_identity_status",
+        lambda *_args, **_kwargs: {"runtime_code_state": "stale_code", "detail": "synthetic drift"},
+    )
+    monkeypatch.setattr(
+        tracker,
+        "readoption_debounce",
+        lambda **_kwargs: {"debounced": True, "reason": "synthetic_recent_readoption"},
+    )
+    inline = []
+
+    def inline_capture(force=False, market_id="toronto"):
+        inline.append(clock.now())
+        return {
+            "written": True,
+            "snapshot_id": f"{market_id}-inline-{len(inline)}",
+            "next_due_at": (clock.now() + timedelta(seconds=NEXT_DUE_SECONDS)).isoformat(),
+        }
+
+    monkeypatch.setattr(tracker, "capture_snapshot", inline_capture)
+    writes = _record_writes(monkeypatch)
+    marker = {}
+
+    def sleep_fn(seconds):
+        marker.setdefault("index", len(writes) - 1)
+        clock.advance(seconds)
+
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=2,
+        sleep_fn=sleep_fn,
+        now_fn=clock.now,
+        available_memory_fn=lambda: 16 * GIB,
+        trigger_queue_root=tmp_path / "trigger_queue",
+    )
+
+    # Debounced re-adoption stays inline on the loaded code; it is not an exit.
+    assert batches == []
+    assert len(inline) == 2
+    assert status["iterations"] == 2
+    plan, beats = _first_sleep_plan_and_beats(writes, marker)
+    assert plan["capture_execution"]["active_mode"] == "inline"
+    assert plan["capture_execution"]["inline_reason"] == "runtime_re_adoption_debounce"
+    assert plan["runtime_guard"]["readoption_debounce"]["debounced"] is True
+    assert plan["last_sleep_seconds"] == float(NEXT_DUE_SECONDS)
+    # 300 s idle: beats at 60/120/180/240 s, liveness only.
+    _assert_liveness_only(plan, beats, 4)

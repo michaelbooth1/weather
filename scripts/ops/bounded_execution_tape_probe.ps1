@@ -60,12 +60,12 @@ function Get-CommitPercent {
 function Get-HealthyCaptureWorkerCount {
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
-        # Snapshot intentionally sleeps for nearly ten minutes between cycles.
-        # Admit a complete normal cycle while remaining below the 15-minute
-        # streak gap limit; the probe separately requires this heartbeat to
-        # advance across its 13-minute end-to-end run. A ten-minute run was
-        # shorter than observed healthy cycles and could fail by construction.
-        @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720 },
+        # The snapshot loop refreshes last_heartbeat every 60 s of its idle
+        # sleep (SLEEP_HEARTBEAT_SECONDS), so a healthy heartbeat is about 60 s
+        # old plus preflight/bookkeeping time. The heartbeat is liveness only;
+        # iteration progress is proved separately by Get-SnapshotIterationProof
+        # from last_completed_iteration_at.
+        @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300 },
         @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180 },
         @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }
     )
@@ -89,6 +89,115 @@ function Get-HealthyCaptureWorkerCount {
         catch { }
     }
     return $healthy
+}
+
+function Get-SnapshotIterationProof {
+    # Snapshot liveness and progress proof for the bounded probe.
+    #
+    # last_heartbeat is liveness only: the loop also writes it every 60 s of the
+    # idle sleep, so an advancing heartbeat no longer proves that an iteration
+    # ran. Progress is last_completed_iteration_at, which the loop sets only when
+    # a capture iteration completes (snapshot_tracker.finalize_iteration_error_state).
+    #
+    # Window sizing. Iteration starts are at most one interval apart (the sleep
+    # is capped at interval minus elapsed and is only ever shortened), and a
+    # batch ends by its fleet budget, so on a healthy loop two consecutive
+    # completions are at most interval + fleet budget (+ preflight/bookkeeping
+    # slack) apart: 600 + 540 + 120 = 1260 s at production defaults. The default
+    # 780 s probe is shorter than that, so requiring an advance would fail a
+    # healthy loop by construction (a short batch followed by a long one). The
+    # proof therefore requires, at the end of the probe:
+    #   * heartbeat age <= 300 s: a wedged loop stops beating, and 300 s is five
+    #     60 s sleep cadences, well above the healthy ~60 s plus bookkeeping;
+    #   * last_completed_iteration_at age <= interval + fleet budget + 120 s.
+    # Once the probe has run for at least that bound the age check already
+    # implies an advance; the advance is then also required explicitly.
+    param(
+        [Parameter(Mandatory = $true)]$Before,
+        [Parameter(Mandatory = $true)]$After,
+        [Parameter(Mandatory = $true)][datetimeoffset]$BeforeReadUtc,
+        [Parameter(Mandatory = $true)][datetimeoffset]$AfterReadUtc
+    )
+
+    $heartbeatMaxAgeSeconds = 300.0
+    $completionSlackSeconds = 120.0
+    $parseInstant = {
+        param($Value)
+        if ($null -eq $Value) { return $null }
+        if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+        if (-not [string]$Value) { return $null }
+        try {
+            return [datetimeoffset]::Parse(
+                [string]$Value,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeUniversal
+            )
+        }
+        catch { return $null }
+    }
+    $reasons = @()
+    $heartbeat = & $parseInstant $After.last_heartbeat
+    $completedBefore = & $parseInstant $Before.last_completed_iteration_at
+    $completedAfter = & $parseInstant $After.last_completed_iteration_at
+    $intervalSeconds = 0.0
+    $fleetBudgetSeconds = 0.0
+    try { $intervalSeconds = 60.0 * [double]$After.interval_minutes } catch { $intervalSeconds = 0.0 }
+    try { $fleetBudgetSeconds = [double]$After.capture_execution.fleet_budget_seconds } catch { $fleetBudgetSeconds = 0.0 }
+    $boundKnown = ($intervalSeconds -gt 0 -and $fleetBudgetSeconds -gt 0)
+    if ($intervalSeconds -le 0) { $reasons += "snapshot status has no positive interval_minutes" }
+    if ($fleetBudgetSeconds -le 0) { $reasons += "snapshot status has no positive capture_execution.fleet_budget_seconds" }
+    $completionBoundSeconds = $intervalSeconds + $fleetBudgetSeconds + $completionSlackSeconds
+    $elapsedSeconds = ($AfterReadUtc - $BeforeReadUtc).TotalSeconds
+
+    $heartbeatAge = $null
+    if ($null -eq $heartbeat) {
+        $reasons += "snapshot last_heartbeat is missing or unparseable"
+    }
+    else {
+        $heartbeatAge = ($AfterReadUtc - $heartbeat).TotalSeconds
+        if ($heartbeatAge -lt 0 -or $heartbeatAge -gt $heartbeatMaxAgeSeconds) {
+            $reasons += [string]::Format(
+                [Globalization.CultureInfo]::InvariantCulture,
+                "snapshot heartbeat age {0:F1}s is outside 0..{1}s", $heartbeatAge, $heartbeatMaxAgeSeconds)
+        }
+    }
+    $completedAge = $null
+    if ($null -eq $completedAfter) {
+        $reasons += "snapshot last_completed_iteration_at is missing or unparseable"
+    }
+    else {
+        $completedAge = ($AfterReadUtc - $completedAfter).TotalSeconds
+        if ($completedAge -lt 0 -or ($boundKnown -and $completedAge -gt $completionBoundSeconds)) {
+            $reasons += [string]::Format(
+                [Globalization.CultureInfo]::InvariantCulture,
+                "snapshot last completed iteration age {0:F1}s is outside 0..{1}s", $completedAge, $completionBoundSeconds)
+        }
+    }
+    $advanced = (
+        $null -ne $completedAfter -and
+        ($null -eq $completedBefore -or $completedAfter -gt $completedBefore)
+    )
+    $advanceRequired = ($boundKnown -and $elapsedSeconds -ge $completionBoundSeconds)
+    if ($advanceRequired -and -not $advanced) {
+        $reasons += "snapshot last_completed_iteration_at did not advance during probe"
+    }
+    $completedBeforeText = $null
+    if ($null -ne $completedBefore) { $completedBeforeText = $completedBefore.ToString("o") }
+    $completedAfterText = $null
+    if ($null -ne $completedAfter) { $completedAfterText = $completedAfter.ToString("o") }
+    return [pscustomobject][ordered]@{
+        ok = (@($reasons).Count -eq 0)
+        reasons = @($reasons)
+        heartbeat_age_seconds = $heartbeatAge
+        heartbeat_max_age_seconds = $heartbeatMaxAgeSeconds
+        completed_iteration_before = $completedBeforeText
+        completed_iteration_after = $completedAfterText
+        completed_iteration_age_seconds = $completedAge
+        completion_bound_seconds = $completionBoundSeconds
+        probe_elapsed_seconds = $elapsedSeconds
+        advance_required = $advanceRequired
+        advanced = $advanced
+    }
 }
 
 function Read-ExecutionStatus {
@@ -140,7 +249,7 @@ function Write-ProbeRecord {
 }
 
 $record = [ordered]@{
-    schema_version = "execution_tape_bounded_probe_v0.2"
+    schema_version = "execution_tape_bounded_probe_v0.3"
     started_at = (Get-Date).ToString("o")
     finished_at = $null
     ok = $false
@@ -163,6 +272,7 @@ $record = [ordered]@{
     capture_workers_after = 0
     snapshot_heartbeat_before = $null
     snapshot_heartbeat_after = $null
+    snapshot_iteration_proof = $null
     status_path = $statusPath
 }
 $job = $null
@@ -199,11 +309,10 @@ try {
 
     $workersBefore = Get-HealthyCaptureWorkerCount
     $commitBefore = Get-CommitPercent
-    $heartbeatBefore = [datetime](
-        (Get-Content -LiteralPath $snapshotStatusPath -Raw | ConvertFrom-Json).last_heartbeat
-    )
+    $snapshotBefore = Get-Content -LiteralPath $snapshotStatusPath -Raw | ConvertFrom-Json
+    $snapshotBeforeReadUtc = [datetimeoffset]::UtcNow
     $record.capture_workers_before = $workersBefore
-    $record.snapshot_heartbeat_before = $heartbeatBefore.ToString("o")
+    $record.snapshot_heartbeat_before = [string]$snapshotBefore.last_heartbeat
     $record.peak_commit_percent = $commitBefore
     if ($workersBefore -ne 3) { throw "expected three healthy capture workers before probe" }
     if ($commitBefore -gt $StartCommitPercent) {
@@ -294,13 +403,17 @@ try {
     }
 
     $workersAfter = Get-HealthyCaptureWorkerCount
-    $heartbeatAfter = [datetime](
-        (Get-Content -LiteralPath $snapshotStatusPath -Raw | ConvertFrom-Json).last_heartbeat
-    )
+    $snapshotAfter = Get-Content -LiteralPath $snapshotStatusPath -Raw | ConvertFrom-Json
+    $snapshotAfterReadUtc = [datetimeoffset]::UtcNow
     $record.capture_workers_after = $workersAfter
-    $record.snapshot_heartbeat_after = $heartbeatAfter.ToString("o")
+    $record.snapshot_heartbeat_after = [string]$snapshotAfter.last_heartbeat
+    $snapshotProof = Get-SnapshotIterationProof -Before $snapshotBefore -After $snapshotAfter `
+        -BeforeReadUtc $snapshotBeforeReadUtc -AfterReadUtc $snapshotAfterReadUtc
+    $record.snapshot_iteration_proof = $snapshotProof
     if ($workersAfter -ne 3) { throw "capture worker health degraded during probe" }
-    if ($heartbeatAfter -le $heartbeatBefore) { throw "snapshot heartbeat did not advance during probe" }
+    if (-not [bool]$snapshotProof.ok) {
+        throw ("snapshot iteration proof failed during probe: " + (@($snapshotProof.reasons) -join "; "))
+    }
 
     $record.ok = $true
     $record.stage = "proved"
