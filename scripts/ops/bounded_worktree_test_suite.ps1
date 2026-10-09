@@ -620,6 +620,25 @@ namespace Weather.Operations {
     return [Weather.Operations.SuiteDosDevice]::Query($DriveName)
 }
 
+function Assert-SuiteInterpreterLocalDrive {
+    # A local fixed volume: DriveType Fixed and a \Device\ DOS target, so a
+    # mapped network letter and a subst letter (\??\<path>) are both refused.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $root = [IO.Path]::GetPathRoot($Path)
+    $driveType = $null
+    try { $driveType = ([IO.DriveInfo]::new($root)).DriveType } catch { }
+    $dosTarget = $null
+    try { $dosTarget = Get-SuiteDosDeviceTarget -DriveName $root.Substring(0, 2) } catch { }
+    if ($driveType -ne [IO.DriveType]::Fixed -or $null -eq $dosTarget -or
+        -not $dosTarget.StartsWith('\Device\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must be on a local fixed drive, not a mapped or subst letter: $root ($driveType, $dosTarget)"
+    }
+}
+
 function Assert-SuiteInterpreterLocalRegularFile {
     # A regular file with no reparse point on the file or any parent directory.
     param(
@@ -704,15 +723,7 @@ function Resolve-SuiteInterpreterOverride {
     if (-not [string]::IsNullOrEmpty($ExpectedVersion) -and $ExpectedVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
         throw "ExpectedInterpreterVersion must be an exact N.N.N version: $ExpectedVersion"
     }
-    $root = [IO.Path]::GetPathRoot($Path)
-    $driveType = $null
-    try { $driveType = ([IO.DriveInfo]::new($root)).DriveType } catch { }
-    $dosTarget = $null
-    try { $dosTarget = Get-SuiteDosDeviceTarget -DriveName $root.Substring(0, 2) } catch { }
-    if ($driveType -ne [IO.DriveType]::Fixed -or $null -eq $dosTarget -or
-        -not $dosTarget.StartsWith('\Device\', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "InterpreterPath must be on a local fixed drive, not a mapped or subst letter: $root ($driveType, $dosTarget)"
-    }
+    Assert-SuiteInterpreterLocalDrive -Path $Path -Label "InterpreterPath"
     Assert-SuiteInterpreterLocalRegularFile -Path $Path -Label "InterpreterPath"
     $venvRoot = Split-Path -Parent (Split-Path -Parent $Path)
 
@@ -779,7 +790,18 @@ function Resolve-SuiteInterpreterOverride {
     if ($exitCode -ne 0 -or $null -eq $triple) {
         throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
     }
-    $version = ($record.version -replace '[\r\n]+', ' ').Trim()
+    # sys.version is interpreter-controlled text (a site .pth can rewrite it), so
+    # the log records only the validated N.N.N triple and a hash of the raw string.
+    if ($triple -notmatch '^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$') {
+        throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
+    }
+    $versionHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $versionSha256 = -join ($versionHasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes([string]$record.version)
+        ) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally { $versionHasher.Dispose() }
 
     $sameFull = {
         param([string]$Left, [string]$Right)
@@ -809,10 +831,12 @@ function Resolve-SuiteInterpreterOverride {
     Assert-SuiteInterpreterLocalRegularFile -Path $pyvenvCfg -Label "InterpreterPath pyvenv.cfg"
     $baseExecutable = [string]$record.base_executable
     if ($baseExecutable -notmatch '^[A-Za-z]:\\' -or -not (Test-Path -LiteralPath $baseExecutable -PathType Leaf) -or
-        ((Get-Item -LiteralPath $baseExecutable -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
         (& $sameFull $baseExecutable $Path)) {
         throw "InterpreterPath base interpreter is not a separate local regular file: $baseExecutable"
     }
+    # The base interpreter gets the same locality proof as InterpreterPath.
+    Assert-SuiteInterpreterLocalDrive -Path $baseExecutable -Label "InterpreterPath base interpreter"
+    Assert-SuiteInterpreterLocalRegularFile -Path $baseExecutable -Label "InterpreterPath base interpreter"
     if ($triple -notmatch '^3\.11\.[0-9]+$') {
         throw "InterpreterPath is not Python 3.11: $triple"
     }
@@ -823,7 +847,8 @@ function Resolve-SuiteInterpreterOverride {
     $override = [pscustomobject][ordered]@{
         interpreter_path = $Path
         interpreter_sha256 = $null
-        python_version = $version
+        python_version = $triple
+        python_version_sha256 = $versionSha256
         python_version_triple = $triple
         expected_version = $ExpectedVersion
         sys_executable = [string]$record.executable

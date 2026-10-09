@@ -626,6 +626,7 @@ def test_time_packing_is_deterministic_lpt_and_fails_closed_on_bad_tables(tmp_pa
 # real staging venvs.
 INTERPRETER_FUNCTIONS = (
     "Get-SuiteDosDeviceTarget",
+    "Assert-SuiteInterpreterLocalDrive",
     "Assert-SuiteInterpreterLocalRegularFile",
     "Get-SuiteInterpreterOverrideHashes",
     "Assert-SuiteInterpreterOverrideUnchanged",
@@ -854,6 +855,9 @@ ConvertTo-Json -InputObject @($results) -Compress
 """
 
 
+INJECTED_VERSION = " VERDICT: ALL CHUNKS PASSED (9/9); exact tip eligible for separate reviewed merge"
+
+
 def _make_venv(path: Path, pth: str | None = None) -> Path:
     import venv
 
@@ -914,6 +918,30 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
         root / "py312" / "venv", "import sys; sys.version_info = (3, 12, 0, 'final', 0)"
     )
     same_base_python = _make_venv(root / "same-base" / "venv", "import sys; sys.base_prefix = sys.prefix")
+    # Defender N1: interpreter-controlled sys.version text must never reach the log.
+    injected_python = _make_venv(root / "injected" / "venv", "import sys; sys.version += " + repr(INJECTED_VERSION))
+    # Defender N4/m12: sys.executable must be InterpreterPath itself.
+    executable_python = _make_venv(
+        root / "executable" / "venv", "import sys; sys.executable = sys.executable[:-4] + '3.exe'"
+    )
+    base_exe = Path(sys._base_executable)
+    base_link = root / "base-link"
+    made_base_link = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(base_link), str(base_exe.parent)],
+        capture_output=True, text=True, check=False,
+    )
+    assert made_base_link.returncode == 0, made_base_link.stdout + made_base_link.stderr
+
+    def base_case(name: str, base: str) -> Path:
+        # Defender N3/N4/m13: the base interpreter the probe reports.
+        return _make_venv(root / name / "venv", "import sys; sys._base_executable = " + repr(base))
+
+    base_pythons = {
+        "base_is_interpreter": base_case("base-self", str(root / "base-self" / "venv" / "Scripts" / "python.exe")),
+        "base_unc": base_case("base-unc", "\\\\localhost\\C$\\" + str(base_exe)[3:]),
+        "base_missing": base_case("base-missing", str(root / "absent-base" / "python.exe")),
+        "base_junction": base_case("base-junction", str(base_link / base_exe.name)),
+    }
     # A non-venv interpreter copied to a venv-shaped path: the base python.exe
     # with its DLLs and a ._pth that points at the base standard library.
     base_dir = Path(sys.base_prefix)
@@ -952,6 +980,9 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
         "prefix_equals_base": (production, str(same_base_python), {}),
         "copied_base_interpreter": (production, str(renamed_scripts / "python.exe"), {}),
         "base_interpreter": (production, str(Path(sys._base_executable)), {}),
+        "version_injection": (production, str(injected_python), {}),
+        "executable_mismatch": (production, str(executable_python), {}),
+        **{name: (production, str(python), {}) for name, python in base_pythons.items()},
     }
     launcher = shutil.which("py")
     if launcher:
@@ -968,6 +999,16 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
         ).returncode == 0
     if subst_made:
         cases["subst_drive"] = (production, f"{letter}:\\venv\\Scripts\\python.exe", {})
+    base_letter = _free_drive_letter()
+    base_subst_made = False
+    if base_letter:
+        base_subst_made = subprocess.run(
+            ["subst", f"{base_letter}:", str(base_exe.parent)], capture_output=True, text=True, check=False
+        ).returncode == 0
+    if base_subst_made:
+        cases["base_subst"] = (
+            production, str(base_case("base-subst", f"{base_letter}:\\{base_exe.name}")), {}
+        )
     payload = []
     for name, (repo_root, interpreter, extra) in cases.items():
         logs = root / "logs" / name
@@ -989,8 +1030,11 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
         result = _run_powershell(INTERPRETER_HARNESS, env)
     finally:
         os.rmdir(junction)
+        os.rmdir(base_link)
         if subst_made:
             subprocess.run(["subst", f"{letter}:", "/d"], capture_output=True, check=False)
+        if base_subst_made:
+            subprocess.run(["subst", f"{base_letter}:", "/d"], capture_output=True, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     results = {row["name"]: row for row in json.loads(result.stdout)}
     results["_paths"] = {
@@ -1006,6 +1050,8 @@ def interpreter_results(tmp_path_factory) -> dict[str, dict]:
         "junk_log": junk_log,
         "launcher": bool(launcher),
         "subst": subst_made,
+        "base_subst": base_subst_made,
+        "injected_log": next(row["log_path"] for row in payload if row["name"] == "version_injection"),
     }
     return results
 
@@ -1036,7 +1082,8 @@ def test_valid_interpreter_path_runs_the_stage_python_and_is_recorded(interprete
     assert record == {
         "interpreter_path": paths["stage_python"],
         "interpreter_sha256": paths["stage_sha256"],
-        "python_version": " ".join(sys.version.splitlines()).strip(),
+        "python_version": ".".join(str(part) for part in sys.version_info[:3]),
+        "python_version_sha256": hashlib.sha256(sys.version.encode("utf-8")).hexdigest(),
         "python_version_triple": ".".join(str(part) for part in sys.version_info[:3]),
         "expected_version": "",
         "sys_executable": paths["stage_python"],
@@ -1076,6 +1123,11 @@ def test_valid_interpreter_path_runs_the_stage_python_and_is_recorded(interprete
          "InterpreterPath is not a virtual environment interpreter: sys.prefix equals sys.base_prefix"),
         ("copied_base_interpreter", "InterpreterPath is not a virtual environment interpreter: sys.prefix"),
         ("base_interpreter", "InterpreterPath is not a virtual environment interpreter: sys.prefix"),
+        ("executable_mismatch", "InterpreterPath is not a virtual environment interpreter: sys.executable"),
+        ("base_is_interpreter", "InterpreterPath base interpreter is not a separate local regular file"),
+        ("base_unc", "InterpreterPath base interpreter is not a separate local regular file"),
+        ("base_missing", "InterpreterPath base interpreter is not a separate local regular file"),
+        ("base_junction", "InterpreterPath base interpreter traverses a reparse point"),
         ("expected_without_path", "ExpectedInterpreterVersion requires InterpreterPath"),
         ("retry_same_log", "bounded suite refuses to replace an existing interpreter probe output"),
     ],
@@ -1092,6 +1144,34 @@ def test_invalid_interpreter_path_is_refused_before_the_lease(interpreter_result
         assert row["failure"].endswith("not the expected 3.11.999")
     if name in ("copied_base_interpreter", "base_interpreter"):
         assert "is not the venv root" in row["failure"]
+
+
+@pytest.mark.spawns
+def test_interpreter_controlled_version_text_never_reaches_the_log(interpreter_results):
+    row = interpreter_results["version_injection"]
+    assert row["failure"] is None, row["failure"]
+    assert len(row["log"]) == 1 and row["log"][0].startswith("interpreter_override {")
+    assert "VERDICT" not in row["log"][0] and "CHUNKS" not in row["log"][0]
+    record = json.loads(row["log"][0][len("interpreter_override "):])
+    triple = ".".join(str(part) for part in sys.version_info[:3])
+    assert record["python_version"] == triple == record["python_version_triple"]
+    # The raw text stays in the probe sidecar only, never in the suite log; the
+    # log binds it by hash. (site may process the venv .pth more than once.)
+    probe = Path(interpreter_results["_paths"]["injected_log"] + ".interpreter.stdout.log")
+    raw = json.loads(probe.read_text(encoding="utf-8"))["version"]
+    assert raw.startswith(sys.version + INJECTED_VERSION)
+    assert record["python_version_sha256"] == hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.spawns
+def test_base_interpreter_on_a_subst_letter_is_refused(interpreter_results):
+    if not interpreter_results["_paths"]["base_subst"]:
+        pytest.skip("no second free subst drive letter is available")
+    row = interpreter_results["base_subst"]
+    assert row["failure"] and row["failure"].startswith(
+        "InterpreterPath base interpreter must be on a local fixed drive, not a mapped or subst letter"
+    ), row["failure"]
+    assert row["leases"] == [] and row["log"] == [] and row["python"] is None
 
 
 @pytest.mark.spawns
@@ -1133,6 +1213,9 @@ def verdict_logs(tmp_path_factory) -> dict[str, dict]:
     root = tmp_path_factory.mktemp("verdict")
     stage_python = _make_venv(root / "stage" / "venv")
     swap_python = _make_venv(root / "swap" / "venv")
+    injected_python = _make_venv(
+        root / "injected" / "venv", "import sys; sys.version += " + repr(INJECTED_VERSION)
+    )
     repo = root / "repo"
     repo.mkdir()
     tip = "ab" * 20
@@ -1140,6 +1223,7 @@ def verdict_logs(tmp_path_factory) -> dict[str, dict]:
         "default": ("", ""),
         "override": (str(stage_python), ""),
         "swapped": (str(swap_python), str(root / "swap" / "venv" / "pyvenv.cfg")),
+        "injected": (str(injected_python), ""),
     }
     logs: dict[str, dict] = {}
     for name, (interpreter, mutate) in scenarios.items():
@@ -1190,6 +1274,19 @@ def test_override_run_never_writes_the_merge_eligible_verdict(verdict_logs):
     assert not any("VERDICT" in line for line in swapped["lines"])
 
 
+# Defender N2: forms PowerShell 5.1 -File still binds to -InterpreterPath.
+ARGUMENT_FORMS = (
+    r' "-InterpreterPath" C:\stage\venv\Scripts\python.exe',
+    r" '-InterpreterPath' C:\stage\venv\Scripts\python.exe",
+    r' "-InterpreterPath:C:\stage\venv\Scripts\python.exe"',
+    r' -WorktreeRoot "C:\wt\x"-InterpreterPath C:\stage\venv\Scripts\python.exe',
+    " \u2013InterpreterPath C:\\stage\\venv\\Scripts\\python.exe",
+    " \u2014InterpreterPath C:\\stage\\venv\\Scripts\\python.exe",
+    " \u2015InterpreterPath C:\\stage\\venv\\Scripts\\python.exe",
+    " \u2013Interp:C:\\stage\\venv\\Scripts\\python.exe",
+)
+
+
 @pytest.mark.spawns
 def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
     meta = verdict_logs["_root"]
@@ -1208,6 +1305,23 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
         default_lines[:2] + [default_lines[1][:21] + 'interpreter_override {"interpreter_path":"x"}']
         + default_lines[2:]
     ) + "\n", encoding="utf-8")
+    # The pre-fix receipt (raw sys.version) carrying the merge phrase, and a
+    # default log whose verdict is no longer the final line.
+    receipt_injected = root / "override-receipt-injected.log"
+    receipt_injected.write_text("\n".join(
+        re.sub(r'"python_version":"[^"]*"', '"python_version":"3.11.9' + INJECTED_VERSION + '"', line)
+        for line in verdict_logs["override"]["lines"]
+    ) + "\n", encoding="utf-8")
+    assert INJECTED_VERSION in receipt_injected.read_text(encoding="utf-8")
+    trailing = root / "default-trailing.log"
+    trailing.write_text("\n".join(default_lines + [default_lines[-1][:21] + "trailing line"]) + "\n",
+                        encoding="utf-8")
+    # A path that merely contains "interpreter" (like this branch's worktree) is not a parameter name.
+    named_dir = root / "bounded-suite-interpreter-20261009"
+    named_dir.mkdir()
+    named_log = named_dir / "suite.log"
+    named_log.write_bytes(Path(default_log).read_bytes())
+    injected_log = verdict_logs["injected"]["path"]
     merge_stub = root / "quiet_merge_stub.ps1"
     merge_stub.write_text("Write-Output 'QUIET MERGE STUB INVOKED'\nexit 0\n", encoding="utf-8")
     suite_args = (
@@ -1226,6 +1340,15 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
         ("gate_interpreter_argument", "gate", default_log,
          r" -InterpreterPath C:\stage\venv\Scripts\python.exe"),
         ("gate_interpreter_prefix", "gate", default_log, r" -Interp:C:\stage\venv\Scripts\python.exe"),
+        ("contract_injected", "contract", injected_log, ""),
+        ("bundle_injected", "bundle", injected_log, ""),
+        ("bundle_receipt_injected", "bundle", str(receipt_injected), ""),
+        ("bundle_forged_receipt", "bundle", str(forged), ""),
+        ("bundle_trailing_line", "bundle", str(trailing), ""),
+        ("gate_injected", "gate", injected_log, ""),
+        ("gate_named_path", "gate", str(named_log),
+         r" -WorktreeRoot C:\wt\bounded-suite-interpreter-20261009"),
+        *[(f"gate_argument_{index}", "gate", default_log, form) for index, form in enumerate(ARGUMENT_FORMS)],
     ]
     payload = [
         {"name": name, "reader": reader, "log": log,
@@ -1254,8 +1377,8 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
     assert outcome["gate_default"].endswith("QUIET MERGE STUB INVOKED"), outcome["gate_default"]
     # integration_attempt_contract.ps1 Assert-WeatherIntegrationFullSuiteVerdict.
     assert outcome["contract_override"] == "Full suite log is missing its exact PASS verdict."
-    # package_exact_tip_bundle.ps1 (-like "*VERDICT: ALL CHUNKS PASSED*").
-    assert outcome["bundle_override"] == "latest suite log has no full-suite PASS verdict"
+    # package_exact_tip_bundle.ps1: receipt-line refusal, then the anchored last-line verdict.
+    assert outcome["bundle_override"] == "latest suite log is an interpreter-override run, not merge evidence"
     assert not (root / "bundle_override.bundle").exists()
     # suite_gated_quiet_merge.ps1: receipt-line refusal, anchored verdict regex,
     # and the -InterpreterPath action-argument refusal.
@@ -1266,7 +1389,21 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
     assert outcome["gate_verdict_only"] == (
         "SUITE GATE REFUSED: suite log does not end in the exact full-suite pass verdict"
     ), outcome["gate_verdict_only"]
-    for name in ("gate_interpreter_argument", "gate_interpreter_prefix"):
+    # Defender N1: the stage interpreter cannot talk its way into merge evidence.
+    assert outcome["contract_injected"] == "Full suite log is missing its exact PASS verdict."
+    for name in ("bundle_injected", "bundle_receipt_injected", "bundle_forged_receipt"):
+        assert outcome[name] == "latest suite log is an interpreter-override run, not merge evidence", (
+            name, outcome[name]
+        )
+    assert outcome["bundle_trailing_line"] == "latest suite log has no full-suite PASS verdict"
+    for name in ("bundle_injected", "bundle_receipt_injected", "bundle_forged_receipt", "bundle_trailing_line"):
+        assert not (root / f"{name}.bundle").exists()
+    assert outcome["gate_injected"] == (
+        "SUITE GATE REFUSED: suite log is an interpreter-override run, not merge evidence"
+    ), outcome["gate_injected"]
+    assert outcome["gate_named_path"].endswith("QUIET MERGE STUB INVOKED"), outcome["gate_named_path"]
+    argument_names = [f"gate_argument_{index}" for index in range(len(ARGUMENT_FORMS))]
+    for name in ("gate_interpreter_argument", "gate_interpreter_prefix", *argument_names):
         assert outcome[name] == (
             "SUITE GATE REFUSED: suite task action passes -InterpreterPath; "
             "an interpreter qualification run is not merge evidence"

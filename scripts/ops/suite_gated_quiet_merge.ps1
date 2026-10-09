@@ -211,7 +211,9 @@ if ($worktreePattern -and $actionArguments -notmatch $worktreePattern) {
 }
 # -InterpreterPath (or any prefix PowerShell would bind to it) runs a staged
 # interpreter: that run qualifies the interpreter and is never merge evidence.
-if ($actionArguments -match '(?i)(?:^|\s)-Inter[a-z]*(?::|\s|$)') {
+# PowerShell -File also binds a quoted name and an en/em dash or horizontal bar
+# in place of the hyphen; a path merely containing "interpreter" is not a name.
+if ($actionArguments -match '(?i)(?:^|[\s"''])[-\u2013\u2014\u2015]Inter[a-z]*(?=[:\s"'']|$)') {
     Refuse-SuiteGate "suite task action passes -InterpreterPath; an interpreter qualification run is not merge evidence"
 }
 if ($ExpectedGateSha256) {
