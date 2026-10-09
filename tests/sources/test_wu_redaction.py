@@ -613,3 +613,55 @@ def test_n5_http_error_headers_stay_usable_and_are_redacted():
     assert token not in str(error.headers) and token not in error.headers["Location"]
     assert "apiKey" in error.headers["Location"]
     assert token not in _rendered(error)
+
+
+def _pre_3_11_2_http_error(url, code, msg, hdrs):
+    """An ``HTTPError(url, code, msg, hdrs, fp=None)`` exactly as CPython < 3.11.2 builds it.
+
+    Before gh-98778 (fixed in 3.11.2, carried by the capture host's 3.11 interpreter)
+    ``HTTPError.__init__`` skipped ``addinfourl.__init__`` when ``fp`` was None, so the
+    ``tempfile._TemporaryFileWrapper`` base never set ``self.file`` and *any* missing
+    attribute lookup -- ``getattr(exc, "__notes__", None)`` included -- raised
+    ``KeyError: 'file'`` instead of AttributeError. Newer interpreters substitute
+    ``io.BytesIO()``, so the real constructor no longer reproduces it; this replays the
+    old ``__init__`` body verbatim on the current interpreter.
+    """
+    import urllib.error
+
+    error = urllib.error.HTTPError.__new__(urllib.error.HTTPError, url, code, msg, hdrs, None)
+    error.code = code
+    error.msg = msg
+    error.hdrs = hdrs
+    error.fp = None
+    error.filename = url
+    return error
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_n5_http_error_with_fp_none_is_sanitized_on_every_311_patch(build):
+    import email.parser
+    import http.client
+    import urllib.error
+
+    token = secrets.token_hex(16)
+    url = f"https://api.example.invalid/v1/x/historical.json?apiKey={token}&units=e"
+    headers = email.parser.Parser(_class=http.client.HTTPMessage).parsestr(
+        f"Location: {url}\r\nRetry-After: 5\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n"
+    )
+    if build == "constructor":
+        error = urllib.error.HTTPError(url, 503, "busy", headers, None)
+    else:
+        error = _pre_3_11_2_http_error(url, 503, "busy", headers)
+        with pytest.raises(KeyError):  # precondition: the host's failure mode is real here
+            getattr(error, "__notes__", None)
+
+    assert sanitize_exception(error) is error
+
+    assert error.code == 503
+    assert error.headers.get("Retry-After") == "5"
+    assert error.headers.get_all("Set-Cookie") == ["a=1", "b=2"]
+    assert "apiKey" in error.headers["Location"]
+    assert token not in error.headers["Location"] and token not in str(error.headers)
+    assert token not in error.filename and REDACTED in error.filename
+    assert token not in str(error) and token not in repr(error)
+    assert token not in _rendered(error)
